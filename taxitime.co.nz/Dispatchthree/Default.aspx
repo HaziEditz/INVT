@@ -4174,7 +4174,7 @@ $(document).ready(function() {
      
     // ── Session: read from localStorage (stored by DispatcherLogin.aspx) ──────
     var someSession  = localStorage.getItem('TT_Name')    || '';
-    var SomeSession2 = localStorage.getItem('TT_DId')     || '';
+    var SomeSession2 = localStorage.getItem('TT_CId')     || '';   // company ID — all online/ paths use this
     var someSession3 = localStorage.getItem('TT_Country') || 'NZ';
     var someSession4 = localStorage.getItem('TT_CId')     || '';
 
@@ -11853,9 +11853,13 @@ $(document).ready(function() {
         $scope.tstst =[];
         $scope.zonetablez();
         setInterval(function() { $scope.zonetablez(); }, 15000);
-        // Poll assigned jobs every 15 s so the Assign tab stays in sync
-        $scope.AssignedJobs();
-        setInterval(function() { $scope.AssignedJobs(); }, 15000);
+        // Poll assigned jobs every 15 s — defer the first call so AssignedJobs is defined
+        setTimeout(function() {
+            if (typeof $scope.AssignedJobs === 'function') { $scope.AssignedJobs(); }
+        }, 500);
+        setInterval(function() {
+            if (typeof $scope.AssignedJobs === 'function') { $scope.AssignedJobs(); }
+        }, 15000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.getjobs = function (ok='') {

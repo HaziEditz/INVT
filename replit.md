@@ -175,6 +175,11 @@ The server also maintains an **in-memory job store** for the unassigned job list
 36. **Job row time badge unreadable** — `datecreate()` returned raw `"15-04 16:05"` format. Rewrote to return: `"ASAP"` (±10 min), `"Today 4:05 PM"`, `"Tomorrow 8:35 AM"`, `"Mon 20 Apr, 8:35 AM"`.
 37. **No visual distinction between ASAP and pre-booked jobs** — Added `jobTypeLabel()` function and green/amber/blue badge on every job card. Added `getTheValue()` 3-tier color scheme: green (due now), amber (dispatch in ≤30 min), blue (future pre-booking), red (overdue by >60 min).
 
+### Firebase path + digest fixes (session 7)
+55. **`SomeSession2` used wrong localStorage key — root cause of all driver/zone table failures** — `SomeSession2 = localStorage.getItem('TT_DId')` set it to `1051` (dispatcher user ID). ALL Firebase `online/` paths (`cars_Ref`, `ref44`, driver remove/assign) used this variable, meaning the listeners were on `online/1051` instead of `online/1216`. Real drivers write to `online/1216/{vehicleId}`, so `child_added`/`child_changed` never fired, and the zone/driver tables were always empty even though the user could see drivers on the map from a previous session. Fixed: `SomeSession2 = localStorage.getItem('TT_CId')` — always the company ID.
+56. **`$scope.$digest()` swallowed with try/catch breaking Angular updates** — A previous fix wrapped all Firebase-path `$scope.$digest()` calls in `try { ... } catch(e) {}`. This silently discarded the call on any exception, so Angular never updated the DOM with Firebase data. Fixed: replaced all 11 instances with `if (!$scope.$$phase) { $scope.$digest(); }` — the correct Angular pattern (only triggers a digest when one isn't already running; if one IS running, it picks up the changes automatically).
+57. **`AssignedJobs` called before it was defined** — `$scope.AssignedJobs()` was called at controller startup (line ~11857) but the function definition is at line ~13646, causing an "is not a function" Angular exception on every page load. Fixed: wrapped the startup call in `setTimeout(..., 500)` with a `typeof` guard so it fires after the controller has fully initialized.
+
 ### Search/Closed Jobs, Messaging, Zone Queue, Logout fixes (session 6)
 38. **Search Jobs modal input hidden** — `TxtSearch` was `type="hidden"` so users couldn't type. Fixed: changed to `type="text"`, added dynamic show/hide of text/date inputs based on `ddlSearchBy` selection, wired `btnSearchJob` to call `SearchJob()`.
 39. **Search actions all unhandled** — `[SearchById]`, `[SearchJobByName]`, `[SearchByPhoneNo]`, `[SearchByAfterDate]`, `[SearchByBeforeDate]`, `SearchJobDateBetween` all fell to default fallback. Fixed: all six handlers added in `DataSelectorLess`, searching across both `jobStore` and `closedJobStore`.
@@ -240,5 +245,5 @@ Sessions survive page refresh and navigation (stored in `localStorage`). Revisit
 ## Dispatcher Session Info (Demo)
 
 - Dispatcher: `Safinah Mohammed` (returned by LoginSelector, stored in `TT_Name`)
-- Dispatcher ID: `1051` (stored in `TT_DId`; used as Firebase path `/online/1051`)
-- Company: `1216` (stored in `TT_CId`)
+- Dispatcher ID: `1051` (stored in `TT_DId`; NOT used for Firebase paths — see below)
+- Company: `1216` (stored in `TT_CId`; used for ALL Firebase `online/` paths)
