@@ -282,6 +282,23 @@
     .chat-message {
         padding: 0px !important;
     }
+
+    /* ── Settings-gated rules ───────────────────────────────────────────── */
+    /* DirectBookingIsAllowed = 0 → hide Create Job button */
+    body.setting-no-direct-book #btnCreateJob { display: none !important; }
+
+    /* AllowDirectAssignment = 0 → hide driver select + dispatch icon on job cards */
+    body.setting-no-assign .assign-ctrl-wrap { display: none !important; }
+
+    /* EditZoneQueue = 0 → hide queue number selector and Move to front button */
+    body.setting-no-edit-queue #ddlQueueNo,
+    body.setting-no-edit-queue #MoveToFront { display: none !important; }
+
+    /* DispatcherKickUsers = 0 → hide Suspend Driver button */
+    body.setting-no-kick #DriverSuspends { display: none !important; }
+
+    /* ColorJobs = 0 → strip background colour from all job cards */
+    body.setting-no-color-jobs .bottomspave { background: #fff !important; }
 </style>
 
     
@@ -353,7 +370,7 @@
                                                                     <span ng-show="value.webstatus != 0  "  class="label label-pill label-primary mt-2" >Accepted</span>
  
                                                                 </div>
-                                                                <div style="position: absolute; right:  0px;">
+                                                                <div class="assign-ctrl-wrap" style="position: absolute; right:  0px;">
                                                                        <select id="sp{{value.Id}}" class="form-control  " onclick="showwxx()" style="width: 100px; height:30px; font-size:14px;">
                                                                     <option value="0"  data-zoneq="0"   >Select Driver</option>
                                                                     <option value="0"  data-zoneq="0"  >No One</option>
@@ -364,7 +381,7 @@
 
                                                              
                                                                 
-                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'sp')">
+                                                                </div><span class="assign-ctrl-wrap label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'sp')">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
 
@@ -2164,7 +2181,7 @@ $(document).ready(function() {
                             <a  href="#">
                             <img src="images/logo3.png" class="header-brand-img" alt="360 TAXI">
                              </a>
-                           <button class="btn btn-danger" data-toggle="modal" ng-click="showfirst();"  >Create Job</button>
+                           <button id="btnCreateJob" class="btn btn-danger" data-toggle="modal" ng-click="showfirst();"  >Create Job</button>
                         <p class="label label-success  "  style="padding: 10px;
     margin: 4px; position: absolute; left: 202px;   height: 31px;  color: black;">
                            Dispatcher: <label id="lblName1" ></label> ,
@@ -11725,9 +11742,52 @@ $(document).ready(function() {
                     $("#DispatchSounds").text($res["dt1"][0].DispatchSounds); 
                     $("#RespectShiftEnd").text($res["dt1"][0].RespectShiftEnd);
                     $("#CompanyRadius").text($res["dt1"][0].Radius);
-                    if ($("#DispatcherKickUsers").text() == "0") {
-                        $("#DriverSuspends").disabled = true;
-                    }
+                    // ── Apply all dispatcher settings to gate UI elements ──────────
+                    (function applySettings() {
+                        var $body = $('body');
+
+                        // DirectBookingIsAllowed — show/hide "Create Job" button
+                        if ($('#DirectBookingIsAllowed').text() === '0') {
+                            $body.addClass('setting-no-direct-book');
+                        } else {
+                            $body.removeClass('setting-no-direct-book');
+                        }
+
+                        // AllowDirectAssignment — show/hide driver select + dispatch btn on job cards
+                        if ($('#AllowDirectAssignment').text() === '0') {
+                            $body.addClass('setting-no-assign');
+                        } else {
+                            $body.removeClass('setting-no-assign');
+                        }
+
+                        // EditZoneQueue — show/hide queue number selector + Move to front button
+                        if ($('#EditZoneQueue').text() === '0') {
+                            $body.addClass('setting-no-edit-queue');
+                        } else {
+                            $body.removeClass('setting-no-edit-queue');
+                        }
+
+                        // DispatcherKickUsers — show/hide Suspend Driver button
+                        if ($('#DispatcherKickUsers').text() === '0') {
+                            $body.addClass('setting-no-kick');
+                        } else {
+                            $body.removeClass('setting-no-kick');
+                        }
+
+                        // ColorJobs — strip/apply job card colour coding
+                        if ($('#ColorJobs').text() === '0') {
+                            $body.addClass('setting-no-color-jobs');
+                        } else {
+                            $body.removeClass('setting-no-color-jobs');
+                        }
+
+                        // AutoDispatch — start auto-dispatch timer if enabled
+                        if ($('#AutoDispatch').text() === '1') {
+                            if (typeof $scope.FnZonewiseJobtwo === 'function') {
+                                $scope.FnZonewiseJobtwo();
+                            }
+                        }
+                    })();
                 }
                         
                 if ($res["dt3"].length != []) {
