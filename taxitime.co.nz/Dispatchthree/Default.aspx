@@ -11879,6 +11879,9 @@ $(document).ready(function() {
         $scope.tstst =[];
         $scope.zonetablez();
         setInterval(function() { $scope.zonetablez(); }, 15000);
+        // Poll assigned jobs every 15 s so the Assign tab stays in sync
+        $scope.AssignedJobs();
+        setInterval(function() { $scope.AssignedJobs(); }, 15000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.getjobs = function (ok='') {
@@ -13898,6 +13901,8 @@ $(document).ready(function() {
                                                     writeNewPostpassenger(JobVehicleId, BookingId, "Offered", u_id);
                                                 }
                                                 $scope.getjobs();
+                                                // Refresh assigned tab so the job appears there immediately
+                                                setTimeout(function() { $scope.AssignedJobs(); }, 400);
                                                 acknowledgemethodx(VehicleId, JobVehicleId, BookingId, laststatus);
                                             };
                                             firebase.database().ref("online/" + SomeSession2 + "/"+extra).once('value').then(function (snapshot) {

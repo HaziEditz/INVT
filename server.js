@@ -384,6 +384,14 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Booking Details Update Successfully"`);
         successD(res, 'Booking Details Update Successfully');
 
+      } else if (action === '[checkjobstatus]') {
+        // Gate check before dispatching — return 'true' (job is free to dispatch)
+        // so the frontend proceeds with [AssignJobStatusFromJobListv2]
+        const bookingId = parseInt(param('bookingsID') || param('BookingId') || '0') || 0;
+        const alreadyOffered = bookingId > 0 && jobStore.some(j => j.Id === bookingId && j.BookingStatus === 'Offered');
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} alreadyOffered=${alreadyOffered}`);
+        jsonReply(res, { d: alreadyOffered ? 'false' : 'true' });
+
       } else if (action === '[CancelUnAssignedJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;
         const idx = jobStore.findIndex(j => j.Id === bookingId);
