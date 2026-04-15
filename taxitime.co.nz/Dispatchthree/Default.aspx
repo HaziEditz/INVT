@@ -60,7 +60,6 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.all.js"></script>
     <link href="css/dispatch-modern.css" rel="stylesheet" />
 </head>
 <!-- Firebase -->
@@ -4124,22 +4123,32 @@ $(document).ready(function() {
         messagingSenderId: "986098722414"
     };
     firebase.initializeApp(config);
+
+    // Sign in anonymously so Firebase Security Rules (auth != null) are satisfied.
+    // Anonymous auth is safe here — it simply proves this is a real browser session.
+    // Enable Anonymous Authentication in Firebase Console → Authentication → Sign-in providers.
+    firebase.auth().signInAnonymously().catch(function(e) {
+        console.warn('Firebase sign-in failed (' + e.code + '). Real-time features (driver locations, emergency alerts) will not load.');
+    });
+
     var DbRef = firebase.database();
     var ref = DbRef.ref("online/" + SomeSession2 + "");
     var ref44 = DbRef.ref("Emergency/" + SomeSession2 + "");
-    ref44.on("value", function (snapshot) {
 
-        snapshot.forEach(function (childsnapshot) {
-            var EmergencyVehicle = childsnapshot.key;
-            childsnapshot.forEach(function (childsnapshot1) {
-                var EmergencyData = childsnapshot1.val();
-
-
-                FnEmergency(EmergencyVehicle, EmergencyData.driverName, EmergencyData.lat, EmergencyData.lng, EmergencyData.vehiclenumber, EmergencyData.time);
+    firebase.auth().onAuthStateChanged(function(user) {
+        if (user) {
+            ref44.on("value", function (snapshot) {
+                snapshot.forEach(function (childsnapshot) {
+                    var EmergencyVehicle = childsnapshot.key;
+                    childsnapshot.forEach(function (childsnapshot1) {
+                        var EmergencyData = childsnapshot1.val();
+                        FnEmergency(EmergencyVehicle, EmergencyData.driverName, EmergencyData.lat, EmergencyData.lng, EmergencyData.vehiclenumber, EmergencyData.time);
+                    });
+                });
+            }, function (errorObject) {
+                console.log("The read failed: " + errorObject.code);
             });
-        });
-    }, function (errorObject) {
-        console.log("The read failed: " + errorObject.code);
+        }
     });
     function VehiclesStatus() {
         var param = [];
@@ -4888,6 +4897,9 @@ $(document).ready(function() {
      
     var cars_Ref = firebase.database().ref("online/" + SomeSession2 + "");
     console.log(cars_Ref);
+    // Gate all driver-tracking listeners on Firebase auth being resolved
+    firebase.auth().onAuthStateChanged(function(user) {
+    if (user) {
      //this event will be triggered when a new object will be added in the database...
     cars_Ref.on('child_added', function (data) {
         data.forEach(function (childsnapshot) {
@@ -5290,6 +5302,8 @@ $(document).ready(function() {
             angular.element(document.getElementById('myangular')).scope().adddriverremove(childsnapshot.val());
           });
       });
+    } // end if (user)
+    }); // end onAuthStateChanged
      $("#MoveToFront").click(function () {
          FnMoveQueueNo();
 
@@ -5328,10 +5342,9 @@ $(document).ready(function() {
     }
 
     function FnCancelRidez(DriverId, BookingId, JobStatus, u_id) {
-
-      
-        firebase.database().ref().child("/Passengerjobs/" + u_id).update({ status: "cancel" });
-
+        if (u_id) {
+            firebase.database().ref().child("/Passengerjobs/" + u_id).update({ status: "cancel" });
+        }
     }
     function writeautodispatch(DriverId, BookingId ) {
 
