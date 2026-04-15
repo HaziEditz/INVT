@@ -13815,31 +13815,35 @@ $(document).ready(function() {
                                            
                                         } else {
                                           
+                                            var _doDispatch13 = function() {
+                                                Action([
+                                                  { "name": "BookingId", "Value": BookingId },
+                                                  { "name": "VehicleId", "Value": JobVehicleId },
+                                                  { "name": "quenumber", "Value": quenumber }
+                                                ], "[AssignJobStatusFromJobListv2]");
+                                                if (u_id == 'null' || u_id == '') {
+                                                    writeNewPost(JobVehicleId, BookingId, "Offered");
+                                                } else {
+                                                    writeNewPostpassenger(JobVehicleId, BookingId, "Offered", u_id);
+                                                }
+                                                $scope.getjobs();
+                                                acknowledgemethodx(VehicleId, JobVehicleId, BookingId, laststatus);
+                                            };
                                             firebase.database().ref("online/" + SomeSession2 + "/"+extra).once('value').then(function (snapshot) {
-                                             snapshot.forEach(function (childsnapshot) {
-                                                    console.log(childsnapshot.val());
+                                                var _handled = false;
+                                                snapshot.forEach(function (childsnapshot) {
+                                                    _handled = true;
                                                     if(childsnapshot.val().vehiclestatus == "Available"){
-                                                        Action([
-                                                          { "name": "BookingId", "Value": BookingId },
-                                                          { "name": "VehicleId", "Value": JobVehicleId },
-                                                           
-                                                         { "name": "quenumber", "Value": quenumber 
-                                                          }], "[AssignJobStatusFromJobListv2]");
-                                                        if (u_id == 'null' || u_id == '') {
-                                                            writeNewPost(JobVehicleId, BookingId, "Offered");
-
-                                                        } else {
-                                                            writeNewPostpassenger(JobVehicleId, BookingId, "Offered", u_id);
-                                                        }
-                                                        $scope.getjobs();
-                                                        acknowledgemethodx(VehicleId , JobVehicleId, BookingId, laststatus);
-
-                                                    }else{
-                                                        toastr["error"]("Job Can't be send to driver. \n  Driver status is '"+childsnapshot.val().vehiclestatus+"'", 'error!');
-
+                                                        _doDispatch13();
+                                                    } else {
+                                                        toastr["error"]("Job Can't be sent to driver. Driver status is '" + childsnapshot.val().vehiclestatus + "'", 'error!');
                                                     }
-            
                                                 });
+                                                if (!_handled) {
+                                                    _doDispatch13();
+                                                }
+                                            }).catch(function() {
+                                                _doDispatch13();
                                             });
                               
 

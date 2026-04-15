@@ -298,15 +298,34 @@ const server = http.createServer(async (req, res) => {
         const bookingId = parseInt(param('BookingId')) || 0;
         const job = jobStore.find(j => j.Id === bookingId);
         if (job) {
-          const driverId  = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
+          const driverId = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
           if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]') {
             job.BookingStatus = 'Offered';
             job.DriverId = driverId;
             if (driverId > 0) job.VehicleId = driverId;
+            // Update demo driver status to Busy so driver card turns red
+            const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId);
+            if (zd) {
+              zd.vehiclestatus = 'Busy';
+              zd.JobphoneNo = job.PhoneNo || '';
+              zd.jobpickup  = job.PickAddress || '';
+              zd.jobdropoff = job.DropAddress || '';
+              zd.jobCount   = 1;
+            }
           } else {
+            // Unassign — restore demo driver to Available
+            const prevDriverId = job.DriverId || 0;
             job.BookingStatus = 'Pending';
             job.DriverId = 0;
             job.VehicleId = 0;
+            const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
+            if (zd) {
+              zd.vehiclestatus = 'Available';
+              zd.JobphoneNo = '';
+              zd.jobpickup  = '';
+              zd.jobdropoff = '';
+              zd.jobCount   = 0;
+            }
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
@@ -666,6 +685,76 @@ const server = http.createServer(async (req, res) => {
         const dt3 = ZONE_DRIVERS.map(d => ({ Id: d.VehicleId, VehicleNo: d.vehiclenumber }));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${jobs.length} closed jobs`);
         objectD(res, { dt1: jobs, dt2, dt3 });
+
+      } else if (action === '[VehicleInfov2]') {
+        const vehicleId = parseInt(param('Id') || param('id') || '0') || 0;
+        // Look up driver in ZONE_DRIVERS (demo) or from jobStore assigned driver
+        const zd = ZONE_DRIVERS.find(d => d.VehicleId === vehicleId || d.driverid === vehicleId);
+        const assignedJob = jobStore.find(j => j.VehicleId === vehicleId || j.DriverId === vehicleId);
+        const dt1 = zd ? [{
+          DriverId: zd.driverid,
+          Lat:  '-46.4227',
+          Lng:  '168.3767',
+          PlayerId: '',
+          VehicleName: zd.vehicletype,
+          CallSign: zd.vehiclenumber,
+          VehicleNo: zd.vehiclenumber,
+          BookingId: assignedJob ? assignedJob.Id : '',
+          UserFName: zd.drivername.split(' ')[0] || '',
+          UserLName: zd.drivername.split(' ').slice(1).join(' ') || '',
+          VehicleImage: '',
+        }] : [];
+        const dt2 = assignedJob ? [{
+          BookingStatus:      assignedJob.BookingStatus,
+          BookingDateTime:    assignedJob.BookingDateTime,
+          PassengerId:        assignedJob.Name || assignedJob.passengername || '',
+          PickAddress:        assignedJob.PickAddress || '',
+          DropAddress:        assignedJob.DropAddress || '',
+          Passengers:         assignedJob.Passengers || 1,
+          Bags:               assignedJob.Bags || 0,
+          WheelChairs:        assignedJob.WheelChairs || 0,
+          EstimatedDistance:  assignedJob.EstimatedDistance || '0',
+          EstimatedTime:      assignedJob.EstimatedTime || '0',
+        }] : [];
+        console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleId} (${dt1.length ? zd.drivername : 'not found'}), ${dt2.length} job(s)`);
+        objectD(res, { dt1, dt2, dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === 'AutoDispatchVehiclesv2') {
+        // Return available drivers in the requested zone
+        const zoneId = parseInt(param('ZoneId') || '0') || 0;
+        const avail = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available' && (!zoneId || d.zoneid === zoneId));
+        const dt2 = avail.map(d => ({
+          VehicleId: d.VehicleId, driverid: d.driverid, drivername: d.drivername,
+          vehiclenumber: d.vehiclenumber, vehicletype: d.vehicletype,
+          zoneid: d.zoneid, zonename: d.zonename, zonequeue: d.zonequeue,
+          PlayerId: '',
+        }));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${dt2.length} available drivers`);
+        objectD(res, { dt1: [], dt2, dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === 'checkriddestatusforautodispatch' || action === 'checkriddestatusforoffer') {
+        // Return pending/unassigned jobs that need dispatch
+        const bookingId = parseInt(param('bookingid') || '0') || 0;
+        const job = bookingId > 0 ? jobStore.find(j => j.Id === bookingId) : null;
+        const eligible = job && (job.BookingStatus === 'Pending') ? [job] : [];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${eligible.length} eligible`);
+        objectD(res, { dt1: eligible, dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[changeriddestatusforoffer]') {
+        // Update a job's booking status (e.g. mark as Unreached after failed dispatch)
+        const bookingId = parseInt(param('bookingid') || '0') || 0;
+        const newStatus = param('ridestatus') || '';
+        const job = jobStore.find(j => j.Id === bookingId);
+        if (job && newStatus) {
+          job.BookingStatus = newStatus;
+          // Restore demo driver if reverting to non-offered status
+          if (newStatus !== 'Offered') {
+            const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
+            if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[UnAssignedJobsv3]') {
         const resp = buildJobListResponse(jobStore);
