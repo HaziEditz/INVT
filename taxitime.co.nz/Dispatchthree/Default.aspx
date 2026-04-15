@@ -253,7 +253,7 @@
     }
 
     .topnav {
-        background: #ffa500b0;
+        background: transparent;
         overflow: hidden;
     }
 
@@ -343,7 +343,7 @@
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   
                                                                 <div ng-if="value.useremail != null">
-                                                                    {{playAudio()}}{{checkconter(value.Id , value.Id ,value.useremail )}}
+                                                                    {{checkconter(value.Id , value.Id ,value.useremail )}}
                                                                   <span  ng-show="value.webstatus == 0  "  class="btn btn-success" style="padding: 0px 4px;  font-size: 13px;" ng-click="sendemail(  1  ,  value.useremail  ,  value.Id  ,value.JobMins ,   value.Id )" title="Accept"><i class="fa fa-thumbs-up"></i> </span>
                                                                     <span ng-show="value.webstatus == 0 " id="close'+$res["dt1"][$i].Id+'" style="padding: 0px 4px;" class="btn btn-warning" ng-click="sendemail(   0  , value.useremail   , value.Id  ,value.JobMins )" title="Reject" > <i class="fa fa-thumbs-down"></i>  </span> 
                                                                     <img ng-if="value.useremail != ''" style="width:20px;  float: right; padding: 2px; " src="img/alert.gif" style="width:25px;"  /> 
@@ -2072,8 +2072,8 @@ $(document).ready(function() {
 </script>
 <body ng-app="myApp" ng-cloak  ng-controller="myCtrl" id="myangular">
 
-    <div class="page" style="background:#0bcffb2b;">
-        <div class="page-main" style="background:#0bcffb2b;">
+    <div class="page" style="background:#f0f2f5;">
+        <div class="page-main" style="background:#f0f2f5;">
             <!-- header area -->
             <div class="app-header1 header py-1 d-flex">
                 <div class="container-fluid">
@@ -2692,7 +2692,7 @@ $(document).ready(function() {
                         <div class="col-sm-12 col-md-12  col-xl-12">
                             <div class="card" style="height: calc(100vh - 300px);">
                                 <div class="card-header">
-                                    <div class=" tab-menu-heading" style="width:100%;     background: #ffa500b0; ">
+                                    <div class=" tab-menu-heading" style="width:100%; background: #ffffff;">
                                         <div class="tabs-menu1 ">
                                             <!-- Tabs -->
                                             <ul class="nav panel-tabs">
@@ -2768,7 +2768,7 @@ $(document).ready(function() {
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   
                                                                 <div ng-if="value.useremail != null">
-                                                                    {{playAudio()}}{{checkconter(value.Id , value.Id ,value.useremail ) }}
+                                                                    {{checkconter(value.Id , value.Id ,value.useremail ) }}
                                                                   <span  ng-show="value.webstatus == 0  "  class="btn btn-success" style="padding: 0px 4px;  font-size: 13px;" ng-click="sendemail(  1  ,  value.useremail  ,  value.Id  ,value.JobMins ,   value.Id )" title="Accept"><i class="fa fa-thumbs-up"></i> </span>
                                                                     <span ng-show="value.webstatus == 0 " id="close'+$res["dt1"][$i].Id+'" style="padding: 0px 4px;" class="btn btn-warning" ng-click="sendemail(   0  , value.useremail   , value.Id  ,value.JobMins )" title="Reject" > <i class="fa fa-thumbs-down"></i>  </span> 
                                                                     <img ng-if="value.useremail != ''" style="width:20px;  float: right; padding: 2px; " src="img/alert.gif" style="width:25px;"  /> 
@@ -2926,7 +2926,7 @@ $(document).ready(function() {
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   
                                                                 <div ng-if="value.useremail != null">
-                                                                    {{playAudio()}}{{checkconter(value.Id , value.Id ,value.useremail ) }}
+                                                                    {{checkconter(value.Id , value.Id ,value.useremail ) }}
                                                                   <span  ng-show="value.webstatus == 0  "  class="btn btn-success" style="padding: 0px 4px;  font-size: 13px;" ng-click="sendemail(  1  ,  value.useremail  ,  value.Id  ,value.JobMins ,   value.Id )" title="Accept"><i class="fa fa-thumbs-up"></i> </span>
                                                                     <span ng-show="value.webstatus == 0 " id="close'+$res["dt1"][$i].Id+'" style="padding: 0px 4px;" class="btn btn-warning" ng-click="sendemail(   0  , value.useremail   , value.Id  ,value.JobMins )" title="Reject" > <i class="fa fa-thumbs-down"></i>  </span> 
                                                                     <img ng-if="value.useremail != ''" style="width:20px;  float: right; padding: 2px; " src="img/alert.gif" style="width:25px;"  /> 
@@ -4235,38 +4235,37 @@ $(document).ready(function() {
         var bounds = new google.maps.LatLngBounds();
         infowindow = new google.maps.InfoWindow();
         geocoder = new google.maps.Geocoder;
+
+        // Default to Invercargill, New Zealand (where the fleet operates)
+        var defaultLat = -46.4120, defaultLng = 168.3538;
+        genericlat = defaultLat;
+        genericlng = defaultLng;
+        Picklatlng = new google.maps.LatLng(defaultLat, defaultLng);
+        Droplatlng = new google.maps.LatLng(defaultLat, defaultLng);
+        Picklatlng2 = new google.maps.LatLng(defaultLat, defaultLng);
+        Droplatlng2 = new google.maps.LatLng(defaultLat, defaultLng);
+        DispatcherLatLng = new google.maps.LatLng(defaultLat, defaultLng);
+        originInput3 = new google.maps.LatLng(defaultLat, defaultLng);
+        destinationInput3 = new google.maps.LatLng(defaultLat, defaultLng);
+        showmap(defaultLat, defaultLng);
+
+        // Silently try to refine with GPS; ignore any errors
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(function (p) {
-                var LatLng = new google.maps.LatLng(p.coords.latitude, p.coords.longitude);
-                Picklatlng = new google.maps.LatLng(p.coords.latitude, p.coords.longitude);
-                Droplatlng = new google.maps.LatLng(p.coords.latitude, p.coords.longitude);
-                Picklatlng2 = new google.maps.LatLng(p.coords.latitude, p.coords.longitude);
-                Droplatlng2 = new google.maps.LatLng(p.coords.latitude, p.coords.longitude);
-                DispatcherLatLng = LatLng;
-                originInput3 = LatLng;
-                destinationInput3 = LatLng;
-                genericlat =  p.coords.latitude;
-                genericlng =  p.coords.longitude;
-                showmap(p.coords.latitude, p.coords.longitude);
-            });
-
-
+                var lat = p.coords.latitude, lng = p.coords.longitude;
+                Picklatlng = new google.maps.LatLng(lat, lng);
+                Droplatlng = new google.maps.LatLng(lat, lng);
+                Picklatlng2 = new google.maps.LatLng(lat, lng);
+                Droplatlng2 = new google.maps.LatLng(lat, lng);
+                DispatcherLatLng = new google.maps.LatLng(lat, lng);
+                originInput3 = new google.maps.LatLng(lat, lng);
+                destinationInput3 = new google.maps.LatLng(lat, lng);
+                genericlat = lat;
+                genericlng = lng;
+                if (map) { map.setCenter({ lat: lat, lng: lng }); }
+            }, function () { /* silently ignore — already showing Invercargill */ },
+            { timeout: 8000, maximumAge: 0 });
         }
-
-        else {
-            var LatLng = new google.maps.LatLng(34.0150, 71.5805);
-            Picklatlng = new google.maps.LatLng(34.0150, 71.5805);
-            Droplatlng = new google.maps.LatLng(34.0150, 71.5805);
-            Picklatlng2 = new google.maps.LatLng(34.0150, 71.5805);
-            Droplatlng2 = new google.maps.LatLng(34.0150, 71.5805);
-            genericlat =  34.0150;
-            genericlng =  71.5805;
-            showmap(34.0150, 71.5805 )
-            alert('Your Location service is disabled  Or Geo Current Location feature is not supported in this browser');
-        }
-
-           
-
     }
     $("#pac-inputx").keyup(function() {
 
@@ -4294,11 +4293,14 @@ $(document).ready(function() {
     }
 
     function changerefresh(){
-       
-        var VehicleLocation1x = new google.maps.LatLng(rectangle.bounds.getCenter().lat(),  rectangle.bounds.getCenter().lng());
-        map.setCenter(VehicleLocation1x);
-        map.setZoom(parseInt($('#zoomlabel').val()));
-
+        if (!map) return;
+        if (rectangle && rectangle.getBounds && rectangle.getBounds()) {
+            var center = rectangle.getBounds().getCenter();
+            var VehicleLocation1x = new google.maps.LatLng(center.lat(), center.lng());
+            map.setCenter(VehicleLocation1x);
+        }
+        var zoomVal = parseInt($('#zoomlabel').val());
+        if (!isNaN(zoomVal)) { map.setZoom(zoomVal); }
         clearMap();
     }
 
@@ -12598,14 +12600,17 @@ $(document).ready(function() {
                 }
             }
             $scope.playAudio1 = function() {
-          
                 var audio = new Audio('sound/b.wav');
-                audio.play();
+                audio.play().catch(function(){});
             };
+            $scope._lastAudioPlay = 0;
             $scope.playAudio = function() {
-          
+                var now = Date.now();
+                if (now - $scope._lastAudioPlay < 30000) { return ''; }
+                $scope._lastAudioPlay = now;
                 var audio = new Audio('sound/a.wav');
-                audio.play();
+                audio.play().catch(function(){});
+                return '';
             };
             $scope.asssigned = function (DispatchTimebefore, BookingDateTime) {
             
@@ -14148,7 +14153,7 @@ $(document).ready(function() {
             }
             else {
                 $res = JSON.parse(result.d);
-                if ($res.length != []) {
+                if ($res.length > 0) {
                     if ($("#DispatchSounds").text() == "1") {
                         angular.element(document.getElementById('myangular')).scope().playAudio( );
                     }
@@ -14212,7 +14217,7 @@ $(document).ready(function() {
             }
             else {
                 $res = JSON.parse(result.d);
-                if ($res.length != []) {
+                if ($res.length > 0) {
                     if ($("#DispatchSounds").text() == "1") {
 
                         angular.element(document.getElementById('myangular')).scope().playAudio( );

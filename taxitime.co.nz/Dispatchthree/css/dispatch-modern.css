@@ -503,15 +503,28 @@ input.form-control {
 
 .modal-header .close,
 .modal-header button.close {
-  color: #9ca3af !important;
-  opacity: 1 !important;
-  font-size: 18px !important;
+  color: #ffffff !important;
+  opacity: 0.85 !important;
+  font-size: 24px !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
   text-shadow: none !important;
-  transition: color 0.15s;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 4px !important;
+  cursor: pointer !important;
+  transition: opacity 0.15s, transform 0.15s;
+  position: relative !important;
+  z-index: 10 !important;
+  float: right !important;
+  margin-left: auto !important;
 }
 
-.modal-header .close:hover {
-  color: #fff !important;
+.modal-header .close:hover,
+.modal-header button.close:hover {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  transform: scale(1.2);
 }
 
 .modal-body {
@@ -733,4 +746,106 @@ table.dataTable tbody tr:hover {
 @media (max-width: 768px) {
   .topnav { flex-wrap: wrap; }
   .app-header1 .container-fluid { flex-wrap: wrap; }
+}
+
+/* ---- Override any orange/yellow card backgrounds from theme ---- */
+.card-header,
+.panel-heading,
+div.card,
+div.panel {
+  background: #ffffff !important;
+}
+
+.page, .page-main, .app-content.main-content {
+  background: #f0f2f5 !important;
+}
+
+/* Ensure the whole app background is clean */
+body > .page, body > .page-main {
+  background: #f0f2f5 !important;
+}
+
+/* ---- Guarantee map is visible ---- */
+#map {
+  min-height: 360px !important;
+  width: 100% !important;
+  display: block !important;
+}
+
+.map-header, div.col-md-11.col-lg-11 > .card,
+div.col-md-11 > .card, div.col-lg-11 > .card {
+  min-height: 380px !important;
+}
+
+/* ---- Queue sidebar search box ---- */
+#map-header input[type="search"],
+input[placeholder="search"] {
+  border-radius: 6px !important;
+  border: 1px solid #d1d5db !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+}
+
+/* ---- Job card top urgency accent ---- */
+.bottomspave[style*="border-left"],
+div#singlediv[style*="border-left"] {
+  border-left-width: 4px !important;
+}
+
+/* ---- Previous / Next pagination links ---- */
+a#previousDrivers, a#nextDrivers,
+.pagination > li > a {
+  color: #3b82f6 !important;
+  font-weight: 600 !important;
+}
+
+/* ---- Avatar / driver image in chat ---- */
+img.img-circle {
+  border-radius: 50% !important;
+  border: 2px solid #e5e7eb !important;
+}
+
+/* ---- No data / empty state messages ---- */
+td.dataTables_empty {
+  color: #9ca3af !important;
+  font-style: italic;
+  text-align: center;
+  padding: 24px !important;
+}
+
+/* ---- Alert count badge on bell ---- */
+#total_notification.button-glow2 {
+  animation: glowing-soft 2000ms infinite !important;
+  background: #ef4444 !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  padding: 2px 6px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+/* ---- Acc / Account modal table ---- */
+.modal-body table td, .modal-body table th {
+  font-size: 12px !important;
+  padding: 7px 10px !important;
+}
+
+/* ---- Search Jobs result rows ---- */
+#searchdatas td, #searchdatas th {
+  font-size: 12px !important;
+}
+
+/* ---- SweetAlert2 overrides ---- */
+.swal2-popup {
+  border-radius: 12px !important;
+  font-family: 'Inter', -apple-system, sans-serif !important;
+}
+
+.swal2-confirm {
+  background: #3b82f6 !important;
+  border-radius: 6px !important;
+}
+
+.swal2-cancel {
+  border-radius: 6px !important;
 }

@@ -39,9 +39,7 @@ function resolveFilePath(urlPath) {
     try {
       const stat = fs.statSync(candidate);
       if (stat.isFile()) return candidate;
-    } catch (e) {
-      // not found, try next
-    }
+    } catch (e) {}
   }
   return null;
 }
@@ -52,7 +50,44 @@ const SILENT_OK_PATTERNS = [
   '/{{',
 ];
 
-const server = http.createServer((req, res) => {
+// Actions that should return empty arrays (no live data in demo)
+const EMPTY_ARRAY_ACTIONS = [
+  'RetrieveAlarms',
+  'AllAlarms',
+  'RetrieveAlarts',
+  'RetrieveAlerts',
+  'GetAlarms',
+  'GetAlerts',
+];
+
+// Actions that are write operations — return a success message
+const WRITE_ACTIONS = [
+  'DataProcessor',
+  'DataProcessor1',
+  'InsertAlarm',
+  'UpdateAlarm',
+  'UpdateAlarts',
+  'UpdateAlerts',
+  'storeemergency',
+  'UpdateNotificationFlag',
+];
+
+const JSON_HEADERS = {
+  'Content-Type': 'application/json',
+  'Cache-Control': 'no-cache',
+  'Access-Control-Allow-Origin': '*',
+};
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', chunk => body += chunk.toString());
+    req.on('end', () => resolve(body));
+    req.on('error', () => resolve(''));
+  });
+}
+
+const server = http.createServer(async (req, res) => {
   let urlPath = req.url.split('?')[0];
 
   if (urlPath === '/' || urlPath === '') {
@@ -60,14 +95,67 @@ const server = http.createServer((req, res) => {
   }
 
   if (SILENT_OK_PATTERNS.some(p => urlPath.startsWith(p))) {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, JSON_HEADERS);
     res.end('{}');
     return;
+  }
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  // For POST requests to data endpoints, route by action
+  if (req.method === 'POST' && urlPath.includes('/DataManager/Data.aspx/')) {
+    const body = await readBody(req);
+    let action = '';
+    try {
+      const parsed = JSON.parse(body);
+      action = (parsed.action || '').toString();
+    } catch (e) {}
+
+    // Alarm/alert queries — return empty so modal never auto-opens
+    if (EMPTY_ARRAY_ACTIONS.includes(action)) {
+      console.log(`200: POST ${urlPath} [action=${action}] -> []`);
+      res.writeHead(200, JSON_HEADERS);
+      res.end('{"d":"[]"}');
+      return;
+    }
+
+    // Write operations — return success acknowledgement
+    if (
+      urlPath.includes('/DataProcessor') ||
+      WRITE_ACTIONS.includes(action)
+    ) {
+      const successMsg = action === 'InsertAlarm'
+        ? 'Alarm Saved Successfully'
+        : action.startsWith('Update')
+          ? 'Operation Successfully Performed'
+          : action === 'storeemergency'
+            ? 'Emergency Stored'
+            : 'Operation Successfully Performed';
+      console.log(`200: POST ${urlPath} [action=${action}] -> "${successMsg}"`);
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ d: successMsg }));
+      return;
+    }
   }
 
   const filePath = resolveFilePath(urlPath);
 
   if (!filePath) {
+    // Silently ignore missing secondary data endpoints
+    if (req.method === 'POST' && urlPath.includes('/DataManager/')) {
+      res.writeHead(200, JSON_HEADERS);
+      res.end('{"d":"[]"}');
+      return;
+    }
     console.log(`404: ${req.method} ${urlPath}`);
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end(`404 Not Found: ${urlPath}`);
