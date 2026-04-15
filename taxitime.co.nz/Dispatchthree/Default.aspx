@@ -530,12 +530,9 @@
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                        <span ng-if="value.Acc_job_id ">ACC</span>
-
-                                                                    <span ng-if="value.Account_id ">Account</span>
-
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
-
+                                                                        <span ng-if="avalue.Acc_job_id">ACC</span>
+                                                                        <span ng-if="avalue.Account_id">Account</span>
+                                                                        <span ng-if="avalue.Recieve_payment">Paid</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
 
@@ -2124,7 +2121,10 @@
            // angular.element(document.getElementById('myangular')).scope().FnZonewiseJobtwo();
                         
            // }
-          angular.element(document.getElementById('myangular')).scope().getjobs();
+          try {
+            var _s = angular.element(document.getElementById('myangular')).scope();
+            if (_s && typeof _s.getjobs === 'function') { _s.getjobs(); }
+          } catch(e) {}
             
        
           if (navigator.onLine) {
@@ -3159,24 +3159,27 @@ $(document).ready(function() {
                                                         <div class=" row nopad    col-sm-12 col-md-12 col-xl-12" data-toggle="collapse" data-target="#datassass{{key}}">
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="glyphicon glyphicon-tag"></i>
-                                                                {{avalue.Id}}</span>
+                                                                #{{avalue.Id}}</span>
                                                             <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-time"></i>
-                                                                {{avalue.BookingDateTime}}                                                    </span>
+                                                                <i class="fa fa-clock-o"></i>
+                                                                {{avalue.BookingDateTime}}</span>
                                                             <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-users "></i>
-                                                                {{avalue.passengername}}</span>
+                                                                <i class="fa fa-user"></i>
+                                                                {{avalue.passengername || avalue.Name}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-phone"></i>
                                                                 {{avalue.PhoneNo}}</span>
-                                                          
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-time"></i>
+                                                            <span class="label label-pill label-success mt-2">
+                                                                <i class="fa fa-car"></i>
                                                                 {{avalue.drivername}} {{avalue.VehicleNo}}
                                                             </span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-time"></i>
+                                                            <span class="label label-pill label-warning mt-2" ng-if="avalue.TarriffType">
+                                                                <i class="fa fa-tag"></i>
                                                                 {{avalue.TarriffType}}
+                                                            </span>
+                                                            <span class="label label-pill label-info mt-2">
+                                                                <i class="fa fa-circle" style="color:{{avalue.BookingStatus=='Offered'?'orange':avalue.BookingStatus=='Assigned'?'limegreen':'#aaa'}}"></i>
+                                                                {{avalue.BookingStatus}}
                                                             </span>
                                                              <i ng-if="avalue.DropLatLng != '0,0'" ng-mouseover="showmakert(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" ng-mouseleave="markerremove(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
                                                                 <i ng-if="avalue.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(avalue.Id,avalue.PickLatLng)" ng-mouseleave="markerremove1(avalue.Id,avalue.PickLatLng )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
@@ -3210,12 +3213,9 @@ $(document).ready(function() {
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                        <span ng-if="value.Acc_job_id ">ACC</span>
-
-                                                                    <span ng-if="value.Account_id ">Account</span>
-
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
-
+                                                                        <span ng-if="avalue.Acc_job_id">ACC</span>
+                                                                        <span ng-if="avalue.Account_id">Account</span>
+                                                                        <span ng-if="avalue.Recieve_payment">Paid</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
 
@@ -7377,8 +7377,10 @@ $(document).ready(function() {
             grouped2 = Object.create(null);
             
             dataStuff.forEach(function (a) {
-                grouped[a.zonename] = grouped[a.zonename] || [];
-                grouped[a.zonename].push(a);
+                var zn = a.zonename || a.zoneid || 'Zone';
+                grouped[zn] = grouped[zn] || [];
+                a.zonename = a.zonename || zn;
+                grouped[zn].push(a);
             });
             dataStuff.forEach(function (a) {
                 grouped2[a.zoneid] = grouped2[a.zoneid] || [];
