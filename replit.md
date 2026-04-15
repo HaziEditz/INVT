@@ -129,6 +129,13 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 31. **DispatchEstimation missing** — Tariff pricing call from `unitChanged` returned empty `[]`. Fixed: proper `DispatchEstimation` handler added with StartPrice/DistanceRate/CurrencyName per tariff.
 32. **Payment percentage missing** — `[payment_percentage]` was not handled; fell to fallback. Fixed: handler added returning `{paymentpercent:0, chargepertra:0}`.
 
+### Job list display / timing fixes (session 5)
+33. **Demo job times stale/hardcoded** — jobs 937195 and 937163 had fixed calendar dates. Fixed: times now generated dynamically at server start — 937195 is ASAP (now), 937163 is 5 days ahead. Also enriched demo data with names, phone numbers, and a drop address for 937195.
+34. **JobMins server-UTC drift** — `calcJobMins` runs in UTC on Replit; browser is in user's local timezone. Client-side `JobMins` recomputation added in `getjobs()` callback, overwriting the server value using `new Date()` in the browser.
+35. **`checklateornow` always showed "Late" for future pre-bookings** — The original formula returned `-(JobMins + DispatchTimebefore)` which is nonsensical for `JobMins > DispatchTimebefore`. Rewrote with correct semantics: shows `Xd Yh` / `Xh Ym` / `X Min` until dispatch window opens, `Dispatch` when window is open, `X Min Late` when overdue.
+36. **Job row time badge unreadable** — `datecreate()` returned raw `"15-04 16:05"` format. Rewrote to return: `"ASAP"` (±10 min), `"Today 4:05 PM"`, `"Tomorrow 8:35 AM"`, `"Mon 20 Apr, 8:35 AM"`.
+37. **No visual distinction between ASAP and pre-booked jobs** — Added `jobTypeLabel()` function and green/amber/blue badge on every job card. Added `getTheValue()` 3-tier color scheme: green (due now), amber (dispatch in ≤30 min), blue (future pre-booking), red (overdue by >60 min).
+
 ### Grammar / spelling fixes (session 3)
 16. `'so it can t be dispatch automatically'` (Swal.fire 3rd arg was plaintext, not icon type) → `'warning'` + corrected message text
 17. `'You Forget To Select Dispatch before Time!'` → `'Dispatch Time Required'`

@@ -309,6 +309,10 @@
                                                                     {{value.Id}}
                                                                 </span>
 
+                                                                <span class="label label-pill mt-2" ng-style="{background: value.JobMins <= 0 ? '#27ae60' : value.JobMins <= 30 ? '#e67e22' : '#2980b9', color: '#fff', fontWeight: 'bold'}">
+                                                                    <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
+                                                                </span>
+
                                                                  <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
                                                                 </span>
                                                                
@@ -2734,6 +2738,10 @@ $(document).ready(function() {
                                                                     {{value.Id}}
                                                                 </span>
 
+                                                                <span class="label label-pill mt-2" ng-style="{background: value.JobMins <= 0 ? '#27ae60' : value.JobMins <= 30 ? '#e67e22' : '#2980b9', color: '#fff', fontWeight: 'bold'}">
+                                                                    <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
+                                                                </span>
+
                                                                  <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
                                                                 </span>
                                                                
@@ -2890,6 +2898,10 @@ $(document).ready(function() {
                                                                 <span   class="label label-pill label-primary mt-2"><i style="color: black;" class="glyphicon glyphicon-tag"></i>
 
                                                                     {{value.Id}}
+                                                                </span>
+
+                                                                <span class="label label-pill mt-2" ng-style="{background: value.JobMins <= 0 ? '#27ae60' : value.JobMins <= 30 ? '#e67e22' : '#2980b9', color: '#fff', fontWeight: 'bold'}">
+                                                                    <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
                                                                  <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
@@ -11814,12 +11826,15 @@ $(document).ready(function() {
                    
                 $scope.UnAssignedCountoffer = $scope.oferunassignedjob_list.length;
                 $scope.unassignedjob_list = $scope.jobsdata['dt1'];
-             
-                
 
+                // Recompute JobMins client-side using the browser's local clock
+                // so countdowns are correct regardless of server timezone
+                var _clientNow = new Date();
+                angular.forEach($scope.unassignedjob_list, function(job) {
+                    var bdt = new Date(job.BookingDateTime.replace(/\.$/, '').trim());
+                    job.JobMins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
+                });
 
-
-                
                     $scope.driverlist = $scope.jobsdata['dt5'];
                     //$scope.$digest();
                 
@@ -12594,34 +12609,55 @@ $(document).ready(function() {
             $scope.getjobs();
             $scope.GetJobsdelivery();
             $scope.datecreate = function (data) {
-                var res = data.split(" ");
+                if (!data) return '';
+                var clean = data.replace(/\.$/, '').trim();
+                var booking = new Date(clean);
+                if (isNaN(booking.getTime())) {
+                    var p = clean.split(' ');
+                    var d = (p[0] || '').split('-');
+                    return (d[2] || '') + '-' + (d[1] || '') + ' ' + (p[1] ? p[1].substring(0, 5) : '');
+                }
+                var now = new Date();
+                var minsUntil = Math.round((booking - now) / 60000);
+                var h = booking.getHours();
+                var mi = booking.getMinutes();
+                var ampm = h >= 12 ? 'PM' : 'AM';
+                h = h % 12 || 12;
+                var timeStr = h + ':' + (mi < 10 ? '0' : '') + mi + ' ' + ampm;
+                var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                var bookMid  = new Date(booking.getFullYear(), booking.getMonth(), booking.getDate());
+                var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
+                if (minsUntil >= -10 && minsUntil <= 10) return 'ASAP';
+                if (dayDiff === 0)  return 'Today ' + timeStr;
+                if (dayDiff === 1)  return 'Tomorrow ' + timeStr;
+                var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                return days[booking.getDay()] + ' ' + booking.getDate() + ' ' + months[booking.getMonth()] + ', ' + timeStr;
+            }
 
-                var res1 = res[0].split("-");
-
-                var datee = res1[2] + "-" + res1[1];
-
-                var res2 = res[1].split(":");
-
-                var timee = res2[0] + ":" + res2[1];
-                return datee + " " + timee;
+            $scope.jobTypeLabel = function (jobMins, dispatchBefore) {
+                var db = parseInt(dispatchBefore) || 0;
+                if (db === 0 || jobMins <= 10) return 'ASAP';
+                return 'Pre-Booked';
             }
             $scope.checklateornow = function (data1, data2) {
-
-                $dispatchremain = parseInt(data1) + parseInt(data2);
-
-                var unsigned_value = Math.abs($dispatchremain)
-                $dispatchtimeshow = parseInt(data1) - $dispatchremain
-
-                var showme = 0
-                var lifted = "";
-                if (parseInt(data1) <= parseInt($dispatchtimeshow)) {
-                    lifted = "Min Remain";
-                    showme = unsigned_value;
-                    return showme + " " + lifted;
+                var jobMins = parseInt(data1) || 0;
+                var dispatchBefore = parseInt(data2) || 0;
+                // Minutes until dispatch window opens (negative = window open or overdue)
+                var minsToDispatch = jobMins - dispatchBefore;
+                if (minsToDispatch > 0) {
+                    // Dispatch window not yet open — show time until driver should be sent
+                    var h = Math.floor(minsToDispatch / 60);
+                    var m = minsToDispatch % 60;
+                    if (h >= 48) return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+                    if (h > 0)   return h + 'h ' + (m > 0 ? m + 'm' : '');
+                    return minsToDispatch + ' Min';
+                } else if (jobMins > 0) {
+                    // Window is open and pickup is still ahead — dispatch now
+                    return 'Dispatch';
                 } else {
-                    lifted = "Late";
-                    showme = -Math.abs($dispatchremain);
-                    return showme + " " + lifted;
+                    // Pickup time has passed — show how many minutes overdue
+                    return Math.abs(jobMins) + ' Min Late';
                 }
             }
             $scope.alerting = function (DispatchTimebefore, BookingDateTime) {
@@ -12949,32 +12985,36 @@ $(document).ready(function() {
 
             }
             $scope.getTheValue2 = function (BookingDateTime) {
-          
-
-            
-                BookingDateTime =    BookingDateTime.slice(0, -1);
-                if ($scope.CurrentDateTime >=  BookingDateTime) {
-                    return "rgba(230, 71, 23, 0.2)";
+                var clean = BookingDateTime.replace(/\.$/, '').trim();
+                var bdt = new Date(clean);
+                if (isNaN(bdt.getTime())) return "rgba(145, 208, 232, 0.39)";
+                var minsUntil = Math.round((bdt - new Date()) / 60000);
+                if (minsUntil <= -60) {
+                    return "rgba(192, 57, 43, 0.18)";
+                } else if (minsUntil <= 0) {
+                    return "rgba(39, 174, 96, 0.2)";
+                } else if (minsUntil <= 30) {
+                    return "rgba(230, 126, 34, 0.22)";
+                } else {
+                    return "rgba(52, 152, 219, 0.18)";
                 }
-                else {
-                    return "rgba(145, 208, 232, 0.39)";
-                }
-
-            
             }
 
 
             $scope.getTheValue = function (BookingDateTime) {
-                
-                BookingDateTime =  BookingDateTime.slice(0, -1);
-                if ($scope.CurrentDateTime >=  BookingDateTime) {
-                    return "rgba(230, 71, 23, 0.2)";
+                var clean = BookingDateTime.replace(/\.$/, '').trim();
+                var bdt = new Date(clean);
+                if (isNaN(bdt.getTime())) return "rgba(145, 208, 232, 0.39)";
+                var minsUntil = Math.round((bdt - new Date()) / 60000);
+                if (minsUntil <= -60) {
+                    return "rgba(192, 57, 43, 0.18)";   // overdue (red)
+                } else if (minsUntil <= 0) {
+                    return "rgba(39, 174, 96, 0.2)";    // ASAP / ready now (green)
+                } else if (minsUntil <= 30) {
+                    return "rgba(230, 126, 34, 0.22)";  // approaching (amber)
+                } else {
+                    return "rgba(52, 152, 219, 0.18)";  // future pre-booking (blue)
                 }
-                else {
-                    return "rgba(145, 208, 232, 0.39)";
-                }
-
-            
             }
             $scope.JobMinstime = 0;
             $scope.EditJobunassignedng =   function (ele,JobMins) {

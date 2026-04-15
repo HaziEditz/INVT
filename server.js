@@ -38,38 +38,57 @@ function calcJobMins(bookingDateTimeStr) {
   return Math.round((bdt - now) / 60000);
 }
 
+// Format a Date object as the "YYYY-MM-DD HH:MM:SS." string the client expects
+function fmtDT(dt) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:00.`;
+}
+
+// Demo job times generated relative to server start so they stay current
+const _now = new Date();
+
+// ASAP job: booking time = now (dispatch immediately), picking time = +8 mins
+const _asapBook = new Date(_now);
+const _asapPick = new Date(_now.getTime() + 8 * 60000);
+
+// Pre-booked job: 5 days from now at 08:35, picking = 08:45
+const _preBook = new Date(_now.getTime() + 5 * 24 * 3600000);
+_preBook.setHours(8, 35, 0, 0);
+const _prePick = new Date(_preBook.getTime() + 10 * 60000);
+
 const jobStore = [
   {
     Id: 937195,
     AccountId: '', VehicleNo: null, CallSign: null, useremail: null, usertype: null,
-    webstatus: '0', Name: '', PhoneNo: '',
-    BookingDateTime: '2026-04-15 16:05:00.',
-    Pickingtime: '2026-04-15 16:15:00.',
-    Recieve_payment: '', DispatchTimebefore: '10',
+    webstatus: '0', Name: 'Jane Doe', PhoneNo: '021 555 4321',
+    BookingDateTime: fmtDT(_asapBook),
+    Pickingtime: fmtDT(_asapPick),
+    Recieve_payment: '', DispatchTimebefore: '0',
     VehicleId: 0, DriverId: 0, DispatcherName: 'safinah mohammed',
-    Nextstop: '0', nextstopdata: '', Passengers: 1, passengername: '',
-    PickLatLng: '-46.4220233,168.3513913', DropLatLng: '0,0',
-    Bags: 0, WheelChairs: 0, VehiclesReguired: 1,
+    Nextstop: '0', nextstopdata: '', Passengers: 1, passengername: 'Jane Doe',
+    PickLatLng: '-46.4220233,168.3513913', DropLatLng: '-46.4070668,168.3474998',
+    Bags: 1, WheelChairs: 0, VehiclesReguired: 1,
     Acc_job_id: '', Account_id: '',
-    PickAddress: '156 Crinan Street, Appleby, Invercargill, New Zealand',
-    DropAddress: '', EntitiesDetails: '', U_id: null,
+    PickAddress: '156 Crinan Street, Appleby, Invercargill',
+    DropAddress: 'Invercargill Airport, 106 Airport Ave, Invercargill',
+    EntitiesDetails: '', U_id: null,
     BookingSource: 'Dispatch Console', BookingStatus: 'Pending',
-    VehicleType: 'Not Specified', EstimatedDistance: '0', EstimatedTime: '0',
-    TarriffType: 'Automatic',
+    VehicleType: 'Sedan', EstimatedDistance: '4.2', EstimatedTime: '10',
+    TarriffType: 'Standard',
   },
   {
     Id: 937163,
     AccountId: '', VehicleNo: null, CallSign: null, useremail: null, usertype: null,
-    webstatus: '0', Name: '', PhoneNo: '',
-    BookingDateTime: '2026-04-21 08:35:00.',
-    Pickingtime: '2026-04-21 08:45:00.',
+    webstatus: '0', Name: 'Robert Smith', PhoneNo: '021 123 4567',
+    BookingDateTime: fmtDT(_preBook),
+    Pickingtime: fmtDT(_prePick),
     Recieve_payment: '', DispatchTimebefore: '10',
     VehicleId: 0, DriverId: 0, DispatcherName: 'safinah mohammed',
-    Nextstop: '0', nextstopdata: '', Passengers: 1, passengername: '',
+    Nextstop: '0', nextstopdata: '', Passengers: 2, passengername: 'Robert Smith',
     PickLatLng: '-46.4227508,168.3767375', DropLatLng: '0,0',
     Bags: 0, WheelChairs: 0, VehiclesReguired: 1,
     Acc_job_id: '', Account_id: '',
-    PickAddress: '105 Centre Street, Heidelberg, Invercargill, New Zealand',
+    PickAddress: '105 Centre Street, Heidelberg, Invercargill',
     DropAddress: '', EntitiesDetails: '', U_id: null,
     BookingSource: 'Dispatch Console', BookingStatus: 'Pending',
     VehicleType: 'Not Specified', EstimatedDistance: '0', EstimatedTime: '0',
