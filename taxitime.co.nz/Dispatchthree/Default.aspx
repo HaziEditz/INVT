@@ -3966,7 +3966,7 @@ $(document).ready(function() {
                                 <div  >
                                     <div>
                                       
-                                        <table id="example" style="width:100%;" >
+                                        <table id="example" style="width:100%;" ng-if="zonelist && zonelist.length > 0">
                                             <thead>
                                                 <tr>
                                                     <th class="wd-15p">ID</th>
@@ -7362,6 +7362,11 @@ $(document).ready(function() {
            
         }
         $scope.changezone = function(dataw){
+            // If there are no drivers at all, clear the zone list immediately
+            if (!dataw || dataw.length === 0) {
+                $scope.zonelist = [];
+                return;
+            }
                  
             $scope.zonetable = dataw;
             var dataStuff = $scope.zonetable;
@@ -11839,6 +11844,10 @@ $(document).ready(function() {
                 var resp = response.data;
                 $scope.zonetable = JSON.parse(resp.d);
                 var dataStuff = $scope.zonetable;
+                if (!dataStuff || dataStuff.length === 0) {
+                    $scope.zonelist = [];
+                    return;
+                }
                 grouped = Object.create(null);
                 dataStuff.forEach(function (a) {
                     grouped[a.zonename] = grouped[a.zonename] || [];
