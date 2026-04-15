@@ -4061,14 +4061,34 @@ $(document).ready(function() {
     }
 
      
-    var someSession = 'safinah mohammed';
-    var SomeSession2 = '1051';
-    var someSession3 = 'NZ';
-    var someSession4 = '1216';
+    // ── Session: read from localStorage (stored by DispatcherLogin.aspx) ──────
+    var someSession  = localStorage.getItem('TT_Name')    || '';
+    var SomeSession2 = localStorage.getItem('TT_DId')     || '';
+    var someSession3 = localStorage.getItem('TT_Country') || 'NZ';
+    var someSession4 = localStorage.getItem('TT_CId')     || '';
+
+    // Guard: redirect to login if session is missing
+    if (!someSession || !SomeSession2) {
+        window.location.replace('DispatcherLogin.aspx');
+    }
 
     localStorage.setItem("Country", someSession3);
     $("#lblName1").text(someSession);
     $("#lblName2").text(someSession);
+
+    // ── Logout: clear all session data and return to login page ─────────────
+    function Logout() {
+        ['TT_Name', 'TT_DId', 'TT_Country', 'TT_CId', 'Country'].forEach(function(k) {
+            localStorage.removeItem(k);
+        });
+        // Sign out of Firebase so the anonymous token is discarded
+        try {
+            if (typeof firebase !== 'undefined' && firebase.auth) {
+                firebase.auth().signOut().catch(function() {});
+            }
+        } catch (e) {}
+        window.location.replace('DispatcherLogin.aspx');
+    }
 
 
     function IntervalTimer(callback, interval) {
@@ -6050,8 +6070,8 @@ $(document).ready(function() {
 
          //}
        
-         var someSession = 'safinah mohammed';  
-      
+         var someSession = localStorage.getItem('TT_Name') || 'safinah mohammed';
+
          function FnFindMyVehicle() {
 
              ref.once('value', function (snapshot) {

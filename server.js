@@ -387,7 +387,31 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ── Other DataManager requests (LoginSelector, GeneralSelector, etc.) ──
+    // ── LoginSelector — dispatcher authentication ──────────────────────────
+    if (urlPath.includes('/LoginSelector')) {
+      const username = param('Username') || param('Email') || param('UserEmail') || '';
+      const password = param('Password') || param('Pass') || '';
+      if (!username.trim() || !password.trim()) {
+        console.log(`200: POST ${urlPath} [LoginSelector] -> missing credentials`);
+        successD(res, 'Please enter your username and password.');
+        return;
+      }
+      // Demo: accept any non-empty credentials and return dispatcher session data
+      console.log(`200: POST ${urlPath} [LoginSelector] -> login OK for "${username}"`);
+      arrayD(res, [{
+        Id: 1051,
+        UserFName: 'Safinah Mohammed',
+        UserLName: '',
+        UserEmail: username,
+        CompanyId: 1216,
+        Country: 'NZ',
+        Role: 'Dispatcher',
+        UserStatus: 'Active',
+      }]);
+      return;
+    }
+
+    // ── Other DataManager requests (GeneralSelector, etc.) ─────────────────
     const filePath = resolveFilePath(urlPath);
     if (filePath) {
       console.log(`200: POST ${urlPath} -> ${filePath.replace(ROOT, '')}`);

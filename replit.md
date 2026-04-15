@@ -126,17 +126,39 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 24. `toastr["error"]("Taking Job from Driver",'success!')` — wrong level → `'error!'`
 25. `"This Job is Not Yet Ready For Dispatch.Please Change..."` (missing space) → fixed
 
+## Authentication Flow
+
+### Pages
+- **`DispatcherLogin.aspx`** — Professional login/signup homepage. Accepts any non-empty credentials in demo mode and returns demo dispatcher session data.
+- **`Default.aspx`** — Main dispatch console. Reads session from `localStorage`; redirects to `DispatcherLogin.aspx` if no session is present.
+
+### localStorage Session Keys
+| Key | Value |
+|---|---|
+| `TT_Name` | Dispatcher full name |
+| `TT_DId` | Dispatcher numeric ID (Firebase path segment) |
+| `TT_Country` | Country code, e.g. `NZ` |
+| `TT_CId` | Company ID |
+| `Country` | Country code (legacy key, also written for backward compat) |
+
+### Server endpoint: `LoginSelector`
+POST to `DataManager/Data.aspx/LoginSelector` with `{action: 'DispatcherLogin', data: [{name:'Username',value:...},{name:'Password',value:...}]}`. Returns `{d: JSON.stringify([{Id, UserFName, CompanyId, Country, ...}])}` on success.
+
+### Logout
+`Logout()` is defined globally in `Default.aspx`. It clears all `TT_*` localStorage keys, calls `firebase.auth().signOut()`, and redirects to `DispatcherLogin.aspx`.
+
+### Session persistence
+Sessions survive page refresh and navigation (stored in `localStorage`). Revisiting `DispatcherLogin.aspx` while already logged in auto-redirects to `Default.aspx`.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
-- **Firebase PERMISSION_DENIED** — `taxilatest.firebaseio.com` requires the company's Firebase credentials. Driver realtime positions, zone queue updates from drivers, emergency alerts won't load.
+- **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.
 - **Google Maps deprecation warnings** — DirectionsRenderer/Service, Marker, Places Autocomplete APIs deprecated 2024-2026. All still functional.
-- **Hardcoded dispatcher session** — `someSession = 'safinah mohammed'`, `SomeSession2 = '1051'`
 - **Driver dropdown empty** — `driverdatarealx` is populated from Firebase only; without credentials the dropdown has no drivers to select.
 - **In-memory store resets on restart** — New jobs created during the session are lost when the server restarts.
 
-## Dispatcher Session Info (Hardcoded)
+## Dispatcher Session Info (Demo)
 
-- Dispatcher: `safinah mohammed`
-- Dispatcher ID: `1051`
-- Firebase path: `/online/1051`
-- Company: loaded via `VehiclesStatus()` API (shows "Not Specified" in demo)
+- Dispatcher: `Safinah Mohammed` (returned by LoginSelector, stored in `TT_Name`)
+- Dispatcher ID: `1051` (stored in `TT_DId`; used as Firebase path `/online/1051`)
+- Company: `1216` (stored in `TT_CId`)
