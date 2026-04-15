@@ -2112,7 +2112,7 @@
   });
   findIP
     .then(ip => $("#ipchk").html("your IP: " + ip))
-    .catch(e => console.error(e));
+    .catch(() => {});
 }
 
 //gets the network status from the browser navigator api once page is loaded
