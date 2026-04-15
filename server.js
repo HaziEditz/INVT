@@ -324,6 +324,25 @@ const server = http.createServer(async (req, res) => {
       } else if (action === '[ZonesListUpdate]') {
         console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} drivers`);
         arrayD(res, ZONE_DRIVERS);
+
+      } else if (action === '[payment_percentage]') {
+        // Payment percentage and per-transaction charge — return zeros (no surcharges)
+        console.log(`200: POST ${urlPath} [action=${action}] -> 0%`);
+        arrayD(res, [{ paymentpercent: 0, chargepertra: 0 }]);
+
+      } else if (action === 'DispatchEstimation') {
+        // Return tariff pricing so trip cost can be calculated in the booking form.
+        const TARIFFS = {
+          1:  { StartPrice: 3.50, DistanceRate: 2.20, CurrencyName: 'NZD' },
+          2:  { StartPrice: 5.00, DistanceRate: 2.50, CurrencyName: 'NZD' },
+          3:  { StartPrice: 4.50, DistanceRate: 2.40, CurrencyName: 'NZD' },
+          '-1': { StartPrice: 0,  DistanceRate: 0,    CurrencyName: 'NZD' },
+        };
+        const tid = String(param('TariffId') || '1');
+        const tariff = TARIFFS[tid] || TARIFFS['1'];
+        console.log(`200: POST ${urlPath} [action=${action}] -> tariff id ${tid}`);
+        arrayD(res, [tariff]);
+
       } else if (action === '[ActiveJobsv3]') {
         const active = jobStore.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
         console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active`);
@@ -377,6 +396,83 @@ const server = http.createServer(async (req, res) => {
         // Return empty for auto-dispatch — no Firebase drivers available
         console.log(`200: POST ${urlPath} [action=${action}] -> empty`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === 'ZoneCoordinates') {
+        // Return an NZ-wide bounding polygon so any NZ address passes zone validation.
+        // The front-end checks if the pickup lat/lng is inside at least one zone polygon.
+        const zoneData = {
+          dt1: [{ ZoneId: 1, ZoneName: 'New Zealand', No: 4 }],
+          dt2: [
+            { Lat: -34.0, Lng: 166.3 },
+            { Lat: -47.4, Lng: 166.3 },
+            { Lat: -47.4, Lng: 178.6 },
+            { Lat: -34.0, Lng: 178.6 },
+          ],
+        };
+        console.log(`200: POST ${urlPath} [action=${action}] -> NZ zone polygon`);
+        objectD(res, zoneData);
+
+      } else if (action === '[DispatcherSettings]') {
+        // Return company settings, vehicle types (dt3), tariff list (dt4).
+        const settings = {
+          dt1: [{
+            CompanyName: 'Taxi Time',
+            DirectBookingIsAllowed: '1',
+            JobAllowedToAssignToaDriver: '1',
+            AutoDispatch: '0',
+            EditZoneQueue: '1',
+            DispatcherKickUsers: '1',
+            DispatchShows: '1',
+            ColorJobs: '1',
+            DispatchAlerts: '0',
+            DispatchSounds: '1',
+            RespectShiftEnd: '0',
+            Radius: '50',
+          }],
+          dt2: [],
+          dt3: [
+            { Id: 1, VehicleName: 'Sedan' },
+            { Id: 2, VehicleName: 'SUV' },
+            { Id: 3, VehicleName: 'Van' },
+            { Id: 4, VehicleName: 'Wheelchair' },
+          ],
+          dt4: [
+            { Id: 1, TariffName: 'Standard',  StartPrice: 3.50, DistanceRate: 2.20, CurrencyName: 'NZD' },
+            { Id: 2, TariffName: 'Airport',   StartPrice: 5.00, DistanceRate: 2.50, CurrencyName: 'NZD' },
+            { Id: 3, TariffName: 'Evening',   StartPrice: 4.50, DistanceRate: 2.40, CurrencyName: 'NZD' },
+            { Id: -1, TariffName: 'Custom',   StartPrice: 0,    DistanceRate: 0,    CurrencyName: 'NZD' },
+          ],
+          dt5: [{ PublicKey: '' }],
+        };
+        console.log(`200: POST ${urlPath} [action=${action}] -> dispatcher settings`);
+        objectD(res, settings);
+
+      } else if (action === 'VehiclesStatus') {
+        const busyCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Busy').length;
+        const freeCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available').length;
+        const awayCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Away').length;
+        const vehicleStatus = {
+          dt1: [{ All: ZONE_DRIVERS.length }],
+          dt2: [{ Busy: busyCount }],
+          dt3: [{ Free: freeCount }],
+          dt4: [{ Picking: 0 }],
+          dt5: [{ Away: awayCount }],
+        };
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} vehicles`);
+        objectD(res, vehicleStatus);
+
+      } else if (action === 'JobsCount') {
+        const closedCount  = jobStore.filter(j => j.BookingStatus === 'Closed' || j.BookingStatus === 'Completed').length;
+        const cancelCount  = jobStore.filter(j => j.BookingStatus === 'Cancelled').length;
+        const noShowCount  = jobStore.filter(j => j.BookingStatus === 'No Show').length;
+        const jobCounts = {
+          dt1: [{ ClosedCount: closedCount }],
+          dt2: [{ CancelledCount: cancelCount }],
+          dt3: [{ NoShownCount: noShowCount }],
+          dt4: [{ AllCount: jobStore.length }],
+        };
+        console.log(`200: POST ${urlPath} [action=${action}] -> job counts`);
+        objectD(res, jobCounts);
 
       } else {
         // Default: return live job list from in-memory store

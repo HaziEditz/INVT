@@ -8012,6 +8012,10 @@ $(document).ready(function() {
         $scope.FnBookingZone = function(PickLat, PickLng) {
            
             $("#PickupZoneId").text("");
+            // Guard: if zone data hasn't loaded yet or has no zones, allow all addresses.
+            if (!ZonesArea || !ZonesArea["dt1"] || ZonesArea["dt1"].length === 0) {
+                return true;
+            }
             if (ZonesArea["dt1"].length != [] || ZonesArea["dt2"].length != []) {
     
       
@@ -11501,9 +11505,9 @@ $(document).ready(function() {
                             
                             totalvalue = Math.ceil(totalvalue);    
                
-                            var percentage = document.getElementById("percentagevalue").value;
-                            var transectioon = document.getElementById("transection").value;
-                            var percentagefound = (parseFloat(totalvalue) * parseFloat(percentage)) / 100;
+                            var percentage = parseFloat(document.getElementById("percentagevalue").value) || 0;
+                            var transectioon = parseFloat(document.getElementById("transection").value) || 0;
+                            var percentagefound = (parseFloat(totalvalue) * percentage) / 100;
                             console.log(percentagefound);
                             var percentageadded = parseFloat(percentagefound) + parseFloat(totalvalue);
                             console.log(percentageadded)
@@ -12520,9 +12524,9 @@ $(document).ready(function() {
 
 
 
-                                var percentage = document.getElementById("percentagevalue").value;
-                                var transectioon = document.getElementById("transection").value;
-                                var percentagefound = (parseFloat(totalvalue) * parseFloat(percentage)) / 100;
+                                var percentage = parseFloat(document.getElementById("percentagevalue").value) || 0;
+                                var transectioon = parseFloat(document.getElementById("transection").value) || 0;
+                                var percentagefound = (parseFloat(totalvalue) * percentage) / 100;
                                 console.log(percentagefound);
                                 var percentageadded = parseFloat(percentagefound) + parseFloat(totalvalue);
                                 console.log(percentageadded)

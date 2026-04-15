@@ -60,6 +60,10 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 | `[checkjobstatusv2]` | Empty `dt1` (job not assigned, dispatch goes through cleanly) |
 | `[AssignedJobsv2]` | Assigned/Offered jobs from store |
 | `AutoDispatchVehiclesallride` | Empty (no Firebase drivers) |
+| `ZoneCoordinates` | NZ-wide bounding polygon (dt1+dt2) so all NZ addresses pass zone validation |
+| `[DispatcherSettings]` | Company settings (dt1), vehicle types: Sedan/SUV/Van/Wheelchair (dt3), tariff list: Standard/Airport/Evening/Custom (dt4) |
+| `VehiclesStatus` | Live vehicle counts from ZONE_DRIVERS (All/Busy/Free/Picking/Away) |
+| `JobsCount` | Job counts from store (Closed/Cancelled/NoShow/All) |
 | `RetrieveAlarms` / `AllAlarms` | `{"d":"[]"}` (no alarms) |
 
 ### DataSelectorLess action routing
@@ -67,6 +71,8 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 |---|---|
 | `[ZonesListUpdate]` | 5 demo drivers across 3 zones (Central Invercargill, Appleby, Waikiwi) |
 | `[ActiveJobsv3]` | Active/Picking jobs from store |
+| `[payment_percentage]` | `[{paymentpercent:0, chargepertra:0}]` (no surcharges) |
+| `DispatchEstimation` | Tariff pricing by `TariffId` param (StartPrice, DistanceRate, CurrencyName) |
 | `RetrieveAlarms` / `AllAlarms` | `{"d":"[]"}` (no alarms) |
 | Other | `DataSelectorLess.html` fallback |
 
@@ -113,6 +119,15 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 13. **Dispatch triggered "Taking Job from Driver" error** — `[checkjobstatusv2]` returned all jobs so `dt1.length > 0` was always true. Fixed: returns empty `dt1`.
 14. **Zone queue empty** — `[ZonesListUpdate]` was not routed; fallback had only booking records. Fixed: returns 5 demo drivers grouped by zone. Also uncommented `$scope.zonetablez()` startup call.
 15. **AjaxHandler assignment bug** — `data.d = 'Vehicle Successfully Moved'` used `=` (assignment) instead of `==` (comparison), making the condition always truthy and swallowing `ErrMessage`. Fixed.
+
+### Booking form / zone / tariff bugs (session 4)
+26. **"Out of Zone" on every address** — `ZoneCoordinates` fell to default handler and returned job data, causing `FnBookingZone` to call `containsLocation()` with empty polygon → always `false`. Fixed: proper NZ-wide bounding polygon now returned. Also added a null guard in `FnBookingZone` to return `true` if zone data hasn't loaded yet.
+27. **Tariff dropdown empty** — `[DispatcherSettings]` fell to default handler (returned job list). `$scope.tarriflist = $res["dt4"]` was `undefined`. Fixed: proper handler added with Standard/Airport/Evening/Custom tariffs.
+28. **Vehicle type list empty** — Same `[DispatcherSettings]` issue: `$scope.cartype = $res["dt3"]` was `undefined`. Fixed: Sedan/SUV/Van/Wheelchair now returned in `dt3`.
+29. **Vehicle/job counters wrong** — `VehiclesStatus` and `JobsCount` returned job list data. Fixed: each now returns proper counted response.
+30. **Trip cost calculation NaN** — `unitChanged()` called `parseFloat('')` on unset hidden inputs for `percentage` and `transection`. Fixed: both now default to `0` via `|| 0` guard.
+31. **DispatchEstimation missing** — Tariff pricing call from `unitChanged` returned empty `[]`. Fixed: proper `DispatchEstimation` handler added with StartPrice/DistanceRate/CurrencyName per tariff.
+32. **Payment percentage missing** — `[payment_percentage]` was not handled; fell to fallback. Fixed: handler added returning `{paymentpercent:0, chargepertra:0}`.
 
 ### Grammar / spelling fixes (session 3)
 16. `'so it can t be dispatch automatically'` (Swal.fire 3rd arg was plaintext, not icon type) → `'warning'` + corrected message text
