@@ -89,6 +89,23 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Killing existing process and retrying...`);
+    const { execSync } = require('child_process');
+    try { execSync(`fuser -k ${PORT}/tcp`); } catch (e) {}
+    setTimeout(() => {
+      server.close();
+      server.listen(PORT, HOST, () => {
+        console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
+      });
+    }, 1000);
+  } else {
+    console.error('Server error:', err);
+    process.exit(1);
+  }
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
 });

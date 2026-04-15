@@ -4,12 +4,12 @@
 <html lang="en" dir="ltr">
 <head>
     <meta charset="UTF-8">
-     <script src="https://code.jquery.com/jquery-1.11.0.min.js"></script>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="DataManager/AjaxHandler.js"></script>
      <link href="toast/toastr.min.css" rel="stylesheet" />
  <script src="toast/toastr.min.js"></script>
@@ -19,8 +19,7 @@
      <link href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.min.css" />
     <link href="DataManager/Validate.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@9"></script>
-   <script src="DataManager/Validate.js"></script> 
- <script src="https://code.jquery.com/jquery-3.5.1.js"></script>
+   <script src="DataManager/Validate.js"></script>
   
     <meta name="msapplication-TileColor" content="#0f75ff">
     <meta name="theme-color" content="#9d37f6">
@@ -56,12 +55,13 @@
 
     <!-- Custom scroll bar css-->
     <link href="assets/plugins/scroll-bar/jquery.mCustomScrollbar.css" rel="stylesheet" />
-         <link href="css/ChatCss.css" rel="stylesheet" 
+         <link href="css/ChatCss.css" rel="stylesheet" />
 
-    <!---Font icons-->
+    <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/7.33.1/sweetalert2.all.js"></script>
+    <link href="css/dispatch-modern.css" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
@@ -378,14 +378,14 @@
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: green;"></i>
                                                                         {{value.PickAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
                                                                 <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: red;"></i>
                                                                         {{value.DropAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
 
@@ -395,7 +395,7 @@
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
                                                                     {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -491,14 +491,14 @@
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
                                                                             <span id="p{{avalue.drivername}}">{{avalue.PickAddress}}</span> 
-								 								
+                                                                                                                                
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
                                                                            
-								 								            <span id="d{{avalue.drivername}}">{{avalue.DropAddress}}</span> 
+                                                                                                                                            <span id="d{{avalue.drivername}}">{{avalue.DropAddress}}</span> 
                                                                         </span>
                                                                     </div>
 
@@ -506,7 +506,7 @@
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         {{avalue.BookingStatus}} {{avalue.CallSign}} {{avalue.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -615,14 +615,14 @@
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
                                                                            <span id="p{{acvalue.drivername}}">{{acvalue.PickAddress}}</span> 
-								 								
+                                                                                                                                
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
                                                                            
-								 								          <span id="d{{acvalue.drivername}}">{{acvalue.DropAddress}}</span> 
+                                                                                                                                          <span id="d{{acvalue.drivername}}">{{acvalue.DropAddress}}</span> 
                                                                         </span>
                                                                     </div>
 
@@ -632,7 +632,7 @@
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         {{acvalue.BookingStatus}} {{acvalue.CallSign}} {{acvalue.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -666,7 +666,7 @@
                                                                             {{acvalue.WheelChairs}}
                                                                         </span>
                                                                                   
-				</span>--%>
+                                </span>--%>
                                                                     </ul>
                                                                 </div>
                                                                 <div class="row nopad col-sm-9  col-md-9 col-xl-9">
@@ -740,14 +740,14 @@
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: green;"></i>
                                                                       
-								 								    <span id="p{{value.drivername}}">  {{value.PickAddress}}</span>
+                                                                                                                                    <span id="p{{value.drivername}}">  {{value.PickAddress}}</span>
                                                                     </span>
                                                                 </div>
                                                                 <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: red;"></i>
                                                                        
-								 								 <span id="d{{value.drivername}}">   {{value.DropAddress}}</span>
+                                                                                                                                 <span id="d{{value.drivername}}">   {{value.DropAddress}}</span>
                                                                     </span>
                                                                 </div>
 
@@ -757,7 +757,7 @@
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -1654,13 +1654,13 @@
                 <div class="row">
                <div class="col-md-4 bg-white " style="height: 400px; overflow-y:scroll">
                 <div class=" row border-bottom padding-sm" style="height: 40px;">
-            	    Member
+                    Member
                 </div>
               <ul class="friend-list" style="cursor:pointer">
             
                 
              </ul>
-		        </div>
+                        </div>
                 <div class="col-md-8 bg-white " id="DivChat" style="height: 400px; overflow-y:scroll">
                 <div class="chat-message">
                 <label id="PlayerId" hidden="hidden"></label>
@@ -1671,8 +1671,8 @@
                     
                 </div>
                   <input class="form-control border no-shadow no-rounded" id="TxtMessage" placeholder="Type your message here">
-            	  <button class=" " type="button" id="btnMessage">Send</button>
-            	  </div>
+                  <button class=" " type="button" id="btnMessage">Send</button>
+                  </div>
                </div>
               </div>
                 </div>
@@ -1826,16 +1826,16 @@
 
 
     <div class="modal fade" id="paymentmodel" tabindex="-1" role="dialog" style="  padding-right: 6px;">
-				<div class="modal-dialog" role="document">
-					<div class="modal-content">
-						<div class="modal-header">
-							<h5 class="modal-title" id="example-Modal3">Pay With Stripe</h5>
-							<button type="button" class="close" data-dismiss="modal" aria-label="Close">
-								<span aria-hidden="true">×</span>
-							</button>
-						</div>
-						<div class="modal-body">
-						   <form id="formStripe">
+                                <div class="modal-dialog" role="document">
+                                        <div class="modal-content">
+                                                <div class="modal-header">
+                                                        <h5 class="modal-title" id="example-Modal3">Pay With Stripe</h5>
+                                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                                <span aria-hidden="true">×</span>
+                                                        </button>
+                                                </div>
+                                                <div class="modal-body">
+                                                   <form id="formStripe">
 
                                         <div class="row">
                                             <div class="col-lg-12 text-center">
@@ -1963,13 +1963,13 @@
 
                                         
                                       </form>
-						</div>
-						<div class="modal-footer">
-							<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-					    </div>
-					</div>
-				</div>
-			</div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                            </div>
+                                        </div>
+                                </div>
+                        </div>
  <style>
      [ng\:cloak], [ng-cloak], [data-ng-cloak], [x-ng-cloak], .ng-cloak, .x-ng-cloak {
          display: none !important;
@@ -2590,9 +2590,9 @@ $(document).ready(function() {
                                                                 </select> 
                                                                 </div>
                                                                <div class="col-sm-12 col-md-6 col-xl-6" >
-											 			        <label class="label label-primary" ><i class="fa fa-car"></i></label>
-											 			        <select class="form-control ddlVehicleType required" id="ddlVehicleType"><option value="0" selected="selected">Automatic</option></select>
-											 			        </div>  
+                                                                                                                        <label class="label label-primary" ><i class="fa fa-car"></i></label>
+                                                                                                                        <select class="form-control ddlVehicleType required" id="ddlVehicleType"><option value="0" selected="selected">Automatic</option></select>
+                                                                                                                        </div>  
                                                             </div>
                                                         </div>
                                                     </div>
@@ -2803,14 +2803,14 @@ $(document).ready(function() {
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: green;"></i>
                                                                         {{value.PickAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
                                                                 <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: red;"></i>
                                                                         {{value.DropAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
 
@@ -2820,7 +2820,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
                                                                     {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -2962,14 +2962,14 @@ $(document).ready(function() {
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: green;"></i>
                                                                         {{value.PickAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
                                                                 <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: red;"></i>
                                                                         {{value.DropAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
 
@@ -2979,7 +2979,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
                                                                     {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -3083,14 +3083,14 @@ $(document).ready(function() {
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
                                                                             {{avalue.PickAddress}} 
-								 								
+                                                                                                                                
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
                                                                             {{avalue.DropAddress}}
-								 								
+                                                                                                                                
                                                                         </span>
                                                                     </div>
 
@@ -3098,7 +3098,7 @@ $(document).ready(function() {
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         {{avalue.BookingStatus}} {{avalue.CallSign}} {{avalue.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -3210,14 +3210,14 @@ $(document).ready(function() {
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
                                                                             {{acvalue.PickAddress}}
-								 								
+                                                                                                                                
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
                                                                             {{acvalue.DropAddress}}
-								 								
+                                                                                                                                
                                                                         </span>
                                                                     </div>
 
@@ -3227,7 +3227,7 @@ $(document).ready(function() {
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         {{acvalue.BookingStatus}} {{acvalue.CallSign}} {{acvalue.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -3334,14 +3334,14 @@ $(document).ready(function() {
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: green;"></i>
                                                                         {{value.PickAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
                                                                 <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
                                                                         <i class="fa fa-circle" style="color: red;"></i>
                                                                         {{value.DropAddress}}
-								 								
+                                                                                                                                
                                                                     </span>
                                                                 </div>
 
@@ -3351,7 +3351,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-								 							 
+                                                                                                                         
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -4157,13 +4157,13 @@ $(document).ready(function() {
                     $("#FreeVehicles").text($res["dt3"][0].Free);
                 }
                 if ($res["dt4"].length != []) {
-                    $("#PickingVehicles").text($res["dt5"][0].Picking);
+                    $("#PickingVehicles").text($res["dt4"][0].Picking);
                 }
                 if ($res["dt2"].length != []) {
                     $("#BusyVehicles").text($res["dt2"][0].Busy);
                 }
                 if ($res["dt5"].length != []) {
-                    $("#AwayVehicles").text($res["dt4"][0].Away);
+                    $("#AwayVehicles").text($res["dt5"][0].Away);
                 }
 
             }
@@ -4562,7 +4562,7 @@ $(document).ready(function() {
     
         var Difference_In_Time = date2.getTime() - date1.getTime(); 
         var Difference_In_Days = Difference_In_Time / (1000 * 3600 * 24); 
-        var  Difference_In_Timez = 	Difference_In_Time / (1000) ; 
+        var  Difference_In_Timez =      Difference_In_Time / (1000) ; 
        
         //if(Difference_In_Timez > 500 ){
         //      firebase.database().ref("online/" + SomeSession2 + "/"+data.VehicleId).remove();
@@ -6943,7 +6943,7 @@ $(document).ready(function() {
     
             var Difference_In_Time = date2.getTime() - date1.getTime(); 
             var Difference_In_Days = Difference_In_Time / (1000 * 3600 * 24); 
-            var  Difference_In_Timez = 	Difference_In_Time / (1000) ; 
+            var  Difference_In_Timez =  Difference_In_Time / (1000) ; 
              if(Difference_In_Timez > 80 ){
                   return "red";
                  }
@@ -7552,13 +7552,13 @@ $(document).ready(function() {
                         message1 =  '    <!DOCTYPE html>  '  + 
                                               '   <html>  '  + 
                                               '   <head>  '  + 
-                                              '   	<title>Email test</title>  '  + 
+                                              '         <title>Email test</title>  '  + 
                                               '   </head>  '  + 
                                               '   <body>  '  + 
-                                              '   	<h1>Sorry we are unable at this time. !</h1>  '  + 
-                                              '   	<p>Try Another Company.</p>  '  + 
-                                              '   	<p>Thank You for bussiness with us</p>  '  +
-                                              '   	<p style="color:red">Note: Do Not Reply</p>  '  +  
+                                              '         <h1>Sorry we are unable at this time. !</h1>  '  + 
+                                              '         <p>Try Another Company.</p>  '  + 
+                                              '         <p>Thank You for bussiness with us</p>  '  +
+                                              '         <p style="color:red">Note: Do Not Reply</p>  '  +  
                                               '   </body>  '  + 
                                               '  </html>  ' ; 
                         jQuery.ajax(
@@ -8461,7 +8461,7 @@ $(document).ready(function() {
            "<body>" +
            " <div>" +
                "<div style=' padding: 20px; background: #ffc10770;'>" +
-               "	<h2 align='center' style='font-family: sans-serif;'>Account Verification Update:</h2>" +
+               "        <h2 align='center' style='font-family: sans-serif;'>Account Verification Update:</h2>" +
                "</div>" +
               "<div style='padding: 20px; background:  #f1efeb70;'>" +
                    "<h4>Hello "+name+".</h4>"+
@@ -9961,7 +9961,7 @@ $(document).ready(function() {
                                     console.log("no more sending this job"+id);
                                     for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                        spliszzz = checkdriverlist[loopsz].split("_");	
+                                        spliszzz = checkdriverlist[loopsz].split("_");  
                                         if (spliszzz.includes(random6) == true) {
                                             checkdriverlist.splice(loopsz , 1);
 
@@ -10008,12 +10008,12 @@ $(document).ready(function() {
                                  
                                             majorrandom = false;
                                             for(loops = 0 ; loops < checkdriverlist.length; loops++){
-	 	     
-                                                spliss = checkdriverlist[loops].split("_");	
+                     
+                                                spliss = checkdriverlist[loops].split("_");     
                                       
                                                 if (spliss[0] == random3["dt2"][random4].PlayerId) {
                                                     majorrandom = true;
-					    
+                                            
                                                 } 
 
                                             }
@@ -10061,7 +10061,7 @@ $(document).ready(function() {
                                                                 localva = "Accept";
                                                                 for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                                    spliszzz = checkdriverlist[loopsz].split("_");	
+                                                                    spliszzz = checkdriverlist[loopsz].split("_");      
                                                                     if (spliszzz.includes(random6) == true) {
                                                                         checkdriverlist.splice(loopsz , 1);
 
@@ -10078,7 +10078,7 @@ $(document).ready(function() {
                                                                     random4++;
                                                                     for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                                        spliszzz = checkdriverlist[loopsz].split("_");	
+                                                                        spliszzz = checkdriverlist[loopsz].split("_");  
                                                                         if (spliszzz.includes(driverid) == true) {
                                                                             checkdriverlist.splice(loopsz , 1);
                                                                             console.log("removed dddriver" + driverid);
@@ -10099,7 +10099,7 @@ $(document).ready(function() {
                                                             refaz.remove();
                                                             localva = "Accept";
                                                             for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
-                                                                spliszzz = checkdriverlist[loopsz].split("_");	
+                                                                spliszzz = checkdriverlist[loopsz].split("_");  
                                                                 if (spliszzz.includes(random6) == true) {
                                                                     checkdriverlist.splice(loopsz , 1);
 
@@ -10116,7 +10116,7 @@ $(document).ready(function() {
                                                                 random4++;
                                                                 for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                                    spliszzz = checkdriverlist[loopsz].split("_");	
+                                                                    spliszzz = checkdriverlist[loopsz].split("_");      
                                                                     if (spliszzz.includes(driverid) == true) {
                                                                         checkdriverlist.splice(loopsz , 1);
                                                                         console.log("removed dddriver" + driverid);
@@ -10284,7 +10284,7 @@ $(document).ready(function() {
                     }else{
                           
                     }
-	                  
+                          
                     for(o = inrolejob.length; o >= 0 ; o--){
                         if(inrolejob[o] == Id){
                             inrolejob.splice(o, 1);    
@@ -10293,7 +10293,7 @@ $(document).ready(function() {
                     }
                     for(var zzz = checkdriverlist.length-1 ; zzz >= 0 ; zzz--){
                      
-                        spliszzz = checkdriverlist[zzz].split("_");	
+                        spliszzz = checkdriverlist[zzz].split("_");     
                         if (spliszzz.includes(randomautoo) == true) {
                             checkdriverlist.splice(zzz , 1);
 
@@ -10316,7 +10316,7 @@ $(document).ready(function() {
                         random99  = JSON.parse(result.d);
                         for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                            spliszzz = checkdriverlist[ppp].split("_");	
+                            spliszzz = checkdriverlist[ppp].split("_"); 
                 
                             if (spliszzz.includes(randomautoo) == true) {
                                 checkdriverlist.splice(ppp , 1);
@@ -10328,14 +10328,14 @@ $(document).ready(function() {
                
                         if(checkdriverlist.length > 0) { 
                             for(var loops = 0 ; loops < checkdriverlist.length; loops++){
-	 	     
-                                spliss = checkdriverlist[loops].split("_");	
+                     
+                                spliss = checkdriverlist[loops].split("_");     
                     
                             
                                 if (parseInt(spliss[0]) == random77[random110][1]) {
                           
                                     majorrandomz = false;
-					    
+                                            
                                 } 
 
                             }
@@ -10385,7 +10385,7 @@ $(document).ready(function() {
                                             }
                                             for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                spliszzz = checkdriverlist[ppp].split("_");	
+                                                spliszzz = checkdriverlist[ppp].split("_");     
                 
                                                 if (spliszzz.includes(randomautoo) == true) {
                                                     checkdriverlist.splice(ppp , 1);
@@ -10408,7 +10408,7 @@ $(document).ready(function() {
                                                 random110++;
                                                 for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                    spliszzz = checkdriverlist[loopsz].split("_");	
+                                                    spliszzz = checkdriverlist[loopsz].split("_");      
                                                     if (spliszzz.includes(driverid) == true) {
                                                         checkdriverlist.splice(loopsz , 1);
                                                         console.log("removed dddriver" + driverid);
@@ -10423,7 +10423,7 @@ $(document).ready(function() {
                                             }
                                             for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                spliszzz = checkdriverlist[ppp].split("_");	
+                                                spliszzz = checkdriverlist[ppp].split("_");     
                 
                                                 if (spliszzz.includes(randomautoo) == true) {
                                                     checkdriverlist.splice(ppp , 1);
@@ -10450,7 +10450,7 @@ $(document).ready(function() {
                                                 }
                                                 for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                    spliszzz = checkdriverlist[ppp].split("_");	
+                                                    spliszzz = checkdriverlist[ppp].split("_"); 
                 
                                                     if (spliszzz.includes(randomautoo) == true) {
                                                         checkdriverlist.splice(ppp , 1);
@@ -10486,7 +10486,7 @@ $(document).ready(function() {
                                             }
                                             for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                spliszzz = checkdriverlist[ppp].split("_");	
+                                                spliszzz = checkdriverlist[ppp].split("_");     
                 
                                                 if (spliszzz.includes(randomautoo) == true) {
                                                     checkdriverlist.splice(ppp , 1);
@@ -11280,8 +11280,8 @@ $(document).ready(function() {
   
                                 // To calculate the no. of days between two dates 
                                 var Difference_In_Days = Difference_In_Time / (1000 * 3600 * 24); 
-                                var  Difference_In_Timez = 	Difference_In_Time / (1000) ; 
-		
+                                var  Difference_In_Timez =      Difference_In_Time / (1000) ; 
+                
                                 if(Difference_In_Timez > 30 ){
                                     $statustext = "red";
                            
@@ -12770,13 +12770,13 @@ $(document).ready(function() {
                             message1 =  '   <!DOCTYPE html>  '  + 
                                              '   <html>  '  + 
                                              '   <head>  '  + 
-                                             '   	<title>Email test</title>  '  + 
+                                             '          <title>Email test</title>  '  + 
                                              '   </head>  '  + 
                                              '   <body>  '  + 
-                                             '   	<h1>Sorry we are unable at this time. !</h1>  '  + 
-                                             '   	<p>Try Another Company.</p>  '  + 
-                                             '   	<p>Thank You for bussiness with us</p>  '  +
-                                             '   	<p style="color:red">Note: Do Not Reply</p>  '  +  
+                                             '          <h1>Sorry we are unable at this time. !</h1>  '  + 
+                                             '          <p>Try Another Company.</p>  '  + 
+                                             '          <p>Thank You for bussiness with us</p>  '  +
+                                             '          <p style="color:red">Note: Do Not Reply</p>  '  +  
                                              '   </body>  '  + 
                                              '  </html>  ' ; 
                         }else{
@@ -12785,13 +12785,13 @@ $(document).ready(function() {
                             message1 =  '   <!DOCTYPE html>  '  + 
                                     '   <html>  '  + 
                                     '   <head>  '  + 
-                                    '   	<title>Email test</title>  '  + 
+                                    '           <title>Email test</title>  '  + 
                                     '   </head>  '  + 
                                     '   <body>  '  + 
-                                    '   	<h1>Your Ride is Booked</h1>  '  + 
-                                     '   	<p>In case of any changes . Please Contect The selected Company Through the Phone.</p>  '  + 
-                                    '   	<p>Thank You for bussiness with us</p>  '  + 
-                                   '   	<p style="color:red">Note: Do Not Reply</p>  '  + 
+                                    '           <h1>Your Ride is Booked</h1>  '  + 
+                                     '          <p>In case of any changes . Please Contect The selected Company Through the Phone.</p>  '  + 
+                                    '           <p>Thank You for bussiness with us</p>  '  + 
+                                   '    <p style="color:red">Note: Do Not Reply</p>  '  + 
                                     '   </body>  '  + 
                                     '  </html>  ' ; 
                         }
