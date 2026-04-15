@@ -6960,7 +6960,7 @@ $(document).ready(function() {
                     $("#SearchedJobsDetails").empty();
                     if ($res.length != []) {
                         $scope.searchitem = $res;
-                        $scope.$digest();
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     else {
                         $scope.searchitem = [];
@@ -7151,7 +7151,7 @@ $(document).ready(function() {
                         markers[datacom.vehiclenumber].setMap(null);
                     }
                     $scope.changezone($scope.driverdatarealx); 
-                    try { $scope.$digest(); } catch(e) {}
+                    if (!$scope.$$phase) { $scope.$digest(); }
                     found = true;
                     break;
                 }
@@ -7192,7 +7192,7 @@ $(document).ready(function() {
                     _AssignedJobs();
                 }
             }
-            try { $scope.$digest(); } catch(e) {}
+            if (!$scope.$$phase) { $scope.$digest(); }
         }
 
         $scope.updatedatat = function(datacom){
@@ -7271,19 +7271,19 @@ $(document).ready(function() {
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        try { $scope.$digest(); } catch(e) {}
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].zonequeue  != datacom.zonequeue ){
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        try { $scope.$digest(); } catch(e) {}
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].joboffer  != datacom.joboffer ){
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        try { $scope.$digest(); } catch(e) {}
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
 
                     if($scope.driverdatarealx[incs].jobCount  != datacom.jobCount){
@@ -7297,7 +7297,7 @@ $(document).ready(function() {
                             $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
                         }
                         $scope.zonetablez();
-                        try { $scope.$digest(); } catch(e) {}
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].JobphoneNo != datacom.JobphoneNo){
                         $scope.driverdatarealx[incs] =  datacom;
@@ -7306,16 +7306,16 @@ $(document).ready(function() {
                             $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
                         }
                         $scope.zonetablez();
-                        try { $scope.$digest(); } catch(e) {}
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
                         $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        try { $scope.$digest(); } catch(e) {}
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
-                    try { $scope.$digest(); } catch(e) {}
+                    if (!$scope.$$phase) { $scope.$digest(); }
                        
                 }
                  
@@ -7331,7 +7331,7 @@ $(document).ready(function() {
                 //    $scope.changezone($scope.driverdatarealx); 
                 //}
                 $scope.zonetablez();
-                try { $scope.$digest(); } catch(e) {}
+                if (!$scope.$$phase) { $scope.$digest(); }
             }
            
         }
@@ -7437,7 +7437,7 @@ $(document).ready(function() {
                     $("#SearchedJobsDetails").empty();
                     if ($res.length != []) {
                         $scope.searchitem = $res;
-                        $scope.$digest();
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     else {
                         $scope.searchitem =[];
@@ -7492,7 +7492,7 @@ $(document).ready(function() {
 
                         $('#coords').val(input)
                         $('#plot').click();
-                        $scope.$digest();
+                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     else {
                         $("#JobsDetailsSection").append('<div style="cursor:pointer" class="row">Some Details are missing for this job</div>');
@@ -9694,7 +9694,7 @@ $(document).ready(function() {
                                console.log("status need to change");
                                $scope.getjobs( );
                                myResolve('dont');
-                               $scope.$digest();
+                               if (!$scope.$$phase) { $scope.$digest(); }
                            },
                            error:  function (response) {
                                myResolve('dont');
@@ -9775,7 +9775,7 @@ $(document).ready(function() {
                                                     console.log(obj[i].PlayerId + " Reject The Job!  ");
                                                     firebase.database().ref().child("joback/"+id+"/"+obj[i].PlayerId).remove();
                                                     $scope.zonetablez();
-                                                    $scope.$digest();
+                                                    if (!$scope.$$phase) { $scope.$digest(); }
                                                     firebase.database().ref().child("/notification/" + obj[i].PlayerId).remove();
                                                     firebase.database().ref().child("/autodisp/"+ obj[i].PlayerId).remove();
                                                     myResolve("reject");
@@ -10859,7 +10859,7 @@ $(document).ready(function() {
         $scope.searchitemreset = function(){
             $scope.jobdetailshowing = [];
            $scope.searchitem = [];
-            $scope.$digest();
+            if (!$scope.$$phase) { $scope.$digest(); }
         }
         $scope.clearsection = function(){
            
@@ -11381,7 +11381,7 @@ $(document).ready(function() {
 
                     
                         $('#loading').remove();
-                     $scope.$digest();
+                     if (!$scope.$$phase) { $scope.$digest(); }
                     }
                   
                    
@@ -11801,7 +11801,7 @@ $(document).ready(function() {
             // ── Real-time first: if Firebase has live drivers, use them ──────────
             if ($scope.driverdatarealx && $scope.driverdatarealx.length > 0) {
                 $scope.changezone($scope.driverdatarealx);
-                try { $scope.$digest(); } catch(e) {}
+                if (!$scope.$$phase) { $scope.$digest(); }
                 return;
             }
 
