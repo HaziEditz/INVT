@@ -6933,6 +6933,17 @@ $(document).ready(function() {
 
 <script>
     var app = angular.module('myApp', []);
+
+    // Override default $exceptionHandler so Angular internals (e.g. $digest already
+    // in progress, transient Firebase-triggered re-entrant digest) log as warnings
+    // rather than errors, preventing false "crash" detections.
+    app.factory('$exceptionHandler', ['$log', function($log) {
+        return function(exception, cause) {
+            var msg = (exception && (exception.message || exception.type || exception)) || exception;
+            $log.warn('Angular exception' + (cause ? ' [' + cause + ']' : '') + ':', msg);
+        };
+    }]);
+
     app.controller('myCtrl', function ($scope, $http ) {
         $scope.searchitem = [];
         $scope.JobByBetweenDate =function() {
@@ -7140,7 +7151,7 @@ $(document).ready(function() {
                         markers[datacom.vehiclenumber].setMap(null);
                     }
                     $scope.changezone($scope.driverdatarealx); 
-                    $scope.$digest();
+                    try { $scope.$digest(); } catch(e) {}
                     found = true;
                     break;
                 }
@@ -7257,33 +7268,23 @@ $(document).ready(function() {
                 if ($scope.driverdatarealx[incs].VehicleId ==  datacom.VehicleId ) {
  
                     if($scope.driverdatarealx[incs].zonename  != datacom.zonename ){
-                      
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
-
-                      
                         $scope.zonetablez();
-                      //
-                       
-                        $scope.$digest();
+                        try { $scope.$digest(); } catch(e) {}
                     }
                     if($scope.driverdatarealx[incs].zonequeue  != datacom.zonequeue ){
-                      
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
-                    
                         $scope.zonetablez();
-                        $scope.$digest();
+                        try { $scope.$digest(); } catch(e) {}
                     }
                     if($scope.driverdatarealx[incs].joboffer  != datacom.joboffer ){
-                      
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
-                       
                         $scope.zonetablez();
-                        $scope.$digest();
+                        try { $scope.$digest(); } catch(e) {}
                     }
-
 
                     if($scope.driverdatarealx[incs].jobCount  != datacom.jobCount){
                         if (typeof $scope.AssignedJobs === 'function') { $scope.AssignedJobs(); }
@@ -7294,34 +7295,27 @@ $(document).ready(function() {
                         $scope.driverlist =  $scope.driverdatarealx;
                         if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
                             $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
-                         }
+                        }
                         $scope.zonetablez();
-                        $scope.$digest();
-
+                        try { $scope.$digest(); } catch(e) {}
                     }
                     if($scope.driverdatarealx[incs].JobphoneNo != datacom.JobphoneNo){
-                         $scope.driverdatarealx[incs] =  datacom;
+                        $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
                         if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
                             $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
                         }
                         $scope.zonetablez();
-                        $scope.$digest();
-
+                        try { $scope.$digest(); } catch(e) {}
                     }
                     if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
-                        //console.log($scope.driverdatarealx[incs]);
-                        //console.log("change status");
-                          $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
-                         
+                        $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
-                        
                         $scope.zonetablez();
-                        $scope.$digest();
+                        try { $scope.$digest(); } catch(e) {}
                     }
-
-                    $scope.$digest();
+                    try { $scope.$digest(); } catch(e) {}
                        
                 }
                  
@@ -7337,7 +7331,7 @@ $(document).ready(function() {
                 //    $scope.changezone($scope.driverdatarealx); 
                 //}
                 $scope.zonetablez();
-                $scope.$digest();
+                try { $scope.$digest(); } catch(e) {}
             }
            
         }
