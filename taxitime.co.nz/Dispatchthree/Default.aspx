@@ -11733,79 +11733,51 @@ $(document).ready(function() {
         $scope.defaultsetting();
         //$scope.drivertable();
         $scope.zonetablez = function () {
+            // ── Real-time first: if Firebase has live drivers, use them ──────────
+            if ($scope.driverdatarealx && $scope.driverdatarealx.length > 0) {
+                $scope.changezone($scope.driverdatarealx);
+                try { $scope.$digest(); } catch(e) {}
+                return;
+            }
 
+            // ── Fallback: no Firebase data, fetch demo driver list from server ──
             $scope.param = [];
             $scope.proc = '[ZonesListUpdate]';
 
             $http({
-
                 method: "POST",
-
                 url: "DataManager/Data.aspx/DataSelectorLess",
-
                 data: {
                     data: $scope.param,
                     action: $scope.proc
                 }
-
             }).then(function mySuccess(response) {
-
-
                 var resp = response.data;
                 $scope.zonetable = JSON.parse(resp.d);
-      
-         
-              
                 var dataStuff = $scope.zonetable;
                 grouped = Object.create(null);
-               
                 dataStuff.forEach(function (a) {
                     grouped[a.zonename] = grouped[a.zonename] || [];
                     grouped[a.zonename].push(a);
                 });
-
-
-
                 const keys = Object.keys(grouped)
                 var maaa = [];
-                var finaldata = [];
                 for (var xx = 0 ; xx < keys.length ; xx++) {
                     var value = keys[xx];
                     var datashows = [];
-
                     var datahead = [];
-                    var car = "";
                     var carvalue = [];
                     for (var o = 0; o < grouped[value].length; o++) {
-                        var id = grouped[value][o].zonename  ;
-                        var indexOfDayx = datahead.indexOf(id);
-                        if (indexOfDayx === -1) {
-                            datahead.push(id)
-
-                        } else {
-
-                        }
-
+                        var id = grouped[value][o].zonename;
+                        if (datahead.indexOf(id) === -1) { datahead.push(id); }
                         carvalue.push(grouped[value][o]);
                     }
-
-
                     datashows.push(datahead[0]);
                     datashows.push(carvalue);
                     maaa.push(datashows);
                 }
-
                 $scope.zonelist = maaa;
-              
-            }, function myError(response) {
-
-
-
-            });
-
-
-
-
+            }, function myError(response) {});
         }
         spx = [];
         $scope.jobsdata =[];
