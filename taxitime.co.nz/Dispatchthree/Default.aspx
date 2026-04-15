@@ -11805,9 +11805,48 @@ $(document).ready(function() {
                 return;
             }
 
-            // No Firebase drivers yet — zone table is empty until drivers come online
-            $scope.zonelist = [];
-            if (!$scope.$$phase) { $scope.$digest(); }
+            // ── Fallback: no Firebase data, fetch demo driver list from server ──
+            $scope.param = [];
+            $scope.proc = '[ZonesListUpdate]';
+
+            $http({
+                method: "POST",
+                url: "DataManager/Data.aspx/DataSelectorLess",
+                data: {
+                    data: $scope.param,
+                    action: $scope.proc
+                }
+            }).then(function mySuccess(response) {
+                var resp = response.data;
+                $scope.zonetable = JSON.parse(resp.d);
+                var dataStuff = $scope.zonetable;
+                if (!dataStuff || dataStuff.length === 0) {
+                    $scope.zonelist = [];
+                    return;
+                }
+                grouped = Object.create(null);
+                dataStuff.forEach(function (a) {
+                    grouped[a.zonename] = grouped[a.zonename] || [];
+                    grouped[a.zonename].push(a);
+                });
+                const keys = Object.keys(grouped)
+                var maaa = [];
+                for (var xx = 0 ; xx < keys.length ; xx++) {
+                    var value = keys[xx];
+                    var datashows = [];
+                    var datahead = [];
+                    var carvalue = [];
+                    for (var o = 0; o < grouped[value].length; o++) {
+                        var id = grouped[value][o].zonename;
+                        if (datahead.indexOf(id) === -1) { datahead.push(id); }
+                        carvalue.push(grouped[value][o]);
+                    }
+                    datashows.push(datahead[0]);
+                    datashows.push(carvalue);
+                    maaa.push(datashows);
+                }
+                $scope.zonelist = maaa;
+            }, function myError(response) {});
         }
         spx = [];
         $scope.jobsdata =[];
