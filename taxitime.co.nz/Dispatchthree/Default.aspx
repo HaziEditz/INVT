@@ -11805,47 +11805,25 @@ $(document).ready(function() {
                 return;
             }
 
-            // ── Fallback: no Firebase data, fetch demo driver list from server ──
-            $scope.param = [];
-            $scope.proc = '[ZonesListUpdate]';
-
+            // ── Fallback: no Firebase data — fetch demo drivers from server ──────
             $http({
                 method: "POST",
                 url: "DataManager/Data.aspx/DataSelectorLess",
-                data: {
-                    data: $scope.param,
-                    action: $scope.proc
-                }
+                data: { data: [], action: '[ZonesListUpdate]' }
             }).then(function mySuccess(response) {
-                var resp = response.data;
-                $scope.zonetable = JSON.parse(resp.d);
-                var dataStuff = $scope.zonetable;
+                var dataStuff;
+                try { dataStuff = JSON.parse(response.data.d); } catch(e) { dataStuff = []; }
                 if (!dataStuff || dataStuff.length === 0) {
                     $scope.zonelist = [];
                     return;
                 }
-                grouped = Object.create(null);
-                dataStuff.forEach(function (a) {
-                    grouped[a.zonename] = grouped[a.zonename] || [];
-                    grouped[a.zonename].push(a);
-                });
-                const keys = Object.keys(grouped)
-                var maaa = [];
-                for (var xx = 0 ; xx < keys.length ; xx++) {
-                    var value = keys[xx];
-                    var datashows = [];
-                    var datahead = [];
-                    var carvalue = [];
-                    for (var o = 0; o < grouped[value].length; o++) {
-                        var id = grouped[value][o].zonename;
-                        if (datahead.indexOf(id) === -1) { datahead.push(id); }
-                        carvalue.push(grouped[value][o]);
-                    }
-                    datashows.push(datahead[0]);
-                    datashows.push(carvalue);
-                    maaa.push(datashows);
+                // Seed driverdatarealx with demo drivers (only if Firebase still has none)
+                if (!$scope.driverdatarealx || $scope.driverdatarealx.length === 0) {
+                    $scope.driverdatarealx = dataStuff;
+                    $scope.driverlist      = dataStuff;
                 }
-                $scope.zonelist = maaa;
+                $scope.changezone($scope.driverdatarealx);
+                if (!$scope.$$phase) { $scope.$digest(); }
             }, function myError(response) {});
         }
         spx = [];
@@ -13674,7 +13652,6 @@ $(document).ready(function() {
                         $scope.driverlistassigned = $scope.assigneddata['dt2'];
                        
                         $scope.assignedjob_list = $scope.assigneddata['dt1'];
-                        console.log($scope.assignedjob_list);
                         $scope.AssignedCount = $scope.assigneddata['dt1'].length;
                         //$scope.$digest();
                     }, function myError(response) {

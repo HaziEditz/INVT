@@ -507,11 +507,10 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> []`);
         jsonReply(res, { d: '[]' });
       } else if (action === '[ZonesListUpdate]') {
-        // Real driver zone data comes from Firebase (driverdatarealx).
-        // This fallback is only hit when Firebase has no live drivers,
-        // so return empty — no cars online means no zone queue entries.
-        console.log(`200: POST ${urlPath} [action=${action}] -> 0 drivers (Firebase is source of truth)`);
-        arrayD(res, []);
+        // Return ZONE_DRIVERS so the client can seed driverdatarealx when
+        // Firebase has no live drivers connected.
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} demo drivers`);
+        arrayD(res, ZONE_DRIVERS);
 
       } else if (action === '[payment_percentage]') {
         // Payment percentage and per-transaction charge — return zeros (no surcharges)

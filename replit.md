@@ -235,11 +235,16 @@ POST to `DataManager/Data.aspx/LoginSelector` with `{action: 'DispatcherLogin', 
 ### Session persistence
 Sessions survive page refresh and navigation (stored in `localStorage`). Revisiting `DispatcherLogin.aspx` while already logged in auto-redirects to `Default.aspx`.
 
+### Zone queue + console noise fixes (session 8)
+58. **`[ZonesListUpdate]` returned `[]` instead of demo drivers** — Server was returning an empty array for the fallback, so `zonetablez()` always got nothing and the zone queue table stayed blank in dev mode. Fixed: server now returns `ZONE_DRIVERS` (5 demo drivers) for `[ZonesListUpdate]`.
+59. **`zonetablez()` fallback didn't seed `driverdatarealx`** — The client fallback parsed the zone driver list but never put it into `driverdatarealx` / `driverlist`, so the dispatch driver dropdown and zone table had no data. Fixed: fallback now seeds both `driverdatarealx` and `driverlist` from the server response when Firebase has no live drivers, then calls `changezone(driverdatarealx)` to render the zone table immediately.
+60. **Periodic `[[]]` console noise** — `console.log($scope.assignedjob_list)` inside the `AssignedJobs` polling callback fired every 15 s, logging `[]` whenever there were no assigned jobs (empty `dt1`). Removed the debug log — browser console is now clean except for meaningful `"start"` warnings from the auto-dispatch checker.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.
 - **Google Maps deprecation warnings** — DirectionsRenderer/Service, Marker, Places Autocomplete APIs deprecated 2024-2026. All still functional.
-- **Driver dropdown empty** — `driverdatarealx` is populated from Firebase only; without credentials the dropdown has no drivers to select.
+- **Driver dropdown (demo mode)** — `driverdatarealx` is seeded with 5 ZONE_DRIVERS when Firebase has no live connections; in production it is populated from live Firebase GPS data.
 - **In-memory store resets on restart** — New jobs created during the session are lost when the server restarts.
 
 ## Dispatcher Session Info (Demo)
