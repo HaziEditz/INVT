@@ -74,7 +74,22 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 | `[payment_percentage]` | `[{paymentpercent:0, chargepertra:0}]` (no surcharges) |
 | `DispatchEstimation` | Tariff pricing by `TariffId` param (StartPrice, DistanceRate, CurrencyName) |
 | `RetrieveAlarms` / `AllAlarms` | `{"d":"[]"}` (no alarms) |
+| `[SearchById]` | Filter all jobs+closed by exact booking ID |
+| `[SearchJobByName]` | Filter all jobs+closed by passenger name (partial match) |
+| `[SearchByPhoneNo]` | Filter all jobs+closed by phone (partial match) |
+| `[SearchByAfterDate]` | Filter all jobs+closed with booking date >= param |
+| `[SearchByBeforeDate]` | Filter all jobs+closed with booking date <= param |
+| `SearchJobDateBetween` | Filter all jobs+closed between From/To dates |
+| `JobDetails` | Single job full detail (with Route="" for map) from all jobs+closed |
+| `[RetrieveMessages]` | Driver list with unread message count for chat sidebar |
+| `[DispatcherUnReadMessages]` | New (unread) messages from a driver; marks them read |
 | Other | `DataSelectorLess.html` fallback |
+
+### DataSelector additional actions (session 6)
+| Action | Response |
+|---|---|
+| `ClosedJobs` | Closed job store filtered by status/date/driver/vehicle; dt1=jobs, dt2=drivers, dt3=vehicles |
+| `[DispatcherConversation]` | Full conversation thread: dt1=PlayerId, dt2=messages list |
 
 ### DataSelectorRide action routing
 | Action | Response |
@@ -89,11 +104,23 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 | `[CancelUnAssignedJobStatusFromJobList]` | Removes job from store |
 | `[AssignJobStatusFromJobList]` | Marks job as Offered |
 | `[UnAssignJobStatusFromJobList]` | Marks job as Pending |
+| `[MessageInsert]` | Saves dispatcher→driver message to in-memory message store |
+| `[BroadcastMessage]` | Sends a message to all drivers in ZONE_DRIVERS |
+| `[GroupMessage]` | Sends to filtered drivers by Zone and/or VehicleType params |
+| `[DeleteMessage]` | Removes a message from the store by Id |
 | Other | `"Operation Successfully Performed"` |
 
+### Other POST endpoints
+| URL | Description |
+|---|---|
+| `DispatcherLogin.aspx/Logout` | Clears session, returns `{d:"DispatcherLogin.aspx"}` redirect target |
+| `DispatcherLogin.aspx/AccountRequest` | Saves access request (Stripe-ready structure), returns confirmation message |
+
 ### Demo data
-- **Demo jobs**: 937195 (Crinan St pickup, today), 937163 (Centre St pickup, 21 Apr)
-- **Demo drivers**: 5 drivers across 3 zones; vehicle IDs 201–205; vehicle status: 201-204 Available, 205 Busy
+- **Demo jobs**: 937195 (Crinan St pickup, today/ASAP), 937163 (Centre St pickup, 5 days ahead)
+- **Demo drivers**: 5 drivers across 3 zones; vehicle IDs 201–205; status: 201-204 Available, 205 Busy
+- **Demo closed jobs**: 6 historical jobs (937100–937105) across last 3 days for Closed Jobs view
+- **Demo messages**: 4 pre-seeded messages between Dispatcher and Michael Johnson/Sarah Wilson/David Thompson
 
 ## Bug Fixes Applied
 
@@ -135,6 +162,19 @@ The server maintains an **in-memory job store** (starts with demo jobs 937195 an
 35. **`checklateornow` always showed "Late" for future pre-bookings** — The original formula returned `-(JobMins + DispatchTimebefore)` which is nonsensical for `JobMins > DispatchTimebefore`. Rewrote with correct semantics: shows `Xd Yh` / `Xh Ym` / `X Min` until dispatch window opens, `Dispatch` when window is open, `X Min Late` when overdue.
 36. **Job row time badge unreadable** — `datecreate()` returned raw `"15-04 16:05"` format. Rewrote to return: `"ASAP"` (±10 min), `"Today 4:05 PM"`, `"Tomorrow 8:35 AM"`, `"Mon 20 Apr, 8:35 AM"`.
 37. **No visual distinction between ASAP and pre-booked jobs** — Added `jobTypeLabel()` function and green/amber/blue badge on every job card. Added `getTheValue()` 3-tier color scheme: green (due now), amber (dispatch in ≤30 min), blue (future pre-booking), red (overdue by >60 min).
+
+### Search/Closed Jobs, Messaging, Zone Queue, Logout fixes (session 6)
+38. **Search Jobs modal input hidden** — `TxtSearch` was `type="hidden"` so users couldn't type. Fixed: changed to `type="text"`, added dynamic show/hide of text/date inputs based on `ddlSearchBy` selection, wired `btnSearchJob` to call `SearchJob()`.
+39. **Search actions all unhandled** — `[SearchById]`, `[SearchJobByName]`, `[SearchByPhoneNo]`, `[SearchByAfterDate]`, `[SearchByBeforeDate]`, `SearchJobDateBetween` all fell to default fallback. Fixed: all six handlers added in `DataSelectorLess`, searching across both `jobStore` and `closedJobStore`.
+40. **Closed Jobs handler missing** — `FnClosedJobs` called `ClosedJobs` action which was unhandled. Fixed: handler added in `DataSelector` returning `dt1` (filtered closed jobs), `dt2` (drivers list), `dt3` (vehicles list). Added 6 historical demo closed jobs.
+41. **`JobDetails` action missing** — Single job detail view called `JobDetails` which fell to fallback. Fixed: handler added, searches both active and closed job stores.
+42. **Messaging — all actions unhandled** — `[RetrieveMessages]`, `[DispatcherConversation]`, `[DispatcherUnReadMessages]`, `[MessageInsert]`, `[DeleteMessage]` were all unrouted. Fixed: all handlers added; in-memory message store with 4 pre-seeded demo messages; unread badge counts update on conversation open.
+43. **Messaging JS bugs** — `$res.length != []` (always true) in ChatRoom.js. Fixed to `$res.length > 0` in `GetDetails()`, `GetConversation()`, `DriverNewMessages()`.
+44. **Chat panel** — Single plain textarea. Upgraded to 3-tab panel: **Individual** (driver list + conversation thread + send), **Broadcast All** (textarea + send to all), **Group** (filter by zone/vehicle type + send).
+45. **Broadcast/Group message actions** — `[BroadcastMessage]` and `[GroupMessage]` added to `DataProcessor`; `BroadcastMessage()` and `FnGroupMessage()` functions added to `ChatRoom.js`.
+46. **Logout — session not cleared** — `FnSuccessLogout()` only redirected; did not clear `localStorage`. Fixed: all `TT_*` keys now explicitly removed before redirect. Firebase `signOut()` wrapped in try/catch.
+47. **Zone queue not auto-refreshing** — `zonetablez()` was only called on initial load and on job dispatch events. Added `setInterval(zonetablez, 15000)` so the zone panel refreshes every 15 seconds.
+48. **Request Access was a mailto link** — `DispatcherLogin.aspx` had `<a href="mailto:...">Request Access</a>` with no backend. Replaced with a modal form (name, email, phone, company, role fields) with validation, success/error feedback, and `POST DispatcherLogin.aspx/AccountRequest` backend endpoint (Stripe-ready structure).
 
 ### Grammar / spelling fixes (session 3)
 16. `'so it can t be dispatch automatically'` (Swal.fire 3rd arg was plaintext, not icon type) → `'warning'` + corrected message text

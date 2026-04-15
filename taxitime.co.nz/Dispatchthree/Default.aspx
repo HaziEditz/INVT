@@ -880,18 +880,54 @@
 
 
                                 <div class="row" id="SearchFields">
-                                    <div class="col-lg-8 col-md-8">
-                                        <div class="form-group" id="SearchField">
-                                            <input type="hidden" class="form-control" id="TxtSearch" value="All" placeholder="Search By Booking Id">
+                                    <div class="col-lg-10 col-md-10">
+                                        <div class="form-group" id="SearchField" style="display:none;">
+                                            <label id="lblSearchHint" style="font-size:12px;color:#888;"></label>
+                                            <input type="text" class="form-control" id="TxtSearch" placeholder="Enter search term">
                                         </div>
-
+                                        <div class="form-group" id="SearchDateFrom" style="display:none;">
+                                            <label style="font-size:12px;color:#888;">From Date</label>
+                                            <input type="date" class="form-control" id="TxtFrom">
+                                        </div>
+                                        <div class="form-group" id="SearchDateTo" style="display:none;">
+                                            <label style="font-size:12px;color:#888;">To Date</label>
+                                            <input type="date" class="form-control" id="TxtTo">
+                                        </div>
                                     </div>
-
                                 </div>
+                                <script>
+                                    $('#ddlSearchBy').on('change', function() {
+                                        var val = $(this).val();
+                                        $('#SearchField').hide();
+                                        $('#SearchDateFrom').hide();
+                                        $('#SearchDateTo').hide();
+                                        if (val === 'Number') {
+                                            $('#lblSearchHint').text('Booking ID number');
+                                            $('#TxtSearch').attr('placeholder', 'e.g. 937195');
+                                            $('#SearchField').show();
+                                        } else if (val === 'Name') {
+                                            $('#lblSearchHint').text('Passenger name (partial match)');
+                                            $('#TxtSearch').attr('placeholder', 'e.g. Jane');
+                                            $('#SearchField').show();
+                                        } else if (val === 'PhoneNo') {
+                                            $('#lblSearchHint').text('Phone number (partial match)');
+                                            $('#TxtSearch').attr('placeholder', 'e.g. 021');
+                                            $('#SearchField').show();
+                                        } else if (val === 'After') {
+                                            $('#SearchDateFrom').show();
+                                        } else if (val === 'Before') {
+                                            $('#SearchDateTo').show();
+                                        } else if (val === 'Between') {
+                                            $('#SearchDateFrom').show();
+                                            $('#SearchDateTo').show();
+                                        }
+                                    });
+                                </script>
 
-                                <div class="row">
+                                <div class="row" style="margin-top:8px;">
                                     <div class="col-lg-12">
-                                        <button type="button" id="btnSearchJob" class="btn btn-success" style="padding-right: 25px; padding-left: 25px;">Search</button>
+                                        <button type="button" id="btnSearchJob" onclick="SearchJob()" class="btn btn-success" style="padding-right: 25px; padding-left: 25px;">Search</button>
+                                        <button type="button" onclick="$scope_ref.searchitemreset ? angular.element(document.getElementById('myangular')).scope().searchitemreset() : null" class="btn btn-default" style="margin-left:8px;">Clear</button>
                                     </div>
                                 </div>
                         </div>
@@ -1651,33 +1687,77 @@
                     <button class="close" data-dismiss="modal">&times;</button>
                     <h5>Messages</h5>
                 </div>
-                <div class="modal-body">
-                     <hr>
-                    <div class="container bootstrap snippet">
-                <div class="row">
-               <div class="col-md-4 bg-white " style="height: 400px; overflow-y:scroll">
-                <div class=" row border-bottom padding-sm" style="height: 40px;">
-                    Member
-                </div>
-              <ul class="friend-list" style="cursor:pointer">
-            
-                
-             </ul>
+                <div class="modal-body" style="padding-top:0;">
+                    <ul class="nav nav-tabs" id="msgTabs" style="margin-bottom:10px;">
+                        <li class="active"><a data-toggle="tab" href="#tabDirect">Individual</a></li>
+                        <li><a data-toggle="tab" href="#tabBroadcast">Broadcast All</a></li>
+                        <li><a data-toggle="tab" href="#tabGroup">Group</a></li>
+                    </ul>
+                    <div class="tab-content">
+                        <div id="tabDirect" class="tab-pane active">
+                            <div class="container-fluid bootstrap snippet">
+                                <div class="row">
+                                    <div class="col-md-4 bg-white" style="height:380px;overflow-y:scroll;border-right:1px solid #eee;">
+                                        <div class="row border-bottom padding-sm" style="height:36px;line-height:36px;padding-left:10px;font-weight:600;font-size:12px;color:#888;text-transform:uppercase;">
+                                            Drivers
+                                        </div>
+                                        <ul class="friend-list" style="cursor:pointer;list-style:none;padding:0;margin:0;"></ul>
+                                    </div>
+                                    <div class="col-md-8 bg-white" id="DivChat" style="height:380px;overflow-y:scroll;">
+                                        <div class="chat-message">
+                                            <label id="PlayerId" hidden="hidden"></label>
+                                            <label id="lblRequest" hidden="hidden">False</label>
+                                            <label id="UserId" hidden="hidden">0</label>
+                                            <ul class="chat" style="list-style:none;padding:8px;margin:0;"></ul>
+                                        </div>
+                                        <div style="display:flex;gap:6px;padding:6px;border-top:1px solid #eee;margin-top:4px;">
+                                            <input class="form-control" id="TxtMessage" placeholder="Select a driver then type your message…" style="flex:1;">
+                                            <button class="btn btn-primary btn-sm" type="button" id="btnMessage">Send</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                <div class="col-md-8 bg-white " id="DivChat" style="height: 400px; overflow-y:scroll">
-                <div class="chat-message">
-                <label id="PlayerId" hidden="hidden"></label>
-                <label id="lblRequest" hidden="hidden">False</label>
-                 <label id="UserId" hidden="hidden">0</label>
-                <ul class="chat" style="cursor:pointer">
-                </ul>
-                    
-                </div>
-                  <input class="form-control border no-shadow no-rounded" id="TxtMessage" placeholder="Type your message here">
-                  <button class=" " type="button" id="btnMessage">Send</button>
-                  </div>
-               </div>
-              </div>
+                        <div id="tabBroadcast" class="tab-pane">
+                            <div style="padding:16px;">
+                                <p style="color:#555;margin-bottom:12px;">Send a message to <strong>all online drivers</strong> simultaneously.</p>
+                                <textarea class="form-control" id="TxtBroadcast" rows="4" placeholder="Type broadcast message here…" style="resize:vertical;"></textarea>
+                                <button class="btn btn-warning" type="button" id="btnBroadcast" style="margin-top:10px;">
+                                    <i class="fa fa-bullhorn"></i> Send to All Drivers
+                                </button>
+                            </div>
+                        </div>
+                        <div id="tabGroup" class="tab-pane">
+                            <div style="padding:16px;">
+                                <p style="color:#555;margin-bottom:12px;">Send a message to a <strong>filtered group</strong> of drivers.</p>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label style="font-size:12px;color:#888;">Filter by Zone</label>
+                                        <select class="form-control" id="ddlGroupZone">
+                                            <option value="">All Zones</option>
+                                            <option value="Central Invercargill">Central Invercargill</option>
+                                            <option value="Appleby">Appleby</option>
+                                            <option value="Waikiwi">Waikiwi</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label style="font-size:12px;color:#888;">Filter by Vehicle Type</label>
+                                        <select class="form-control" id="ddlGroupVType">
+                                            <option value="">All Types</option>
+                                            <option value="Sedan">Sedan</option>
+                                            <option value="SUV">SUV</option>
+                                            <option value="Van">Van</option>
+                                            <option value="Wheelchair">Wheelchair</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <textarea class="form-control" id="TxtGroupMsg" rows="4" placeholder="Type group message here…" style="resize:vertical;margin-top:10px;"></textarea>
+                                <button class="btn btn-info" type="button" id="btnGroupMessage" style="margin-top:10px;">
+                                    <i class="fa fa-users"></i> Send to Group
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -11731,6 +11811,7 @@ $(document).ready(function() {
         $scope.jobsdata =[];
         $scope.tstst =[];
         $scope.zonetablez();
+        setInterval(function() { $scope.zonetablez(); }, 15000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.getjobs = function (ok='') {

@@ -32,6 +32,32 @@ const mimeTypes = {
 let nextJobId = 937300;
 function newJobId() { return nextJobId++; }
 
+// ─── In-memory message store ──────────────────────────────────────────────────
+let nextMsgId = 100;
+const messageStore = [
+  { Id: 1, SenderId: 101, ReceiverId: 0, SenderName: 'Michael Johnson', Message: 'Dispatcher, I\'m heading to Tay St pickup now.', Date: '2026-04-15', Time: '08:22 am', IsRead: true },
+  { Id: 2, SenderId: 0,   ReceiverId: 101, SenderName: 'Dispatcher',    Message: 'Thanks Michael, job #937190 is yours — confirm when on scene.', Date: '2026-04-15', Time: '08:23 am', IsRead: true },
+  { Id: 3, SenderId: 102, ReceiverId: 0, SenderName: 'Sarah Wilson',    Message: 'Available in Central. Waiting for next job.', Date: '2026-04-15', Time: '09:01 am', IsRead: false },
+  { Id: 4, SenderId: 103, ReceiverId: 0, SenderName: 'David Thompson',  Message: 'Running 5 mins late on the airport run.', Date: '2026-04-15', Time: '09:15 am', IsRead: false },
+];
+
+function buildDriverChatList() {
+  return ZONE_DRIVERS.map(d => {
+    const unread = messageStore.filter(m => m.SenderId === d.driverid && !m.IsRead).length;
+    return { Id: d.driverid, UserFName: d.drivername.split(' ')[0], UserLName: d.drivername.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
+  });
+}
+
+// ─── Closed job store (historical demo data) ──────────────────────────────────
+const closedJobStore = [
+  { Id: 937100, BookingDateTime: '2026-04-14 09:00:00.', JobCompleteTime: '2026-04-14 09:28:00.', PickAddress: '12 Dee St, Invercargill', DropAddress: 'Invercargill Hospital, Kew Rd', Name: 'Alice Brown', PhoneNo: '021 400 1001', VehicleNo: '201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
+  { Id: 937101, BookingDateTime: '2026-04-14 11:15:00.', JobCompleteTime: '2026-04-14 11:47:00.', PickAddress: '88 Tay St, Invercargill', DropAddress: 'Invercargill Airport', Name: 'Brian Clark', PhoneNo: '021 400 1002', VehicleNo: '202', UserFName: 'Sarah', UserLName: 'Wilson', BookingSource: 'Dispatch Console', BookingStatus: 'Dispatched', DriverId: 102, VehicleId: 202 },
+  { Id: 937102, BookingDateTime: '2026-04-14 13:30:00.', JobCompleteTime: '', PickAddress: '5 Don St, Invercargill', DropAddress: 'Waikiwi Mall', Name: 'Carol Evans', PhoneNo: '021 400 1003', VehicleNo: '203', UserFName: 'David', UserLName: 'Thompson', BookingSource: 'Phone', BookingStatus: 'Cancel', DriverId: 103, VehicleId: 203 },
+  { Id: 937103, BookingDateTime: '2026-04-13 07:45:00.', JobCompleteTime: '2026-04-13 08:05:00.', PickAddress: '200 Elles Rd, Invercargill', DropAddress: '14 Yarrow St, Invercargill', Name: 'Daniel Ford', PhoneNo: '021 400 1004', VehicleNo: '204', UserFName: 'Emma', UserLName: 'Davies', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 104, VehicleId: 204 },
+  { Id: 937104, BookingDateTime: '2026-04-13 16:00:00.', JobCompleteTime: '', PickAddress: '3 Leven St, Invercargill', DropAddress: 'Queens Park, Invercargill', Name: 'Eve Green', PhoneNo: '021 400 1005', VehicleNo: '205', UserFName: 'James', UserLName: 'Brown', BookingSource: 'Dispatch Console', BookingStatus: 'No Show', DriverId: 105, VehicleId: 205 },
+  { Id: 937105, BookingDateTime: '2026-04-12 10:00:00.', JobCompleteTime: '2026-04-12 10:22:00.', PickAddress: 'Invercargill Airport', DropAddress: '56 Gala St, Invercargill', Name: 'Frank Harris', PhoneNo: '021 400 1006', VehicleNo: '201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
+];
+
 function calcJobMins(bookingDateTimeStr) {
   const bdt = new Date(bookingDateTimeStr.replace(/\.$/, '').trim());
   const now = new Date();
@@ -328,6 +354,58 @@ const server = http.createServer(async (req, res) => {
         successD(res, 'Operation Successfully Performed');
       } else if (action === 'storeemergency') {
         successD(res, 'Emergency Stored');
+
+      } else if (action === '[MessageInsert]') {
+        const receiverId = parseInt(param('RecieverId') || param('ReceiverId') || '0') || 0;
+        const message    = param('Message') || '';
+        const dateTime   = param('DateTime') || '';
+        const datePart   = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const timePart   = dateTime.substring(11) || '';
+        if (message.trim()) {
+          const msg = { Id: nextMsgId++, SenderId: 0, ReceiverId: receiverId, SenderName: 'Dispatcher', Message: message, Date: datePart, Time: timePart, IsRead: true };
+          messageStore.push(msg);
+          console.log(`200: POST ${urlPath} [action=${action}] -> message saved to driver #${receiverId}`);
+        }
+        successD(res, 'Message sent successfully');
+
+      } else if (action === '[BroadcastMessage]') {
+        const message  = param('Message') || '';
+        const dateTime = param('DateTime') || '';
+        const datePart = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const timePart = dateTime.substring(11) || '';
+        if (message.trim()) {
+          ZONE_DRIVERS.forEach(d => {
+            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Broadcast)', Message: message, Date: datePart, Time: timePart, IsRead: true });
+          });
+          console.log(`200: POST ${urlPath} [action=${action}] -> broadcast to ${ZONE_DRIVERS.length} drivers`);
+        }
+        successD(res, 'Broadcast sent successfully');
+
+      } else if (action === '[GroupMessage]') {
+        const message   = param('Message') || '';
+        const zone      = (param('Zone') || '').toLowerCase();
+        const vtype     = (param('VehicleType') || '').toLowerCase();
+        const dateTime  = param('DateTime') || '';
+        const datePart  = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const timePart  = dateTime.substring(11) || '';
+        let targets = [...ZONE_DRIVERS];
+        if (zone) targets = targets.filter(d => d.zonename.toLowerCase().includes(zone));
+        if (vtype) targets = targets.filter(d => d.vehicletype.toLowerCase().includes(vtype));
+        if (message.trim()) {
+          targets.forEach(d => {
+            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Group)', Message: message, Date: datePart, Time: timePart, IsRead: true });
+          });
+          console.log(`200: POST ${urlPath} [action=${action}] -> group message to ${targets.length} drivers`);
+        }
+        successD(res, `Group message sent to ${targets.length} drivers`);
+
+      } else if (action === '[DeleteMessage]') {
+        const msgId = parseInt(param('Id') || '0') || 0;
+        const idx = messageStore.findIndex(m => m.Id === msgId);
+        if (idx !== -1) messageStore.splice(idx, 1);
+        console.log(`200: POST ${urlPath} [action=${action}] -> deleted message #${msgId}`);
+        successD(res, 'Message Deleted');
+
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
         successD(res, 'Operation Successfully Performed');
@@ -366,6 +444,111 @@ const server = http.createServer(async (req, res) => {
         const active = jobStore.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
         console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active`);
         arrayD(res, active);
+
+      // ── Search actions ───────────────────────────────────────────────────────
+      } else if (action === '[SearchById]') {
+        const searchId = parseInt(param('Id') || param('id') || '0') || 0;
+        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
+        const allJobs = [...jobStore, ...closedJobStore];
+        let results = searchId > 0 ? allJobs.filter(j => j.Id === searchId) : allJobs;
+        if (statusFilter !== 'all' && statusFilter !== '') {
+          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === '[SearchJobByName]') {
+        const searchName = (param('Id') || '').toLowerCase();
+        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
+        const allJobs = [...jobStore, ...closedJobStore];
+        let results = searchName ? allJobs.filter(j => (j.Name || '').toLowerCase().includes(searchName)) : allJobs;
+        if (statusFilter !== 'all' && statusFilter !== '') {
+          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === '[SearchByPhoneNo]') {
+        const searchPhone = (param('Id') || '').replace(/\s/g, '');
+        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
+        const allJobs = [...jobStore, ...closedJobStore];
+        let results = searchPhone ? allJobs.filter(j => (j.PhoneNo || '').replace(/\s/g, '').includes(searchPhone)) : allJobs;
+        if (statusFilter !== 'all' && statusFilter !== '') {
+          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === '[SearchByAfterDate]') {
+        const dateStr = param('Id') || '';
+        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
+        const allJobs = [...jobStore, ...closedJobStore];
+        let results = dateStr ? allJobs.filter(j => {
+          const jDate = (j.BookingDateTime || '').substring(0, 10);
+          return jDate >= dateStr;
+        }) : allJobs;
+        if (statusFilter !== 'all' && statusFilter !== '') {
+          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === '[SearchByBeforeDate]') {
+        const dateStr = param('Id') || '';
+        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
+        const allJobs = [...jobStore, ...closedJobStore];
+        let results = dateStr ? allJobs.filter(j => {
+          const jDate = (j.BookingDateTime || '').substring(0, 10);
+          return jDate <= dateStr;
+        }) : allJobs;
+        if (statusFilter !== 'all' && statusFilter !== '') {
+          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === 'SearchJobDateBetween') {
+        const fromStr = param('From') || '';
+        const toStr   = param('To') || '';
+        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
+        const allJobs = [...jobStore, ...closedJobStore];
+        let results = allJobs.filter(j => {
+          const jDate = (j.BookingDateTime || '').substring(0, 10);
+          const afterFrom = !fromStr || jDate >= fromStr;
+          const beforeTo  = !toStr   || jDate <= toStr;
+          return afterFrom && beforeTo;
+        });
+        if (statusFilter !== 'all' && statusFilter !== '') {
+          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === 'JobDetails') {
+        const jobId = parseInt(param('Id') || '0') || 0;
+        const allJobs = [...jobStore, ...closedJobStore];
+        const job = allJobs.find(j => j.Id === jobId);
+        const result = job ? [{ ...job, Route: '', JobMins: calcJobMins(job.BookingDateTime) }] : [];
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${jobId}`);
+        arrayD(res, result);
+
+      // ── Messaging read actions ───────────────────────────────────────────────
+      } else if (action === '[RetrieveMessages]') {
+        const chatList = buildDriverChatList();
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${chatList.length} drivers`);
+        arrayD(res, chatList);
+
+      } else if (action === '[DispatcherUnReadMessages]') {
+        const driverId = parseInt(param('Id') || '0') || 0;
+        const unread = messageStore.filter(m => m.SenderId === driverId && !m.IsRead);
+        unread.forEach(m => { m.IsRead = true; });
+        const mapped = unread.map(m => ({
+          Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
+          Message: m.Message, Date: m.Date, Time: m.Time,
+        }));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${mapped.length} unread from driver #${driverId}`);
+        arrayD(res, mapped);
+
       } else {
         const filePath = resolveFilePath(urlPath);
         if (filePath) {
@@ -493,6 +676,46 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> job counts`);
         objectD(res, jobCounts);
 
+      } else if (action === 'ClosedJobs') {
+        const statusFilter = (param('BookingStatus') || '').toLowerCase();
+        const fromDate = param('FromDate') || param('FromDate ') || '';
+        const toDate   = param('ToDate') || '';
+        const driverFilter  = parseInt(param('DriverId') || '0') || 0;
+        const vehicleFilter = parseInt(param('VehicleId') || param('VehicleId ') || '0') || 0;
+        let jobs = [...closedJobStore];
+        if (statusFilter && statusFilter !== 'all') {
+          jobs = jobs.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+        }
+        if (fromDate) {
+          jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) >= fromDate);
+        }
+        if (toDate) {
+          jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= toDate);
+        }
+        if (driverFilter > 0) {
+          jobs = jobs.filter(j => j.DriverId === driverFilter);
+        }
+        if (vehicleFilter > 0) {
+          jobs = jobs.filter(j => j.VehicleId === vehicleFilter);
+        }
+        const dt2 = ZONE_DRIVERS.map(d => ({ Id: d.driverid, DriveName: d.drivername }));
+        const dt3 = ZONE_DRIVERS.map(d => ({ Id: d.VehicleId, VehicleNo: d.vehiclenumber }));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${jobs.length} closed jobs`);
+        objectD(res, { dt1: jobs, dt2, dt3 });
+
+      } else if (action === '[DispatcherConversation]') {
+        const driverId = parseInt(param('Id') || '0') || 0;
+        const driver = ZONE_DRIVERS.find(d => d.driverid === driverId);
+        const dt1 = [{ PlayerId: '' }];
+        const convo = messageStore.filter(m => m.SenderId === driverId || m.ReceiverId === driverId);
+        convo.forEach(m => { if (m.SenderId === driverId) m.IsRead = true; });
+        const dt2 = convo.map(m => ({
+          Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
+          Message: m.Message, Date: m.Date, Time: m.Time,
+        }));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${dt2.length} messages for driver #${driverId}`);
+        objectD(res, { dt1, dt2 });
+
       } else {
         // Default: return live job list from in-memory store
         const allJobs = buildJobListResponse(jobStore);
@@ -523,6 +746,27 @@ const server = http.createServer(async (req, res) => {
         Role: 'Dispatcher',
         UserStatus: 'Active',
       }]);
+      return;
+    }
+
+    // ── Logout ──────────────────────────────────────────────────────────────
+    if (urlPath.includes('/DispatcherLogin.aspx/Logout')) {
+      console.log(`200: POST ${urlPath} -> logout OK`);
+      jsonReply(res, { d: 'DispatcherLogin.aspx' });
+      return;
+    }
+
+    // ── Account / access request (Stripe-ready) ─────────────────────────────
+    if (urlPath.includes('/DispatcherLogin.aspx/AccountRequest')) {
+      let reqBody = {};
+      try { reqBody = JSON.parse(body); } catch (e) {}
+      const reqName    = reqBody.name    || param('name')    || '';
+      const reqEmail   = reqBody.email   || param('email')   || '';
+      const reqPhone   = reqBody.phone   || param('phone')   || '';
+      const reqCompany = reqBody.company || param('company') || '';
+      const reqRole    = reqBody.role    || param('role')    || 'Dispatcher';
+      console.log(`200: POST ${urlPath} -> access request from "${reqEmail}" (${reqName})`);
+      jsonReply(res, { d: 'Request received. Our team will contact you within 1 business day.', stripe_ready: true });
       return;
     }
 

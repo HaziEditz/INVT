@@ -408,14 +408,112 @@
     <div class="divider">or</div>
 
     <div class="signup-card">
-      <p>Need a dispatcher account?<br />Contact your fleet administrator to get access.</p>
-      <a href="mailto:admin@taxitime.co.nz" class="btn-contact">Request Access</a>
+      <p>Need a dispatcher account?<br />Fill in your details and we'll be in touch.</p>
+      <button type="button" class="btn-contact" onclick="document.getElementById('reqModal').style.display='flex';">Request Access</button>
     </div>
 
     <div class="footer-note">
       &copy; 2026 Taxi Time &mdash; Invercargill, New Zealand
     </div>
   </div>
+
+  <!-- ── Request Access Modal ── -->
+  <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:12px;padding:32px 36px;width:440px;max-width:92vw;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <button onclick="closeReqModal()" style="position:absolute;top:14px;right:18px;background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;">&times;</button>
+      <h3 style="margin:0 0 6px;font-size:18px;font-weight:700;color:#111;">Request Dispatcher Access</h3>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 20px;">Our team will review your request and get back to you within 1 business day.</p>
+
+      <div id="reqSuccess" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;color:#16a34a;font-size:13px;margin-bottom:16px;"></div>
+      <div id="reqError"   style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;color:#dc2626;font-size:13px;margin-bottom:16px;"></div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Full Name *</label>
+          <input id="reqName" type="text" placeholder="e.g. Jane Smith" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Email Address *</label>
+          <input id="reqEmail" type="email" placeholder="jane@company.co.nz" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Phone Number</label>
+          <input id="reqPhone" type="tel" placeholder="e.g. 021 555 0000" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Company / Fleet</label>
+          <input id="reqCompany" type="text" placeholder="e.g. Invercargill Taxis Ltd" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Role</label>
+          <select id="reqRole" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;background:#fff;">
+            <option value="Dispatcher">Dispatcher</option>
+            <option value="Fleet Manager">Fleet Manager</option>
+            <option value="Admin">Administrator</option>
+          </select>
+        </div>
+      </div>
+      <button id="reqSubmitBtn" onclick="submitAccessRequest()" style="margin-top:18px;width:100%;padding:11px;background:#f5be1e;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:#1a1d21;">Submit Request</button>
+    </div>
+  </div>
+
+  <script>
+    function closeReqModal() {
+      document.getElementById('reqModal').style.display = 'none';
+      document.getElementById('reqSuccess').style.display = 'none';
+      document.getElementById('reqError').style.display   = 'none';
+    }
+
+    function submitAccessRequest() {
+      var name    = document.getElementById('reqName').value.trim();
+      var email   = document.getElementById('reqEmail').value.trim();
+      var phone   = document.getElementById('reqPhone').value.trim();
+      var company = document.getElementById('reqCompany').value.trim();
+      var role    = document.getElementById('reqRole').value;
+
+      document.getElementById('reqSuccess').style.display = 'none';
+      document.getElementById('reqError').style.display   = 'none';
+
+      if (!name) { showReqError('Please enter your full name.'); return; }
+      if (!email || !/\S+@\S+\.\S+/.test(email)) { showReqError('Please enter a valid email address.'); return; }
+
+      var btn = document.getElementById('reqSubmitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      fetch('DispatcherLogin.aspx/AccountRequest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, email: email, phone: phone, company: company, role: role })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.textContent = 'Submit Request';
+        document.getElementById('reqSuccess').style.display = 'block';
+        document.getElementById('reqSuccess').textContent = data.d || 'Request received. We\'ll be in touch soon.';
+        document.getElementById('reqName').value    = '';
+        document.getElementById('reqEmail').value   = '';
+        document.getElementById('reqPhone').value   = '';
+        document.getElementById('reqCompany').value = '';
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Submit Request';
+        showReqError('Network error — please try again.');
+      });
+    }
+
+    function showReqError(msg) {
+      document.getElementById('reqError').style.display = 'block';
+      document.getElementById('reqError').textContent = msg;
+    }
+
+    window.addEventListener('click', function(e) {
+      var modal = document.getElementById('reqModal');
+      if (e.target === modal) closeReqModal();
+    });
+  </script>
 
   <!-- Firebase SDK (same version as dispatch console) -->
   <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
