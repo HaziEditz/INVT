@@ -70,57 +70,8 @@ function fmtDT(dt) {
   return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:00.`;
 }
 
-// Demo job times generated relative to server start so they stay current
-const _now = new Date();
-
-// ASAP job: booking time = now (dispatch immediately), picking time = +8 mins
-const _asapBook = new Date(_now);
-const _asapPick = new Date(_now.getTime() + 8 * 60000);
-
-// Pre-booked job: 5 days from now at 08:35, picking = 08:45
-const _preBook = new Date(_now.getTime() + 5 * 24 * 3600000);
-_preBook.setHours(8, 35, 0, 0);
-const _prePick = new Date(_preBook.getTime() + 10 * 60000);
-
-const jobStore = [
-  {
-    Id: 937195,
-    AccountId: '', VehicleNo: null, CallSign: null, useremail: null, usertype: null,
-    webstatus: '0', Name: 'Jane Doe', PhoneNo: '021 555 4321',
-    BookingDateTime: fmtDT(_asapBook),
-    Pickingtime: fmtDT(_asapPick),
-    Recieve_payment: '', DispatchTimebefore: '0',
-    VehicleId: 0, DriverId: 0, DispatcherName: 'safinah mohammed',
-    Nextstop: '0', nextstopdata: '', Passengers: 1, passengername: 'Jane Doe',
-    PickLatLng: '-46.4220233,168.3513913', DropLatLng: '-46.4070668,168.3474998',
-    Bags: 1, WheelChairs: 0, VehiclesReguired: 1,
-    Acc_job_id: '', Account_id: '',
-    PickAddress: '156 Crinan Street, Appleby, Invercargill',
-    DropAddress: 'Invercargill Airport, 106 Airport Ave, Invercargill',
-    EntitiesDetails: '', U_id: null,
-    BookingSource: 'Dispatch Console', BookingStatus: 'Pending',
-    VehicleType: 'Sedan', EstimatedDistance: '4.2', EstimatedTime: '10',
-    TarriffType: 'Standard',
-  },
-  {
-    Id: 937163,
-    AccountId: '', VehicleNo: null, CallSign: null, useremail: null, usertype: null,
-    webstatus: '0', Name: 'Robert Smith', PhoneNo: '021 123 4567',
-    BookingDateTime: fmtDT(_preBook),
-    Pickingtime: fmtDT(_prePick),
-    Recieve_payment: '', DispatchTimebefore: '10',
-    VehicleId: 0, DriverId: 0, DispatcherName: 'safinah mohammed',
-    Nextstop: '0', nextstopdata: '', Passengers: 2, passengername: 'Robert Smith',
-    PickLatLng: '-46.4227508,168.3767375', DropLatLng: '0,0',
-    Bags: 0, WheelChairs: 0, VehiclesReguired: 1,
-    Acc_job_id: '', Account_id: '',
-    PickAddress: '105 Centre Street, Heidelberg, Invercargill',
-    DropAddress: '', EntitiesDetails: '', U_id: null,
-    BookingSource: 'Dispatch Console', BookingStatus: 'Pending',
-    VehicleType: 'Not Specified', EstimatedDistance: '0', EstimatedTime: '0',
-    TarriffType: 'Automatic',
-  },
-];
+// Live job store — starts empty; jobs are created through the dispatch UI
+const jobStore = [];
 
 // Demo drivers for zone queue display
 const ZONE_DRIVERS = [
@@ -135,12 +86,24 @@ const ZONE_DRIVERS = [
 function buildJobListResponse(jobs) {
   const dt1 = jobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
   const pending = dt1.filter(j => j.BookingStatus !== 'Offered' && j.BookingStatus !== 'Assigned');
-  const offered = dt1.filter(j => j.BookingStatus === 'Offered');
+  return {
+    dt1,
+    dt2: [{ AssignedCount: jobs.filter(j => j.BookingStatus === 'Assigned').length }],
+    dt3: [{ ActiveCount: jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
+    dt4: [{ UnAssignedCount: pending.length }],
+    dt5: [{ PublicKey: '' }],
+  };
+}
+
+// Build delivery (DY tab) response — mirrors buildJobListResponse with deUnAssignedCount
+function buildDeliveryResponse(jobs) {
+  const deliveryJobs = jobs.filter(j => j.BookingType === 'Delivery' || j.BookingSource === 'Delivery App');
+  const dt1 = deliveryJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
     dt2: [{ AssignedCount: 0 }],
     dt3: [{ ActiveCount: 0 }],
-    dt4: [{ UnAssignedCount: pending.length }],
+    dt4: [{ deUnAssignedCount: dt1.length }],
     dt5: [{ PublicKey: '' }],
   };
 }
@@ -331,14 +294,15 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> removed job #${bookingId}`);
         successD(res, 'Operation Successfully Performed');
 
-      } else if (action === '[AssignJobStatusFromJobList]' || action === '[UnAssignJobStatusFromJobList]') {
+      } else if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]' || action === '[UnAssignJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;
         const job = jobStore.find(j => j.Id === bookingId);
         if (job) {
-          const driverId  = parseInt(param('reternVehicleid') || '0') || 0;
-          if (action === '[AssignJobStatusFromJobList]') {
+          const driverId  = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
+          if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]') {
             job.BookingStatus = 'Offered';
             job.DriverId = driverId;
+            if (driverId > 0) job.VehicleId = driverId;
           } else {
             job.BookingStatus = 'Pending';
             job.DriverId = 0;
@@ -703,9 +667,18 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> ${jobs.length} closed jobs`);
         objectD(res, { dt1: jobs, dt2, dt3 });
 
+      } else if (action === '[UnAssignedJobsv3]') {
+        const resp = buildJobListResponse(jobStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${jobStore.length} jobs (${resp.dt4[0].UnAssignedCount} unassigned)`);
+        objectD(res, resp);
+
+      } else if (action === '[deviUnAssignedJobsv2]') {
+        const resp = buildDeliveryResponse(jobStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${resp.dt1.length} delivery jobs`);
+        objectD(res, resp);
+
       } else if (action === '[DispatcherConversation]') {
         const driverId = parseInt(param('Id') || '0') || 0;
-        const driver = ZONE_DRIVERS.find(d => d.driverid === driverId);
         const dt1 = [{ PlayerId: '' }];
         const convo = messageStore.filter(m => m.SenderId === driverId || m.ReceiverId === driverId);
         convo.forEach(m => { if (m.SenderId === driverId) m.IsRead = true; });

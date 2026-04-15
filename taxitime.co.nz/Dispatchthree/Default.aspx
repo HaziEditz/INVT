@@ -5021,17 +5021,23 @@ $(document).ready(function() {
     cars_Ref.on('child_added', function (data) {
         data.forEach(function (childsnapshot) {
             cars_count++;
-      
-     
-       AddCar(childsnapshot.val() ,   childsnapshot.val());
-          
-
-            angular.element(document.getElementById('myangular')).scope().adddrivernew(childsnapshot.val());
-              
-           
+            // Guard AddCar — Google Maps may not be ready yet when Firebase fires
+            if (typeof google !== 'undefined' && typeof AddCar === 'function') {
+                try { AddCar(childsnapshot.val(), childsnapshot.val()); } catch(e) {}
+            }
+            (function(dval) {
+                var _sc = angular.element(document.getElementById('myangular')).scope();
+                if (_sc) {
+                    _sc.adddrivernew(dval);
+                } else {
+                    // Angular not ready yet — retry once it is
+                    setTimeout(function() {
+                        var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                        if (_sc2) _sc2.adddrivernew(dval);
+                    }, 1500);
+                }
+            })(childsnapshot.val());
         });
-
-
     });
 
     // this event will be triggered on location change of any car...
@@ -5041,13 +5047,14 @@ $(document).ready(function() {
         data.forEach(function (childsnapshot) {
         
                
-            var   datax =    angular.element(document.getElementById('myangular')).scope().getcurrentchild(childsnapshot.val());
+            var _scChanged = angular.element(document.getElementById('myangular')).scope();
+            var   datax = _scChanged ? _scChanged.getcurrentchild(childsnapshot.val()) : '';
        
-            if(datax == ''){
-                datax == childsnapshot.val();
+            if(datax == '' || datax == null){
+                datax = childsnapshot.val();
             }
               
-            var totaldis =   distance(childsnapshot.val().lat, childsnapshot.val().lng, datax.lat, datax.lng, "K")
+            var totaldis = (datax && datax.lat && datax.lng) ? distance(childsnapshot.val().lat, childsnapshot.val().lng, datax.lat, datax.lng, "K") : 0;
           
            
            
@@ -5358,11 +5365,18 @@ $(document).ready(function() {
              }, false);
         
 
-              angular.element(document.getElementById('myangular')).scope().adddrivernew(childsnapshot.val());
-          
-            });
-    
-       
+            (function(dval) {
+                var _sc = angular.element(document.getElementById('myangular')).scope();
+                if (_sc) {
+                    _sc.adddrivernew(dval);
+                } else {
+                    setTimeout(function() {
+                        var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                        if (_sc2) _sc2.adddrivernew(dval);
+                    }, 1500);
+                }
+            })(childsnapshot.val());
+        });
     });
 
    
@@ -5413,12 +5427,22 @@ $(document).ready(function() {
 
      cars_Ref.on('child_removed', function (data) {
         data.forEach(function (childsnapshot) {
-           if(markers[childsnapshot.val().vehiclenumber]){
+            if(markers[childsnapshot.val().vehiclenumber]){
                 markers[childsnapshot.val().vehiclenumber].setMap(null);
             }
-            angular.element(document.getElementById('myangular')).scope().adddriverremove(childsnapshot.val());
-          });
-      });
+            (function(dval) {
+                var _sc = angular.element(document.getElementById('myangular')).scope();
+                if (_sc) {
+                    _sc.adddriverremove(dval);
+                } else {
+                    setTimeout(function() {
+                        var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                        if (_sc2) _sc2.adddriverremove(dval);
+                    }, 1500);
+                }
+            })(childsnapshot.val());
+        });
+    });
     } // end if (user)
     }); // end onAuthStateChanged
      $("#MoveToFront").click(function () {
