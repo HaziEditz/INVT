@@ -270,8 +270,10 @@ const server = http.createServer(async (req, res) => {
           urlPath, req.method, body, req.headers['cookie'] || ''
         );
         const bodyText = (proxied.body || '').trim();
-        // Only use proxy response if it looks like valid JSON
-        if (proxied.statusCode === 200 && (bodyText.startsWith('{') || bodyText.startsWith('['))) {
+        // Only use proxy response if it is valid JSON AND is not a session-expired
+        // redirect (which would cause an infinite logout loop for demo users).
+        const isSessionExpired = bodyText.includes('Session is experied') || bodyText.includes('Session is expired');
+        if (proxied.statusCode === 200 && !isSessionExpired && (bodyText.startsWith('{') || bodyText.startsWith('['))) {
           const replyHeaders = {
             'Content-Type': proxied.headers['content-type'] || 'application/json',
             'Cache-Control': 'no-cache',
@@ -292,7 +294,11 @@ const server = http.createServer(async (req, res) => {
           console.log(`200: PROXY→REAL ${urlPath} [action=${action}] (${bodyText.length} bytes)`);
           return;
         }
-        console.log(`proxy ${action}: status=${proxied.statusCode}, falling back to mock`);
+        if (isSessionExpired) {
+          console.log(`proxy ${action}: real backend has no session → falling back to mock`);
+        } else {
+          console.log(`proxy ${action}: status=${proxied.statusCode}, falling back to mock`);
+        }
       } catch (proxyErr) {
         console.log(`proxy ${action}: ${proxyErr.message} — falling back to mock`);
       }
