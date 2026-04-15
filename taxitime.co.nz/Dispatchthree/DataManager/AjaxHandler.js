@@ -104,7 +104,7 @@ function Action(param,proc) {
                 ReloadConversation();
 
 
-            } else if (data.d = 'Vehicle Successfully Moved') {
+            } else if (data.d == 'Vehicle Successfully Moved') {
                 //toastr["succes"]('Vehicle Que Number Change Successfully', ' warning! ');
             }else {
                 SuccMessage(data.d);

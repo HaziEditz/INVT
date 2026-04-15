@@ -5476,7 +5476,7 @@ $(document).ready(function() {
                     console.log( $respp );
                     if($respp == null  ){
 
-                        toastr["error"](  " Driver Might be not Avalible. Job will be Not Reachedable. if not Accepted.   ", 'error!'); 
+                        toastr["error"]("Driver may not be available. Job will not be reachable if not accepted.", 'error!');
                         checkingjobz(vehivle , id, driverid);
                         return;
  
@@ -5598,7 +5598,7 @@ $(document).ready(function() {
                     console.log( $respp );
                     if($respp == null  ){
 
-                        toastr["error"](  " Driver Might be not Avalible. Job will be Not Reachedable. if not Accepted.   ", 'error!'); 
+                        toastr["error"]("Driver may not be available. Job will not be reachable if not accepted.", 'error!');
                         checkingjob(id, driverid);
                         return;
  
@@ -7577,7 +7577,7 @@ $(document).ready(function() {
                            cache: false,
                            success: function (response) {
                               
-                               toastr["error"](     "Website Ride Was Cancel. Automatically!!  ", 'error!'); 
+                               toastr["error"]("Website ride was cancelled automatically.", 'error!');
                            }
                        }
                        );
@@ -8398,7 +8398,7 @@ $(document).ready(function() {
                     $scope.quenumberq = '';
                 }else{
               
-                    toastr["warning"](   "Booking Information Not Update", 'warning!'); 
+                    toastr["warning"]("Booking information could not be updated.", 'Warning!');
 
                 }
             
@@ -8560,8 +8560,8 @@ $(document).ready(function() {
             if ($("#PickupZoneId").text() == "" && $scope.selecteddriver == 0) {
                 Swal.fire(
                         'Warning!',
-                        "Assign the ride to a driver.  The Pickup Address is out of this Company Zones",
-                        'so it can t be dispatch automatically'
+                        "Assign the ride to a driver. The pickup address is outside this company's zones and cannot be dispatched automatically.",
+                        'warning'
                     );
             }
             else {
@@ -8620,10 +8620,10 @@ $(document).ready(function() {
                      
 
                     Swal.fire(
-                        'You Forget To Select Dispatch before Time!',
-                         "Please Select Dispatch Before Time",
-                           'warning'
-                      );
+                        'Dispatch Time Required',
+                        'Please select a dispatch time before booking.',
+                        'warning'
+                    );
                     $('#ddlLaterMins').css("color", "red");
                     return;
                 } 
@@ -8892,7 +8892,7 @@ $(document).ready(function() {
 
                         });
                     }
-                    toastr["success"]("You Created  Repeated Ride Successfully", 'success!');
+                    toastr["success"]("Repeated ride created successfully.", 'success!');
 
                 }
                 else
@@ -11676,7 +11676,7 @@ $(document).ready(function() {
         spx = [];
         $scope.jobsdata =[];
         $scope.tstst =[];
-        //$scope.zonetablez();
+        $scope.zonetablez();
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.getjobs = function (ok='') {
@@ -12505,7 +12505,7 @@ $(document).ready(function() {
                                 document.getElementById('textforpayment').innerHTML  = '  Ride Fair + Taxes Included';
 
                             }else{
-                                toastr["warning"]('Tarrif Not Define', 'warning!');
+                                toastr["warning"]('Tariff not defined', 'warning!');
                             }
                        
 
@@ -13345,7 +13345,7 @@ $(document).ready(function() {
                             }else{
                                 Swal.fire(
                                       'Warning!',
-                                      "This Job is Not Yet Ready For Dispatch.Please Change it to 'Now' Then Dispatch",
+                                      "This job is not yet ready to dispatch. Please change it to 'Now' and then dispatch.",
                                       'warning'
                                     );
                         
@@ -13381,7 +13381,7 @@ $(document).ready(function() {
                             }
                     }else{
                   
-                        toastr["error"](  "Booking Information Not Update", 'Error!');
+                        toastr["error"]("Booking information could not be updated.", 'Error!');
                     }
             
               
@@ -13548,7 +13548,7 @@ $(document).ready(function() {
                                         var ridestatuspre= JSON.parse(response.d);
 
                                         if(ridestatuspre["dt1"].length > 0) {
-                                            toastr["error"]("Taking Job from Driver",'success!');
+                                            toastr["error"]("Taking Job from Driver", 'error!');
                                               FnCancelRide(ridestatuspre["dt1"][0].DriverId, BookingId);
                                              //TODO later for chaning que
                                             //FnMoveQueueNo1($res[0].DriverId,quenumber);
@@ -13989,7 +13989,7 @@ $(document).ready(function() {
                   cache: false,
                   success: function (response) {
                       console.log(response);
-                      toastr["error"](     "Website Ride Was Cancel. Automatically!!  ", 'error!'); 
+                      toastr["error"]("Website ride was cancelled automatically.", 'error!');
                   }
               }
               );

@@ -15,7 +15,7 @@ A web-based Taxi Dispatch System for "Taxi Time" (taxitime.co.nz). Provides a re
 ## Project Structure
 
 ```
-server.js                                   — Node.js static file server (port 5000)
+server.js                                   — Node.js HTTP server (port 5000, in-memory job store)
 taxitime.co.nz/Dispatchthree/
   Default.aspx                              — Main dispatch console (15k-line monolith)
   assets/
@@ -30,10 +30,10 @@ taxitime.co.nz/Dispatchthree/
     ChatCss.css                             — Chat panel styles
     AlertTone.mp3                           — Silent audio (avoids browser error)
   DataManager/
-    AjaxHandler.js                          — AJAX wrapper (Selector / Selector1 functions)
+    AjaxHandler.js                          — AJAX wrapper functions
     Data.aspx/
-      DataSelector.html                     — Static JSON: job data snapshot
-      DataSelectorLess.html                 — Static JSON: driver/vehicle snapshot
+      DataSelector.html                     — Fallback JSON (served when action not routed)
+      DataSelectorLess.html                 — Fallback JSON for booking history
   JsScripts/
     ChatRoom.js, StripeTokenCreation.js
   sound/a.wav                               — Silent alert sound (debounced, max once/30s)
@@ -48,70 +48,91 @@ node server.js
 
 Serves from `taxitime.co.nz/Dispatchthree/` as the web root on port 5000. Root URL → `Default.aspx`.
 
-## Server Routing Logic (server.js)
+## Server Architecture (server.js)
 
-The server does intelligent routing for POST requests to data endpoints:
+The server maintains an **in-memory job store** (starts with demo jobs 937195 and 937163) and routes all DataManager POST requests by the `action` parameter. Jobs created/updated/cancelled during a session persist in memory (reset on server restart).
 
-- **Alarm/alert actions** (`RetrieveAlarms`, `AllAlarms`, `RetrieveAlarts`, etc.) → returns `{"d":"[]"}` (empty array) to prevent the alarm modal from auto-opening with stale demo data
-- **Write operations** (`DataProcessor`, `InsertAlarm`, `UpdateAlarm`, etc.) → returns appropriate success messages so UI feedback works
-- **Data queries** (`DataSelector`, `DataSelectorLess`) → serves static HTML snapshot files
-- **Missing secondary endpoints** → returns `{"d":"[]"}` silently (no 404 noise)
-- **Analytics/template patterns** (`/cdn-cgi/`, `{{...}}`) → returns `{}` silently
-- **EADDRINUSE** → auto-kills the port and retries
+### DataSelector action routing
+| Action | Response |
+|---|---|
+| `[UnAssignedJobsv3]` (default) | Full job list from in-memory store with live JobMins |
+| `[Editjobv4]` | Single job filtered by `Id` param |
+| `[checkjobstatusv2]` | Empty `dt1` (job not assigned, dispatch goes through cleanly) |
+| `[AssignedJobsv2]` | Assigned/Offered jobs from store |
+| `AutoDispatchVehiclesallride` | Empty (no Firebase drivers) |
+| `RetrieveAlarms` / `AllAlarms` | `{"d":"[]"}` (no alarms) |
+
+### DataSelectorLess action routing
+| Action | Response |
+|---|---|
+| `[ZonesListUpdate]` | 5 demo drivers across 3 zones (Central Invercargill, Appleby, Waikiwi) |
+| `[ActiveJobsv3]` | Active/Picking jobs from store |
+| `RetrieveAlarms` / `AllAlarms` | `{"d":"[]"}` (no alarms) |
+| Other | `DataSelectorLess.html` fallback |
+
+### DataSelectorRide action routing
+| Action | Response |
+|---|---|
+| `InsertBookingv4` | Creates job in store, returns `{"Result":"Booking Information Successfully Submitted","BookingStatus":"...","BookingId":...}` |
+| Other | `"Operation Successfully Performed"` |
+
+### DataProcessor action routing
+| Action | Response |
+|---|---|
+| `[ProcUpdateJobv6]` | Updates job in store, returns `"Booking Details Update Successfully"` |
+| `[CancelUnAssignedJobStatusFromJobList]` | Removes job from store |
+| `[AssignJobStatusFromJobList]` | Marks job as Offered |
+| `[UnAssignJobStatusFromJobList]` | Marks job as Pending |
+| Other | `"Operation Successfully Performed"` |
+
+### Demo data
+- **Demo jobs**: 937195 (Crinan St pickup, today), 937163 (Centre St pickup, 21 Apr)
+- **Demo drivers**: 5 drivers across 3 zones; vehicle IDs 201–205; vehicle status: 201-204 Available, 205 Busy
 
 ## Bug Fixes Applied
 
-### Critical JS Bugs (previous session)
+### Critical JS Bugs (session 1)
 1. **Duplicate jQuery** — jQuery 1.11.0 removed, 3.5.1 moved to top of `<head>`
 2. **Script load order** — `jquery-ui.js` and `Validate.js` now load after jQuery
-3. **Broken `<link>` tag** — `ChatCss.css` link tag was missing closing `/>` 
+3. **Broken `<link>` tag** — `ChatCss.css` link tag was missing closing `/>`
 4. **Invalid HTML comment** — `<!---Font icons-->` → `<!--Font icons-->`
 5. **VehiclesStatus dt4/dt5 swap** — Picking/Away vehicle counters were reading from swapped table indices
 
-### Critical JS Bugs (this session)
+### Critical JS Bugs (session 2)
 6. **Repeating alarm modal** — Two root causes fixed:
-   - `if ($res.length != [])` is ALWAYS true (nonsense comparison) → fixed to `if ($res.length > 0)` in both `Alarms()` and `AllAlarm()`
-   - Server now returns `{"d":"[]"}` for all alarm/alert queries, so no data means no popup
-7. **`changerefresh()` crash** (`TypeError: Cannot read properties of undefined (reading 'bounds')`) — Two bugs:
-   - `rectangle.bounds.getCenter()` is wrong API → fixed to `rectangle.getBounds().getCenter()`
-   - `rectangle` is `undefined` until map initializes → added null guard
-8. **Map not showing** — `initMap()` waited on geolocation (async/denied in Replit), map never rendered:
-   - Now initializes immediately with Invercargill, NZ coordinates (`-46.4120, 168.3538`)
-   - Geolocation runs silently in background as a refinement (no blocking, no `alert()`)
-   - Removed the blocking `alert('Your Location service is disabled...')` call
-9. **Alarm sound playing on every poll** (35+ times per minute):
-   - `{{playAudio()}}` was in `ng-repeat` templates — called for every job on every AngularJS digest
-   - `$scope.alerting()` called `playAudio()` on every binding evaluation
-   - **Fix**: `playAudio()` is now debounced (returns immediately if called within 30s of last play)
-   - **Fix**: `{{playAudio()}}` removed from all 3 template locations
+   - `if ($res.length != [])` is ALWAYS true → fixed to `if ($res.length > 0)`
+   - Server returns `{"d":"[]"}` for all alarm queries so no popup fires
+7. **`changerefresh()` crash** — `rectangle.bounds.getCenter()` wrong API + null guard added
+8. **Map not showing** — `initMap()` blocked on geolocation; now initialises immediately with Invercargill
+9. **Alarm sound loop** — `{{playAudio()}}` was in `ng-repeat`; removed + debounce added
 
-### UI Fixes
-10. **Orange/yellow job panel** — Hardcoded inline `background: #ffa500b0` on `.tab-menu-heading` div → fixed to white
-11. **Topnav orange background** — `background: #ffa500b0` in inline `<style>` block → fixed to transparent
-12. **Page teal background** — `background:#0bcffb2b` inline on `.page` and `.page-main` divs → fixed to `#f0f2f5`
+### Dispatch/Job flow bugs (session 3)
+10. **Job creation crash** — `DataSelectorRide` returned `{"d":"[]"}`; `$res[0].Result` threw TypeError. Fixed: server now returns full booking success JSON.
+11. **Job edit always loaded job #937195** — `[Editjobv4]` returned ALL jobs; client always read `dt1[0]`. Fixed: server filters by requested `Id` param.
+12. **Job update never confirmed** — server returned `"Operation Successfully Performed"` but client checked `"Booking Details Update Successfully"`. Fixed: `[ProcUpdateJobv6]` now returns the correct string.
+13. **Dispatch triggered "Taking Job from Driver" error** — `[checkjobstatusv2]` returned all jobs so `dt1.length > 0` was always true. Fixed: returns empty `dt1`.
+14. **Zone queue empty** — `[ZonesListUpdate]` was not routed; fallback had only booking records. Fixed: returns 5 demo drivers grouped by zone. Also uncommented `$scope.zonetablez()` startup call.
+15. **AjaxHandler assignment bug** — `data.d = 'Vehicle Successfully Moved'` used `=` (assignment) instead of `==` (comparison), making the condition always truthy and swallowing `ErrMessage`. Fixed.
 
-## UI Redesign (dispatch-modern.css)
-
-A new `css/dispatch-modern.css` overrides the original design with a professional dispatch theme:
-
-- **Header**: Dark `#1a1d21` background, white nav links, red "Create Job" CTA
-- **Background**: Clean light gray `#f0f2f5`
-- **Job cards**: White with subtle border/shadow
-- **Status badges**: Semantic color-coded pills (blue/green/red/yellow)
-- **Stats sidebar**: Dark panel with color-coded vehicle counts
-- **Tabs**: Clean underline-style navigation with blue active indicator
-- **Modals**: Dark header with large white close button (×) clearly visible in top-right
-- **Buttons**: Consistent pill style with hover transitions
-- **Map**: Guaranteed minimum height of 360px so it's always visible
-- **DataTables**: Dark header row, clean rows with hover highlight
-- **SweetAlert2**: Rounded corners matching design system
+### Grammar / spelling fixes (session 3)
+16. `'so it can t be dispatch automatically'` (Swal.fire 3rd arg was plaintext, not icon type) → `'warning'` + corrected message text
+17. `'You Forget To Select Dispatch before Time!'` → `'Dispatch Time Required'`
+18. `"Please Select Dispatch Before Time"` → `"Please select a dispatch time before booking."`
+19. `"Booking Information Not Update"` (×2) → `"Booking information could not be updated."`
+20. `"Driver Might be not Avalible. Job will be Not Reachedable"` (×2) → corrected
+21. `"Tarrif Not Define"` → `"Tariff not defined"`
+22. `"Website Ride Was Cancel. Automatically!!"` (×2) → `"Website ride was cancelled automatically."`
+23. `"You Created  Repeated Ride Successfully"` (double space) → corrected
+24. `toastr["error"]("Taking Job from Driver",'success!')` — wrong level → `'error!'`
+25. `"This Job is Not Yet Ready For Dispatch.Please Change..."` (missing space) → fixed
 
 ## Known Limitations (Not Fixable Without Live Credentials)
 
-- **Firebase PERMISSION_DENIED** — `taxilatest.firebaseio.com` requires the company's Firebase credentials. Driver realtime positions won't load.
+- **Firebase PERMISSION_DENIED** — `taxilatest.firebaseio.com` requires the company's Firebase credentials. Driver realtime positions, zone queue updates from drivers, emergency alerts won't load.
 - **Google Maps deprecation warnings** — DirectionsRenderer/Service, Marker, Places Autocomplete APIs deprecated 2024-2026. All still functional.
 - **Hardcoded dispatcher session** — `someSession = 'safinah mohammed'`, `SomeSession2 = '1051'`
-- **Static data** — `DataSelector.html`/`DataSelectorLess.html` are snapshots (bookings 937195, 937163)
+- **Driver dropdown empty** — `driverdatarealx` is populated from Firebase only; without credentials the dropdown has no drivers to select.
+- **In-memory store resets on restart** — New jobs created during the session are lost when the server restarts.
 
 ## Dispatcher Session Info (Hardcoded)
 
