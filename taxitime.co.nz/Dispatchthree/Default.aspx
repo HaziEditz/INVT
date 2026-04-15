@@ -3980,7 +3980,9 @@ $(document).ready(function() {
                                                     <td>{{value[0]}} </td>
                                                     <td>
                                                         <div class="row">
-                                                            <div class="col" style="margin-bottom:3px;" id="divofzone" ng-repeat=" (key1, value1)  in value[1] |  orderBy:'zonequeue'"   ng-click='VehicleDetailschng(  value1.VehicleId  )' >
+                                                            <div class="col" style="margin-bottom:5px;" id="divofzone" ng-repeat=" (key1, value1)  in value[1] |  orderBy:'zonequeue'"   ng-click='VehicleDetailschng(  value1.VehicleId  )' >
+                                                                <!-- Queue position badge — #1 gets a gold star treatment -->
+                                                                <span ng-style="{background: $index===0 ? '#c8a000' : '#444'}" style="display:inline-block; color:#fff; font-size:10px; font-weight:700; padding:1px 5px; border-radius:3px; margin-right:3px; min-width:22px; text-align:center;">{{$index===0 ? '★1' : '#'+($index+1)}}</span>
                                                                 <span ng-if="value1.vehiclestatus == 'Available'" style="background: lightgreen; padding: 3px; color: black;     font-weight: 600; ">{{value1.vehiclenumber }}/{{value1.vehicletype }}
                                                                 </span>
                                                                 <span ng-if="value1.vehiclestatus == 'Away'" style="background: orange; padding: 3px; color: black;   font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
