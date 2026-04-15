@@ -11805,26 +11805,9 @@ $(document).ready(function() {
                 return;
             }
 
-            // ── Fallback: no Firebase data — fetch demo drivers from server ──────
-            $http({
-                method: "POST",
-                url: "DataManager/Data.aspx/DataSelectorLess",
-                data: { data: [], action: '[ZonesListUpdate]' }
-            }).then(function mySuccess(response) {
-                var dataStuff;
-                try { dataStuff = JSON.parse(response.data.d); } catch(e) { dataStuff = []; }
-                if (!dataStuff || dataStuff.length === 0) {
-                    $scope.zonelist = [];
-                    return;
-                }
-                // Seed driverdatarealx with demo drivers (only if Firebase still has none)
-                if (!$scope.driverdatarealx || $scope.driverdatarealx.length === 0) {
-                    $scope.driverdatarealx = dataStuff;
-                    $scope.driverlist      = dataStuff;
-                }
-                $scope.changezone($scope.driverdatarealx);
-                if (!$scope.$$phase) { $scope.$digest(); }
-            }, function myError(response) {});
+            // No Firebase drivers yet — zone table is empty until drivers come online
+            $scope.zonelist = [];
+            if (!$scope.$$phase) { $scope.$digest(); }
         }
         spx = [];
         $scope.jobsdata =[];

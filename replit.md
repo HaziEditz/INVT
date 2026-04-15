@@ -236,15 +236,14 @@ POST to `DataManager/Data.aspx/LoginSelector` with `{action: 'DispatcherLogin', 
 Sessions survive page refresh and navigation (stored in `localStorage`). Revisiting `DispatcherLogin.aspx` while already logged in auto-redirects to `Default.aspx`.
 
 ### Zone queue + console noise fixes (session 8)
-58. **`[ZonesListUpdate]` returned `[]` instead of demo drivers** — Server was returning an empty array for the fallback, so `zonetablez()` always got nothing and the zone queue table stayed blank in dev mode. Fixed: server now returns `ZONE_DRIVERS` (5 demo drivers) for `[ZonesListUpdate]`.
-59. **`zonetablez()` fallback didn't seed `driverdatarealx`** — The client fallback parsed the zone driver list but never put it into `driverdatarealx` / `driverlist`, so the dispatch driver dropdown and zone table had no data. Fixed: fallback now seeds both `driverdatarealx` and `driverlist` from the server response when Firebase has no live drivers, then calls `changezone(driverdatarealx)` to render the zone table immediately.
-60. **Periodic `[[]]` console noise** — `console.log($scope.assignedjob_list)` inside the `AssignedJobs` polling callback fired every 15 s, logging `[]` whenever there were no assigned jobs (empty `dt1`). Removed the debug log — browser console is now clean except for meaningful `"start"` warnings from the auto-dispatch checker.
+58. **Zone queue is Firebase-only — no demo seeding** — `zonetablez()` fallback path simply clears `zonelist` when no Firebase drivers are connected. The zone table is empty until real drivers come online from the driver app. `driverdatarealx` is populated exclusively by the Firebase `child_added` / `child_changed` / `child_removed` handlers on `online/1216`. `[ZonesListUpdate]` server endpoint returns `[]` and is not called by the client.
+59. **Periodic `[[]]` console noise** — `console.log($scope.assignedjob_list)` inside the `AssignedJobs` polling callback fired every 15 s, logging `[]` whenever there were no assigned jobs (empty `dt1`). Removed the debug log — browser console is now clean except for meaningful `"start"` warnings from the auto-dispatch checker.
 
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.
 - **Google Maps deprecation warnings** — DirectionsRenderer/Service, Marker, Places Autocomplete APIs deprecated 2024-2026. All still functional.
-- **Driver dropdown (demo mode)** — `driverdatarealx` is seeded with 5 ZONE_DRIVERS when Firebase has no live connections; in production it is populated from live Firebase GPS data.
+- **Driver dropdown / zone queue empty without live drivers** — `driverdatarealx` is populated exclusively from Firebase (`online/1216`). Without a live driver app session the zone table and dispatch driver list will be empty. When the driver app is running and drivers are online they appear automatically in real time.
 - **In-memory store resets on restart** — New jobs created during the session are lost when the server restarts.
 
 ## Dispatcher Session Info (Demo)
