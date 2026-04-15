@@ -46,11 +46,23 @@ function resolveFilePath(urlPath) {
   return null;
 }
 
+const SILENT_OK_PATTERNS = [
+  '/cdn-cgi/',
+  '/%7B%7B',
+  '/{{',
+];
+
 const server = http.createServer((req, res) => {
   let urlPath = req.url.split('?')[0];
 
   if (urlPath === '/' || urlPath === '') {
     urlPath = '/Default.aspx';
+  }
+
+  if (SILENT_OK_PATTERNS.some(p => urlPath.startsWith(p))) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{}');
+    return;
   }
 
   const filePath = resolveFilePath(urlPath);
