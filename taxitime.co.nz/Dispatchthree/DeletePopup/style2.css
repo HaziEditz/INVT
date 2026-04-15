@@ -1,0 +1,55 @@
+.delete-dialog {
+    width: 300px;
+    position: absolute;
+    top: 10%;
+    left: 32%;
+    border: 1px solid #000
+    -webkit-box-shadow: 0px 10px 34px -8px rgba(0,0,0,0.75);
+    -moz-box-shadow: 0px 10px 34px -8px rgba(0,0,0,0.75);
+    box-shadow: 0px 10px 34px -8px rgba(0,0,0,0.75);
+    z-index: 9999;
+padding:6px;
+background-color:#e53935;
+border-radius:10px;
+display: none;
+}
+.suspend-dialog {
+    width: 300px;
+    position: absolute;
+    top: 10%;
+    left: 32%;
+    border: 1px solid #000
+    -webkit-box-shadow: 0px 10px 34px -8px rgba(0,0,0,0.75);
+    -moz-box-shadow: 0px 10px 34px -8px rgba(0,0,0,0.75);
+    box-shadow: 0px 10px 34px -8px rgba(0,0,0,0.75);
+    z-index: 9999;
+padding:6px;
+background-color:#e53935;
+border-radius:10px;
+display: none;
+}
+/*.delete-dialog:before {
+    content: "";
+    position: absolute;
+    left: 82%;
+    bottom: -11px;
+    z-index: 9999;
+    border-top: 11px solid #e53935;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+}
+.delete-dialog:after {
+    content: "";
+    position: absolute;
+    left: 82%;
+    bottom: -12px;
+    z-index: 9998;
+    border-top: 12px solid #e53935;
+    border-left: 11px solid transparent;
+    border-right: 11px solid transparent;
+}*/
+    .delete-dialog h5 {
+    padding-left:10px;
+    vertical-align:middle;
+    color:#FFF;
+}

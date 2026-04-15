@@ -1,0 +1,1 @@
+data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2022%2013%22%3E%3Cpath%20fill%3D%22%23111%22%20d%3D%22M2.75%205H10V0H4.4zM0%2013h10V7H2zm20-6h-8v6h10zm-2.4-7H12v5h7.25z%22/%3E%3C/svg%3E

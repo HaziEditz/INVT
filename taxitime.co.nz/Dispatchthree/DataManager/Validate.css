@@ -1,0 +1,136 @@
+.validate {
+    color: #B94A48;
+    margin-top: 5px;
+}
+
+.border-color {
+    border: 1px solid #B94A48 !important;
+}
+
+.form-horizontal .has-feedback .form-control-feedback {
+    right: 25px;
+}
+
+.form-horizontal .has-feedback .sel .form-control-feedback {
+    right: 10px;
+    top: -3px;
+}
+
+.validate-message {
+    background-color: #FBFBFB;
+    position: absolute;
+    z-index: 9;
+    left: 1%;
+    width: auto;
+    text-align: left;
+    min-height: 30px;
+    padding: 9px 8px 5px 8px;
+    border: 1px solid #BABABA;
+    border-bottom-color: #A4A4A4;
+    box-shadow: 0px 2px 1px rgba(0,0,0,0.3);
+    border-radius: 3px;
+}
+
+.tooltip-error-message {
+    position: absolute;
+    z-index: 9999;
+    width: 100%;
+    margin-left: 100px;
+    margin-top: 10px;
+    display: block;
+}
+
+.validate-message:before {
+    position: absolute;
+    display: inline-block;
+    border-right: 11px solid transparent;
+    border-left: 11px solid transparent;
+    border-bottom: 11px solid #BABABA;
+    left: 8px;
+    top: -11px;
+    content: '';
+}
+
+.validate-message:after {
+    position: absolute;
+    display: inline-block;
+    border-right: 10px solid transparent;
+    border-left: 10px solid transparent;
+    border-bottom: 10px solid #FBFBFB;
+    left: 9px;
+    top: -10px;
+    content: '';
+}
+
+.text-icon-error {
+    padding: 6px 9px 3px 9px;
+    border-radius: 3px;
+    background-color: #FAAB20;
+    margin-right: 3px;
+    text-shadow: 0px 2px 0px #F78100;
+}
+
+    .text-icon-error .fa {
+        font-size: 15px;
+        color: #FFF;
+    }
+
+.text-message {
+    font-family: "sourse-sans";
+    line-height: 22px;
+    letter-spacing: 1px;
+    color: #555;
+}
+
+.message-toast-success, .message-toast-error {
+    padding: 0px;
+    position: fixed;
+    top: -100px;
+    left: 10%;
+    z-index: 9999;
+    width: 70%;
+    min-height: 8%;
+    background: #FFF;
+    -webkit-box-shadow: 0px 2px 25px -6px rgba(0,0,0,0.75);
+    -moz-box-shadow: 0px 2px 25px -6px rgba(0,0,0,0.75);
+    box-shadow: 0px 2px 25px -6px rgba(0,0,0,0.75);
+    -moz-transition: all 0.9s ease;
+    -o-transition: all 0.9s ease;
+    -webkit-transition: all 0.9s ease;
+    transition: all 0.9s ease;
+}
+
+.fadendown {
+    top: 0px;
+}
+
+.text-toast-success, .text-toast-error {
+    font-family: "sourse-sans";
+    text-align: center;
+    font-size: 18px;
+}
+
+.message-toast-error h4 i, .message-toast-error h4 span {
+    color: #AB0000;
+}
+.message-toast-success h4 i, .message-toast-success h4 span {
+    color:#5bbd50;
+}
+.close.cl-toast {
+    opacity: 1;
+    margin: 0px;
+    float: right;
+    background-color: #AB0000;
+    color: #fff;
+    padding: 15px 20px;
+}
+
+#Address {
+    font-style: normal;
+    font-size: 1.3em;
+}
+
+[data-toggle='tooltip'] {
+    font-family: "sourse-sans";
+    font-style: normal;
+}
