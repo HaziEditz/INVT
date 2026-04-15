@@ -375,21 +375,17 @@
       <p>Enter your dispatcher credentials to continue.</p>
     </div>
 
-    <div class="demo-hint" id="demoHint">
-      <strong>Demo mode:</strong> Enter any username and password to access the dispatch console.
-    </div>
-
     <div class="error-box" id="errorBox"></div>
 
     <form id="loginForm" onsubmit="return false;">
       <div class="form-group">
-        <label for="inputEmail">Username or Email</label>
+        <label for="inputEmail">Email address</label>
         <input
-          type="text"
+          type="email"
           id="inputEmail"
-          name="Username"
+          name="email"
           placeholder="dispatch@taxitime.co.nz"
-          autocomplete="username"
+          autocomplete="email"
           required
         />
       </div>
@@ -421,34 +417,51 @@
     </div>
   </div>
 
+  <!-- Firebase SDK (same version as dispatch console) -->
+  <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
   <script>
-    // ── If already logged in, skip straight to the console ──
-    (function() {
-      var id = localStorage.getItem('TT_DId');
-      var name = localStorage.getItem('TT_Name');
-      if (id && name) {
+    // ── Firebase initialisation ──────────────────────────────────────────────
+    var firebaseConfig = {
+      apiKey:            "AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA",
+      authDomain:        "taxilatest.firebaseapp.com",
+      databaseURL:       "https://taxilatest.firebaseio.com",
+      projectId:         "taxilatest",
+      storageBucket:     "taxilatest.appspot.com",
+      messagingSenderId: "986098722414"
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    // ── If Firebase says user is already signed in, go straight to console ──
+    firebase.auth().onAuthStateChanged(function(user) {
+      if (user) {
+        // Refresh localStorage from Firebase user in case it was cleared
+        var name = user.displayName || user.email.split('@')[0];
+        localStorage.setItem('TT_Name',    name);
+        localStorage.setItem('TT_DId',     '1051');
+        localStorage.setItem('TT_Country', 'NZ');
+        localStorage.setItem('TT_CId',     '1216');
+        localStorage.setItem('Country',    'NZ');
         window.location.replace('Default.aspx');
       }
-    })();
+    });
 
-    // ── Login form submission ────────────────────────────────
+    // ── Login form submission ────────────────────────────────────────────────
     document.getElementById('loginForm').addEventListener('submit', function() {
       var emailEl    = document.getElementById('inputEmail');
       var passwordEl = document.getElementById('inputPassword');
       var btnEl      = document.getElementById('btnLogin');
       var errorBox   = document.getElementById('errorBox');
 
-      var username = emailEl.value.trim();
+      var email    = emailEl.value.trim();
       var password = passwordEl.value.trim();
 
-      // Clear previous errors
       errorBox.style.display = 'none';
       emailEl.classList.remove('error');
       passwordEl.classList.remove('error');
 
-      if (!username) {
+      if (!email) {
         emailEl.classList.add('error');
-        showError('Please enter your username or email.');
+        showError('Please enter your email address.');
         emailEl.focus();
         return;
       }
@@ -459,60 +472,43 @@
         return;
       }
 
-      // Disable button and show spinner
       btnEl.disabled = true;
       btnEl.innerHTML = '<span class="spinner"></span>Signing in...';
 
-      var payload = JSON.stringify({
-        action: 'DispatcherLogin',
-        data: [
-          { name: 'Username', value: username },
-          { name: 'Password', value: password }
-        ]
-      });
-
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', 'DataManager/Data.aspx/LoginSelector', true);
-      xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
-      xhr.onreadystatechange = function() {
-        if (xhr.readyState !== 4) return;
-        if (xhr.status === 200) {
-          try {
-            var response = JSON.parse(xhr.responseText);
-            var data = response.d;
-            // Try to parse as JSON array (success response)
-            var parsed;
-            try { parsed = JSON.parse(data); } catch(e) { parsed = null; }
-
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              var user = parsed[0];
-              // Store session in localStorage
-              localStorage.setItem('TT_Name',    (user.UserFName || 'Dispatcher').trim());
-              localStorage.setItem('TT_DId',     String(user.Id      || '1051'));
-              localStorage.setItem('TT_Country', String(user.Country || 'NZ'));
-              localStorage.setItem('TT_CId',     String(user.CompanyId || ''));
-              // Legacy key used by Default.aspx for country
-              localStorage.setItem('Country', String(user.Country || 'NZ'));
-              // Navigate to dispatch console
-              window.location.href = 'Default.aspx';
-            } else {
-              // Server returned a string error or empty array
-              var msg = (typeof data === 'string' && data.length > 0 && data !== '[]')
-                ? data
-                : 'Incorrect username or password. Please try again.';
-              resetBtn();
-              showError(msg);
-            }
-          } catch (e) {
-            resetBtn();
-            showError('An unexpected error occurred. Please try again.');
-          }
-        } else {
+      firebase.auth().signInWithEmailAndPassword(email, password)
+        .then(function(result) {
+          var user = result.user;
+          var name = user.displayName || email.split('@')[0];
+          // Store session — TT_DId holds the company/dispatcher path ID used
+          // for Firebase Realtime Database paths (/online/1051/, /Emergency/1051/)
+          localStorage.setItem('TT_Name',    name);
+          localStorage.setItem('TT_DId',     '1051');
+          localStorage.setItem('TT_Country', 'NZ');
+          localStorage.setItem('TT_CId',     '1216');
+          localStorage.setItem('Country',    'NZ');
+          window.location.href = 'Default.aspx';
+        })
+        .catch(function(error) {
           resetBtn();
-          showError('Unable to connect. Please check your network and try again.');
-        }
-      };
-      xhr.send(payload);
+          var msg;
+          switch (error.code) {
+            case 'auth/user-not-found':
+            case 'auth/wrong-password':
+            case 'auth/invalid-credential':
+              msg = 'Incorrect email or password. Please try again.'; break;
+            case 'auth/invalid-email':
+              msg = 'That doesn\'t look like a valid email address.'; break;
+            case 'auth/user-disabled':
+              msg = 'This account has been disabled. Contact your administrator.'; break;
+            case 'auth/too-many-requests':
+              msg = 'Too many failed attempts. Please wait a moment and try again.'; break;
+            case 'auth/network-request-failed':
+              msg = 'Network error. Please check your connection and try again.'; break;
+            default:
+              msg = 'Sign-in failed (' + error.code + '). Please try again.';
+          }
+          showError(msg);
+        });
     });
 
     function showError(msg) {
@@ -527,7 +523,6 @@
       btnEl.innerHTML = 'Sign in';
     }
 
-    // Allow Enter key in password field to submit
     document.getElementById('inputPassword').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
         document.getElementById('loginForm').dispatchEvent(new Event('submit'));

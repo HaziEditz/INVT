@@ -4144,11 +4144,16 @@ $(document).ready(function() {
     };
     firebase.initializeApp(config);
 
-    // Sign in anonymously so Firebase Security Rules (auth != null) are satisfied.
-    // Anonymous auth is safe here — it simply proves this is a real browser session.
-    // Enable Anonymous Authentication in Firebase Console → Authentication → Sign-in providers.
-    firebase.auth().signInAnonymously().catch(function(e) {
-        console.warn('Firebase sign-in failed (' + e.code + '). Real-time features (driver locations, emergency alerts) will not load.');
+    // Ensure a Firebase user exists for Security Rules (auth != null).
+    // If the dispatcher logged in via Email/Password in DispatcherLogin.aspx, that
+    // session is already active — do NOT override it with anonymous auth.
+    // Only sign in anonymously if there is no authenticated user at all.
+    firebase.auth().onAuthStateChanged(function(user) {
+        if (!user) {
+            firebase.auth().signInAnonymously().catch(function(e) {
+                console.warn('Firebase auth failed (' + e.code + '). Real-time features (driver locations, emergency alerts) will not load.');
+            });
+        }
     });
 
     var DbRef = firebase.database();
