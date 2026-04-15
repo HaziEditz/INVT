@@ -4,7 +4,7 @@ const path = require('path');
 
 const PORT = 5000;
 const HOST = '0.0.0.0';
-const ROOT = __dirname;
+const ROOT = path.join(__dirname, 'taxitime.co.nz', 'Dispatchthree');
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -28,34 +28,45 @@ const mimeTypes = {
   '.xml': 'application/xml',
 };
 
+function resolveFilePath(urlPath) {
+  const candidates = [
+    path.join(ROOT, urlPath),
+    path.join(ROOT, urlPath + '.html'),
+    path.join(ROOT, urlPath, 'Default.aspx'),
+    path.join(ROOT, urlPath, 'index.html'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile()) return candidate;
+    } catch (e) {
+      // not found, try next
+    }
+  }
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   let urlPath = req.url.split('?')[0];
 
   if (urlPath === '/' || urlPath === '') {
-    urlPath = '/taxitime.co.nz/Dispatchthree/Default.aspx';
+    urlPath = '/Default.aspx';
   }
 
-  let filePath = path.join(ROOT, urlPath);
+  const filePath = resolveFilePath(urlPath);
 
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-    const candidates = ['index.html', 'Default.aspx', 'default.aspx'];
-    for (const c of candidates) {
-      const candidate = path.join(filePath, c);
-      if (fs.existsSync(candidate)) {
-        filePath = candidate;
-        break;
-      }
-    }
-  }
-
-  if (!fs.existsSync(filePath)) {
+  if (!filePath) {
+    console.log(`404: ${req.method} ${urlPath}`);
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end(`404 Not Found: ${urlPath}`);
     return;
   }
 
+  console.log(`200: ${req.method} ${urlPath} -> ${filePath.replace(ROOT, '')}`);
+
   const ext = path.extname(filePath).toLowerCase();
-  const contentType = mimeTypes[ext] || 'application/octet-stream';
+  const isPost = req.method === 'POST';
+  const contentType = isPost ? 'application/json' : (mimeTypes[ext] || 'application/octet-stream');
 
   res.writeHead(200, {
     'Content-Type': contentType,
@@ -67,5 +78,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Server running at http://${HOST}:${PORT}`);
+  console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
 });
