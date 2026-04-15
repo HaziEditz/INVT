@@ -7149,60 +7149,39 @@ $(document).ready(function() {
         }
 
         $scope.changedata = function(oldi , neww){
+            var _getjobs        = typeof $scope.getjobs        === 'function' ? $scope.getjobs.bind($scope)        : function(){};
+            var _AssignedJobs   = typeof $scope.AssignedJobs   === 'function' ? $scope.AssignedJobs.bind($scope)   : function(){};
+            var _ActiveJobsdata = typeof $scope.ActiveJobsdata === 'function' ? $scope.ActiveJobsdata.bind($scope) : function(){};
             if(oldi  == "Available"){
                 if(neww == "Picking"){
-                    
-                    $scope.getjobs( );
-                    $scope.AssignedJobs( );
-                 
+                    _getjobs();
+                    _AssignedJobs();
                 }else if (neww == "Busy"){
-                   
-                    $scope.ActiveJobsdata( );
-             
-                }else if(neww == "Away"){
-                   
-  
-                                   
+                    _ActiveJobsdata();
                 }
             }else if(oldi == "Picking"){
                 if (neww == "Busy"){
- 
-                    $scope.AssignedJobs( );
-                    $scope.ActiveJobsdata( );
-              
+                    _AssignedJobs();
+                    _ActiveJobsdata();
                 }else if (neww == "Available"){
-                   
-                    $scope.getjobs( );
-                    $scope.AssignedJobs( );
-                }else if(neww == "Away"){
-                    
-                   
+                    _getjobs();
+                    _AssignedJobs();
                 }
             }else if(oldi == "Busy"){
-                                    
                 if (neww == "Available"){
-                    $scope.getjobs( );
-                    $scope.ActiveJobsdata( );
-                                         
-                }else if(neww == "Away"){
-                 
-                                
+                    _getjobs();
+                    _ActiveJobsdata();
                 }
             }else if(oldi == "Away"){
-                if (neww == "Available"){
-                   
-                   
-                }else if (neww == "Busy"){
-                    $scope.ActiveJobsdata( );
+                if (neww == "Busy"){
+                    _ActiveJobsdata();
                     console.log("away to Busy");
-                   
                 } else if (neww == "Picking"){
                     console.log("away to picking");
-                   
-                    $scope.AssignedJobs( );
-                } 
+                    _AssignedJobs();
+                }
             }
-            $scope.$digest();
+            try { $scope.$digest(); } catch(e) {}
         }
 
         $scope.updatedatat = function(datacom){
@@ -7307,8 +7286,7 @@ $(document).ready(function() {
 
 
                     if($scope.driverdatarealx[incs].jobCount  != datacom.jobCount){
-                        
-                        $scope.AssignedJobs( );
+                        if (typeof $scope.AssignedJobs === 'function') { $scope.AssignedJobs(); }
                     }
 
                     if($scope.driverdatarealx[incs].jobpickup != datacom.jobpickup){
