@@ -50,7 +50,19 @@ Serves from `taxitime.co.nz/Dispatchthree/` as the web root on port 5000. Root U
 
 ## Server Architecture (server.js)
 
-The server maintains an **in-memory job store** (starts with demo jobs 937195 and 937163) and routes all DataManager POST requests by the `action` parameter. Jobs created/updated/cancelled during a session persist in memory (reset on server restart).
+### Real-backend proxy
+All DataManager POST requests are **first proxied to the live `taxitime.co.nz` ASP.NET backend** (`https://taxitime.co.nz/Dispatchthree/DataManager/Data.aspx/*`). This means:
+- Login authenticates against the real database (shared with the 360taxi admin panel)
+- `[DispatcherSettings]` returns the real company settings as configured by the admin panel
+- Zone coordinates, assigned jobs, active jobs, messages, closed jobs, etc. all come from the real database
+- Session cookies from the real backend are stripped of their `domain=taxitime.co.nz` attribute before being forwarded to the browser so they work on the Replit proxy domain
+
+**Fallback to in-memory mock** happens for:
+- Actions that exist only in this custom demo build (`[UnAssignedJobsv3]`, `[deviUnAssignedJobsv2]`, `[VehicleInfov2]`, `[AssignJobStatusFromJobListv2]`, `[DispatcherConversation]`, `[changeriddestatusforoffer]`)
+- Any proxy error or timeout (8s limit)
+- Real backend returning non-JSON / non-200
+
+The server also maintains an **in-memory job store** for the unassigned job list (since the real backend uses a different action name). Jobs created/updated/cancelled during a session persist in memory (reset on server restart).
 
 ### DataSelector action routing
 | Action | Response |

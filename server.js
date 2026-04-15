@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
@@ -120,6 +121,53 @@ function buildAssignedResponse(jobs) {
   };
 }
 
+// ─── Real-backend proxy ───────────────────────────────────────────────────────
+// Forwards DataManager AJAX calls to the live taxitime.co.nz ASP.NET backend,
+// including cookie passthrough so ASP.NET sessions work end-to-end.
+const REAL_BACKEND_HOST = 'taxitime.co.nz';
+const REAL_BACKEND_PREFIX = '/Dispatchthree';
+
+function proxyToRealBackend(urlPath, method, body, incomingCookies) {
+  return new Promise((resolve, reject) => {
+    const targetPath = REAL_BACKEND_PREFIX + urlPath;
+    const bodyBuf    = Buffer.from(body || '');
+
+    const options = {
+      hostname: REAL_BACKEND_HOST,
+      port: 443,
+      path: targetPath,
+      method: method,
+      headers: {
+        'Content-Type':   'application/json; charset=utf-8',
+        'Content-Length': bodyBuf.length,
+        'Cookie':         incomingCookies || '',
+        'User-Agent':     'Mozilla/5.0 (compatible; TaxiTimeDispatch/1.0)',
+        'Accept':         'application/json, text/javascript, */*',
+        'Origin':         'https://taxitime.co.nz',
+        'Referer':        'https://taxitime.co.nz/Dispatchthree/',
+      },
+      timeout: 8000,
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+      const chunks = [];
+      proxyRes.on('data', c => chunks.push(c));
+      proxyRes.on('end', () => {
+        resolve({
+          statusCode: proxyRes.statusCode,
+          headers:    proxyRes.headers,
+          body:       Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+    });
+
+    proxyReq.on('timeout', () => { proxyReq.destroy(); reject(new Error('proxy timeout')); });
+    proxyReq.on('error',   reject);
+    if (bodyBuf.length) proxyReq.write(bodyBuf);
+    proxyReq.end();
+  });
+}
+
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
@@ -205,6 +253,49 @@ const server = http.createServer(async (req, res) => {
       const n = name.toLowerCase();
       const found = dataArr.find(p => (p.name || '').toLowerCase() === n);
       return found ? (found.value !== undefined ? found.value : found.Value) : undefined;
+    }
+
+    // ── Proxy to real taxitime.co.nz backend ───────────────────────────────
+    // Actions that are custom additions to this demo — real backend won't know them,
+    // so skip the proxy and go straight to local mock handlers for these.
+    const LOCAL_ONLY_ACTIONS = new Set([
+      '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]', '[VehicleInfov2]',
+      '[AssignJobStatusFromJobListv2]', '[DispatcherConversation]',
+      '[changeriddestatusforoffer]',
+    ]);
+
+    if (!LOCAL_ONLY_ACTIONS.has(action)) {
+      try {
+        const proxied = await proxyToRealBackend(
+          urlPath, req.method, body, req.headers['cookie'] || ''
+        );
+        const bodyText = (proxied.body || '').trim();
+        // Only use proxy response if it looks like valid JSON
+        if (proxied.statusCode === 200 && (bodyText.startsWith('{') || bodyText.startsWith('['))) {
+          const replyHeaders = {
+            'Content-Type': proxied.headers['content-type'] || 'application/json',
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*',
+          };
+          // Forward session cookies — strip the domain attribute so they are
+          // scoped to our proxy host (replit.dev) rather than taxitime.co.nz,
+          // which allows subsequent requests to carry the ASP.NET session.
+          if (proxied.headers['set-cookie']) {
+            const rawCookies = proxied.headers['set-cookie'];
+            const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+            replyHeaders['Set-Cookie'] = cookies.map(c =>
+              c.replace(/;\s*domain=[^;,]*/gi, '').replace(/;\s*samesite=[^;,]*/gi, '')
+            );
+          }
+          res.writeHead(200, replyHeaders);
+          res.end(proxied.body);
+          console.log(`200: PROXY→REAL ${urlPath} [action=${action}] (${bodyText.length} bytes)`);
+          return;
+        }
+        console.log(`proxy ${action}: status=${proxied.statusCode}, falling back to mock`);
+      } catch (proxyErr) {
+        console.log(`proxy ${action}: ${proxyErr.message} — falling back to mock`);
+      }
     }
 
     // ── /DataSelectorRide — booking write operations ────────────────────────
