@@ -11708,6 +11708,24 @@ $(document).ready(function() {
                
                 $scope.defaltlist = $res
                 $scope.tarriflist =   $scope.defaltlist["dt4"];
+
+                // Firebase tariffZones listener — overrides dt4 when owner panel publishes tariffs
+                if (!$scope._tariffZoneListenerActive) {
+                    $scope._tariffZoneListenerActive = true;
+                    firebase.database().ref('tariffZones').on('value', function(snapshot) {
+                        var list = [];
+                        snapshot.forEach(function(child) {
+                            var t = child.val();
+                            if (t && t.Id && t.TariffName) {
+                                list.push({ Id: t.Id, TariffName: t.TariffName });
+                            }
+                        });
+                        if (list.length > 0) {
+                            $scope.tarriflist = list;
+                            if (!$scope.$$phase) { $scope.$digest(); }
+                        }
+                    });
+                }
             
                 if ($res["dt1"].length != []) {
 
