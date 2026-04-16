@@ -5077,34 +5077,33 @@ $(document).ready(function() {
     if (user) {
      //this event will be triggered when a new object will be added in the database...
     cars_Ref.on('child_added', function (data) {
-        data.forEach(function (childsnapshot) {
-            cars_count++;
-            // Guard AddCar — Google Maps may not be ready yet when Firebase fires
-            if (typeof google !== 'undefined' && typeof AddCar === 'function') {
-                try { AddCar(childsnapshot.val(), childsnapshot.val()); } catch(e) {}
+        var driverData = data.val();
+        if (!driverData || typeof driverData !== 'object') return;
+        cars_count++;
+        // Guard AddCar — Google Maps may not be ready yet when Firebase fires
+        if (typeof google !== 'undefined' && typeof AddCar === 'function') {
+            try { AddCar(driverData, driverData); } catch(e) {}
+        }
+        (function(dval) {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (_sc) {
+                _sc.adddrivernew(dval);
+            } else {
+                // Angular not ready yet — retry once it is
+                setTimeout(function() {
+                    var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                    if (_sc2) _sc2.adddrivernew(dval);
+                }, 1500);
             }
-            (function(dval) {
-                var _sc = angular.element(document.getElementById('myangular')).scope();
-                if (_sc) {
-                    _sc.adddrivernew(dval);
-                } else {
-                    // Angular not ready yet — retry once it is
-                    setTimeout(function() {
-                        var _sc2 = angular.element(document.getElementById('myangular')).scope();
-                        if (_sc2) _sc2.adddrivernew(dval);
-                    }, 1500);
-                }
-            })(childsnapshot.val());
-        });
+        })(driverData);
     });
 
     // this event will be triggered on location change of any car...
     cars_Ref.on('child_changed', function (data) {
-   
-    
-        data.forEach(function (childsnapshot) {
-        
-               
+        var driverData = data.val();
+        if (!driverData || typeof driverData !== 'object') return;
+        var childsnapshot = { val: function() { return driverData; } };
+        {
             var _scChanged = angular.element(document.getElementById('myangular')).scope();
             var   datax = _scChanged ? _scChanged.getcurrentchild(childsnapshot.val()) : '';
        
@@ -5434,7 +5433,7 @@ $(document).ready(function() {
                     }, 1500);
                 }
             })(childsnapshot.val());
-        });
+        }
     });
 
    
