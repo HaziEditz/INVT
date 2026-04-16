@@ -5504,7 +5504,9 @@ $(document).ready(function() {
         // Always remove from Angular scope by vehicleKey
         var removeFn = function(sc) {
             sc.driverdatarealx = sc.driverdatarealx.filter(function(d) {
-                return String(d.VehicleId) !== String(vehicleKey);
+                var matchById  = String(d.VehicleId) === String(vehicleKey);
+                var matchByNum = driverData && driverData.vehiclenumber && d.vehiclenumber === driverData.vehiclenumber;
+                return !matchById && !matchByNum;
             });
             sc.driverlist = sc.driverdatarealx;
             sc.zonetablez();
@@ -7280,9 +7282,12 @@ $(document).ready(function() {
             $scope.tallo(datacom);
         }
         $scope.tallo = function(datacom) {
-            
- 
-
+            // Guard: must have at least vehiclenumber or driverid to be a valid driver
+            if (!datacom || (typeof datacom !== 'object')) return;
+            // Ensure display fields always have a value so driver shows in all tables
+            datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + (datacom.driverid || '?'));
+            datacom.vehiclestatus = datacom.vehiclestatus || 'Available';
+            datacom.vehiclenumber = datacom.vehiclenumber || String(datacom.VehicleId || datacom.driverid || '');
             datacom.Id = datacom.driverid;
             datacom.VehicleNo = datacom.vehiclenumber;
             datacom.VehicleName = datacom.vehiclenumber;
