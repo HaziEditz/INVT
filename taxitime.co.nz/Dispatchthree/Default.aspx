@@ -5721,6 +5721,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
+                                    convertstatus(id, 'Pending', driverid, '');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
@@ -5730,7 +5731,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
-                                    convertstatus(id,'Unreached', driverid ,  $message ) ; 
+                                    convertstatus(id, 'Pending', driverid, '');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
 
                                 
@@ -5760,6 +5761,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
+                                convertstatus(id, 'Pending', driverid, '');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }  else{
@@ -5769,6 +5771,7 @@ $(document).ready(function() {
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
+                                    convertstatus(id, 'Pending', driverid, '');
                                     return;
                                 }else{
  
@@ -5845,6 +5848,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
+                                    convertstatus(id, 'Pending', driverid, '');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
@@ -5854,7 +5858,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
-                                    convertstatus(id,'Unreached', driverid ,  $message ) ; 
+                                    convertstatus(id, 'Pending', driverid, '');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
 
                                 
@@ -5884,6 +5888,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
+                                convertstatus(id, 'Pending', driverid, '');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }  else{
@@ -5893,6 +5898,7 @@ $(document).ready(function() {
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
+                                    convertstatus(id, 'Pending', driverid, '');
                                     return;
                                 }else{
  
