@@ -262,6 +262,9 @@ const server = http.createServer(async (req, res) => {
       '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]', '[VehicleInfov2]',
       '[AssignJobStatusFromJobListv2]', '[DispatcherConversation]',
       '[changeriddestatusforoffer]',
+      '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
+      '[GroupMessage]', '[DeleteMessage]', '[RetrieveMessages]',
+      '[DispatcherUnReadMessages]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -455,6 +458,21 @@ const server = http.createServer(async (req, res) => {
           console.log(`200: POST ${urlPath} [action=${action}] -> message saved to driver #${receiverId}`);
         }
         successD(res, 'Message sent successfully');
+
+      } else if (action === '[DriverMessageInsert]') {
+        // Incoming message FROM a driver → dispatcher (sent via Firebase, stored here for history)
+        const senderId  = parseInt(param('SenderId') || '0') || 0;
+        const message   = param('Message') || '';
+        const dateTime  = param('DateTime') || '';
+        const datePart  = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
+        const timePart  = dateTime.substring(11) || '';
+        const driver    = ZONE_DRIVERS.find(d => d.driverid === senderId) || { drivername: 'Driver ' + senderId };
+        if (message.trim()) {
+          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: 0, SenderName: driver.drivername, Message: message, Date: datePart, Time: timePart, IsRead: false };
+          messageStore.push(msg);
+          console.log(`200: POST ${urlPath} [action=${action}] -> message stored from driver #${senderId}`);
+        }
+        successD(res, 'Message stored');
 
       } else if (action === '[BroadcastMessage]') {
         const message  = param('Message') || '';

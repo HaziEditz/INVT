@@ -239,6 +239,23 @@ Sessions survive page refresh and navigation (stored in `localStorage`). Revisit
 58. **Zone queue is Firebase-only — no demo seeding** — `zonetablez()` fallback path simply clears `zonelist` when no Firebase drivers are connected. The zone table is empty until real drivers come online from the driver app. `driverdatarealx` is populated exclusively by the Firebase `child_added` / `child_changed` / `child_removed` handlers on `online/1216`. `[ZonesListUpdate]` server endpoint returns `[]` and is not called by the client.
 59. **Periodic `[[]]` console noise** — `console.log($scope.assignedjob_list)` inside the `AssignedJobs` polling callback fired every 15 s, logging `[]` whenever there were no assigned jobs (empty `dt1`). Removed the debug log — browser console is now clean except for meaningful `"start"` warnings from the auto-dispatch checker.
 
+### Messaging system fully wired (session 9)
+60. **Chat sidebar only showed SQL backend drivers** — `GetDetails()` in ChatRoom.js only called `[RetrieveMessages]` (SQL list). Fixed: now also reads live drivers from `driverdatarealx` (Firebase) and merges them in, so any driver currently online in Firebase appears in the chat sidebar immediately.
+61. **Broadcast/Group message had no Firebase notification** — `BroadcastMessage()` and `FnGroupMessage()` called the SQL backend only. Fixed: both now also loop over `driverdatarealx` and write to Firebase `/chat/{driverId}` for each matching live driver, giving instant app-level notification.
+62. **Driver → Dispatcher had no real-time path** — There was no mechanism for the driver app to push messages to the console. Fixed: added `initDriverMessageListener(companyId)` which listens on Firebase `/driverMsg/{companyId}`. When a driver writes there, the console shows a toast notification instantly, appends the message to the open conversation if that driver is selected, stores it via `[DriverMessageInsert]` in the SQL backend, then removes it from Firebase.
+63. **`[DriverMessageInsert]` unhandled** — New server.js handler stores driver-originated messages (SenderId = driverId) in the in-memory messageStore with IsRead=false so they appear in conversation history and unread badge counts.
+64. **Messaging actions were proxied to live backend** — All messaging actions (`[MessageInsert]`, `[DriverMessageInsert]`, `[BroadcastMessage]`, `[GroupMessage]`, `[DeleteMessage]`, `[RetrieveMessages]`, `[DispatcherUnReadMessages]`) added to `LOCAL_ONLY_ACTIONS` so they never hit the remote server (which has no session anyway).
+
+#### Driver app Firebase messaging spec
+| Direction | Firebase path | Fields |
+|---|---|---|
+| Dispatcher → Driver | `/chat/{driverId}` | `{ content: "message text", bookingid: "0,MessageType,0,0,Dispatcher" }` |
+| Driver → Dispatcher | `/driverMsg/{companyId}/{pushKey}` | `{ driverId, driverName, vehicleNumber, message, timestamp }` |
+
+Driver app should:
+- Listen on `/chat/{driverId}` — show message to driver when `content` arrives
+- To send to dispatcher: `firebase.database().ref('/driverMsg/1216').push({ driverId, driverName, message, timestamp: Date.now() })`
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.
