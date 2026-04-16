@@ -5484,39 +5484,24 @@ $(document).ready(function() {
 
 
      cars_Ref.on('child_removed', function (data) {
-        var vehicleKey = data.key; // Firebase path segment = VehicleId used in the path
-        var foundChild = false;
-        data.forEach(function (childsnapshot) {
-            foundChild = true;
-            if(markers[childsnapshot.val().vehiclenumber]){
-                markers[childsnapshot.val().vehiclenumber].setMap(null);
-            }
-            (function(dval) {
-                var _sc = angular.element(document.getElementById('myangular')).scope();
-                if (_sc) {
-                    _sc.adddriverremove(dval, vehicleKey);
-                } else {
-                    setTimeout(function() {
-                        var _sc2 = angular.element(document.getElementById('myangular')).scope();
-                        if (_sc2) _sc2.adddriverremove(dval, vehicleKey);
-                    }, 1500);
-                }
-            })(childsnapshot.val());
-        });
-        // Fallback: if no child data (node deleted directly), remove by path key alone
-        if (!foundChild) {
-            var _sc = angular.element(document.getElementById('myangular')).scope();
-            var removeFn = function(sc) {
-                sc.driverdatarealx = sc.driverdatarealx.filter(function(d) {
-                    return String(d.VehicleId) !== String(vehicleKey);
-                });
-                sc.driverlist = sc.driverdatarealx;
-                sc.zonetablez();
-                if (!sc.$$phase) { sc.$digest(); }
-            };
-            if (_sc) { removeFn(_sc); }
-            else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
+        var vehicleKey = data.key;
+        var driverData = data.val();
+        // Remove map marker using the full driver object
+        if (driverData && typeof driverData === 'object' && markers[driverData.vehiclenumber]) {
+            markers[driverData.vehiclenumber].setMap(null);
         }
+        // Always remove from Angular scope by vehicleKey
+        var removeFn = function(sc) {
+            sc.driverdatarealx = sc.driverdatarealx.filter(function(d) {
+                return String(d.VehicleId) !== String(vehicleKey);
+            });
+            sc.driverlist = sc.driverdatarealx;
+            sc.zonetablez();
+            if (!sc.$$phase) { sc.$digest(); }
+        };
+        var _sc = angular.element(document.getElementById('myangular')).scope();
+        if (_sc) { removeFn(_sc); }
+        else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
     });
     } // end if (user)
     }); // end onAuthStateChanged
@@ -6037,36 +6022,8 @@ $(document).ready(function() {
                               cache: false,
                               success: function (response) {
                                   console.log("status :" + status);
-
-                                  var d = new Date();
-
-                                  var month = d.getMonth() + 1;
-                                  var date = d.getDate();
-                                  var FinalOutput = d.getFullYear() + '-' +
-                                      (('' + month).length < 2 ? '0' : '') +
-                                      month + '-' +
-                                      (('' + date).length < 2 ? '0' : '') + date;
-                                    h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-                                  m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                                  var FindMinutes = FinalOutput + " " + h + ':' + m;
-                                  var CurrentDateTime = $("#laterDate").val() + " " + h + ':' + m + ':00';
-
-
-                                  Action([
-                                       { "name": "VehicleId", "Value": vehicle }, 
-                                       { "name": "DriverId", "Value": driverid }, 
-                                       { "name": "PenaltyReason", "Value": "Kicked" },
-                                       { "name": "PenaltyDate", "Value": CurrentDateTime },
-                                       { "name": "PenaltyUpToDateTime", "Value": "" + " " + "12:00:00" }],
-                                       "[KickDriver]");
-
-                                  FnKickDriver(driverid, vehicle, "Kicked");
-                                  console.log("this is it");
-                                  toastr["success"]('Driver Kicked Successfully.', 'Success!');
-                                  firebase.database().ref("online/" + SomeSession2 + "/"+vehicle).remove();
-                                  console.log("this is it");
-                                  angular.element(document.getElementById('myangular')).scope().getjobs( );
-                            
+                                  toastr["warning"]('Driver did not respond. Job returned to queue.', 'Warning!');
+                                  angular.element(document.getElementById('myangular')).scope().getjobs();
                               }
                           });
  
