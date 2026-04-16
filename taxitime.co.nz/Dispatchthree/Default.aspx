@@ -14318,14 +14318,19 @@ $(document).ready(function() {
             };
 
             firebase.database().ref().child("/chat/" + DriverId).remove();
+            firebase.database().ref().child("/notification/" + DriverId).remove();
 
             // Get a key for a new Post.
             var newPostKey = firebase.database().ref().child('chat').push().key;
 
-            // Write the new post's data simultaneously in the posts list and the user's post list.
+            // Write to /chat/ (in-app chat display) AND /notification/ (push alert — same
+            // mechanism used by job offers so driver sees it regardless of which screen they're on)
             var updates = {};
             updates['/chat/' + DriverId] = postData;
-            // updates['/user-posts/' + uid + '/' + newPostKey] = postData;
+            updates['/notification/' + DriverId] = {
+                bookingid: '0,Message,' + DriverId + ',' + someSession4 + ',Dispatcher',
+                content: 'You have a new message from Dispatcher'
+            };
 
             return firebase.database().ref().update(updates).catch(function(err) {
                 console.error('[Chat] Firebase write failed:', err.code, err.message);

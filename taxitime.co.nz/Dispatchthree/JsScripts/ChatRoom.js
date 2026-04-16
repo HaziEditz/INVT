@@ -300,12 +300,17 @@ function BroadcastMessage() {
     Action([{ "name": "Message", "Value": msg }, { "name": "DateTime", "Value": dt }], "[BroadcastMessage]");
 
     // Firebase instant notification to all live Firebase drivers
+    // Writes to both /chat/ (in-app display) and /notification/ (push alert so driver
+    // sees it regardless of which screen they are on — same path used for job offers)
     var live = _getLiveDrivers();
     if (live.length > 0) {
         try {
             var updates = {};
             live.forEach(function (drv) {
-                if (drv.Id) updates['/chat/' + drv.Id] = { bookingid: '0,Broadcast,0,0,Dispatcher', content: msg };
+                if (drv.Id) {
+                    updates['/chat/' + drv.Id] = { bookingid: '0,Broadcast,0,0,Dispatcher', content: msg };
+                    updates['/notification/' + drv.Id] = { bookingid: '0,Message,' + drv.Id + ',0,Dispatcher', content: 'Broadcast: ' + msg };
+                }
             });
             firebase.database().ref().update(updates);
         } catch (e) {}
@@ -337,6 +342,8 @@ function FnGroupMessage() {
     ], "[GroupMessage]");
 
     // Firebase notification to matching live drivers
+    // Writes to both /chat/ (in-app display) and /notification/ (push alert so driver
+    // sees it regardless of which screen they are on — same path used for job offers)
     var targets = _getLiveDrivers().filter(function (drv) {
         var zm = !zone  || (drv.zonename  || '').toLowerCase().includes(zone.toLowerCase());
         var vm = !vtype || (drv.vehicletype || '').toLowerCase().includes(vtype.toLowerCase());
@@ -346,7 +353,10 @@ function FnGroupMessage() {
         try {
             var updates = {};
             targets.forEach(function (drv) {
-                if (drv.Id) updates['/chat/' + drv.Id] = { bookingid: '0,GroupMessage,0,0,Dispatcher', content: msg };
+                if (drv.Id) {
+                    updates['/chat/' + drv.Id] = { bookingid: '0,GroupMessage,0,0,Dispatcher', content: msg };
+                    updates['/notification/' + drv.Id] = { bookingid: '0,Message,' + drv.Id + ',0,Dispatcher', content: 'Group message: ' + msg };
+                }
             });
             firebase.database().ref().update(updates);
         } catch (e) {}
