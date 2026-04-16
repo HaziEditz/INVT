@@ -1,0 +1,35 @@
+Amazing, you're in! Let me check the logs to see what happened with the dispatch API call when you logged in:
+
+
+2 actions
+I can see the problem — the dispatch API call (FnDriverLogin) failed with an empty response, so the driver isn't registering in the dispatcher. Let me read exactly what's being sent:
+
+
+3 actions
+The dispatch API call is failing — the error is empty {} which means it's probably getting a bad response. The key issue is CompanyId — it comes from user.displayName in Firebase, but the owner panel likely never sets that. Let me add proper debug logging and fix this:
+
+
+2 actions
+Now let me also check sign out and make sure that's solid:
+
+
+2 actions
+Sign out looks solid. Let me restart to get the debug logs when you log in again:
+
+
+2 actions
+Log in now so I can see the debug output. Then I'll know exactly what to fix:
+
+
+4 actions
+No login attempt yet — go ahead and log in. While that happens, I already know the core issue from the previous logs and can explain it now.
+
+The problem: The dispatch API needs a CompanyId to identify which company this driver belongs to. The original Android app got this from the Firebase user's displayName — but your owner panel never sets displayName when creating a driver account, so it's blank, and the API rejects the call.
+
+Two things to fix in parallel:
+
+Fix 1 — Tell the owner panel AI this:
+
+"When creating a new driver Firebase Auth account using createUserWithEmailAndPassword, you also need to immediately call updateProfile(userCredential.user, { displayName: companyId }) to set the Firebase user's display name to the Company ID. The driver app reads this value (user.displayName) as the CompanyId when calling the dispatch API. Without it, the driver cannot appear in the dispatcher system."
+
+Fix 2 — Meanwhile, tell me: What is the Company ID for your company in the dispatch system? (It'll be something like a number or short code — it's what the dispatcher uses to identify your company.) Once I know it, I can hardcode it temporarily so you can test the full login → dispatcher flow right now, and you can remove it later once the owner panel is fixed.
