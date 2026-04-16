@@ -321,7 +321,7 @@ const server = http.createServer(async (req, res) => {
         const bookingType = param('Bookingtype') || 'Normal Ride';
         const quenumber = param('quenumber') || 0;
 
-        const bookstatus = driverId > 0 ? 'Offered' : 'Pending';
+        const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
         const newJob = {
           Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
           useremail: null, usertype: null, webstatus: '0',
