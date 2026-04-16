@@ -378,14 +378,17 @@ function initDriverMessageListener(companyId) {
     window._driverMsgListenerActive = true;
 
     try {
+        console.log('[ChatRoom] attaching driverMsg listener on /driverMsg/' + companyId);
         firebase.database().ref('/driverMsg/' + companyId).on('child_added', function (snapshot) {
             var msg = snapshot.val();
             var key = snapshot.key;
-            if (!msg || !msg.message) return;
+            console.log('[ChatRoom] driverMsg child_added key=' + key + ' val=' + JSON.stringify(msg));
+            if (!msg) return;
 
-            var driverId   = String(msg.driverId   || msg.DriverId   || '');
-            var driverName = msg.driverName || msg.DriverName || ('Driver ' + driverId);
-            var text       = msg.message || msg.Message || '';
+            var driverId   = String(msg.driverId   || msg.DriverId   || msg.driver_id   || '');
+            var driverName = msg.driverName || msg.DriverName || msg.driver_name || ('Driver ' + driverId);
+            var text       = msg.message || msg.Message || msg.body || msg.Body || msg.text || msg.Text || msg.content || msg.Content || '';
+            if (!text) { console.warn('[ChatRoom] driverMsg: no text found in', msg); return; }
             var now        = new Date();
             var h    = (now.getHours()   < 10 ? '0' : '') + now.getHours();
             var mn   = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
