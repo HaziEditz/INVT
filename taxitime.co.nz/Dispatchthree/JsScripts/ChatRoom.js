@@ -308,8 +308,9 @@ function BroadcastMessage() {
             var updates = {};
             live.forEach(function (drv) {
                 if (drv.Id) {
-                    updates['/chat/' + drv.Id] = { bookingid: '0,Broadcast,0,0,Dispatcher', content: msg };
-                    updates['/notification/' + drv.Id] = { bookingid: '0,Message,' + drv.Id + ',0,Dispatcher', content: 'Broadcast: ' + msg };
+                    var chatPayload = { bookingid: '0,Broadcast,0,0,Dispatcher', content: msg };
+                    updates['/chat/' + drv.Id]         = chatPayload;
+                    updates['/notification/' + drv.Id] = { bookingid: chatPayload.bookingid, content: msg };
                 }
             });
             firebase.database().ref().update(updates);
@@ -354,8 +355,9 @@ function FnGroupMessage() {
             var updates = {};
             targets.forEach(function (drv) {
                 if (drv.Id) {
-                    updates['/chat/' + drv.Id] = { bookingid: '0,GroupMessage,0,0,Dispatcher', content: msg };
-                    updates['/notification/' + drv.Id] = { bookingid: '0,Message,' + drv.Id + ',0,Dispatcher', content: 'Group message: ' + msg };
+                    var chatPayload = { bookingid: '0,GroupMessage,0,0,Dispatcher', content: msg };
+                    updates['/chat/' + drv.Id]         = chatPayload;
+                    updates['/notification/' + drv.Id] = { bookingid: chatPayload.bookingid, content: msg };
                 }
             });
             firebase.database().ref().update(updates);

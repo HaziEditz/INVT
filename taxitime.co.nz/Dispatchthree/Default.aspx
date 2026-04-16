@@ -14324,12 +14324,14 @@ $(document).ready(function() {
             var newPostKey = firebase.database().ref().child('chat').push().key;
 
             // Write to /chat/ (in-app chat display) AND /notification/ (push alert — same
-            // mechanism used by job offers so driver sees it regardless of which screen they're on)
+            // mechanism used by job offers so driver sees it regardless of which screen they're on).
+            // Both use identical bookingid so the driver app can parse the message content the
+            // same way from either path.
             var updates = {};
             updates['/chat/' + DriverId] = postData;
             updates['/notification/' + DriverId] = {
-                bookingid: '0,Message,' + DriverId + ',' + someSession4 + ',Dispatcher',
-                content: 'You have a new message from Dispatcher'
+                bookingid: postData.bookingid,
+                content: Message
             };
 
             return firebase.database().ref().update(updates).catch(function(err) {
