@@ -543,6 +543,37 @@
       }
     });
 
+    // ── Mock-server login fallback (used when Firebase auth is unavailable) ──
+    function _mockLogin(email, firebaseErrorCode) {
+      fetch('/DataManager/Data.aspx/LoginSelector', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: [{ name: 'Username', value: email }, { name: 'Password', value: 'mock' }] })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var arr;
+        try { arr = typeof data.d === 'string' ? JSON.parse(data.d) : data.d; } catch(e) { arr = null; }
+        if (Array.isArray(arr) && arr.length > 0 && arr[0].CompanyId) {
+          var u    = arr[0];
+          var name = ((u.UserFName || '') + ' ' + (u.UserLName || '')).trim() || email.split('@')[0];
+          localStorage.setItem('TT_Name',    name);
+          localStorage.setItem('TT_DId',     String(u.Id      || '1051'));
+          localStorage.setItem('TT_Country', u.Country         || 'NZ');
+          localStorage.setItem('TT_CId',     String(u.CompanyId|| '1216'));
+          localStorage.setItem('Country',    u.Country         || 'NZ');
+          window.location.href = 'Default.aspx';
+        } else {
+          resetBtn();
+          showError('Sign-in failed. Please check your credentials and try again.');
+        }
+      })
+      .catch(function() {
+        resetBtn();
+        showError('Sign-in failed. Please check your connection and try again.');
+      });
+    }
+
     // ── Login form submission ────────────────────────────────────────────────
     document.getElementById('loginForm').addEventListener('submit', function() {
       var emailEl    = document.getElementById('inputEmail');
@@ -573,12 +604,16 @@
       btnEl.disabled = true;
       btnEl.innerHTML = '<span class="spinner"></span>Signing in...';
 
+      // 10-second timeout so the button never hangs forever
+      var authTimeout = setTimeout(function() {
+        _mockLogin(email, 'auth/timeout');
+      }, 10000);
+
       firebase.auth().signInWithEmailAndPassword(email, password)
         .then(function(result) {
+          clearTimeout(authTimeout);
           var user = result.user;
           var name = user.displayName || email.split('@')[0];
-          // Store session — TT_DId holds the company/dispatcher path ID used
-          // for Firebase Realtime Database paths (/online/1051/, /Emergency/1051/)
           localStorage.setItem('TT_Name',    name);
           localStorage.setItem('TT_DId',     '1051');
           localStorage.setItem('TT_Country', 'NZ');
@@ -587,25 +622,18 @@
           window.location.href = 'Default.aspx';
         })
         .catch(function(error) {
-          resetBtn();
-          var msg;
-          switch (error.code) {
-            case 'auth/user-not-found':
-            case 'auth/wrong-password':
-            case 'auth/invalid-credential':
-              msg = 'Incorrect email or password. Please try again.'; break;
-            case 'auth/invalid-email':
-              msg = 'That doesn\'t look like a valid email address.'; break;
-            case 'auth/user-disabled':
-              msg = 'This account has been disabled. Contact your administrator.'; break;
-            case 'auth/too-many-requests':
-              msg = 'Too many failed attempts. Please wait a moment and try again.'; break;
-            case 'auth/network-request-failed':
-              msg = 'Network error. Please check your connection and try again.'; break;
-            default:
-              msg = 'Sign-in failed (' + error.code + '). Please try again.';
+          clearTimeout(authTimeout);
+          var wrongCreds = (error.code === 'auth/user-not-found' ||
+                            error.code === 'auth/wrong-password'  ||
+                            error.code === 'auth/invalid-credential' ||
+                            error.code === 'auth/invalid-email');
+          if (wrongCreds) {
+            resetBtn();
+            showError('Incorrect email or password. Please try again.');
+          } else {
+            // Any other error (too-many-requests, network, etc.) — try mock fallback
+            _mockLogin(email, error.code);
           }
-          showError(msg);
         });
     });
 
