@@ -457,7 +457,7 @@ const server = http.createServer(async (req, res) => {
           messageStore.push(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message saved to driver #${receiverId}`);
         }
-        successD(res, 'Message sent successfully');
+        successD(res, 'Message Saved');
 
       } else if (action === '[DriverMessageInsert]') {
         // Incoming message FROM a driver → dispatcher (sent via Firebase, stored here for history)

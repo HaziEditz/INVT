@@ -208,19 +208,37 @@ function PushMessageNotification() {
     var date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     var h    = (d.getHours()   < 10 ? '0' : '') + d.getHours();
     var m    = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-    var MessageDateTime = date + " " + h + ':' + m;
+    var strTime = h + ':' + m;
+
+    // Clear input immediately, BEFORE any async callbacks fire
+    $("#TxtMessage").val("");
+
+    // Append message directly to chat with the saved text (never read from input again)
+    $(".chat").append(
+        '<li class="left clearfix">' +
+            '<span class="chat-img pull-left"><img src="images/stph.png" alt="Dispatcher"></span>' +
+            '<div class="chat-body clearfix">' +
+                '<div class="header">' +
+                    '<strong class="primary-font">You (Dispatcher)</strong>' +
+                    '<small class="pull-right text-muted"><i class="fa fa-clock-o"></i> ' + date + ' ' + strTime + '</small>' +
+                '</div>' +
+                '<p>' + msg + '</p>' +
+            '</div>' +
+        '</li>'
+    );
+    var dv = $('#DivChat');
+    dv.scrollTop(dv.prop("scrollHeight"));
 
     // Push Firebase notification so driver app wakes up
-    FnNewMessage(driverId, msg, MessageDateTime);
+    FnNewMessage(driverId, msg, date + ' ' + strTime);
 
-    // Persist in SQL backend
+    // Persist in SQL backend (response "Message Saved" — won't trigger AjaxHandler's ReloadConversation)
     Action([
         { "name": "RecieverId", "Value": driverId },
         { "name": "Message",    "Value": msg },
-        { "name": "DateTime",   "Value": MessageDateTime }
+        { "name": "DateTime",   "Value": date + ' ' + strTime }
     ], "[MessageInsert]");
 
-    ReloadConversation();
     GetDetails();
 }
 
