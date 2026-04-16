@@ -5079,6 +5079,12 @@ $(document).ready(function() {
     cars_Ref.on('child_added', function (data) {
         var driverData = data.val();
         if (!driverData || typeof driverData !== 'object') return;
+        // Handle nested structure: { vehicleId: { driverid, vehiclenumber, ... } }
+        if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
+            var keys = Object.keys(driverData);
+            if (keys.length > 0) driverData = driverData[keys[0]];
+        }
+        if (!driverData || typeof driverData !== 'object') return;
         cars_count++;
         // Guard AddCar — Google Maps may not be ready yet when Firebase fires
         if (typeof google !== 'undefined' && typeof AddCar === 'function') {
@@ -5101,6 +5107,12 @@ $(document).ready(function() {
     // this event will be triggered on location change of any car...
     cars_Ref.on('child_changed', function (data) {
         var driverData = data.val();
+        if (!driverData || typeof driverData !== 'object') return;
+        // Handle nested structure: { vehicleId: { driverid, vehiclenumber, ... } }
+        if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
+            var keys = Object.keys(driverData);
+            if (keys.length > 0) driverData = driverData[keys[0]];
+        }
         if (!driverData || typeof driverData !== 'object') return;
         var childsnapshot = { val: function() { return driverData; } };
         {
