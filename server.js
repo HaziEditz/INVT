@@ -76,12 +76,15 @@ const ZONE_DRIVERS = [];
 
 // Build full job-list DataSelector response
 function buildJobListResponse(jobs) {
-  const dt1 = jobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
-  const pending = dt1.filter(j => j.BookingStatus !== 'Offered' && j.BookingStatus !== 'Assigned');
+  // Terminal statuses — jobs in these states are done and must NOT appear in the dispatcher queue
+  const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
+  const activeJobs = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
+  const dt1 = activeJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
+  const pending = dt1.filter(j => j.BookingStatus === 'Pending');
   return {
     dt1,
-    dt2: [{ AssignedCount: jobs.filter(j => j.BookingStatus === 'Assigned').length }],
-    dt3: [{ ActiveCount: jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
+    dt2: [{ AssignedCount: activeJobs.filter(j => j.BookingStatus === 'Assigned').length }],
+    dt3: [{ ActiveCount: activeJobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
     dt4: [{ UnAssignedCount: pending.length }],
     dt5: [{ PublicKey: '' }],
   };
