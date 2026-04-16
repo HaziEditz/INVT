@@ -5445,22 +5445,39 @@ $(document).ready(function() {
 
 
      cars_Ref.on('child_removed', function (data) {
+        var vehicleKey = data.key; // Firebase path segment = VehicleId used in the path
+        var foundChild = false;
         data.forEach(function (childsnapshot) {
+            foundChild = true;
             if(markers[childsnapshot.val().vehiclenumber]){
                 markers[childsnapshot.val().vehiclenumber].setMap(null);
             }
             (function(dval) {
                 var _sc = angular.element(document.getElementById('myangular')).scope();
                 if (_sc) {
-                    _sc.adddriverremove(dval);
+                    _sc.adddriverremove(dval, vehicleKey);
                 } else {
                     setTimeout(function() {
                         var _sc2 = angular.element(document.getElementById('myangular')).scope();
-                        if (_sc2) _sc2.adddriverremove(dval);
+                        if (_sc2) _sc2.adddriverremove(dval, vehicleKey);
                     }, 1500);
                 }
             })(childsnapshot.val());
         });
+        // Fallback: if no child data (node deleted directly), remove by path key alone
+        if (!foundChild) {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            var removeFn = function(sc) {
+                sc.driverdatarealx = sc.driverdatarealx.filter(function(d) {
+                    return String(d.VehicleId) !== String(vehicleKey);
+                });
+                sc.driverlist = sc.driverdatarealx;
+                sc.zonetablez();
+                if (!sc.$$phase) { sc.$digest(); }
+            };
+            if (_sc) { removeFn(_sc); }
+            else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
+        }
     });
     } // end if (user)
     }); // end onAuthStateChanged
@@ -7137,26 +7154,25 @@ $(document).ready(function() {
                 return "green";
             }
         }
-        $scope.adddriverremove = function(datacom){
-                
-
+        $scope.adddriverremove = function(datacom, vehicleKey){
             var found = false;
-          
             for(var i = 0; i < $scope.driverdatarealx.length; i++) {
-                if ($scope.driverdatarealx[i].VehicleId ==  datacom.VehicleId ) {
-                    $scope.driverdatarealx.splice(i, 1); 
-                    console.log( $scope.driverdatarealx);
-                    $scope.driverlist =  $scope.driverdatarealx;
-                    if(markers[datacom.vehiclenumber]){
-                        markers[datacom.vehiclenumber].setMap(null);
-                    }
-                    $scope.changezone($scope.driverdatarealx); 
+                var d = $scope.driverdatarealx[i];
+                var matchById  = datacom.VehicleId  && String(d.VehicleId) === String(datacom.VehicleId);
+                var matchByKey = vehicleKey          && String(d.VehicleId) === String(vehicleKey);
+                // Also handle driver app sending DriverId instead of driverid
+                var matchByDriverAppId = datacom.DriverId && (String(d.driverid) === String(datacom.DriverId) || String(d.VehicleId) === String(datacom.DriverId));
+                if (matchById || matchByKey || matchByDriverAppId) {
+                    $scope.driverdatarealx.splice(i, 1);
+                    $scope.driverlist = $scope.driverdatarealx;
+                    var vnum = datacom.vehiclenumber || datacom.VehicleNo || '';
+                    if(vnum && markers[vnum]){ markers[vnum].setMap(null); }
+                    $scope.zonetablez();
                     if (!$scope.$$phase) { $scope.$digest(); }
                     found = true;
                     break;
                 }
             }
-           
         }
 
         $scope.changedata = function(oldi , neww){
