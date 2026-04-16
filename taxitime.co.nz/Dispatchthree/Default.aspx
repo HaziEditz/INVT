@@ -11713,17 +11713,27 @@ $(document).ready(function() {
                 if (!$scope._tariffZoneListenerActive) {
                     $scope._tariffZoneListenerActive = true;
                     firebase.database().ref('tariffZones').on('value', function(snapshot) {
+                        console.log('[tariffZones] snapshot exists:', snapshot.exists(), 'numChildren:', snapshot.numChildren());
                         var list = [];
                         snapshot.forEach(function(child) {
                             var t = child.val();
-                            if (t && t.Id && t.TariffName) {
-                                list.push({ Id: t.Id, TariffName: t.TariffName });
+                            console.log('[tariffZones] child key:', child.key, 'val:', JSON.stringify(t));
+                            if (t) {
+                                // Accept both exact case and common variations
+                                var id = t.Id !== undefined ? t.Id : (t.id !== undefined ? t.id : child.key);
+                                var name = t.TariffName || t.tariffName || t.name || t.zoneName || t.ZoneName || '';
+                                if (name) {
+                                    list.push({ Id: id, TariffName: name });
+                                }
                             }
                         });
+                        console.log('[tariffZones] built list:', JSON.stringify(list));
                         if (list.length > 0) {
                             $scope.tarriflist = list;
                             if (!$scope.$$phase) { $scope.$digest(); }
                         }
+                    }, function(err) {
+                        console.error('[tariffZones] Firebase read error:', err.code, err.message);
                     });
                 }
             
