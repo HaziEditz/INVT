@@ -66,10 +66,16 @@ function _getLiveDrivers() {
         var sc = angular.element(document.getElementById('myangular')).scope();
         if (sc && sc.driverdatarealx && sc.driverdatarealx.length > 0) {
             return sc.driverdatarealx.map(function (d) {
+                // Prefer numeric SQL driverid; fall back to VehicleId string key
+                var numId = parseInt(d.driverid || d.DriverId || '0') || 0;
+                var id = (numId > 0) ? numId : (d.VehicleId || d.vehicleid || d.vehiclenumber || 0);
+                // Show real driver name; fall back to vehicle number then VehicleId
+                var name = (d.drivername || d.DriverName || '').trim();
+                if (!name) name = (d.vehiclenumber || d.VehicleId || 'Driver').toString();
                 return {
-                    Id:        d.driverid  || d.DriverId  || d.VehicleId || 0,
-                    UserFName: (d.drivername || d.DriverName || 'Driver').split(' ')[0],
-                    UserLName: (d.drivername || d.DriverName || '').split(' ').slice(1).join(' '),
+                    Id:        id || 0,
+                    UserFName: name.split(' ')[0] || 'Driver',
+                    UserLName: name.split(' ').slice(1).join(' '),
                     Count:     0,
                     _live:     true
                 };
@@ -122,7 +128,7 @@ function GetDetails() {
 
             $list.append(
                 '<li class="' + selClass + '" id="drv-li-' + d.Id + '">' +
-                    '<a onclick="GetConversation(' + d.Id + ',\'' + fullName + '\',\'' + color + '\')" class="clearfix">' +
+                    '<a onclick="GetConversation(\'' + d.Id + '\',\'' + fullName + '\',\'' + color + '\')" class="clearfix">' +
                         '<div class="tt-avatar" style="background:' + color + '">' +
                             initials +
                             '<span class="tt-avatar-dot"></span>' +
@@ -245,8 +251,8 @@ function PushMessageNotification() {
     var msg = $("#TxtMessage").val().trim();
     if (!msg) return;
 
-    var driverId = $("#UserId").text();
-    if (!driverId || driverId === '0') {
+    var driverId = ($("#UserId").text() || '').trim();
+    if (!driverId || driverId === '0' || driverId === '00') {
         toastr["warning"]("Select a driver first.", "No Driver Selected");
         return;
     }

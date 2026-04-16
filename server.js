@@ -39,8 +39,9 @@ const messageStore = [];
 
 function buildDriverChatList() {
   return ZONE_DRIVERS.map(d => {
-    const unread = messageStore.filter(m => m.SenderId === d.driverid && !m.IsRead).length;
-    return { Id: d.driverid, UserFName: d.drivername.split(' ')[0], UserLName: d.drivername.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
+    const did = String(d.driverid || d.VehicleId || '');
+    const unread = messageStore.filter(m => String(m.SenderId) === did && !m.IsRead).length;
+    return { Id: d.driverid || d.VehicleId, UserFName: d.drivername.split(' ')[0], UserLName: d.drivername.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
   });
 }
 
@@ -437,13 +438,13 @@ const server = http.createServer(async (req, res) => {
         successD(res, 'Emergency Stored');
 
       } else if (action === '[MessageInsert]') {
-        const receiverId = parseInt(param('RecieverId') || param('ReceiverId') || '0') || 0;
+        const receiverId = (param('RecieverId') || param('ReceiverId') || '').trim();
         const message    = param('Message') || '';
         const dateTime   = param('DateTime') || '';
         const datePart   = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
         const timePart   = dateTime.substring(11) || '';
-        if (message.trim()) {
-          const msg = { Id: nextMsgId++, SenderId: 0, ReceiverId: receiverId, SenderName: 'Dispatcher', Message: message, Date: datePart, Time: timePart, IsRead: true };
+        if (message.trim() && receiverId) {
+          const msg = { Id: nextMsgId++, SenderId: 'Dispatcher', ReceiverId: receiverId, SenderName: 'Dispatcher', Message: message, Date: datePart, Time: timePart, IsRead: true };
           messageStore.push(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message saved to driver #${receiverId}`);
         }
@@ -451,14 +452,14 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[DriverMessageInsert]') {
         // Incoming message FROM a driver → dispatcher (sent via Firebase, stored here for history)
-        const senderId  = parseInt(param('SenderId') || '0') || 0;
+        const senderId  = (param('SenderId') || '').trim();
         const message   = param('Message') || '';
         const dateTime  = param('DateTime') || '';
         const datePart  = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
         const timePart  = dateTime.substring(11) || '';
-        const driver    = ZONE_DRIVERS.find(d => d.driverid === senderId) || { drivername: 'Driver ' + senderId };
+        const driver    = ZONE_DRIVERS.find(d => String(d.driverid) === senderId || String(d.VehicleId) === senderId) || { drivername: 'Driver ' + senderId };
         if (message.trim()) {
-          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: 0, SenderName: driver.drivername, Message: message, Date: datePart, Time: timePart, IsRead: false };
+          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: 'Dispatcher', SenderName: driver.drivername || ('Driver ' + senderId), Message: message, Date: datePart, Time: timePart, IsRead: false };
           messageStore.push(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message stored from driver #${senderId}`);
         }
@@ -638,8 +639,8 @@ const server = http.createServer(async (req, res) => {
         arrayD(res, chatList);
 
       } else if (action === '[DispatcherUnReadMessages]') {
-        const driverId = parseInt(param('Id') || '0') || 0;
-        const unread = messageStore.filter(m => m.SenderId === driverId && !m.IsRead);
+        const driverId = (param('Id') || '').trim();
+        const unread = messageStore.filter(m => String(m.SenderId) === driverId && !m.IsRead);
         unread.forEach(m => { m.IsRead = true; });
         const mapped = unread.map(m => ({
           Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
@@ -885,10 +886,10 @@ const server = http.createServer(async (req, res) => {
         objectD(res, resp);
 
       } else if (action === '[DispatcherConversation]') {
-        const driverId = parseInt(param('Id') || '0') || 0;
+        const driverId = (param('Id') || '').trim();
         const dt1 = [{ PlayerId: '' }];
-        const convo = messageStore.filter(m => m.SenderId === driverId || m.ReceiverId === driverId);
-        convo.forEach(m => { if (m.SenderId === driverId) m.IsRead = true; });
+        const convo = messageStore.filter(m => String(m.SenderId) === driverId || String(m.ReceiverId) === driverId);
+        convo.forEach(m => { if (String(m.SenderId) === driverId) m.IsRead = true; });
         const dt2 = convo.map(m => ({
           Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
           Message: m.Message, Date: m.Date, Time: m.Time,
