@@ -4020,6 +4020,8 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span ng-if="value1.vehiclestatus == 'Clearing'" style="background: lightgreen; padding: 3px; color: black;   font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
                                                                 </span>
+                                                                <span ng-if="value1.vehiclestatus !== 'Available' && value1.vehiclestatus !== 'Away' && value1.vehiclestatus !== 'Busy' && value1.vehiclestatus !== 'Picking' && value1.vehiclestatus !== 'Clearing'" style="background: #999; padding: 3px; color: #fff; font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
+                                                                </span>
                                                             </div>
 
 
@@ -5001,7 +5003,7 @@ $(document).ready(function() {
             draggable:true,
        
             label: {
-                text: data.vehiclenumber,
+                text: String(data.vehiclenumber || ''),
                 color: "red",
                 fontSize: "13px",
                 fontWeight: "bold",

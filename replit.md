@@ -256,6 +256,10 @@ Driver app should:
 - Listen on `/chat/{driverId}` — show message to driver when `content` arrives
 - To send to dispatcher: `firebase.database().ref('/driverMsg/1216').push({ driverId, driverName, message, timestamp: Date.now() })`
 
+### Firebase map marker + zone queue fixes (session 10)
+65. **`setLabel: not a string` Google Maps crash** — `AddCar()` created a marker with `label: { text: data.vehiclenumber }`. Firebase sends `vehiclenumber` as a numeric type (e.g., `201`), but Google Maps requires the label text to be a string. Fixed: `text: String(data.vehiclenumber || '')` — casts to string safely.
+66. **Zone queue shows zone rows but driver cab cards invisible** — The zone queue used 5 hard-coded `ng-if` conditions (`vehiclestatus == 'Available'|'Away'|'Busy'|'Picking'|'Clearing'`). If the driver app sends any other status string (e.g., `'active'`, `'online'`, or even `undefined`), none of the spans rendered and the driver appeared as an invisible row. Fixed: added a catch-all `<span>` that shows for any status not in the 5 known values, with a neutral grey background so the cab number/type is always visible.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.
