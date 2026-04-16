@@ -35,12 +35,7 @@ function newJobId() { return nextJobId++; }
 
 // ─── In-memory message store ──────────────────────────────────────────────────
 let nextMsgId = 100;
-const messageStore = [
-  { Id: 1, SenderId: 101, ReceiverId: 0, SenderName: 'Michael Johnson', Message: 'Dispatcher, I\'m heading to Tay St pickup now.', Date: '2026-04-15', Time: '08:22 am', IsRead: true },
-  { Id: 2, SenderId: 0,   ReceiverId: 101, SenderName: 'Dispatcher',    Message: 'Thanks Michael, job #937190 is yours — confirm when on scene.', Date: '2026-04-15', Time: '08:23 am', IsRead: true },
-  { Id: 3, SenderId: 102, ReceiverId: 0, SenderName: 'Sarah Wilson',    Message: 'Available in Central. Waiting for next job.', Date: '2026-04-15', Time: '09:01 am', IsRead: false },
-  { Id: 4, SenderId: 103, ReceiverId: 0, SenderName: 'David Thompson',  Message: 'Running 5 mins late on the airport run.', Date: '2026-04-15', Time: '09:15 am', IsRead: false },
-];
+const messageStore = [];
 
 function buildDriverChatList() {
   return ZONE_DRIVERS.map(d => {
@@ -74,14 +69,9 @@ function fmtDT(dt) {
 // Live job store — starts empty; jobs are created through the dispatch UI
 const jobStore = [];
 
-// Demo drivers for zone queue display
-const ZONE_DRIVERS = [
-  { driverid: 101, drivername: 'Michael Johnson', vehiclenumber: '201', vehicletype: 'Sedan', vehiclestatus: 'Available', zonename: 'Central Invercargill', zoneid: 1, zonequeue: 1, VehicleId: 201, time: '', jobCount: 0, JobphoneNo: '', jobpickup: '', jobdropoff: '' },
-  { driverid: 102, drivername: 'Sarah Wilson',    vehiclenumber: '202', vehicletype: 'Sedan', vehiclestatus: 'Available', zonename: 'Central Invercargill', zoneid: 1, zonequeue: 2, VehicleId: 202, time: '', jobCount: 0, JobphoneNo: '', jobpickup: '', jobdropoff: '' },
-  { driverid: 103, drivername: 'David Thompson',  vehiclenumber: '203', vehicletype: 'SUV',   vehiclestatus: 'Available', zonename: 'Appleby',              zoneid: 2, zonequeue: 1, VehicleId: 203, time: '', jobCount: 0, JobphoneNo: '', jobpickup: '', jobdropoff: '' },
-  { driverid: 104, drivername: 'Emma Davies',     vehiclenumber: '204', vehicletype: 'Sedan', vehiclestatus: 'Available', zonename: 'Appleby',              zoneid: 2, zonequeue: 2, VehicleId: 204, time: '', jobCount: 0, JobphoneNo: '', jobpickup: '', jobdropoff: '' },
-  { driverid: 105, drivername: 'James Brown',     vehiclenumber: '205', vehicletype: 'Van',   vehiclestatus: 'Busy',      zonename: 'Waikiwi',              zoneid: 3, zonequeue: 1, VehicleId: 205, time: '', jobCount: 1, JobphoneNo: '021 555 1234', jobpickup: 'Elles Rd', jobdropoff: 'Don St' },
-];
+// Live drivers come exclusively from Firebase (online/1216).
+// This array is kept as an empty structure so dependent code paths don't crash.
+const ZONE_DRIVERS = [];
 
 // Build full job-list DataSelector response
 function buildJobListResponse(jobs) {

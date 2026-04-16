@@ -1,35 +1,62 @@
+// ── Avatar helpers ────────────────────────────────────────────────────────────
+var _avatarColors = ['#e74c3c','#3498db','#2ecc71','#9b59b6','#1abc9c','#e67e22','#16a085','#8e44ad','#2980b9','#c0392b'];
+
+function _avatarColor(name) {
+    var h = 0;
+    for (var i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xfffffff;
+    return _avatarColors[h % _avatarColors.length];
+}
+
+function _initials(name) {
+    if (!name) return '?';
+    var parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
 $(function () {
     GetDetails();
     $("#form1").submit(function () { return false; });
+
+    // Custom tab switching (replaced Bootstrap tabs)
+    $(document).on('click', '.tt-tab-btn', function () {
+        var target = $(this).data('panel');
+        $('.tt-tab-btn').removeClass('active');
+        $(this).addClass('active');
+        $('.tt-tab-panel').removeClass('active');
+        $('#' + target).addClass('active');
+        if (target === 'ttDirect') GetDetails();
+    });
+
+    // Message send
     $("#btnMessage").click(function () { PushMessageNotification(); });
-    $("#btnBroadcast").click(function () { BroadcastMessage(); });
+    $("#TxtMessage").on('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); PushMessageNotification(); }
+    });
+
+    // Broadcast / group buttons
+    $("#btnBroadcast").click(function ()    { BroadcastMessage(); });
     $("#btnGroupMessage").click(function () { FnGroupMessage(); });
 
     // Start Firebase driver→dispatcher listener as soon as companyId is known
-    var _listenerPollCount = 0;
     var _listenerPoll = setInterval(function () {
         var cid = localStorage.getItem('TT_CId') || '';
-        if (cid) {
-            clearInterval(_listenerPoll);
-            initDriverMessageListener(cid);
-        }
-        if (++_listenerPollCount > 40) clearInterval(_listenerPoll); // give up after 20 s
+        if (cid) { clearInterval(_listenerPoll); initDriverMessageListener(cid); }
     }, 500);
 
-    // Poll for new messages every 500 ms
+    // Poll for new unread messages every 500 ms
     setInterval(function () {
-        if ($("#lblRequest").text() == "True") {
+        if ($("#lblRequest").text() === "True") {
             GetDetails();
-            if ($("#UserId").text() != "0") {
-                DriverNewMessages($("#UserId").text());
-            }
+            var uid = $("#UserId").text();
+            if (uid && uid !== '0') DriverNewMessages(uid);
             $("#lblRequest").text("False");
         }
     }, 500);
 });
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
+// ── Live driver helper ────────────────────────────────────────────────────────
 function _getLiveDrivers() {
     try {
         var sc = angular.element(document.getElementById('myangular')).scope();
@@ -37,10 +64,10 @@ function _getLiveDrivers() {
             return sc.driverdatarealx.map(function (d) {
                 return {
                     Id:        d.driverid  || d.DriverId  || d.VehicleId || 0,
-                    UserFName: d.drivername || d.DriverName || 'Driver',
-                    UserLName: '',
-                    Count: 0,
-                    _live: true
+                    UserFName: (d.drivername || d.DriverName || 'Driver').split(' ')[0],
+                    UserLName: (d.drivername || d.DriverName || '').split(' ').slice(1).join(' '),
+                    Count:     0,
+                    _live:     true
                 };
             });
         }
@@ -49,151 +76,163 @@ function _getLiveDrivers() {
 }
 
 // ── Driver list (sidebar) ─────────────────────────────────────────────────────
-
 function GetDetails() {
     var liveDrivers = _getLiveDrivers();
 
-    var param = [];
-    var proc = '[RetrieveMessages]';
-    Selector1(param, proc).then(function (result) {
+    Selector1([], '[RetrieveMessages]').then(function (result) {
         var $res = JSON.parse(result.d);
         var combined = Array.isArray($res) ? $res.slice() : [];
 
-        // Merge live Firebase drivers that aren't already in SQL list
+        // Merge Firebase live drivers not already in SQL list
         var sqlIds = {};
         combined.forEach(function (d) { sqlIds[String(d.Id)] = true; });
         liveDrivers.forEach(function (d) {
             if (!sqlIds[String(d.Id)]) combined.push(d);
         });
 
-        $(".friend-list").empty();
-        if (combined.length > 0) {
-            combined.forEach(function (d) {
-                var badge = d.Count > 0
-                    ? '<small class="chat-alert label label-danger">' + d.Count + '</small>'
-                    : '';
-                $(".friend-list").append(
-                    '<li class="active bounceInDown">' +
-                        '<a onclick="GetConversation(' + d.Id + ')" class="clearfix">' +
-                            '<div class="friend-name"><strong>' + d.UserFName + ' ' + (d.UserLName || '') + '</strong></div>' +
-                            badge +
-                        '</a>' +
-                    '</li>'
-                );
-            });
-        } else {
-            $(".friend-list").empty().append('<li><div class="friend-name"><strong>No drivers online</strong></div></li>');
+        var $list = $(".friend-list").empty();
+
+        if (combined.length === 0) {
+            $list.append(
+                '<li><div class="tt-empty-sidebar">' +
+                    '<i class="fa fa-car"></i>' +
+                    'No drivers online' +
+                '</div></li>'
+            );
+            return;
         }
+
+        combined.forEach(function (d) {
+            var fullName  = ((d.UserFName || '') + ' ' + (d.UserLName || '')).trim();
+            var initials  = _initials(fullName);
+            var color     = _avatarColor(fullName);
+            var badge     = d.Count > 0
+                ? '<span class="tt-unread-badge">' + d.Count + '</span>'
+                : '';
+            var selectedId = $("#UserId").text();
+            var selClass   = (selectedId && String(d.Id) === String(selectedId)) ? ' tt-sel' : '';
+
+            $list.append(
+                '<li class="' + selClass + '" id="drv-li-' + d.Id + '">' +
+                    '<a onclick="GetConversation(' + d.Id + ',\'' + fullName + '\',\'' + color + '\')" class="clearfix">' +
+                        '<div class="tt-avatar" style="background:' + color + '">' +
+                            initials +
+                            '<span class="tt-avatar-dot"></span>' +
+                        '</div>' +
+                        '<div class="tt-driver-info">' +
+                            '<div class="tt-driver-name">' + fullName + '</div>' +
+                            '<div class="tt-driver-sub">Online</div>' +
+                        '</div>' +
+                        badge +
+                    '</a>' +
+                '</li>'
+            );
+        });
     });
 }
 
-function ReloadConversation() {
-    var d = new Date();
-    var month = d.getMonth() + 1;
-    var date  = d.getDate();
-    var output = d.getFullYear() + '-' +
-        (('' + month).length < 2 ? '0' : '') + month + '-' +
-        (('' + date).length < 2 ? '0' : '') + date;
-    var hours   = d.getHours();
-    var minutes = d.getMinutes();
-    var ampm    = hours >= 12 ? 'pm' : 'am';
-    hours = hours % 12; hours = hours ? hours : 12;
-    minutes = minutes < 10 ? '0' + minutes : minutes;
-    var strTime = hours + ':' + minutes + ' ' + ampm;
+// ── Conversation view ─────────────────────────────────────────────────────────
+function GetConversation(id, name, color) {
+    $("#UserId").text(id);
+    // Highlight selected driver
+    $(".friend-list li").removeClass('tt-sel');
+    $("#drv-li-" + id).addClass('tt-sel');
 
-    $(".chat").append(
-        '<li class="left clearfix">' +
-            '<span class="chat-img pull-left"><img src="images/stph.png" alt="Dispatcher"></span>' +
-            '<div class="chat-body clearfix">' +
-                '<div class="header">' +
-                    '<strong class="primary-font">You (Dispatcher)</strong>' +
-                    '<small class="pull-right text-muted"><i class="fa fa-clock-o"></i> ' + output + ' ' + strTime + '</small>' +
-                '</div>' +
-                '<p>' + $("#TxtMessage").val() + '</p>' +
-            '</div>' +
-        '</li>'
+    // Update chat header
+    var n   = name  || 'Driver ' + id;
+    var col = color || _avatarColor(n);
+    $("#ttChatHeader").html(
+        '<div class="tt-chat-header-avatar" style="background:' + col + '">' + _initials(n) + '</div>' +
+        '<div class="tt-chat-header-name">' + n + '</div>'
     );
-    $("#TxtMessage").val("");
-    var d2 = $('#DivChat');
-    d2.scrollTop(d2.prop("scrollHeight"));
+
+    // Load conversation
+    Selector([{ "name": "Id", "Value": id }], '[DispatcherConversation]').then(function (result) {
+        var $res = JSON.parse(result.d);
+        if ($res["dt1"] && $res["dt1"].length > 0) {
+            $("#PlayerId").text($res["dt1"][0].PlayerId || '');
+        }
+        var $ul = $(".chat").empty();
+        var msgs = $res["dt2"] || [];
+        if (msgs.length === 0) {
+            $ul.append(_emptyState());
+        } else {
+            msgs.forEach(function (m) {
+                var isOut = (m.SenderID !== id && m.SenderID !== String(id));
+                $ul.append(_buildBubble(m.Id, isOut, isOut ? 'You' : n, col, isOut, m.Message, m.Date + ' ' + m.Time, true));
+            });
+        }
+        var dv = $('#DivChat');
+        dv.scrollTop(dv.prop("scrollHeight"));
+    });
+    GetDetails();
 }
 
+function _emptyState() {
+    return '<li><div class="tt-empty-chat">' +
+        '<i class="fa fa-comment-o"></i>' +
+        '<span>No messages yet.<br>Send one below!</span>' +
+    '</div></li>';
+}
+
+// ── Build a message bubble ────────────────────────────────────────────────────
+// isOut = sent by dispatcher (right side, dark bg)
+function _buildBubble(msgId, isOut, senderLabel, color, showDelete, text, timeStr, withSender) {
+    var dir     = isOut ? 'tt-out' : 'tt-in';
+    var initAvt = isOut ? 'D' : _initials(senderLabel);
+    var avtCol  = isOut ? '#1a2535' : color;
+    var delBtn  = (showDelete && msgId)
+        ? '<button class="tt-del-btn" onclick="DeleteMessage(' + msgId + ')" title="Delete"><i class="fa fa-trash-o"></i></button>'
+        : '';
+    var senderHtml = withSender
+        ? '<div class="tt-msg-sender">' + senderLabel + '</div>'
+        : '';
+
+    return '<li class="tt-msg ' + dir + '">' +
+        '<div class="tt-msg-avt" style="background:' + avtCol + '">' + initAvt + '</div>' +
+        '<div class="tt-msg-body">' +
+            senderHtml +
+            '<div class="tt-bubble">' +
+                '<p>' + text + '</p>' +
+                '<div class="tt-bubble-meta">' +
+                    '<span>' + (timeStr || '') + '</span>' +
+                    delBtn +
+                '</div>' +
+            '</div>' +
+        '</div>' +
+    '</li>';
+}
+
+// ── Unread poll ───────────────────────────────────────────────────────────────
 function DriverNewMessages(UserId) {
-    var param = [{ "name": "Id", "Value": UserId }];
-    var proc  = '[DispatcherUnReadMessages]';
-    Selector1(param, proc).then(function (result) {
+    Selector1([{ "name": "Id", "Value": UserId }], '[DispatcherUnReadMessages]').then(function (result) {
         var $res = JSON.parse(result.d);
         if ($res.length > 0) {
-            for (var i = 0; i < $res.length; i++) {
-                var isDriver = ($res[i].SenderID == UserId);
-                var side     = isDriver ? 'right' : 'left';
-                $(".chat").append(
-                    '<li class="' + side + ' clearfix">' +
-                        '<span class="chat-img pull-' + (isDriver ? 'right' : 'left') + '"><img src="images/stph.png" alt="Avatar"></span>' +
-                        '<div class="chat-body clearfix">' +
-                            '<div class="header">' +
-                                '<strong class="primary-font">' + $res[i].User + '</strong>' +
-                                '<small class="pull-right text-muted"><i class="fa fa-clock-o"></i> ' + $res[i].Date + ' ' + $res[i].Time + '</small>' +
-                            '</div>' +
-                            '<p>' + $res[i].Message + '</p>' +
-                        '</div>' +
-                    '</li>'
-                );
-            }
-            var d = $('#DivChat');
-            d.scrollTop(d.prop("scrollHeight"));
+            var $ul = $(".chat");
+            // Remove empty state if present
+            $ul.find('.tt-empty-chat').closest('li').remove();
+            var driverId = $("#UserId").text();
+            $res.forEach(function (m) {
+                var isOut = (m.SenderID != UserId);
+                var now   = new Date();
+                var h = (now.getHours() < 10 ? '0' : '') + now.getHours();
+                var mn = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+                $ul.append(_buildBubble(m.Id, isOut, m.User, _avatarColor(m.User), false, m.Message, m.Date + ' ' + m.Time, false));
+            });
+            var dv = $('#DivChat');
+            dv.scrollTop(dv.prop("scrollHeight"));
             GetDetails();
         }
     });
 }
 
-function GetConversation(ele) {
-    $("#UserId").text(ele);
-    var param = [{ "name": "Id", "Value": ele }];
-    var proc  = '[DispatcherConversation]';
-    Selector(param, proc).then(function (result) {
-        var $res = JSON.parse(result.d);
-        if ($res["dt1"] && $res["dt1"].length > 0) {
-            $("#PlayerId").text($res["dt1"][0].PlayerId || '');
-        }
-        $(".chat").empty();
-        if ($res["dt2"] && $res["dt2"].length > 0) {
-            for (var i = 0; i < $res["dt2"].length; i++) {
-                var isDriver = ($res["dt2"][i].SenderID == ele);
-                var side     = isDriver ? 'right' : 'left';
-                $(".chat").append(
-                    '<li id="msg-' + $res["dt2"][i].Id + '" class="' + side + ' clearfix">' +
-                        '<span class="chat-img pull-' + (isDriver ? 'right' : 'left') + '"><img src="images/stph.png" alt="Avatar"></span>' +
-                        '<div class="chat-body clearfix">' +
-                            '<div class="header">' +
-                                '<strong class="primary-font">' + $res["dt2"][i].User + '</strong>' +
-                                '<small class="pull-right text-muted">' +
-                                    '<i class="fa fa-clock-o"></i> ' + $res["dt2"][i].Date + ' ' + $res["dt2"][i].Time +
-                                    ' <a onclick="DeleteMessage(' + $res["dt2"][i].Id + ')" title="Delete"><i class="fa fa-trash-o"></i></a>' +
-                                '</small>' +
-                            '</div>' +
-                            '<p>' + $res["dt2"][i].Message + '</p>' +
-                        '</div>' +
-                    '</li>'
-                );
-            }
-        } else {
-            $(".chat").append('<li class="text-muted" style="padding:10px;">No messages yet. Send a message below.</li>');
-        }
-        var d = $('#DivChat');
-        d.scrollTop(d.prop("scrollHeight"));
-    });
-    GetDetails();
-}
-
-function DeleteMessage(ele) {
-    Action([{ "name": "Id", "Value": ele }], "[DeleteMessage]", ele);
-    $("#msg-" + ele).remove();
+function DeleteMessage(id) {
+    Action([{ "name": "Id", "Value": id }], "[DeleteMessage]", id);
+    $("#msg-" + id).remove();
     GetDetails();
 }
 
 // ── Send: Dispatcher → Driver (1:1) ──────────────────────────────────────────
-
 function PushMessageNotification() {
     var msg = $("#TxtMessage").val().trim();
     if (!msg) return;
@@ -205,34 +244,25 @@ function PushMessageNotification() {
     }
 
     var d = new Date();
-    var date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    var h    = (d.getHours()   < 10 ? '0' : '') + d.getHours();
-    var m    = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+    var date    = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    var h       = (d.getHours()   < 10 ? '0' : '') + d.getHours();
+    var m       = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
     var strTime = h + ':' + m;
 
-    // Clear input immediately, BEFORE any async callbacks fire
+    // Clear input immediately before any async callbacks
     $("#TxtMessage").val("");
 
-    // Append message directly to chat with the saved text (never read from input again)
-    $(".chat").append(
-        '<li class="left clearfix">' +
-            '<span class="chat-img pull-left"><img src="images/stph.png" alt="Dispatcher"></span>' +
-            '<div class="chat-body clearfix">' +
-                '<div class="header">' +
-                    '<strong class="primary-font">You (Dispatcher)</strong>' +
-                    '<small class="pull-right text-muted"><i class="fa fa-clock-o"></i> ' + date + ' ' + strTime + '</small>' +
-                '</div>' +
-                '<p>' + msg + '</p>' +
-            '</div>' +
-        '</li>'
-    );
+    // Append sent message to chat right away
+    var $ul = $(".chat");
+    $ul.find('.tt-empty-chat').closest('li').remove();
+    $ul.append(_buildBubble(null, true, 'You', '#1a2535', false, msg, date + ' ' + strTime, false));
     var dv = $('#DivChat');
     dv.scrollTop(dv.prop("scrollHeight"));
 
-    // Push Firebase notification so driver app wakes up
+    // Firebase notification to driver app
     FnNewMessage(driverId, msg, date + ' ' + strTime);
 
-    // Persist in SQL backend (response "Message Saved" — won't trigger AjaxHandler's ReloadConversation)
+    // Persist (response "Message Saved" — won't retrigger AjaxHandler's ReloadConversation)
     Action([
         { "name": "RecieverId", "Value": driverId },
         { "name": "Message",    "Value": msg },
@@ -243,84 +273,66 @@ function PushMessageNotification() {
 }
 
 // ── Send: Broadcast → all live drivers ───────────────────────────────────────
-
 function BroadcastMessage() {
     var msg = $("#TxtBroadcast").val().trim();
-    if (!msg) { toastr["warning"]("Please enter a message to broadcast.", "Broadcast"); return; }
+    if (!msg) { toastr["warning"]("Please enter a broadcast message.", "Broadcast"); return; }
 
-    var d = new Date();
+    var d    = new Date();
     var date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    var h = (d.getHours()   < 10 ? '0' : '') + d.getHours();
-    var m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-    var MessageDateTime = date + " " + h + ':' + m;
+    var h    = (d.getHours()   < 10 ? '0' : '') + d.getHours();
+    var m    = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+    var dt   = date + " " + h + ':' + m;
 
-    // SQL backend (persists for offline drivers too)
-    Action([
-        { "name": "Message",  "Value": msg },
-        { "name": "DateTime", "Value": MessageDateTime }
-    ], "[BroadcastMessage]");
+    Action([{ "name": "Message", "Value": msg }, { "name": "DateTime", "Value": dt }], "[BroadcastMessage]");
 
     // Firebase instant notification to all live Firebase drivers
-    var liveDrivers = _getLiveDrivers();
-    if (liveDrivers.length > 0) {
+    var live = _getLiveDrivers();
+    if (live.length > 0) {
         try {
             var updates = {};
-            liveDrivers.forEach(function (d) {
-                if (d.Id) {
-                    updates['/chat/' + d.Id] = {
-                        bookingid: '0,Broadcast,0,0,Dispatcher',
-                        content: msg
-                    };
-                }
+            live.forEach(function (drv) {
+                if (drv.Id) updates['/chat/' + drv.Id] = { bookingid: '0,Broadcast,0,0,Dispatcher', content: msg };
             });
             firebase.database().ref().update(updates);
         } catch (e) {}
     }
 
-    toastr["success"]("Broadcast sent to all drivers.", "Broadcast");
+    toastr["success"]("Broadcast sent to all online drivers.", "Broadcast");
     $("#TxtBroadcast").val("");
     GetDetails();
 }
 
-// ── Send: Group message (by zone/vehicle type) ────────────────────────────────
-
+// ── Send: Group message (by zone / vehicle type) ──────────────────────────────
 function FnGroupMessage() {
     var msg   = $("#TxtGroupMsg").val().trim();
     var zone  = $("#ddlGroupZone").val()  || '';
     var vtype = $("#ddlGroupVType").val() || '';
     if (!msg) { toastr["warning"]("Please enter a group message.", "Group Message"); return; }
 
-    var d = new Date();
+    var d    = new Date();
     var date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    var h = (d.getHours()   < 10 ? '0' : '') + d.getHours();
-    var m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-    var MessageDateTime = date + " " + h + ':' + m;
+    var h    = (d.getHours()   < 10 ? '0' : '') + d.getHours();
+    var m    = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+    var dt   = date + " " + h + ':' + m;
 
-    // SQL backend
     Action([
         { "name": "Message",     "Value": msg },
         { "name": "Zone",        "Value": zone },
         { "name": "VehicleType", "Value": vtype },
-        { "name": "DateTime",    "Value": MessageDateTime }
+        { "name": "DateTime",    "Value": dt }
     ], "[GroupMessage]");
 
     // Firebase notification to matching live drivers
-    var liveDrivers = _getLiveDrivers();
-    var targets = liveDrivers.filter(function (d) {
-        var zoneMatch  = !zone  || (d.zonename  || '').toLowerCase().includes(zone.toLowerCase());
-        var vtypeMatch = !vtype || (d.vehicletype || '').toLowerCase().includes(vtype.toLowerCase());
-        return zoneMatch && vtypeMatch;
+    var targets = _getLiveDrivers().filter(function (drv) {
+        var zm = !zone  || (drv.zonename  || '').toLowerCase().includes(zone.toLowerCase());
+        var vm = !vtype || (drv.vehicletype || '').toLowerCase().includes(vtype.toLowerCase());
+        return zm && vm;
     });
     if (targets.length > 0) {
         try {
             var updates = {};
-            targets.forEach(function (d) {
-                if (d.Id) {
-                    updates['/chat/' + d.Id] = {
-                        bookingid: '0,GroupMessage,0,0,Dispatcher',
-                        content: msg
-                    };
-                }
+            targets.forEach(function (drv) {
+                if (drv.Id) updates['/chat/' + drv.Id] = { bookingid: '0,GroupMessage,0,0,Dispatcher', content: msg };
             });
             firebase.database().ref().update(updates);
         } catch (e) {}
@@ -331,11 +343,10 @@ function FnGroupMessage() {
     GetDetails();
 }
 
-// ── Firebase: Driver → Dispatcher real-time listener ─────────────────────────
-// Driver app writes to /driverMsg/{companyId}/{pushKey}:
-//   { driverId, driverName, vehicleNumber, message, timestamp }
-// Console listens and shows the message in the chat panel instantly.
-
+// ── Firebase: Driver → Dispatcher listener ────────────────────────────────────
+// Driver app writes: firebase.database().ref('/driverMsg/1216').push({
+//   driverId, driverName, vehicleNumber, message, timestamp: Date.now()
+// })
 function initDriverMessageListener(companyId) {
     if (!companyId || window._driverMsgListenerActive) return;
     window._driverMsgListenerActive = true;
@@ -350,67 +361,53 @@ function initDriverMessageListener(companyId) {
             var driverName = msg.driverName || msg.DriverName || ('Driver ' + driverId);
             var text       = msg.message || msg.Message || '';
             var now        = new Date();
-            var timeStr    = (now.getHours() < 10 ? '0' : '') + now.getHours() + ':' + (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
-            var dateStr    = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+            var h    = (now.getHours()   < 10 ? '0' : '') + now.getHours();
+            var mn   = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+            var date = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+            var ts   = date + ' ' + h + ':' + mn;
 
-            // Toast notification
+            // Toast notification (click to open their conversation)
             if (typeof toastr !== 'undefined') {
                 toastr['info'](
-                    '<b>' + driverName + ':</b> ' + text,
-                    'Driver Message',
+                    '<b>' + driverName + '</b><br>' + text,
+                    'Message from Driver',
                     { timeOut: 8000, extendedTimeOut: 3000 }
                 );
             }
 
-            // If this driver's conversation is currently open, append message live
-            var openDriverId = $("#UserId").text();
-            if (driverId && openDriverId && String(driverId) === String(openDriverId)) {
-                $(".chat").append(
-                    '<li class="right clearfix">' +
-                        '<span class="chat-img pull-right"><img src="images/stph.png" alt="Driver"></span>' +
-                        '<div class="chat-body clearfix">' +
-                            '<div class="header">' +
-                                '<strong class="primary-font">' + driverName + '</strong>' +
-                                '<small class="pull-right text-muted"><i class="fa fa-clock-o"></i> ' + dateStr + ' ' + timeStr + '</small>' +
-                            '</div>' +
-                            '<p>' + text + '</p>' +
-                        '</div>' +
-                    '</li>'
-                );
+            // If this driver's conversation is currently open, show message live
+            var openId = $("#UserId").text();
+            if (driverId && openId && String(driverId) === String(openId)) {
+                var $ul = $(".chat");
+                $ul.find('.tt-empty-chat').closest('li').remove();
+                $ul.append(_buildBubble(null, false, driverName, _avatarColor(driverName), false, text, ts, false));
                 var dv = $('#DivChat');
                 dv.scrollTop(dv.prop("scrollHeight"));
             }
 
-            // Store in SQL backend so conversation history persists
+            // Persist in SQL backend
             Action([
                 { "name": "SenderId",  "Value": driverId },
                 { "name": "Message",   "Value": text },
-                { "name": "DateTime",  "Value": dateStr + ' ' + timeStr }
+                { "name": "DateTime",  "Value": ts }
             ], "[DriverMessageInsert]");
 
-            // Refresh driver list (unread badge update)
-            GetDetails();
-
-            // Remove from Firebase after processing (prevents re-showing on page refresh)
+            // Remove from Firebase after processing
             firebase.database().ref('/driverMsg/' + companyId + '/' + key).remove();
+
+            GetDetails();
         });
     } catch (e) {
         console.error('[ChatRoom] driverMsg listener error:', e);
     }
 }
 
-// ── Misc ──────────────────────────────────────────────────────────────────────
-
-function Result(txt) {
-    if (txt == "Message sent successfully") {
-        ReloadConversation();
-        GetDetails();
-    }
-}
-
-function successFn()    {}
-function errorFunction() {}
-function FnRowDelete(ele) {}
+// ── Misc stubs ────────────────────────────────────────────────────────────────
+function ReloadConversation() {}
+function Result(txt)          {}
+function successFn()          {}
+function errorFunction()      {}
+function FnRowDelete(ele)     {}
 
 function Logout() {
     $.ajax({
@@ -424,15 +421,11 @@ function Logout() {
 }
 
 function FnSuccessLogout(result) {
-    if (result.d == "Error") {
+    if (result.d === "Error") {
         toastr["error"]("Logout failed. Please try again.", 'Error');
     } else {
         try { firebase.auth().signOut(); } catch (e) {}
-        localStorage.removeItem('TT_Name');
-        localStorage.removeItem('TT_DId');
-        localStorage.removeItem('TT_Country');
-        localStorage.removeItem('TT_CId');
-        localStorage.removeItem('Country');
+        ['TT_Name','TT_DId','TT_Country','TT_CId','Country'].forEach(function (k) { localStorage.removeItem(k); });
         window.location.href = result.d;
     }
 }

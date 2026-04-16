@@ -1696,67 +1696,93 @@
     </div>
       <div class="modal fade" id="messages">
         <div class="modal-dialog dialog-messages">
-            <div class="modal-content" style="margin-left: -117px!important; width: 800px!important;">
-                <div class="modal-header" style="border-bottom: 1px solid #dfba5f;">
+            <div class="modal-content">
+                <!-- Header -->
+                <div class="msg-modal-header">
+                    <div class="msg-modal-title"><i class="fa fa-comments"></i> Messages</div>
                     <button class="close" data-dismiss="modal">&times;</button>
-                    <h5>Messages</h5>
                 </div>
-                <div class="modal-body" style="padding-top:0;">
-                    <ul class="nav nav-tabs" id="msgTabs" style="margin-bottom:10px;">
-                        <li class="active"><a data-toggle="tab" href="#tabDirect">Individual</a></li>
-                        <li><a data-toggle="tab" href="#tabBroadcast">Broadcast All</a></li>
-                        <li><a data-toggle="tab" href="#tabGroup">Group</a></li>
-                    </ul>
-                    <div class="tab-content">
-                        <div id="tabDirect" class="tab-pane active">
-                            <div class="container-fluid bootstrap snippet">
-                                <div class="row">
-                                    <div class="col-md-4 bg-white" style="height:380px;overflow-y:scroll;border-right:1px solid #eee;">
-                                        <div class="row border-bottom padding-sm" style="height:36px;line-height:36px;padding-left:10px;font-weight:600;font-size:12px;color:#888;text-transform:uppercase;">
-                                            Drivers
-                                        </div>
-                                        <ul class="friend-list" style="cursor:pointer;list-style:none;padding:0;margin:0;"></ul>
+                <!-- Body -->
+                <div class="modal-body msg-modal-body">
+                    <div class="tt-chat-shell">
+
+                        <!-- Tab buttons -->
+                        <div class="tt-chat-tabs">
+                            <button class="tt-tab-btn active" data-panel="ttDirect">
+                                <i class="fa fa-comment-o"></i> Direct
+                            </button>
+                            <button class="tt-tab-btn" data-panel="ttBroadcast">
+                                <i class="fa fa-bullhorn"></i> Broadcast
+                            </button>
+                            <button class="tt-tab-btn" data-panel="ttGroup">
+                                <i class="fa fa-users"></i> Group
+                            </button>
+                        </div>
+
+                        <!-- Direct chat -->
+                        <div class="tt-tab-panel active" id="ttDirect">
+                            <div class="tt-chat-layout">
+                                <!-- Driver sidebar -->
+                                <div class="tt-driver-sidebar">
+                                    <div class="tt-sidebar-header">
+                                        <span class="tt-online-dot"></span> Online Drivers
                                     </div>
-                                    <div class="col-md-8 bg-white" id="DivChat" style="height:380px;overflow-y:scroll;">
-                                        <div class="chat-message">
-                                            <label id="PlayerId" hidden="hidden"></label>
-                                            <label id="lblRequest" hidden="hidden">False</label>
-                                            <label id="UserId" hidden="hidden">0</label>
-                                            <ul class="chat" style="list-style:none;padding:8px;margin:0;"></ul>
-                                        </div>
-                                        <div style="display:flex;gap:6px;padding:6px;border-top:1px solid #eee;margin-top:4px;">
-                                            <input class="form-control" id="TxtMessage" placeholder="Select a driver then type your message…" style="flex:1;">
-                                            <button class="btn btn-primary btn-sm" type="button" id="btnMessage">Send</button>
-                                        </div>
+                                    <ul class="friend-list"></ul>
+                                </div>
+                                <!-- Chat area -->
+                                <div class="tt-chat-main">
+                                    <div class="tt-chat-header" id="ttChatHeader">
+                                        <span class="tt-chat-placeholder">
+                                            <i class="fa fa-arrow-left"></i> Select a driver
+                                        </span>
+                                    </div>
+                                    <div id="DivChat">
+                                        <label id="PlayerId"   hidden="hidden"></label>
+                                        <label id="lblRequest" hidden="hidden">False</label>
+                                        <label id="UserId"     hidden="hidden">0</label>
+                                        <ul class="chat"></ul>
+                                    </div>
+                                    <div class="tt-input-bar">
+                                        <input id="TxtMessage" placeholder="Type a message…" autocomplete="off">
+                                        <button id="btnMessage" title="Send message">
+                                            <i class="fa fa-paper-plane"></i>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div id="tabBroadcast" class="tab-pane">
-                            <div style="padding:16px;">
-                                <p style="color:#555;margin-bottom:12px;">Send a message to <strong>all online drivers</strong> simultaneously.</p>
-                                <textarea class="form-control" id="TxtBroadcast" rows="4" placeholder="Type broadcast message here…" style="resize:vertical;"></textarea>
-                                <button class="btn btn-warning" type="button" id="btnBroadcast" style="margin-top:10px;">
-                                    <i class="fa fa-bullhorn"></i> Send to All Drivers
+
+                        <!-- Broadcast -->
+                        <div class="tt-tab-panel" id="ttBroadcast">
+                            <div class="tt-broadcast-panel">
+                                <div class="tt-bc-icon"><i class="fa fa-bullhorn"></i></div>
+                                <h4>Broadcast to All Drivers</h4>
+                                <p>Every driver currently online will receive this message instantly.</p>
+                                <textarea id="TxtBroadcast" placeholder="Type your broadcast message…"></textarea>
+                                <button id="btnBroadcast" class="tt-send-btn">
+                                    <i class="fa fa-paper-plane"></i> Send to All Drivers
                                 </button>
                             </div>
                         </div>
-                        <div id="tabGroup" class="tab-pane">
-                            <div style="padding:16px;">
-                                <p style="color:#555;margin-bottom:12px;">Send a message to a <strong>filtered group</strong> of drivers.</p>
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <label style="font-size:12px;color:#888;">Filter by Zone</label>
-                                        <select class="form-control" id="ddlGroupZone">
+
+                        <!-- Group -->
+                        <div class="tt-tab-panel" id="ttGroup">
+                            <div class="tt-group-panel">
+                                <h4><i class="fa fa-filter"></i> Group Message</h4>
+                                <p>Target a specific subset of online drivers by zone or vehicle type.</p>
+                                <div class="tt-group-filters">
+                                    <div class="tt-filter-item">
+                                        <label>Zone</label>
+                                        <select id="ddlGroupZone">
                                             <option value="">All Zones</option>
                                             <option value="Central Invercargill">Central Invercargill</option>
                                             <option value="Appleby">Appleby</option>
                                             <option value="Waikiwi">Waikiwi</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-6">
-                                        <label style="font-size:12px;color:#888;">Filter by Vehicle Type</label>
-                                        <select class="form-control" id="ddlGroupVType">
+                                    <div class="tt-filter-item">
+                                        <label>Vehicle Type</label>
+                                        <select id="ddlGroupVType">
                                             <option value="">All Types</option>
                                             <option value="Sedan">Sedan</option>
                                             <option value="SUV">SUV</option>
@@ -1765,14 +1791,15 @@
                                         </select>
                                     </div>
                                 </div>
-                                <textarea class="form-control" id="TxtGroupMsg" rows="4" placeholder="Type group message here…" style="resize:vertical;margin-top:10px;"></textarea>
-                                <button class="btn btn-info" type="button" id="btnGroupMessage" style="margin-top:10px;">
-                                    <i class="fa fa-users"></i> Send to Group
+                                <textarea id="TxtGroupMsg" placeholder="Type your group message…"></textarea>
+                                <button id="btnGroupMessage" class="tt-send-btn">
+                                    <i class="fa fa-paper-plane"></i> Send to Group
                                 </button>
                             </div>
                         </div>
-                    </div>
-                </div>
+
+                    </div><!-- /.tt-chat-shell -->
+                </div><!-- /.modal-body -->
             </div>
         </div>
     </div>
