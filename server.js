@@ -849,11 +849,11 @@ const server = http.createServer(async (req, res) => {
         objectD(res, { dt1: [], dt2, dt3: [], dt4: [], dt5: [] });
 
       } else if (action === 'checkriddestatusforautodispatch' || action === 'checkriddestatusforoffer') {
-        // Return pending/unassigned jobs that need dispatch
+        // Return offered/pending jobs so convertstatus() can update their state
         const bookingId = parseInt(param('bookingid') || '0') || 0;
         const job = bookingId > 0 ? jobStore.find(j => j.Id === bookingId) : null;
-        const eligible = job && (job.BookingStatus === 'Pending') ? [job] : [];
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${eligible.length} eligible`);
+        const eligible = job && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending') ? [job] : [];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${eligible.length} eligible (status=${job ? job.BookingStatus : 'none'})`);
         objectD(res, { dt1: eligible, dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[changeriddestatusforoffer]') {
@@ -863,8 +863,10 @@ const server = http.createServer(async (req, res) => {
         const job = jobStore.find(j => j.Id === bookingId);
         if (job && newStatus) {
           job.BookingStatus = newStatus;
-          // Restore demo driver if reverting to non-offered status
-          if (newStatus !== 'Offered') {
+          // Only release (reset) the driver when the job is being cancelled/unassigned.
+          // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
+          const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
+          if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
             if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
           }

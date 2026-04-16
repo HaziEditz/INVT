@@ -54,6 +54,10 @@ $(function () {
             $("#lblRequest").text("False");
         }
     }, 500);
+
+    // Refresh driver list every 30 s so Firebase drivers appear even if chat
+    // panel was opened before Firebase finished loading.
+    setInterval(function () { GetDetails(); }, 30000);
 });
 
 // ── Live driver helper ────────────────────────────────────────────────────────
@@ -99,8 +103,12 @@ function GetDetails() {
                     'No drivers online' +
                 '</div></li>'
             );
+            // Firebase may still be loading — retry once after 3 s
+            clearTimeout(window._chatRetryTimer);
+            window._chatRetryTimer = setTimeout(GetDetails, 3000);
             return;
         }
+        clearTimeout(window._chatRetryTimer);
 
         combined.forEach(function (d) {
             var fullName  = ((d.UserFName || '') + ' ' + (d.UserLName || '')).trim();

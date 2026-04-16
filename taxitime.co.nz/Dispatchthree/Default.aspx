@@ -5714,6 +5714,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
 
                                     $('#Divo'+bookid).remove();
+                                    convertstatus(id, 'Assigned', driverid, '');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
 
@@ -5753,6 +5754,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 localva = "Accept";
+                                convertstatus(id, 'Assigned', driverid, '');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }else if($respp['jobstatus'] == 'Reject' ){
@@ -5836,6 +5838,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
 
                                     $('#Divo'+bookid).remove();
+                                    convertstatus(id, 'Assigned', driverid, '');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
 
@@ -5875,6 +5878,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 localva = "Accept";
+                                convertstatus(id, 'Assigned', driverid, '');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }else if($respp['jobstatus'] == 'Reject' ){
@@ -6112,7 +6116,9 @@ $(document).ready(function() {
                               cache: false,
                               success: function (response) {
                                   console.log("status :" + status);
-                                  angular.element(document.getElementById('myangular')).scope().getjobs( );
+                                  var sc = angular.element(document.getElementById('myangular')).scope();
+                                  sc.getjobs();
+                                  if (typeof sc.AssignedJobs === 'function') { sc.AssignedJobs(); }
                             
                               }
                           });
@@ -14314,7 +14320,12 @@ $(document).ready(function() {
             updates['/chat/' + DriverId] = postData;
             // updates['/user-posts/' + uid + '/' + newPostKey] = postData;
 
-            return firebase.database().ref().update(updates);
+            return firebase.database().ref().update(updates).catch(function(err) {
+                console.error('[Chat] Firebase write failed:', err.code, err.message);
+                if (typeof toastr !== 'undefined') {
+                    toastr["error"]("Message could not reach Firebase. Driver may not receive it.", "Send Error");
+                }
+            });
         }
         else {
 
