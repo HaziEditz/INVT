@@ -861,3 +861,82 @@ td.dataTables_empty {
 .swal2-cancel {
   border-radius: 6px !important;
 }
+
+/* ---- ACC Modal redesign ---- */
+#acc .modal-body .tab-content { padding: 4px 0; }
+#acc .tab-pane h5 {
+  font-size: 15px !important;
+  color: #1a1a2e !important;
+  border-bottom: 2px solid #dfba5f !important;
+  padding-bottom: 8px !important;
+  margin-bottom: 16px !important;
+  font-weight: 700 !important;
+}
+#acc label { font-size: 12px !important; font-weight: 600 !important; color: #555 !important; margin-bottom: 3px !important; }
+#acc .form-control { border-radius: 6px !important; font-size: 13px !important; border-color: #d0d4dc !important; }
+#acc .btn-success { background: #dfba5f !important; border-color: #dfba5f !important; color: #1a1a2e !important; font-weight: 700 !important; border-radius: 6px !important; }
+#acc .btn-warning { border-radius: 6px !important; }
+#acc p > font[style*="color:red"] { color: #e53e3e !important; font-weight: 600; }
+#acc .collapse { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px !important; margin-top: 12px; background: #fff; }
+#acc [data-toggle="collapse"] { border-radius: 6px !important; }
+
+/* ACC tab link active state */
+#acc [data-toggle="tab"]:focus,
+#acc [data-toggle="tab"].active,
+#acc [data-toggle="tab"][aria-expanded="true"] {
+  color: #dfba5f !important;
+  border-bottom-color: #dfba5f !important;
+}
+#acc [data-toggle="tab"]:hover { color: rgba(255,255,255,0.85) !important; background: rgba(255,255,255,0.05); }
+
+/* ---- Alarm modal items ---- */
+.modal-alarm-box .alarm-item {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.modal-alarm-box .alarm-item .alarm-time {
+  font-size: 11px;
+  color: #dfba5f;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---- Notification / alert items ---- */
+.modal-alert-box .alert-item,
+.modal-alert-box li {
+  background: #fff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 7px !important;
+  padding: 10px 14px !important;
+  margin-bottom: 8px !important;
+  font-size: 13px !important;
+  list-style: none !important;
+}
+.modal-alert-box { list-style: none !important; }
+
+/* ---- Filter modal section header ---- */
+.filter-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 10px 0 6px;
+  border-bottom: 1px solid #e0e2e8;
+  margin-bottom: 8px;
+}
+
+/* ---- Messages modal header match ---- */
+.msg-modal-header { background: #1a1a2e !important; }
+.msg-modal-title { color: #dfba5f !important; }
+
+/* ACC form rows spacing */
+#acc .col-lg-4, #acc .col-lg-6, #acc .col-lg-12 { margin-bottom: 4px; }
+#acc input[type="submit"] { border-radius: 6px !important; }

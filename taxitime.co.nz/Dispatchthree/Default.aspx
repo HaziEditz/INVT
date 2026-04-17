@@ -304,18 +304,26 @@
     
    
      <div class="modal fade" id="Filter-jobs">
-        <div class="modal-dialog dialog-Filter-jobs">
-            <div class="modal-content" style="width:1100px; margin-left:-300px;">
-                <div class="modal-header">
-                    <button class="close" data-dismiss="modal">&times;</button>
-                    <h5>Search Jobs</h5>
+        <div class="modal-dialog" style="max-width:1100px; width:96vw; margin:24px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-filter" style="color:#dfba5f; margin-right:8px;"></i>Filter Jobs
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
                 </div>
-                <div class="modal-body" style="padding-bottom: 0;">
-                    <div class="row">
-                        <div class="col-lg-12 col-md-12 col-sm-12" style="padding: 0px 33px; height: 450px;
-    overflow: scroll;">
-                               <label>Filter</label>
-                             <p><input type="text" ng-model="test" placeholder="Search Here.."></p>
+                <!-- Search bar -->
+                <div style="background:#f4f5f7; border-bottom:1px solid #e0e2e8; padding:12px 20px; display:flex; align-items:center; gap:12px;">
+                    <div style="position:relative; flex:1; max-width:520px;">
+                        <i class="fa fa-search" style="position:absolute; left:11px; top:50%; transform:translateY(-50%); color:#aaa; pointer-events:none; font-size:13px;"></i>
+                        <input type="text" ng-model="test" placeholder="Search jobs by name, phone, address…" style="width:100%; padding:9px 12px 9px 34px; border:1px solid #d0d4dc; border-radius:8px; font-size:13px; outline:none; background:#fff; color:#333;">
+                    </div>
+                    <span style="font-size:11px; color:#aaa; white-space:nowrap;">Live filter — all job groups</span>
+                </div>
+                <div class="modal-body" style="padding:0;">
+                    <div class="row" style="margin:0;">
+                        <div class="col-lg-12 col-md-12 col-sm-12" style="padding:0 12px; height:460px; overflow-y:auto;">
                     <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="{ background: getTheValue(value.BookingDateTime)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
@@ -1371,22 +1379,31 @@
         </div>
 
             <div class="modal fade" id="acc">
-        <div class="modal-dialog dialog-search-jobs">
-            <div class="modal-content " style="width: 1200px!important;
-    margin-left: -350px!important; height: 600px;
-    overflow: scroll;
-">
-                <div class="modal-header" style="border-bottom: 1px solid #dfba5f;">
-                    <button class="close" data-dismiss="modal">&times;</button>
-                    <h5>ACC</h5>
+        <div class="modal-dialog" style="max-width:1200px; width:97vw; margin:24px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28); max-height:90vh; display:flex; flex-direction:column;">
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-medkit" style="color:#dfba5f; margin-right:8px;"></i>ACC — Accident Compensation
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
                 </div>
-                <div class="modal-body" style="background: #e5e5e5;">
-                                 <ul class="nav nav-tabs">
-                              <li class="active"><a data-toggle="tab" href="#manager">Create Manager</a></li>
-                              <li><a data-toggle="tab" href="#client">Create Client</a></li>
-                              <li><a data-toggle="tab" href="#clientride">Create ACC Against Client</a></li>
-                              <li><a data-toggle="tab" href="#approvaldetails" onclick="getapprovalall()">Approval Details</a></li>
-                              </ul>
+                <!-- Tabs -->
+                <div style="background:#22263a; display:flex; flex-shrink:0; border-bottom:none;">
+                    <a data-toggle="tab" href="#manager" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;" class="acc-tab-link active-acc-tab">
+                        <i class="fa fa-user-plus" style="margin-right:5px;"></i>Manager
+                    </a>
+                    <a data-toggle="tab" href="#client" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
+                        <i class="fa fa-address-card" style="margin-right:5px;"></i>Client
+                    </a>
+                    <a data-toggle="tab" href="#clientride" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
+                        <i class="fa fa-car" style="margin-right:5px;"></i>ACC Claim
+                    </a>
+                    <a data-toggle="tab" href="#approvaldetails" onclick="getapprovalall()" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
+                        <i class="fa fa-check-circle" style="margin-right:5px;"></i>Approvals
+                    </a>
+                </div>
+                <div class="modal-body" style="background:#f9fafb; overflow-y:auto; padding:20px; flex:1;">
 
                             <div class="tab-content">
                               <div id="manager" class="tab-pane fade in active">
@@ -1578,61 +1595,63 @@
         </div>
     </div>
     <div class="modal fade" id="alarms">
-        <div class="modal-dialog dialog-alarm">
-            <div class="modal-content">
+        <div class="modal-dialog" style="max-width:560px; width:95vw; margin:40px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
                 <audio id="myAudio">
-           
                     <source src="css/AlertTone.mp3" type="audio/mpeg">
                 </audio>
-                <div class="modal-header" style="border-bottom: 1px solid #dfba5f;">
-                    <button class="close" data-dismiss="modal">&times;</button>
-                    <h5 id="alrmHeader">Show All Alarms
-                        <input type="checkbox" id="showAllArlams" /></h5>
-                    <label id="lblUserId" hidden="hidden"></label>
+                <label id="lblUserId" hidden="hidden"></label>
+
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;" id="alrmHeader">
+                        <i class="fa fa-bell" style="color:#dfba5f; margin-right:8px;"></i>Alarms
+                        <span style="font-size:12px; font-weight:400; color:rgba(255,255,255,0.6); margin-left:12px;">
+                            <input type="checkbox" id="showAllArlams" style="margin-right:4px; vertical-align:middle;">Show All
+                        </span>
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
                 </div>
-                <div class="modal-body modal-alarm-box" style="height: 370px; overflow-y: scroll">
+
+                <!-- Alarm list -->
+                <div class="modal-body modal-alarm-box" style="height:300px; overflow-y:auto; padding:12px 16px; background:#f9fafb;">
                 </div>
-                <div class="modal-footer">
-                    <div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">
-                        <div class="row">
-                             
-                            <div class="col-lg-5">Date
-                                <div class="form-group">
-                                    <input type="date" class="form-control" id="AlarmDate" />
-                                </div>
-                            </div>
- 
-                            <div class="col-lg-5">Time
-                                <div class="form-group">
-                                    <input type="time" class="form-control" id="AlarmTime" />
-                                </div>
-                            </div>
-                        </div>
-                        <div class="row">
 
-                            <div class="col-lg-11">
-                                <div class="form-group">
-                                    <textarea rows="4" class="form-control" id="AlarmText"></textarea>
-                                </div>
-                            </div>
-                            <button class="btn btn-danger submit" id="btnNewAlarm">Save Alarm</button>
-                        </div>
-
-
-
+                <!-- New alarm creator -->
+                <div style="background:#fff; border-top:1px solid #e5e7eb; padding:16px 20px;">
+                    <div style="font-size:10px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px;">
+                        <i class="fa fa-plus-circle" style="color:#dfba5f; margin-right:5px;"></i>New Alarm
                     </div>
+                    <div style="display:flex; gap:10px; margin-bottom:10px;">
+                        <div style="flex:1;">
+                            <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px; display:block;">Date</label>
+                            <input type="date" class="form-control" id="AlarmDate" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px; display:block;">Time</label>
+                            <input type="time" class="form-control" id="AlarmTime" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                        </div>
+                    </div>
+                    <textarea id="AlarmText" class="form-control" rows="3" placeholder="Alarm note / message…" style="font-size:13px; border-radius:6px; border-color:#d0d4dc; resize:none; margin-bottom:10px;"></textarea>
+                    <button id="btnNewAlarm" style="background:#dfba5f; color:#1a1a2e; font-weight:700; border:none; border-radius:6px; height:36px; padding:0 22px; font-size:13px; cursor:pointer; width:100%; letter-spacing:0.3px;">
+                        <i class="fa fa-bell-o" style="margin-right:6px;"></i>Save Alarm
+                    </button>
                 </div>
             </div>
         </div>
     </div>
      <div class="modal fade" id="alerts">
-        <div class="modal-dialog dialog-alarm">
-            <div class="modal-content">
-                <div class="modal-header" style="border-bottom: 1px solid #dfba5f;">
-                    <button class="close" data-dismiss="modal">&times;</button>
-                    <h5>Alerts</h5>
+        <div class="modal-dialog" style="max-width:520px; width:95vw; margin:40px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-bell-o" style="color:#dfba5f; margin-right:8px;"></i>Notifications
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
                 </div>
-                <div class="modal-body modal-alert-box" id="alertbox">
+                <!-- Body -->
+                <div class="modal-body modal-alert-box" id="alertbox" style="padding:12px 16px; min-height:200px; max-height:500px; overflow-y:auto; background:#f9fafb;">
                 </div>
             </div>
         </div>
