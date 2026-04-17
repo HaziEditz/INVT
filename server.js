@@ -29,6 +29,12 @@ const mimeTypes = {
   '.xml': 'application/xml',
 };
 
+// ─── Persistent data directory ────────────────────────────────────────────────
+const DATA_DIR      = path.join(__dirname, '.data');
+const JOB_STORE_FILE  = path.join(DATA_DIR, 'jobstore.json');
+const COOKIE_FILE     = path.join(DATA_DIR, 'session.txt');
+if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
+
 // ─── In-memory job store ──────────────────────────────────────────────────────
 let nextJobId = 937300;
 function newJobId() { return nextJobId++; }
@@ -89,8 +95,26 @@ function fmtDT(dt) {
   return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:00.`;
 }
 
-// Live job store — starts empty; jobs are created through the dispatch UI
-const jobStore = [];
+// Live job store — loaded from disk on startup, saved on every mutation
+let _savedJobStore = [];
+try {
+  if (fs.existsSync(JOB_STORE_FILE)) {
+    _savedJobStore = JSON.parse(fs.readFileSync(JOB_STORE_FILE, 'utf8')) || [];
+    console.log(`[persist] loaded ${_savedJobStore.length} jobs from disk`);
+  }
+} catch(e) { console.log('[persist] jobstore load error:', e.message); }
+
+const jobStore = _savedJobStore;
+
+// Advance nextJobId past any already-saved IDs so new jobs don't collide
+if (jobStore.length > 0) {
+  const maxId = Math.max(...jobStore.map(j => j.Id || 0));
+  if (maxId >= nextJobId) nextJobId = maxId + 1;
+}
+
+function saveJobStore() {
+  try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) { console.log('[persist] jobstore save error:', e.message); }
+}
 
 // Live drivers come exclusively from Firebase (online/1216).
 // This array is kept as an empty structure so dependent code paths don't crash.
@@ -147,7 +171,14 @@ const REAL_BACKEND_PREFIX = '/Dispatchthree';
 // production backend, store the resulting ASP.NET session cookie here.  Subsequent
 // proxy requests merge this cookie in, so every browser tab benefits from a single
 // successful login without needing its own session cookie.
+// Load previously-cached session cookie from disk (survives server restarts)
 let _cachedProductionCookies = '';
+try {
+  if (fs.existsSync(COOKIE_FILE)) {
+    _cachedProductionCookies = fs.readFileSync(COOKIE_FILE, 'utf8').trim();
+    if (_cachedProductionCookies) console.log('[persist] loaded session cookie from disk');
+  }
+} catch(e) { console.log('[persist] cookie load error:', e.message); }
 
 // Merge a Set-Cookie header value into the cached cookie jar (key=value pairs only)
 function _cacheCookiesFromHeader(rawCookies) {
@@ -167,6 +198,8 @@ function _cacheCookiesFromHeader(rawCookies) {
   });
   _cachedProductionCookies = Object.entries(jar).map(([k,v]) => `${k}=${v}`).join('; ');
   console.log(`[proxy] updated server-side session cookie (${Object.keys(jar).length} keys)`);
+  // Persist to disk so the session survives server restarts
+  try { fs.writeFileSync(COOKIE_FILE, _cachedProductionCookies); } catch(e) { console.log('[persist] cookie save error:', e.message); }
 }
 
 // Strip domain/SameSite attrs and return browser-safe Set-Cookie strings
@@ -443,6 +476,7 @@ const server = http.createServer(async (req, res) => {
           TarriffType: 'Automatic',
         };
         jobStore.push(newJob);
+        saveJobStore();
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
       } else {
@@ -472,6 +506,7 @@ const server = http.createServer(async (req, res) => {
           job.VehicleId = vehicleId;
           job.DriverId  = driverId;
           job.BookingStatus = driverId > 0 ? 'Offered' : 'Pending';
+          saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Booking Details Update Successfully"`);
         successD(res, 'Booking Details Update Successfully');
@@ -487,7 +522,7 @@ const server = http.createServer(async (req, res) => {
       } else if (action === '[CancelUnAssignedJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;
         const idx = jobStore.findIndex(j => j.Id === bookingId);
-        if (idx !== -1) jobStore.splice(idx, 1);
+        if (idx !== -1) { jobStore.splice(idx, 1); saveJobStore(); }
         console.log(`200: POST ${urlPath} [action=${action}] -> removed job #${bookingId}`);
         successD(res, 'Operation Successfully Performed');
 
@@ -523,6 +558,7 @@ const server = http.createServer(async (req, res) => {
               zd.jobCount   = 0;
             }
           }
+          saveJobStore();
         }
         // Fire-and-forget: also update the real taxitime.co.nz backend so that
         // [AssignedJobsv2] (which proxies to real backend) reflects this assignment.
@@ -690,6 +726,7 @@ const server = http.createServer(async (req, res) => {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
             if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
           }
+          saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
@@ -717,6 +754,7 @@ const server = http.createServer(async (req, res) => {
               console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
             }
           });
+          saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
@@ -1159,6 +1197,7 @@ const server = http.createServer(async (req, res) => {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
             if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
           }
+          saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
@@ -1191,6 +1230,7 @@ const server = http.createServer(async (req, res) => {
               console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
             }
           });
+          saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
