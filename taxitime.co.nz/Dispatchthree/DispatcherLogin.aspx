@@ -408,8 +408,8 @@
     <div class="divider">or</div>
 
     <div class="signup-card">
-      <p>Need a dispatcher account?<br />Fill in your details and we'll be in touch.</p>
-      <button type="button" class="btn-contact" onclick="document.getElementById('reqModal').style.display='flex';">Request Access</button>
+      <p>New to Taxi Time?<br />Set up your company account in minutes.</p>
+      <button type="button" class="btn-contact" onclick="openSignup()">Create Account</button>
     </div>
 
     <div class="footer-note">
@@ -417,102 +417,145 @@
     </div>
   </div>
 
-  <!-- ── Request Access Modal ── -->
-  <div id="reqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:12px;padding:32px 36px;width:440px;max-width:92vw;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-      <button onclick="closeReqModal()" style="position:absolute;top:14px;right:18px;background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;">&times;</button>
-      <h3 style="margin:0 0 6px;font-size:18px;font-weight:700;color:#111;">Request Dispatcher Access</h3>
-      <p style="font-size:13px;color:#6b7280;margin:0 0 20px;">Our team will review your request and get back to you within 1 business day.</p>
+  <!-- ── Sign Up Modal ── -->
+  <div id="signupModal" onclick="if(event.target===this)closeSignup()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;overflow-y:auto;">
+    <div style="background:#fff;border-radius:14px;padding:32px 36px;width:460px;max-width:94vw;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.3);margin:auto;">
+      <button onclick="closeSignup()" style="position:absolute;top:14px;right:18px;background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;">&times;</button>
+      <h3 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#111;">Create Your Account</h3>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 22px;">Your company gets its own isolated dispatch console, drivers, and company ID.</p>
 
-      <div id="reqSuccess" style="display:none;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;color:#16a34a;font-size:13px;margin-bottom:16px;"></div>
-      <div id="reqError"   style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;color:#dc2626;font-size:13px;margin-bottom:16px;"></div>
-
-      <div style="display:flex;flex-direction:column;gap:12px;">
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Full Name *</label>
-          <input id="reqName" type="text" placeholder="e.g. Jane Smith" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Email Address *</label>
-          <input id="reqEmail" type="email" placeholder="jane@company.co.nz" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Phone Number</label>
-          <input id="reqPhone" type="tel" placeholder="e.g. 021 555 0000" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Company / Fleet</label>
-          <input id="reqCompany" type="text" placeholder="e.g. Invercargill Taxis Ltd" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Role</label>
-          <select id="reqRole" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;background:#fff;">
-            <option value="Dispatcher">Dispatcher</option>
-            <option value="Fleet Manager">Fleet Manager</option>
-            <option value="Admin">Administrator</option>
-          </select>
-        </div>
+      <div id="suSuccess" style="display:none;text-align:center;padding:24px 0;">
+        <div style="font-size:40px;margin-bottom:10px;">&#127881;</div>
+        <div style="font-size:16px;font-weight:700;color:#111;margin-bottom:6px;">Account created!</div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:18px;">Your Company ID is:</div>
+        <div id="suNewId" style="font-size:48px;font-weight:900;color:#1a2535;letter-spacing:4px;margin-bottom:8px;"></div>
+        <div style="font-size:12px;color:#aaa;margin-bottom:20px;">Save this — share it with your drivers so they connect to your fleet.</div>
+        <button onclick="closeSignup()" style="padding:10px 28px;background:#f5be1e;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">Go to Console</button>
       </div>
-      <button id="reqSubmitBtn" onclick="submitAccessRequest()" style="margin-top:18px;width:100%;padding:11px;background:#f5be1e;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:#1a1d21;">Submit Request</button>
+
+      <div id="suForm">
+        <div id="suError" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;color:#dc2626;font-size:13px;margin-bottom:16px;"></div>
+
+        <div style="display:flex;flex-direction:column;gap:13px;">
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Company / Fleet Name *</label>
+            <input id="suCompany" type="text" placeholder="e.g. Invercargill Taxis Ltd" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Your Full Name *</label>
+            <input id="suName" type="text" placeholder="e.g. Jane Smith" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Email Address *</label>
+            <input id="suEmail" type="email" placeholder="jane@yourfleet.co.nz" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Phone Number</label>
+            <input id="suPhone" type="tel" placeholder="e.g. 021 555 0000" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Password *</label>
+            <input id="suPass" type="password" placeholder="Minimum 6 characters" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Confirm Password *</label>
+            <input id="suPassConfirm" type="password" placeholder="Repeat your password" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+          </div>
+        </div>
+
+        <button id="suBtn" onclick="submitSignup()" style="margin-top:20px;width:100%;padding:12px;background:#f5be1e;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:#1a1d21;">
+          Create Account
+        </button>
+        <p style="text-align:center;font-size:12px;color:#9ca3af;margin:12px 0 0;">Already have an account? Just sign in above.</p>
+      </div>
     </div>
   </div>
 
   <script>
-    function closeReqModal() {
-      document.getElementById('reqModal').style.display = 'none';
-      document.getElementById('reqSuccess').style.display = 'none';
-      document.getElementById('reqError').style.display   = 'none';
+    function openSignup() {
+      document.getElementById('signupModal').style.display = 'flex';
+      document.getElementById('suError').style.display = 'none';
+      document.getElementById('suSuccess').style.display = 'none';
+      document.getElementById('suForm').style.display = 'block';
+    }
+    function closeSignup() {
+      document.getElementById('signupModal').style.display = 'none';
     }
 
-    function submitAccessRequest() {
-      var name    = document.getElementById('reqName').value.trim();
-      var email   = document.getElementById('reqEmail').value.trim();
-      var phone   = document.getElementById('reqPhone').value.trim();
-      var company = document.getElementById('reqCompany').value.trim();
-      var role    = document.getElementById('reqRole').value;
+    function submitSignup() {
+      var company  = document.getElementById('suCompany').value.trim();
+      var name     = document.getElementById('suName').value.trim();
+      var email    = document.getElementById('suEmail').value.trim();
+      var phone    = document.getElementById('suPhone').value.trim();
+      var pass     = document.getElementById('suPass').value;
+      var passConf = document.getElementById('suPassConfirm').value;
 
-      document.getElementById('reqSuccess').style.display = 'none';
-      document.getElementById('reqError').style.display   = 'none';
+      document.getElementById('suError').style.display = 'none';
 
-      if (!name) { showReqError('Please enter your full name.'); return; }
-      if (!email || !/\S+@\S+\.\S+/.test(email)) { showReqError('Please enter a valid email address.'); return; }
+      if (!company)                              { showSuError('Please enter your company or fleet name.'); return; }
+      if (!name)                                 { showSuError('Please enter your full name.'); return; }
+      if (!email || !/\S+@\S+\.\S+/.test(email)){ showSuError('Please enter a valid email address.'); return; }
+      if (!pass || pass.length < 6)              { showSuError('Password must be at least 6 characters.'); return; }
+      if (pass !== passConf)                     { showSuError('Passwords do not match.'); return; }
 
-      var btn = document.getElementById('reqSubmitBtn');
+      var btn = document.getElementById('suBtn');
       btn.disabled = true;
-      btn.textContent = 'Sending…';
+      btn.innerHTML = '<span class="spinner"></span>Creating account…';
 
-      fetch('DispatcherLogin.aspx/AccountRequest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name, email: email, phone: phone, company: company, role: role })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        btn.disabled = false;
-        btn.textContent = 'Submit Request';
-        document.getElementById('reqSuccess').style.display = 'block';
-        document.getElementById('reqSuccess').textContent = data.d || 'Request received. We\'ll be in touch soon.';
-        document.getElementById('reqName').value    = '';
-        document.getElementById('reqEmail').value   = '';
-        document.getElementById('reqPhone').value   = '';
-        document.getElementById('reqCompany').value = '';
-      })
-      .catch(function() {
-        btn.disabled = false;
-        btn.textContent = 'Submit Request';
-        showReqError('Network error — please try again.');
-      });
+      firebase.auth().createUserWithEmailAndPassword(email, pass)
+        .then(function(result) {
+          var user = result.user;
+
+          // Generate a unique company ID (timestamp-based, 4-6 digits)
+          var companyId = String(Date.now()).slice(-4);
+
+          // Store company record in Firebase DB
+          var db = firebase.database();
+          return db.ref('companies/' + companyId).set({
+            companyId:   companyId,
+            companyName: company,
+            ownerName:   name,
+            ownerEmail:  email,
+            phone:       phone || '',
+            createdAt:   Date.now()
+          }).then(function() {
+            // Update Firebase display name
+            return user.updateProfile({ displayName: name });
+          }).then(function() {
+            // Set session and redirect
+            localStorage.setItem('TT_Name',    name);
+            localStorage.setItem('TT_DId',     user.uid.slice(0, 8));
+            localStorage.setItem('TT_Country', 'NZ');
+            localStorage.setItem('TT_CId',     companyId);
+            localStorage.setItem('Country',    'NZ');
+
+            // Show success screen with the new company ID
+            btn.disabled = false;
+            btn.innerHTML = 'Create Account';
+            document.getElementById('suForm').style.display = 'none';
+            document.getElementById('suNewId').textContent = companyId;
+            document.getElementById('suSuccess').style.display = 'block';
+
+            // Auto-redirect to console after 4 seconds
+            setTimeout(function() { window.location.href = 'Default.aspx'; }, 4000);
+          });
+        })
+        .catch(function(error) {
+          btn.disabled = false;
+          btn.innerHTML = 'Create Account';
+          var msg = 'Sign-up failed. Please try again.';
+          if (error.code === 'auth/email-already-in-use') msg = 'That email is already registered. Try signing in instead.';
+          else if (error.code === 'auth/invalid-email')   msg = 'Please enter a valid email address.';
+          else if (error.code === 'auth/weak-password')   msg = 'Password is too weak. Use at least 6 characters.';
+          showSuError(msg);
+        });
     }
 
-    function showReqError(msg) {
-      document.getElementById('reqError').style.display = 'block';
-      document.getElementById('reqError').textContent = msg;
+    function showSuError(msg) {
+      var box = document.getElementById('suError');
+      box.textContent = msg;
+      box.style.display = 'block';
     }
-
-    window.addEventListener('click', function(e) {
-      var modal = document.getElementById('reqModal');
-      if (e.target === modal) closeReqModal();
-    });
   </script>
 
   <!-- Firebase SDK (same version as dispatch console) -->
