@@ -325,7 +325,7 @@ const server = http.createServer(async (req, res) => {
     const LOCAL_ONLY_ACTIONS = new Set([
       '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]', '[VehicleInfov2]',
       '[AssignJobStatusFromJobListv2]',
-      '[changeriddestatusforoffer]',
+      '[changeriddestatusforoffer]', '[DriverStatusChanged]',
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
     ]);
@@ -925,16 +925,17 @@ const server = http.createServer(async (req, res) => {
           dt1: [{ All: ZONE_DRIVERS.length }],
           dt2: [{ Busy: busyCount }],
           dt3: [{ Free: freeCount }],
-          dt4: [{ Picking: 0 }],
+          dt4: [{ Picking: ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Picking').length }],
           dt5: [{ Away: awayCount }],
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} vehicles`);
         objectD(res, vehicleStatus);
 
       } else if (action === 'JobsCount') {
-        const closedCount  = jobStore.filter(j => j.BookingStatus === 'Closed' || j.BookingStatus === 'Completed').length;
-        const cancelCount  = jobStore.filter(j => j.BookingStatus === 'Cancelled').length;
-        const noShowCount  = jobStore.filter(j => j.BookingStatus === 'No Show').length;
+        const _TERM = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
+        const closedCount  = [...jobStore, ...closedJobStore].filter(j => _TERM.has(j.BookingStatus)).length;
+        const cancelCount  = [...jobStore, ...closedJobStore].filter(j => j.BookingStatus === 'Cancelled' || j.BookingStatus === 'Cancel').length;
+        const noShowCount  = [...jobStore, ...closedJobStore].filter(j => j.BookingStatus === 'No Show' || j.BookingStatus === 'NoShow').length;
         const jobCounts = {
           dt1: [{ ClosedCount: closedCount }],
           dt2: [{ CancelledCount: cancelCount }],
@@ -1054,6 +1055,29 @@ const server = http.createServer(async (req, res) => {
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[DriverStatusChanged]') {
+        // Auto-transition job status when a driver's Firebase vehiclestatus changes.
+        // Picking → Busy  : job Assigned → Active  (driver picked up passenger)
+        // Busy   → Available: job Active → Completed (ride finished)
+        const driverId  = (param('driverid') || '').trim();
+        const newStatus = (param('newstatus') || '').trim();
+        if (driverId && newStatus) {
+          const driverJobs = jobStore.filter(j =>
+            String(j.DriverId) === String(driverId) || String(j.VehicleId) === String(driverId)
+          );
+          driverJobs.forEach(function(job) {
+            if (newStatus === 'Busy' && (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Offered')) {
+              job.BookingStatus = 'Active';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Active (driver ${driverId} went Busy)`);
+            } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
+              job.BookingStatus = 'Completed';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
+            }
+          });
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[UnAssignedJobsv3]') {

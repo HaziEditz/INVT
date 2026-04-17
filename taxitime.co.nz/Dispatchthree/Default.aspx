@@ -7346,6 +7346,24 @@ $(document).ready(function() {
                     }
                     if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
                         $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
+                        // Auto-transition linked job status when driver Firebase status changes
+                        var _drvId  = datacom.driverid || datacom.VehicleId || '';
+                        var _newSt  = datacom.vehiclestatus;
+                        if (_drvId && (_newSt === 'Busy' || _newSt === 'Available')) {
+                            jQuery.ajax({
+                                type: 'POST',
+                                url: 'DataManager/Data.aspx/DataSelector',
+                                data: JSON.stringify({ data: [{ name:'driverid', Value: String(_drvId) }, { name:'newstatus', Value: _newSt }], action: '[DriverStatusChanged]' }),
+                                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                                success: function() {
+                                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                                    if (_sc) {
+                                        if (_newSt === 'Busy') { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
+                                        if (_newSt === 'Available') { if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } }
+                                    }
+                                }
+                            });
+                        }
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
@@ -10279,7 +10297,9 @@ $(document).ready(function() {
 
                                                                     }
                                                                 }
-                                                                angular.element(document.getElementById('myangular')).scope().getjobs( );
+                                                                convertstatus(id, 'Assigned', driverid, '');
+                                                                var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                                                                if (_sc2) { _sc2.getjobs(); if (typeof _sc2.AssignedJobs === 'function') { _sc2.AssignedJobs(); } }
                                                             }else if($respp['discription'] == 'Ride Status successfully Updated to Reject'){
                                                                 console.log("Reject");
                                                                 localva = "Reject";
@@ -11883,6 +11903,17 @@ $(document).ready(function() {
             // ── Real-time first: if Firebase has live drivers, use them ──────────
             if ($scope.driverdatarealx && $scope.driverdatarealx.length > 0) {
                 $scope.changezone($scope.driverdatarealx);
+                // Update driver status counter spans from live Firebase data
+                var _d = $scope.driverdatarealx;
+                var _free    = _d.filter(function(x){ return x.vehiclestatus === 'Available'; }).length;
+                var _picking = _d.filter(function(x){ return x.vehiclestatus === 'Picking'; }).length;
+                var _busy    = _d.filter(function(x){ return x.vehiclestatus === 'Busy'; }).length;
+                var _away    = _d.filter(function(x){ return x.vehiclestatus === 'Away'; }).length;
+                $('.AllVehicles').text(_d.length);
+                $('#FreeVehicles').text(_free);
+                $('#PickingVehicles').text(_picking);
+                $('#BusyVehicles').text(_busy);
+                $('#AwayVehicles').text(_away);
                 if (!$scope.$$phase) { $scope.$digest(); }
                 return;
             }
