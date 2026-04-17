@@ -11984,8 +11984,8 @@ $(document).ready(function() {
         $scope.tstst =[];
         $scope.zonetablez();
         setInterval(function() { $scope.zonetablez(); }, 15000);
-        // Poll all three job tabs every 10 s — safety net for any missed Firebase events.
-        // Assigned tab also gets an immediate first call after a short defer.
+        // Poll all three job tabs every 3 s — keeps UI in sync with any dispatcher
+        // or driver-app activity without waiting for a Firebase event.
         setTimeout(function() {
             if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
             if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
@@ -11995,7 +11995,7 @@ $(document).ready(function() {
             if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
             if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
             if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
-        }, 10000);
+        }, 3000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.getjobs = function (ok='') {
