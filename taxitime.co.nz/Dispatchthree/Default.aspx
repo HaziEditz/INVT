@@ -2215,7 +2215,8 @@ $(document).ready(function() {
                         <p class="label label-success  "  style="padding: 10px;
     margin: 4px; position: absolute; left: 202px;   height: 31px;  color: black;">
                            Dispatcher: <label id="lblName1" ></label> ,
-                            Company: <label id="CompanyName" ngclick="testemailing()"></label>
+                            Company: <label id="CompanyName" ngclick="testemailing()"></label> ,
+                            ID: <label id="lblCompanyId" style="font-weight:bold;"></label>
                              <span class="dot"></span> 
                              
                                  
@@ -4225,6 +4226,7 @@ $(document).ready(function() {
     localStorage.setItem("Country", someSession3);
     $("#lblName1").text(someSession);
     $("#lblName2").text(someSession);
+    $("#lblCompanyId").text(SomeSession2);
 
     // ── Logout: clear all session data and return to login page ─────────────
     function Logout() {
