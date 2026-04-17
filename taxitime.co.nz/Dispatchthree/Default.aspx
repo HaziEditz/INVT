@@ -2215,13 +2215,38 @@ $(document).ready(function() {
                         <p class="label label-success  "  style="padding: 10px;
     margin: 4px; position: absolute; left: 202px;   height: 31px;  color: black;">
                            Dispatcher: <label id="lblName1" ></label> ,
-                            Company: <label id="CompanyName" ngclick="testemailing()"></label> ,
-                            ID: <label id="lblCompanyId" style="font-weight:bold;"></label>
-                             <span class="dot"></span> 
-                             
-                                 
-                              
+                            Company: <label id="CompanyName" ngclick="testemailing()"></label>
+                             <span class="dot"></span>
                            </p>
+
+                        <!-- Company ID badge — click to open details modal -->
+                        <button onclick="document.getElementById('tt-company-modal').style.display='flex'"
+                                style="position:absolute;left:202px;top:38px;background:#1a2535;color:#f5c518;border:none;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.5px;z-index:999;"
+                                title="View company details">
+                            Company ID: <span id="lblCompanyId">—</span> &#9432;
+                        </button>
+
+                        <!-- Company details modal -->
+                        <div id="tt-company-modal"
+                             onclick="if(event.target===this)this.style.display='none'"
+                             style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;align-items:center;justify-content:center;">
+                            <div style="background:#fff;border-radius:14px;padding:36px 40px;min-width:340px;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,.3);position:relative;text-align:center;">
+                                <button onclick="document.getElementById('tt-company-modal').style.display='none'"
+                                        style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:#888;">&times;</button>
+                                <div style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Company Details</div>
+                                <div style="font-size:15px;font-weight:600;color:#333;margin-bottom:4px;" id="tt-modal-company">—</div>
+                                <div style="font-size:13px;color:#666;margin-bottom:24px;" id="tt-modal-dispatcher">—</div>
+                                <div style="background:#f0f2f5;border-radius:10px;padding:18px 24px;margin-bottom:20px;">
+                                    <div style="font-size:12px;color:#888;margin-bottom:4px;">Your Company ID</div>
+                                    <div id="tt-modal-id" style="font-size:42px;font-weight:900;color:#1a2535;letter-spacing:3px;line-height:1;">—</div>
+                                    <div style="font-size:11px;color:#aaa;margin-top:6px;">Share this ID with your drivers and app config</div>
+                                </div>
+                                <button onclick="var t=document.getElementById('tt-modal-id').innerText;navigator.clipboard.writeText(t).then(function(){var b=event.target;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy ID';},1800);})"
+                                        style="background:#1a2535;color:#f5c518;border:none;border-radius:7px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">
+                                    Copy ID
+                                </button>
+                            </div>
+                        </div>
                         
                            
                             
@@ -4227,6 +4252,13 @@ $(document).ready(function() {
     $("#lblName1").text(someSession);
     $("#lblName2").text(someSession);
     $("#lblCompanyId").text(SomeSession2);
+    $("#tt-modal-id").text(SomeSession2);
+    $("#tt-modal-dispatcher").text("Dispatcher: " + someSession);
+    // Company name populated later by server response; also mirror to modal
+    var _cNameObserver = setInterval(function() {
+        var cn = $("#CompanyName").text();
+        if (cn) { $("#tt-modal-company").text(cn); clearInterval(_cNameObserver); }
+    }, 300);
 
     // ── Logout: clear all session data and return to login page ─────────────
     function Logout() {
