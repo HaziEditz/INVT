@@ -328,6 +328,7 @@ const server = http.createServer(async (req, res) => {
       '[changeriddestatusforoffer]', '[DriverStatusChanged]',
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
+      '[KickDriver]', '[DispatcherKickUsers]', '[UpdateQueueNo]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -618,6 +619,44 @@ const server = http.createServer(async (req, res) => {
         if (idx !== -1) messageStore.splice(idx, 1);
         console.log(`200: POST ${urlPath} [action=${action}] -> deleted message #${msgId}`);
         successD(res, 'Message Deleted');
+
+      } else if (action === '[KickDriver]') {
+        const driverId  = param('DriverId') || '';
+        const vehicleId = param('VehicleId') || '';
+        // Remove driver from demo roster so they disappear from the dispatch board
+        const beforeLen = ZONE_DRIVERS.length;
+        for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+          if (String(ZONE_DRIVERS[i].driverid) === driverId || String(ZONE_DRIVERS[i].VehicleId) === vehicleId) {
+            ZONE_DRIVERS.splice(i, 1);
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=[KickDriver]] -> driver ${driverId} kicked (removed ${beforeLen - ZONE_DRIVERS.length} entries)`);
+        successD(res, 'Operation Successfully Performed');
+
+      } else if (action === '[DispatcherKickUsers]') {
+        const driverId  = param('DriverId') || '';
+        const vehicleId = param('VehicleId') || '';
+        // Suspend: remove driver from demo roster (same effect as kick for demo)
+        const beforeLen2 = ZONE_DRIVERS.length;
+        for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+          if (String(ZONE_DRIVERS[i].driverid) === driverId || String(ZONE_DRIVERS[i].VehicleId) === vehicleId) {
+            ZONE_DRIVERS.splice(i, 1);
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=[DispatcherKickUsers]] -> driver ${driverId} suspended (removed ${beforeLen2 - ZONE_DRIVERS.length} entries)`);
+        successD(res, 'Operation Successfully Performed');
+
+      } else if (action === '[UpdateQueueNo]') {
+        const vehicleId = param('VehicleId') || '';
+        const queueNo   = parseInt(param('QueueNo') || '1') || 1;
+        const driver = ZONE_DRIVERS.find(d => String(d.VehicleId) === vehicleId);
+        if (driver) {
+          driver.QueueNo = queueNo;
+          console.log(`200: POST ${urlPath} [action=[UpdateQueueNo]] -> vehicle ${vehicleId} queue → ${queueNo}`);
+        } else {
+          console.log(`200: POST ${urlPath} [action=[UpdateQueueNo]] -> vehicle ${vehicleId} not found (no-op)`);
+        }
+        successD(res, 'Operation Successfully Performed');
 
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);

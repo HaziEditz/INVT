@@ -5510,7 +5510,26 @@ $(document).ready(function() {
     }); // end onAuthStateChanged
      $("#MoveToFront").click(function () {
          FnMoveQueueNo();
+     });
 
+     // --- Send message to driver from popup ---
+     $("#PushMessage").click(function () {
+         var driverId = $("#lblDriverId").text().trim();
+         var msg = $("#TxtTypeMessage").val().trim();
+         if (!driverId) { toastr["warning"]('No driver selected.', 'Send Message'); return; }
+         if (!msg)      { toastr["warning"]('Please enter a message first.', 'Send Message'); return; }
+         var dt = new Date().toLocaleString();
+         FnNewMessage(driverId, msg, dt);
+         $("#TxtTypeMessage").val('');
+         toastr["success"]('Message sent to driver.', 'Sent!');
+     });
+
+     // Also allow Enter key in the message input
+     $("#TxtTypeMessage").on('keydown', function (e) {
+         if (e.key === 'Enter' && !e.shiftKey) {
+             e.preventDefault();
+             $("#PushMessage").trigger('click');
+         }
      });
     function FnCancelRide(DriverId, BookingId) {
        // A post entry.
@@ -6246,30 +6265,39 @@ $(document).ready(function() {
          var someSession = localStorage.getItem('TT_Name') || 'safinah mohammed';
 
          function FnFindMyVehicle() {
+             // Primary: use the lat/lng stored when the popup was opened
+             var storedLat = parseFloat($("#VehicleLat").text());
+             var storedLng = parseFloat($("#VehicleLng").text());
 
+             if (!isNaN(storedLat) && !isNaN(storedLng) && storedLat !== 0 && storedLng !== 0) {
+                 var loc = new google.maps.LatLng(storedLat, storedLng);
+                 map.setCenter(loc);
+                 map.setZoom(15);
+                 $("#VehicleDetails").modal('hide');
+                 return;
+             }
+
+             // Fallback: query Firebase live position
              ref.once('value', function (snapshot) {
-
+                 var found = false;
                  snapshot.forEach(function (childsnapshot) {
                      var key1 = childsnapshot.key;
                      childsnapshot.forEach(function (childsnapshot1) {
-               
                          if (key1 == $("#lblBookingHeadId").text()) {
-                             var FBResult1 = childsnapshot1.val();
                              var VehicleLat = parseFloat(childsnapshot1.val().lat);
                              var VehicleLng = parseFloat(childsnapshot1.val().lng);
-
                              var VehicleLocation1 = new google.maps.LatLng(VehicleLat, VehicleLng);
                              map.setCenter(VehicleLocation1);
                              map.setZoom(15);
                              $("#VehicleDetails").modal('hide');
-                             
+                             found = true;
                          }
                      });
                  });
+                 if (!found) {
+                     toastr["warning"]('Driver location not available on map.', 'Find on Map');
+                 }
              });
-
-
-
          }
 
 
