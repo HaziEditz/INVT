@@ -356,9 +356,9 @@ const server = http.createServer(async (req, res) => {
     // Actions that are custom additions to this demo — real backend won't know them,
     // so skip the proxy and go straight to local mock handlers for these.
     const LOCAL_ONLY_ACTIONS = new Set([
-      // Job list reads — NOT included: [AssignedJobsv2] and [ActiveJobsv3] proxy to real backend
-      // with automatic fallback to local mock if session is expired.
+      // Job list reads — served entirely from local store
       '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]',
+      '[AssignedJobsv2]', '[ActiveJobsv3]',
       // Job write / status changes — v2 is our custom local action; real backend synced in background
       '[AssignJobStatusFromJobListv2]',
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
@@ -572,7 +572,7 @@ const server = http.createServer(async (req, res) => {
               { name: 'reterndriverId',  Value: 0  },
             ]
           });
-          proxyToRealBackend('/Dispatchthree/DataManager/Data.aspx/DataProcessor', 'POST', realBody, req.headers['cookie'] || '')
+          proxyToRealBackend('/DataManager/Data.aspx/DataProcessor', 'POST', realBody, req.headers['cookie'] || '')
             .then(r => console.log(`[sync] [AssignJobStatusFromJobList] job #${bookingId} → real backend: ${r.statusCode}`))
             .catch(e => console.log(`[sync] [AssignJobStatusFromJobList] job #${bookingId} → real backend failed: ${e.message}`));
         }

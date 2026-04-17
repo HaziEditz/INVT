@@ -1056,10 +1056,6 @@
                                     <label  class="label label-pill label-danger mt-2 ng-binding">Acc Claim Id:</label>
                                      <h6>{{showi.Acc_claim_id}}</h6>
                                      </div>
-                                   <div class="col-4" ng-if="showi.Acc_claim_id">
-                                    <label  class="label label-pill label-danger mt-2 ng-binding">Acc Claim Id:</label>
-                                     <h6>{{showi.Acc_claim_id}}</h6>
-                                     </div>
                                      <div class="col-4">
                                     <label  class="label label-pill label-primary mt-2 ng-binding">Total Passengers:</label>
                                      <h6>{{showi.Passengers}}</h6>
@@ -5125,6 +5121,9 @@ $(document).ready(function() {
                 ImageUrl = 'img/green.png';
             }
             else if (childsnapshot.val().vehiclestatus == 'Picking') {
+                colorselected = '#3333ff';
+                ImageUrl = 'img/blue.png';
+            } else if (childsnapshot.val().vehiclestatus == 'Assigned') {
                 colorselected = '#3333ff';
                 ImageUrl = 'img/blue.png';
             } else if (childsnapshot.val().vehiclestatus == 'Away') {
@@ -13841,9 +13840,9 @@ $(document).ready(function() {
 
                         }).then(function mySuccess(result) {
                 
-                            $res = JSON.parse(result.d);
+                            try { $res = JSON.parse(result.data.d); } catch(e) { $res = []; }
                        
-                            if ($res[0].Result == "Ride Ended Successfully") {
+                            if ($res[0] && $res[0].Result == "Ride Ended Successfully") {
                                 $scope.ActiveJobsdata();
                             }
                      
