@@ -7367,10 +7367,13 @@ $(document).ready(function() {
                     }
                     if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
                         $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
-                        // Auto-transition linked job status when driver Firebase status changes
+                        // Auto-transition linked job status when driver Firebase status changes.
+                        // Busy     → job becomes Active   (driver started meter / picked up pax)
+                        // Picking  → job becomes Assigned (driver accepted, en route)
+                        // Available→ job becomes Completed (ride finished)
                         var _drvId  = datacom.driverid || datacom.VehicleId || '';
                         var _newSt  = datacom.vehiclestatus;
-                        if (_drvId && (_newSt === 'Busy' || _newSt === 'Available')) {
+                        if (_drvId && (_newSt === 'Busy' || _newSt === 'Available' || _newSt === 'Picking')) {
                             jQuery.ajax({
                                 type: 'POST',
                                 url: 'DataManager/Data.aspx/DataSelector',
@@ -7379,7 +7382,8 @@ $(document).ready(function() {
                                 success: function() {
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
                                     if (_sc) {
-                                        if (_newSt === 'Busy') { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
+                                        if (_newSt === 'Busy')      { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
+                                        if (_newSt === 'Picking')   { if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } }
                                         if (_newSt === 'Available') { if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } }
                                     }
                                 }

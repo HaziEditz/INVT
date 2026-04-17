@@ -1111,12 +1111,17 @@ const server = http.createServer(async (req, res) => {
             String(j.DriverId) === String(driverId) || String(j.VehicleId) === String(driverId)
           );
           driverJobs.forEach(function(job) {
+            const prev = job.BookingStatus;
             if (newStatus === 'Busy' && !TERMINAL.has(job.BookingStatus)) {
               // Driver went red (Busy) = passenger picked up / meter started.
               // Promote ANY non-terminal, non-active job to Active regardless of
               // whether the dispatch went through 'Offered' or 'Assigned' first.
               job.BookingStatus = 'Active';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${job.BookingStatus}) -> Active (driver ${driverId} went Busy)`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (driver ${driverId} went Busy)`);
+            } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending')) {
+              // Driver went blue (Picking / Roger) = accepted the job and is en route.
+              job.BookingStatus = 'Assigned';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} went Picking)`);
             } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
               job.BookingStatus = 'Completed';
               console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
