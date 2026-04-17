@@ -4205,6 +4205,7 @@ $(document).ready(function() {
     // Guard: redirect to login if session is missing
     if (!someSession || !SomeSession2) {
         window.location.replace('DispatcherLogin.aspx');
+        return; // stop executing — Firebase must not attach without a valid session
     }
 
     localStorage.setItem("Country", someSession3);
@@ -7275,10 +7276,11 @@ $(document).ready(function() {
             $scope.tallo(datacom);
         }
         $scope.tallo = function(datacom) {
-            // Guard: must have at least vehiclenumber or driverid to be a valid driver
+            // Guard: must have at least driverid or vehiclenumber to be a valid driver entry
             if (!datacom || (typeof datacom !== 'object')) return;
+            if (!datacom.driverid && !datacom.vehiclenumber && !datacom.drivername) return;
             // Ensure display fields always have a value so driver shows in all tables
-            datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + (datacom.driverid || '?'));
+            datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + datacom.driverid);
             datacom.vehiclestatus = datacom.vehiclestatus || 'Available';
             datacom.vehiclenumber = datacom.vehiclenumber || String(datacom.VehicleId || datacom.driverid || '');
             datacom.Id = datacom.driverid;
