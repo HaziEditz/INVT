@@ -7361,7 +7361,12 @@ $(document).ready(function() {
             if(found){
                
                 if ($scope.driverdatarealx[incs].VehicleId ==  datacom.VehicleId ) {
- 
+
+                    // Snapshot the old vehiclestatus NOW, before any branch can overwrite
+                    // driverdatarealx[incs] with datacom (which would make the later
+                    // vehiclestatus comparison always equal and changedata would never fire).
+                    var _savedOldStatus = $scope.driverdatarealx[incs].vehiclestatus;
+
                     if($scope.driverdatarealx[incs].zonename  != datacom.zonename ){
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
@@ -7388,23 +7393,18 @@ $(document).ready(function() {
                     if($scope.driverdatarealx[incs].jobpickup != datacom.jobpickup){
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
-                        if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
-                            $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
-                        }
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].JobphoneNo != datacom.JobphoneNo){
                         $scope.driverdatarealx[incs] =  datacom;
                         $scope.driverlist =  $scope.driverdatarealx;
-                        if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
-                            $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
-                        }
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
                     }
-                    if($scope.driverdatarealx[incs].vehiclestatus  != datacom.vehiclestatus){
-                        $scope.changedata($scope.driverdatarealx[incs].vehiclestatus ,datacom.vehiclestatus);
+                    // Use the saved old status — not the (possibly already overwritten) array entry
+                    if(_savedOldStatus  != datacom.vehiclestatus){
+                        $scope.changedata(_savedOldStatus ,datacom.vehiclestatus);
                         // Auto-transition linked job status when driver Firebase status changes.
                         // Busy     → job becomes Active   (driver started meter / picked up pax)
                         // Picking  → job becomes Assigned (driver accepted, en route)
@@ -11984,13 +11984,18 @@ $(document).ready(function() {
         $scope.tstst =[];
         $scope.zonetablez();
         setInterval(function() { $scope.zonetablez(); }, 15000);
-        // Poll assigned jobs every 15 s — defer the first call so AssignedJobs is defined
+        // Poll all three job tabs every 10 s — safety net for any missed Firebase events.
+        // Assigned tab also gets an immediate first call after a short defer.
         setTimeout(function() {
-            if (typeof $scope.AssignedJobs === 'function') { $scope.AssignedJobs(); }
-        }, 500);
+            if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
+            if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
+            if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
+        }, 600);
         setInterval(function() {
-            if (typeof $scope.AssignedJobs === 'function') { $scope.AssignedJobs(); }
-        }, 15000);
+            if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
+            if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
+            if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
+        }, 10000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.getjobs = function (ok='') {
