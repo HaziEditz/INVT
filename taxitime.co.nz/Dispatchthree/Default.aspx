@@ -5942,6 +5942,9 @@ $(document).ready(function() {
         if(status == "Offered"){
             status  = "Pending";
         }
+        // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
+        // and fire "Driver may not be available" toast immediately.
+        firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
  
     }
@@ -5950,6 +5953,8 @@ $(document).ready(function() {
         if(status == "Offered"){
             status  = "Pending";
         }
+        // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
+        firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
        const result = await resolveAfter2Seconds(driverid,bookid,status);
  
     }

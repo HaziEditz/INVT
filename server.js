@@ -488,13 +488,16 @@ const server = http.createServer(async (req, res) => {
         if (job) {
           const driverId = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
           if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]') {
-            job.BookingStatus = 'Offered';
+            // Set directly to 'Assigned' (not 'Offered') so the job immediately
+            // appears in the Assigned (blue) section and is NOT reset to Unreached
+            // by the 20-second Firebase joback timeout (which has no real driver to respond).
+            job.BookingStatus = 'Assigned';
             job.DriverId = driverId;
             if (driverId > 0) job.VehicleId = driverId;
-            // Update demo driver status to Busy so driver card turns red
+            // Update demo driver status to Picking so driver card turns blue
             const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId);
             if (zd) {
-              zd.vehiclestatus = 'Busy';
+              zd.vehiclestatus = 'Picking';
               zd.JobphoneNo = job.PhoneNo || '';
               zd.jobpickup  = job.PickAddress || '';
               zd.jobdropoff = job.DropAddress || '';
