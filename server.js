@@ -323,21 +323,17 @@ const server = http.createServer(async (req, res) => {
     // Actions that are custom additions to this demo — real backend won't know them,
     // so skip the proxy and go straight to local mock handlers for these.
     const LOCAL_ONLY_ACTIONS = new Set([
-      // Job list reads — must come from local jobStore, not real backend
+      // Job list reads — NOT included: [AssignedJobsv2] and [ActiveJobsv3] proxy to real backend
+      // with automatic fallback to local mock if session is expired.
       '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]',
-      '[AssignedJobsv2]',
-      '[ActiveJobsv3]',
-      // Job write / status changes
-      '[AssignJobStatusFromJobListv2]', '[AssignJobStatusFromJobList]',
+      // Job write / status changes — v2 is our custom local action; real backend synced in background
+      '[AssignJobStatusFromJobListv2]',
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
       '[changeriddestatusforoffer]', '[DriverStatusChanged]',
-      '[ProcUpdateJobv6]', '[checkjobstatus]', '[checkjobstatusv2]',
-      // Vehicle / driver info
-      '[VehicleInfov2]',
+      '[checkjobstatus]', '[checkjobstatusv2]',
       // Messaging
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
-      '[GroupMessage]', '[DeleteMessage]', '[RetrieveMessages]',
-      '[DispatcherUnReadMessages]', '[DispatcherConversation]',
+      '[GroupMessage]', '[DeleteMessage]',
       // Admin
       '[KickDriver]', '[DispatcherKickUsers]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
@@ -498,16 +494,12 @@ const server = http.createServer(async (req, res) => {
       } else if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]' || action === '[UnAssignJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;
         const job = jobStore.find(j => j.Id === bookingId);
+        const driverId = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
         if (job) {
-          const driverId = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
           if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]') {
-            // Set directly to 'Assigned' (not 'Offered') so the job immediately
-            // appears in the Assigned (blue) section and is NOT reset to Unreached
-            // by the 20-second Firebase joback timeout (which has no real driver to respond).
             job.BookingStatus = 'Assigned';
             job.DriverId = driverId;
             if (driverId > 0) job.VehicleId = driverId;
-            // Update demo driver status to Picking so driver card turns blue
             const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId);
             if (zd) {
               zd.vehiclestatus = 'Picking';
@@ -531,6 +523,22 @@ const server = http.createServer(async (req, res) => {
               zd.jobCount   = 0;
             }
           }
+        }
+        // Fire-and-forget: also update the real taxitime.co.nz backend so that
+        // [AssignedJobsv2] (which proxies to real backend) reflects this assignment.
+        if (action === '[AssignJobStatusFromJobListv2]' && bookingId > 0 && driverId > 0) {
+          const realBody = JSON.stringify({
+            action: '[AssignJobStatusFromJobList]',
+            data: [
+              { name: 'BookingId', Value: bookingId },
+              { name: 'VehicleId', Value: driverId },
+              { name: 'reternVehicleid', Value: 0 },
+              { name: 'reterndriverId',  Value: 0  },
+            ]
+          });
+          proxyToRealBackend('/Dispatchthree/DataManager/Data.aspx/DataProcessor', 'POST', realBody, req.headers['cookie'] || '')
+            .then(r => console.log(`[sync] [AssignJobStatusFromJobList] job #${bookingId} → real backend: ${r.statusCode}`))
+            .catch(e => console.log(`[sync] [AssignJobStatusFromJobList] job #${bookingId} → real backend failed: ${e.message}`));
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
         successD(res, 'Operation Successfully Performed');
