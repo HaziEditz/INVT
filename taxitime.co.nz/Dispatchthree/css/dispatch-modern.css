@@ -937,6 +937,234 @@ td.dataTables_empty {
 .msg-modal-header { background: #1a1a2e !important; }
 .msg-modal-title { color: #dfba5f !important; }
 
+/* ================================================================
+   DRIVER INFO MODAL — redesigned
+   ================================================================ */
+#VehicleDetails .modal-dialog {
+  max-width: 780px;
+  width: 90vw;
+  margin: 40px auto;
+}
+#VehicleDetails .modal-content {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  border: none !important;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.45) !important;
+  width: auto !important;
+  margin-left: 0 !important;
+}
+/* -- Header -- */
+.drv-modal-header {
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%);
+  border-bottom: 3px solid #dfba5f;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  position: relative;
+}
+.drv-modal-header .close {
+  position: absolute;
+  right: 18px;
+  top: 14px;
+  color: rgba(255,255,255,0.6) !important;
+  opacity: 1;
+  font-size: 18px;
+  line-height: 1;
+  text-shadow: none;
+}
+.drv-modal-header .close:hover { color: #dfba5f !important; }
+.drv-avatar {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: #dfba5f;
+  border: 3px solid rgba(255,255,255,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+}
+.drv-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.drv-avatar-initials {
+  font-size: 24px;
+  font-weight: 800;
+  color: #1a1a2e;
+  line-height: 1;
+}
+.drv-header-name {
+  color: #ffffff;
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+.drv-header-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.drv-badge-callsign {
+  background: #dfba5f;
+  color: #1a1a2e;
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.drv-badge-status {
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.7);
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+/* -- Body -- */
+.drv-modal-body { background: #f4f5f8; padding: 20px 24px; }
+
+/* Info cards row */
+.drv-info-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.drv-info-card {
+  flex: 1;
+  min-width: 140px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+  border: 1px solid #e8eaf0;
+  cursor: default;
+}
+.drv-info-card.clickable { cursor: pointer; transition: all 0.15s ease; }
+.drv-info-card.clickable:hover { border-color: #1a1a2e; box-shadow: 0 4px 12px rgba(26,26,46,0.15); transform: translateY(-1px); }
+.drv-ic-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+.drv-ic-label { font-size: 10px; color: #9095a1; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+.drv-ic-value { font-size: 14px; font-weight: 700; color: #1a1d21; line-height: 1.2; }
+
+/* Action buttons row */
+.drv-action-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.drv-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+.drv-action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+.drv-btn-danger  { background: #fee2e2; color: #dc2626; }
+.drv-btn-warning { background: #fff3cd; color: #92400e; }
+.drv-btn-primary { background: #1a1a2e; color: #dfba5f; }
+.drv-btn-locate  { background: #e0f2fe; color: #0369a1; }
+
+.drv-queue-group { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.drv-queue-group label { margin: 0; font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+.drv-queue-group select { height: 32px; width: 65px; border-radius: 7px; border: 1px solid #d0d3db; font-size: 13px; padding: 0 6px; background: #fff; }
+
+/* Job cards */
+#VehicleJobs { max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
+#VehicleJobs::-webkit-scrollbar { width: 4px; }
+#VehicleJobs::-webkit-scrollbar-track { background: transparent; }
+#VehicleJobs::-webkit-scrollbar-thumb { background: #d0d3db; border-radius: 4px; }
+
+.drv-job-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.06);
+  border: 1px solid #e8eaf0;
+  border-left: 4px solid #ccc;
+}
+.drv-job-card.status-assigned  { border-left-color: #2563eb; }
+.drv-job-card.status-active    { border-left-color: #16a34a; }
+.drv-job-card.status-offered   { border-left-color: #f59e0b; }
+.drv-job-card.status-completed { border-left-color: #6b7280; }
+.drv-job-card.status-unreached { border-left-color: #dc2626; }
+
+.drv-job-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.drv-job-status {
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-pill-assigned  { background: #dbeafe; color: #1d4ed8; }
+.status-pill-active    { background: #dcfce7; color: #15803d; }
+.status-pill-offered   { background: #fef3c7; color: #92400e; }
+.status-pill-completed { background: #f3f4f6; color: #374151; }
+.status-pill-unreached { background: #fee2e2; color: #b91c1c; }
+.status-pill-default   { background: #f3f4f6; color: #6b7280; }
+
+.drv-job-time { font-size: 11px; color: #9095a1; }
+.drv-job-route { display: flex; flex-direction: column; gap: 4px; }
+.drv-job-point { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+.drv-job-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 2px; }
+.drv-job-dot.pickup { background: #16a34a; }
+.drv-job-dot.dropoff { background: #dc2626; }
+.drv-job-addr { color: #374151; line-height: 1.4; }
+.drv-job-meta { display: flex; gap: 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+.drv-job-meta-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6b7280; }
+.drv-job-empty { text-align: center; padding: 20px; color: #9095a1; font-size: 13px; }
+
+/* Message bar */
+.drv-msg-bar {
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px 10px 16px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.07);
+  border: 1px solid #e8eaf0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.drv-msg-bar i { color: #dfba5f; font-size: 17px; flex-shrink: 0; }
+.drv-msg-bar input {
+  border: none !important;
+  box-shadow: none !important;
+  font-size: 13px;
+  flex: 1;
+  padding: 0 !important;
+  height: auto !important;
+  background: transparent !important;
+  color: #1a1d21;
+}
+.drv-msg-bar input::placeholder { color: #aab0be; }
+.drv-msg-send {
+  background: #dfba5f;
+  color: #1a1a2e;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.drv-msg-send:hover { background: #c9a84c; transform: translateY(-1px); }
+
 /* ACC form rows spacing */
 #acc .col-lg-4, #acc .col-lg-6, #acc .col-lg-12 { margin-bottom: 4px; }
 #acc input[type="submit"] { border-radius: 6px !important; }

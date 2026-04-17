@@ -1798,117 +1798,112 @@
 
     <div class="modal fade" id="VehicleDetails">
         <div class="modal-dialog">
-            <div class="modal-content" style="    width: 800px;
-    margin-left: -205px;">
-                <div class="modal-header">
+            <div class="modal-content">
+
+                <!-- Hidden data fields (read by JS) -->
+                <label id="VehicleLat" hidden></label>
+                <label id="VehicleLng" hidden></label>
+                <label id="lblDriverId" hidden></label>
+                <label id="lblDriverPlayerId" hidden></label>
+                <label id="lblBookingHeadId" hidden></label>
+
+                <!-- Header: avatar + name + badges -->
+                <div class="drv-modal-header">
                     <button class="close" data-dismiss="modal"><i class="fa fa-times"></i></button>
-                    <h4 class="txt-theme modal-title">Vehicle Details</h4>
-                </div>
-                <div class="modal-body" style="padding-bottom: 75px;">
-                    <div class="row">
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <img id="VehicleImage" src="{{VehicleImage}}" style="width: 70px; height: 70px" />
-                               <div class="row">
-
-                         <table>
-                            <tr>
-                                <td ng-click="ShowSuspendDetails(selectedone)">
-                                    <button class="btn btn-danger pull-left clsSuspend" id="DriverSuspends">Suspend Driver</button>
-                                </td>
-                                 <td ng-click="ShowKickDetails(selectedone)">
-                                        <input type="button" class="btn btn-danger pull-left clsdelete" id="btnKick" value="Kick" />
-                                    </td>
-                                <td>
-                                 <input type="button" class="btn btn-primary pull-left" onclick="FnFindMyVehicle()" id="FindMyVehicle" value="Find Vehicle" />
-
-                                </td>
-                            </tr>
-                             
-                        </table>
+                    <div class="drv-avatar">
+                        <img id="VehicleImage" src="{{VehicleImage}}" style="display:none;" />
+                        <span id="driverInitials" class="drv-avatar-initials">?</span>
                     </div>
-                        </div>
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-
-                        </div>
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <label>Vehicle Name:</label>
-                            <label id="lblVehicleName"> </label>
-                        </div>
-
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <label>Vehicle No:</label>
-                            <label id="lblVehicleNo"> </label>
-                        </div>
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <label>Call Sign:</label>
-                            <label id="lblVehicleSign"> </label>
-                        </div>
-
-
-
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <label>Driver:</label>
-                            <label id="lblDriverName"> </label>
-                        </div>
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <label>Driver Phone:</label>
-                            <label id="lblDriverPhone"> </label>
-                        </div>
-                        <div class="col-md-6 col-lg-6 col-sm-6 col-xs-6">
-                            <label id="VehicleLat" hidden="hidden"> </label>
-                            <label id="VehicleLng" hidden="hidden"> </label>
-                            
-                            <label id="lblDriverId" hidden="hidden"> </label>
-                            <label id="lblDriverPlayerId" hidden="hidden"> </label>
-                            <label id="lblBookingHeadId" hidden="hidden"> </label>
+                    <div>
+                        <h4 id="lblDriverName" class="drv-header-name"></h4>
+                        <div class="drv-header-badges">
+                            <span id="lblVehicleSign" class="drv-badge-callsign"></span>
+                            <span id="driverStatusBadge" class="drv-badge-status">Online</span>
                         </div>
                     </div>
-                 
-                    <div id="VehicleJobs" style=" overflow-y: scroll">
-                     
-                 </div>
                 </div>
-                <div class="modal-footer">
-                    <div class="col-sm-12 row">
-                        <div class="col-sm-6">
-                              <div class="row">
-                       
-                        <div class="col-md-3 col-lg- col-sm-6 col-xs-6">
+
+                <!-- Body -->
+                <div class="drv-modal-body">
+
+                    <!-- Info cards -->
+                    <div class="drv-info-cards">
+                        <div class="drv-info-card">
+                            <div class="drv-ic-icon" style="background:#eef0fb;">
+                                <i class="fa fa-car" style="color:#4b63d4;"></i>
+                            </div>
+                            <div>
+                                <div class="drv-ic-label">Vehicle</div>
+                                <div class="drv-ic-value" id="lblVehicleName">—</div>
+                            </div>
+                        </div>
+                        <div class="drv-info-card">
+                            <div class="drv-ic-icon" style="background:#fef9ec;">
+                                <i class="fa fa-id-badge" style="color:#dfba5f;"></i>
+                            </div>
+                            <div>
+                                <div class="drv-ic-label">Plate / No.</div>
+                                <div class="drv-ic-value" id="lblVehicleNo">—</div>
+                            </div>
+                        </div>
+                        <div class="drv-info-card">
+                            <div class="drv-ic-icon" style="background:#f0fdf4;">
+                                <i class="fa fa-tag" style="color:#16a34a;"></i>
+                            </div>
+                            <div>
+                                <div class="drv-ic-label">Booking ID</div>
+                                <div class="drv-ic-value" id="lblDriverPhone">—</div>
+                            </div>
+                        </div>
+                        <div class="drv-info-card clickable" onclick="FnFindMyVehicle()" id="FindMyVehicle" title="Find this vehicle on the map">
+                            <div class="drv-ic-icon" style="background:#e0f2fe;">
+                                <i class="fa fa-map-marker" style="color:#0369a1;"></i>
+                            </div>
+                            <div>
+                                <div class="drv-ic-label">Location</div>
+                                <div class="drv-ic-value" style="color:#0369a1;">Find on Map</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action buttons + queue control -->
+                    <div class="drv-action-row">
+                        <button class="drv-action-btn drv-btn-danger clsSuspend" id="DriverSuspends" ng-click="ShowSuspendDetails(selectedone)">
+                            <i class="fa fa-ban"></i> Suspend
+                        </button>
+                        <button class="drv-action-btn drv-btn-warning clsdelete" id="btnKick" ng-click="ShowKickDetails(selectedone)">
+                            <i class="fa fa-sign-out"></i> Kick
+                        </button>
+                        <div class="drv-queue-group">
+                            <label>Queue</label>
                             <select class="form-control" id="ddlQueueNo">
-                                <option value="1">1</option>
-                                <option value="2">2</option>
-                                <option value="3">3</option>
-                                <option value="4">4</option>
-                                <option value="5">5</option>
-                                <option value="6">6</option>
-                                <option value="7">7</option>
-                                <option value="8">8</option>
-                                <option value="9">9</option>
+                                <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                                <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                                <option value="7">7</option><option value="8">8</option><option value="9">9</option>
                                 <option value="10">10</option>
-                               
                             </select>
-                        </div>
-                        <div class="col-md-3 col-lg-3 col-sm-6 col-xs-6">
-                            <input type="button" class="btn btn-success pull-left" id="MoveToFront" value="Move to front" />
-                        </div>
-                    </div>
-                  
-                        </div>
-                        <div class="col-sm-6">
-                      <div class="row">
-                        <div class="col-md-10  col-lg-10 col-sm-10 col-xs-10">
-                            <input type="text" id="TxtTypeMessage" class="form-control" placeholder="Type Message Here" />
-                        </div>
-                        <div class="col-md-1 col-lg-1 col-sm-1 col-xs-1">
-                            <input type="button" class="btn btn-success" id="PushMessage" value="Send" />
+                            <button class="drv-action-btn drv-btn-primary" id="MoveToFront">
+                                <i class="fa fa-arrow-up"></i> Move to Front
+                            </button>
                         </div>
                     </div>
-                        </div>
+
+                    <!-- Jobs section -->
+                    <div id="VehicleJobs"></div>
+
+                    <!-- Message bar -->
+                    <div class="drv-msg-bar">
+                        <i class="fa fa-comment"></i>
+                        <input type="text" id="TxtTypeMessage" placeholder="Send a message to this driver…" />
+                        <button class="drv-msg-send" id="PushMessage">
+                            <i class="fa fa-paper-plane"></i> Send
+                        </button>
                     </div>
-                  
-                </div>
-            </div>
-        </div>
+
+                </div><!-- /drv-modal-body -->
+
+            </div><!-- /modal-content -->
+        </div><!-- /modal-dialog -->
     </div>
 
 
@@ -7032,113 +7027,55 @@ $(document).ready(function() {
                         $('#VehicleLng').text($data.Lng);
                     
                         $('#lblDriverPlayerId').text($data.PlayerId);
-                        $('#lblVehicleName').text($data.VehicleName);
-                        $('#lblVehicleSign').text($data.CallSign);
-                        $('#lblVehicleNo').text($data.VehicleNo);
+                        $('#lblVehicleName').text($data.VehicleName || '—');
+                        $('#lblVehicleSign').text($data.CallSign || '—');
+                        $('#lblVehicleNo').text($data.VehicleNo || '—');
                         $('#lblBookingHeadId').text($data.BookingId);
-                        $('#lblDriverPhone').text($data.BookingId);
-                        $('#lblDriverName').text($data.UserFName + " " + $data.UserLName)
+                        $('#lblDriverPhone').text($data.BookingId || '—');
+                        var _drvFullName2 = (($data.UserFName || '') + ' ' + ($data.UserLName || '')).trim() || 'Driver';
+                        $('#lblDriverName').text(_drvFullName2);
+                        var _nameParts2 = _drvFullName2.split(' ').filter(function(p){ return p.length > 0; });
+                        var _initials2 = (_nameParts2[0] ? _nameParts2[0][0] : '') + (_nameParts2[1] ? _nameParts2[1][0] : '');
+                        $('#driverInitials').text(_initials2.toUpperCase() || '?');
                         
                         $scope.VehicleImage = $data.VehicleImage;
                      
                         $("#VehicleJobs").empty();
                         if ($res["dt2"].length != []) {
-                            var jobColor;
-
+                            if ($res["dt2"].length === 0) {
+                                $("#VehicleJobs").append('<div class="drv-job-empty"><i class="fa fa-inbox" style="font-size:24px;display:block;margin-bottom:6px;opacity:0.4;"></i>No active jobs</div>');
+                            }
                             for ($i = 0; $i < $res["dt2"].length; $i++) {
-
+                                var _j2 = $res["dt2"][$i];
+                                var _st2 = (_j2.BookingStatus || '').toLowerCase();
+                                var _stClass2 = 'status-default', _stPill2 = 'status-pill-default';
+                                if (_st2 === 'assigned')  { _stClass2 = 'status-assigned';  _stPill2 = 'status-pill-assigned'; }
+                                else if (_st2 === 'active')   { _stClass2 = 'status-active';    _stPill2 = 'status-pill-active'; }
+                                else if (_st2 === 'offered')  { _stClass2 = 'status-offered';   _stPill2 = 'status-pill-offered'; }
+                                else if (_st2 === 'completed' || _st2 === 'closed') { _stClass2 = 'status-completed'; _stPill2 = 'status-pill-completed'; }
+                                else if (_st2 === 'unreached') { _stClass2 = 'status-unreached'; _stPill2 = 'status-pill-unreached'; }
+                                var _dist2 = (_j2.EstimatedDistance && _j2.EstimatedDistance != '0') ? (_j2.EstimatedDistance + ' km') : '';
+                                var _time2 = (_j2.EstimatedTime && _j2.EstimatedTime != '0') ? (_j2.EstimatedTime + ' min') : '';
+                                var _route2 = [_dist2, _time2].filter(Boolean).join(' · ') || 'Route info unavailable';
                                 $("#VehicleJobs").append(
-                                    '       <div class="col-sm-12" style="background: #0080004f;">  '  + 
- '                                 '  + 
- '                            '  + 
- '                            <div class="alert-box-title">   '  + 
- '                            <ul class="list-inline">   '  + 
- '                              <li>' + $res["dt2"][$i].BookingStatus + ' </li>   '  + 
- '     '  + 
- '                                              </ul>   '  + 
- '                                            </div>   '  + 
- '                                             <div class=" " >   '  + 
- '                                              <div class="row">   '  + 
- '                                                <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                   <p>When:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">   '  + 
- '                                                    <ul class="list-inline" style="margin-bottom: 0px;">   '  + 
- '                                                       <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].BookingDateTime   + '</p>   '  + 
- '                                                       </li>   '  + 
- '     '  + 
- '                                                   </ul>   '  + 
- '                                                </div>   '  + 
- '                                                 <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                   <p>Client:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">   '  + 
- '                                                    <ul class="list-inline" style="margin-bottom: 0px;">   '  + 
- '                                                        <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].PassengerId   + '</p>   '  + 
- '                                                        </li>   '  + 
- '     '  + 
- '                                                   </ul>   '  + 
- '                                                </div>   '  + 
- '                                                 </div>   '  + 
- '     '  + 
- '                                            <div class="row">   '  + 
- '                                                <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                    <p>From:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                   <p>' + $res["dt2"][$i].PickAddress   + ' </p>   '  + 
- '     '  + 
- '                                               </div>   '  + 
- '                                            </div>   '  + 
- '                                              <div class="row">   '  + 
- '                                                 <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                   <p>To:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                   <p> ' + $res["dt2"][$i].DropAddress   + ' </p>   '  + 
- '                                                </div>   '  + 
- '                                            </div>   '  + 
- '                                            <div class="row">   '  + 
- '                                                <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                    <p>Info:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                    <ul class="list-inline" style="display: inline-flex; margin-bottom: 0px;">   '  + 
- '                                                        <li>   '  + 
- '                                                            <img src="images/icon-user.png"> =</li>   '  + 
- '                                                        <li>   '  + 
- '                                                            <p>' + $res["dt2"][$i].Passengers   + '</p>   '  + 
- '                                                        </li>   '  + 
- '                                                         <li>   '  + 
- '                                                           <img src="images/icon-case.png"> =</li>   '  + 
- '                                                        <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].Bags   + '</p>   '  + 
- '                                                        </li>   '  + 
- '                                                        <li>   '  + 
- '                                                            <img src="images/icon-wheelchair.png"> =</li>   '  + 
- '                                                        <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].WheelChairs   + '</p>   '  + 
- '                                                       </li>   '  + 
- '                                                    </ul>   '  + 
- '                                                </div>   '  + 
- '                                            </div>   '  + 
- '                                            <div class="row">   '  + 
- '                                                 <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                    <p>Route:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                   <p>' + $res["dt2"][$i].EstimatedDistance   + ' Km. ' + $res["dt2"][$i].EstimatedTime   + ' Min</p>   '  + 
- '                                                </div>   '  + 
- '                                            </div>   '  + 
- '     '  + 
- '                                           </div>   '  + 
- '                                           <hr>   '  + 
- '                               </div>  '  )
-                        
-                                     
-                                
+                                    '<div class="drv-job-card ' + _stClass2 + '">' +
+                                      '<div class="drv-job-header">' +
+                                        '<span class="drv-job-status ' + _stPill2 + '">' + (_j2.BookingStatus || 'Unknown') + '</span>' +
+                                        '<span class="drv-job-time"><i class="fa fa-clock-o" style="margin-right:4px;"></i>' + (_j2.BookingDateTime || '') + '</span>' +
+                                      '</div>' +
+                                      '<div class="drv-job-route">' +
+                                        '<div class="drv-job-point"><span class="drv-job-dot pickup"></span><span class="drv-job-addr">' + (_j2.PickAddress || 'Pickup not set') + '</span></div>' +
+                                        '<div class="drv-job-point"><span class="drv-job-dot dropoff"></span><span class="drv-job-addr">' + (_j2.DropAddress || 'Drop-off not set') + '</span></div>' +
+                                      '</div>' +
+                                      '<div class="drv-job-meta">' +
+                                        '<span class="drv-job-meta-item"><i class="fa fa-user"></i> ' + (_j2.PassengerId || '—') + '</span>' +
+                                        '<span class="drv-job-meta-item"><i class="fa fa-users"></i> ' + (_j2.Passengers || 1) + '</span>' +
+                                        '<span class="drv-job-meta-item"><i class="fa fa-briefcase"></i> ' + (_j2.Bags || 0) + '</span>' +
+                                        (_j2.WheelChairs > 0 ? '<span class="drv-job-meta-item"><i class="fa fa-wheelchair"></i> ' + _j2.WheelChairs + '</span>' : '') +
+                                        '<span class="drv-job-meta-item" style="margin-left:auto;"><i class="fa fa-road"></i> ' + _route2 + '</span>' +
+                                      '</div>' +
+                                    '</div>'
+                                );
                             }
                                  
                           
@@ -11345,12 +11282,17 @@ $(document).ready(function() {
                         $('#VehicleLng').text($data.Lng);
                     
                         $('#lblDriverPlayerId').text($data.PlayerId);
-                        $('#lblVehicleName').text($data.VehicleName);
-                        $('#lblVehicleSign').text($data.CallSign);
-                        $('#lblVehicleNo').text($data.VehicleNo);
+                        $('#lblVehicleName').text($data.VehicleName || '—');
+                        $('#lblVehicleSign').text($data.CallSign || '—');
+                        $('#lblVehicleNo').text($data.VehicleNo || '—');
                         $('#lblBookingHeadId').text($data.BookingId);
-                        $('#lblDriverPhone').text($data.BookingId);
-                        $('#lblDriverName').text($data.UserFName + " " + $data.UserLName)
+                        $('#lblDriverPhone').text($data.BookingId || '—');
+                        var _drvFullName = (($data.UserFName || '') + ' ' + ($data.UserLName || '')).trim() || 'Driver';
+                        $('#lblDriverName').text(_drvFullName);
+                        // Avatar initials
+                        var _nameParts = _drvFullName.split(' ').filter(function(p){ return p.length > 0; });
+                        var _initials = (_nameParts[0] ? _nameParts[0][0] : '') + (_nameParts[1] ? _nameParts[1][0] : '');
+                        $('#driverInitials').text(_initials.toUpperCase() || '?');
                         
                         $scope.VehicleImage = $data.VehicleImage;
                      
@@ -11358,100 +11300,49 @@ $(document).ready(function() {
                         if ($res["dt2"].length != []) {
                             var jobColor;
 
+                            if ($res["dt2"].length === 0) {
+                                $("#VehicleJobs").append('<div class="drv-job-empty"><i class="fa fa-inbox" style="font-size:24px;display:block;margin-bottom:6px;opacity:0.4;"></i>No active jobs</div>');
+                            }
                             for ($i = 0; $i < $res["dt2"].length; $i++) {
+                                var _j = $res["dt2"][$i];
+                                var _st = (_j.BookingStatus || '').toLowerCase();
+                                var _stClass = 'status-default';
+                                var _stPill  = 'status-pill-default';
+                                if (_st === 'assigned')  { _stClass = 'status-assigned';  _stPill = 'status-pill-assigned'; }
+                                else if (_st === 'active')   { _stClass = 'status-active';    _stPill = 'status-pill-active'; }
+                                else if (_st === 'offered')  { _stClass = 'status-offered';   _stPill = 'status-pill-offered'; }
+                                else if (_st === 'completed' || _st === 'closed') { _stClass = 'status-completed'; _stPill = 'status-pill-completed'; }
+                                else if (_st === 'unreached') { _stClass = 'status-unreached'; _stPill = 'status-pill-unreached'; }
+
+                                var _distInfo = (_j.EstimatedDistance && _j.EstimatedDistance != '0') ? (_j.EstimatedDistance + ' km') : '';
+                                var _timeInfo = (_j.EstimatedTime && _j.EstimatedTime != '0') ? (_j.EstimatedTime + ' min') : '';
+                                var _routeInfo = [_distInfo, _timeInfo].filter(Boolean).join(' · ') || 'Route info unavailable';
 
                                 $("#VehicleJobs").append(
-                                    '       <div class="col-sm-12" style="background: #0080004f;">  '  + 
- '                                 '  +  
- '                            '  + 
- '                            <div class="alert-box-title">   '  + 
- '                            <ul class="list-inline">   '  + 
- '                              <li>' + $res["dt2"][$i].BookingStatus + ' </li>   '  + 
- '     '  + 
- '                                              </ul>   '  + 
- '                                            </div>   '  + 
- '                                             <div class=" " >   '  + 
- '                                              <div class="row">   '  + 
- '                                                <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                   <p>When:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">   '  + 
- '                                                    <ul class="list-inline" style="margin-bottom: 0px;">   '  + 
- '                                                       <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].BookingDateTime   + '</p>   '  + 
- '                                                       </li>   '  + 
- '     '  + 
- '                                                   </ul>   '  + 
- '                                                </div>   '  + 
- '                                                 <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                   <p>Client:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">   '  + 
- '                                                    <ul class="list-inline" style="margin-bottom: 0px;">   '  + 
- '                                                        <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].PassengerId   + '</p>   '  + 
- '                                                        </li>   '  + 
- '     '  + 
- '                                                   </ul>   '  + 
- '                                                </div>   '  + 
- '                                                 </div>   '  + 
- '     '  + 
- '                                            <div class="row">   '  + 
- '                                                <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                    <p>From:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                   <p>' + $res["dt2"][$i].PickAddress   + ' </p>   '  + 
- '     '  + 
- '                                               </div>   '  + 
- '                                            </div>   '  + 
- '                                              <div class="row">   '  + 
- '                                                 <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                   <p>To:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                   <p> ' + $res["dt2"][$i].DropAddress   + ' </p>   '  + 
- '                                                </div>   '  + 
- '                                            </div>   '  + 
- '                                            <div class="row">   '  + 
- '                                                <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                    <p>Info:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                    <ul class="list-inline" style="display: inline-flex; margin-bottom: 0px;">   '  + 
- '                                                        <li>   '  + 
- '                                                            <img src="images/icon-user.png"> =</li>   '  + 
- '                                                        <li>   '  + 
- '                                                            <p>' + $res["dt2"][$i].Passengers   + '</p>   '  + 
- '                                                        </li>   '  + 
- '                                                         <li>   '  + 
- '                                                           <img src="images/icon-case.png"> =</li>   '  + 
- '                                                        <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].Bags   + '</p>   '  + 
- '                                                        </li>   '  + 
- '                                                        <li>   '  + 
- '                                                            <img src="images/icon-wheelchair.png"> =</li>   '  + 
- '                                                        <li>   '  + 
- '                                                           <p>' + $res["dt2"][$i].WheelChairs   + '</p>   '  + 
- '                                                       </li>   '  + 
- '                                                    </ul>   '  + 
- '                                                </div>   '  + 
- '                                            </div>   '  + 
- '                                            <div class="row">   '  + 
- '                                                 <div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">   '  + 
- '                                                    <p>Route:</p>   '  + 
- '                                                </div>   '  + 
- '                                                <div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">   '  + 
- '                                                   <p>' + $res["dt2"][$i].EstimatedDistance   + ' Km. ' + $res["dt2"][$i].EstimatedTime   + ' Min</p>   '  + 
- '                                                </div>   '  + 
- '                                            </div>   '  + 
- '     '  + 
- '                                           </div>   '  + 
- '                                           <hr>   '  + 
- '                               </div>  '  )
-                        
-                                     
-                                
+                                    '<div class="drv-job-card ' + _stClass + '">' +
+                                      '<div class="drv-job-header">' +
+                                        '<span class="drv-job-status ' + _stPill + '">' + (_j.BookingStatus || 'Unknown') + '</span>' +
+                                        '<span class="drv-job-time"><i class="fa fa-clock-o" style="margin-right:4px;"></i>' + (_j.BookingDateTime || '') + '</span>' +
+                                      '</div>' +
+                                      '<div class="drv-job-route">' +
+                                        '<div class="drv-job-point">' +
+                                          '<span class="drv-job-dot pickup"></span>' +
+                                          '<span class="drv-job-addr">' + (_j.PickAddress || 'Pickup not set') + '</span>' +
+                                        '</div>' +
+                                        '<div class="drv-job-point">' +
+                                          '<span class="drv-job-dot dropoff"></span>' +
+                                          '<span class="drv-job-addr">' + (_j.DropAddress || 'Drop-off not set') + '</span>' +
+                                        '</div>' +
+                                      '</div>' +
+                                      '<div class="drv-job-meta">' +
+                                        '<span class="drv-job-meta-item"><i class="fa fa-user"></i> ' + (_j.PassengerId || '—') + '</span>' +
+                                        '<span class="drv-job-meta-item"><i class="fa fa-users"></i> ' + (_j.Passengers || 1) + '</span>' +
+                                        '<span class="drv-job-meta-item"><i class="fa fa-briefcase"></i> ' + (_j.Bags || 0) + '</span>' +
+                                        (_j.WheelChairs > 0 ? '<span class="drv-job-meta-item"><i class="fa fa-wheelchair"></i> ' + _j.WheelChairs + '</span>' : '') +
+                                        '<span class="drv-job-meta-item" style="margin-left:auto;"><i class="fa fa-road"></i> ' + _routeInfo + '</span>' +
+                                      '</div>' +
+                                    '</div>'
+                                );
                             }
                                  
                           
