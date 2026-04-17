@@ -7415,7 +7415,14 @@ $(document).ready(function() {
                             jQuery.ajax({
                                 type: 'POST',
                                 url: 'DataManager/Data.aspx/DataSelector',
-                                data: JSON.stringify({ data: [{ name:'driverid', Value: String(_drvId) }, { name:'newstatus', Value: _newSt }], action: '[DriverStatusChanged]' }),
+                                data: JSON.stringify({ data: [
+                                    { name:'driverid',      Value: String(_drvId) },
+                                    { name:'newstatus',     Value: _newSt },
+                                    { name:'vehiclenumber', Value: String(datacom.vehiclenumber || datacom.VehicleNo || '') },
+                                    { name:'drivername',    Value: String(datacom.drivername    || datacom.VehicleDetails || '') },
+                                    { name:'lat',           Value: String(datacom.lat || '') },
+                                    { name:'lng',           Value: String(datacom.lng || '') }
+                                ], action: '[DriverStatusChanged]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
                                 success: function() {
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
