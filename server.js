@@ -46,13 +46,20 @@ function buildDriverChatList() {
 }
 
 // ─── Closed job store (historical demo data) ──────────────────────────────────
+// Closed job demo records — dates are kept within the past 7 days so they
+// survive the client-side "DateFrom = today" filter in the ClosedJobs search.
+function _closedDate(daysAgo, time) {
+  const d = new Date(); d.setDate(d.getDate() - daysAgo);
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${dd} ${time}.`;
+}
 const closedJobStore = [
-  { Id: 937100, BookingDateTime: '2026-04-14 09:00:00.', JobCompleteTime: '2026-04-14 09:28:00.', PickAddress: '12 Dee St, Invercargill', DropAddress: 'Invercargill Hospital, Kew Rd', Name: 'Alice Brown', PhoneNo: '021 400 1001', VehicleNo: '201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
-  { Id: 937101, BookingDateTime: '2026-04-14 11:15:00.', JobCompleteTime: '2026-04-14 11:47:00.', PickAddress: '88 Tay St, Invercargill', DropAddress: 'Invercargill Airport', Name: 'Brian Clark', PhoneNo: '021 400 1002', VehicleNo: '202', UserFName: 'Sarah', UserLName: 'Wilson', BookingSource: 'Dispatch Console', BookingStatus: 'Dispatched', DriverId: 102, VehicleId: 202 },
-  { Id: 937102, BookingDateTime: '2026-04-14 13:30:00.', JobCompleteTime: '', PickAddress: '5 Don St, Invercargill', DropAddress: 'Waikiwi Mall', Name: 'Carol Evans', PhoneNo: '021 400 1003', VehicleNo: '203', UserFName: 'David', UserLName: 'Thompson', BookingSource: 'Phone', BookingStatus: 'Cancel', DriverId: 103, VehicleId: 203 },
-  { Id: 937103, BookingDateTime: '2026-04-13 07:45:00.', JobCompleteTime: '2026-04-13 08:05:00.', PickAddress: '200 Elles Rd, Invercargill', DropAddress: '14 Yarrow St, Invercargill', Name: 'Daniel Ford', PhoneNo: '021 400 1004', VehicleNo: '204', UserFName: 'Emma', UserLName: 'Davies', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 104, VehicleId: 204 },
-  { Id: 937104, BookingDateTime: '2026-04-13 16:00:00.', JobCompleteTime: '', PickAddress: '3 Leven St, Invercargill', DropAddress: 'Queens Park, Invercargill', Name: 'Eve Green', PhoneNo: '021 400 1005', VehicleNo: '205', UserFName: 'James', UserLName: 'Brown', BookingSource: 'Dispatch Console', BookingStatus: 'No Show', DriverId: 105, VehicleId: 205 },
-  { Id: 937105, BookingDateTime: '2026-04-12 10:00:00.', JobCompleteTime: '2026-04-12 10:22:00.', PickAddress: 'Invercargill Airport', DropAddress: '56 Gala St, Invercargill', Name: 'Frank Harris', PhoneNo: '021 400 1006', VehicleNo: '201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
+  { Id: 937100, BookingDateTime: _closedDate(0, '09:00:00'), JobCompleteTime: _closedDate(0, '09:28:00'), PickAddress: '12 Dee St, Invercargill', DropAddress: 'Invercargill Hospital, Kew Rd', Name: 'Alice Brown', PhoneNo: '021 400 1001', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
+  { Id: 937101, BookingDateTime: _closedDate(0, '11:15:00'), JobCompleteTime: _closedDate(0, '11:47:00'), PickAddress: '88 Tay St, Invercargill', DropAddress: 'Invercargill Airport', Name: 'Brian Clark', PhoneNo: '021 400 1002', VehicleNo: 'T202', UserFName: 'Sarah', UserLName: 'Wilson', BookingSource: 'Dispatch Console', BookingStatus: 'Dispatched', DriverId: 102, VehicleId: 202 },
+  { Id: 937102, BookingDateTime: _closedDate(1, '13:30:00'), JobCompleteTime: '', PickAddress: '5 Don St, Invercargill', DropAddress: 'Waikiwi Mall', Name: 'Carol Evans', PhoneNo: '021 400 1003', VehicleNo: 'T203', UserFName: 'David', UserLName: 'Thompson', BookingSource: 'Phone', BookingStatus: 'Cancel', DriverId: 103, VehicleId: 203 },
+  { Id: 937103, BookingDateTime: _closedDate(1, '07:45:00'), JobCompleteTime: _closedDate(1, '08:05:00'), PickAddress: '200 Elles Rd, Invercargill', DropAddress: '14 Yarrow St, Invercargill', Name: 'Daniel Ford', PhoneNo: '021 400 1004', VehicleNo: 'T204', UserFName: 'Emma', UserLName: 'Davies', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 104, VehicleId: 204 },
+  { Id: 937104, BookingDateTime: _closedDate(2, '16:00:00'), JobCompleteTime: '', PickAddress: '3 Leven St, Invercargill', DropAddress: 'Queens Park, Invercargill', Name: 'Eve Green', PhoneNo: '021 400 1005', VehicleNo: 'T205', UserFName: 'James', UserLName: 'Brown', BookingSource: 'Dispatch Console', BookingStatus: 'No Show', DriverId: 105, VehicleId: 205 },
+  { Id: 937105, BookingDateTime: _closedDate(2, '10:00:00'), JobCompleteTime: _closedDate(2, '10:22:00'), PickAddress: 'Invercargill Airport', DropAddress: '56 Gala St, Invercargill', Name: 'Frank Harris', PhoneNo: '021 400 1006', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
 ];
 
 function calcJobMins(bookingDateTimeStr) {
@@ -121,10 +128,58 @@ function buildAssignedResponse(jobs) {
 const REAL_BACKEND_HOST = 'taxitime.co.nz';
 const REAL_BACKEND_PREFIX = '/Dispatchthree';
 
+// Server-side session cache: once any request successfully authenticates with the
+// production backend, store the resulting ASP.NET session cookie here.  Subsequent
+// proxy requests merge this cookie in, so every browser tab benefits from a single
+// successful login without needing its own session cookie.
+let _cachedProductionCookies = '';
+
+// Merge a Set-Cookie header value into the cached cookie jar (key=value pairs only)
+function _cacheCookiesFromHeader(rawCookies) {
+  if (!rawCookies) return;
+  const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+  const jar = {};
+  // Seed jar with already-cached values
+  _cachedProductionCookies.split(';').forEach(pair => {
+    const [k, v] = pair.trim().split('=');
+    if (k) jar[k.trim()] = (v || '').trim();
+  });
+  // Overlay new cookies from response
+  cookies.forEach(c => {
+    const kv = c.split(';')[0].trim();
+    const [k, v] = kv.split('=');
+    if (k) jar[k.trim()] = (v || '').trim();
+  });
+  _cachedProductionCookies = Object.entries(jar).map(([k,v]) => `${k}=${v}`).join('; ');
+  console.log(`[proxy] updated server-side session cookie (${Object.keys(jar).length} keys)`);
+}
+
+// Strip domain/SameSite attrs and return browser-safe Set-Cookie strings
+function _sanitiseCookiesForBrowser(rawCookies) {
+  if (!rawCookies) return [];
+  const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+  return cookies.map(c =>
+    c.replace(/;\s*domain=[^;,]*/gi, '').replace(/;\s*samesite=[^;,]*/gi, '')
+  );
+}
+
 function proxyToRealBackend(urlPath, method, body, incomingCookies) {
   return new Promise((resolve, reject) => {
     const targetPath = REAL_BACKEND_PREFIX + urlPath;
     const bodyBuf    = Buffer.from(body || '');
+
+    // Merge browser cookies with the server-side cached production session cookie
+    // so requests succeed even when the browser's own session cookie is missing.
+    const mergedCookies = (() => {
+      const jar = {};
+      const add = str => (str || '').split(';').forEach(pair => {
+        const [k, v] = pair.trim().split('=');
+        if (k && k.trim()) jar[k.trim()] = (v || '').trim();
+      });
+      add(_cachedProductionCookies);  // cached first (lower priority)
+      add(incomingCookies);           // browser cookie overrides
+      return Object.entries(jar).map(([k,v]) => `${k}=${v}`).join('; ');
+    })();
 
     const options = {
       hostname: REAL_BACKEND_HOST,
@@ -134,7 +189,7 @@ function proxyToRealBackend(urlPath, method, body, incomingCookies) {
       headers: {
         'Content-Type':   'application/json; charset=utf-8',
         'Content-Length': bodyBuf.length,
-        'Cookie':         incomingCookies || '',
+        'Cookie':         mergedCookies,
         'User-Agent':     'Mozilla/5.0 (compatible; TaxiTimeDispatch/1.0)',
         'Accept':         'application/json, text/javascript, */*',
         'Origin':         'https://taxitime.co.nz',
@@ -266,25 +321,42 @@ const server = http.createServer(async (req, res) => {
           urlPath, req.method, body, req.headers['cookie'] || ''
         );
         const bodyText = (proxied.body || '').trim();
-        // Only use proxy response if it is valid JSON AND is not a session-expired
-        // redirect (which would cause an infinite logout loop for demo users).
         const isSessionExpired = bodyText.includes('Session is experied') || bodyText.includes('Session is expired');
+
+        // Always cache any Set-Cookie headers the production backend sends back
+        // (even for failed/non-JSON responses) so the session stays alive.
+        if (proxied.headers['set-cookie'] && !isSessionExpired) {
+          _cacheCookiesFromHeader(proxied.headers['set-cookie']);
+        }
+
+        // Special case: LoginSelector — just forward the cookies and return success.
+        // The production login endpoint may return a plain string or non-JSON body;
+        // we don't care about the body — we just need the session cookie set.
+        if (action === 'LoginSelector' && proxied.statusCode === 200 && !isSessionExpired) {
+          const replyHeaders = {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*',
+          };
+          const sanitised = _sanitiseCookiesForBrowser(proxied.headers['set-cookie']);
+          if (sanitised.length) replyHeaders['Set-Cookie'] = sanitised;
+          res.writeHead(200, replyHeaders);
+          res.end(JSON.stringify({ d: 'Login OK' }));
+          console.log(`200: PROXY→REAL LoginSelector — session cookie acquired`);
+          return;
+        }
+
+        // For all other actions: use proxy response only if it is valid JSON and
+        // not a session-expired message (which would cause an infinite logout loop).
         if (proxied.statusCode === 200 && !isSessionExpired && (bodyText.startsWith('{') || bodyText.startsWith('['))) {
           const replyHeaders = {
             'Content-Type': proxied.headers['content-type'] || 'application/json',
             'Cache-Control': 'no-cache',
             'Access-Control-Allow-Origin': '*',
           };
-          // Forward session cookies — strip the domain attribute so they are
-          // scoped to our proxy host (replit.dev) rather than taxitime.co.nz,
-          // which allows subsequent requests to carry the ASP.NET session.
-          if (proxied.headers['set-cookie']) {
-            const rawCookies = proxied.headers['set-cookie'];
-            const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
-            replyHeaders['Set-Cookie'] = cookies.map(c =>
-              c.replace(/;\s*domain=[^;,]*/gi, '').replace(/;\s*samesite=[^;,]*/gi, '')
-            );
-          }
+          // Forward sanitised cookies (domain stripped) so browser stores them
+          const sanitised = _sanitiseCookiesForBrowser(proxied.headers['set-cookie']);
+          if (sanitised.length) replyHeaders['Set-Cookie'] = sanitised;
           res.writeHead(200, replyHeaders);
           res.end(proxied.body);
           console.log(`200: PROXY→REAL ${urlPath} [action=${action}] (${bodyText.length} bytes)`);
@@ -437,6 +509,18 @@ const server = http.createServer(async (req, res) => {
       } else if (action === 'UpdateAlarm' || action === 'UpdateAlarts' || action === 'UpdateAlerts') {
         successD(res, 'Operation Successfully Performed');
       } else if (action === 'storeemergency') {
+        successD(res, 'Emergency Stored');
+
+      } else if (action === 'ACC_Approval_add' || action === 'ACC_Approval_update') {
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval saved`);
+        successD(res, 'Operation Successfully Performed');
+
+      } else if (action === 'Client_ACC_ADD') {
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC client added`);
+        successD(res, 'Operation Successfully Performed');
+
+      } else if (action === '[storeemergency]') {
+        console.log(`200: POST ${urlPath} [action=${action}] -> emergency stored`);
         successD(res, 'Emergency Stored');
 
       } else if (action === '[MessageInsert]') {
@@ -650,6 +734,54 @@ const server = http.createServer(async (req, res) => {
         }));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${mapped.length} unread from driver #${driverId}`);
         arrayD(res, mapped);
+
+      // ── ACC / Accident Claim handlers ──────────────────────────────────────
+      } else if (action === 'Manager_ACC_GET') {
+        const demoManagers = [
+          { id: 1, manager_name: 'ACC Head Office', manager_branch_code: 'ACC001', manager_email: 'head@acc.co.nz' },
+          { id: 2, manager_name: 'Southland Branch', manager_branch_code: 'ACC002', manager_email: 'south@acc.co.nz' },
+          { id: 3, manager_name: 'Otago Branch',    manager_branch_code: 'ACC003', manager_email: 'otago@acc.co.nz' },
+        ];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${demoManagers.length} ACC managers`);
+        arrayD(res, demoManagers);
+
+      } else if (action === 'Client_ACC_GET') {
+        const managerId = parseInt(param('manager_id') || '0') || 0;
+        const demoClients = [
+          { id: 1, client_name: 'John Smith',   manager_id: 1, phone: '021 111 0001', address: '12 Main St, Invercargill' },
+          { id: 2, client_name: 'Mary Johnson', manager_id: 1, phone: '021 111 0002', address: '45 Tay St, Invercargill'  },
+          { id: 3, client_name: 'Paul Davis',   manager_id: 2, phone: '021 111 0003', address: '78 Dee St, Invercargill'  },
+        ];
+        const filtered = managerId ? demoClients.filter(c => c.manager_id === managerId) : demoClients;
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${filtered.length} ACC clients`);
+        arrayD(res, filtered);
+
+      } else if (action === 'Client_ACC_ALL') {
+        const demoClients = [
+          { id: 1, client_name: 'John Smith',   manager_id: 1, phone: '021 111 0001', address: '12 Main St, Invercargill' },
+          { id: 2, client_name: 'Mary Johnson', manager_id: 1, phone: '021 111 0002', address: '45 Tay St, Invercargill'  },
+          { id: 3, client_name: 'Paul Davis',   manager_id: 2, phone: '021 111 0003', address: '78 Dee St, Invercargill'  },
+        ];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${demoClients.length} all ACC clients`);
+        arrayD(res, demoClients);
+
+      } else if (action === 'Approve_ACC_GET') {
+        const clientId = parseInt(param('client_id') || '0') || 0;
+        const demoApprovals = [
+          { id: 1, acc_id: 'ACC-2026-001', client_id: 1, client_name: 'John Smith',  manager_name: 'ACC Head Office', claim_number: 'CLM001', trip_from_date: '2026-04-01', trip_to_date: '2026-06-30', trip_days_approved: 30, trip_days_left: 22, trip_description: 'Post-surgery transport to physiotherapy' },
+          { id: 2, acc_id: 'ACC-2026-002', client_id: 2, client_name: 'Mary Johnson', manager_name: 'ACC Head Office', claim_number: 'CLM002', trip_from_date: '2026-03-15', trip_to_date: '2026-05-15', trip_days_approved: 20, trip_days_left: 5,  trip_description: 'Transport to outpatient appointments' },
+        ];
+        const filtered = clientId ? demoApprovals.filter(a => a.client_id === clientId) : demoApprovals;
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${filtered.length} approvals`);
+        arrayD(res, filtered);
+
+      } else if (action === 'ACC_All_approval') {
+        const demoApprovals = [
+          { id: 1, acc_id: 'ACC-2026-001', client_name: 'John Smith',  manager_name: 'ACC Head Office', claim_number: 'CLM001', trip_from_date: '2026-04-01', trip_to_date: '2026-06-30', trip_days_approved: 30, trip_days_left: 22, trip_description: 'Post-surgery transport to physiotherapy' },
+          { id: 2, acc_id: 'ACC-2026-002', client_name: 'Mary Johnson', manager_name: 'ACC Head Office', claim_number: 'CLM002', trip_from_date: '2026-03-15', trip_to_date: '2026-05-15', trip_days_approved: 20, trip_days_left: 5,  trip_description: 'Transport to outpatient appointments' },
+        ];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${demoApprovals.length} all approvals`);
+        arrayD(res, demoApprovals);
 
       } else {
         const filePath = resolveFilePath(urlPath);
@@ -990,7 +1122,23 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ── Other DataManager requests (GeneralSelector, etc.) ─────────────────
+    // ── GeneralSelector — vehicle types, zones, etc. ───────────────────────
+    if (urlPath.includes('/GeneralSelector')) {
+      if (action === 'VehicleTypes' || action === '[VehicleTypes]') {
+        const types = [
+          { Id: 1, VehicleName: 'Sedan' }, { Id: 2, VehicleName: 'SUV' },
+          { Id: 3, VehicleName: 'Van'   }, { Id: 4, VehicleName: 'Wheelchair' },
+        ];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${types.length} vehicle types`);
+        arrayD(res, types);
+      } else {
+        console.log(`200: POST ${urlPath} [action=${action}] (GeneralSelector) -> []`);
+        jsonReply(res, { d: '[]' });
+      }
+      return;
+    }
+
+    // ── Other DataManager requests ──────────────────────────────────────────
     const filePath = resolveFilePath(urlPath);
     if (filePath) {
       console.log(`200: POST ${urlPath} -> ${filePath.replace(ROOT, '')}`);

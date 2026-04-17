@@ -390,7 +390,7 @@ function initDriverMessageListener(companyId) {
             console.log('[ChatRoom] /driverMsg child_added key=' + key + ' val=' + JSON.stringify(msg));
             if (!msg) return;
             var driverId   = String(msg.driverId   || msg.DriverId   || msg.driver_id   || msg.PlayerId || '');
-            var driverName = msg.driverName || msg.DriverName || msg.driver_name || msg.Name || ('Driver ' + driverId);
+            var driverName = msg.SenderName || msg.senderName || msg.driverName || msg.DriverName || msg.driver_name || msg.Name || ('Driver ' + driverId);
             var text       = msg.message || msg.Message || msg.body || msg.Body || msg.text || msg.Text || msg.content || msg.Content || '';
             if (!text) { console.warn('[ChatRoom] /driverMsg: no text field found in', msg); return; }
             _showDriverMessage(driverId, driverName, text);
@@ -436,7 +436,7 @@ function initDriverMessageListener(companyId) {
             // Extract the same comma-delimited format drivers use
             var parts = bookingid ? bookingid.split(',') : [];
             var driverId   = String(msg.driverId || msg.DriverId || msg.driver_id || (parts[3]) || key || '');
-            var driverName = msg.driverName || msg.DriverName || (parts[0]) || ('Driver ' + driverId);
+            var driverName = msg.SenderName || msg.senderName || msg.driverName || msg.DriverName || msg.DriverFirstName || ('Driver ' + driverId);
             var text       = msg.message || msg.Message || msg.body || msg.text || msg.content ||
                              (parts.length >= 2 ? parts.slice(1, Math.max(2, parts.length - 2)).join(',') : '') || '';
             if (!text) { console.warn('[ChatRoom] /notification/' + companyId + ': no text in', msg); return; }

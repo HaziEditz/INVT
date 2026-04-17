@@ -1260,14 +1260,14 @@
 
                                                     $(document).ready( function() {
                                                         var now = new Date();
- 
+                                                        // Default to 7 days ago so recent closed jobs are visible
+                                                        now.setDate(now.getDate() - 7);
                                                         var day = ("0" + now.getDate()).slice(-2);
                                                         var month = ("0" + (now.getMonth() + 1)).slice(-2);
 
-                                                        var today = now.getFullYear()+"-"+(month)+"-"+(day) ;
+                                                        var weekAgo = now.getFullYear()+"-"+(month)+"-"+(day);
 
-
-                                                        $('#DateFrom').val(today);
+                                                        $('#DateFrom').val(weekAgo);
                                                     });
                                                 </script>
                                                      <script>
@@ -15531,15 +15531,22 @@ $(document).ready(function() {
                         tabless.columns.adjust().draw();
                
                     }
-                    $("#JobsSearchDriver").empty();
-                    $("#JobsSearchDriver").append("<option value='' selected='selected'>All</option>");
-                    for ($i = 0; $i < $res["dt2"].length; $i++) {
-                        $("#JobsSearchDriver").append("<option value=" + $res["dt2"][$i].Id + ">" + $res["dt2"][$i].DriveName + "</option>");
-                    }
-                    $("#JobsSearchVehicle").empty();
-                    $("#JobsSearchVehicle").append("<option value='' selected='selected'>All</option>");
-                    for ($i = 0; $i < $res["dt3"].length; $i++) {
-                        $("#JobsSearchVehicle").append("<option value=" + $res["dt3"][$i].Id + ">" + $res["dt3"][$i].VehicleNo + "</option>");
+                    // Guard: $res may be undefined if session expired redirect ran above
+                    if (typeof $res !== 'undefined' && $res) {
+                        if ($res["dt2"] && $res["dt2"].length) {
+                            $("#JobsSearchDriver").empty();
+                            $("#JobsSearchDriver").append("<option value='' selected='selected'>All</option>");
+                            for ($i = 0; $i < $res["dt2"].length; $i++) {
+                                $("#JobsSearchDriver").append("<option value=" + $res["dt2"][$i].Id + ">" + $res["dt2"][$i].DriveName + "</option>");
+                            }
+                        }
+                        if ($res["dt3"] && $res["dt3"].length) {
+                            $("#JobsSearchVehicle").empty();
+                            $("#JobsSearchVehicle").append("<option value='' selected='selected'>All</option>");
+                            for ($i = 0; $i < $res["dt3"].length; $i++) {
+                                $("#JobsSearchVehicle").append("<option value=" + $res["dt3"][$i].Id + ">" + $res["dt3"][$i].VehicleNo + "</option>");
+                            }
+                        }
                     }
 
                 });
