@@ -511,13 +511,25 @@ const server = http.createServer(async (req, res) => {
       } else if (action === 'storeemergency') {
         successD(res, 'Emergency Stored');
 
-      } else if (action === 'ACC_Approval_add' || action === 'ACC_Approval_update') {
+      } else if (action === 'ACC_Approval_add') {
         console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval saved`);
-        successD(res, 'Operation Successfully Performed');
+        successD(res, 'Approval successfully Saved');
+
+      } else if (action === 'ACC_Approval_update') {
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval updated`);
+        successD(res, 'Approval successfully update');
 
       } else if (action === 'Client_ACC_ADD') {
         console.log(`200: POST ${urlPath} [action=${action}] -> ACC client added`);
-        successD(res, 'Operation Successfully Performed');
+        successD(res, 'Client successfully Saved');
+
+      } else if (action === 'Manager_ACC_ADD') {
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC manager added`);
+        successD(res, 'Manager successfully Saved');
+
+      } else if (action === 'checkmanagername' || action === 'checkmanageremail' || action === 'checkmanagerphone' || action === 'checkpassengernumber') {
+        console.log(`200: POST ${urlPath} [action=${action}] -> remote validation ok`);
+        jsonReply(res, { d: 'true' });
 
       } else if (action === '[storeemergency]') {
         console.log(`200: POST ${urlPath} [action=${action}] -> emergency stored`);
@@ -758,20 +770,20 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === 'Client_ACC_ALL') {
         const demoClients = [
-          { id: 1, client_name: 'John Smith',   manager_id: 1, phone: '021 111 0001', address: '12 Main St, Invercargill' },
-          { id: 2, client_name: 'Mary Johnson', manager_id: 1, phone: '021 111 0002', address: '45 Tay St, Invercargill'  },
-          { id: 3, client_name: 'Paul Davis',   manager_id: 2, phone: '021 111 0003', address: '78 Dee St, Invercargill'  },
+          { id: 1, client_name: 'John Smith',   manager_id: 1, manager_name: 'ACC Head Office', phone: '021 111 0001', address: '12 Main St, Invercargill' },
+          { id: 2, client_name: 'Mary Johnson', manager_id: 1, manager_name: 'ACC Head Office', phone: '021 111 0002', address: '45 Tay St, Invercargill'  },
+          { id: 3, client_name: 'Paul Davis',   manager_id: 2, manager_name: 'Southland Branch', phone: '021 111 0003', address: '78 Dee St, Invercargill'  },
         ];
         console.log(`200: POST ${urlPath} [action=${action}] -> ${demoClients.length} all ACC clients`);
         arrayD(res, demoClients);
 
       } else if (action === 'Approve_ACC_GET') {
-        const clientId = parseInt(param('client_id') || '0') || 0;
+        const clientId = parseInt(param('client_id') || param('id') || '0') || 0;
         const demoApprovals = [
-          { id: 1, acc_id: 'ACC-2026-001', client_id: 1, client_name: 'John Smith',  manager_name: 'ACC Head Office', claim_number: 'CLM001', trip_from_date: '2026-04-01', trip_to_date: '2026-06-30', trip_days_approved: 30, trip_days_left: 22, trip_description: 'Post-surgery transport to physiotherapy' },
-          { id: 2, acc_id: 'ACC-2026-002', client_id: 2, client_name: 'Mary Johnson', manager_name: 'ACC Head Office', claim_number: 'CLM002', trip_from_date: '2026-03-15', trip_to_date: '2026-05-15', trip_days_approved: 20, trip_days_left: 5,  trip_description: 'Transport to outpatient appointments' },
+          { id: 1, acc_id: 'ACC-2026-001', client_id: 1, client_name: 'John Smith',  manager_name: 'ACC Head Office', manager_email: 'head@acc.co.nz', manager_phone: '03 214 0001', client_phone: '021 111 0001', registration_date: '2025-01-15', claim_number: 'CLM001', purchase_order_number: 'PO-001', client_services_code: 'SVC-01', trip_from_date: '2026-04-01', trip_to_date: '2026-06-30', trip_status: 'Round Trip', trip_days_approved: 30, trip_days_left: 22, trip_description: 'Post-surgery transport to physiotherapy' },
+          { id: 2, acc_id: 'ACC-2026-002', client_id: 2, client_name: 'Mary Johnson', manager_name: 'ACC Head Office', manager_email: 'head@acc.co.nz', manager_phone: '03 214 0001', client_phone: '021 111 0002', registration_date: '2025-02-20', claim_number: 'CLM002', purchase_order_number: 'PO-002', client_services_code: 'SVC-02', trip_from_date: '2026-03-15', trip_to_date: '2026-05-15', trip_status: 'One Way', trip_days_approved: 20, trip_days_left: 5,  trip_description: 'Transport to outpatient appointments' },
         ];
-        const filtered = clientId ? demoApprovals.filter(a => a.client_id === clientId) : demoApprovals;
+        const filtered = (clientId && clientId > 0) ? demoApprovals.filter(a => a.id === clientId || a.client_id === clientId) : demoApprovals;
         console.log(`200: POST ${urlPath} [action=${action}] -> ${filtered.length} approvals`);
         arrayD(res, filtered);
 

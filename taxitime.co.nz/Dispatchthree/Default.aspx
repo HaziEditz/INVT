@@ -1278,7 +1278,7 @@
              
               </div>
               <div class="modal-body">
-                <form class="form-group" id="updateapproval">
+                <form class="form-group" id="updateapprovalform">
                         <div class="col-lg-12 col-md-8 col-sm-12" style=" padding: 20px;">
                             <div class="col-lg-12" style="box-shadow: 1px 1px 1px 1px #80808063;">
                                 <div class="row">
@@ -14797,7 +14797,7 @@ $(document).ready(function() {
                  { "name": "manager_id", "Value": value},
         ];
 
-        var proc = 'Client_ACC_GET';getapprovalall()
+        var proc = 'Client_ACC_GET';
         getmanager(params, proc).then(function (result) {
             $res = JSON.parse(result.d);
             var items = $res;
@@ -15162,7 +15162,7 @@ $(document).ready(function() {
         $.validator.addMethod("regexx1", function (value, element, regexprz) {
             return regexprz.test(value);
         }, "No Spacing Allowed.");
-        $('form[id="updateapproval"]').validate({
+        $('form[id="updateapprovalform"]').validate({
             rules: {
                 upacc_id  :{
                     regexx1:  /^\S*$/,
