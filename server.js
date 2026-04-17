@@ -470,11 +470,16 @@ const server = http.createServer(async (req, res) => {
         const driverId  = parseInt(param('DId') || '0') || 0;
         const vehicleId = parseInt(param('VId') || '0') || 0;
         const passengers = parseInt(param('PassengersNo') || '1') || 1;
+        const bags = parseInt(param('BagsNo') || '0') || 0;
+        const wheelchairs = parseInt(param('WheelChairsNo') || '0') || 0;
         const name = param('Name') || '';
         const phone = param('PassengerId') || '';
-        const dispatchBefore = parseInt(param('DispatchBefore') || '10') || 10;
+        const entitiesDetails = param('EntitiesDetails') || '';
+        const dispatchBefore = parseInt(param('DispatchBefore') || param('Dispatchbefore') || '10') || 10;
         const bookingType = param('Bookingtype') || 'Normal Ride';
         const quenumber = param('quenumber') || 0;
+        const dispatcherName = param('DispatcherName') || 'Dispatcher';
+        const u_id = param('u_id') || param('U_id') || null;
 
         const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
         const newJob = {
@@ -486,17 +491,19 @@ const server = http.createServer(async (req, res) => {
           Recieve_payment: param('Recieve_payment') || '',
           DispatchTimebefore: String(dispatchBefore),
           VehicleId: vehicleId, DriverId: driverId,
-          DispatcherName: 'safinah mohammed',
-          Nextstop: '0', nextstopdata: '', Passengers: passengers, passengername: '',
+          DispatcherName: dispatcherName,
+          Nextstop: String(param('nextstop') || '0'), nextstopdata: param('nextstopdata') || '',
+          Passengers: passengers, passengername: '',
           PickLatLng: pickLatLng, DropLatLng: dropLatLng,
-          Bags: 0, WheelChairs: 0, VehiclesReguired: 1,
-          Acc_job_id: '', Account_id: '',
+          Bags: bags, WheelChairs: wheelchairs, VehiclesReguired: parseInt(param('VRequired') || '1') || 1,
+          Acc_job_id: param('Acc_job_id') || '', Account_id: param('Account_id') || '',
           PickAddress: pickAddr, DropAddress: dropAddr,
-          EntitiesDetails: '', U_id: null,
-          BookingSource: 'Dispatch Console',
+          EntitiesDetails: entitiesDetails, U_id: u_id,
+          BookingSource: param('Source') || 'Dispatch Console',
           BookingStatus: bookstatus,
           VehicleType: vehicleType,
-          EstimatedDistance: '0', EstimatedTime: '0',
+          EstimatedDistance: param('Distance') || '0',
+          EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
         };
         jobStore.push(newJob);
@@ -519,14 +526,17 @@ const server = http.createServer(async (req, res) => {
         if (job) {
           const driverId  = parseInt(param('DId') || '0') || 0;
           const vehicleId = parseInt(param('VId') || '0') || 0;
-          if (param('PickLocation')) job.PickAddress = param('PickLocation');
-          if (param('DropLocation')) job.DropAddress = param('DropLocation');
-          if (param('PickLatLng'))   job.PickLatLng  = param('PickLatLng');
-          if (param('DropLatLng'))   job.DropLatLng  = param('DropLatLng');
-          if (param('Name'))         job.Name        = param('Name');
-          if (param('PassengerId'))  job.PhoneNo     = param('PassengerId');
-          if (param('PassengersNo')) job.Passengers  = parseInt(param('PassengersNo'));
-          if (param('VehicleType'))  job.VehicleType = param('VehicleType');
+          if (param('PickLocation'))    job.PickAddress    = param('PickLocation');
+          if (param('DropLocation'))    job.DropAddress    = param('DropLocation');
+          if (param('PickLatLng'))      job.PickLatLng     = param('PickLatLng');
+          if (param('DropLatLng'))      job.DropLatLng     = param('DropLatLng');
+          if (param('Name'))            job.Name           = param('Name');
+          if (param('PassengerId'))     job.PhoneNo        = param('PassengerId');
+          if (param('PassengersNo'))    job.Passengers     = parseInt(param('PassengersNo'));
+          if (param('BagsNo'))          job.Bags           = parseInt(param('BagsNo')) || 0;
+          if (param('WheelChairsNo'))   job.WheelChairs    = parseInt(param('WheelChairsNo')) || 0;
+          if (param('EntitiesDetails')) job.EntitiesDetails= param('EntitiesDetails');
+          if (param('VehicleType'))     job.VehicleType    = param('VehicleType');
           job.VehicleId = vehicleId;
           job.DriverId  = driverId;
           job.BookingStatus = driverId > 0 ? 'Offered' : 'Pending';

@@ -5647,6 +5647,39 @@ $(document).ready(function() {
 
         return firebase.database().ref().update(updates);
     }
+
+    // Write full job detail fields to Firebase so the driver app can display name, phone,
+    // addresses, bags, passengers etc. without needing to call the real backend.
+    // Writes to:
+    //   /notification/{driverId}        — extends the notification with detail fields
+    //   online/{companyId}/{vehicleId}  — updates the driver's live-status node
+    //   /jobDetails/{bookingId}         — standalone detail node for direct lookup
+    function writeJobDetailsToFirebase(driverId, vehicleId, bookingId, details) {
+        try {
+            var db = firebase.database();
+            var detailPayload = {
+                joboffer:      bookingId,
+                jobpickup:     details.pickup     || '',
+                jobdropoff:    details.dropoff    || '',
+                JobphoneNo:    details.phone      || '',
+                jobname:       details.name       || '',
+                jobbags:       details.bags       || 0,
+                jobpassengers: details.passengers || 1,
+                jobvehicletype:details.vehicleType|| '',
+                jobinfo:       details.rideinfo   || '',
+                jobCount:      1
+            };
+            // Extend the notification node so driver app can read details from it
+            db.ref('/notification/' + driverId).update(detailPayload);
+            // Update the driver's live-status node (keyed by vehicleId)
+            var _vid = vehicleId || driverId;
+            db.ref('online/' + SomeSession2 + '/' + _vid).update(detailPayload);
+            // Standalone lookup node
+            db.ref('/jobDetails/' + bookingId).set(detailPayload);
+        } catch(e) {
+            console.warn('[writeJobDetailsToFirebase] error:', e);
+        }
+    }
     var counterfirst = 0;
 
     
@@ -8373,6 +8406,14 @@ $(document).ready(function() {
                     writeNewPost(JobVehicleId, BookingId, "Offered");
                 }
                 angular.element(document.getElementById('myangular')).scope().AssignedJobs();
+                // Push full job details to Firebase so driver app shows complete info
+                (function(_bid, _vid) {
+                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                    var _all = [].concat(_sc && _sc.data1 ? _sc.data1 : []).concat(_sc && _sc.data2 ? _sc.data2 : []).concat(_sc && _sc.data3 ? _sc.data3 : []);
+                    var _j = null;
+                    for (var _i = 0; _i < _all.length; _i++) { if (String(_all[_i].Id) === String(_bid) || String(_all[_i].BookingId) === String(_bid)) { _j = _all[_i]; break; } }
+                    if (_j) { writeJobDetailsToFirebase(_vid, _vid, _bid, { pickup: _j.PickAddress||'', dropoff: _j.DropAddress||'', phone: _j.PhoneNo||'', name: _j.Name||'', bags: _j.Bags||0, passengers: _j.Passengers||1, vehicleType: _j.VehicleType||'', rideinfo: _j.EntitiesDetails||'' }); }
+                })(BookingId, JobVehicleId);
             }
             
  
@@ -8646,6 +8687,16 @@ $(document).ready(function() {
                             $("#Divo" + BookingIz + "").remove();
                         }else if( DriveId != "0"  && DriveId != "-1" && DriveId != previousdriverid ){
                             writeNewPost(DriveId, BookingIz, "Offered");
+                            writeJobDetailsToFirebase(DriveId, $("#ddlVehicleType").val(), BookingIz, {
+                                pickup:      $('#pac-input').val(),
+                                dropoff:     $('#pac-inputx').val(),
+                                phone:       $scope.account_PhoneNo,
+                                name:        $scope.account_Name,
+                                bags:        $scope.selectedbeg,
+                                passengers:  $scope.selectedcustomer,
+                                vehicleType: $("#VehicleType option:selected").text(),
+                                rideinfo:    $scope.rideinfo
+                            });
                             FnCancelRide(previousdriverid,  BookingIz ); 
 
                             //var chceck = false;
@@ -9223,6 +9274,16 @@ $(document).ready(function() {
                                             console.log($res[0].BookingStatus)
 
                                             writeNewPost(driverset, $res[0].BookingId, $res[0].BookingStatus)
+                                            writeJobDetailsToFirebase(driverset, $("#ddlVehicleType").val(), $res[0].BookingId, {
+                                                pickup:      $('#pac-input').val(),
+                                                dropoff:     $('#pac-inputx').val(),
+                                                phone:       $scope.account_PhoneNo,
+                                                name:        $scope.account_Name,
+                                                bags:        $scope.selectedbeg,
+                                                passengers:  $scope.selectedcustomer,
+                                                vehicleType: $("#VehicleType option:selected").text(),
+                                                rideinfo:    $scope.rideinfo
+                                            });
                                      
                                             acknowledgemethodx( $("#ddlVehicleType").val() , driverset, $res[0].BookingId,"Offered");  
                                         }
@@ -9237,6 +9298,16 @@ $(document).ready(function() {
                                                     sc2.driverdatarealx.forEach(function(d) {
                                                         if (d.driverid && d.vehiclestatus == 'Available') {
                                                             writeNewPost(d.driverid, $res[0].BookingId, "Pending");
+                                                            writeJobDetailsToFirebase(d.driverid, d.VehicleId || d.vehiclenumber, $res[0].BookingId, {
+                                                                pickup:      $('#pac-input').val(),
+                                                                dropoff:     $('#pac-inputx').val(),
+                                                                phone:       $scope.account_PhoneNo,
+                                                                name:        $scope.account_Name,
+                                                                bags:        $scope.selectedbeg,
+                                                                passengers:  $scope.selectedcustomer,
+                                                                vehicleType: $("#VehicleType option:selected").text(),
+                                                                rideinfo:    $scope.rideinfo
+                                                            });
                                                             broadcastCount++;
                                                         }
                                                     });
