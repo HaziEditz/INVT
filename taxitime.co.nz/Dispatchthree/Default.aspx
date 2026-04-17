@@ -919,6 +919,7 @@
                                 $('#SearchField').hide();
                                 $('#SearchDateFrom').hide();
                                 $('#SearchDateTo').hide();
+                                $('#TxtSearch').val('');
                                 if (val === 'Number') {
                                     $('#lblSearchHint').text('Booking ID');
                                     $('#TxtSearch').attr('placeholder', 'e.g. 937195');
@@ -4205,7 +4206,7 @@ $(document).ready(function() {
     // Guard: redirect to login if session is missing
     if (!someSession || !SomeSession2) {
         window.location.replace('DispatcherLogin.aspx');
-        return; // stop executing — Firebase must not attach without a valid session
+        throw new Error('No session — redirecting to login'); // halt script; Firebase must not attach
     }
 
     localStorage.setItem("Country", someSession3);
@@ -15520,10 +15521,9 @@ $(document).ready(function() {
             function SearchJob() {
    
                 if ($("#ddlSearchBy").val() == "All") {
-        
-                    //var Prc = '[SearchById]';
-       
-                    //angular.element(document.getElementById('myangular')).scope().JobByDetails( Prc);
+                    // Return all jobs — search by name with empty string returns everything
+                    var Prc = '[SearchJobByName]';
+                    angular.element(document.getElementById('myangular')).scope().JobByDetails(Prc);
 
                 }
                 else if ($("#ddlSearchBy").val() == "Number") {
@@ -15657,100 +15657,8 @@ $(document).ready(function() {
                     }
                 });
             }
-            $("#ddlSearchBy").change(function () {
-
-                var now = new Date();
- 
-                var day = ("0" + now.getDate()).slice(-2);
-                var month = ("0" + (now.getMonth() + 1)).slice(-2);
-
-                var today = now.getFullYear()+"-"+(month)+"-"+(day) ;
-
-
-                if ($("#ddlSearchBy").val() == "All") {
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append('<div class="col-lg-8 col-md-8">' +
-                                                    '<div class="form-group" id="SearchField">' +
-                                                        '<input type="hidden" class="form-control" id="TxtSearch" value="All" placeholder="Search By Booking Id">' +
-                                                       '</div>' +
-                                                '</div>');
-
-                }
-                else  if ($("#ddlSearchBy").val() == "Number") {
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append('<div class="col-lg-8 col-md-8">' +
-                                                    '<div class="form-group" id="SearchField">' +
-                                                        '<input type="text" class="form-control" id="TxtSearch" placeholder="Search By Booking Id">' +
-                                                       '</div>' +
-                                                '</div>');
-
-                }
-                else if ($("#ddlSearchBy").val() == "Name") {
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append('<div class="col-lg-8 col-md-8">' +
-                                                    '<div class="form-group" id="SearchField">' +
-                                                        '<input type="text" class="form-control" id="TxtSearch" placeholder="Search By Passenger Name">' +
-                                                       '</div>' +
-                                                '</div>');
-                }
-                else if ($("#ddlSearchBy").val() == "PhoneNo") {
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append('<div class="col-lg-8 col-md-8">' +
-                                                   '<div class="form-group" id="SearchField">' +
-                                                       '<input type="text" class="form-control" id="TxtSearch" placeholder="Search By Passenger Phone">' +
-                                                      '</div>' +
-                                               '</div>');
-                }
-                else if ($("#ddlSearchBy").val() == "Between") {
-          
-
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append(' <div class="col-lg-6 col-md-6">' +
-
-                                                    '<div class="form-group">' +
-                                                        '<input type="date" id="TxtFrom"  class="form-control" value=' + OutPutDate + '>' +
-                                                         '</div>' +
-                                                '</div>' +
-                                                '<div class="col-lg-6 col-md-6">' +
-                                                    '<div class="form-group">' +
-                                                        '<input type="date" id="TxtTo" class="form-control" value=' + OutPutDate + '>' +
-                                                         '</div>' +
-                                                '</div>');
-                                                       
-                    $('#TxtFrom').val(today);
-                    $('#TxtTo').val(today);
-   
-                }
-                else if ($("#ddlSearchBy").val() == "Before") {
-            
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append('<div class="col-lg-8 col-md-">' +
-                                                   '<div class="form-group" id="SearchField">' +
-                                                       '<input type="date" class="form-control" id="TxtSearch" value=' + OutPutDate + '>' +
-                                                      '</div>' +
-                                               '</div>');
-    
-                    $('#TxtSearch').val(today);
-                }
-                else if ($("#ddlSearchBy").val() == "After") {
-          
-                    $("#SearchFields").empty();
-                    $("#SearchFields").append('<div class="col-lg-8 col-md-8">' +
-                                                   '<div class="form-group" id="SearchField">' +
-                                                       '<input type="date" class="form-control" id="TxtSearch" value=' + OutPutDate + '>' +
-                                                      '</div>' +
-                                               '</div>');
-                    $('#TxtSearch').val(today);
-                }
-
-
-     
-  
-            });
-
-            $("#btnSearchJob").click(function () {
-                SearchJob();
-            });
+            // NOTE: #ddlSearchBy change and #btnSearchJob click are handled by
+            // the inline <script> inside the Search Jobs modal HTML above.
 
 
             function ShowJobDetails(ele) {
@@ -15761,7 +15669,10 @@ $(document).ready(function() {
             }
 
 
-            //FnClosedJobs();
+            // Auto-load Closed Jobs whenever the modal is opened
+            $(document).on('show.bs.modal', '#closed-jobs', function () {
+                FnClosedJobs();
+            });
 </script>
 
 <script>

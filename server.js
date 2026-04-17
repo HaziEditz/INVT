@@ -68,6 +68,21 @@ function calcJobMins(bookingDateTimeStr) {
   return Math.round((bdt - now) / 60000);
 }
 
+// Add UI-friendly field aliases to a job object so Angular ng-repeat bindings work
+// (template uses BookingDate, BookingTime, PassengerId, TarriffType, bookingidx)
+function enrichSearchResult(j) {
+  const rawDT = (j.BookingDateTime || '').replace(/\.$/, '').trim();
+  const [datePart = '', timePart = ''] = rawDT.split(' ');
+  return {
+    ...j,
+    bookingidx:   j.Id,
+    BookingDate:  datePart,
+    BookingTime:  timePart,
+    PassengerId:  j.Name || j.PassengerId || '',
+    TarriffType:  j.TarriffType || j.BookingSource || '',
+  };
+}
+
 // Format a Date object as the "YYYY-MM-DD HH:MM:SS." string the client expects
 function fmtDT(dt) {
   const pad = n => String(n).padStart(2, '0');
@@ -644,6 +659,7 @@ const server = http.createServer(async (req, res) => {
         arrayD(res, active);
 
       // ── Search actions ───────────────────────────────────────────────────────
+      // Helper: add UI-friendly aliases so Angular ng-repeat bindings work
       } else if (action === '[SearchById]') {
         const searchId = parseInt(param('Id') || param('id') || '0') || 0;
         const statusFilter = (param('JobStatus') || 'All').toLowerCase();
@@ -652,6 +668,7 @@ const server = http.createServer(async (req, res) => {
         if (statusFilter !== 'all' && statusFilter !== '') {
           results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
+        results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -663,6 +680,7 @@ const server = http.createServer(async (req, res) => {
         if (statusFilter !== 'all' && statusFilter !== '') {
           results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
+        results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -674,6 +692,7 @@ const server = http.createServer(async (req, res) => {
         if (statusFilter !== 'all' && statusFilter !== '') {
           results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
+        results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -688,6 +707,7 @@ const server = http.createServer(async (req, res) => {
         if (statusFilter !== 'all' && statusFilter !== '') {
           results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
+        results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -702,6 +722,7 @@ const server = http.createServer(async (req, res) => {
         if (statusFilter !== 'all' && statusFilter !== '') {
           results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
+        results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -719,6 +740,7 @@ const server = http.createServer(async (req, res) => {
         if (statusFilter !== 'all' && statusFilter !== '') {
           results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
+        results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -726,7 +748,7 @@ const server = http.createServer(async (req, res) => {
         const jobId = parseInt(param('Id') || '0') || 0;
         const allJobs = [...jobStore, ...closedJobStore];
         const job = allJobs.find(j => j.Id === jobId);
-        const result = job ? [{ ...job, Route: '', JobMins: calcJobMins(job.BookingDateTime) }] : [];
+        const result = job ? [{ ...job, bookingidx: job.Id, Route: '', JobMins: calcJobMins(job.BookingDateTime) }] : [];
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${jobId}`);
         arrayD(res, result);
 
@@ -928,7 +950,10 @@ const server = http.createServer(async (req, res) => {
         const toDate   = param('ToDate') || '';
         const driverFilter  = parseInt(param('DriverId') || '0') || 0;
         const vehicleFilter = parseInt(param('VehicleId') || param('VehicleId ') || '0') || 0;
-        let jobs = [...closedJobStore];
+        // Terminal statuses — include these from the live jobStore as well as the static store
+        const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
+        const liveTerminal = jobStore.filter(j => TERMINAL.has(j.BookingStatus));
+        let jobs = [...closedJobStore, ...liveTerminal];
         if (statusFilter && statusFilter !== 'all') {
           jobs = jobs.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
         }
@@ -944,9 +969,19 @@ const server = http.createServer(async (req, res) => {
         if (vehicleFilter > 0) {
           jobs = jobs.filter(j => j.VehicleId === vehicleFilter);
         }
-        const dt2 = ZONE_DRIVERS.map(d => ({ Id: d.driverid, DriveName: d.drivername }));
-        const dt3 = ZONE_DRIVERS.map(d => ({ Id: d.VehicleId, VehicleNo: d.vehiclenumber }));
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${jobs.length} closed jobs`);
+        // Build driver/vehicle lists from the actual job results for the filter dropdowns
+        const seenDrivers = new Map(), seenVehicles = new Map();
+        jobs.forEach(j => {
+          if (j.DriverId && !seenDrivers.has(j.DriverId)) {
+            seenDrivers.set(j.DriverId, { Id: j.DriverId, DriveName: (j.UserFName || '') + ' ' + (j.UserLName || '') });
+          }
+          if (j.VehicleId && !seenVehicles.has(j.VehicleId)) {
+            seenVehicles.set(j.VehicleId, { Id: j.VehicleId, VehicleNo: j.VehicleNo || String(j.VehicleId) });
+          }
+        });
+        const dt2 = [...seenDrivers.values()];
+        const dt3 = [...seenVehicles.values()];
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${jobs.length} closed jobs (${liveTerminal.length} live)`);
         objectD(res, { dt1: jobs, dt2, dt3 });
 
       } else if (action === '[VehicleInfov2]') {
