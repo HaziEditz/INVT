@@ -127,7 +127,7 @@ function buildDeliveryResponse(jobs) {
 
 function buildAssignedResponse(jobs) {
   const assigned = jobs.filter(j => j.BookingStatus === 'Assigned' || j.BookingStatus === 'Offered');
-  const dt1 = assigned.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
+  const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
     dt2: [{ AssignedCount: dt1.length }],
@@ -323,12 +323,24 @@ const server = http.createServer(async (req, res) => {
     // Actions that are custom additions to this demo — real backend won't know them,
     // so skip the proxy and go straight to local mock handlers for these.
     const LOCAL_ONLY_ACTIONS = new Set([
-      '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]', '[VehicleInfov2]',
-      '[AssignJobStatusFromJobListv2]',
+      // Job list reads — must come from local jobStore, not real backend
+      '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]',
+      '[AssignedJobsv2]',
+      '[ActiveJobsv3]',
+      // Job write / status changes
+      '[AssignJobStatusFromJobListv2]', '[AssignJobStatusFromJobList]',
+      '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
       '[changeriddestatusforoffer]', '[DriverStatusChanged]',
+      '[ProcUpdateJobv6]', '[checkjobstatus]', '[checkjobstatusv2]',
+      // Vehicle / driver info
+      '[VehicleInfov2]',
+      // Messaging
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
-      '[GroupMessage]', '[DeleteMessage]',
+      '[GroupMessage]', '[DeleteMessage]', '[RetrieveMessages]',
+      '[DispatcherUnReadMessages]', '[DispatcherConversation]',
+      // Admin
       '[KickDriver]', '[DispatcherKickUsers]', '[UpdateQueueNo]',
+      '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -658,6 +670,49 @@ const server = http.createServer(async (req, res) => {
         }
         successD(res, 'Operation Successfully Performed');
 
+      } else if (action === '[changeriddestatusforoffer]') {
+        // Called via Action() → DataProcessor URL. Update a job's booking status.
+        const bookingId = parseInt(param('bookingid') || '0') || 0;
+        const newStatus = param('ridestatus') || '';
+        const job = jobStore.find(j => j.Id === bookingId);
+        if (job && newStatus) {
+          job.BookingStatus = newStatus;
+          const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
+          if (releaseStatuses.has(newStatus)) {
+            const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
+            if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[DriverStatusChanged]') {
+        // Called via Action() → DataProcessor URL when Firebase vehiclestatus changes.
+        // Busy: any non-terminal job → Active. Picking: Offered/Pending → Assigned. Available: Active → Completed.
+        const driverId  = (param('driverid') || param('DriverId') || '').toString().trim();
+        const newStatus = (param('newstatus') || param('NewStatus') || '').toString().trim();
+        const TERM = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject','Active']);
+        if (driverId && newStatus) {
+          const driverJobs = jobStore.filter(j =>
+            String(j.DriverId) === driverId || String(j.VehicleId) === driverId
+          );
+          driverJobs.forEach(function(job) {
+            const prev = job.BookingStatus;
+            if (newStatus === 'Busy' && !TERM.has(job.BookingStatus)) {
+              job.BookingStatus = 'Active';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (driver ${driverId} went Busy)`);
+            } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending')) {
+              job.BookingStatus = 'Assigned';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} went Picking)`);
+            } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
+              job.BookingStatus = 'Completed';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
+            }
+          });
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
         successD(res, 'Operation Successfully Performed');
@@ -697,8 +752,9 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[ActiveJobsv3]') {
         const active = jobStore.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
+        const activeWithId = active.map(j => ({ ...j, BookingId: j.Id }));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active`);
-        arrayD(res, active);
+        arrayD(res, activeWithId);
 
       // ── Search actions ───────────────────────────────────────────────────────
       // Helper: add UI-friendly aliases so Angular ng-repeat bindings work
