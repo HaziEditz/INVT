@@ -373,62 +373,124 @@ function FnGroupMessage() {
 // Driver app writes: firebase.database().ref('/driverMsg/1216').push({
 //   driverId, driverName, vehicleNumber, message, timestamp: Date.now()
 // })
+// Keys we just wrote ourselves so we can skip them in the /chat listener
+window._ownChatWrites = {};
+
 function initDriverMessageListener(companyId) {
     if (!companyId || window._driverMsgListenerActive) return;
     window._driverMsgListenerActive = true;
 
+    // ── Path 1: /driverMsg/{companyId} ──────────────────────────────────────
+    // Some driver apps push replies here explicitly.
     try {
         console.log('[ChatRoom] attaching driverMsg listener on /driverMsg/' + companyId);
         firebase.database().ref('/driverMsg/' + companyId).on('child_added', function (snapshot) {
             var msg = snapshot.val();
             var key = snapshot.key;
-            console.log('[ChatRoom] driverMsg child_added key=' + key + ' val=' + JSON.stringify(msg));
+            console.log('[ChatRoom] /driverMsg child_added key=' + key + ' val=' + JSON.stringify(msg));
             if (!msg) return;
-
-            var driverId   = String(msg.driverId   || msg.DriverId   || msg.driver_id   || '');
-            var driverName = msg.driverName || msg.DriverName || msg.driver_name || ('Driver ' + driverId);
+            var driverId   = String(msg.driverId   || msg.DriverId   || msg.driver_id   || msg.PlayerId || '');
+            var driverName = msg.driverName || msg.DriverName || msg.driver_name || msg.Name || ('Driver ' + driverId);
             var text       = msg.message || msg.Message || msg.body || msg.Body || msg.text || msg.Text || msg.content || msg.Content || '';
-            if (!text) { console.warn('[ChatRoom] driverMsg: no text found in', msg); return; }
-            var now        = new Date();
-            var h    = (now.getHours()   < 10 ? '0' : '') + now.getHours();
-            var mn   = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
-            var date = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-            var ts   = date + ' ' + h + ':' + mn;
-
-            // Toast notification (click to open their conversation)
-            if (typeof toastr !== 'undefined') {
-                toastr['info'](
-                    '<b>' + driverName + '</b><br>' + text,
-                    'Message from Driver',
-                    { timeOut: 8000, extendedTimeOut: 3000 }
-                );
-            }
-
-            // If this driver's conversation is currently open, show message live
-            var openId = $("#UserId").text();
-            if (driverId && openId && String(driverId) === String(openId)) {
-                var $ul = $(".chat");
-                $ul.find('.tt-empty-chat').closest('li').remove();
-                $ul.append(_buildBubble(null, false, driverName, _avatarColor(driverName), false, text, ts, false));
-                var dv = $('#DivChat');
-                dv.scrollTop(dv.prop("scrollHeight"));
-            }
-
-            // Persist in SQL backend
-            Action([
-                { "name": "SenderId",  "Value": driverId },
-                { "name": "Message",   "Value": text },
-                { "name": "DateTime",  "Value": ts }
-            ], "[DriverMessageInsert]");
-
-            // Remove from Firebase after processing
+            if (!text) { console.warn('[ChatRoom] /driverMsg: no text field found in', msg); return; }
+            _showDriverMessage(driverId, driverName, text);
             firebase.database().ref('/driverMsg/' + companyId + '/' + key).remove();
-
-            GetDetails();
         });
     } catch (e) {
         console.error('[ChatRoom] driverMsg listener error:', e);
     }
+
+    // ── Path 2: /chat/{driverId} changes ───────────────────────────────────
+    // Other driver apps write their reply back to the same /chat node the
+    // dispatcher used.  We ignore entries we wrote ourselves (they end with
+    // ",Dispatcher") and process anything else as an incoming driver message.
+    try {
+        console.log('[ChatRoom] attaching /chat change listener');
+        var chatRef = firebase.database().ref('/chat');
+        var _chatFirstLoad = true;
+        chatRef.on('child_added', function(snapshot) {
+            // Skip the initial load sweep — only act on genuinely new writes
+            if (_chatFirstLoad) return;
+            _handleChatNode(snapshot);
+        });
+        // After a short delay, mark initial load done so future adds are real-time
+        setTimeout(function() { _chatFirstLoad = false; }, 3000);
+        chatRef.on('child_changed', function(snapshot) {
+            _handleChatNode(snapshot);
+        });
+    } catch (e) {
+        console.error('[ChatRoom] /chat listener error:', e);
+    }
+}
+
+function _handleChatNode(snapshot) {
+    var driverId = snapshot.key;
+    var msg      = snapshot.val();
+    if (!msg) return;
+
+    // If we flagged this key as our own write, skip it
+    if (window._ownChatWrites[driverId]) {
+        delete window._ownChatWrites[driverId];
+        return;
+    }
+
+    var bookingid = msg.bookingid || '';
+    var content   = msg.content   || '';
+    console.log('[ChatRoom] /chat changed driverId=' + driverId + ' bookingid=' + bookingid);
+
+    // Ignore messages we sent (they end with ",Dispatcher")
+    if (bookingid.slice(-11) === ',Dispatcher') return;
+    // Also ignore plain "You have New Message" content we write
+    if (content === 'You have New Message' || content === 'You have a new message from Dispatcher') return;
+
+    // Try to extract text from bookingid format: "name,message,datetime,companyId,Driver"
+    var driverName = 'Driver ' + driverId;
+    var text       = '';
+    if (bookingid) {
+        var parts = bookingid.split(',');
+        if (parts.length >= 2) {
+            driverName = parts[0] || driverName;
+            // message is everything between parts[0] and the last two parts (companyId,source)
+            text = parts.slice(1, Math.max(2, parts.length - 2)).join(',');
+        }
+    }
+    // Fallback: use any obvious text field on the object
+    if (!text) text = msg.message || msg.Message || msg.body || msg.Body || msg.text || msg.Text || content || '';
+    if (!text) { console.warn('[ChatRoom] /chat: could not extract text from', msg); return; }
+
+    _showDriverMessage(driverId, driverName, text);
+}
+
+function _showDriverMessage(driverId, driverName, text) {
+    var now  = new Date();
+    var h    = (now.getHours()   < 10 ? '0' : '') + now.getHours();
+    var mn   = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
+    var date = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+    var ts   = date + ' ' + h + ':' + mn;
+
+    // Toast notification
+    if (typeof toastr !== 'undefined') {
+        toastr['info']('<b>' + driverName + '</b><br>' + text, 'Message from Driver',
+            { timeOut: 8000, extendedTimeOut: 3000 });
+    }
+
+    // Show live in open conversation
+    var openId = $("#UserId").text();
+    if (driverId && openId && String(driverId) === String(openId)) {
+        var $ul = $(".chat");
+        $ul.find('.tt-empty-chat').closest('li').remove();
+        $ul.append(_buildBubble(null, false, driverName, _avatarColor(driverName), false, text, ts, false));
+        $('#DivChat').scrollTop($('#DivChat').prop("scrollHeight"));
+    }
+
+    // Persist to backend
+    Action([
+        { "name": "SenderId",  "Value": driverId },
+        { "name": "Message",   "Value": text },
+        { "name": "DateTime",  "Value": ts }
+    ], "[DriverMessageInsert]");
+
+    GetDetails();
 }
 
 // ── Misc stubs ────────────────────────────────────────────────────────────────

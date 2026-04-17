@@ -14361,6 +14361,9 @@ $(document).ready(function() {
             // mechanism used by job offers so driver sees it regardless of which screen they're on).
             // Both use identical bookingid so the driver app can parse the message content the
             // same way from either path.
+            // Flag our own write so the /chat listener doesn't treat it as a driver reply
+            if (window._ownChatWrites) window._ownChatWrites[DriverId] = true;
+
             var updates = {};
             updates['/chat/' + DriverId] = postData;
             updates['/notification/' + DriverId] = {
