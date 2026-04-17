@@ -5717,6 +5717,33 @@ $(document).ready(function() {
                         return;
  
                     }
+                    // Early detection: some driver apps write {jobstatus:'Assigned'} or
+                    // {jobstatus:'Reject'} without the expected 'status' key, or keep
+                    // status='Sent' even after accepting.  Check jobstatus first so we
+                    // never miss an acceptance regardless of the 'status' field.
+                    var _jst = ($respp['jobstatus'] || '').toLowerCase();
+                    if (!$respp['status'] || $respp['status'] === 'Sent') {
+                        if ($respp['jobstatus'] === 'Assigned' || _jst === 'assigned') {
+                            toastr["success"](driverid + " Accept The Job!", 'success!');
+                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                            refaz.off("value", listener);
+                            $('#Divo'+bookid).remove();
+                            localva = "Accept";
+                            convertstatus(id, 'Assigned', driverid, '');
+                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            return;
+                        } else if ($respp['jobstatus'] === 'Reject' || _jst === 'reject') {
+                            toastr["error"](driverid + " Reject The Job!", 'error!');
+                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                            firebase.database().ref().child("/notification/" + driverid).remove();
+                            refaz.off("value", listener);
+                            $('#Divo'+bookid).remove();
+                            convertstatus(id, 'Pending', driverid, '');
+                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            return;
+                        }
+                        if ($respp['status'] === 'Sent') { return; } // still waiting
+                    }
                     if($respp['status']){
 
                    
@@ -5843,6 +5870,30 @@ $(document).ready(function() {
                         checkingjob(id, driverid);
                         return;
  
+                    }
+                    // Early detection: handle acceptance/rejection regardless of 'status' field
+                    var _jst2 = ($respp['jobstatus'] || '').toLowerCase();
+                    if (!$respp['status'] || $respp['status'] === 'Sent') {
+                        if ($respp['jobstatus'] === 'Assigned' || _jst2 === 'assigned') {
+                            toastr["success"](driverid + " Accept The Job!", 'success!');
+                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                            refaz.off("value", listener);
+                            $('#Divo'+bookid).remove();
+                            localva = "Accept";
+                            convertstatus(id, 'Assigned', driverid, '');
+                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            return;
+                        } else if ($respp['jobstatus'] === 'Reject' || _jst2 === 'reject') {
+                            toastr["error"](driverid + " Reject The Job!", 'error!');
+                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                            firebase.database().ref().child("/notification/" + driverid).remove();
+                            refaz.off("value", listener);
+                            $('#Divo'+bookid).remove();
+                            convertstatus(id, 'Pending', driverid, '');
+                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            return;
+                        }
+                        if ($respp['status'] === 'Sent') { return; } // still waiting
                     }
                     if($respp['status']){
 
