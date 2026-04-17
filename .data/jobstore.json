@@ -193,5 +193,27 @@
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic"
+  },
+  {
+    "Id": 1776445651554,
+    "BookingStatus": "Completed",
+    "DriverId": "1212",
+    "VehicleId": "T201",
+    "VehicleNo": "T201",
+    "Name": "Street Pickup",
+    "PhoneNo": "",
+    "PickAddress": "Hail / Street Pickup",
+    "DropAddress": "",
+    "PickLatLng": "",
+    "DropLatLng": "",
+    "BookingDateTime": "2026-04-17 17:07:31.",
+    "JobCompleteTime": "2026-04-17 17:10:00.",
+    "BookingSource": "Hail",
+    "booking_type": "Hail",
+    "JobMins": 0,
+    "UserFName": "Hasnat",
+    "UserLName": "",
+    "Route": "",
+    "bookingidx": 1776445651554
   }
 ]

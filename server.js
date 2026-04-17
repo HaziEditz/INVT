@@ -124,14 +124,17 @@ const ZONE_DRIVERS = [];
 function buildJobListResponse(jobs) {
   // Terminal statuses — jobs in these states are done and must NOT appear in the dispatcher queue
   const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
-  const activeJobs = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
-  const dt1 = activeJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
-  const pending = dt1.filter(j => j.BookingStatus === 'Pending');
+  const allNonTerminal = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
+  // dt1 = ONLY Pending/Offered/Reject — these belong in the Unassigned/Pending tab.
+  // Active and Assigned jobs must NOT appear here; they have their own tabs.
+  const PENDING_ST = new Set(['Pending', 'Offered', 'Reject']);
+  const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus));
+  const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
-    dt2: [{ AssignedCount: activeJobs.filter(j => j.BookingStatus === 'Assigned').length }],
-    dt3: [{ ActiveCount: activeJobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
-    dt4: [{ UnAssignedCount: pending.length }],
+    dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned').length }],
+    dt3: [{ ActiveCount: allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
+    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending').length }],
     dt5: [{ PublicKey: '' }],
   };
 }
@@ -739,11 +742,18 @@ const server = http.createServer(async (req, res) => {
         const newStatus     = (param('newstatus') || param('NewStatus') || '').toString().trim();
         const vehiclenumber = (param('vehiclenumber') || '').toString().trim();
         const drivername    = (param('drivername') || '').toString().trim();
+        const lat           = (param('lat') || '').toString().trim();
+        const lng           = (param('lng') || '').toString().trim();
         const TERM = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
+        // Match jobs by DriverId, VehicleId, OR VehicleNo so numeric/string IDs and
+        // vehicle numbers (e.g. "1212" vs "T201") all resolve correctly.
+        function matchesDriver(j) {
+          const vid = vehiclenumber;
+          return String(j.DriverId) === driverId || String(j.VehicleId) === driverId ||
+                 (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
+        }
         if (driverId && newStatus) {
-          const driverJobs = jobStore.filter(j =>
-            String(j.DriverId) === driverId || String(j.VehicleId) === driverId
-          );
+          const driverJobs = jobStore.filter(matchesDriver);
           // Hail / street pickup: driver went Busy with no pre-booked live job
           if (newStatus === 'Busy') {
             const hasLive = driverJobs.some(j =>
@@ -752,35 +762,41 @@ const server = http.createServer(async (req, res) => {
             if (!hasLive) {
               const hailId = Date.now();
               const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-              const hailJob = {
+              const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
+              jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
-                DriverId: driverId, VehicleId: driverId,
+                DriverId: driverId,
+                VehicleId: vehiclenumber || driverId,
                 VehicleNo: vehiclenumber || driverId,
                 Name: 'Street Pickup', PhoneNo: '',
-                PickAddress: 'Hail / Street Pickup', DropAddress: '',
+                PickAddress: pickAddr, DropAddress: '',
+                PickLatLng: (lat && lng) ? `${lat},${lng}` : '',
+                DropLatLng: '',
                 BookingDateTime: now, JobCompleteTime: '',
                 BookingSource: 'Hail', booking_type: 'Hail',
                 JobMins: 0, UserFName: drivername, UserLName: '',
                 Route: '', bookingidx: hailId,
-              };
-              jobStore.push(hailJob);
-              console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber})`);
+              });
+              console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber}) at ${pickAddr}`);
             }
           }
-          driverJobs.forEach(function(job) {
+          // Re-query after potential hail insertion so Available can complete a just-created job
+          const allDriverJobs = jobStore.filter(matchesDriver);
+          allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus)) {
               job.BookingStatus = 'Assigned';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} accepted)`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !TERM.has(job.BookingStatus) && job.BookingStatus !== 'Active') {
               job.BookingStatus = 'Active';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (driver ${driverId} went Busy)`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} went Picking)`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
               job.BookingStatus = 'Completed';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
+              job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed`);
             }
           });
           saveJobStore();
@@ -1238,11 +1254,16 @@ const server = http.createServer(async (req, res) => {
         const newStatus     = (param('newstatus') || '').trim();
         const vehiclenumber = (param('vehiclenumber') || '').trim();
         const drivername    = (param('drivername') || '').trim();
+        const lat           = (param('lat') || '').trim();
+        const lng           = (param('lng') || '').trim();
         const TERMINAL = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
+        function matchesDriverDS(j) {
+          const vid = vehiclenumber;
+          return String(j.DriverId) === driverId || String(j.VehicleId) === driverId ||
+                 (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
+        }
         if (driverId && newStatus) {
-          const driverJobs = jobStore.filter(j =>
-            String(j.DriverId) === String(driverId) || String(j.VehicleId) === String(driverId)
-          );
+          const driverJobs = jobStore.filter(matchesDriverDS);
           // Hail / street pickup: driver went Busy with no pre-booked live job
           if (newStatus === 'Busy') {
             const hasLive = driverJobs.some(j =>
@@ -1251,34 +1272,40 @@ const server = http.createServer(async (req, res) => {
             if (!hasLive) {
               const hailId = Date.now();
               const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
-                DriverId: driverId, VehicleId: driverId,
+                DriverId: driverId,
+                VehicleId: vehiclenumber || driverId,
                 VehicleNo: vehiclenumber || driverId,
                 Name: 'Street Pickup', PhoneNo: '',
-                PickAddress: 'Hail / Street Pickup', DropAddress: '',
+                PickAddress: pickAddr, DropAddress: '',
+                PickLatLng: (lat && lng) ? `${lat},${lng}` : '',
+                DropLatLng: '',
                 BookingDateTime: now, JobCompleteTime: '',
                 BookingSource: 'Hail', booking_type: 'Hail',
                 JobMins: 0, UserFName: drivername, UserLName: '',
                 Route: '', bookingidx: hailId,
               });
-              console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber})`);
+              console.log(`  [DriverStatusChanged/DS] Hail job #${hailId} for driver ${driverId} (${vehiclenumber}) at ${pickAddr}`);
             }
           }
-          driverJobs.forEach(function(job) {
+          const allDriverJobs = jobStore.filter(matchesDriverDS);
+          allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus)) {
               job.BookingStatus = 'Assigned';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} accepted)`);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !TERMINAL.has(job.BookingStatus) && job.BookingStatus !== 'Active') {
               job.BookingStatus = 'Active';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (driver ${driverId} went Busy)`);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} went Picking)`);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
               job.BookingStatus = 'Completed';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
+              job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} -> Completed`);
             }
           });
           saveJobStore();
