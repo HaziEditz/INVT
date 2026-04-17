@@ -826,10 +826,10 @@ const server = http.createServer(async (req, res) => {
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
-            } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
+            } else if (newStatus === 'Available' && (job.BookingStatus === 'Active' || job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking')) {
               job.BookingStatus = 'Completed';
               job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
             }
           });
           saveJobStore();
@@ -1320,10 +1320,10 @@ const server = http.createServer(async (req, res) => {
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
-            } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
+            } else if (newStatus === 'Available' && (job.BookingStatus === 'Active' || job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking')) {
               job.BookingStatus = 'Completed';
               job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} -> Completed`);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
             }
           });
           saveJobStore();
