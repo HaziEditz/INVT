@@ -845,155 +845,138 @@
             </div>
         </div>
     </div>
-      <div class="modal fade" id="search-jobs" style="    overflow: scroll;">
-        <div class="modal-dialog dialog-search-jobs">
-            <div class="modal-content" style="width:1100px; margin-left:-300px;">
-                <div class="modal-header">
-                    <button class="close" data-dismiss="modal">&times;</button>
-                    <h5>Search Jobs</h5>
+      <div class="modal fade" id="search-jobs" style="overflow:auto;">
+        <div class="modal-dialog" style="max-width:1160px; width:96vw; margin:24px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
+
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-search" style="color:#dfba5f; margin-right:8px;"></i>Search Jobs
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
                 </div>
-                <div class="modal-body" style="padding-bottom: 0;">
 
-                    <div class="row" style="    padding: 15px;
-    box-shadow: 1px 1px 1px 1px #80808054;
-    margin: 5px;">
-                        <div class="col-6">
-                                                            <div class="row">
-                                    <ul class="list-inline list-status">
-                                        <li>
-                                            <p>Status</p>
-                                        </li>
-                                        <li>
-                                            <div class="form-group">
+                <div class="modal-body" style="padding:0; display:flex; min-height:480px;">
 
-                                                <select class="selectBox6 form-control" id="ddlSearchBy">
-                                                    <option value="All">Select Search Type</option>
-                                                    <option value="Number">Booking Id</option>
-                                                    <option value="Name">Name</option>
-                                                    <option value="PhoneNo">Phone</option>
-                                                    <option value="Between">Between Date</option>
-                                                    <option value="Before">Before Date</option>
-                                                    <option value="After">After Date</option>
-                                                </select>
-                                            </div>
-                                        </li>
+                    <!-- LEFT: Controls + Results list -->
+                    <div style="width:380px; min-width:320px; background:#f4f5f7; border-right:1px solid #e0e2e8; padding:20px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; max-height:82vh;">
 
-                                        <li>
-                                            <p>Job Type</p>
-                                        </li>
-                                        <li>
-                                            <div class="form-group">
-
-                                                <select class="selectBox6 form-control" id="ddlStatus">
-                                                    <option class="default-text6" value="All">All</option>
-                                                    <option   value="Closed">Closed</option>
-                                                    <option value="Open">Open</option>
-                                                </select>
-                                            </div>
-
-                                        </li>
-                                    </ul>
-                                </div>
-
-
-                                <div class="row" id="SearchFields">
-                                    <div class="col-lg-10 col-md-10">
-                                        <div class="form-group" id="SearchField" style="display:none;">
-                                            <label id="lblSearchHint" style="font-size:12px;color:#888;"></label>
-                                            <input type="text" class="form-control" id="TxtSearch" placeholder="Enter search term">
-                                        </div>
-                                        <div class="form-group" id="SearchDateFrom" style="display:none;">
-                                            <label style="font-size:12px;color:#888;">From Date</label>
-                                            <input type="date" class="form-control" id="TxtFrom">
-                                        </div>
-                                        <div class="form-group" id="SearchDateTo" style="display:none;">
-                                            <label style="font-size:12px;color:#888;">To Date</label>
-                                            <input type="date" class="form-control" id="TxtTo">
-                                        </div>
-                                    </div>
-                                </div>
-                                <script>
-                                    $('#ddlSearchBy').on('change', function() {
-                                        var val = $(this).val();
-                                        $('#SearchField').hide();
-                                        $('#SearchDateFrom').hide();
-                                        $('#SearchDateTo').hide();
-                                        if (val === 'Number') {
-                                            $('#lblSearchHint').text('Booking ID number');
-                                            $('#TxtSearch').attr('placeholder', 'e.g. 937195');
-                                            $('#SearchField').show();
-                                        } else if (val === 'Name') {
-                                            $('#lblSearchHint').text('Passenger name (partial match)');
-                                            $('#TxtSearch').attr('placeholder', 'e.g. Jane');
-                                            $('#SearchField').show();
-                                        } else if (val === 'PhoneNo') {
-                                            $('#lblSearchHint').text('Phone number (partial match)');
-                                            $('#TxtSearch').attr('placeholder', 'e.g. 021');
-                                            $('#SearchField').show();
-                                        } else if (val === 'After') {
-                                            $('#SearchDateFrom').show();
-                                        } else if (val === 'Before') {
-                                            $('#SearchDateTo').show();
-                                        } else if (val === 'Between') {
-                                            $('#SearchDateFrom').show();
-                                            $('#SearchDateTo').show();
-                                        }
-                                    });
-                                </script>
-
-                                <div class="row" style="margin-top:8px;">
-                                    <div class="col-lg-12">
-                                        <button type="button" id="btnSearchJob" onclick="SearchJob()" class="btn btn-success" style="padding-right: 25px; padding-left: 25px;">Search</button>
-                                        <button type="button" onclick="$scope_ref.searchitemreset ? angular.element(document.getElementById('myangular')).scope().searchitemreset() : null" class="btn btn-default" style="margin-left:8px;">Clear</button>
-                                    </div>
-                                </div>
+                        <!-- Search type + job type -->
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                            <div>
+                                <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">Search By</label>
+                                <select id="ddlSearchBy" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                    <option value="All">Select Type</option>
+                                    <option value="Number">Booking ID</option>
+                                    <option value="Name">Passenger Name</option>
+                                    <option value="PhoneNo">Phone Number</option>
+                                    <option value="Between">Date Range</option>
+                                    <option value="Before">Before Date</option>
+                                    <option value="After">After Date</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">Job Type</label>
+                                <select id="ddlStatus" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                    <option value="All">All</option>
+                                    <option value="Closed">Closed</option>
+                                    <option value="Open">Open</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="col-6" style="    height: 200px;
-    overflow: scroll;">
-                                <div class="col-lg-12" id="SearchedJobsDetails" ng-repeat="searh in searchitem" >
-                                        <div style="border-bottom: 1px solid grey;"  >
-                                                 <div style="cursor:pointer;background:#e5e5e5;" class="row" ng-click="JobDetails(searh.Id)"> <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4"> 
-                                                <p  > <font style="color:red">Booking Date:</font> <br/> {{searh.BookingDate}}  </p> 
-                                                  </div> 
-                                                  <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4"> 
-                                           
-                                              <p  ><font style="color:red">Booking Time:</font> <br/>  {{searh.BookingTime}} </p> 
-                                                 </div> 
-                                                 <div class="col-lg-4 col-md-4 col-sm-4 col-xs-4"> 
-                                         
-                                               <p  ><font style="color:red">Passenger Phone:</font>  <br/>{{searh.PassengerId}} </p> 
-                                                </div> 
-                                                <div class="col-lg-12 col-md-12 col-sm-12 col-xs-12"> 
-                                                  
-                                                        <div class="col-lg-6 col-md-6 col-sm-6 col-xs-6"> 
-                                                             <p  ><font style="color:red">From:</font>  <br/>   {{searh.PickAddress }} </p> 
-                                                          </div> 
-                                                          <div class="col-lg-6 col-md-6 col-sm-6 col-xs-6"> 
-                                                               <p  ><font style="color:red">To :</font>  <br/> {{searh.DropAddress}} </p> 
-                                                             </div> 
-                                                         </div> 
-                                                        <div class="col-lg-12 col-md-12 col-sm-12 col-xs-12"> 
-                                                           <p><font style="color:red">Tarrif Type:</font> {{searh.TarriffType}} </p> 
-                                                      </div> 
-                                                       </div> 
-                                                     <div> 
-                                                
-                                                 </div>
-                                        </div>
-                                       
+
+                        <!-- Dynamic input area -->
+                        <div id="SearchField" style="display:none;">
+                            <label id="lblSearchHint" style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;"></label>
+                            <div style="position:relative;">
+                                <i class="fa fa-search" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:#bbb; pointer-events:none;"></i>
+                                <input type="text" id="TxtSearch" class="form-control" placeholder="Enter search term" style="padding-left:32px; height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                            <div id="SearchDateFrom" style="display:none;">
+                                <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">From Date</label>
+                                <input type="date" id="TxtFrom" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                            </div>
+                            <div id="SearchDateTo" style="display:none;">
+                                <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">To Date</label>
+                                <input type="date" id="TxtTo" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                            </div>
+                        </div>
+
+                        <script>
+                            $('#ddlSearchBy').on('change', function() {
+                                var val = $(this).val();
+                                $('#SearchField').hide();
+                                $('#SearchDateFrom').hide();
+                                $('#SearchDateTo').hide();
+                                if (val === 'Number') {
+                                    $('#lblSearchHint').text('Booking ID');
+                                    $('#TxtSearch').attr('placeholder', 'e.g. 937195');
+                                    $('#SearchField').show();
+                                } else if (val === 'Name') {
+                                    $('#lblSearchHint').text('Passenger Name (partial match)');
+                                    $('#TxtSearch').attr('placeholder', 'e.g. Jane');
+                                    $('#SearchField').show();
+                                } else if (val === 'PhoneNo') {
+                                    $('#lblSearchHint').text('Phone Number (partial match)');
+                                    $('#TxtSearch').attr('placeholder', 'e.g. 021');
+                                    $('#SearchField').show();
+                                } else if (val === 'After') {
+                                    $('#SearchDateFrom').show();
+                                } else if (val === 'Before') {
+                                    $('#SearchDateTo').show();
+                                } else if (val === 'Between') {
+                                    $('#SearchDateFrom').show();
+                                    $('#SearchDateTo').show();
+                                }
+                            });
+                        </script>
+
+                        <!-- Action buttons -->
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" id="btnSearchJob" onclick="SearchJob()" style="flex:1; background:#dfba5f; color:#1a1a2e; font-weight:700; border:none; border-radius:6px; height:36px; font-size:13px; cursor:pointer; letter-spacing:0.3px;">
+                                <i class="fa fa-search" style="margin-right:6px;"></i>Search
+                            </button>
+                            <button type="button" onclick="try{ angular.element(document.getElementById('myangular')).scope().searchitemreset(); }catch(e){}" style="background:#fff; color:#555; border:1px solid #d0d4dc; border-radius:6px; height:36px; padding:0 14px; font-size:13px; cursor:pointer;">
+                                Clear
+                            </button>
+                        </div>
+
+                        <!-- Results -->
+                        <div style="flex:1;">
+                            <div style="font-size:10px; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #e0e2e8;">
+                                Results — click a row to view details
+                            </div>
+                            <div id="SearchedJobsDetails" ng-repeat="searh in searchitem" style="margin-bottom:8px;">
+                                <div ng-click="JobDetails(searh.Id)"
+                                     style="cursor:pointer; background:#fff; border:1px solid #e2e4ea; border-radius:7px; padding:10px 12px; transition:all 0.15s;"
+                                     onmouseover="this.style.background='#fffbf0'; this.style.borderColor='#dfba5f';"
+                                     onmouseout="this.style.background='#fff'; this.style.borderColor='#e2e4ea';">
+                                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                                        <span style="font-size:11px; color:#888;">{{searh.BookingDate}} &nbsp; {{searh.BookingTime}}</span>
+                                        <span style="font-size:11px; font-weight:600; color:#555;">{{searh.PassengerId}}</span>
                                     </div>
+                                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:4px;">
+                                        <div>
+                                            <div style="font-size:9px; color:#dfba5f; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">From</div>
+                                            <div style="font-size:12px; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{searh.PickAddress}}</div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:9px; color:#888; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">To</div>
+                                            <div style="font-size:12px; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{searh.DropAddress}}</div>
+                                        </div>
+                                    </div>
+                                    <div style="font-size:11px; color:#aaa;">{{searh.TarriffType}}</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="row" style="    padding: 15px;
-    box-shadow: 1px 1px 1px 1px #80808054;
-    margin: 5px;">
-                       
-                                 
-                        <div class="col-lg-6 col-md-6 col-sm-6">
-                              
-                               
-                     <div class="section-left" id="JobsDetailsSection"  ng-repeat="showi in jobdetailshowing"  >
+                    <!-- RIGHT: Job Details -->
+                    <div style="flex:1; overflow-y:auto; max-height:82vh; padding:20px; background:#fff;">
+                        <div class="section-left" id="JobsDetailsSection" ng-repeat="showi in jobdetailshowing">
                                   
                                 <button ng-click="jobsectionempty()"; class="btn btn-warning">Clear</button>
                                 <button onclick="GeneratePDF()" class="btn btn-primary">Make PDF</button>
@@ -1168,154 +1151,111 @@
                             </div>
                             <div id="editor"></div>
                         </div>
-                        <div class="col-lg-6 col-md-6 col-sm-6">
-                             <div class="col-12" id="shiftnew">
-                                       
-                            </div>
-                          
-                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-     <div class="modal fade" id="closed-jobs">
-        <div class="modal-dialog dialog-search-jobs">
-            <div class="modal-content" style="    width: 1300px;
-    margin-left: -396px;">
-                <div class="modal-header" style="border-bottom: 1px solid #dfba5f;">
-                    <button class="close" data-dismiss="modal">&times;</button>
-                    <h5>Closed Jobs</h5>
+    <div class="modal fade" id="closed-jobs">
+        <div class="modal-dialog" style="max-width:1320px; width:97vw; margin:24px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
 
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-folder-open" style="color:#dfba5f; margin-right:8px;"></i>Closed Jobs
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
                 </div>
-                <div class="modal-body" style="padding: 0;">
-                    <div class="row">
-                        <div class="col-lg-12  col-md-12  row text-center">
-                            <div class="col-lg-2 col-md-2 col-sm-6 col-xs-12 media-col1">
-                                <ul class="list-inline">
-                                    <li>
-                                        <p>Booking Status</p>
-                                    </li>
-                                    <li>
-                                        <div class="form-group">
 
-                                            <select id="SearchJobsStatus" class="form-control">
-                                                <option selected="selected" value="" >All</option>
-                                                <option value="Dispatched" >Complete</option>
-                                                <option value="Active">Active</option>
-                                                <option value="Assigned">Assigned</option>
-                                                <option value="Pending">Pending</option>
-                                                <option value="Offered">Offered</option>
-                                                <option value="Cancel">Cancel</option>
-                                                <option value="No Show">No Shown</option>
-                                            </select>
+                <!-- Filter bar -->
+                <div style="background:#f4f5f7; border-bottom:1px solid #e0e2e8; padding:14px 20px;">
+                    <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
 
-                                        </div>
-                                    </li>
-                                </ul>
+                        <!-- Booking Status -->
+                        <div style="flex:1; min-width:130px;">
+                            <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">Booking Status</label>
+                            <select id="SearchJobsStatus" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                <option selected="selected" value="">All</option>
+                                <option value="Dispatched">Complete</option>
+                                <option value="Active">Active</option>
+                                <option value="Assigned">Assigned</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Offered">Offered</option>
+                                <option value="Cancel">Cancel</option>
+                                <option value="No Show">No Shown</option>
+                            </select>
+                        </div>
+
+                        <!-- Vehicle -->
+                        <div style="flex:1; min-width:120px;">
+                            <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">Vehicle</label>
+                            <select id="JobsSearchVehicle" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                <option selected="selected" value="">All</option>
+                            </select>
+                        </div>
+
+                        <!-- Driver -->
+                        <div style="flex:1; min-width:120px;">
+                            <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">Driver</label>
+                            <select id="JobsSearchDriver" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                <option selected="" value="">All</option>
+                            </select>
+                        </div>
+
+                        <!-- Date range -->
+                        <div style="display:flex; gap:8px; flex:2; min-width:280px;">
+                            <div style="flex:1;">
+                                <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">From Date</label>
+                                <input type="date" id="DateFrom" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                <script>
+                                    $(document).ready(function() {
+                                        var now = new Date();
+                                        now.setDate(now.getDate() - 7);
+                                        var day = ("0" + now.getDate()).slice(-2);
+                                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
+                                        $('#DateFrom').val(now.getFullYear() + "-" + month + "-" + day);
+                                    });
+                                </script>
                             </div>
-                            <div class="col-lg-2 col-md-2 col-sm-6 col-xs-12">
-                                <ul class="list-inline">
-                                    <li>
-                                        <p>Vehicle</p>
-                                    </li>
-                                    <li>
-                                        <div class="form-group">
-                                            <select id="JobsSearchVehicle" class="form-control">
-                                                <option selected="selected" value="">All</option>
-
-                                            </select>
-
-                                        </div>
-                                    </li>
-                                </ul>
-                            </div>
-                            <div class="col-lg-2 col-md-2 col-sm-6 col-xs-12">
-                                <ul class="list-inline">
-                                    <li>
-                                        <p>Driver</p>
-                                    </li>
-                                    <li>
-                                        <div class="form-group">
-
-
-                                            <select id="JobsSearchDriver" class="form-control">
-                                                <option selected="" value="">All</option>
-                                           </select>
-
-                                        </div>
-                                    </li>
-                                </ul>
-                            </div>
-                            <div class="col-lg-2 col-md-2 col-sm-6 col-xs-12 media-col1">
-                                <ul class="list-inline">
-                                    <li>
-                                        <p>From Date</p>
-                                    </li>
-                                    <li>
-                                        <div class="form-group">
-
-                                            <input type="date" class="form-control" id="DateFrom"  />
-                                                <script>
-
-                                                    $(document).ready( function() {
-                                                        var now = new Date();
-                                                        // Default to 7 days ago so recent closed jobs are visible
-                                                        now.setDate(now.getDate() - 7);
-                                                        var day = ("0" + now.getDate()).slice(-2);
-                                                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
-
-                                                        var weekAgo = now.getFullYear()+"-"+(month)+"-"+(day);
-
-                                                        $('#DateFrom').val(weekAgo);
-                                                    });
-                                                </script>
-                                                     <script>
-
-                                                        
-                                                </script>
-                                        </div>
-                                    </li>
-                                </ul>
-                            </div>
-                            <div class="col-lg-2 col-md-2 col-sm-6 col-xs-12 media-col1">
-                                <ul class="list-inline">
-                                    <li>
-                                        <p>To Date</p>
-                                    </li>
-                                    <li>
-                                        <div class="form-group">
-
-                                            <input type="date" class="form-control" id="DateTo"   />
-                                                         <script>
-
-                                                             $(document).ready( function() {
-                                                                 var now = new Date();
- 
-                                                                 var day = ("0" + now.getDate()).slice(-2);
-                                                                 var month = ("0" + (now.getMonth() + 1)).slice(-2);
-
-                                                                 var today = now.getFullYear()+"-"+(month)+"-"+(day) ;
-
-
-                                                                 $('#DateTo').val(today);
-                                                             });
-                                                </script>
-                                        </div>
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="col-lg-2 col-md-2 col-sm-6 col-xs-12" style="margin-top: 20px">
-                                <button class="btn btn-success btn-chk " id="JobsSearch">Search Jobs</button>
+                            <div style="flex:1;">
+                                <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">To Date</label>
+                                <input type="date" id="DateTo" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
+                                <script>
+                                    $(document).ready(function() {
+                                        var now = new Date();
+                                        var day = ("0" + now.getDate()).slice(-2);
+                                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
+                                        $('#DateTo').val(now.getFullYear() + "-" + month + "-" + day);
+                                    });
+                                </script>
                             </div>
                         </div>
-                    </div>
-                    <div class="table-closed-jobs">
-                    
-                        <table id="tbleClosedJobs" class="table table-striped table-bordered dt-responsive nowrap" style="border-collapse: collapse; border-spacing: 0; width: 100%;" width="100%" width="100%"></table>
+
+                        <!-- Search button -->
+                        <div style="display:flex; flex-direction:column; justify-content:flex-end;">
+                            <label style="font-size:10px; visibility:hidden; margin-bottom:4px; display:block;">.</label>
+                            <button id="JobsSearch" style="background:#dfba5f; color:#1a1a2e; font-weight:700; border:none; border-radius:6px; height:34px; padding:0 22px; font-size:13px; cursor:pointer; white-space:nowrap; letter-spacing:0.3px;">
+                                <i class="fa fa-search" style="margin-right:6px;"></i>Search Jobs
+                            </button>
+                        </div>
                     </div>
 
+                    <!-- Quick date shortcuts -->
+                    <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
+                        <span style="font-size:10px; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.5px; align-self:center; margin-right:4px;">Quick:</span>
+                        <button onclick="(function(){ var d=new Date(); var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; $('#DateFrom').val(fmt(d)); $('#DateTo').val(fmt(d)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Today</button>
+                        <button onclick="(function(){ var d=new Date(); d.setDate(d.getDate()-1); var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; $('#DateFrom').val(fmt(d)); $('#DateTo').val(fmt(d)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Yesterday</button>
+                        <button onclick="(function(){ var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; var to=new Date(); var from=new Date(); from.setDate(from.getDate()-6); $('#DateFrom').val(fmt(from)); $('#DateTo').val(fmt(to)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Last 7 Days</button>
+                        <button onclick="(function(){ var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; var to=new Date(); var from=new Date(); from.setDate(from.getDate()-29); $('#DateFrom').val(fmt(from)); $('#DateTo').val(fmt(to)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Last 30 Days</button>
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="modal-body" style="padding:0;">
+                    <div class="table-closed-jobs">
+                        <table id="tbleClosedJobs" class="table table-striped table-bordered dt-responsive nowrap" style="border-collapse:collapse; border-spacing:0; width:100%;" width="100%"></table>
+                    </div>
                 </div>
             </div>
         </div>
