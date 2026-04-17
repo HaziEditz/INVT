@@ -1101,18 +1101,22 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[DriverStatusChanged]') {
         // Auto-transition job status when a driver's Firebase vehiclestatus changes.
-        // Picking → Busy  : job Assigned → Active  (driver picked up passenger)
-        // Busy   → Available: job Active → Completed (ride finished)
+        // Any non-terminal → Busy   : job → Active   (driver picked up passenger / started meter)
+        // Active            → Available: job → Completed (ride finished)
         const driverId  = (param('driverid') || '').trim();
         const newStatus = (param('newstatus') || '').trim();
+        const TERMINAL = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject','Active']);
         if (driverId && newStatus) {
           const driverJobs = jobStore.filter(j =>
             String(j.DriverId) === String(driverId) || String(j.VehicleId) === String(driverId)
           );
           driverJobs.forEach(function(job) {
-            if (newStatus === 'Busy' && (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Offered')) {
+            if (newStatus === 'Busy' && !TERMINAL.has(job.BookingStatus)) {
+              // Driver went red (Busy) = passenger picked up / meter started.
+              // Promote ANY non-terminal, non-active job to Active regardless of
+              // whether the dispatch went through 'Offered' or 'Assigned' first.
               job.BookingStatus = 'Active';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} -> Active (driver ${driverId} went Busy)`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${job.BookingStatus}) -> Active (driver ${driverId} went Busy)`);
             } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
               job.BookingStatus = 'Completed';
               console.log(`  [DriverStatusChanged] Job #${job.Id} -> Completed (driver ${driverId} went Available)`);
