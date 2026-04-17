@@ -5730,7 +5730,8 @@ $(document).ready(function() {
                             $('#Divo'+bookid).remove();
                             localva = "Accept";
                             convertstatus(id, 'Assigned', driverid, '');
-                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            var _scx1 = angular.element(document.getElementById('myangular')).scope();
+                            if (_scx1) { if (typeof _scx1.getjobs === 'function') _scx1.getjobs(); if (typeof _scx1.AssignedJobs === 'function') _scx1.AssignedJobs(); }
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst === 'reject') {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
@@ -5739,7 +5740,8 @@ $(document).ready(function() {
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             convertstatus(id, 'Pending', driverid, '');
-                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            var _scx2 = angular.element(document.getElementById('myangular')).scope();
+                            if (_scx2 && typeof _scx2.getjobs === 'function') _scx2.getjobs();
                             return;
                         }
                         if ($respp['status'] === 'Sent') { return; } // still waiting
@@ -5881,7 +5883,8 @@ $(document).ready(function() {
                             $('#Divo'+bookid).remove();
                             localva = "Accept";
                             convertstatus(id, 'Assigned', driverid, '');
-                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            var _scx3 = angular.element(document.getElementById('myangular')).scope();
+                            if (_scx3) { if (typeof _scx3.getjobs === 'function') _scx3.getjobs(); if (typeof _scx3.AssignedJobs === 'function') _scx3.AssignedJobs(); }
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst2 === 'reject') {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
@@ -5890,7 +5893,8 @@ $(document).ready(function() {
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             convertstatus(id, 'Pending', driverid, '');
-                            angular.element(document.getElementById('myangular')).scope().getjobs();
+                            var _scx4 = angular.element(document.getElementById('myangular')).scope();
+                            if (_scx4 && typeof _scx4.getjobs === 'function') _scx4.getjobs();
                             return;
                         }
                         if ($respp['status'] === 'Sent') { return; } // still waiting
@@ -6010,6 +6014,9 @@ $(document).ready(function() {
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
+        // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
+        var _sca = angular.element(document.getElementById('myangular')).scope();
+        if (_sca && typeof _sca.AssignedJobs === 'function') { _sca.AssignedJobs(); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
  
     }
@@ -6020,6 +6027,9 @@ $(document).ready(function() {
         }
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
+        // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
+        var _scb = angular.element(document.getElementById('myangular')).scope();
+        if (_scb && typeof _scb.AssignedJobs === 'function') { _scb.AssignedJobs(); }
        const result = await resolveAfter2Seconds(driverid,bookid,status);
  
     }
