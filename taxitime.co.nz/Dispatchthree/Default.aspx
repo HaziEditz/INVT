@@ -7232,9 +7232,26 @@ $(document).ready(function() {
                     _AssignedJobs();
                 }else if (neww == "Busy"){
                     _ActiveJobsdata();
+                }else if (neww == "Assigned"){
+                    // Driver app wrote "Assigned" on accept (driver accepted the job)
+                    _getjobs();
+                    _AssignedJobs();
                 }
             }else if(oldi == "Picking"){
                 if (neww == "Busy"){
+                    _AssignedJobs();
+                    _ActiveJobsdata();
+                }else if (neww == "Available"){
+                    _getjobs();
+                    _AssignedJobs();
+                }else if (neww == "Assigned"){
+                    _getjobs();
+                    _AssignedJobs();
+                }
+            }else if(oldi == "Assigned"){
+                // Driver accepted — now starting meter or cancelling
+                if (neww == "Busy"){
+                    // "Passenger on board / Start meter" — move to Active tab
                     _AssignedJobs();
                     _ActiveJobsdata();
                 }else if (neww == "Available"){
@@ -7253,6 +7270,18 @@ $(document).ready(function() {
                 } else if (neww == "Picking"){
                     console.log("away to picking");
                     _AssignedJobs();
+                } else if (neww == "Assigned"){
+                    _getjobs();
+                    _AssignedJobs();
+                }
+            }else{
+                // Catch-all: any unknown old status transitioning to Assigned or Busy
+                if (neww == "Assigned"){
+                    _getjobs();
+                    _AssignedJobs();
+                }else if (neww == "Busy"){
+                    _AssignedJobs();
+                    _ActiveJobsdata();
                 }
             }
             if (!$scope.$$phase) { $scope.$digest(); }
@@ -7383,7 +7412,7 @@ $(document).ready(function() {
                         // Available→ job becomes Completed (ride finished)
                         var _drvId  = datacom.driverid || datacom.VehicleId || '';
                         var _newSt  = datacom.vehiclestatus;
-                        if (_drvId && (_newSt === 'Busy' || _newSt === 'Available' || _newSt === 'Picking')) {
+                        if (_drvId && (_newSt === 'Busy' || _newSt === 'Available' || _newSt === 'Picking' || _newSt === 'Assigned')) {
                             jQuery.ajax({
                                 type: 'POST',
                                 url: 'DataManager/Data.aspx/DataSelector',
@@ -7395,6 +7424,7 @@ $(document).ready(function() {
                                         if (_newSt === 'Busy')      { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
                                         if (_newSt === 'Picking')   { if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } }
                                         if (_newSt === 'Available') { if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } }
+                                        if (_newSt === 'Assigned')  { if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
                                     }
                                 }
                             });

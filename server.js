@@ -743,10 +743,14 @@ const server = http.createServer(async (req, res) => {
           );
           driverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
-            if (newStatus === 'Busy' && !TERM.has(job.BookingStatus)) {
+            if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus)) {
+              // Driver app wrote "Assigned" to Firebase — driver accepted the job
+              job.BookingStatus = 'Assigned';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} accepted)`);
+            } else if (newStatus === 'Busy' && !TERM.has(job.BookingStatus)) {
               job.BookingStatus = 'Active';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (driver ${driverId} went Busy)`);
-            } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending')) {
+            } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} went Picking)`);
             } else if (newStatus === 'Available' && job.BookingStatus === 'Active') {
@@ -1215,13 +1219,15 @@ const server = http.createServer(async (req, res) => {
           );
           driverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
-            if (newStatus === 'Busy' && !TERMINAL.has(job.BookingStatus)) {
+            if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus)) {
+              // Driver app wrote "Assigned" — driver accepted the job
+              job.BookingStatus = 'Assigned';
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} accepted)`);
+            } else if (newStatus === 'Busy' && !TERMINAL.has(job.BookingStatus)) {
               // Driver went red (Busy) = passenger picked up / meter started.
-              // Promote ANY non-terminal, non-active job to Active regardless of
-              // whether the dispatch went through 'Offered' or 'Assigned' first.
               job.BookingStatus = 'Active';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (driver ${driverId} went Busy)`);
-            } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending')) {
+            } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               // Driver went blue (Picking / Roger) = accepted the job and is en route.
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (driver ${driverId} went Picking)`);
