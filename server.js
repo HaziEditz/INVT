@@ -348,11 +348,28 @@ const server = http.createServer(async (req, res) => {
     const action = (parsed.action || '').toString();
     const dataArr = Array.isArray(parsed.data) ? parsed.data : [];
 
-    // Helper: find a param value by name (case-insensitive)
+    // Helper: find a param value by name (case-insensitive, trims trailing spaces)
     function param(name) {
-      const n = name.toLowerCase();
-      const found = dataArr.find(p => (p.name || '').toLowerCase() === n);
+      const n = name.toLowerCase().trim();
+      const found = dataArr.find(p => (p.name || '').toLowerCase().trim() === n);
       return found ? (found.value !== undefined ? found.value : found.Value) : undefined;
+    }
+
+    // Helper: filter a job list by the UI status selector value.
+    // The UI uses 'Closed' for all terminal jobs and 'Open' for all live jobs.
+    // The real backend stores completed rides as 'Dispatched'; our mock uses 'Completed'.
+    // Both are treated as terminal/closed.
+    function applyStatusFilter(jobs, statusFilter) {
+      const sf = (statusFilter || '').toLowerCase().trim();
+      if (!sf || sf === 'all') return jobs;
+      const CLOSED_ST = new Set(['dispatched','completed','done','closed','cancel','cancelled','no show','noshow','reject']);
+      const OPEN_ST   = new Set(['pending','offered','assigned','picking','active']);
+      let matchSet;
+      if (sf === 'closed')     matchSet = CLOSED_ST;
+      else if (sf === 'open')  matchSet = OPEN_ST;
+      else if (sf === 'dispatched') matchSet = new Set(['dispatched','completed','done','closed']);
+      else                     matchSet = new Set([sf]);
+      return jobs.filter(j => matchSet.has((j.BookingStatus || '').toLowerCase()));
     }
 
     // ── Proxy to real taxitime.co.nz backend ───────────────────────────────
@@ -367,6 +384,10 @@ const server = http.createServer(async (req, res) => {
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
       '[changeriddestatusforoffer]', '[DriverStatusChanged]',
       '[checkjobstatus]', '[checkjobstatusv2]',
+      // Closed / search — served from local store + static demo records
+      'ClosedJobs', 'SearchJobs', 'SearchJobDateBetween',
+      '[SearchJobByName]', '[SearchById]', '[SearchByPhoneNo]',
+      '[SearchByAfterDate]', '[SearchByBeforeDate]',
       // Messaging
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
@@ -851,66 +872,45 @@ const server = http.createServer(async (req, res) => {
       // Helper: add UI-friendly aliases so Angular ng-repeat bindings work
       } else if (action === '[SearchById]') {
         const searchId = parseInt(param('Id') || param('id') || '0') || 0;
-        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
         const allJobs = [...jobStore, ...closedJobStore];
         let results = searchId > 0 ? allJobs.filter(j => j.Id === searchId) : allJobs;
-        if (statusFilter !== 'all' && statusFilter !== '') {
-          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
-        }
+        results = applyStatusFilter(results, param('JobStatus'));
         results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
       } else if (action === '[SearchJobByName]') {
         const searchName = (param('Id') || '').toLowerCase();
-        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
         const allJobs = [...jobStore, ...closedJobStore];
         let results = searchName ? allJobs.filter(j => (j.Name || '').toLowerCase().includes(searchName)) : allJobs;
-        if (statusFilter !== 'all' && statusFilter !== '') {
-          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
-        }
+        results = applyStatusFilter(results, param('JobStatus'));
         results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
       } else if (action === '[SearchByPhoneNo]') {
         const searchPhone = (param('Id') || '').replace(/\s/g, '');
-        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
         const allJobs = [...jobStore, ...closedJobStore];
         let results = searchPhone ? allJobs.filter(j => (j.PhoneNo || '').replace(/\s/g, '').includes(searchPhone)) : allJobs;
-        if (statusFilter !== 'all' && statusFilter !== '') {
-          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
-        }
+        results = applyStatusFilter(results, param('JobStatus'));
         results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
       } else if (action === '[SearchByAfterDate]') {
         const dateStr = param('Id') || '';
-        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
         const allJobs = [...jobStore, ...closedJobStore];
-        let results = dateStr ? allJobs.filter(j => {
-          const jDate = (j.BookingDateTime || '').substring(0, 10);
-          return jDate >= dateStr;
-        }) : allJobs;
-        if (statusFilter !== 'all' && statusFilter !== '') {
-          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
-        }
+        let results = dateStr ? allJobs.filter(j => (j.BookingDateTime || '').substring(0, 10) >= dateStr) : allJobs;
+        results = applyStatusFilter(results, param('JobStatus'));
         results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
       } else if (action === '[SearchByBeforeDate]') {
         const dateStr = param('Id') || '';
-        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
         const allJobs = [...jobStore, ...closedJobStore];
-        let results = dateStr ? allJobs.filter(j => {
-          const jDate = (j.BookingDateTime || '').substring(0, 10);
-          return jDate <= dateStr;
-        }) : allJobs;
-        if (statusFilter !== 'all' && statusFilter !== '') {
-          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
-        }
+        let results = dateStr ? allJobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= dateStr) : allJobs;
+        results = applyStatusFilter(results, param('JobStatus'));
         results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
@@ -918,17 +918,12 @@ const server = http.createServer(async (req, res) => {
       } else if (action === 'SearchJobDateBetween') {
         const fromStr = param('From') || '';
         const toStr   = param('To') || '';
-        const statusFilter = (param('JobStatus') || 'All').toLowerCase();
         const allJobs = [...jobStore, ...closedJobStore];
         let results = allJobs.filter(j => {
           const jDate = (j.BookingDateTime || '').substring(0, 10);
-          const afterFrom = !fromStr || jDate >= fromStr;
-          const beforeTo  = !toStr   || jDate <= toStr;
-          return afterFrom && beforeTo;
+          return (!fromStr || jDate >= fromStr) && (!toStr || jDate <= toStr);
         });
-        if (statusFilter !== 'all' && statusFilter !== '') {
-          results = results.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
-        }
+        results = applyStatusFilter(results, param('JobStatus'));
         results = results.map(enrichSearchResult);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
@@ -1136,28 +1131,39 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === 'ClosedJobs') {
         const statusFilter = (param('BookingStatus') || '').toLowerCase();
-        const fromDate = param('FromDate') || param('FromDate ') || '';
-        const toDate   = param('ToDate') || '';
-        const driverFilter  = parseInt(param('DriverId') || '0') || 0;
-        const vehicleFilter = parseInt(param('VehicleId') || param('VehicleId ') || '0') || 0;
+        const fromDate = (param('FromDate') || param('FromDate ') || '').toString().trim();
+        const toDate   = (param('ToDate')   || param('ToDate ')   || '').toString().trim();
+        const driverFilterRaw  = (param('DriverId')  || '').toString().trim();
+        const vehicleFilterRaw = (param('VehicleId') || param('VehicleId ') || '').toString().trim();
+        const driverFilter  = parseInt(driverFilterRaw)  || 0;
+        const vehicleFilter = parseInt(vehicleFilterRaw) || 0;
+        console.log(`  [ClosedJobs] params: status='${statusFilter}' from='${fromDate}' to='${toDate}' driver='${driverFilterRaw}' vehicle='${vehicleFilterRaw}'`);
         // Terminal statuses — include these from the live jobStore as well as the static store
+        // 'Completed' is our mock convention; 'Dispatched' is the real-backend convention for done rides.
+        // Treat both as closed. When status filter is 'dispatched', also include 'completed'.
         const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
         const liveTerminal = jobStore.filter(j => TERMINAL.has(j.BookingStatus));
         let jobs = [...closedJobStore, ...liveTerminal];
+        console.log(`  [ClosedJobs] before filters: ${jobs.length} jobs (${closedJobStore.length} static + ${liveTerminal.length} live)`);
         if (statusFilter && statusFilter !== 'all') {
-          jobs = jobs.filter(j => (j.BookingStatus || '').toLowerCase() === statusFilter);
+          jobs = applyStatusFilter(jobs, statusFilter);
+          console.log(`  [ClosedJobs] after status filter '${statusFilter}': ${jobs.length} jobs`);
         }
         if (fromDate) {
           jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) >= fromDate);
+          console.log(`  [ClosedJobs] after fromDate '${fromDate}': ${jobs.length} jobs`);
         }
         if (toDate) {
           jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= toDate);
+          console.log(`  [ClosedJobs] after toDate '${toDate}': ${jobs.length} jobs`);
         }
         if (driverFilter > 0) {
-          jobs = jobs.filter(j => j.DriverId === driverFilter);
+          jobs = jobs.filter(j => String(j.DriverId) === String(driverFilter));
+          console.log(`  [ClosedJobs] after driverFilter ${driverFilter}: ${jobs.length} jobs`);
         }
         if (vehicleFilter > 0) {
-          jobs = jobs.filter(j => j.VehicleId === vehicleFilter);
+          jobs = jobs.filter(j => String(j.VehicleId) === String(vehicleFilter) || String(j.VehicleNo) === String(vehicleFilter));
+          console.log(`  [ClosedJobs] after vehicleFilter ${vehicleFilter}: ${jobs.length} jobs`);
         }
         // Build driver/vehicle lists from the actual job results for the filter dropdowns
         const seenDrivers = new Map(), seenVehicles = new Map();
