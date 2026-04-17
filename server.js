@@ -254,11 +254,10 @@ const server = http.createServer(async (req, res) => {
     // so skip the proxy and go straight to local mock handlers for these.
     const LOCAL_ONLY_ACTIONS = new Set([
       '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]', '[VehicleInfov2]',
-      '[AssignJobStatusFromJobListv2]', '[DispatcherConversation]',
+      '[AssignJobStatusFromJobListv2]',
       '[changeriddestatusforoffer]',
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
-      '[GroupMessage]', '[DeleteMessage]', '[RetrieveMessages]',
-      '[DispatcherUnReadMessages]',
+      '[GroupMessage]', '[DeleteMessage]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -913,16 +912,53 @@ const server = http.createServer(async (req, res) => {
     if (urlPath.includes('/LoginSelector')) {
       const username = param('Username') || param('Email') || param('UserEmail') || '';
       const password = param('Password') || param('Pass') || '';
-      if (!username.trim() || !password.trim()) {
+      if (!username.trim()) {
         console.log(`200: POST ${urlPath} [LoginSelector] -> missing credentials`);
         successD(res, 'Please enter your username and password.');
         return;
       }
-      // Demo: accept any non-empty credentials and return dispatcher session data
-      console.log(`200: POST ${urlPath} [LoginSelector] -> login OK for "${username}"`);
+
+      // ── Try to authenticate against the real taxitime.co.nz backend ──────
+      // If successful, the ASP.NET session cookie is forwarded to the browser
+      // so that all subsequent proxy calls carry a valid session and return
+      // real production data (jobs, messages, drivers, etc.).
+      if (password && password !== 'mock') {
+        try {
+          const proxied = await proxyToRealBackend(
+            urlPath, req.method, body, req.headers['cookie'] || ''
+          );
+          const bodyText = (proxied.body || '').trim();
+          const isSessionError = bodyText.includes('Session is experied') || bodyText.includes('Session is expired');
+          if (proxied.statusCode === 200 && !isSessionError && (bodyText.startsWith('{') || bodyText.startsWith('['))) {
+            // Real backend accepted the credentials — forward its session cookies
+            const replyHeaders = {
+              'Content-Type': proxied.headers['content-type'] || 'application/json',
+              'Cache-Control': 'no-cache',
+              'Access-Control-Allow-Origin': '*',
+            };
+            if (proxied.headers['set-cookie']) {
+              const rawCookies = proxied.headers['set-cookie'];
+              const cookies = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+              replyHeaders['Set-Cookie'] = cookies.map(c =>
+                c.replace(/;\s*domain=[^;,]*/gi, '').replace(/;\s*samesite=[^;,]*/gi, '')
+              );
+            }
+            console.log(`200: LoginSelector → REAL backend auth OK for "${username}"`);
+            res.writeHead(200, replyHeaders);
+            res.end(proxied.body);
+            return;
+          }
+          console.log(`LoginSelector: real backend rejected credentials for "${username}" (status=${proxied.statusCode}) — using mock session`);
+        } catch (e) {
+          console.log(`LoginSelector: real backend unreachable (${e.message}) — using mock session`);
+        }
+      }
+
+      // ── Fallback: mock session (Firebase-only users or real backend down) ─
+      console.log(`200: POST ${urlPath} [LoginSelector] -> mock session for "${username}"`);
       arrayD(res, [{
         Id: 1051,
-        UserFName: 'Safinah Mohammed',
+        UserFName: username.split('@')[0] || 'Dispatcher',
         UserLName: '',
         UserEmail: username,
         CompanyId: 1216,

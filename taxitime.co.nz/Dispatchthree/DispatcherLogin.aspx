@@ -671,7 +671,23 @@
             localStorage.setItem('TT_Country', 'NZ');
             localStorage.setItem('TT_CId',     cid);
             localStorage.setItem('Country',    'NZ');
-            window.location.href = 'Default.aspx';
+
+            // Also authenticate with the production backend so that the ASP.NET
+            // session cookie is set in the browser.  This allows all subsequent
+            // API calls (jobs, messages, drivers) to be proxied to the real server
+            // instead of falling back to the local mock.
+            return fetch('/DataManager/Data.aspx/LoginSelector', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                data: [
+                  { name: 'Username', value: email },
+                  { name: 'Password', value: password }
+                ]
+              })
+            }).catch(function() {}).finally(function() {
+              window.location.href = 'Default.aspx';
+            });
           });
         })
         .catch(function(error) {

@@ -401,7 +401,7 @@ function initDriverMessageListener(companyId) {
     }
 
     // ── Path 2: /chat/{driverId} changes ───────────────────────────────────
-    // Other driver apps write their reply back to the same /chat node the
+    // Some driver apps write their reply back to the same /chat node the
     // dispatcher used.  We ignore entries we wrote ourselves (they end with
     // ",Dispatcher") and process anything else as an incoming driver message.
     try {
@@ -409,17 +409,43 @@ function initDriverMessageListener(companyId) {
         var chatRef = firebase.database().ref('/chat');
         var _chatFirstLoad = true;
         chatRef.on('child_added', function(snapshot) {
-            // Skip the initial load sweep — only act on genuinely new writes
             if (_chatFirstLoad) return;
             _handleChatNode(snapshot);
         });
-        // After a short delay, mark initial load done so future adds are real-time
         setTimeout(function() { _chatFirstLoad = false; }, 3000);
         chatRef.on('child_changed', function(snapshot) {
             _handleChatNode(snapshot);
         });
     } catch (e) {
         console.error('[ChatRoom] /chat listener error:', e);
+    }
+
+    // ── Path 3: /notification/{companyId} ──────────────────────────────────
+    // Some driver apps reply by writing to /notification/{companyId} (the
+    // symmetrical path of the dispatcher's /notification/{driverId} sends).
+    try {
+        console.log('[ChatRoom] attaching /notification/' + companyId + ' listener');
+        var _notifFirstLoad = true;
+        firebase.database().ref('/notification/' + companyId).on('child_added', function(snapshot) {
+            if (_notifFirstLoad) return;
+            var msg = snapshot.val();
+            var key = snapshot.key;
+            console.log('[ChatRoom] /notification/' + companyId + ' child_added key=' + key + ' val=' + JSON.stringify(msg));
+            if (!msg) return;
+            var bookingid = msg.bookingid || '';
+            // Extract the same comma-delimited format drivers use
+            var parts = bookingid ? bookingid.split(',') : [];
+            var driverId   = String(msg.driverId || msg.DriverId || msg.driver_id || (parts[3]) || key || '');
+            var driverName = msg.driverName || msg.DriverName || (parts[0]) || ('Driver ' + driverId);
+            var text       = msg.message || msg.Message || msg.body || msg.text || msg.content ||
+                             (parts.length >= 2 ? parts.slice(1, Math.max(2, parts.length - 2)).join(',') : '') || '';
+            if (!text) { console.warn('[ChatRoom] /notification/' + companyId + ': no text in', msg); return; }
+            _showDriverMessage(driverId, driverName, text);
+            firebase.database().ref('/notification/' + companyId + '/' + key).remove();
+        });
+        setTimeout(function() { _notifFirstLoad = false; }, 3000);
+    } catch (e) {
+        console.error('[ChatRoom] /notification listener error:', e);
     }
 }
 
