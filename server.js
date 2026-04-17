@@ -153,7 +153,9 @@ function buildDeliveryResponse(jobs) {
 }
 
 function buildAssignedResponse(jobs) {
-  const assigned = jobs.filter(j => j.BookingStatus === 'Assigned' || j.BookingStatus === 'Offered');
+  // 'Offered' = dispatcher sent the job, driver hasn't accepted yet → stays in Pending/Offered tab
+  // 'Assigned' = driver accepted → shows in Assigned tab only
+  const assigned = jobs.filter(j => j.BookingStatus === 'Assigned');
   const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
