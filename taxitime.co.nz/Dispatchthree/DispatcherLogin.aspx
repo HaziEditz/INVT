@@ -506,19 +506,22 @@
         .then(function(result) {
           var user = result.user;
 
-          // Generate a unique company ID (timestamp-based, 4-6 digits)
-          var companyId = String(Date.now()).slice(-4);
+          // Generate a unique 6-digit company ID (timestamp + random suffix)
+          var companyId = String(Date.now()).slice(-4) + String(Math.floor(Math.random() * 90) + 10);
 
-          // Store company record in Firebase DB
+          // Store company record AND user→company mapping in Firebase DB
           var db = firebase.database();
-          return db.ref('companies/' + companyId).set({
+          var writes = {};
+          writes['companies/' + companyId] = {
             companyId:   companyId,
             companyName: company,
             ownerName:   name,
             ownerEmail:  email,
             phone:       phone || '',
             createdAt:   Date.now()
-          }).then(function() {
+          };
+          writes['users/' + user.uid] = { companyId: companyId, name: name };
+          return db.ref().update(writes).then(function() {
             // Update Firebase display name
             return user.updateProfile({ displayName: name });
           }).then(function() {
@@ -575,14 +578,17 @@
     // ── If Firebase says user is already signed in, go straight to console ──
     firebase.auth().onAuthStateChanged(function(user) {
       if (user) {
-        // Refresh localStorage from Firebase user in case it was cleared
         var name = user.displayName || user.email.split('@')[0];
-        localStorage.setItem('TT_Name',    name);
-        localStorage.setItem('TT_DId',     '1051');
-        localStorage.setItem('TT_Country', 'NZ');
-        localStorage.setItem('TT_CId',     '1216');
-        localStorage.setItem('Country',    'NZ');
-        window.location.replace('Default.aspx');
+        // Look up this user's company ID from Firebase before entering the console
+        firebase.database().ref('users/' + user.uid + '/companyId').once('value').then(function(snap) {
+          var cid = snap.val() || '1216';
+          localStorage.setItem('TT_Name',    name);
+          localStorage.setItem('TT_DId',     '1051');
+          localStorage.setItem('TT_Country', 'NZ');
+          localStorage.setItem('TT_CId',     cid);
+          localStorage.setItem('Country',    'NZ');
+          window.location.replace('Default.aspx');
+        });
       }
     });
 
@@ -657,12 +663,16 @@
           clearTimeout(authTimeout);
           var user = result.user;
           var name = user.displayName || email.split('@')[0];
-          localStorage.setItem('TT_Name',    name);
-          localStorage.setItem('TT_DId',     '1051');
-          localStorage.setItem('TT_Country', 'NZ');
-          localStorage.setItem('TT_CId',     '1216');
-          localStorage.setItem('Country',    'NZ');
-          window.location.href = 'Default.aspx';
+          // Look up this user's company ID from Firebase
+          return firebase.database().ref('users/' + user.uid + '/companyId').once('value').then(function(snap) {
+            var cid = snap.val() || '1216';
+            localStorage.setItem('TT_Name',    name);
+            localStorage.setItem('TT_DId',     '1051');
+            localStorage.setItem('TT_Country', 'NZ');
+            localStorage.setItem('TT_CId',     cid);
+            localStorage.setItem('Country',    'NZ');
+            window.location.href = 'Default.aspx';
+          });
         })
         .catch(function(error) {
           clearTimeout(authTimeout);
