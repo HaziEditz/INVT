@@ -1478,12 +1478,12 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "returnReason": "No Response – Not Accepted"
+    "returnReason": "Manually unassigned"
   },
   {
     "Id": 18042026018,
@@ -1499,8 +1499,8 @@
     "Pickingtime": "2026-04-18 12:36:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "10",
-    "VehicleId": 1212,
-    "DriverId": 1212,
+    "VehicleId": 0,
+    "DriverId": 0,
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -1518,12 +1518,12 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "returnReason": "No Response – Not Accepted"
+    "returnReason": "Manually unassigned"
   },
   {
     "Id": 18042026019,
@@ -1558,12 +1558,12 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "returnReason": "No Response – Not Accepted"
+    "returnReason": "Manually unassigned"
   },
   {
     "Id": 18042026020,

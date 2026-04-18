@@ -847,7 +847,7 @@ const server = http.createServer(async (req, res) => {
           const isDowngrade = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
           // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
           const rr = returnReason.toLowerCase();
-          const isExplicitReject = rr.includes('reject') || rr.includes('no response') || rr.includes('not accepted');
+          const isExplicitReject = rr.includes('reject') || rr.includes('no response') || rr.includes('not accepted') || rr.includes('manually unassigned');
           const hasNoDriver = !job.DriverId || job.DriverId === 0;
           if (isAccepted && isDowngrade && !isExplicitReject && !hasNoDriver) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED downgrade: job #${bookingId} is ${currentStatus}, refusing to set ${newStatus} (reason: "${returnReason}")`);
@@ -871,8 +871,8 @@ const server = http.createServer(async (req, res) => {
             if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
             // When manually unassigning (driverid=0 sent), clear the job's DriverId so it
             // shows in the Unassigned tab and auto-dispatch can pick it up again.
-            const forcedDriverId = parseInt(param('driverid') || '-1');
-            if (forcedDriverId === 0) { job.DriverId = 0; job.VehicleId = 0; }
+            const _rawDrv = param('driverid');
+            if (_rawDrv !== undefined && _rawDrv !== null && parseInt(_rawDrv) === 0) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
         }
@@ -1406,7 +1406,7 @@ const server = http.createServer(async (req, res) => {
           const isDowngrade2 = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
           // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
           const rr2 = returnReason.toLowerCase();
-          const isExplicitReject2 = rr2.includes('reject') || rr2.includes('no response') || rr2.includes('not accepted');
+          const isExplicitReject2 = rr2.includes('reject') || rr2.includes('no response') || rr2.includes('not accepted') || rr2.includes('manually unassigned');
           const hasNoDriver2 = !job.DriverId || job.DriverId === 0;
           if (isAccepted2 && isDowngrade2 && !isExplicitReject2 && !hasNoDriver2) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED downgrade: job #${bookingId} is ${currentStatus2}, refusing to set ${newStatus} (reason: "${returnReason}")`);
@@ -1431,8 +1431,8 @@ const server = http.createServer(async (req, res) => {
             // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
             if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
             // When manually unassigning (driverid=0 sent), clear the job's DriverId.
-            const forcedDriverId2 = parseInt(param('driverid') || '-1');
-            if (forcedDriverId2 === 0) { job.DriverId = 0; job.VehicleId = 0; }
+            const _rawDrv2 = param('driverid');
+            if (_rawDrv2 !== undefined && _rawDrv2 !== null && parseInt(_rawDrv2) === 0) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
         }
