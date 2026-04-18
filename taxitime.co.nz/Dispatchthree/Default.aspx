@@ -5813,6 +5813,56 @@ $(document).ready(function() {
             console.warn('[writeJobDetailsToFirebase] error:', e);
         }
     }
+
+    // Unified helper — replaces all writeNewPost / writeNewPostpassenger calls.
+    // Looks up full job details from Angular scope (or fetches via AJAX) then calls
+    // writeJobDetailsToFirebase so the driver app always receives pickup/dropoff/name/phone.
+    function sendJobToDriver(driverId, vehicleId, bookingId, status, uId) {
+        var _src = (uId && uId !== '' && uId !== 'null') ? 'android' : 'Dispatcher';
+        var _u   = (uId && uId !== '' && uId !== 'null') ? uId : '';
+        function _doSend(job) {
+            writeJobDetailsToFirebase(driverId, vehicleId, bookingId, {
+                pickup:      job.PickAddress     || job.PickLocation    || '',
+                dropoff:     job.DropAddress     || job.DropLocation    || '',
+                phone:       job.PhoneNo         || job.PassengerId     || '',
+                name:        job.Name            || job.UserFName       || '',
+                bags:        job.Bags            || job.BagsNo          || 0,
+                passengers:  job.Passengers      || job.PassengersNo    || 1,
+                vehicleType: job.VehicleType     || '',
+                rideinfo:    job.EntitiesDetails || '',
+                status:      status || 'Offered',
+                source:      _src,
+                u_id:        _u
+            });
+        }
+        try {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            var _all = [].concat(_sc && _sc.data1 ? _sc.data1 : [])
+                         .concat(_sc && _sc.data2 ? _sc.data2 : [])
+                         .concat(_sc && _sc.data3 ? _sc.data3 : [])
+                         .concat(_sc && _sc.tstst  ? _sc.tstst  : []);
+            var _j = null;
+            for (var _i = 0; _i < _all.length; _i++) {
+                if (String(_all[_i].Id) === String(bookingId) || String(_all[_i].BookingId) === String(bookingId)) {
+                    _j = _all[_i]; break;
+                }
+            }
+            if (_j) {
+                _doSend(_j);
+            } else {
+                Selector1([{ name: 'Id', value: bookingId }], 'JobDetails').then(function(r) {
+                    try {
+                        var _fetched = JSON.parse(r.d);
+                        _doSend(_fetched && _fetched.length > 0 ? _fetched[0] : {});
+                    } catch(e) { _doSend({}); }
+                }).fail(function() { _doSend({}); });
+            }
+        } catch(e) {
+            writeJobDetailsToFirebase(driverId, vehicleId, bookingId,
+                { status: status || 'Offered', source: _src, u_id: _u });
+        }
+    }
+
     var counterfirst = 0;
 
     
@@ -9766,7 +9816,7 @@ $(document).ready(function() {
                                                             
                                                                      writeautodispatch(id, id);
                                                                      writeautodispatch(obj[i].PlayerId, id);
-                                                                     writeNewPost(obj[i].PlayerId, id, "Pending");   
+                                                                     sendJobToDriver(obj[i].PlayerId, obj[i].vehicleidno || obj[i].PlayerId, id, 'Pending');
                                                                      myResolve("notexist");
 
                                                                  }else{
@@ -9806,7 +9856,7 @@ $(document).ready(function() {
                                                             
                                                                    writeautodispatch(id, id);
                                                                    writeautodispatch(obj[i].PlayerId, id);
-                                                                   writeNewPost(obj[i].PlayerId, id, "Pending");   
+                                                                   sendJobToDriver(obj[i].PlayerId, obj[i].vehicleidno || obj[i].PlayerId, id, 'Pending');
                                                                    myResolve("notexist");
 
                                                                }else{
@@ -9859,7 +9909,7 @@ $(document).ready(function() {
                                                                if(ridestatus["dt1"].length > 0) {
                                                             
                                                                    writeautodispatch(obj[i].PlayerId, id);
-                                                                   writeNewPost(obj[i].PlayerId, id, "Pending");   
+                                                                   sendJobToDriver(obj[i].PlayerId, obj[i].vehicleidno || obj[i].PlayerId, id, 'Pending');
                                                    
                                                                    myResolve("notexist");
 
@@ -9897,7 +9947,7 @@ $(document).ready(function() {
                                                                if(ridestatus["dt1"].length > 0) {
                                                             
                                                                    writeautodispatch(obj[i].PlayerId, id);
-                                                                   writeNewPost(obj[i].PlayerId, id, "Pending");  
+                                                                   sendJobToDriver(obj[i].PlayerId, obj[i].vehicleidno || obj[i].PlayerId, id, 'Pending');
                                                                    myResolve("notexist");
 
                                                                }else{
@@ -10971,7 +11021,7 @@ $(document).ready(function() {
                                 document.getElementById('Divoo'+ Id).innerHTML = "Going To "+random100["dt2"][random4].VehicleNo +" / "+random100["dt2"][random4].VehicleName;
                                 document.getElementById('Divoo'+ Id).style.background =  red;
                                               
-                                writeNewPost(driverid, id, "Pending");    
+                                sendJobToDriver(driverid, driverid, id, 'Pending');
                                 var DbRef = firebase.database();
                                 var refaz= DbRef.ref("joback/" + id  + "/"+driverid);
 
@@ -12592,11 +12642,7 @@ $(document).ready(function() {
               
     
 
-                    if(u_id != null || u_id != ''){
-                        writeNewPostpassenger(JobVehicleId, BookingId, "Offered" , u_id);
-                    }else{
-                        writeNewPost(JobVehicleId, BookingId, "Offered");
-                    }
+                    sendJobToDriver(JobVehicleId, JobVehicleId, BookingId, 'Offered', u_id);
                     $("#Divo" + BookingId + "").remove();
         
               
@@ -12629,11 +12675,7 @@ $(document).ready(function() {
                     {"name":"reterndriverId" , "Value" : driverId}], "[AssignJobStatusFromJobList]");
                     FnCancelRide(driverId, BookingId);
 
-                    if(U_id != null || U_id != ''){
-                        writeNewPostpassenger(JobVehicleId, BookingId, "Offered" , U_id);
-                    }else{
-                        writeNewPost(JobVehicleId, BookingId, "Offered");
-                    }
+                    sendJobToDriver(JobVehicleId, JobVehicleId, BookingId, 'Offered', U_id);
  
                     $("#Divo" + BookingId + "").remove();
                     acknowledgemethod(JobVehicleId, BookingId, "Offered")
@@ -14025,7 +14067,7 @@ $(document).ready(function() {
                            
                                 BookingStatusx = "Offered";
                               
-                                    writeNewPost(DriveId, BookingIz, "Offered");
+                                    sendJobToDriver(DriveId, DriveId, BookingIz, 'Offered');
                                     toastr["success"](  "Job send to Driver", 'success!');
                                
                               
@@ -14325,11 +14367,7 @@ $(document).ready(function() {
                                                   { "name": "VehicleId", "Value": JobVehicleId },
                                                   { "name": "quenumber", "Value": quenumber }
                                                 ], "[AssignJobStatusFromJobListv2]");
-                                                if (u_id == 'null' || u_id == '') {
-                                                    writeNewPost(JobVehicleId, BookingId, "Offered");
-                                                } else {
-                                                    writeNewPostpassenger(JobVehicleId, BookingId, "Offered", u_id);
-                                                }
+                                                sendJobToDriver(JobVehicleId, JobVehicleId, BookingId, 'Offered', u_id);
                                                 $scope.getjobs();
                                                 // Refresh assigned tab so the job appears there immediately
                                                 setTimeout(function() { $scope.AssignedJobs(); }, 400);
