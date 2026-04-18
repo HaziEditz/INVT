@@ -9738,34 +9738,12 @@ $(document).ready(function() {
 
                                             
                                     }else if($res[0].BookingStatus == "Pending"){
-                                        if (driverset == -2 && laterchecking == 0) {
-                                            try {
-                                                var sc2 = angular.element(document.getElementById('myangular')).scope();
-                                                if (sc2 && sc2.driverdatarealx && sc2.driverdatarealx.length > 0) {
-                                                    var broadcastCount = 0;
-                                                    sc2.driverdatarealx.forEach(function(d) {
-                                                        if (d.driverid && d.vehiclestatus == 'Available') {
-                                                            writeJobDetailsToFirebase(d.driverid, d.VehicleId || d.vehiclenumber, $res[0].BookingId, {
-                                                                pickup:      _snap.pickup,
-                                                                dropoff:     _snap.dropoff,
-                                                                phone:       _snap.phone,
-                                                                name:        _snap.name,
-                                                                bags:        _snap.bags,
-                                                                passengers:  _snap.passengers,
-                                                                vehicleType: _snap.vehicleType,
-                                                                rideinfo:    _snap.rideinfo,
-                                                                status:      'Pending',
-                                                                source:      'Dispatcher'
-                                                            });
-                                                            broadcastCount++;
-                                                        }
-                                                    });
-                                                    toastr["info"]("Job broadcast to " + broadcastCount + " available driver(s).", "Pending Job");
-                                                } else {
-                                                    toastr["info"]("Job created as Pending — no drivers online yet.", "Pending Job");
-                                                }
-                                            } catch(e) { console.warn("Broadcast error:", e); }
-                                        }
+                                        // Job is Pending with no driver selected — auto-dispatch will
+                                        // offer it to the next available driver in the queue (within 10s).
+                                        // Broadcast removed: sending /notification/ to ALL drivers
+                                        // simultaneously caused both drivers to receive the same job,
+                                        // since there was no locking mechanism to prevent dual acceptance.
+                                        toastr["info"]("Job queued — auto-dispatch will assign a driver shortly.", "Pending Job");
                                     }
                                         
                                 }
