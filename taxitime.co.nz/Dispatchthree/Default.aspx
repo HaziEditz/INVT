@@ -5982,6 +5982,7 @@ $(document).ready(function() {
                             firebase.database().ref().child("/notification/" + driverid).remove();
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
+                            _immediateJobPending(id);
                             convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                             var _scx2 = angular.element(document.getElementById('myangular')).scope();
                             if (_scx2 && typeof _scx2.getjobs === 'function') _scx2.getjobs();
@@ -6015,6 +6016,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
+                                    _immediateJobPending(id);
                                     convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
@@ -6025,6 +6027,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
+                                    _immediateJobPending(id);
                                     convertstatus(id, 'Pending', driverid, $message);
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
 
@@ -6055,6 +6058,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
+                                _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
@@ -6203,7 +6207,8 @@ $(document).ready(function() {
                             firebase.database().ref().child("/notification/" + driverid).remove();
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
-                            convertstatus(id, 'Pending', driverid, '');
+                            _immediateJobPending(id);
+                            convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                             var _scx4 = angular.element(document.getElementById('myangular')).scope();
                             if (_scx4 && typeof _scx4.getjobs === 'function') _scx4.getjobs();
                             return;
@@ -6236,6 +6241,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
+                                    _immediateJobPending(id);
                                     convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
@@ -6246,6 +6252,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
+                                    _immediateJobPending(id);
                                     convertstatus(id, 'Pending', driverid, $message);
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
 
@@ -6276,6 +6283,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
+                                _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
@@ -6347,6 +6355,25 @@ $(document).ready(function() {
     // Tracks which driverIds have already been offered each job (by jobId string).
     // Ensures rejected/timed-out drivers are skipped and the next in queue is tried.
     var _triedDriversForJob = {};
+
+    // Immediately moves a job from Offered → Pending in Angular's lists without waiting
+    // for the convertstatus AJAX chain, so the Offer tab clears and U-A tab shows it instantly.
+    function _immediateJobPending(jobId) {
+        var _sc = angular.element(document.getElementById('myangular')).scope();
+        if (!_sc) return;
+        if (_sc.unassignedjob_list) {
+            for (var _ji = 0; _ji < _sc.unassignedjob_list.length; _ji++) {
+                if (String(_sc.unassignedjob_list[_ji].Id) === String(jobId)) {
+                    _sc.unassignedjob_list[_ji].BookingStatus = 'Pending';
+                    _sc.unassignedjob_list[_ji].returnReason = '';
+                    break;
+                }
+            }
+        }
+        _sc.oferunassignedjob_list = (_sc.unassignedjob_list || []).filter(function(j) { return j.BookingStatus === 'Offered'; });
+        _sc.UnAssignedCountoffer = _sc.oferunassignedjob_list.length;
+        if (!_sc.$$phase) _sc.$digest();
+    }
 
 
 
