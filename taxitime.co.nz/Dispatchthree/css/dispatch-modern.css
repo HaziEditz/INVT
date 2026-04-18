@@ -686,15 +686,15 @@ table.dataTable tbody tr:hover {
   padding: 10px 14px !important;
 }
 
-/* ---- Glowing animation - soften it ---- */
+/* ---- Dispatch-alert flashing animation ---- */
 .button-glow {
-  animation: glowing-soft 3000ms infinite !important;
+  animation: dispatch-alert 1000ms infinite !important;
 }
 
-@keyframes glowing-soft {
-  0%   { box-shadow: 0 0 4px rgba(239,68,68,0.4); }
-  50%  { box-shadow: 0 0 12px rgba(239,68,68,0.7); }
-  100% { box-shadow: 0 0 4px rgba(239,68,68,0.4); }
+@keyframes dispatch-alert {
+  0%   { background: rgba(192, 57, 43, 0.22) !important; box-shadow: 0 0 6px rgba(192,57,43,0.4); }
+  50%  { background: rgba(192, 57, 43, 0.75) !important; box-shadow: 0 0 20px rgba(192,57,43,0.85); }
+  100% { background: rgba(192, 57, 43, 0.22) !important; box-shadow: 0 0 6px rgba(192,57,43,0.4); }
 }
 
 /* ---- Scrollbars ---- */

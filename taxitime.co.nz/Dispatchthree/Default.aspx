@@ -324,7 +324,7 @@
                 <div class="modal-body" style="padding:0;">
                     <div class="row" style="margin:0;">
                         <div class="col-lg-12 col-md-12 col-sm-12" style="padding:0 12px; height:460px; overflow-y:auto;">
-                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="{ background: getTheValue(value.BookingDateTime)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
+                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="{ background: getTheValue(value.BookingDateTime, value.DispatchTimebefore) }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -2806,7 +2806,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="{ background: getTheValue(value.BookingDateTime)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="{ background: getTheValue(value.BookingDateTime, value.DispatchTimebefore) }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -2972,7 +2972,7 @@ $(document).ready(function() {
                                                 </div>
                                                 <div class="tab-pane vowali " id="tab9">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-style="{ background: getTheValue(value.BookingDateTime)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-style="{ background: getTheValue(value.BookingDateTime, value.DispatchTimebefore) }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -4087,20 +4087,17 @@ $(document).ready(function() {
   
     
 
-    var dispatcher_lat;
-    var dispatcher_lng ;
+    var dispatcher_lat = -46.4120;  // default: Invercargill, NZ
+    var dispatcher_lng = 168.3538;
     function getLocation() {
         if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(showPosition);
-        } else {
-            x.innerHTML = "Geolocation is not supported by this browser.";
+            navigator.geolocation.getCurrentPosition(showPosition, function(){});
         }
     }
 
     function showPosition(position) {
-        dispatcher_lat =  position.coords.latitude  
-        dispatcher_lng = position.coords.longitude; 
-      
+        dispatcher_lat = position.coords.latitude;
+        dispatcher_lng = position.coords.longitude;
     }
     getLocation();
     function openDropdown(elementId,elementId1) {
@@ -13515,21 +13512,18 @@ $(document).ready(function() {
                 }
             }
             $scope.alerting = function (DispatchTimebefore, BookingDateTime) {
-                if (DispatchTimebefore > 0) {
-                    BookingDateTime =    BookingDateTime.slice(0, -1);
-            
-                    if ($scope.CurrentDateTime >= BookingDateTime) {
-                        $scope.playAudio();
-
-                        return 'button-glow';
-
-                    } else {
-                         return '';
-                    }
-                } else {
-                        return '';
-               
+                var db = parseInt(DispatchTimebefore) || 0;
+                if (db <= 0 || !BookingDateTime) return '';
+                var clean = BookingDateTime.replace(/\.$/, '').trim();
+                var bdt = new Date(clean);
+                if (isNaN(bdt.getTime())) return '';
+                var minsUntil = Math.round((bdt - new Date()) / 60000);
+                // Fire when within dispatch window (e.g. 10 min before pickup) up to 60 min overdue
+                if (minsUntil <= db && minsUntil >= -60) {
+                    $scope.playAudio();
+                    return 'button-glow';
                 }
+                return '';
             }
             $scope.playAudio1 = function() {
                 var audio = new Audio('sound/b.wav');
@@ -13855,20 +13849,23 @@ $(document).ready(function() {
             }
 
 
-            $scope.getTheValue = function (BookingDateTime) {
+            $scope.getTheValue = function (BookingDateTime, DispatchTimebefore) {
+                if (!BookingDateTime) return "rgba(192, 57, 43, 0.22)";
                 var clean = BookingDateTime.replace(/\.$/, '').trim();
                 var bdt = new Date(clean);
-                if (isNaN(bdt.getTime())) return "rgba(145, 208, 232, 0.39)";
+                if (isNaN(bdt.getTime())) return "rgba(192, 57, 43, 0.22)";
+                var db = parseInt(DispatchTimebefore) || 0;
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
-                if (minsUntil <= -60) {
-                    return "rgba(192, 57, 43, 0.18)";   // overdue (red)
-                } else if (minsUntil <= 0) {
-                    return "rgba(39, 174, 96, 0.2)";    // ASAP / ready now (green)
-                } else if (minsUntil <= 30) {
-                    return "rgba(230, 126, 34, 0.22)";  // approaching (amber)
-                } else {
-                    return "rgba(52, 152, 219, 0.18)";  // future pre-booking (blue)
+                if (db === 0) {
+                    // ASAP job — always red
+                    return "rgba(192, 57, 43, 0.22)";
                 }
+                if (minsUntil <= db) {
+                    // Dispatch window open or overdue — red (also flashes via alerting)
+                    return "rgba(192, 57, 43, 0.22)";
+                }
+                // Future pre-booking still has time — blue
+                return "rgba(52, 152, 219, 0.22)";
             }
             $scope.JobMinstime = 0;
             $scope.EditJobunassignedng =   function (ele,JobMins) {
