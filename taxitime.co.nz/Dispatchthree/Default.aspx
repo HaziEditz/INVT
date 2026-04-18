@@ -1266,6 +1266,98 @@
         </div>
     </div>
 
+    <!-- ═══ Shared Job Detail Popup — opens from Closed Jobs OR Search Jobs ═══ -->
+    <div class="modal fade" id="job-detail-popup" tabindex="-1" style="z-index:1060;">
+        <div class="modal-dialog" style="max-width:760px; width:95vw; margin:40px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 16px 48px rgba(0,0,0,0.35);">
+                <!-- Header -->
+                <div class="modal-header" style="background:#1a1a2e; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 id="jdp-title" style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-file-text-o" style="color:#dfba5f; margin-right:8px;"></i>Job Details
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.7; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
+                </div>
+                <!-- Body -->
+                <div class="modal-body" style="padding:0; max-height:80vh; overflow-y:auto;">
+                    <!-- Loading state -->
+                    <div id="jdp-loading" style="text-align:center; padding:48px 0; color:#888;">
+                        <i class="fa fa-spinner fa-spin" style="font-size:28px; color:#dfba5f;"></i>
+                        <p style="margin-top:12px; font-size:13px;">Loading job details…</p>
+                    </div>
+                    <!-- Content (hidden until loaded) -->
+                    <div id="jdp-content" style="display:none; padding:20px;">
+                        <!-- Status banner -->
+                        <div id="jdp-status-bar" style="display:flex; align-items:center; gap:10px; background:#f4f5f7; border-radius:8px; padding:12px 16px; margin-bottom:18px;">
+                            <span id="jdp-badge" style="background:#dfba5f; color:#1a1a2e; font-size:11px; font-weight:700; text-transform:uppercase; padding:4px 10px; border-radius:20px; letter-spacing:0.5px;"></span>
+                            <span id="jdp-bookingid" style="font-size:13px; color:#666;"></span>
+                            <span style="flex:1;"></span>
+                            <span id="jdp-source" style="font-size:11px; color:#aaa;"></span>
+                        </div>
+                        <!-- Addresses -->
+                        <div style="background:#fff; border:1px solid #e2e4ea; border-radius:8px; padding:14px 16px; margin-bottom:14px;">
+                            <div style="margin-bottom:10px;">
+                                <div style="font-size:9px; font-weight:700; color:#dfba5f; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px;"><i class="fa fa-map-marker" style="margin-right:4px;"></i>Pickup</div>
+                                <div id="jdp-pickup" style="font-size:14px; color:#222; font-weight:500;"></div>
+                            </div>
+                            <div style="border-top:1px dashed #e0e2e8; padding-top:10px;">
+                                <div style="font-size:9px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px;"><i class="fa fa-flag-checkered" style="margin-right:4px;"></i>Drop-off</div>
+                                <div id="jdp-dropoff" style="font-size:14px; color:#444;"></div>
+                            </div>
+                        </div>
+                        <!-- Two columns: passenger + driver -->
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+                            <!-- Passenger -->
+                            <div style="background:#fff; border:1px solid #e2e4ea; border-radius:8px; padding:14px 16px;">
+                                <div style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px; border-bottom:1px solid #f0f0f0; padding-bottom:6px;">Passenger</div>
+                                <div style="font-size:13px; color:#222; font-weight:600; margin-bottom:4px;" id="jdp-name"></div>
+                                <div style="font-size:12px; color:#666;" id="jdp-phone"></div>
+                                <div style="margin-top:10px; display:flex; gap:16px;">
+                                    <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Pax</div><div style="font-size:14px; font-weight:600; color:#333;" id="jdp-pax"></div></div>
+                                    <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Bags</div><div style="font-size:14px; font-weight:600; color:#333;" id="jdp-bags"></div></div>
+                                    <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Chairs</div><div style="font-size:14px; font-weight:600; color:#333;" id="jdp-chairs"></div></div>
+                                </div>
+                            </div>
+                            <!-- Driver / Vehicle -->
+                            <div style="background:#fff; border:1px solid #e2e4ea; border-radius:8px; padding:14px 16px;">
+                                <div style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px; border-bottom:1px solid #f0f0f0; padding-bottom:6px;">Driver / Vehicle</div>
+                                <div style="font-size:13px; color:#222; font-weight:600; margin-bottom:4px;" id="jdp-driver"></div>
+                                <div style="font-size:12px; color:#666; margin-bottom:4px;" id="jdp-vehicle"></div>
+                                <div style="font-size:12px; color:#888;" id="jdp-dispatcher"></div>
+                            </div>
+                        </div>
+                        <!-- Times -->
+                        <div style="background:#fff; border:1px solid #e2e4ea; border-radius:8px; padding:14px 16px; margin-bottom:14px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">
+                            <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Booked</div><div style="font-size:12px; color:#333;" id="jdp-booked"></div></div>
+                            <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Closed</div><div style="font-size:12px; color:#333;" id="jdp-closed"></div></div>
+                            <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Vehicle Type</div><div style="font-size:12px; color:#333;" id="jdp-vtype"></div></div>
+                        </div>
+                        <!-- Notes -->
+                        <div id="jdp-notes-wrap" style="display:none; background:#fffbf0; border:1px solid #f0dda0; border-radius:8px; padding:12px 16px; margin-bottom:14px;">
+                            <div style="font-size:10px; font-weight:700; color:#b8960a; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px;">Ride Notes</div>
+                            <div id="jdp-notes" style="font-size:13px; color:#444;"></div>
+                        </div>
+                    </div>
+                    <!-- Not found state -->
+                    <div id="jdp-notfound" style="display:none; text-align:center; padding:48px 0; color:#aaa;">
+                        <i class="fa fa-exclamation-circle" style="font-size:28px;"></i>
+                        <p style="margin-top:12px; font-size:13px;">Job details not found.</p>
+                    </div>
+                </div>
+                <!-- Footer: PDF button -->
+                <div class="modal-footer" style="background:#f8f9fb; border-top:1px solid #e0e2e8; padding:10px 20px; display:flex; justify-content:space-between; align-items:center;">
+                    <span id="jdp-tariff" style="font-size:12px; color:#888;"></span>
+                    <button onclick="GeneratePDF()" class="btn btn-sm" style="background:#dfba5f; color:#1a1a2e; font-weight:700; border:none; border-radius:6px; padding:6px 16px; font-size:12px; cursor:pointer;">
+                        <i class="fa fa-file-pdf-o" style="margin-right:5px;"></i>PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <style>
+        #job-detail-popup.modal { z-index: 1060 !important; }
+        #job-detail-popup .modal-backdrop { z-index: 1059 !important; }
+    </style>
+
      <div id="updateapproval" class="modal fade" role="dialog">
             <div class="modal-dialog">
              <div class="modal-content" style="width: 1120px; margin-left: -350px;">
@@ -7637,35 +7729,22 @@ $(document).ready(function() {
         }
         var coords;
         $scope.JobDetails = function(ele) {
- 
-            var param = [{ "name": "Id", "value": ele }];
-            var proc = 'JobDetails';
-            Selector1(param, proc).then(function (result) {
-                if (result.d == "Session is experied, please login again") {
-                    alert(result.d);
-                    window.location.href = "DispatcherLogin.aspx?";
-                }
-                else {
-                    $res = JSON.parse(result.d);
-              
-                    if ($res.length != []) {
-
-                        console.log($res);
-
-                        $scope.jobdetailshowing = $res;
-                        var input  = $res[0].Route;
-              
-                        console.log(input);
-
-                        $('#coords').val(input)
-                        $('#plot').click();
-                        if (!$scope.$$phase) { $scope.$digest(); }
-                    }
-                    else {
-                        $("#JobsDetailsSection").append('<div style="cursor:pointer" class="row">Some Details are missing for this job</div>');
-                    }
-                }
-            });
+            // Delegate to the shared popup which works from any modal context
+            if (typeof ShowJobPopup === 'function') {
+                ShowJobPopup(ele);
+            } else {
+                // Fallback: direct fetch if popup not yet ready
+                var param = [{ "name": "Id", "value": ele }];
+                Selector1(param, 'JobDetails').then(function (result) {
+                    try {
+                        $res = JSON.parse(result.d);
+                        if ($res && $res.length > 0) {
+                            $scope.jobdetailshowing = $res;
+                            if (!$scope.$$phase) { $scope.$digest(); }
+                        }
+                    } catch(e) {}
+                });
+            }
         }
  
         
@@ -15600,11 +15679,13 @@ $(document).ready(function() {
                         $res = JSON.parse(result.d);
                         var datasetx = [];
              
+                        var closedJobIdMap = [];
                         for ($i = 0; $i < $res["dt1"].length; $i++) {
                             var datas = [];
-                            $action =  "<span><i class='fa fa-search txt-theme' onclick='ShowJobDetails(" + $res["dt1"][$i].Id + ")'></i></span>";
+                            closedJobIdMap.push($res["dt1"][$i].Id);
+                            $action =  "<span style='cursor:pointer;'><i class='fa fa-search txt-theme'></i></span>";
                             datas.push($action);
-                            $refresh = " <span><i class='fa fa-refresh txt-theme' onclick='RefreshJob(" + $res["dt1"][$i].Id + ")'></i></span>";
+                            $refresh = " <span><i class='fa fa-refresh txt-theme' onclick='event.stopPropagation(); RefreshJob(" + $res["dt1"][$i].Id + ")'></i></span>";
                             datas.push($refresh);
                             datas.push("<span>"+ $res["dt1"][$i].BookingDateTime+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].JobCompleteTime+"</span>");
@@ -15622,7 +15703,7 @@ $(document).ready(function() {
                         var tabless =  $('#tbleClosedJobs').DataTable({
                             data: datasetx,
                             columns: [
-                                { title: "Show Jobs" },
+                                { title: "Details" },
                                 { title: "Refresh" },
                                 { title: "Filed" },
                                 { title: "Closed" },
@@ -15633,7 +15714,7 @@ $(document).ready(function() {
                                 { title: "Vehicle" },
                                 { title: "Driver" },
                                 { title: "Source" },
-                                { title: "Reason" }
+                                { title: "Status" }
                             ],
                             dom: 'Bfrtip',
                             buttons: [
@@ -15641,8 +15722,17 @@ $(document).ready(function() {
                             ],
                             destroy: true,
                             paging: true,
-                            autoWidth: false
-                      
+                            autoWidth: false,
+                            createdRow: function(row, data, dataIndex) {
+                                var jid = closedJobIdMap[dataIndex];
+                                $(row).css('cursor','pointer').attr('data-jobid', jid)
+                                    .on('click', function(e) {
+                                        if ($(e.target).closest('[onclick]').length) return;
+                                        ShowJobPopup(jid);
+                                    })
+                                    .on('mouseenter', function() { $(this).css('background','rgba(223,186,95,0.08)'); })
+                                    .on('mouseleave', function() { $(this).css('background',''); });
+                            }
                         });
              
                         $('#container').css( 'display', 'block' );
@@ -15817,11 +15907,79 @@ $(document).ready(function() {
             // the inline <script> inside the Search Jobs modal HTML above.
 
 
-            function ShowJobDetails(ele) {
-                angular.element(document.getElementById('myangular')).scope().JobDetails( ele);
+            // ── Shared Job Detail Popup ─────────────────────────────────────────
+            // Called from Closed Jobs DataTable rows AND Search Jobs result cards.
+            // Opens a stacked popup modal and populates it with data from JobDetails endpoint.
+            function ShowJobPopup(jobId) {
+                // Ensure stacked modals backdrop stacks correctly
+                $(document).off('shown.bs.modal.jdp').on('shown.bs.modal.jdp', '#job-detail-popup', function () {
+                    var zMax = 1040;
+                    $('.modal.in, .modal.show').each(function() { var z = parseInt($(this).css('z-index'),10)||0; if(z > zMax) zMax = z; });
+                    $(this).css('z-index', zMax + 20);
+                    setTimeout(function() { $('.modal-backdrop').not('.jdp-bd').last().addClass('jdp-bd').css('z-index', zMax + 10); }, 0);
+                });
 
-                $("#closed-jobs").modal('hide');
-                $("#search-jobs").modal('show');
+                // Reset to loading state then open
+                $('#jdp-loading').show();
+                $('#jdp-content').hide();
+                $('#jdp-notfound').hide();
+                $('#job-detail-popup').modal('show');
+
+                // Fetch details
+                Selector1([{ name: 'Id', value: jobId }], 'JobDetails').then(function(result) {
+                    try {
+                        var data = JSON.parse(result.d);
+                        if (!data || data.length === 0) { $('#jdp-loading').hide(); $('#jdp-notfound').show(); return; }
+                        var j = data[0];
+                        var statusColors = {
+                            Completed: '#27ae60', Dispatched: '#27ae60', Active: '#e74c3c',
+                            Assigned: '#2980b9', Offered: '#8e44ad', Pending: '#f39c12',
+                            Cancel: '#7f8c8d', 'No Show': '#7f8c8d', Reject: '#7f8c8d'
+                        };
+                        var st = j.BookingStatus || '';
+                        var stColor = statusColors[st] || '#dfba5f';
+                        $('#jdp-badge').text(st).css('background', stColor).css('color', '#fff');
+                        $('#jdp-bookingid').text('Job #' + (j.bookingidx || j.Id || jobId));
+                        $('#jdp-source').text(j.BookingSource || '');
+                        $('#jdp-title').html('<i class="fa fa-file-text-o" style="color:#dfba5f; margin-right:8px;"></i>Job #' + (j.bookingidx || j.Id || jobId));
+                        $('#jdp-pickup').text(j.PickAddress || '—');
+                        $('#jdp-dropoff').text(j.DropAddress || 'Not set');
+                        var drvName = ((j.UserFName||'') + ' ' + (j.UserLName||'')).trim() || '—';
+                        $('#jdp-driver').text(drvName);
+                        $('#jdp-vehicle').text( (j.CallSign ? j.CallSign + ' / ' : '') + (j.VehicleNo || '—') );
+                        $('#jdp-dispatcher').text(j.DispatcherName ? 'Dispatched by: ' + j.DispatcherName : '');
+                        var pasName = (j.Name || j.ppname || '—');
+                        $('#jdp-name').text(pasName);
+                        $('#jdp-phone').text(j.PhoneNo || j.AccountId || '');
+                        $('#jdp-pax').text(j.Passengers || '1');
+                        $('#jdp-bags').text(j.Bags || '0');
+                        $('#jdp-chairs').text(j.WheelChairs || '0');
+                        $('#jdp-booked').text(j.BookingDateTime || '—');
+                        $('#jdp-closed').text(j.JobCompleteTime || '—');
+                        $('#jdp-vtype').text(j.VehicleType || '—');
+                        $('#jdp-tariff').text(j.TarriffType ? 'Tariff: ' + j.TarriffType : '');
+                        var notes = j.EntitiesDetails || j.jobinfo || '';
+                        if (notes) { $('#jdp-notes').text(notes); $('#jdp-notes-wrap').show(); } else { $('#jdp-notes-wrap').hide(); }
+                        // Also update the Angular scope right-panel (Search Jobs) in parallel
+                        try {
+                            var sc = angular.element(document.getElementById('myangular')).scope();
+                            if (sc) { sc.jobdetailshowing = data; if (!sc.$$phase) { sc.$digest(); } }
+                        } catch(e) {}
+                        $('#jdp-loading').hide();
+                        $('#jdp-content').show();
+                    } catch(e) {
+                        console.warn('[ShowJobPopup] parse error:', e);
+                        $('#jdp-loading').hide();
+                        $('#jdp-notfound').show();
+                    }
+                }).fail(function() {
+                    $('#jdp-loading').hide();
+                    $('#jdp-notfound').show();
+                });
+            }
+
+            function ShowJobDetails(ele) {
+                ShowJobPopup(ele);
             }
 
 
