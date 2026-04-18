@@ -11330,6 +11330,7 @@ $(document).ready(function() {
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
             $scope.selecteddriver = -2;
+            if (typeof $scope.getddlvehicle === 'function') $scope.getddlvehicle();
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
             $scope.LocalDropLat = 0 ;
@@ -13736,6 +13737,7 @@ $(document).ready(function() {
                         }else if($res["dt1"][0].BookingStatus == 'Pending'){
                             $scope.selecteddriver = -2;
                             $scope.selecteddriverpre = 0;
+                            if (typeof $scope.getddlvehicle === 'function') $scope.getddlvehicle();
                         }else if($res["dt1"][0].BookingStatus == 'Offered'){
                                   $scope.vehicleidpre =  $res["dt1"][0].vehicleid;
                                  $scope.selecteddriver =  parseInt($res["dt1"][0].DriverId);
@@ -14454,7 +14456,9 @@ $(document).ready(function() {
                                     VehicleId : $res['dt1'][0].vehicleid
                                 });
                            
-                                $scope.selecteddriver =  parseInt($res["dt1"][0].DriverId);
+                                var _did14 = parseInt($res["dt1"][0].DriverId) || 0;
+                                $scope.selecteddriver = _did14 > 0 ? _did14 : (_did14 === -1 ? -1 : -2);
+                                if (typeof $scope.getddlvehicle === 'function') $scope.getddlvehicle();
                                 $scope.selecteddriverpre =  parseInt($res["dt1"][0].DriverId);
                                 $scope.vehicleidpre =  $res["dt1"][0].vehicleid;
                                 $scope.stoplistarray = [];
