@@ -2405,200 +2405,80 @@ $(document).ready(function() {
                                                                 <label>now</label>
                                                                 <input type="radio"  id="nowcheck" name="time" ng-checked="bookingtime_select == 0" ng-value="0" ng-model="bookingtime_select">
                                                                 <label>later</label>
-                                                                <input type="radio" id="latecheck" name="time" ng-value="1"  ng-checked="bookingtime_select == 1"  ng-model="bookingtime_select">
+                                                                <input type="radio" id="latecheck" name="time" ng-value="1"  ng-checked="bookingtime_select == 1"  ng-model="bookingtime_select" ng-change="initLaterTime()">
                                                             
                                                             </label>
                                                             </br>
                                                              
-                                                            <input class="label label-primary" type="date" id="laterDate"  ng-model="datetimemain"  ng-show="bookingtime_select == 1"  />
-                                                            
-                                                         <select onchange="checktime_now(this.value) " class="label label-primary"  ng-show="bookingtime_select == 1"   id="ddlLaterHrs" ng-model="ddlLaterHrs"  >
-                                                                                            <option value="00">00</option>
-                                                                                            <option value="01">01</option>
-                                                                                            <option value="02">02</option>
-                                                                                            <option value="03">03</option>
-                                                                                            <option value="04">04</option>
-                                                                                            <option value="05">05</option>
-                                                                                            <option value="06">06</option>
-                                                                                            <option value="07">07</option>
-                                                                                            <option value="08">08</option>
-                                                                                            <option value="09">09</option>
-                                                                                            <option value="10">10</option>
-                                                                                            <option value="11">11</option>
-                                                                                            <option value="12">12</option>
-                                                                                            <option value="13">13</option>
-                                                                                            <option value="14">14</option>
-                                                                                            <option value="15">15</option>
-                                                                                            <option value="16">16</option>
-                                                                                            <option value="17">17</option>
-                                                                                            <option value="18">18</option>
-                                                                                            <option value="19">19</option>
-                                                                                            <option value="20">20</option>
-                                                                                            <option value="21">21</option>
-                                                                                            <option value="22">22</option>
-                                                                                            <option value="23">23</option>
-                                                                                        </select>
-                                                           
-                                                         
-                                                           <select   ng-model="ddlLaterMins"  onchange="minutechecks_now(this.value)" class="label label-primary" id="ddlLaterMins" ng-show="bookingtime_select == 1"  >
-                                                                <option value="00">00</option>
-                                                            <option value="01">01</option>
-                                                            <option value="02">02</option>
-                                                            <option value="03">03</option>
-                                                            <option value="04">04</option>
-                                                            <option value="05">05</option>
-                                                            <option value="06">06</option>
-                                                            <option value="07">07</option>
-                                                            <option value="08">08</option>
-                                                            <option value="09">09</option>
-                                                            <option value="10">10</option>
-                                                            <option value="11">11</option>
-                                                            <option value="12">12</option>
-                                                            <option value="13">13</option>
-                                                            <option value="14">14</option>
-
-                                                            <option value="15">15</option>
-                                                            <option value="16">16</option>
-                                                            <option value="17">17</option>
-                                                            <option value="18">18</option>
-                                                            <option value="19">19</option>
-                                                            <option value="20">20</option>
-                                                            <option value="21">21</option>
-                                                            <option value="22">22</option>
-                                                            <option value="23">23</option>
-                                                            <option value="24">24</option>
-                                                            <option value="25">25</option>
-                                                            <option value="26">26</option>
-                                                            <option value="27">27</option>
-                                                            <option value="28">28</option>
-                                                            <option value="29">29</option>
-                                                            <option value="30">30</option>
-                                                            <option value="31">31</option>
-                                                            <option value="32">32</option>
-                                                            <option value="33">33</option>
-                                                            <option value="34">34</option>
-                                                            <option value="35">35</option>
-                                                             <option value="36">36</option>
-                                                             <option value="37">37</option>
-                                                             <option value="38">38</option>
-                                                             <option value="39">39</option>
-                                                            <option value="40">40</option>
-                                                            <option value="41">41</option>
-                                                            <option value="42">42</option>
-                                                            <option value="43">43</option>
-                                                            <option value="44">44</option>
-                                                            <option value="45">45</option>
-                                                            <option value="46">46</option>
-                                                            <option value="47">47</option>
-                                                            <option value="48">48</option>
-                                                            <option value="49">49</option>
-                                                            <option value="50">50</option>
-                                                            <option value="51">51</option>
-                                                            <option value="52">52</option>
-                                                            <option value="53">53</option>
-                                                            <option value="54">54</option>
-                                                            <option value="55">55</option>
-                                                            <option value="56">56</option>
-                                                            <option value="57">57</option>
-                                                            <option value="58">58</option>
-                                                            <option value="59">59</option>
-                                                            <option value="60">60</option>
-                                                           </select>
- 
-                                                            <select id="assign_notice"  ng-model="assign_notice" class="label label-primary" ng-show="bookingtime_select == 1" >
-                                                                 <option value="0">0min</option>
-                                                                <option value="5">5min</option>
-                                                                <option value="10">10min</option>
-                                                                <option value="15">15min</option>
-                                                                <option value="20">20min</option>
-                                                                <option value="30">30min</option>
-                                                                <option value="45">45min</option>
-                                                                <option value="60">1h0min</option>
-                                                                <option value="75">1h15min</option>
-                                                                <option value="90">1h30min</option>
-                                                                <option value="120">2h0min</option>                                                             
-                                                            </select>
+                                                            <div ng-show="bookingtime_select == 1" style="margin-top:6px;">
+                                                                <div style="margin-bottom:4px;">
+                                                                    <label class="label label-default" style="margin-right:4px;font-weight:bold;">Date</label>
+                                                                    <input class="label label-primary" type="date" id="laterDate" ng-model="latedate" style="padding:2px 6px;" />
+                                                                </div>
+                                                                <div style="margin-bottom:4px;">
+                                                                    <label class="label label-default" style="margin-right:4px;font-weight:bold;">Time (24h)</label>
+                                                                    <select onchange="checktime_now(this.value)" class="label label-primary" id="ddlLaterHrs" ng-model="ddlLaterHrs">
+                                                                        <option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option>
+                                                                        <option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option>
+                                                                        <option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option>
+                                                                        <option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
+                                                                        <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option>
+                                                                        <option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option>
+                                                                    </select>
+                                                                    <span style="font-weight:bold;margin:0 3px;">:</span>
+                                                                    <select ng-model="ddlLaterMins" onchange="minutechecks_now(this.value)" class="label label-primary" id="ddlLaterMins">
+                                                                        <option value="00">00</option><option value="05">05</option><option value="10">10</option><option value="15">15</option>
+                                                                        <option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="35">35</option>
+                                                                        <option value="40">40</option><option value="45">45</option><option value="50">50</option><option value="55">55</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div style="margin-bottom:4px;">
+                                                                    <label class="label label-default" style="margin-right:4px;font-weight:bold;">Dispatch before</label>
+                                                                    <select id="assign_notice" ng-model="assign_notice" class="label label-primary">
+                                                                        <option value="0">0 min</option>
+                                                                        <option value="5">5 min</option>
+                                                                        <option value="10">10 min</option>
+                                                                        <option value="15">15 min</option>
+                                                                        <option value="20">20 min</option>
+                                                                        <option value="30">30 min</option>
+                                                                        <option value="45">45 min</option>
+                                                                        <option value="60">1h 0min</option>
+                                                                        <option value="75">1h 15min</option>
+                                                                        <option value="90">1h 30min</option>
+                                                                        <option value="120">2h 0min</option>
+                                                                    </select>
+                                                                </div>
+                                                            </div>
                                                      
          
                                                         </div>
                                                         <script>
                                                             function minutechecks_now(currentminute) {
-                                                                $('#ddlLaterMins').css("color", "black");
-                                                                var  current_hour = document.getElementById('ddlLaterHrs').value;
-                                                                var today = new Date();
-                                                                var hh = today.getHours();
-                                                                var minute = today.getMinutes();
-
                                                                 var valueofdate = document.getElementById("laterDate").value;
-        
-                                                                var today = new Date();
-                                                                var dd = String(today.getDate()).padStart(2, '0');
-                                                                var mm = String(today.getMonth() + 1).padStart(2, '0'); //January is 0!
-                                                                var yyyy = today.getFullYear();
-                                                                var hh = today.getHours();
-                                                                today =  yyyy + '-' +  mm + '-' +  dd;
-                                                                if (valueofdate > today) {
-             
-                                                                } else if (valueofdate < today) {
-                                                                    //alert("This Date is Already Passed , Current Date is :" + today);
-                                                                    Swal.fire(
-                                                                      'Warning!',
-                                                                      "This Date is Already Passed , Current Date is :" + today,
-                                                                      'warning'
-                                                                    );
-                                                                    document.getElementById('ddlLaterHrs').value = "00";
-                                                                } else {
-                                                                    if (current_hour > hh) {
-
-
-                                                                    } else {
-                                                                        if (currentminute < minute) {
-                                                                            Swal.fire(
-                                                                       'Warning!',
-                                                                       "This Minute is Already Passed , Current Minute is :" + minute,
-                                                                       'warning'
-                                                                     );
-                                                                            document.getElementById('ddlLaterMins').value = minute;
-                                                                        }
+                                                                var now = new Date();
+                                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                                                                if (valueofdate < todayStr) {
+                                                                    Swal.fire('Warning!', 'This date has already passed. Please select today or a future date.', 'warning');
+                                                                } else if (valueofdate === todayStr) {
+                                                                    var selHr = parseInt(document.getElementById('ddlLaterHrs').value) || 0;
+                                                                    var curHr = now.getHours();
+                                                                    var curMin = now.getMinutes();
+                                                                    if (selHr === curHr && parseInt(currentminute) <= curMin) {
+                                                                        var snap = Math.ceil((curMin + 1) / 5) * 5;
+                                                                        if (snap >= 60) snap = 55;
+                                                                        document.getElementById('ddlLaterMins').value = String(snap).padStart(2,'0');
                                                                     }
                                                                 }
-
-     
-
-
-
                                                             }
                                                             function checktime_now(currenthour) {
-                                                               
                                                                 var valueofdate = document.getElementById("laterDate").value;
-        
-                                                                var today = new Date();
-                                                                var dd = String(today.getDate()).padStart(2, '0');
-                                                                var mm = String(today.getMonth() + 1).padStart(2, '0'); //January is 0!
-                                                                var yyyy = today.getFullYear();
-                                                                var hh = today.getHours();
-                                                                today =  yyyy + '-' +  mm + '-' +  dd;
-                                                                if (valueofdate > today) {
-             
-                                                                } else if (valueofdate < today) {
-                                                                    //alert("This Date is Already Passed , Current Date is :" + today);
-                                                                    Swal.fire(
-                                                                      'Warning!',
-                                                                      "This Date is Already Passed , Current Date is :" + today,
-                                                                      'warning'
-                                                                    );
-                                                                    document.getElementById('ddlLaterHrs').value = "00";
-                                                                } else {
-                                                                    if (currenthour < hh) {
-                                                                        //alert("This Hour is Already Passed , Current Hour is : " + hh);
-                                                                        Swal.fire(
-                                                                         'Warning!',
-                                                                         "This Hour is Already Passed , Current Hour is : " + hh,
-                                                                         'warning'
-                                                                       );
-                                                                        document.getElementById('ddlLaterHrs').value = hh;
-
-                                                                    }
+                                                                var now = new Date();
+                                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                                                                if (valueofdate < todayStr) {
+                                                                    Swal.fire('Warning!', 'This date has already passed. Please select today or a future date.', 'warning');
+                                                                } else if (valueofdate === todayStr && parseInt(currenthour) < now.getHours()) {
+                                                                    Swal.fire('Warning!', 'This hour has already passed. Setting to current hour.', 'warning');
+                                                                    document.getElementById('ddlLaterHrs').value = String(now.getHours()).padStart(2,'0');
                                                                 }
                                                             }
                                                         </script>
@@ -8498,6 +8378,18 @@ $(document).ready(function() {
         $scope.latehours = 0;
         $scope.latemin = 0;
         $scope.dispatchlatertime = 0
+
+        $scope.initLaterTime = function () {
+            var n = new Date();
+            var d = ("0" + n.getDate()).slice(-2);
+            var mo = ("0" + (n.getMonth() + 1)).slice(-2);
+            $scope.latedate = n.getFullYear() + '-' + mo + '-' + d;
+            $scope.ddlLaterHrs = ("0" + n.getHours()).slice(-2);
+            var mins = Math.ceil(n.getMinutes() / 5) * 5;
+            if (mins >= 60) { mins = 0; }
+            $scope.ddlLaterMins = ("0" + mins).slice(-2);
+            if ($scope.assign_notice === '0' || !$scope.assign_notice) $scope.assign_notice = '10';
+        };
 
         $scope.btnReverse = function () {
            
