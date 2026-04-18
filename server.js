@@ -125,16 +125,18 @@ function buildJobListResponse(jobs) {
   // Terminal statuses — jobs in these states are done and must NOT appear in the dispatcher queue
   const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
   const allNonTerminal = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
-  // dt1 = ONLY Pending/Offered/Reject — these belong in the Unassigned/Pending tab.
+  // dt1 = jobs that belong in the Unassigned/Pending tab.
+  // 'Unreached' = driver didn't respond; 'No One' = auto-dispatch found no driver.
+  // Both must reappear in the Unassigned tab so dispatch can re-offer them.
   // Active and Assigned jobs must NOT appear here; they have their own tabs.
-  const PENDING_ST = new Set(['Pending', 'Offered', 'Reject']);
+  const PENDING_ST = new Set(['Pending', 'Offered', 'Reject', 'Unreached', 'No One']);
   const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus));
   const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
     dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned').length }],
     dt3: [{ ActiveCount: allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
-    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending').length }],
+    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One').length }],
     dt5: [{ PublicKey: '' }],
   };
 }
@@ -542,6 +544,7 @@ const server = http.createServer(async (req, res) => {
           job.VehicleId = vehicleId;
           job.DriverId  = driverId;
           job.BookingStatus = driverId > 0 ? 'Offered' : 'Pending';
+          if (job.BookingStatus === 'Offered') job.returnReason = '';
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Booking Details Update Successfully"`);
@@ -754,9 +757,11 @@ const server = http.createServer(async (req, res) => {
         // Called via Action() → DataProcessor URL. Update a job's booking status.
         const bookingId = parseInt(param('bookingid') || '0') || 0;
         const newStatus = param('ridestatus') || '';
+        const returnReason = (param('returnreason') || '').trim();
         const job = jobStore.find(j => j.Id === bookingId);
         if (job && newStatus) {
           job.BookingStatus = newStatus;
+          if (returnReason) job.returnReason = returnReason;
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
@@ -764,7 +769,7 @@ const server = http.createServer(async (req, res) => {
           }
           saveJobStore();
         }
-        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[DriverStatusChanged]') {
@@ -1250,9 +1255,11 @@ const server = http.createServer(async (req, res) => {
         // Update a job's booking status (e.g. mark as Unreached after failed dispatch)
         const bookingId = parseInt(param('bookingid') || '0') || 0;
         const newStatus = param('ridestatus') || '';
+        const returnReason = (param('returnreason') || '').trim();
         const job = jobStore.find(j => j.Id === bookingId);
         if (job && newStatus) {
           job.BookingStatus = newStatus;
+          if (returnReason) job.returnReason = returnReason;
           // Only release (reset) the driver when the job is being cancelled/unassigned.
           // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);

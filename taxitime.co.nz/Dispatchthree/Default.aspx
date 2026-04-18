@@ -369,6 +369,7 @@
                                                                 
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
+                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" style="background:#c0392b;color:#fff;font-weight:bold;"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail )}}
@@ -2970,6 +2971,7 @@ $(document).ready(function() {
                                                                 
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
+                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" style="background:#c0392b;color:#fff;font-weight:bold;"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3135,6 +3137,7 @@ $(document).ready(function() {
                                                                 
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
+                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" style="background:#c0392b;color:#fff;font-weight:bold;"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -5786,7 +5789,7 @@ $(document).ready(function() {
     
 
     function checkingjobz(vehicle , id,driverid){
-        $message  = 'Job Not Shown to driver app. Try Again!';
+        $message  = 'Driver did not respond';
         console.log("checking job");
         setTimeout(function(){   if($('.vowali #Divo'+id).length ){
             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
@@ -5804,7 +5807,7 @@ $(document).ready(function() {
 
     }
     function checkingjob(id,driverid){
-        $message  = 'Job Not Shown to driver app. Try Again!';
+        $message  = 'Not shown – driver app in background';
         console.log("checking job");
         setTimeout(function(){   if($('.vowali #Divo'+id).length ){
             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
@@ -5872,7 +5875,7 @@ $(document).ready(function() {
                             firebase.database().ref().child("/notification/" + driverid).remove();
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
-                            convertstatus(id, 'Pending', driverid, '');
+                            convertstatus(id, 'Pending', driverid, 'Rejected by driver');
                             var _scx2 = angular.element(document.getElementById('myangular')).scope();
                             if (_scx2 && typeof _scx2.getjobs === 'function') _scx2.getjobs();
                             return;
@@ -5905,17 +5908,17 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    convertstatus(id, 'Pending', driverid, '');
+                                    convertstatus(id, 'Pending', driverid, 'Rejected by driver');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
                                     console.log("Reject by job reached but is in background");
-                                    $message  = 'Job Not Shown to driver app. Try Again!';
+                                    $message  = 'Not shown – app in background';
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
-                                    convertstatus(id, 'Pending', driverid, '');
+                                    convertstatus(id, 'Pending', driverid, $message);
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
 
                                 
@@ -5945,7 +5948,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
-                                convertstatus(id, 'Pending', driverid, '');
+                                convertstatus(id, 'Pending', driverid, 'Rejected by driver');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }  else{
@@ -5955,7 +5958,7 @@ $(document).ready(function() {
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
-                                    convertstatus(id, 'Pending', driverid, '');
+                                    convertstatus(id, 'Pending', driverid, 'No response from driver');
                                     return;
                                 }else{
  
@@ -6058,17 +6061,17 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    convertstatus(id, 'Pending', driverid, '');
+                                    convertstatus(id, 'Pending', driverid, 'Rejected by driver');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
                                     console.log("Reject by job reached but is in background");
-                                    $message  = 'Job Not Shown to driver app. Try Again!';
+                                    $message  = 'Not shown – app in background';
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
-                                    convertstatus(id, 'Pending', driverid, '');
+                                    convertstatus(id, 'Pending', driverid, $message);
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
 
                                 
@@ -6098,7 +6101,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
-                                convertstatus(id, 'Pending', driverid, '');
+                                convertstatus(id, 'Pending', driverid, 'Rejected by driver');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }  else{
@@ -6108,7 +6111,7 @@ $(document).ready(function() {
                                     $('#Divo'+bookid).remove();
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
-                                    convertstatus(id, 'Pending', driverid, '');
+                                    convertstatus(id, 'Pending', driverid, 'No response from driver');
                                     return;
                                 }else{
  
@@ -6231,7 +6234,8 @@ $(document).ready(function() {
                        angular.element(document.getElementById('myangular')).scope().playAudio1( );
                        
                        var  param = [   { "name": "bookingid", "Value": id},
-                         { "name": "ridestatus", "Value": status} 
+                         { "name": "ridestatus", "Value": status},
+                         { "name": "returnreason", "Value": messagezz || ''}
                        ];
 
                        
@@ -6292,7 +6296,8 @@ $(document).ready(function() {
                        angular.element(document.getElementById('myangular')).scope().playAudio1( );
                        
                        var  param = [   { "name": "bookingid", "Value": id},
-                         { "name": "ridestatus", "Value": status} 
+                         { "name": "ridestatus", "Value": status},
+                         { "name": "returnreason", "Value": messagezz || ''}
                        ];
 
                        
@@ -10092,7 +10097,7 @@ $(document).ready(function() {
       
                                 if($respp == null  ){
                         
-                                    $message  = 'Job Not Shown to driver app. Try Again!';
+                                    $message  = 'Not shown – app in background';
                                      setTimeout(function(){  
                                         if($('#Divo'+id).length && chck == true ){
                                         var DbRefz = firebase.database();
@@ -10138,7 +10143,7 @@ $(document).ready(function() {
                                                      chck1 = false;
                                                     console.log("Reject by job reached but is in background");
                                                     refaz.off("value", listener);
-                                                    $message  = 'Job Not Shown to driver app. Try Again!';
+                                                    $message  = 'Not shown – app in background';
                                                     firebase.database().ref().child("joback/"+id+"/"+obj[i].PlayerId).remove();
                                                     firebase.database().ref().child("/autodisp/"+obj[i].PlayerId).remove();
                                             
