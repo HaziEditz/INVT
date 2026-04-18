@@ -6342,7 +6342,12 @@ $(document).ready(function() {
                               success: function (response) {
                                   console.log("status :" + status);
                                   toastr["warning"]('Driver did not respond. Job returned to queue.', 'Warning!');
-                                  angular.element(document.getElementById('myangular')).scope().getjobs();
+                                  var sc = angular.element(document.getElementById('myangular')).scope();
+                                  if (sc) {
+                                      sc.getjobs();
+                                      if (typeof sc.AssignedJobs === 'function') { sc.AssignedJobs(); }
+                                      if (typeof sc.ActiveJobsdata === 'function') { sc.ActiveJobsdata(); }
+                                  }
                               }
                           });
  

@@ -433,7 +433,7 @@
         <button onclick="closeSignup()" style="padding:10px 28px;background:#f5be1e;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">Go to Console</button>
       </div>
 
-      <div id="suForm">
+      <form id="suForm" onsubmit="submitSignup();return false;" autocomplete="on">
         <div id="suError" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;color:#dc2626;font-size:13px;margin-bottom:16px;"></div>
 
         <div style="display:flex;flex-direction:column;gap:13px;">
@@ -463,11 +463,11 @@
           </div>
         </div>
 
-        <button id="suBtn" onclick="submitSignup()" style="margin-top:20px;width:100%;padding:12px;background:#f5be1e;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:#1a1d21;">
+        <button id="suBtn" type="submit" style="margin-top:20px;width:100%;padding:12px;background:#f5be1e;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:#1a1d21;">
           Create Account
         </button>
         <p style="text-align:center;font-size:12px;color:#9ca3af;margin:12px 0 0;">Already have an account? Just sign in above.</p>
-      </div>
+      </form>
     </div>
   </div>
 

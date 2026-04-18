@@ -47,7 +47,8 @@ function buildDriverChatList() {
   return ZONE_DRIVERS.map(d => {
     const did = String(d.driverid || d.VehicleId || '');
     const unread = messageStore.filter(m => String(m.SenderId) === did && !m.IsRead).length;
-    return { Id: d.driverid || d.VehicleId, UserFName: d.drivername.split(' ')[0], UserLName: d.drivername.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
+    const dn = d.drivername || '';
+  return { Id: d.driverid || d.VehicleId, UserFName: dn.split(' ')[0], UserLName: dn.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
   });
 }
 
@@ -159,11 +160,12 @@ function buildAssignedResponse(jobs) {
   // 'Assigned' = driver accepted → shows in Assigned tab only
   const assigned = jobs.filter(j => j.BookingStatus === 'Assigned');
   const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
+  const activeCount = jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length;
   return {
     dt1,
     dt2: [{ AssignedCount: dt1.length }],
-    dt3: [{ ActiveCount: 0 }],
-    dt4: [{ UnAssignedCount: jobStore.filter(j => j.BookingStatus === 'Pending').length }],
+    dt3: [{ ActiveCount: activeCount }],
+    dt4: [{ UnAssignedCount: jobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One').length }],
     dt5: [{ PublicKey: '' }],
   };
 }
@@ -334,6 +336,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Serve a minimal transparent 1×1 favicon to silence the 404 log noise
+  if (urlPath === '/favicon.ico') {
+    const favicon = Buffer.from(
+      'AAABAAEAAQEAAAEAGAAwAAAAFgAAACgAAAABAAAAAgAAAAEAGAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAP8AAAAA',
+      'base64'
+    );
+    res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'public, max-age=86400' });
+    res.end(favicon);
+    return;
+  }
+
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
@@ -388,10 +401,19 @@ const server = http.createServer(async (req, res) => {
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
       '[changeriddestatusforoffer]', '[DriverStatusChanged]',
       '[checkjobstatus]', '[checkjobstatusv2]',
+      // Ride-status gate checks — mock-only, must NOT proxy to real backend
+      'checkriddestatusforoffer', 'checkriddestatusforautodispatch', 'checkriddestatus',
       // Closed / search — served from local store + static demo records
       'ClosedJobs', 'SearchJobs', 'SearchJobDateBetween',
       '[SearchJobByName]', '[SearchById]', '[SearchByPhoneNo]',
       '[SearchByAfterDate]', '[SearchByBeforeDate]',
+      // Read-only mock data — no real-backend equivalent in demo mode
+      'VehiclesStatus', 'JobsCount', 'AutoDispatchVehiclesallride',
+      'AutoDispatchVehiclesv2', 'ZoneCoordinates', 'DispatchEstimation',
+      'JobDetails', '[VehicleInfov2]', '[DispatcherSettings]', '[Editjobv4]',
+      '[checkjobstatusv2]', '[DispatcherConversation]', '[DispatcherUnReadMessages]',
+      'Manager_ACC_GET', 'Client_ACC_GET', 'Client_ACC_ALL',
+      'Approve_ACC_GET', 'ACC_All_approval',
       // Messaging
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
@@ -543,7 +565,12 @@ const server = http.createServer(async (req, res) => {
           if (param('VehicleType'))     job.VehicleType    = param('VehicleType');
           job.VehicleId = vehicleId;
           job.DriverId  = driverId;
-          job.BookingStatus = driverId > 0 ? 'Offered' : 'Pending';
+          // Only change status for jobs that are still in a pre-dispatch state.
+          // Never overwrite Active/Assigned — editing a live job must not cancel it.
+          const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);
+          if (editableStatuses.has(job.BookingStatus || '')) {
+            job.BookingStatus = driverId > 0 ? 'Offered' : 'Pending';
+          }
           if (job.BookingStatus === 'Offered') job.returnReason = '';
           saveJobStore();
         }
@@ -798,7 +825,7 @@ const server = http.createServer(async (req, res) => {
               ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
             if (!hasLive) {
-              const hailId = Date.now();
+              const hailId = newJobId();
               const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               jobStore.push({
@@ -815,6 +842,7 @@ const server = http.createServer(async (req, res) => {
                 JobMins: 0, UserFName: drivername, UserLName: '',
                 Route: '', bookingidx: hailId,
               });
+              saveJobStore();
               console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber}) at ${pickAddr}`);
             }
           }
@@ -1230,8 +1258,8 @@ const server = http.createServer(async (req, res) => {
           CallSign: zd.vehiclenumber,
           VehicleNo: zd.vehiclenumber,
           BookingId: assignedJob ? assignedJob.Id : '',
-          UserFName: zd.drivername.split(' ')[0] || '',
-          UserLName: zd.drivername.split(' ').slice(1).join(' ') || '',
+          UserFName: (zd.drivername || '').split(' ')[0] || '',
+          UserLName: (zd.drivername || '').split(' ').slice(1).join(' ') || '',
           VehicleImage: '',
         }] : [];
         const dt2 = assignedJob ? [{
@@ -1262,11 +1290,22 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> ${dt2.length} available drivers`);
         objectD(res, { dt1: [], dt2, dt3: [], dt4: [], dt5: [] });
 
-      } else if (action === 'checkriddestatusforautodispatch' || action === 'checkriddestatusforoffer') {
-        // Return offered/pending jobs so convertstatus() can update their state
+      } else if (action === 'checkriddestatusforautodispatch' || action === 'checkriddestatusforoffer' || action === 'checkriddestatus') {
+        // Return the specific job if it is still in a dispatchable / modifiable state.
+        // 'checkriddestatusforoffer'       — manual dispatch / offer timeout / rejection guard
+        // 'checkriddestatusforautodispatch' — auto-dispatch loop gate check
+        // 'checkriddestatus'               — auto-dispatch queue eligibility check
         const bookingId = parseInt(param('bookingid') || '0') || 0;
-        const job = bookingId > 0 ? jobStore.find(j => j.Id === bookingId) : null;
-        const eligible = job && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending') ? [job] : [];
+        const allJobs   = [...jobStore, ...closedJobStore];
+        const job = bookingId > 0 ? allJobs.find(j => j.Id === bookingId) : null;
+        // For the offer / rejection / acceptance gate we also allow 'Assigned' so that
+        // a driver who rejects after accepting can still return the job to 'Pending'.
+        // Auto-dispatch checks use a tighter set (only truly unassigned jobs).
+        const DISPATCHABLE = action === 'checkriddestatusforoffer'
+          ? new Set(['Offered','Pending','Unreached','No One','Assigned'])
+          : new Set(['Offered','Pending','Unreached','No One']);
+        const eligible = job && DISPATCHABLE.has(job.BookingStatus) ? [job] : [];
+        // dt2 carries the driver list for auto-dispatch (empty in mock — Firebase is source of truth)
         console.log(`200: POST ${urlPath} [action=${action}] -> ${eligible.length} eligible (status=${job ? job.BookingStatus : 'none'})`);
         objectD(res, { dt1: eligible, dt2: [], dt3: [], dt4: [], dt5: [] });
 
@@ -1314,7 +1353,7 @@ const server = http.createServer(async (req, res) => {
               ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
             if (!hasLive) {
-              const hailId = Date.now();
+              const hailId = newJobId();
               const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               jobStore.push({
@@ -1331,6 +1370,7 @@ const server = http.createServer(async (req, res) => {
                 JobMins: 0, UserFName: drivername, UserLName: '',
                 Route: '', bookingidx: hailId,
               });
+              saveJobStore();
               console.log(`  [DriverStatusChanged/DS] Hail job #${hailId} for driver ${driverId} (${vehiclenumber}) at ${pickAddr}`);
             }
           }
