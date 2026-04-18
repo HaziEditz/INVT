@@ -805,6 +805,18 @@ const server = http.createServer(async (req, res) => {
         const returnReason = (param('returnreason') || '').trim();
         const job = jobStore.find(j => j.Id === bookingId);
         if (job && newStatus) {
+          // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
+          // Assigned = driver accepted. Active = trip in progress.
+          // Only allow Assigned→Pending if the driver explicitly rejected (returnReason says so).
+          const currentStatus = job.BookingStatus || '';
+          const isAccepted = currentStatus === 'Assigned' || currentStatus === 'Active' || currentStatus === 'Picking';
+          const isDowngrade = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
+          const isExplicitReject = returnReason.toLowerCase().includes('reject');
+          if (isAccepted && isDowngrade && !isExplicitReject) {
+            console.log(`  [changeriddestatusforoffer/DP] BLOCKED downgrade: job #${bookingId} is ${currentStatus}, refusing to set ${newStatus} (reason: "${returnReason}")`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            return;
+          }
           job.BookingStatus = newStatus;
           if (returnReason) job.returnReason = returnReason;
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
@@ -1338,6 +1350,16 @@ const server = http.createServer(async (req, res) => {
         const returnReason = (param('returnreason') || '').trim();
         const job = jobStore.find(j => j.Id === bookingId);
         if (job && newStatus) {
+          // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
+          const currentStatus2 = job.BookingStatus || '';
+          const isAccepted2 = currentStatus2 === 'Assigned' || currentStatus2 === 'Active' || currentStatus2 === 'Picking';
+          const isDowngrade2 = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
+          const isExplicitReject2 = returnReason.toLowerCase().includes('reject');
+          if (isAccepted2 && isDowngrade2 && !isExplicitReject2) {
+            console.log(`  [changeriddestatusforoffer/DS] BLOCKED downgrade: job #${bookingId} is ${currentStatus2}, refusing to set ${newStatus} (reason: "${returnReason}")`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            return;
+          }
           job.BookingStatus = newStatus;
           if (returnReason) job.returnReason = returnReason;
           // Only release (reset) the driver when the job is being cancelled/unassigned.

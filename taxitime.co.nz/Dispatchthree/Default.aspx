@@ -6317,7 +6317,10 @@ $(document).ready(function() {
     }
 
     var ridestatusz = [];
-
+    // Dedup guard: tracks bookingIds currently being monitored by a resolver.
+    // Prevents multiple concurrent fallback timers from firing for the same job
+    // (which would allow one to cancel an already-accepted job).
+    var _activeOfferIds = {};
 
 
 
@@ -6327,6 +6330,13 @@ $(document).ready(function() {
         if(status == "Offered"){
             status  = "Pending";
         }
+        // Dedup: if this bookingId is already being monitored, skip a second invocation.
+        // Without this, two concurrent resolvers could race — one cancels an accepted job.
+        if (_activeOfferIds[bookid]) {
+            console.log('[dedup] acknowledgemethodx skipped for bookid', bookid, '— already active');
+            return;
+        }
+        _activeOfferIds[bookid] = true;
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
@@ -6334,20 +6344,26 @@ $(document).ready(function() {
         var _sca = angular.element(document.getElementById('myangular')).scope();
         if (_sca && typeof _sca.AssignedJobs === 'function') { _sca.AssignedJobs(); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
- 
+        delete _activeOfferIds[bookid];
     }
 
     async function acknowledgemethod(driverid,bookid,status){
         if(status == "Offered"){
             status  = "Pending";
         }
+        // Dedup guard — same as acknowledgemethodx.
+        if (_activeOfferIds[bookid]) {
+            console.log('[dedup] acknowledgemethod skipped for bookid', bookid, '— already active');
+            return;
+        }
+        _activeOfferIds[bookid] = true;
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
         // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
         var _scb = angular.element(document.getElementById('myangular')).scope();
         if (_scb && typeof _scb.AssignedJobs === 'function') { _scb.AssignedJobs(); }
-       const result = await resolveAfter2Seconds(driverid,bookid,status);
- 
+        const result = await resolveAfter2Seconds(driverid,bookid,status);
+        delete _activeOfferIds[bookid];
     }
 
  
