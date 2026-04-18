@@ -6321,6 +6321,9 @@ $(document).ready(function() {
     // Prevents multiple concurrent fallback timers from firing for the same job
     // (which would allow one to cancel an already-accepted job).
     var _activeOfferIds = {};
+    // Tracks which driverIds have already been offered each job (by jobId string).
+    // Ensures rejected/timed-out drivers are skipped and the next in queue is tried.
+    var _triedDriversForJob = {};
 
 
 
@@ -11014,19 +11017,33 @@ $(document).ready(function() {
 
                     // Use Angular scope's driverdatarealx — already has zonequeue and live status
                     var _sc = angular.element(document.getElementById('myangular')).scope();
-                    var availableDrivers = (_sc && _sc.driverdatarealx)
+                    var allAvailable = (_sc && _sc.driverdatarealx)
                         ? _sc.driverdatarealx.filter(function(dv) { return dv.vehiclestatus === 'Available'; })
                         : [];
-                    if (!availableDrivers.length) return;
+
+                    // Cleanup: remove tried-driver records for jobs no longer pending
+                    Object.keys(_triedDriversForJob).forEach(function(jid) {
+                        if (!pendingJobs.find(function(j) { return String(j.Id) === jid; })) {
+                            delete _triedDriversForJob[jid];
+                        }
+                    });
 
                     for (var ji = 0; ji < pendingJobs.length; ji++) {
                         var job = pendingJobs[ji];
                         var jobId = job.Id;
-                        if (_activeOfferIds[jobId]) continue;
+                        if (_activeOfferIds[jobId]) continue; // already monitoring this job
 
                         var pickParts = (job.PickLatLng || '0,0').split(',');
                         var pickLat = parseFloat(pickParts[0]) || 0;
                         var pickLng = parseFloat(pickParts[1]) || 0;
+
+                        // Exclude drivers already offered this specific job (rejected or timed out)
+                        var triedIds = _triedDriversForJob[String(jobId)] || [];
+                        var availableDrivers = allAvailable.filter(function(dv) {
+                            var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
+                            return triedIds.indexOf(dvId) === -1;
+                        });
+                        if (!availableDrivers.length) continue; // all available drivers already tried for this job
 
                         // Primary sort: zonequeue ascending (1 = first in queue).
                         // Tiebreaker: distance to pickup if GPS available.
@@ -11049,10 +11066,14 @@ $(document).ready(function() {
                         var vehicleId = best.VehicleId || best.vehicleid || best.vehiclenumber || driverId;
                         if (!driverId) continue;
 
-                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?'));
+                        // Record this driver as tried so they are skipped on the next cycle
+                        if (!_triedDriversForJob[String(jobId)]) _triedDriversForJob[String(jobId)] = [];
+                        _triedDriversForJob[String(jobId)].push(String(driverId));
+
+                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?') + ' (tried so far: ' + _triedDriversForJob[String(jobId)].length + ')');
                         // Do NOT pre-assign on server — DriverId is set only when driver accepts (convertstatus → Assigned).
                         acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
-                        break; // one offer per cycle — next driver in queue gets the job if no response
+                        break; // one offer per cycle — wait for accept/reject/timeout before trying next
                     }
                 } catch(e) {
                     console.warn('[smartAutoDispatch] error:', e);
