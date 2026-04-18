@@ -5977,6 +5977,7 @@ $(document).ready(function() {
                             if (_scx1) { if (typeof _scx1.getjobs === 'function') _scx1.getjobs(); if (typeof _scx1.AssignedJobs === 'function') _scx1.AssignedJobs(); }
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst === 'reject') {
+                            settled = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
@@ -6009,6 +6010,7 @@ $(document).ready(function() {
                                     return;
 
 
+                                    settled = true;
                                 }else if($respp['discription'] == 'Ride Status successfully Updated to Reject'){
                                
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
@@ -6020,6 +6022,7 @@ $(document).ready(function() {
                                     convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
+                                    settled = true;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
                                     console.log("Reject by job reached but is in background");
                                     $message  = 'Not shown – app in background';
@@ -6202,6 +6205,7 @@ $(document).ready(function() {
                             if (_scx3) { if (typeof _scx3.getjobs === 'function') _scx3.getjobs(); if (typeof _scx3.AssignedJobs === 'function') _scx3.AssignedJobs(); }
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst2 === 'reject') {
+                            settled2 = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
@@ -6234,6 +6238,7 @@ $(document).ready(function() {
                                     return;
 
 
+                                    settled2 = true;
                                 }else if($respp['discription'] == 'Ride Status successfully Updated to Reject'){
                                
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
@@ -6245,6 +6250,7 @@ $(document).ready(function() {
                                     convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
+                                    settled2 = true;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
                                     console.log("Reject by job reached but is in background");
                                     $message  = 'Not shown – app in background';
