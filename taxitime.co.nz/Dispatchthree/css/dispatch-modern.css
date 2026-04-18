@@ -687,13 +687,18 @@ table.dataTable tbody tr:hover {
 
 /* ---- Dispatch-alert flashing animation ---- */
 .button-glow {
-  animation: dispatch-alert 1000ms infinite !important;
+  animation: dispatch-alert 900ms infinite !important;
 }
 
 @keyframes dispatch-alert {
-  0%   { background: rgba(192, 57, 43, 0.55) !important; box-shadow: 0 0 6px rgba(192,57,43,0.5); }
-  50%  { background: rgba(192, 57, 43, 0.90) !important; box-shadow: 0 0 22px rgba(192,57,43,0.95); }
-  100% { background: rgba(192, 57, 43, 0.55) !important; box-shadow: 0 0 6px rgba(192,57,43,0.5); }
+  0%   { background: rgba(220, 38, 38, 0.20) !important; box-shadow: 0 0 0 2px rgba(220,38,38,0.4); border-left-color: #dc2626 !important; }
+  50%  { background: rgba(220, 38, 38, 0.55) !important; box-shadow: 0 0 0 4px rgba(220,38,38,0.7); border-left-color: #991b1b !important; }
+  100% { background: rgba(220, 38, 38, 0.20) !important; box-shadow: 0 0 0 2px rgba(220,38,38,0.4); border-left-color: #dc2626 !important; }
+}
+
+/* ---- Card text always readable regardless of tint ---- */
+.bottomspave *, div#singlediv * {
+  color: #1a1d21;
 }
 
 /* ---- Scrollbars ---- */

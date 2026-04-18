@@ -324,7 +324,7 @@
                 <div class="modal-body" style="padding:0;">
                     <div class="row" style="margin:0;">
                         <div class="col-lg-12 col-md-12 col-sm-12" style="padding:0 12px; height:460px; overflow-y:auto;">
-                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="{ background: getTheValue(value.BookingDateTime, value.DispatchTimebefore) }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
+                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="getCardStyle(value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -2808,7 +2808,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="{ background: getTheValue(value.BookingDateTime, value.DispatchTimebefore) }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="getCardStyle(value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -2974,7 +2974,7 @@ $(document).ready(function() {
                                                 </div>
                                                 <div class="tab-pane vowali " id="tab9">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-style="{ background: getTheValue(value.BookingDateTime, value.DispatchTimebefore) }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-style="getCardStyle(value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -13855,23 +13855,38 @@ $(document).ready(function() {
 
 
             $scope.getTheValue = function (BookingDateTime, DispatchTimebefore) {
-                if (!BookingDateTime) return "rgba(192, 57, 43, 0.55)";
+                return $scope.getCardStyle(BookingDateTime, DispatchTimebefore).background || '#fff';
+            };
+            $scope.getCardStyle = function (BookingDateTime, DispatchTimebefore) {
+                var RED_BG    = 'rgba(220, 38, 38, 0.10)';
+                var RED_ALERT = 'rgba(220, 38, 38, 0.28)';
+                var BLUE_BG   = 'rgba(37, 99, 235, 0.08)';
+                var RED_BAR   = '4px solid #dc2626';
+                var BLUE_BAR  = '4px solid #2563eb';
+                var NONE_BAR  = '4px solid transparent';
+
+                if (!BookingDateTime) {
+                    return { background: RED_BG, 'border-left': RED_BAR };
+                }
                 var clean = BookingDateTime.replace(/\.$/, '').trim();
                 var bdt = new Date(clean);
-                if (isNaN(bdt.getTime())) return "rgba(192, 57, 43, 0.55)";
+                if (isNaN(bdt.getTime())) {
+                    return { background: RED_BG, 'border-left': RED_BAR };
+                }
                 var db = parseInt(DispatchTimebefore) || 0;
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
+
                 if (db === 0) {
-                    // ASAP job — always red
-                    return "rgba(192, 57, 43, 0.55)";
+                    // ASAP job — always red accent
+                    return { background: RED_BG, 'border-left': RED_BAR };
                 }
                 if (minsUntil <= db) {
-                    // Dispatch window open or overdue — red (also flashes via alerting)
-                    return "rgba(192, 57, 43, 0.55)";
+                    // Dispatch window open — stronger red tint (also flashes via alerting)
+                    return { background: RED_ALERT, 'border-left': RED_BAR };
                 }
-                // Future pre-booking still has time — blue
-                return "rgba(52, 152, 219, 0.45)";
-            }
+                // Future pre-booking — blue accent
+                return { background: BLUE_BG, 'border-left': BLUE_BAR };
+            };
             $scope.JobMinstime = 0;
             $scope.EditJobunassignedng =   function (ele,JobMins) {
  
