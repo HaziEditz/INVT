@@ -5874,6 +5874,7 @@ $(document).ready(function() {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
+                            firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             _immediateJobPending(id);
@@ -5908,6 +5909,7 @@ $(document).ready(function() {
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
+                                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     _immediateJobPending(id);
@@ -5953,6 +5955,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
+                                firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                 _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -5997,6 +6000,9 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                     firebase.database().ref().child("/notification/" + driverid).remove();
+                    // Write Away to driver's Firebase jobs node so their phone and the dispatch
+                    // tab both reflect Away status. Driver must manually set Available from their app.
+                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc && _fbsc.driverdatarealx) {

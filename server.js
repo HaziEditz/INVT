@@ -970,8 +970,13 @@ const server = http.createServer(async (req, res) => {
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
-            // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
-            if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            // Away if: driver didn't respond (Unreached), OR driver explicitly rejected/not accepted.
+            // Available only if: job was manually cancelled/unassigned by dispatcher (no driver fault).
+            const _driverFault = newStatus === 'Unreached' || isExplicitReject;
+            const _cancelByDispatcher = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject;
+            const newDriverStatus = (_driverFault && !_cancelByDispatcher) ? 'Away' : 'Available';
+            if (zd) { zd.vehiclestatus = newDriverStatus; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            console.log(`  [changeriddestatusforoffer/DP] driver ${job.DriverId} → ${newDriverStatus} (newStatus=${newStatus} driverFault=${_driverFault})`);
             // When manually unassigning (driverid=0 sent), clear the job's DriverId so it
             // shows in the Unassigned tab and auto-dispatch can pick it up again.
             const _rawDrv = param('driverid');
@@ -1561,8 +1566,12 @@ const server = http.createServer(async (req, res) => {
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
-            // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
-            if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            // Away if driver didn't respond or explicitly rejected. Available only if dispatcher cancelled.
+            const _driverFault2 = newStatus === 'Unreached' || isExplicitReject2;
+            const _cancelByDispatcher2 = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject2;
+            const newDriverStatus2 = (_driverFault2 && !_cancelByDispatcher2) ? 'Away' : 'Available';
+            if (zd) { zd.vehiclestatus = newDriverStatus2; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            console.log(`  [changeriddestatusforoffer/DS] driver ${job.DriverId} → ${newDriverStatus2} (newStatus=${newStatus} driverFault=${_driverFault2})`);
             // When manually unassigning (driverid=0 sent), clear the job's DriverId.
             const _rawDrv2 = param('driverid');
             if (_rawDrv2 !== undefined && _rawDrv2 !== null && parseInt(_rawDrv2) === 0) { job.DriverId = 0; job.VehicleId = 0; }
