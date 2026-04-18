@@ -7896,7 +7896,29 @@ $(document).ready(function() {
                                     { name:'lng',           Value: String(datacom.lng || '') }
                                 ], action: '[DriverStatusChanged]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
-                                success: function() {
+                                success: function(_resp) {
+                                    // If server blocked this Available (stale heartbeat while away-locked),
+                                    // revert the driver back to Away on the dispatch screen immediately.
+                                    try {
+                                        var _r = (_resp && _resp.d) ? JSON.parse(_resp.d) : null;
+                                        if (_r && _r.awayLocked) {
+                                            var _scAL = angular.element(document.getElementById('myangular')).scope();
+                                            if (_scAL && _scAL.driverdatarealx) {
+                                                for (var _ai = 0; _ai < _scAL.driverdatarealx.length; _ai++) {
+                                                    var _ald = _scAL.driverdatarealx[_ai];
+                                                    if (String(_ald.driverid || _ald.VehicleId) === String(_drvId)) {
+                                                        _ald.vehiclestatus = 'Away';
+                                                        _scAL.driverlist = _scAL.driverdatarealx;
+                                                        if (typeof _scAL.zonetablez === 'function') _scAL.zonetablez();
+                                                        if (!_scAL.$$phase) _scAL.$digest();
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            return;
+                                        }
+                                    } catch(e) {}
+                                    // Server approved the status change — refresh relevant tabs.
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
                                     if (_sc) {
                                         if (_newSt === 'Busy')      { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }

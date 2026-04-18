@@ -177,25 +177,53 @@ function saveJobStore() {
 const ZONE_DRIVERS = [];
 
 // Drivers locked to Away because they didn't accept / rejected a job.
-// Format: { "driverId": true }
-// Lock has NO time-based expiry — it is cleared only when:
-//   1. Driver manually presses Available on their driver app (Available signal received).
-//   2. Driver gets a new job (goes Busy / Assigned / Picking).
+// Format: { "driverId": { ts: <ms>, ackAway: <bool> } }
+//
+// Lock is cleared ONLY when:
+//   1. Driver gets a new job (Busy / Assigned / Picking).
+//   2. Driver's app sends an Away heartbeat (ackAway → true), proving the phone
+//      showed Away mode, AND then sends Available (genuine manual press).
+//   3. Safety timeout: 3 minutes, so drivers are never locked forever if the
+//      driver app never sends an Away heartbeat.
+//
+// Pure Available heartbeats are BLOCKED while locked — they do NOT clear the lock.
 const AWAY_LOCKED = {};
+const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 
 function setAwayLock(driverId) {
   if (!driverId || String(driverId) === '0') return;
-  AWAY_LOCKED[String(driverId)] = true;
-  console.log(`  [awayLock] driver ${driverId} locked Away (no expiry)`);
+  AWAY_LOCKED[String(driverId)] = { ts: Date.now(), ackAway: false };
+  console.log(`  [awayLock] driver ${driverId} LOCKED Away`);
 }
 function clearAwayLock(driverId) {
   if (AWAY_LOCKED[String(driverId)]) {
     delete AWAY_LOCKED[String(driverId)];
-    console.log(`  [awayLock] driver ${driverId} lock cleared`);
+    console.log(`  [awayLock] driver ${driverId} lock CLEARED`);
+  }
+}
+function acknowledgeAway(driverId) {
+  const lock = AWAY_LOCKED[String(driverId)];
+  if (lock && !lock.ackAway) {
+    lock.ackAway = true;
+    console.log(`  [awayLock] driver ${driverId} Away ACKNOWLEDGED — next Available will unlock`);
   }
 }
 function isAwayLocked(driverId) {
-  return !!AWAY_LOCKED[String(driverId)];
+  const lock = AWAY_LOCKED[String(driverId)];
+  if (!lock) return false;
+  if (Date.now() - lock.ts > AWAY_LOCK_TTL_MS) {
+    delete AWAY_LOCKED[String(driverId)];
+    console.log(`  [awayLock] driver ${driverId} lock auto-expired (3 min safety)`);
+    return false;
+  }
+  return true;
+}
+// Returns true when a genuine manual Available press should clear the lock.
+// Only true after driver app sent an Away heartbeat (ackAway), proving the phone
+// switched to Away mode and the driver manually pressed Available afterwards.
+function canUnlockWithAvailable(driverId) {
+  const lock = AWAY_LOCKED[String(driverId)];
+  return !!(lock && lock.ackAway);
 }
 
 // Build full job-list DataSelector response
@@ -1030,13 +1058,27 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         if (driverId && newStatus) {
-          // Away-lock: cleared when driver manually presses Available on their app,
-          // or when they get a new job (Busy/Assigned/Picking).
-          if (newStatus === 'Available' && isAwayLocked(driverId)) {
-            console.log(`  [DriverStatusChanged] driver ${driverId} manually pressed Available — lock cleared`);
-            clearAwayLock(driverId);
-            // fall through and process Available normally
+          // ── Away-lock logic ──────────────────────────────────────────────────
+          // Step 1: If locked driver sends Away heartbeat, record acknowledgement.
+          //         This proves the driver's phone switched to Away mode.
+          if (newStatus === 'Away' && isAwayLocked(driverId)) {
+            acknowledgeAway(driverId);
           }
+          // Step 2: If locked driver sends Available, only clear if their phone
+          //         previously confirmed Away (ackAway=true). Otherwise it's just
+          //         a stale heartbeat from before the phone received our Away write.
+          if (newStatus === 'Available' && isAwayLocked(driverId)) {
+            if (canUnlockWithAvailable(driverId)) {
+              console.log(`  [DriverStatusChanged/DP] driver ${driverId} genuine Available after Away ack — lock cleared`);
+              clearAwayLock(driverId);
+              // fall through and process Available normally
+            } else {
+              console.log(`  [DriverStatusChanged/DP] driver ${driverId} Available BLOCKED (no Away ack yet — stale heartbeat)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
+              return;
+            }
+          }
+          // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
           }
@@ -1633,13 +1675,26 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         if (driverId && newStatus) {
-          // Away-lock: cleared when driver manually presses Available on their app,
-          // or when they get a new job (Busy/Assigned/Picking).
-          if (newStatus === 'Available' && isAwayLocked(driverId)) {
-            console.log(`  [DriverStatusChanged/DS] driver ${driverId} manually pressed Available — lock cleared`);
-            clearAwayLock(driverId);
-            // fall through and process Available normally
+          // ── Away-lock logic ──────────────────────────────────────────────────
+          // Step 1: Away heartbeat from driver app → record acknowledgement.
+          if (newStatus === 'Away' && isAwayLocked(driverId)) {
+            acknowledgeAway(driverId);
           }
+          // Step 2: Available while locked — only let through if driver's phone
+          //         already confirmed Away mode (ackAway). Otherwise it's a stale
+          //         heartbeat from before the phone received our Away write.
+          if (newStatus === 'Available' && isAwayLocked(driverId)) {
+            if (canUnlockWithAvailable(driverId)) {
+              console.log(`  [DriverStatusChanged/DS] driver ${driverId} genuine Available after Away ack — lock cleared`);
+              clearAwayLock(driverId);
+              // fall through and process Available normally
+            } else {
+              console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available BLOCKED (no Away ack yet — stale heartbeat)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
+              return;
+            }
+          }
+          // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
           }
