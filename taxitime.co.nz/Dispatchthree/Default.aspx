@@ -6342,6 +6342,59 @@ $(document).ready(function() {
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
+        // ALSO write to /notification/{driverId} so the driver app knows which job to display.
+        // Without this, the driver app never learns the bookingId and cannot show the offer screen.
+        try {
+            var _notifScope = angular.element(document.getElementById('myangular')).scope();
+            var _allJobs = [].concat(
+                (_notifScope && _notifScope.data1)  ? _notifScope.data1  : [],
+                (_notifScope && _notifScope.data2)  ? _notifScope.data2  : [],
+                (_notifScope && _notifScope.data3)  ? _notifScope.data3  : [],
+                (_notifScope && _notifScope.tstst)  ? _notifScope.tstst  : []
+            );
+            var _notifJob = null;
+            for (var _ni = 0; _ni < _allJobs.length; _ni++) {
+                if (String(_allJobs[_ni].Id) === String(bookid) || String(_allJobs[_ni].BookingId) === String(bookid)) {
+                    _notifJob = _allJobs[_ni]; break;
+                }
+            }
+            if (_notifJob) {
+                writeJobDetailsToFirebase(driverid, vehicle, bookid, {
+                    pickup:      _notifJob.PickAddress    || _notifJob.PickLocation    || '',
+                    dropoff:     _notifJob.DropAddress    || _notifJob.DropLocation    || '',
+                    phone:       _notifJob.PhoneNo        || _notifJob.PassengerId     || '',
+                    name:        _notifJob.Name           || _notifJob.UserFName       || '',
+                    bags:        _notifJob.Bags           || _notifJob.BagsNo          || 0,
+                    passengers:  _notifJob.Passengers     || _notifJob.PassengersNo    || 1,
+                    vehicleType: _notifJob.VehicleType    || '',
+                    rideinfo:    _notifJob.EntitiesDetails|| '',
+                    status:      'Offered',
+                    source:      'Dispatcher'
+                });
+            } else {
+                // Job not in scope yet — fetch from server and send notification
+                Selector1([{ name: 'Id', value: bookid }], 'JobDetails').then(function(jr) {
+                    try {
+                        var _jd = (typeof jr === 'string' ? JSON.parse(jr) : jr);
+                        var _jrow = (_jd && _jd.dt1 && _jd.dt1[0]) ? _jd.dt1[0] : null;
+                        if (_jrow) {
+                            writeJobDetailsToFirebase(driverid, vehicle, bookid, {
+                                pickup:      _jrow.PickAddress    || _jrow.PickLocation    || '',
+                                dropoff:     _jrow.DropAddress    || _jrow.DropLocation    || '',
+                                phone:       _jrow.PhoneNo        || _jrow.PassengerId     || '',
+                                name:        _jrow.Name           || _jrow.UserFName       || '',
+                                bags:        _jrow.Bags           || _jrow.BagsNo          || 0,
+                                passengers:  _jrow.Passengers     || _jrow.PassengersNo    || 1,
+                                vehicleType: _jrow.VehicleType    || '',
+                                rideinfo:    _jrow.EntitiesDetails|| '',
+                                status:      'Offered',
+                                source:      'Dispatcher'
+                            });
+                        }
+                    } catch(_je) { console.warn('[acknowledgemethodx] JobDetails fetch parse error:', _je); }
+                }).catch(function() {});
+            }
+        } catch(_notifErr) { console.warn('[acknowledgemethodx] notification write error:', _notifErr); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
         delete _activeOfferIds[bookid];
         // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
@@ -6392,6 +6445,36 @@ $(document).ready(function() {
         }
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
+        // Also write to /notification/{driverId} so the driver app shows the offer screen.
+        try {
+            var _notifScopeM = angular.element(document.getElementById('myangular')).scope();
+            var _allJobsM = [].concat(
+                (_notifScopeM && _notifScopeM.data1) ? _notifScopeM.data1 : [],
+                (_notifScopeM && _notifScopeM.data2) ? _notifScopeM.data2 : [],
+                (_notifScopeM && _notifScopeM.data3) ? _notifScopeM.data3 : [],
+                (_notifScopeM && _notifScopeM.tstst) ? _notifScopeM.tstst : []
+            );
+            var _notifJobM = null;
+            for (var _nj = 0; _nj < _allJobsM.length; _nj++) {
+                if (String(_allJobsM[_nj].Id) === String(bookid) || String(_allJobsM[_nj].BookingId) === String(bookid)) {
+                    _notifJobM = _allJobsM[_nj]; break;
+                }
+            }
+            if (_notifJobM) {
+                writeJobDetailsToFirebase(driverid, driverid, bookid, {
+                    pickup:      _notifJobM.PickAddress    || _notifJobM.PickLocation    || '',
+                    dropoff:     _notifJobM.DropAddress    || _notifJobM.DropLocation    || '',
+                    phone:       _notifJobM.PhoneNo        || _notifJobM.PassengerId     || '',
+                    name:        _notifJobM.Name           || _notifJobM.UserFName       || '',
+                    bags:        _notifJobM.Bags           || _notifJobM.BagsNo          || 0,
+                    passengers:  _notifJobM.Passengers     || _notifJobM.PassengersNo    || 1,
+                    vehicleType: _notifJobM.VehicleType    || '',
+                    rideinfo:    _notifJobM.EntitiesDetails|| '',
+                    status:      'Offered',
+                    source:      'Dispatcher'
+                });
+            }
+        } catch(_notifErrM) { console.warn('[acknowledgemethod] notification write error:', _notifErrM); }
         const result = await resolveAfter2Seconds(driverid,bookid,status);
         delete _activeOfferIds[bookid];
         // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
