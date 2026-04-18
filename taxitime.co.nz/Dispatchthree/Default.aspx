@@ -2413,7 +2413,7 @@ $(document).ready(function() {
                                                             <div ng-show="bookingtime_select == 1" style="margin-top:8px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:8px 10px;">
                                                                 <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
                                                                     <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Date</label>
-                                                                    <input type="date" id="laterDate" ng-model="latedate" class="form-control" style="height:28px; font-size:12px; padding:2px 6px; flex:1; border:1px solid #ced4da; border-radius:4px; cursor:pointer;" />
+                                                                    <input type="date" id="laterDate" class="form-control" style="height:28px; font-size:12px; padding:2px 6px; flex:1; border:1px solid #ced4da; border-radius:4px; cursor:pointer;" />
                                                                 </div>
                                                                 <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
                                                                     <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Time (24h)</label>
@@ -8382,7 +8382,9 @@ $(document).ready(function() {
             var n = new Date();
             var d = ("0" + n.getDate()).slice(-2);
             var mo = ("0" + (n.getMonth() + 1)).slice(-2);
-            $scope.latedate = n.getFullYear() + '-' + mo + '-' + d;
+            var dateStr = n.getFullYear() + '-' + mo + '-' + d;
+            $scope.latedate = dateStr;
+            $('#laterDate').val(dateStr);
             $scope.ddlLaterHrs = ("0" + n.getHours()).slice(-2);
             var mins = Math.ceil(n.getMinutes() / 5) * 5;
             if (mins >= 60) { mins = 0; }
@@ -13853,22 +13855,22 @@ $(document).ready(function() {
 
 
             $scope.getTheValue = function (BookingDateTime, DispatchTimebefore) {
-                if (!BookingDateTime) return "rgba(192, 57, 43, 0.22)";
+                if (!BookingDateTime) return "rgba(192, 57, 43, 0.55)";
                 var clean = BookingDateTime.replace(/\.$/, '').trim();
                 var bdt = new Date(clean);
-                if (isNaN(bdt.getTime())) return "rgba(192, 57, 43, 0.22)";
+                if (isNaN(bdt.getTime())) return "rgba(192, 57, 43, 0.55)";
                 var db = parseInt(DispatchTimebefore) || 0;
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
                 if (db === 0) {
                     // ASAP job — always red
-                    return "rgba(192, 57, 43, 0.22)";
+                    return "rgba(192, 57, 43, 0.55)";
                 }
                 if (minsUntil <= db) {
                     // Dispatch window open or overdue — red (also flashes via alerting)
-                    return "rgba(192, 57, 43, 0.22)";
+                    return "rgba(192, 57, 43, 0.55)";
                 }
                 // Future pre-booking still has time — blue
-                return "rgba(52, 152, 219, 0.22)";
+                return "rgba(52, 152, 219, 0.45)";
             }
             $scope.JobMinstime = 0;
             $scope.EditJobunassignedng =   function (ele,JobMins) {

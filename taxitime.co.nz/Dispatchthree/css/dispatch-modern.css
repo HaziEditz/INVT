@@ -692,9 +692,9 @@ table.dataTable tbody tr:hover {
 }
 
 @keyframes dispatch-alert {
-  0%   { background: rgba(192, 57, 43, 0.22) !important; box-shadow: 0 0 6px rgba(192,57,43,0.4); }
-  50%  { background: rgba(192, 57, 43, 0.75) !important; box-shadow: 0 0 20px rgba(192,57,43,0.85); }
-  100% { background: rgba(192, 57, 43, 0.22) !important; box-shadow: 0 0 6px rgba(192,57,43,0.4); }
+  0%   { background: rgba(192, 57, 43, 0.55) !important; box-shadow: 0 0 6px rgba(192,57,43,0.5); }
+  50%  { background: rgba(192, 57, 43, 0.90) !important; box-shadow: 0 0 22px rgba(192,57,43,0.95); }
+  100% { background: rgba(192, 57, 43, 0.55) !important; box-shadow: 0 0 6px rgba(192,57,43,0.5); }
 }
 
 /* ---- Scrollbars ---- */

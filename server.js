@@ -557,7 +557,8 @@ const server = http.createServer(async (req, res) => {
         const name = param('Name') || '';
         const phone = param('PassengerId') || '';
         const entitiesDetails = param('EntitiesDetails') || '';
-        const dispatchBefore = parseInt(param('DispatchBefore') || param('Dispatchbefore') || '10') || 10;
+        const _dbRaw = param('DispatchBefore') !== undefined ? param('DispatchBefore') : param('Dispatchbefore');
+        const dispatchBefore = _dbRaw !== undefined && _dbRaw !== null ? (parseInt(_dbRaw) || 0) : 10;
         const bookingType = param('Bookingtype') || 'Normal Ride';
         const quenumber = param('quenumber') || 0;
         const dispatcherName = param('DispatcherName') || 'Dispatcher';
@@ -622,7 +623,8 @@ const server = http.createServer(async (req, res) => {
         const name = param('Name') || '';
         const phone = param('PassengerId') || '';
         const entitiesDetails = param('EntitiesDetails') || '';
-        const dispatchBefore = parseInt(param('DispatchBefore') || param('Dispatchbefore') || '10') || 10;
+        const _dbRaw = param('DispatchBefore') !== undefined ? param('DispatchBefore') : param('Dispatchbefore');
+        const dispatchBefore = _dbRaw !== undefined && _dbRaw !== null ? (parseInt(_dbRaw) || 0) : 10;
         const bookingType = param('Bookingtype') || 'Normal Ride';
         const dispatcherName = param('DispatcherName') || 'Dispatcher';
         const u_id = param('u_id') || param('U_id') || null;
