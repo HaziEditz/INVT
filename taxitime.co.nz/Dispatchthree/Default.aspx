@@ -13499,7 +13499,7 @@ $(document).ready(function() {
                 var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 var bookMid  = new Date(booking.getFullYear(), booking.getMonth(), booking.getDate());
                 var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
-                var prefix = minsUntil > 10 ? 'Book: ' : '';
+                var prefix = minsUntil > 10 ? 'Pickup: ' : '';
                 if (dayDiff === 0)  return prefix + 'Today ' + timeStr;
                 if (dayDiff === 1)  return prefix + 'Tomorrow ' + timeStr;
                 var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -13515,21 +13515,26 @@ $(document).ready(function() {
             $scope.checklateornow = function (data1, data2) {
                 var jobMins = parseInt(data1) || 0;
                 var dispatchBefore = parseInt(data2) || 0;
-                // Minutes until dispatch window opens (negative = window open or overdue)
+                if (dispatchBefore === 0) {
+                    // ASAP job — show how long it has been waiting
+                    if (jobMins >= 0) return 'Now';
+                    return Math.abs(jobMins) + ' Min waiting';
+                }
+                // Pre-booked job — minutes until dispatch window opens
                 var minsToDispatch = jobMins - dispatchBefore;
                 if (minsToDispatch > 0) {
                     // Dispatch window not yet open — show time until driver should be sent
                     var h = Math.floor(minsToDispatch / 60);
                     var m = minsToDispatch % 60;
-                    if (h >= 48) return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
-                    if (h > 0)   return h + 'h ' + (m > 0 ? m + 'm' : '');
-                    return minsToDispatch + ' Min';
+                    if (h >= 48) return 'Dispatch in ' + Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+                    if (h > 0)   return 'Dispatch in ' + h + 'h ' + (m > 0 ? m + 'm' : '');
+                    return 'Dispatch in ' + minsToDispatch + 'm';
                 } else if (jobMins > 0) {
                     // Window is open and pickup is still ahead — dispatch now
-                    return 'Dispatch';
+                    return 'Send Driver Now';
                 } else {
                     // Pickup time has passed — show how many minutes overdue
-                    return Math.abs(jobMins) + ' Min Late';
+                    return Math.abs(jobMins) + ' Min Overdue';
                 }
             }
             $scope.alerting = function (DispatchTimebefore, BookingDateTime) {
