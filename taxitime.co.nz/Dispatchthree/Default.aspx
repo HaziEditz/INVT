@@ -5870,16 +5870,14 @@ $(document).ready(function() {
     function checkingjobz(vehicle , id,driverid){
         $message  = 'Driver did not respond';
         console.log("checking job");
-        setTimeout(function(){   if($('.vowali #Divo'+id).length ){
+        setTimeout(function(){
+            // Removed .vowali DOM guard — Assigned jobs are not in the Offer tab so
+            // the guard prevented convertstatus1 from ever running for them.
+            // convertstatus1's checkriddestatusforoffer call is the actual guard.
             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-            var DbRefz = firebase.database();
-            console.log("inside");
-          
             $('#Divo'+id).remove();
             firebase.database().ref().child("/notification/" + driverid).remove();
             convertstatus1(vehicle , id,'Unreached', driverid ,  $message ) ; 
-             
-        }
         }, 20000);
       
   
@@ -5888,16 +5886,12 @@ $(document).ready(function() {
     function checkingjob(id,driverid){
         $message  = 'Not shown – driver app in background';
         console.log("checking job");
-        setTimeout(function(){   if($('.vowali #Divo'+id).length ){
+        setTimeout(function(){
+            // Removed .vowali DOM guard — same reason as checkingjobz above.
             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-            var DbRefz = firebase.database();
-            console.log("inside");
-          
             $('#Divo'+id).remove();
             firebase.database().ref().child("/notification/" + driverid).remove();
             convertstatus(id,'Unreached', driverid ,  $message ) ; 
-             
-        }
         }, 20000);
       
   
@@ -6085,6 +6079,24 @@ $(document).ready(function() {
      
 
                 } ); 
+
+                // Fallback: driver online but never responds (joback stays 'Sent').
+                // Firebase value listeners only fire on change, so countr never increments.
+                // After 50 s (+ the 6 s initial delay ≈ 56 s total) force the job back.
+                setTimeout(function() {
+                    if (settled) return;
+                    settled = true;
+                    _jobsRef.off("value", _jobsListener);
+                    refaz.off("value", listener);
+                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                    firebase.database().ref().child("/notification/" + driverid).remove();
+                    convertstatus1(vehivle, id, 'Unreached', driverid, 'No response from driver');
+                    var _fbsc = angular.element(document.getElementById('myangular')).scope();
+                    if (_fbsc) {
+                        if (typeof _fbsc.getjobs     === 'function') _fbsc.getjobs();
+                        if (typeof _fbsc.AssignedJobs === 'function') _fbsc.AssignedJobs();
+                    }
+                }, 50000);
             }, 6000);
         });
     }
@@ -6270,6 +6282,22 @@ $(document).ready(function() {
      
 
                 } ); 
+
+                // Fallback: same as resolveAfter2Secondsx — covers the silent-driver case.
+                setTimeout(function() {
+                    if (settled2) return;
+                    settled2 = true;
+                    _jobsRootRef.off("value", _jobsRootListener);
+                    refaz.off("value", listener);
+                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                    firebase.database().ref().child("/notification/" + driverid).remove();
+                    convertstatus(id, 'Unreached', driverid, 'No response from driver');
+                    var _fbsc2 = angular.element(document.getElementById('myangular')).scope();
+                    if (_fbsc2) {
+                        if (typeof _fbsc2.getjobs     === 'function') _fbsc2.getjobs();
+                        if (typeof _fbsc2.AssignedJobs === 'function') _fbsc2.AssignedJobs();
+                    }
+                }, 50000);
             }, 6000);
         });
     }

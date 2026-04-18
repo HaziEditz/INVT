@@ -792,7 +792,8 @@ const server = http.createServer(async (req, res) => {
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
-            if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
+            if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
           }
           saveJobStore();
         }
@@ -1323,7 +1324,8 @@ const server = http.createServer(async (req, res) => {
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
-            if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
+            if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
           }
           saveJobStore();
         }
