@@ -5907,7 +5907,7 @@ $(document).ready(function() {
  
         return new Promise(resolve => {
             setTimeout(() => {
-                toastr["warning"](  ' Checking this id '+bookid+' Job Status! ', ' warning! ');
+                toastr["warning"](  ' Monitoring job '+bookid+' for driver response... ', ' Offer Sent! ');
                 var data = [];
                 data[0]  = bookid;
                 data[1] = status;
@@ -6125,7 +6125,7 @@ $(document).ready(function() {
                         if (typeof _fbsc.AssignedJobs === 'function') _fbsc.AssignedJobs();
                     }
                 }, 27000);
-            }, 2000);
+            }, 0);
         });
     }
     function resolveAfter2Seconds(driverid,bookid,status) {
@@ -6355,7 +6355,7 @@ $(document).ready(function() {
                         if (typeof _fbsc2.AssignedJobs === 'function') _fbsc2.AssignedJobs();
                     }
                 }, 27000);
-            }, 2000);
+            }, 0);
         });
     }
 
@@ -6422,6 +6422,8 @@ $(document).ready(function() {
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
         delete _activeOfferIds[bookid];
+        // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
+        if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 400);
     }
 
     async function acknowledgemethod(driverid,bookid,status){
@@ -6453,6 +6455,8 @@ $(document).ready(function() {
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
         const result = await resolveAfter2Seconds(driverid,bookid,status);
         delete _activeOfferIds[bookid];
+        // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
+        if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 400);
     }
 
  
@@ -11130,6 +11134,7 @@ $(document).ready(function() {
 
         // Smart auto-dispatch: every 10 s, find Pending jobs and offer each to the
         // nearest Available driver (falls back to lowest QueueNo if no GPS data).
+        var _sadTrigger = null; // exposed so reject paths can retrigger immediately
         (function initSmartAutoDispatch() {
             var _sad_running = false;
 
@@ -11222,6 +11227,7 @@ $(document).ready(function() {
                 }
             }
 
+            _sadTrigger = smartAutoDispatch;
             setInterval(smartAutoDispatch, 10000);
         })();
 
