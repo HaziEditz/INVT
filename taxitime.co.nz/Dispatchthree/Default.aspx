@@ -8753,6 +8753,17 @@ $(document).ready(function() {
 
               {"name":"recieve_ammount" , "value": $scope.AmmountAddedvaluesend}
             ];
+            // Snapshot before async call — clearsection() runs synchronously before .then()
+            var _usnap = {
+                pickup:      $('#pac-input').val(),
+                dropoff:     $('#pac-inputx').val(),
+                phone:       $scope.account_PhoneNo  || '',
+                name:        $scope.account_Name     || '',
+                bags:        $scope.selectedbeg      || 0,
+                passengers:  $scope.selectedcustomer || 1,
+                vehicleType: $("#VehicleType option:selected").text() || '',
+                rideinfo:    $scope.rideinfo         || ''
+            };
             var proc = "[ProcUpdateJobv6]";
             $http({
 
@@ -8802,14 +8813,14 @@ $(document).ready(function() {
                             $("#Divo" + BookingIz + "").remove();
                         }else if( DriveId != "0"  && DriveId != "-1" && DriveId != previousdriverid ){
                             writeJobDetailsToFirebase(DriveId, $("#ddlVehicleType").val(), BookingIz, {
-                                pickup:      $('#pac-input').val(),
-                                dropoff:     $('#pac-inputx').val(),
-                                phone:       $scope.account_PhoneNo,
-                                name:        $scope.account_Name,
-                                bags:        $scope.selectedbeg,
-                                passengers:  $scope.selectedcustomer,
-                                vehicleType: $("#VehicleType option:selected").text(),
-                                rideinfo:    $scope.rideinfo,
+                                pickup:      _usnap.pickup,
+                                dropoff:     _usnap.dropoff,
+                                phone:       _usnap.phone,
+                                name:        _usnap.name,
+                                bags:        _usnap.bags,
+                                passengers:  _usnap.passengers,
+                                vehicleType: _usnap.vehicleType,
+                                rideinfo:    _usnap.rideinfo,
                                 status:      'Offered',
                                 source:      'Dispatcher'
                             });
@@ -9167,6 +9178,18 @@ $(document).ready(function() {
             { "name": "PromoId", "Value": '' }];
  
                 var driverset =   $scope.selecteddriver;
+                // ── Snapshot BEFORE async call — clearsection() runs synchronously
+                //    before any .then() fires, so DOM reads inside callbacks get ''
+                var _snap = {
+                    pickup:      $('#pac-input').val(),
+                    dropoff:     $('#pac-inputx').val(),
+                    phone:       $scope.account_PhoneNo  || '',
+                    name:        $scope.account_Name     || '',
+                    bags:        $scope.selectedbeg      || 0,
+                    passengers:  $scope.selectedcustomer || 1,
+                    vehicleType: $("#VehicleType option:selected").text() || '',
+                    rideinfo:    $scope.rideinfo         || ''
+                };
                 console.log(param);
                 if($scope.showdays){
                     var firstDate = new Date($("#laterDate").val());
@@ -9390,14 +9413,14 @@ $(document).ready(function() {
                                             console.log($res[0].BookingStatus)
 
                                             writeJobDetailsToFirebase(driverset, $("#ddlVehicleType").val(), $res[0].BookingId, {
-                                                pickup:      $('#pac-input').val(),
-                                                dropoff:     $('#pac-inputx').val(),
-                                                phone:       $scope.account_PhoneNo,
-                                                name:        $scope.account_Name,
-                                                bags:        $scope.selectedbeg,
-                                                passengers:  $scope.selectedcustomer,
-                                                vehicleType: $("#VehicleType option:selected").text(),
-                                                rideinfo:    $scope.rideinfo,
+                                                pickup:      _snap.pickup,
+                                                dropoff:     _snap.dropoff,
+                                                phone:       _snap.phone,
+                                                name:        _snap.name,
+                                                bags:        _snap.bags,
+                                                passengers:  _snap.passengers,
+                                                vehicleType: _snap.vehicleType,
+                                                rideinfo:    _snap.rideinfo,
                                                 status:      $res[0].BookingStatus,
                                                 source:      'Dispatcher'
                                             });
@@ -9415,14 +9438,14 @@ $(document).ready(function() {
                                                     sc2.driverdatarealx.forEach(function(d) {
                                                         if (d.driverid && d.vehiclestatus == 'Available') {
                                                             writeJobDetailsToFirebase(d.driverid, d.VehicleId || d.vehiclenumber, $res[0].BookingId, {
-                                                                pickup:      $('#pac-input').val(),
-                                                                dropoff:     $('#pac-inputx').val(),
-                                                                phone:       $scope.account_PhoneNo,
-                                                                name:        $scope.account_Name,
-                                                                bags:        $scope.selectedbeg,
-                                                                passengers:  $scope.selectedcustomer,
-                                                                vehicleType: $("#VehicleType option:selected").text(),
-                                                                rideinfo:    $scope.rideinfo,
+                                                                pickup:      _snap.pickup,
+                                                                dropoff:     _snap.dropoff,
+                                                                phone:       _snap.phone,
+                                                                name:        _snap.name,
+                                                                bags:        _snap.bags,
+                                                                passengers:  _snap.passengers,
+                                                                vehicleType: _snap.vehicleType,
+                                                                rideinfo:    _snap.rideinfo,
                                                                 status:      'Pending',
                                                                 source:      'Dispatcher'
                                                             });
