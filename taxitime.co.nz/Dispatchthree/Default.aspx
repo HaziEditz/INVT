@@ -15735,8 +15735,8 @@ $(document).ready(function() {
                             datas.push("<div id='lessshow' style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span style='width:20px;'>"+$res["dt1"][$i].DropAddress+"</span></div>");
                             datas.push("<span>"+$res["dt1"][$i].Name+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].PhoneNo+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].VehicleNo+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].UserFName + $res["dt1"][$i].UserLName+"</span>");
+                            datas.push("<span>"+($res["dt1"][$i].VehicleNo || '')+"</span>");
+                            datas.push("<span>"+(($res["dt1"][$i].drivername) || (($res["dt1"][$i].UserFName || '') + ' ' + ($res["dt1"][$i].UserLName || '')).trim() || '')+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].BookingSource+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].BookingStatus+"</span>");
                             datasetx.push(datas);

@@ -79,6 +79,7 @@ function calcJobMins(bookingDateTimeStr) {
 function enrichSearchResult(j) {
   const rawDT = (j.BookingDateTime || '').replace(/\.$/, '').trim();
   const [datePart = '', timePart = ''] = rawDT.split(' ');
+  const drivername = j.drivername || ((j.UserFName || '') + ' ' + (j.UserLName || '')).trim() || '';
   return {
     ...j,
     bookingidx:   j.Id,
@@ -86,6 +87,9 @@ function enrichSearchResult(j) {
     BookingTime:  timePart,
     PassengerId:  j.Name || j.PassengerId || '',
     TarriffType:  j.TarriffType || j.BookingSource || '',
+    drivername,
+    VehicleNo:    j.VehicleNo || '',
+    CallSign:     j.CallSign  || j.VehicleNo || '',
   };
 }
 
@@ -487,8 +491,9 @@ const server = http.createServer(async (req, res) => {
 
         const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
         const newJob = {
-          Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
+          Id: newId, AccountId: '', VehicleNo: '', CallSign: '',
           useremail: null, usertype: null, webstatus: '0',
+          UserFName: '', UserLName: '', drivername: '',
           Name: name, PhoneNo: phone,
           BookingDateTime: bookingDT,
           Pickingtime: pickingDT,
@@ -581,6 +586,13 @@ const server = http.createServer(async (req, res) => {
               zd.jobpickup  = job.PickAddress || '';
               zd.jobdropoff = job.DropAddress || '';
               zd.jobCount   = 1;
+              job.VehicleNo = zd.vehiclenumber || job.VehicleNo || '';
+              job.CallSign  = zd.vehiclenumber || job.CallSign  || '';
+              const fullName = zd.drivername || '';
+              const spIdx = fullName.indexOf(' ');
+              job.drivername = fullName;
+              job.UserFName  = spIdx > -1 ? fullName.slice(0, spIdx) : fullName;
+              job.UserLName  = spIdx > -1 ? fullName.slice(spIdx + 1) : '';
             }
           } else {
             // Unassign — restore demo driver to Available
@@ -826,18 +838,30 @@ const server = http.createServer(async (req, res) => {
           let activatedOne = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
+            function enrichJobDriver() {
+              if (vehiclenumber) { job.VehicleNo = vehiclenumber; job.CallSign = vehiclenumber; }
+              if (drivername) {
+                job.drivername = drivername;
+                const sp = drivername.indexOf(' ');
+                job.UserFName = sp > -1 ? drivername.slice(0, sp) : drivername;
+                job.UserLName = sp > -1 ? drivername.slice(sp + 1) : '';
+              }
+            }
             if (newStatus === 'Assigned' &&
                 (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              enrichJobDriver();
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
               // Only promote the single most relevant job (Assigned/Picking first, then Offered)
               job.BookingStatus = 'Active';
+              enrichJobDriver();
               activatedOne = true;
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              enrichJobDriver();
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
@@ -1339,17 +1363,29 @@ const server = http.createServer(async (req, res) => {
           let activatedOneDS = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
+            function enrichJobDriverDS() {
+              if (vehiclenumber) { job.VehicleNo = vehiclenumber; job.CallSign = vehiclenumber; }
+              if (drivername) {
+                job.drivername = drivername;
+                const sp = drivername.indexOf(' ');
+                job.UserFName = sp > -1 ? drivername.slice(0, sp) : drivername;
+                job.UserLName = sp > -1 ? drivername.slice(sp + 1) : '';
+              }
+            }
             if (newStatus === 'Assigned' &&
                 (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              enrichJobDriverDS();
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
               job.BookingStatus = 'Active';
+              enrichJobDriverDS();
               activatedOneDS = true;
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              enrichJobDriverDS();
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
