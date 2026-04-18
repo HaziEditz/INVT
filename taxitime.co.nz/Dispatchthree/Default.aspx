@@ -6164,9 +6164,8 @@ $(document).ready(function() {
         // Clean up Firebase: remove joback node and notification
         firebase.database().ref("joback/" + bookid + "/" + driverid).remove();
         firebase.database().ref("/notification/" + driverid).remove();
-        // Best-effort: try to set driver status to Away in Firebase
-        try { firebase.database().ref("online/1216/" + driverid + "/vehiclestatus").set("Away"); } catch(e) {}
         // Tell server: restore job to original mode, mark driver Away, move driver last in queue
+        // NOTE: do NOT write Away to Firebase here — it removes the driver from the dispatch dropdown
         jQuery.ajax({
             type: "POST",
             url: "DataManager/Data.aspx/DataSelector",
@@ -11330,7 +11329,7 @@ $(document).ready(function() {
             $scope.account_Name    = '';
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
-            $scope.selecteddriver = 0;
+            $scope.selecteddriver = -2;
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
             $scope.LocalDropLat = 0 ;

@@ -1358,5 +1358,27 @@
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
     "JobCompleteTime": "2026-04-18 06:49:33."
+  },
+  {
+    "Id": 1776495317739,
+    "BookingStatus": "Completed",
+    "DriverId": "T201",
+    "VehicleId": "T201",
+    "VehicleNo": "T201",
+    "Name": "Street Pickup",
+    "PhoneNo": "",
+    "PickAddress": "Hail - -46.39623, 168.35133",
+    "DropAddress": "",
+    "PickLatLng": "-46.3962311,168.3513251",
+    "DropLatLng": "",
+    "BookingDateTime": "2026-04-18 06:55:17.",
+    "JobCompleteTime": "2026-04-18 06:55:32.",
+    "BookingSource": "Hail",
+    "booking_type": "Hail",
+    "JobMins": 0,
+    "UserFName": "hasnat.abdullahcool",
+    "UserLName": "",
+    "Route": "",
+    "bookingidx": 1776495317739
   }
 ]
