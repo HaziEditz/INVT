@@ -6152,6 +6152,9 @@ $(document).ready(function() {
                 var _jobsRootListener = _jobsRootRef.on("value", function(jrsnap) {
                     if (settled2) { _jobsRootRef.off("value", _jobsRootListener); return; }
                     jrsnap.forEach(function(vehicleSnap) {
+                        // Only consider the entry for THIS driver — ignore stale DriverAccepted
+                        // entries left by previous drivers so they can't prematurely kill the timer.
+                        if (String(vehicleSnap.key) !== String(driverid)) return;
                         vehicleSnap.forEach(function(driverSnap) {
                             if (settled2) return;
                             var jd = driverSnap.val();
@@ -8824,6 +8827,9 @@ $(document).ready(function() {
                         }).fail(function() { _doWrite({}); });
                     }
                 })(BookingId, JobVehicleId, U_id);
+                // Start a 27 s no-response watcher so the job returns to Unassigned
+                // automatically if the driver never accepts or rejects.
+                acknowledgemethod(JobVehicleId, BookingId, "Offered");
                 angular.element(document.getElementById('myangular')).scope().AssignedJobs();
             }
             
