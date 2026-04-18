@@ -931,6 +931,7 @@ const server = http.createServer(async (req, res) => {
           // Also set DriverId when driver accepts so the job appears correctly in Assigned tab.
           if (effectiveStatus === 'Offered' && incomingDriverId > 0) {
             job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
+            job.offeredAt = Date.now(); // stale-offer watchdog uses this
           }
           if (effectiveStatus === 'Assigned') {
             const acceptDriverId = parseInt(param('driverid') || '0') || 0;
@@ -1258,6 +1259,24 @@ const server = http.createServer(async (req, res) => {
         objectD(res, buildAssignedResponse(jobStore));
 
       } else if (action === 'AutoDispatchVehiclesallride') {
+        // Stale-offer watchdog: if a job has been stuck in "Offered" for more than 2 minutes,
+        // the browser that was tracking it must have closed/refreshed without resolving it.
+        // Reset it to Pending so auto-dispatch can re-offer it to the next available driver.
+        const STALE_OFFER_MS = 2 * 60 * 1000; // 2 minutes
+        const now = Date.now();
+        jobStore.forEach(j => {
+          if (j.BookingStatus === 'Offered') {
+            // If no offeredAt recorded (pre-watchdog jobs), treat as stale immediately.
+            const age = j.offeredAt ? (now - j.offeredAt) : STALE_OFFER_MS + 1;
+            if (age > STALE_OFFER_MS) {
+              console.log(`  [AutoDispatch] stale-offer watchdog: resetting job #${j.Id} (offered to driver ${j.DriverId}, age ${Math.round(age/1000)}s) → Pending`);
+              j.BookingStatus = 'Pending';
+              j.offeredAt = null;
+              j.DriverId = null;
+              j.VehicleId = null;
+            }
+          }
+        });
         // Return jobs that need auto-dispatch: Pending and No One statuses.
         const autoJobs = jobStore.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'No One');
         const dt1 = autoJobs.map(j => ({
@@ -1500,6 +1519,7 @@ const server = http.createServer(async (req, res) => {
           // Track which driver has the current offer so the double-offer guard can compare.
           if (effectiveStatus2 === 'Offered' && incomingDriverId2 > 0) {
             job.DriverId = incomingDriverId2; job.VehicleId = incomingDriverId2;
+            job.offeredAt = Date.now(); // stale-offer watchdog uses this
           }
           // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
           if (effectiveStatus2 === 'Assigned') {
