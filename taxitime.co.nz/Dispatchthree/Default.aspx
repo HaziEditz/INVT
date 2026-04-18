@@ -5638,6 +5638,19 @@ $(document).ready(function() {
         updates['/notification/' + DriverId] = postData;
         // updates['/user-posts/' + uid + '/' + newPostKey] = postData;
 
+        // Also cancel the driver's jobs/ node so the new driver app knows the job is gone.
+        // Scan jobs/{companyId} for any node whose BookingId matches.
+        firebase.database().ref("jobs/" + SomeSession2).once('value').then(function(snap) {
+            snap.forEach(function(vehicleSnap) {
+                vehicleSnap.forEach(function(driverSnap) {
+                    var jd = driverSnap.val();
+                    if (jd && String(jd.BookingId) === String(BookingId)) {
+                        driverSnap.ref.set({ Status: 'Cancelled', BookingId: String(BookingId) });
+                    }
+                });
+            });
+        });
+
         return firebase.database().ref().update(updates);
     }
     function JobEidtPost(DriverId, BookingId) {
@@ -5771,12 +5784,28 @@ $(document).ready(function() {
                 jobpassengers: String(details.passengers || 1),
                 jobvehicletype:details.vehicleType|| '',
                 jobinfo:       details.rideinfo   || '',
+                jobFare:       String(details.fare || ''),
                 jobCount:      1
             };
-            // Single atomic write — remove stale notification then set all fields at once
+            // Pre-offer check (contract rule 4): verify driver is not already on a different job.
+            // jobs/{companyId}/{vehicleId}/{driverId} — if BookingId exists and differs, driver is busy.
             var notifRef = db.ref('/notification/' + driverId);
-            notifRef.remove().then(function() {
-                notifRef.set(fullPayload);
+            var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + driverId);
+            _jobsNodeRef.once('value').then(function(jsnap) {
+                var jd = jsnap.val();
+                if (jd && jd.BookingId && String(jd.BookingId) !== String(bookingId)) {
+                    toastr["warning"]("Driver may be on another job (BookingId: " + jd.BookingId + "). Proceeding with offer.", 'warning!');
+                    console.warn('[writeJobDetailsToFirebase] driver', driverId, 'has active job', jd.BookingId, '— overriding with', bookingId);
+                }
+                // Send the offer regardless (dispatcher's decision to proceed)
+                notifRef.remove().then(function() {
+                    notifRef.set(fullPayload);
+                });
+            }).catch(function() {
+                // If check fails, proceed anyway
+                notifRef.remove().then(function() {
+                    notifRef.set(fullPayload);
+                });
             });
             // Standalone lookup node (no vehiclestatus fields — safe to write)
             db.ref('/jobDetails/' + bookingId).set(fullPayload);
@@ -5842,8 +5871,35 @@ $(document).ready(function() {
                 var DbRefz = firebase.database();
                 var refaz  = DbRefz.ref("joback/"+id+"/"+driverid);
                 var reponsex = 0;
-  
+                // settled flag — whichever path (joback legacy OR jobs new) fires first wins
+                var settled = false;
+
+                // Secondary listener: new driver app writes acceptance to
+                // jobs/{companyId}/{vehicleId}/{driverId}  { Status:"DriverAccepted", BookingId:"..." }
+                var _jobsRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid);
+                var _jobsListener = _jobsRef.on("value", function(jsnap) {
+                    if (settled) { _jobsRef.off("value", _jobsListener); return; }
+                    var jd = jsnap.val();
+                    if (jd && String(jd.BookingId) === String(id) &&
+                        (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) {
+                        settled = true;
+                        _jobsRef.off("value", _jobsListener);
+                        refaz.off("value", listener);
+                        firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                        $('#Divo'+id).remove();
+                        localva = "Accept";
+                        toastr["success"](driverid + " Accept The Job!", 'success!');
+                        convertstatus(id, 'Assigned', driverid, '');
+                        var _scjx = angular.element(document.getElementById('myangular')).scope();
+                        if (_scjx) {
+                            if (typeof _scjx.getjobs === 'function') _scjx.getjobs();
+                            if (typeof _scjx.AssignedJobs === 'function') _scjx.AssignedJobs();
+                        }
+                    }
+                });
+
                 let listener =  refaz.on("value",   function (snapshot) {
+                    if (settled) { refaz.off("value", listener); return; }
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
@@ -5998,8 +6054,40 @@ $(document).ready(function() {
                 var DbRefz = firebase.database();
                 var refaz  = DbRefz.ref("joback/"+id+"/"+driverid);
                 var reponsex = 0;
-  
+                var settled2 = false;
+
+                // Secondary listener: scan jobs/{companyId} subtree for the new driver app's
+                // acceptance record  { Status:"DriverAccepted"|"Active", BookingId:"..." }
+                // We scan because we may not have the exact vehicleId at this call site.
+                var _jobsRootRef = firebase.database().ref("jobs/" + SomeSession2);
+                var _jobsRootListener = _jobsRootRef.on("value", function(jrsnap) {
+                    if (settled2) { _jobsRootRef.off("value", _jobsRootListener); return; }
+                    jrsnap.forEach(function(vehicleSnap) {
+                        vehicleSnap.forEach(function(driverSnap) {
+                            if (settled2) return;
+                            var jd = driverSnap.val();
+                            if (jd && String(jd.BookingId) === String(id) &&
+                                (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) {
+                                settled2 = true;
+                                _jobsRootRef.off("value", _jobsRootListener);
+                                refaz.off("value", listener);
+                                firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                $('#Divo'+id).remove();
+                                localva = "Accept";
+                                toastr["success"](driverid + " Accept The Job!", 'success!');
+                                convertstatus(id, 'Assigned', driverid, '');
+                                var _scj2 = angular.element(document.getElementById('myangular')).scope();
+                                if (_scj2) {
+                                    if (typeof _scj2.getjobs === 'function') _scj2.getjobs();
+                                    if (typeof _scj2.AssignedJobs === 'function') _scj2.AssignedJobs();
+                                }
+                            }
+                        });
+                    });
+                });
+
                 let listener =  refaz.on("value",   function (snapshot) {
+                    if (settled2) { refaz.off("value", listener); return; }
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
