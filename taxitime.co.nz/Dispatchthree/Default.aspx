@@ -13509,7 +13509,7 @@ $(document).ready(function() {
 
             $scope.jobTypeLabel = function (jobMins, dispatchBefore) {
                 var db = parseInt(dispatchBefore) || 0;
-                if (db === 0 || jobMins <= 10) return 'ASAP';
+                if (db === 0) return 'ASAP';
                 return 'Pre-Booked';
             }
             $scope.checklateornow = function (data1, data2) {
