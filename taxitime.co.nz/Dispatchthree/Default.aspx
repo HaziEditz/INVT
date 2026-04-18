@@ -369,7 +369,7 @@
                                                                 
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
-                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" style="background:#c0392b;color:#fff;font-weight:bold;"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail )}}
@@ -2971,7 +2971,7 @@ $(document).ready(function() {
                                                                 
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
-                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" style="background:#c0392b;color:#fff;font-weight:bold;"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3137,7 +3137,7 @@ $(document).ready(function() {
                                                                 
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
-                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" style="background:#c0392b;color:#fff;font-weight:bold;"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -5917,6 +5917,8 @@ $(document).ready(function() {
                 var reponsex = 0;
                 // settled flag — whichever path (joback legacy OR jobs new) fires first wins
                 var settled = false;
+                // Connectivity reference — used to distinguish offline vs no-data
+                var _connRef = firebase.database().ref('.info/connected');
 
                 // Secondary listener: new driver app writes acceptance to
                 // jobs/{companyId}/{vehicleId}/{driverId}  { Status:"DriverAccepted", BookingId:"..." }
@@ -5947,8 +5949,13 @@ $(document).ready(function() {
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
-
-                        toastr["error"]("Driver may not be available. Job will not be reachable if not accepted.", 'error!');
+                        _connRef.once('value', function(csnap) {
+                            if (!csnap.val()) {
+                                toastr["error"]("Network/Coverage Error: Cannot reach driver. Check signal.", 'Network Error!');
+                            } else {
+                                toastr["error"]("Driver app not connected. Job returned to queue.", 'Driver Offline!');
+                            }
+                        });
                         checkingjobz(vehivle , id, driverid);
                         return;
  
@@ -5975,7 +5982,7 @@ $(document).ready(function() {
                             firebase.database().ref().child("/notification/" + driverid).remove();
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
-                            convertstatus(id, 'Pending', driverid, 'Rejected by driver');
+                            convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                             var _scx2 = angular.element(document.getElementById('myangular')).scope();
                             if (_scx2 && typeof _scx2.getjobs === 'function') _scx2.getjobs();
                             return;
@@ -6008,7 +6015,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    convertstatus(id, 'Pending', driverid, 'Rejected by driver');
+                                    convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
@@ -6048,7 +6055,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
-                                convertstatus(id, 'Pending', driverid, 'Rejected by driver');
+                                convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }  else{
@@ -6090,14 +6097,14 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                     firebase.database().ref().child("/notification/" + driverid).remove();
-                    convertstatus1(vehivle, id, 'Unreached', driverid, 'No response from driver');
+                    convertstatus1(vehivle, id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
                     var _fbsc = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc) {
                         if (typeof _fbsc.getjobs     === 'function') _fbsc.getjobs();
                         if (typeof _fbsc.AssignedJobs === 'function') _fbsc.AssignedJobs();
                     }
-                }, 50000);
-            }, 6000);
+                }, 20000);
+            }, 2000);
         });
     }
     function resolveAfter2Seconds(driverid,bookid,status) {
@@ -6117,6 +6124,8 @@ $(document).ready(function() {
                 var refaz  = DbRefz.ref("joback/"+id+"/"+driverid);
                 var reponsex = 0;
                 var settled2 = false;
+                // Connectivity reference — used to distinguish offline vs no-data
+                var _connRef2 = firebase.database().ref('.info/connected');
 
                 // Secondary listener: scan jobs/{companyId} subtree for the new driver app's
                 // acceptance record  { Status:"DriverAccepted"|"Active", BookingId:"..." }
@@ -6153,8 +6162,13 @@ $(document).ready(function() {
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
-
-                        toastr["error"]("Driver may not be available. Job will not be reachable if not accepted.", 'error!');
+                        _connRef2.once('value', function(csnap2) {
+                            if (!csnap2.val()) {
+                                toastr["error"]("Network/Coverage Error: Cannot reach driver. Check signal.", 'Network Error!');
+                            } else {
+                                toastr["error"]("Driver app not connected. Job returned to queue.", 'Driver Offline!');
+                            }
+                        });
                         checkingjob(id, driverid);
                         return;
  
@@ -6211,7 +6225,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    convertstatus(id, 'Pending', driverid, 'Rejected by driver');
+                                    convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
                                     return;
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
@@ -6251,7 +6265,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
-                                convertstatus(id, 'Pending', driverid, 'Rejected by driver');
+                                convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
                                 return;
                             }  else{
@@ -6291,14 +6305,14 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                     firebase.database().ref().child("/notification/" + driverid).remove();
-                    convertstatus(id, 'Unreached', driverid, 'No response from driver');
+                    convertstatus(id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
                     var _fbsc2 = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc2) {
                         if (typeof _fbsc2.getjobs     === 'function') _fbsc2.getjobs();
                         if (typeof _fbsc2.AssignedJobs === 'function') _fbsc2.AssignedJobs();
                     }
-                }, 50000);
-            }, 6000);
+                }, 20000);
+            }, 2000);
         });
     }
 
