@@ -6498,7 +6498,8 @@ $(document).ready(function() {
                        
                        var  param = [   { "name": "bookingid", "Value": id},
                          { "name": "ridestatus", "Value": status},
-                         { "name": "returnreason", "Value": messagezz || ''}
+                         { "name": "returnreason", "Value": messagezz || ''},
+                         { "name": "driverid", "Value": driverid || 0 }
                        ];
 
                        
@@ -11011,22 +11012,11 @@ $(document).ready(function() {
                     var pendingJobs = (resz && resz['dt1']) ? resz['dt1'] : [];
                     if (!pendingJobs.length) return;
 
-                    var onlineSnap = await firebase.database()
-                        .ref('online/' + SomeSession2)
-                        .once('value');
-
-                    var availableDrivers = [];
-                    onlineSnap.forEach(function(child) {
-                        var dv = child.val();
-                        if (!dv || typeof dv !== 'object') return;
-                        if (typeof dv.vehiclenumber === 'undefined' && typeof dv.driverid === 'undefined') {
-                            var keys = Object.keys(dv);
-                            if (keys.length > 0) dv = dv[keys[0]];
-                        }
-                        if (dv && dv.vehiclestatus === 'Available') {
-                            availableDrivers.push(dv);
-                        }
-                    });
+                    // Use Angular scope's driverdatarealx — already has zonequeue and live status
+                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                    var availableDrivers = (_sc && _sc.driverdatarealx)
+                        ? _sc.driverdatarealx.filter(function(dv) { return dv.vehiclestatus === 'Available'; })
+                        : [];
                     if (!availableDrivers.length) return;
 
                     for (var ji = 0; ji < pendingJobs.length; ji++) {
@@ -11038,13 +11028,18 @@ $(document).ready(function() {
                         var pickLat = parseFloat(pickParts[0]) || 0;
                         var pickLng = parseFloat(pickParts[1]) || 0;
 
+                        // Primary sort: zonequeue ascending (1 = first in queue).
+                        // Tiebreaker: distance to pickup if GPS available.
                         var sorted = availableDrivers.slice().sort(function(a, b) {
+                            var qa = parseInt(a.zonequeue) || 999;
+                            var qb = parseInt(b.zonequeue) || 999;
+                            if (qa !== qb) return qa - qb;
                             if (pickLat !== 0 && a.lat && b.lat) {
                                 var da = distance(pickLat, pickLng, parseFloat(a.lat), parseFloat(a.lng), 'K');
                                 var db = distance(pickLat, pickLng, parseFloat(b.lat), parseFloat(b.lng), 'K');
                                 return da - db;
                             }
-                            return (a.QueueNo || 999) - (b.QueueNo || 999);
+                            return 0;
                         });
 
                         var best = sorted[0];
@@ -11054,9 +11049,10 @@ $(document).ready(function() {
                         var vehicleId = best.VehicleId || best.vehicleid || best.vehiclenumber || driverId;
                         if (!driverId) continue;
 
-                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (' + (best.vehiclenumber || '') + ')');
+                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?'));
+                        // Do NOT pre-assign on server — DriverId is set only when driver accepts (convertstatus → Assigned).
                         acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
-                        break;
+                        break; // one offer per cycle — next driver in queue gets the job if no response
                     }
                 } catch(e) {
                     console.warn('[smartAutoDispatch] error:', e);

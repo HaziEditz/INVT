@@ -856,6 +856,11 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus;
           if (returnReason) job.returnReason = returnReason;
+          // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
+          if (effectiveStatus === 'Assigned') {
+            const acceptDriverId = parseInt(param('driverid') || '0') || 0;
+            if (acceptDriverId > 0) { job.DriverId = acceptDriverId; job.VehicleId = acceptDriverId; }
+          }
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
@@ -1403,6 +1408,11 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus2;
           if (returnReason) job.returnReason = returnReason;
+          // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
+          if (effectiveStatus2 === 'Assigned') {
+            const acceptDriverId2 = parseInt(param('driverid') || '0') || 0;
+            if (acceptDriverId2 > 0) { job.DriverId = acceptDriverId2; job.VehicleId = acceptDriverId2; }
+          }
           // Only release (reset) the driver when the job is being cancelled/unassigned.
           // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
