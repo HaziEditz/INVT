@@ -6089,7 +6089,7 @@ $(document).ready(function() {
 
                 // Fallback: driver online but never responds (joback stays 'Sent').
                 // Firebase value listeners only fire on change, so countr never increments.
-                // After 50 s (+ the 6 s initial delay ≈ 56 s total) force the job back.
+                // Timeout set to 27 s to fire 7 s after the driver app's own countdown expires.
                 setTimeout(function() {
                     if (settled) return;
                     settled = true;
@@ -6103,7 +6103,7 @@ $(document).ready(function() {
                         if (typeof _fbsc.getjobs     === 'function') _fbsc.getjobs();
                         if (typeof _fbsc.AssignedJobs === 'function') _fbsc.AssignedJobs();
                     }
-                }, 20000);
+                }, 27000);
             }, 2000);
         });
     }
@@ -6298,6 +6298,7 @@ $(document).ready(function() {
                 } ); 
 
                 // Fallback: same as resolveAfter2Secondsx — covers the silent-driver case.
+                // Timeout set to 27 s to fire 7 s after the driver app's own countdown expires.
                 setTimeout(function() {
                     if (settled2) return;
                     settled2 = true;
@@ -6311,7 +6312,7 @@ $(document).ready(function() {
                         if (typeof _fbsc2.getjobs     === 'function') _fbsc2.getjobs();
                         if (typeof _fbsc2.AssignedJobs === 'function') _fbsc2.AssignedJobs();
                     }
-                }, 20000);
+                }, 27000);
             }, 2000);
         });
     }
