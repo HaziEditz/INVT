@@ -12699,14 +12699,18 @@ $(document).ready(function() {
                     job.JobMins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
                 });
 
-                // Sort: ASAP jobs (db=0) first, then overdue pre-bookings, then future soonest first
+                // Sort: ASAP + dispatch-overdue pre-bookings first (oldest first), then future soonest
                 $scope.unassignedjob_list.sort(function(a, b) {
                     function urgencyScore(job) {
-                        var db = parseInt(job.DispatchTimebefore) || 0;
-                        if (db === 0) return -99999; // ASAP always at top
-                        var bdt = new Date((job.BookingDateTime || '').replace(/\.$/, '').trim());
+                        var db   = parseInt(job.DispatchTimebefore) || 0;
+                        var bdt  = new Date((job.BookingDateTime || '').replace(/\.$/, '').trim());
                         var mins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
-                        return mins - db; // negative = overdue, positive = future
+                        // ASAP (db=0) OR dispatch window already open → urgent tier
+                        // subtract 99999 so they all rank above any future pre-booking,
+                        // and within urgent tier the most overdue (most negative mins) sorts first
+                        if (db === 0 || mins <= db) return mins - 99999;
+                        // Future pre-booking: sort by how soon dispatch window opens
+                        return mins - db;
                     }
                     return urgencyScore(a) - urgencyScore(b);
                 });
