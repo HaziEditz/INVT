@@ -176,6 +176,30 @@ function saveJobStore() {
 // This array is kept as an empty structure so dependent code paths don't crash.
 const ZONE_DRIVERS = [];
 
+// Drivers locked to Away because they didn't accept / rejected a job.
+// Format: { "driverId": lockedAtMs }
+// Cleared when driver goes Busy (they got a new job) or after 10 minutes.
+const AWAY_LOCKED = {};
+const AWAY_LOCK_MS = 10 * 60 * 1000; // 10 minutes
+
+function setAwayLock(driverId) {
+  if (!driverId || String(driverId) === '0') return;
+  AWAY_LOCKED[String(driverId)] = Date.now();
+  console.log(`  [awayLock] driver ${driverId} locked Away`);
+}
+function clearAwayLock(driverId) {
+  if (AWAY_LOCKED[String(driverId)]) {
+    delete AWAY_LOCKED[String(driverId)];
+    console.log(`  [awayLock] driver ${driverId} lock cleared`);
+  }
+}
+function isAwayLocked(driverId) {
+  const t = AWAY_LOCKED[String(driverId)];
+  if (!t) return false;
+  if (Date.now() - t > AWAY_LOCK_MS) { delete AWAY_LOCKED[String(driverId)]; return false; }
+  return true;
+}
+
 // Build full job-list DataSelector response
 function buildJobListResponse(jobs) {
   // Terminal statuses — jobs in these states are done and must NOT appear in the dispatcher queue
@@ -976,6 +1000,8 @@ const server = http.createServer(async (req, res) => {
             const _cancelByDispatcher = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject;
             const newDriverStatus = (_driverFault && !_cancelByDispatcher) ? 'Away' : 'Available';
             if (zd) { zd.vehiclestatus = newDriverStatus; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            if (newDriverStatus === 'Away') setAwayLock(job.DriverId);
+            else clearAwayLock(job.DriverId);
             console.log(`  [changeriddestatusforoffer/DP] driver ${job.DriverId} → ${newDriverStatus} (newStatus=${newStatus} driverFault=${_driverFault})`);
             // When manually unassigning (driverid=0 sent), clear the job's DriverId so it
             // shows in the Unassigned tab and auto-dispatch can pick it up again.
@@ -1006,6 +1032,17 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         if (driverId && newStatus) {
+          // Away-lock: driver didn't accept/rejected a job → block Available until lock expires
+          // or driver gets a new Busy job. Return awayLocked so the client keeps showing Away.
+          if (newStatus === 'Available' && isAwayLocked(driverId)) {
+            console.log(`  [DriverStatusChanged] driver ${driverId} Available BLOCKED (awayLocked)`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
+            return;
+          }
+          // Driver got a new job / pressed Start Meter → clear the away lock
+          if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
+            clearAwayLock(driverId);
+          }
           const driverJobs = jobStore.filter(matchesDriver);
           // Hail / street pickup: driver went Busy with no pre-booked live job
           if (newStatus === 'Busy') {
@@ -1571,6 +1608,8 @@ const server = http.createServer(async (req, res) => {
             const _cancelByDispatcher2 = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject2;
             const newDriverStatus2 = (_driverFault2 && !_cancelByDispatcher2) ? 'Away' : 'Available';
             if (zd) { zd.vehiclestatus = newDriverStatus2; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            if (newDriverStatus2 === 'Away') setAwayLock(job.DriverId);
+            else clearAwayLock(job.DriverId);
             console.log(`  [changeriddestatusforoffer/DS] driver ${job.DriverId} → ${newDriverStatus2} (newStatus=${newStatus} driverFault=${_driverFault2})`);
             // When manually unassigning (driverid=0 sent), clear the job's DriverId.
             const _rawDrv2 = param('driverid');
@@ -1597,6 +1636,15 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         if (driverId && newStatus) {
+          // Away-lock: block Available for drivers who didn't accept/rejected a job.
+          if (newStatus === 'Available' && isAwayLocked(driverId)) {
+            console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available BLOCKED (awayLocked)`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
+            return;
+          }
+          if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
+            clearAwayLock(driverId);
+          }
           const driverJobs = jobStore.filter(matchesDriverDS);
           // Hail / street pickup: driver went Busy with no pre-booked live job
           if (newStatus === 'Busy') {
