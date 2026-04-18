@@ -1174,9 +1174,17 @@ const server = http.createServer(async (req, res) => {
         objectD(res, buildAssignedResponse(jobStore));
 
       } else if (action === 'AutoDispatchVehiclesallride') {
-        // Return empty for auto-dispatch — no Firebase drivers available
-        console.log(`200: POST ${urlPath} [action=${action}] -> empty`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+        // Return jobs that need auto-dispatch: Pending and No One statuses.
+        const autoJobs = jobStore.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'No One');
+        const dt1 = autoJobs.map(j => ({
+          Id: j.Id,
+          ZoneId: j.ZoneId || 1,
+          VehicleType: j.VehicleType || 'Not Specified',
+          Passengers: j.PassengersNo || 1,
+          PickLatLng: j.PickLatLng || '0,0',
+        }));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${dt1.length} pending job(s) for auto-dispatch`);
+        objectD(res, { dt1, dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === 'ZoneCoordinates') {
         // Return an NZ-wide bounding polygon so any NZ address passes zone validation.

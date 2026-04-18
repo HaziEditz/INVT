@@ -10984,6 +10984,91 @@ $(document).ready(function() {
           $scope.FnZonewiseJobtwo();
       }    , 20000);
 
+        // Smart auto-dispatch: every 10 s, find Pending jobs and offer each to the
+        // nearest Available driver (falls back to lowest QueueNo if no GPS data).
+        (function initSmartAutoDispatch() {
+            var _sad_running = false;
+
+            async function smartAutoDispatch() {
+                if (_sad_running) return;
+                _sad_running = true;
+                try {
+                    var d = new Date();
+                    var mo = d.getMonth() + 1;
+                    var dt = d.getDate();
+                    var dateStr = d.getFullYear() + '-' +
+                        (('' + mo).length < 2 ? '0' : '') + mo + '-' +
+                        (('' + dt).length < 2 ? '0' : '') + dt;
+                    var hh = (d.getHours()   < 10 ? '0' : '') + d.getHours();
+                    var mm = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+                    var currentDT = dateStr + ' ' + hh + ':' + mm;
+
+                    var result = await Selector(
+                        [{ name: 'CurrentDateTime', Value: currentDT }],
+                        'AutoDispatchVehiclesallride'
+                    );
+                    var resz = JSON.parse(result.d);
+                    var pendingJobs = (resz && resz['dt1']) ? resz['dt1'] : [];
+                    if (!pendingJobs.length) return;
+
+                    var onlineSnap = await firebase.database()
+                        .ref('online/' + SomeSession2)
+                        .once('value');
+
+                    var availableDrivers = [];
+                    onlineSnap.forEach(function(child) {
+                        var dv = child.val();
+                        if (!dv || typeof dv !== 'object') return;
+                        if (typeof dv.vehiclenumber === 'undefined' && typeof dv.driverid === 'undefined') {
+                            var keys = Object.keys(dv);
+                            if (keys.length > 0) dv = dv[keys[0]];
+                        }
+                        if (dv && dv.vehiclestatus === 'Available') {
+                            availableDrivers.push(dv);
+                        }
+                    });
+                    if (!availableDrivers.length) return;
+
+                    for (var ji = 0; ji < pendingJobs.length; ji++) {
+                        var job = pendingJobs[ji];
+                        var jobId = job.Id;
+                        if (_activeOfferIds[jobId]) continue;
+
+                        var pickParts = (job.PickLatLng || '0,0').split(',');
+                        var pickLat = parseFloat(pickParts[0]) || 0;
+                        var pickLng = parseFloat(pickParts[1]) || 0;
+
+                        var sorted = availableDrivers.slice().sort(function(a, b) {
+                            if (pickLat !== 0 && a.lat && b.lat) {
+                                var da = distance(pickLat, pickLng, parseFloat(a.lat), parseFloat(a.lng), 'K');
+                                var db = distance(pickLat, pickLng, parseFloat(b.lat), parseFloat(b.lng), 'K');
+                                return da - db;
+                            }
+                            return (a.QueueNo || 999) - (b.QueueNo || 999);
+                        });
+
+                        var best = sorted[0];
+                        if (!best) continue;
+
+                        var driverId  = best.PlayerId || best.driverid || '';
+                        var vehicleId = best.VehicleId || best.vehicleid || best.vehiclenumber || driverId;
+                        if (!driverId) continue;
+
+                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (' + (best.vehiclenumber || '') + ')');
+                        acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
+                        break;
+                    }
+                } catch(e) {
+                    console.warn('[smartAutoDispatch] error:', e);
+                } finally {
+                    _sad_running = false;
+                }
+            }
+
+            setInterval(smartAutoDispatch, 10000);
+        })();
+
+
         $scope.testingmethod=  function(random77, random110,random88,Id,randomautoo,random99,random100){
             console.log("job sending in radius");
             console.log("testingmethod entry");
