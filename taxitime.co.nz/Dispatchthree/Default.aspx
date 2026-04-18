@@ -6097,8 +6097,19 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                     firebase.database().ref().child("/notification/" + driverid).remove();
-                    convertstatus1(vehivle, id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
+                    // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc = angular.element(document.getElementById('myangular')).scope();
+                    if (_fbsc && _fbsc.driverdatarealx) {
+                        for (var _di = 0; _di < _fbsc.driverdatarealx.length; _di++) {
+                            var _dd = _fbsc.driverdatarealx[_di];
+                            if (String(_dd.driverid) === String(driverid) || String(_dd.VehicleId) === String(vehivle)) {
+                                _dd.vehiclestatus = 'Away';
+                                break;
+                            }
+                        }
+                        if (!_fbsc.$$phase) _fbsc.$digest();
+                    }
+                    convertstatus1(vehivle, id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
                     if (_fbsc) {
                         if (typeof _fbsc.getjobs     === 'function') _fbsc.getjobs();
                         if (typeof _fbsc.AssignedJobs === 'function') _fbsc.AssignedJobs();
@@ -6306,8 +6317,19 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                     firebase.database().ref().child("/notification/" + driverid).remove();
-                    convertstatus(id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
+                    // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc2 = angular.element(document.getElementById('myangular')).scope();
+                    if (_fbsc2 && _fbsc2.driverdatarealx) {
+                        for (var _di2 = 0; _di2 < _fbsc2.driverdatarealx.length; _di2++) {
+                            var _dd2 = _fbsc2.driverdatarealx[_di2];
+                            if (String(_dd2.driverid) === String(driverid)) {
+                                _dd2.vehiclestatus = 'Away';
+                                break;
+                            }
+                        }
+                        if (!_fbsc2.$$phase) _fbsc2.$digest();
+                    }
+                    convertstatus(id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
                     if (_fbsc2) {
                         if (typeof _fbsc2.getjobs     === 'function') _fbsc2.getjobs();
                         if (typeof _fbsc2.AssignedJobs === 'function') _fbsc2.AssignedJobs();
