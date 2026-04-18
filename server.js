@@ -390,7 +390,7 @@ const server = http.createServer(async (req, res) => {
       // Job write / status changes — v2 is our custom local action; real backend synced in background
       '[AssignJobStatusFromJobListv2]',
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
-      '[changeriddestatusforoffer]', '[DriverTimedOut]', '[DriverStatusChanged]',
+      '[changeriddestatusforoffer]', '[DriverStatusChanged]',
       '[checkjobstatus]', '[checkjobstatusv2]',
       // Closed / search — served from local store + static demo records
       'ClosedJobs', 'SearchJobs', 'SearchJobDateBetween',
@@ -494,7 +494,6 @@ const server = http.createServer(async (req, res) => {
           Id: newId, AccountId: '', VehicleNo: '', CallSign: '',
           useremail: null, usertype: null, webstatus: '0',
           UserFName: '', UserLName: '', drivername: '',
-          initialDispatchMode: driverId === -1 ? 'NoOne' : driverId > 0 ? 'Offered' : 'Auto',
           Name: name, PhoneNo: phone,
           BookingDateTime: bookingDT,
           Pickingtime: pickingDT,
@@ -783,44 +782,6 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
-
-      } else if (action === '[DriverTimedOut]') {
-        // Driver did not accept offer within 30 seconds. Restore job to its original dispatch
-        // mode, mark driver as Away, and move driver to back of zone queue.
-        const bookingId = parseInt(param('bookingid') || '0') || 0;
-        const driverIdRaw = (param('driverid') || '').toString().trim();
-        const driverId = parseInt(driverIdRaw) || 0;
-        const job = jobStore.find(j => j.Id === bookingId);
-        if (job) {
-          const mode = job.initialDispatchMode || 'Auto';
-          if (mode === 'NoOne') {
-            job.BookingStatus = 'No One';
-            job.DriverId = -1;
-          } else {
-            job.BookingStatus = 'Pending';
-            job.DriverId = -2;
-          }
-          job.VehicleId = 0;
-          job.VehicleNo = '';
-          job.CallSign = '';
-          job.drivername = '';
-          job.UserFName = '';
-          job.UserLName = '';
-          job.returnReason = 'Driver did not respond in 30s';
-          // Mark driver Away and push to back of queue
-          const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId ||
-                                           String(d.driverid) === driverIdRaw);
-          if (zd) {
-            zd.vehiclestatus = 'Away';
-            zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
-            const maxQ = ZONE_DRIVERS.filter(d => d.vehicletype === zd.vehicletype)
-                                      .reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
-            zd.zonequeue = maxQ + 1;
-          }
-          saveJobStore();
-        }
-        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} restored, driver ${driverIdRaw} → Away`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[DriverStatusChanged]') {
@@ -1353,35 +1314,6 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
-
-      } else if (action === '[DriverTimedOut]') {
-        const bookingId = parseInt(param('bookingid') || '0') || 0;
-        const driverIdRaw = (param('driverid') || '').toString().trim();
-        const driverId = parseInt(driverIdRaw) || 0;
-        const job = jobStore.find(j => j.Id === bookingId);
-        if (job) {
-          const mode = job.initialDispatchMode || 'Auto';
-          if (mode === 'NoOne') {
-            job.BookingStatus = 'No One'; job.DriverId = -1;
-          } else {
-            job.BookingStatus = 'Pending'; job.DriverId = -2;
-          }
-          job.VehicleId = 0; job.VehicleNo = ''; job.CallSign = '';
-          job.drivername = ''; job.UserFName = ''; job.UserLName = '';
-          job.returnReason = 'Driver did not respond in 30s';
-          const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId ||
-                                           String(d.driverid) === driverIdRaw);
-          if (zd) {
-            zd.vehiclestatus = 'Away';
-            zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
-            const maxQ = ZONE_DRIVERS.filter(d => d.vehicletype === zd.vehicletype)
-                                      .reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
-            zd.zonequeue = maxQ + 1;
-          }
-          saveJobStore();
-        }
-        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} restored, driver ${driverIdRaw} → Away`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[DriverStatusChanged]') {

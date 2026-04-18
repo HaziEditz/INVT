@@ -423,14 +423,11 @@
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
-                                                                    {{value.BookingStatus=='Pending'?'Automatic':value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
+                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-magic"></i> Automatic
-                                                                </span>
-                                                                <span class="label label-pill mt-2" ng-if="value.BookingStatus=='No One'" style="background:#e53935;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-ban"></i> No One
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -788,7 +785,7 @@
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                    {{value.BookingStatus=='Pending'?'Automatic':value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
+                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
@@ -3027,14 +3024,11 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
-                                                                    {{value.BookingStatus=='Pending'?'Automatic':value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
+                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-magic"></i> Automatic
-                                                                </span>
-                                                                <span class="label label-pill mt-2" ng-if="value.BookingStatus=='No One'" style="background:#e53935;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-ban"></i> No One
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -3197,14 +3191,11 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
-                                                                    {{value.BookingStatus=='Pending'?'Automatic':value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
+                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-magic"></i> Automatic
-                                                                </span>
-                                                                <span class="label label-pill mt-2" ng-if="value.BookingStatus=='No One'" style="background:#e53935;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-ban"></i> No One
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -3575,7 +3566,7 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                    {{value.BookingStatus=='Pending'?'Automatic':value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
+                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
@@ -5793,7 +5784,6 @@ $(document).ready(function() {
         }
     }
     var counterfirst = 0;
-    var _jobHandledFlags = {}; // bookid → true once accepted/rejected/timed-out
 
     
 
@@ -5853,7 +5843,6 @@ $(document).ready(function() {
                 var reponsex = 0;
   
                 let listener =  refaz.on("value",   function (snapshot) {
-                    if (_jobHandledFlags[bookid]) { refaz.off(); return; } // already resolved
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
@@ -5870,7 +5859,6 @@ $(document).ready(function() {
                     var _jst = ($respp['jobstatus'] || '').toLowerCase();
                     if (!$respp['status'] || $respp['status'] === 'Sent') {
                         if ($respp['jobstatus'] === 'Assigned' || _jst === 'assigned') {
-                            _jobHandledFlags[bookid] = true;
                             toastr["success"](driverid + " Accept The Job!", 'success!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             refaz.off("value", listener);
@@ -5881,7 +5869,6 @@ $(document).ready(function() {
                             if (_scx1) { if (typeof _scx1.getjobs === 'function') _scx1.getjobs(); if (typeof _scx1.AssignedJobs === 'function') _scx1.AssignedJobs(); }
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst === 'reject') {
-                            _jobHandledFlags[bookid] = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
@@ -6012,7 +5999,6 @@ $(document).ready(function() {
                 var reponsex = 0;
   
                 let listener =  refaz.on("value",   function (snapshot) {
-                    if (_jobHandledFlags[bookid]) { refaz.off(); return; } // already resolved
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
@@ -6026,7 +6012,6 @@ $(document).ready(function() {
                     var _jst2 = ($respp['jobstatus'] || '').toLowerCase();
                     if (!$respp['status'] || $respp['status'] === 'Sent') {
                         if ($respp['jobstatus'] === 'Assigned' || _jst2 === 'assigned') {
-                            _jobHandledFlags[bookid] = true;
                             toastr["success"](driverid + " Accept The Job!", 'success!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             refaz.off("value", listener);
@@ -6037,7 +6022,6 @@ $(document).ready(function() {
                             if (_scx3) { if (typeof _scx3.getjobs === 'function') _scx3.getjobs(); if (typeof _scx3.AssignedJobs === 'function') _scx3.AssignedJobs(); }
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst2 === 'reject') {
-                            _jobHandledFlags[bookid] = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
@@ -6158,35 +6142,6 @@ $(document).ready(function() {
 
 
     
-    function _handleDriverNoResponse(vehicle, driverid, bookid) {
-        if (_jobHandledFlags[bookid]) return; // already resolved (accept/reject came in first)
-        _jobHandledFlags[bookid] = true;
-        // Clean up Firebase: remove joback node and notification
-        firebase.database().ref("joback/" + bookid + "/" + driverid).remove();
-        firebase.database().ref("/notification/" + driverid).remove();
-        // Best-effort: try to set driver status to Away in Firebase
-        try { firebase.database().ref("online/1216/" + driverid + "/vehiclestatus").set("Away"); } catch(e) {}
-        // Tell server: restore job to original mode, mark driver Away, move driver last in queue
-        jQuery.ajax({
-            type: "POST",
-            url: "DataManager/Data.aspx/DataSelector",
-            data: JSON.stringify({ action: "[DriverTimedOut]", data: [
-                { name: "bookingid", Value: bookid },
-                { name: "driverid",  Value: driverid }
-            ]}),
-            dataType: "json",
-            contentType: "application/json; charset=utf-8",
-            success: function() {
-                toastr["warning"]('Driver did not respond in 30s — marked Away, job returned to queue.', 'Timed Out');
-                var _sc = angular.element(document.getElementById('myangular')).scope();
-                if (_sc) {
-                    if (typeof _sc.getjobs === 'function') _sc.getjobs();
-                    if (typeof _sc.AssignedJobs === 'function') _sc.AssignedJobs();
-                }
-            }
-        });
-    }
-
     async function acknowledgemethodx(vehicle , driverid,bookid,status){
         if(status == "Offered"){
             status  = "Pending";
@@ -6197,9 +6152,8 @@ $(document).ready(function() {
         // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
         var _sca = angular.element(document.getElementById('myangular')).scope();
         if (_sca && typeof _sca.AssignedJobs === 'function') { _sca.AssignedJobs(); }
-        // 30-second hard cutoff: if driver hasn't responded, mark Away and restore job
-        setTimeout(function() { _handleDriverNoResponse(vehicle, driverid, bookid); }, 30000);
-        resolveAfter2Secondsx(vehicle , driverid,bookid,status);
+        const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
+ 
     }
 
     async function acknowledgemethod(driverid,bookid,status){
@@ -6211,9 +6165,8 @@ $(document).ready(function() {
         // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
         var _scb = angular.element(document.getElementById('myangular')).scope();
         if (_scb && typeof _scb.AssignedJobs === 'function') { _scb.AssignedJobs(); }
-        // 30-second hard cutoff: if driver hasn't responded, mark Away and restore job
-        setTimeout(function() { _handleDriverNoResponse(null, driverid, bookid); }, 30000);
-        resolveAfter2Seconds(driverid,bookid,status);
+       const result = await resolveAfter2Seconds(driverid,bookid,status);
+ 
     }
 
  
