@@ -5874,10 +5874,24 @@ $(document).ready(function() {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
-                            // Write Away to driver's status node (driver app heartbeat path) so
-                            // the driver's phone shows Away mode and they can press Available.
                             firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                            // Immediately update driver colour — don't wait for Firebase propagation
+                            (function(_drvid, _veh) {
+                                var _sc = angular.element(document.getElementById('myangular')).scope();
+                                if (_sc && _sc.driverdatarealx) {
+                                    for (var _i = 0; _i < _sc.driverdatarealx.length; _i++) {
+                                        var _d = _sc.driverdatarealx[_i];
+                                        if (String(_d.driverid) === String(_drvid) || String(_d.VehicleId) === String(_veh)) {
+                                            _d.vehiclestatus = 'Away';
+                                            _sc.driverlist = _sc.driverdatarealx;
+                                            if (typeof _sc.zonetablez === 'function') _sc.zonetablez();
+                                            if (!_sc.$$phase) _sc.$digest();
+                                            break;
+                                        }
+                                    }
+                                }
+                            })(driverid, vehivle);
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             _immediateJobPending(id);
@@ -5914,6 +5928,21 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                                    (function(_drvid, _veh) {
+                                        var _sc = angular.element(document.getElementById('myangular')).scope();
+                                        if (_sc && _sc.driverdatarealx) {
+                                            for (var _i = 0; _i < _sc.driverdatarealx.length; _i++) {
+                                                var _d = _sc.driverdatarealx[_i];
+                                                if (String(_d.driverid) === String(_drvid) || String(_d.VehicleId) === String(_veh)) {
+                                                    _d.vehiclestatus = 'Away';
+                                                    _sc.driverlist = _sc.driverdatarealx;
+                                                    if (typeof _sc.zonetablez === 'function') _sc.zonetablez();
+                                                    if (!_sc.$$phase) _sc.$digest();
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    })(driverid, vehivle);
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     _immediateJobPending(id);
@@ -5956,11 +5985,26 @@ $(document).ready(function() {
                                 settled = true;
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                 firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                refaz.off("value", listener);
-                                $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
                                 firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                                (function(_drvid, _veh) {
+                                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                                    if (_sc && _sc.driverdatarealx) {
+                                        for (var _i = 0; _i < _sc.driverdatarealx.length; _i++) {
+                                            var _d = _sc.driverdatarealx[_i];
+                                            if (String(_d.driverid) === String(_drvid) || String(_d.VehicleId) === String(_veh)) {
+                                                _d.vehiclestatus = 'Away';
+                                                _sc.driverlist = _sc.driverdatarealx;
+                                                if (typeof _sc.zonetablez === 'function') _sc.zonetablez();
+                                                if (!_sc.$$phase) _sc.$digest();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                })(driverid, vehivle);
+                                refaz.off("value", listener);
+                                $('#Divo'+bookid).remove();
                                 _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -7839,20 +7883,31 @@ $(document).ready(function() {
                     // vehiclestatus comparison always equal and changedata would never fire).
                     var _savedOldStatus = $scope.driverdatarealx[incs].vehiclestatus;
 
+                    // Helper: update driver entry with new data but keep the CURRENT vehiclestatus
+                    // so these field-only branches never accidentally flash a new colour on screen.
+                    // Uses Object.assign to avoid mutating datacom (which would break the vehiclestatus
+                    // comparison at the end of this block).
+                    // The vehiclestatus is only changed by the explicit block below.
+                    function _patchDriver(dc) {
+                        var _patched = Object.assign({}, dc);
+                        _patched.vehiclestatus = _savedOldStatus;
+                        $scope.driverdatarealx[incs] = _patched;
+                    }
+
                     if($scope.driverdatarealx[incs].zonename  != datacom.zonename ){
-                        $scope.driverdatarealx[incs] =  datacom;
+                        _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].zonequeue  != datacom.zonequeue ){
-                        $scope.driverdatarealx[incs] =  datacom;
+                        _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].joboffer  != datacom.joboffer ){
-                        $scope.driverdatarealx[incs] =  datacom;
+                        _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
@@ -7863,13 +7918,13 @@ $(document).ready(function() {
                     }
 
                     if($scope.driverdatarealx[incs].jobpickup != datacom.jobpickup){
-                        $scope.driverdatarealx[incs] =  datacom;
+                        _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].JobphoneNo != datacom.JobphoneNo){
-                        $scope.driverdatarealx[incs] =  datacom;
+                        _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
