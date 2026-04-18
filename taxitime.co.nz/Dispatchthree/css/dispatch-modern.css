@@ -258,13 +258,12 @@ ul.nav.panel-tabs li a span {
 /* ---- Job Cards ---- */
 .bottomspave,
 div#singlediv {
-  background: #ffffff !important;
   border: 1px solid #e5e7eb !important;
   border-radius: 8px !important;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
   margin-bottom: 8px !important;
   padding: 8px !important;
-  transition: box-shadow 0.15s ease;
+  transition: background 0.3s ease, box-shadow 0.15s ease;
   position: relative;
 }
 
