@@ -12699,6 +12699,18 @@ $(document).ready(function() {
                     job.JobMins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
                 });
 
+                // Sort: ASAP jobs (db=0) first, then overdue pre-bookings, then future soonest first
+                $scope.unassignedjob_list.sort(function(a, b) {
+                    function urgencyScore(job) {
+                        var db = parseInt(job.DispatchTimebefore) || 0;
+                        if (db === 0) return -99999; // ASAP always at top
+                        var bdt = new Date((job.BookingDateTime || '').replace(/\.$/, '').trim());
+                        var mins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
+                        return mins - db; // negative = overdue, positive = future
+                    }
+                    return urgencyScore(a) - urgencyScore(b);
+                });
+
                     $scope.driverlist = $scope.jobsdata['dt5'];
                     //$scope.$digest();
                 
