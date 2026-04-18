@@ -8427,7 +8427,8 @@ $(document).ready(function() {
                   
                 }
 
-           
+                // Recalculate distance/time after reversing pickup and drop
+                $scope.suggest();
 
             }
           
@@ -12357,7 +12358,7 @@ $(document).ready(function() {
                 var totalkm =  Math.round(respns);
                 onekmminute = 3;
                 var totaltimeneed =  totalkm * onekmminute;
-                document.getElementById('timesuggested').innerHTML ="Pickup Distane is "+ totalkm +" KM from This dispatcher </br> : ,  Suggested Time : " + totaltimeneed +" Minute" ;
+                document.getElementById('timesuggested').innerHTML ="Pickup Distance: "+ totalkm +" KM from dispatcher &nbsp;|&nbsp; Suggested Time: " + totaltimeneed +" min" ;
 
             }
         }
