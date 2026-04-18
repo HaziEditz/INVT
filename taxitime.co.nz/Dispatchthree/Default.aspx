@@ -6341,12 +6341,24 @@ $(document).ready(function() {
             return;
         }
         _activeOfferIds[bookid] = true;
+        // Mark job as Offered on server → moves it from U-A tab into the Offer tab immediately.
+        jQuery.ajax({
+            type: "POST", url: "DataManager/Data.aspx/DataProcessor",
+            data: JSON.stringify({ data: [
+                { name: "bookingid", Value: bookid },
+                { name: "ridestatus", Value: "Offered" },
+                { name: "returnreason", Value: "" },
+                { name: "driverid", Value: driverid }
+            ], action: "[changeriddestatusforoffer]" }),
+            dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
+            success: function() {
+                var _sca = angular.element(document.getElementById('myangular')).scope();
+                if (_sca && typeof _sca.getjobs === 'function') _sca.getjobs();
+            }
+        });
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
-        // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
-        var _sca = angular.element(document.getElementById('myangular')).scope();
-        if (_sca && typeof _sca.AssignedJobs === 'function') { _sca.AssignedJobs(); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
         delete _activeOfferIds[bookid];
     }
@@ -6361,11 +6373,23 @@ $(document).ready(function() {
             return;
         }
         _activeOfferIds[bookid] = true;
+        // Mark job as Offered on server → moves it from U-A tab into the Offer tab immediately.
+        jQuery.ajax({
+            type: "POST", url: "DataManager/Data.aspx/DataProcessor",
+            data: JSON.stringify({ data: [
+                { name: "bookingid", Value: bookid },
+                { name: "ridestatus", Value: "Offered" },
+                { name: "returnreason", Value: "" },
+                { name: "driverid", Value: driverid }
+            ], action: "[changeriddestatusforoffer]" }),
+            dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
+            success: function() {
+                var _scb = angular.element(document.getElementById('myangular')).scope();
+                if (_scb && typeof _scb.getjobs === 'function') _scb.getjobs();
+            }
+        });
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
-        // Immediately refresh Assigned tab — server set job to 'Assigned' at dispatch time.
-        var _scb = angular.element(document.getElementById('myangular')).scope();
-        if (_scb && typeof _scb.AssignedJobs === 'function') { _scb.AssignedJobs(); }
         const result = await resolveAfter2Seconds(driverid,bookid,status);
         delete _activeOfferIds[bookid];
     }
