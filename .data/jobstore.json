@@ -1328,7 +1328,7 @@
     "EntitiesDetails": "front",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "2.4 km",
     "EstimatedTime": "5 mins",

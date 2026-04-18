@@ -113,6 +113,23 @@ if (jobStore.length > 0) {
   if (maxId >= nextJobId) nextJobId = maxId + 1;
 }
 
+// Self-heal: any job that is Assigned but has no driver (DriverId=0) got orphaned.
+// Recover it to Pending so the dispatcher can re-offer it.
+(function healOrphanedJobs() {
+  let healed = 0;
+  jobStore.forEach(j => {
+    if (j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0')) {
+      j.BookingStatus = 'Pending';
+      j.returnReason = j.returnReason || 'Driver returned job (went available)';
+      healed++;
+    }
+  });
+  if (healed > 0) {
+    try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) {}
+    console.log(`[self-heal] recovered ${healed} orphaned Assigned job(s) -> Pending`);
+  }
+})();
+
 function saveJobStore() {
   try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) { console.log('[persist] jobstore save error:', e.message); }
 }
@@ -128,16 +145,16 @@ function buildJobListResponse(jobs) {
   const allNonTerminal = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
   // dt1 = jobs that belong in the Unassigned/Pending tab.
   // 'Unreached' = driver didn't respond; 'No One' = auto-dispatch found no driver.
-  // Both must reappear in the Unassigned tab so dispatch can re-offer them.
-  // Active and Assigned jobs must NOT appear here; they have their own tabs.
+  // Assigned+DriverId=0 is an orphaned job (driver left without completing) — treat as Pending.
   const PENDING_ST = new Set(['Pending', 'Offered', 'Reject', 'Unreached', 'No One']);
-  const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus));
+  const isOrphaned = j => j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0');
+  const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus) || isOrphaned(j));
   const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
-    dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned').length }],
+    dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned' && !isOrphaned(j)).length }],
     dt3: [{ ActiveCount: allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
-    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One').length }],
+    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
     dt5: [{ PublicKey: '' }],
   };
 }
@@ -158,7 +175,8 @@ function buildDeliveryResponse(jobs) {
 function buildAssignedResponse(jobs) {
   // 'Offered' = dispatcher sent the job, driver hasn't accepted yet → stays in Pending/Offered tab
   // 'Assigned' = driver accepted → shows in Assigned tab only
-  const assigned = jobs.filter(j => j.BookingStatus === 'Assigned');
+  // Exclude orphaned jobs (Assigned but DriverId=0) — those appear in Unassigned tab instead.
+  const assigned = jobs.filter(j => j.BookingStatus === 'Assigned' && j.DriverId && String(j.DriverId) !== '0');
   const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
   const activeCount = jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length;
   return {
@@ -855,7 +873,10 @@ const server = http.createServer(async (req, res) => {
           let activatedOne = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
-            if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus)) {
+            // Guard: if job has no driver (orphaned) skip the Assigned transition so
+            // we don't re-lock an already-released job into Assigned again.
+            const orphaned = !job.DriverId || String(job.DriverId) === '0';
+            if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus) && !orphaned) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
@@ -1380,7 +1401,8 @@ const server = http.createServer(async (req, res) => {
           let activatedOneDS = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
-            if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus)) {
+            const orphanedDS = !job.DriverId || String(job.DriverId) === '0';
+            if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus) && !orphanedDS) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
