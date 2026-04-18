@@ -869,6 +869,10 @@ const server = http.createServer(async (req, res) => {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
             // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
             if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            // When manually unassigning (driverid=0 sent), clear the job's DriverId so it
+            // shows in the Unassigned tab and auto-dispatch can pick it up again.
+            const forcedDriverId = parseInt(param('driverid') || '-1');
+            if (forcedDriverId === 0) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
         }
@@ -1426,6 +1430,9 @@ const server = http.createServer(async (req, res) => {
             const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
             // Unreached = driver didn't respond → Away. Cancelled/Pending = Available.
             if (zd) { zd.vehiclestatus = (newStatus === 'Unreached') ? 'Away' : 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+            // When manually unassigning (driverid=0 sent), clear the job's DriverId.
+            const forcedDriverId2 = parseInt(param('driverid') || '-1');
+            if (forcedDriverId2 === 0) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
         }

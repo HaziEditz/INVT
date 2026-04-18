@@ -3377,6 +3377,9 @@ $(document).ready(function() {
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i class="  fa fa-headphones "></i>{{avalue.DispatcherName}}
                                                                     </span>
+                                                                    <span class="label label-pill mt-2" style="background:#e67e22;color:#fff;cursor:pointer;" ng-click="clearStuckJob(avalue.Id, avalue.DriverId)" title="Force job back to Unassigned queue">
+                                                                        <i class="fa fa-undo"></i> Unassign
+                                                                    </span>
 
                                                                     
                                                                 </div>
@@ -8745,6 +8748,51 @@ $(document).ready(function() {
 
 
         // assignedsending
+
+        // Force a stuck Assigned job back to Pending so auto-dispatch can re-offer it.
+        $scope.clearStuckJob = function(jobId, driverId) {
+            if (!confirm('Return job #' + jobId + ' to the Unassigned queue?')) return;
+            // Cancel the old Firebase notification so the driver app stops showing it
+            if (driverId && String(driverId) !== '0') {
+                FnCancelRide(driverId, jobId);
+                firebase.database().ref().child("joback/" + jobId + "/" + driverId).remove();
+            }
+            // Clear the active-offer dedup lock so a new offer can be started
+            if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[jobId];
+            if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(jobId)];
+            // Reset on server: DriverId=0, status=Pending
+            jQuery.ajax({
+                type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
+                data: JSON.stringify({ data: [
+                    { name: 'bookingid',    Value: jobId },
+                    { name: 'ridestatus',   Value: 'Pending' },
+                    { name: 'returnreason', Value: 'Manually unassigned' },
+                    { name: 'driverid',     Value: 0 }
+                ], action: '[changeriddestatusforoffer]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                success: function() {
+                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                    if (_sc) {
+                        // Optimistic update: flip in assignedjob_list and move to unassignedjob_list
+                        for (var _ai = 0; _ai < (_sc.assignedjob_list || []).length; _ai++) {
+                            if (String(_sc.assignedjob_list[_ai].Id) === String(jobId)) {
+                                var _j = _sc.assignedjob_list.splice(_ai, 1)[0];
+                                _j.BookingStatus = 'Pending';
+                                _j.DriverId = 0;
+                                _j.returnReason = 'Manually unassigned';
+                                (_sc.unassignedjob_list = _sc.unassignedjob_list || []).push(_j);
+                                break;
+                            }
+                        }
+                        if (!_sc.$$phase) _sc.$digest();
+                        if (typeof _sc.AssignedJobs === 'function') _sc.AssignedJobs();
+                        if (typeof _sc.getjobs === 'function') _sc.getjobs();
+                    }
+                    toastr['success']('Job #' + jobId + ' returned to Unassigned queue', 'Done');
+                },
+                error: function() { toastr['error']('Could not unassign job #' + jobId, 'Error'); }
+            });
+        };
 
         $scope.AssignJobFromJobList = function(BookingId, VehicleId ,driverId,U_id , quenumber,type) {
               
