@@ -6164,8 +6164,9 @@ $(document).ready(function() {
         // Clean up Firebase: remove joback node and notification
         firebase.database().ref("joback/" + bookid + "/" + driverid).remove();
         firebase.database().ref("/notification/" + driverid).remove();
+        // Best-effort: try to set driver status to Away in Firebase
+        try { firebase.database().ref("online/1216/" + driverid + "/vehiclestatus").set("Away"); } catch(e) {}
         // Tell server: restore job to original mode, mark driver Away, move driver last in queue
-        // NOTE: do NOT write Away to Firebase here — it removes the driver from the dispatch dropdown
         jQuery.ajax({
             type: "POST",
             url: "DataManager/Data.aspx/DataSelector",
@@ -11329,8 +11330,7 @@ $(document).ready(function() {
             $scope.account_Name    = '';
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
-            $scope.selecteddriver = -2;
-            if (typeof $scope.getddlvehicle === 'function') $scope.getddlvehicle();
+            $scope.selecteddriver = 0;
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
             $scope.LocalDropLat = 0 ;
@@ -13735,9 +13735,8 @@ $(document).ready(function() {
                             $scope.selecteddriver = -1;
                             $scope.selecteddriverpre = 0;
                         }else if($res["dt1"][0].BookingStatus == 'Pending'){
-                            $scope.selecteddriver = -2;
+                            $scope.selecteddriver = 0;
                             $scope.selecteddriverpre = 0;
-                            if (typeof $scope.getddlvehicle === 'function') $scope.getddlvehicle();
                         }else if($res["dt1"][0].BookingStatus == 'Offered'){
                                   $scope.vehicleidpre =  $res["dt1"][0].vehicleid;
                                  $scope.selecteddriver =  parseInt($res["dt1"][0].DriverId);
@@ -13832,7 +13831,7 @@ $(document).ready(function() {
                 var DriveId = "";
                 if(laterjob){
                   
-                    if ($scope.selecteddriver == 0 || $scope.selecteddriver == -2) {
+                    if ($scope.selecteddriver == 0) {
                         DriveId = "0";
                         bookstatus = "Pending";
                     }
@@ -13846,7 +13845,7 @@ $(document).ready(function() {
                     }
 
                 }else{
-                    if ($scope.selecteddriver == 0 || $scope.selecteddriver == -2) {
+                    if ($scope.selecteddriver == 0) {
                         DriveId = "0";
                         bookstatus = "Pending";
                     }
@@ -13952,7 +13951,7 @@ $(document).ready(function() {
                     
                         if  ( $scope.bookingtime_select == 1 ) {
                         
-                            if($scope.selecteddriver == 0 || $scope.selecteddriver == -2){
+                            if($scope.selecteddriver == 0 ){
                           
                              
                                 toastr["success"](  "Booking Update", 'success!');   
@@ -13970,7 +13969,7 @@ $(document).ready(function() {
                             }  
                         }else{
                         
-                            if ($scope.selecteddriver == 0 || $scope.selecteddriver == -2) {
+                            if ($scope.selecteddriver == 0) {
                                 toastr["success"](  "Booking Update", 'success!');
                          
                             } else if(   $scope.selecteddriver == -1){
@@ -14456,9 +14455,7 @@ $(document).ready(function() {
                                     VehicleId : $res['dt1'][0].vehicleid
                                 });
                            
-                                var _did14 = parseInt($res["dt1"][0].DriverId) || 0;
-                                $scope.selecteddriver = _did14 > 0 ? _did14 : (_did14 === -1 ? -1 : -2);
-                                if (typeof $scope.getddlvehicle === 'function') $scope.getddlvehicle();
+                                $scope.selecteddriver =  parseInt($res["dt1"][0].DriverId);
                                 $scope.selecteddriverpre =  parseInt($res["dt1"][0].DriverId);
                                 $scope.vehicleidpre =  $res["dt1"][0].vehicleid;
                                 $scope.stoplistarray = [];
