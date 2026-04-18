@@ -9895,7 +9895,7 @@ $(document).ready(function() {
 
                                     console.log( $("#ddlVehicleType").val() );
                                     if($res[0].BookingStatus == "No One"){
-                                             
+                                        toastr["info"]("Job saved with no driver — assign manually from the job list.", "No One");
                                     }  else if($res[0].BookingStatus == "Offered") {
                                              
 
@@ -9930,6 +9930,8 @@ $(document).ready(function() {
                                         // since there was no locking mechanism to prevent dual acceptance.
                                         toastr["info"]("Job queued — auto-dispatch will assign a driver shortly.", "Pending Job");
                                     }
+                                    $scope.getjobs();
+                                    $scope.AssignedJobs();
                                         
                                 }
                             }

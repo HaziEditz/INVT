@@ -526,6 +526,7 @@ const server = http.createServer(async (req, res) => {
       // Admin
       '[KickDriver]', '[DispatcherKickUsers]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
+      '[CancelJobStatusFromJobList]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -1323,6 +1324,29 @@ const server = http.createServer(async (req, res) => {
         ];
         console.log(`200: POST ${urlPath} [action=${action}] -> ${demoApprovals.length} all approvals`);
         arrayD(res, demoApprovals);
+
+      } else if (action === '[CancelJobStatusFromJobList]') {
+        const bookingId = parseInt(param('BookingId')) || 0;
+        const idx = jobStore.findIndex(j => j.Id === bookingId);
+        let driverId = '0';
+        if (idx !== -1) {
+          const job = jobStore[idx];
+          driverId = String(job.DriverId || '0');
+          if (job.DriverId && job.DriverId > 0) {
+            const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
+            if (zd) {
+              zd.vehiclestatus = 'Available';
+              zd.JobphoneNo = '';
+              zd.jobpickup  = '';
+              zd.jobdropoff = '';
+              zd.jobCount   = 0;
+            }
+          }
+          jobStore.splice(idx, 1);
+          saveJobStore();
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId}`);
+        arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: driverId }]);
 
       } else {
         const filePath = resolveFilePath(urlPath);
