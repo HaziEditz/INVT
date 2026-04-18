@@ -177,15 +177,16 @@ function saveJobStore() {
 const ZONE_DRIVERS = [];
 
 // Drivers locked to Away because they didn't accept / rejected a job.
-// Format: { "driverId": lockedAtMs }
-// Cleared when driver goes Busy (they got a new job) or after 10 minutes.
+// Format: { "driverId": true }
+// Lock has NO time-based expiry — it is cleared only when:
+//   1. Driver manually presses Available on their driver app (Available signal received).
+//   2. Driver gets a new job (goes Busy / Assigned / Picking).
 const AWAY_LOCKED = {};
-const AWAY_LOCK_MS = 10 * 60 * 1000; // 10 minutes
 
 function setAwayLock(driverId) {
   if (!driverId || String(driverId) === '0') return;
-  AWAY_LOCKED[String(driverId)] = Date.now();
-  console.log(`  [awayLock] driver ${driverId} locked Away`);
+  AWAY_LOCKED[String(driverId)] = true;
+  console.log(`  [awayLock] driver ${driverId} locked Away (no expiry)`);
 }
 function clearAwayLock(driverId) {
   if (AWAY_LOCKED[String(driverId)]) {
@@ -194,10 +195,7 @@ function clearAwayLock(driverId) {
   }
 }
 function isAwayLocked(driverId) {
-  const t = AWAY_LOCKED[String(driverId)];
-  if (!t) return false;
-  if (Date.now() - t > AWAY_LOCK_MS) { delete AWAY_LOCKED[String(driverId)]; return false; }
-  return true;
+  return !!AWAY_LOCKED[String(driverId)];
 }
 
 // Build full job-list DataSelector response
@@ -1032,14 +1030,13 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         if (driverId && newStatus) {
-          // Away-lock: driver didn't accept/rejected a job → block Available until lock expires
-          // or driver gets a new Busy job. Return awayLocked so the client keeps showing Away.
+          // Away-lock: cleared when driver manually presses Available on their app,
+          // or when they get a new job (Busy/Assigned/Picking).
           if (newStatus === 'Available' && isAwayLocked(driverId)) {
-            console.log(`  [DriverStatusChanged] driver ${driverId} Available BLOCKED (awayLocked)`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
-            return;
+            console.log(`  [DriverStatusChanged] driver ${driverId} manually pressed Available — lock cleared`);
+            clearAwayLock(driverId);
+            // fall through and process Available normally
           }
-          // Driver got a new job / pressed Start Meter → clear the away lock
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
           }
@@ -1636,11 +1633,12 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         if (driverId && newStatus) {
-          // Away-lock: block Available for drivers who didn't accept/rejected a job.
+          // Away-lock: cleared when driver manually presses Available on their app,
+          // or when they get a new job (Busy/Assigned/Picking).
           if (newStatus === 'Available' && isAwayLocked(driverId)) {
-            console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available BLOCKED (awayLocked)`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
-            return;
+            console.log(`  [DriverStatusChanged/DS] driver ${driverId} manually pressed Available — lock cleared`);
+            clearAwayLock(driverId);
+            // fall through and process Available normally
           }
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);

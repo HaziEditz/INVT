@@ -7807,12 +7807,6 @@ $(document).ready(function() {
             datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + datacom.driverid);
             datacom.vehiclestatus = datacom.vehiclestatus || 'Available';
             datacom.vehiclenumber = datacom.vehiclenumber || String(datacom.VehicleId || datacom.driverid || '');
-            // If this driver is server-locked Away (didn't accept/rejected a job),
-            // override whatever Firebase says for vehiclestatus so no heartbeat from
-            // the driver app can flip the display back to green.
-            if (window._awayLockedDriverIds && window._awayLockedDriverIds[String(datacom.driverid || datacom.VehicleId)]) {
-                datacom.vehiclestatus = 'Away';
-            }
             datacom.Id = datacom.driverid;
             datacom.VehicleNo = datacom.vehiclenumber;
             datacom.VehicleName = datacom.vehiclenumber;
@@ -7894,36 +7888,7 @@ $(document).ready(function() {
                                     { name:'lng',           Value: String(datacom.lng || '') }
                                 ], action: '[DriverStatusChanged]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
-                                success: function(_resp) {
-                                    // Check if server blocked this Available because driver is away-locked
-                                    var _isAwayLocked = false;
-                                    try {
-                                        var _r = (_resp && _resp.d) ? JSON.parse(_resp.d) : null;
-                                        if (_r && _r.awayLocked) { _isAwayLocked = true; }
-                                    } catch(e) {}
-                                    if (_isAwayLocked) {
-                                        // Mark driver as client-side away-locked so future Firebase
-                                        // heartbeats don't flip the display back to green.
-                                        window._awayLockedDriverIds = window._awayLockedDriverIds || {};
-                                        window._awayLockedDriverIds[String(_drvId)] = true;
-                                        // Restore Away in the driver list (may have briefly shown green)
-                                        var _scAL = angular.element(document.getElementById('myangular')).scope();
-                                        if (_scAL && _scAL.driverdatarealx) {
-                                            for (var _ai = 0; _ai < _scAL.driverdatarealx.length; _ai++) {
-                                                var _ald = _scAL.driverdatarealx[_ai];
-                                                if (String(_ald.driverid || _ald.VehicleId) === String(_drvId)) {
-                                                    _ald.vehiclestatus = 'Away';
-                                                    _scAL.driverlist = _scAL.driverdatarealx;
-                                                    if (typeof _scAL.zonetablez === 'function') _scAL.zonetablez();
-                                                    if (!_scAL.$$phase) _scAL.$digest();
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        return;
-                                    }
-                                    // Server approved — clear any client-side away lock for this driver
-                                    if (window._awayLockedDriverIds) delete window._awayLockedDriverIds[String(_drvId)];
+                                success: function() {
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
                                     if (_sc) {
                                         if (_newSt === 'Busy')      { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
