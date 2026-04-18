@@ -6304,21 +6304,41 @@ $(document).ready(function() {
             return;
         }
         _activeOfferIds[bookid] = true;
-        // Mark job as Offered on server → moves it from U-A tab into the Offer tab immediately.
-        jQuery.ajax({
-            type: "POST", url: "DataManager/Data.aspx/DataProcessor",
-            data: JSON.stringify({ data: [
-                { name: "bookingid", Value: bookid },
-                { name: "ridestatus", Value: "Offered" },
-                { name: "returnreason", Value: "" },
-                { name: "driverid", Value: driverid }
-            ], action: "[changeriddestatusforoffer]" }),
-            dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
-            success: function() {
-                var _sca = angular.element(document.getElementById('myangular')).scope();
-                if (_sca && typeof _sca.getjobs === 'function') _sca.getjobs();
-            }
+        // Mark job as Offered on server FIRST — await the response so we only send the Firebase
+        // driver notification if the server actually accepted the offer (double-offer guard).
+        // If the server blocks it (job already Offered/Assigned to another driver), abort here.
+        var _serverAccepted = await new Promise(function(resolve) {
+            jQuery.ajax({
+                type: "POST", url: "DataManager/Data.aspx/DataProcessor",
+                data: JSON.stringify({ data: [
+                    { name: "bookingid", Value: bookid },
+                    { name: "ridestatus", Value: "Offered" },
+                    { name: "returnreason", Value: "" },
+                    { name: "driverid", Value: driverid }
+                ], action: "[changeriddestatusforoffer]" }),
+                dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
+                success: function(resp) {
+                    // Server sets blocked:true in the response when the double-offer guard fires.
+                    try {
+                        var _r = JSON.parse(resp.d || '{}');
+                        var _blocked = _r && _r.blocked === true;
+                        if (_blocked) {
+                            console.log('[acknowledgemethodx] server BLOCKED offer for job #' + bookid + ' to driver ' + driverid);
+                        } else {
+                            var _sca = angular.element(document.getElementById('myangular')).scope();
+                            if (_sca && typeof _sca.getjobs === 'function') _sca.getjobs();
+                        }
+                        resolve(!_blocked);
+                    } catch(e) { resolve(true); }
+                },
+                error: function() { resolve(false); }
+            });
         });
+        if (!_serverAccepted) {
+            delete _activeOfferIds[bookid];
+            return;
+        }
+        // Server confirmed offer — now notify the driver via Firebase.
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
@@ -6338,21 +6358,38 @@ $(document).ready(function() {
             return;
         }
         _activeOfferIds[bookid] = true;
-        // Mark job as Offered on server → moves it from U-A tab into the Offer tab immediately.
-        jQuery.ajax({
-            type: "POST", url: "DataManager/Data.aspx/DataProcessor",
-            data: JSON.stringify({ data: [
-                { name: "bookingid", Value: bookid },
-                { name: "ridestatus", Value: "Offered" },
-                { name: "returnreason", Value: "" },
-                { name: "driverid", Value: driverid }
-            ], action: "[changeriddestatusforoffer]" }),
-            dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
-            success: function() {
-                var _scb = angular.element(document.getElementById('myangular')).scope();
-                if (_scb && typeof _scb.getjobs === 'function') _scb.getjobs();
-            }
+        // Await server confirmation before writing to Firebase — prevents driver getting
+        // a notification when the server's double-offer guard blocks a duplicate.
+        var _serverAcceptedM = await new Promise(function(resolve) {
+            jQuery.ajax({
+                type: "POST", url: "DataManager/Data.aspx/DataProcessor",
+                data: JSON.stringify({ data: [
+                    { name: "bookingid", Value: bookid },
+                    { name: "ridestatus", Value: "Offered" },
+                    { name: "returnreason", Value: "" },
+                    { name: "driverid", Value: driverid }
+                ], action: "[changeriddestatusforoffer]" }),
+                dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
+                success: function(resp) {
+                    try {
+                        var _r = JSON.parse(resp.d || '{}');
+                        var _blocked = _r && _r.blocked === true;
+                        if (_blocked) {
+                            console.log('[acknowledgemethod] server BLOCKED offer for job #' + bookid + ' to driver ' + driverid);
+                        } else {
+                            var _scb = angular.element(document.getElementById('myangular')).scope();
+                            if (_scb && typeof _scb.getjobs === 'function') _scb.getjobs();
+                        }
+                        resolve(!_blocked);
+                    } catch(e) { resolve(true); }
+                },
+                error: function() { resolve(false); }
+            });
         });
+        if (!_serverAcceptedM) {
+            delete _activeOfferIds[bookid];
+            return;
+        }
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
         firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
         const result = await resolveAfter2Seconds(driverid,bookid,status);
@@ -11093,18 +11130,11 @@ $(document).ready(function() {
                         }
                     });
 
-                    // Stale-lock cleanup: the resolver Promises never call resolve(), so
-                    // _activeOfferIds[id] stays true even after a driver rejects/times out and
-                    // the job returns to Pending. Detect this: if a job is Pending on the server
-                    // AND we already have tried-driver history for it, the lock is stale — clear it
-                    // so the next driver in queue gets offered.
-                    pendingJobs.forEach(function(j) {
-                        var tried = _triedDriversForJob[String(j.Id)] || [];
-                        if (_activeOfferIds[j.Id] && tried.length > 0) {
-                            console.log('[smartAutoDispatch] stale lock cleared for job #' + j.Id + ' (tried ' + tried.length + ' driver(s))');
-                            delete _activeOfferIds[j.Id];
-                        }
-                    });
+                    // NOTE: Stale-lock cleanup removed — it caused a race condition where a brief
+                    // server AJAX delay (offer status not yet set) made it look like the lock was
+                    // stale, causing two drivers to receive the same job simultaneously.
+                    // The lock is now always cleaned up by the actual resolution paths:
+                    // acceptance → settled=true, rejection → _immediateJobPending, timeout → 27s timer.
 
                     for (var ji = 0; ji < pendingJobs.length; ji++) {
                         var job = pendingJobs[ji];

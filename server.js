@@ -908,7 +908,7 @@ const server = http.createServer(async (req, res) => {
           const incomingDriverId = parseInt(param('driverid') || '0') || 0;
           if (newStatus === 'Offered' && currentStatus === 'Offered' && job.DriverId && job.DriverId !== incomingDriverId) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId}`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
           const isAccepted = currentStatus === 'Assigned' || currentStatus === 'Active' || currentStatus === 'Picking';
@@ -919,7 +919,7 @@ const server = http.createServer(async (req, res) => {
           const hasNoDriver = !job.DriverId || job.DriverId === 0;
           if (isAccepted && isDowngrade && !isExplicitReject && !hasNoDriver) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED downgrade: job #${bookingId} is ${currentStatus}, refusing to set ${newStatus} (reason: "${returnReason}")`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
@@ -1478,7 +1478,7 @@ const server = http.createServer(async (req, res) => {
           const incomingDriverId2 = parseInt(param('driverid') || '0') || 0;
           if (newStatus === 'Offered' && currentStatus2 === 'Offered' && job.DriverId && job.DriverId !== incomingDriverId2) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId2}`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
           const isAccepted2 = currentStatus2 === 'Assigned' || currentStatus2 === 'Active' || currentStatus2 === 'Picking';
@@ -1489,7 +1489,7 @@ const server = http.createServer(async (req, res) => {
           const hasNoDriver2 = !job.DriverId || job.DriverId === 0;
           if (isAccepted2 && isDowngrade2 && !isExplicitReject2 && !hasNoDriver2) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED downgrade: job #${bookingId} is ${currentStatus2}, refusing to set ${newStatus} (reason: "${returnReason}")`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
