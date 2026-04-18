@@ -826,8 +826,7 @@ const server = http.createServer(async (req, res) => {
           let activatedOne = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
-            if (newStatus === 'Assigned' &&
-                (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
+            if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus)) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
@@ -1339,8 +1338,7 @@ const server = http.createServer(async (req, res) => {
           let activatedOneDS = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
-            if (newStatus === 'Assigned' &&
-                (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
+            if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus)) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&

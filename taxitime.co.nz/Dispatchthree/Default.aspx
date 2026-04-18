@@ -427,7 +427,7 @@
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-magic"></i> Automatic
+                                                                    <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -2781,7 +2781,8 @@ $(document).ready(function() {
                                                                 <div class="col-sm-12 col-md-6 col-xl-6" style="padding:0px;">
                                                                     <label class="label label-primary"><i class="fa fa-users">Select Driver</i></label>
                                                                     <select class="form-control ddlDriver required"  id="ddlDriver" ng-model="selecteddriver" ng-change="getddlvehicle()">
-                                                                    <option ng-value="-2" data-foo="0"  data-zoneq="0" selected="selected">Automatic</option>
+                                                                    <option ng-value="0" data-foo="0"  data-zoneq="0" selected="selected">Automatic</option>
+                                                                    <option ng-value="-2" data-foo="0"  data-zoneq="0">Pending (Broadcast)</option>
                                                                     <option ng-value="-1" data-foo="0"  data-zoneq="0">No One</option>
                                                                          
                                                                    <option ng-repeat ="driz in LoginDriverdata" data-zoneq="{{driz.zonequeue}}"   data-foo="{{driz.VehicleId}}" ng-value="{{driz.Id}}">  {{driz.UserFName}} / {{driz.VehicleNo }} </option>
@@ -2789,8 +2790,8 @@ $(document).ready(function() {
                                                                  <option ng-repeat ="driwqq in driverdatarealx" ng-show="{{checkofferjob(driwqq.driverid)}}" ng-if="driwqq.vehiclestatus == 'Available'  &&   true == checkjobvehile1(driwqq.vehicletype )" data-zoneq="{{driwqq.zonequeue}}"   data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber }}  {{driwqq.vehicletype}} </option>
                                                                 </select> 
                                                                 </div>
-                                                               <div class="col-sm-12 col-md-6 col-xl-6" ng-show="selecteddriver > 0">
-                                                                                                                        <label class="label label-primary" ><i class="fa fa-car"></i> Vehicle</label>
+                                                               <div class="col-sm-12 col-md-6 col-xl-6" >
+                                                                                                                        <label class="label label-primary" ><i class="fa fa-car"></i></label>
                                                                                                                         <select class="form-control ddlVehicleType required" id="ddlVehicleType"><option value="0" selected="selected">Automatic</option></select>
                                                                                                                         </div>  
                                                             </div>
@@ -3028,7 +3029,7 @@ $(document).ready(function() {
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-magic"></i> Automatic
+                                                                    <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -3195,7 +3196,7 @@ $(document).ready(function() {
                                                                                                                          
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-magic"></i> Automatic
+                                                                    <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -5826,8 +5827,8 @@ $(document).ready(function() {
  
     
     function resolveAfter2Secondsx(vehivle  , driverid,bookid,status) {
-        var countr = 0; // per-call local counter — never shared across dispatches
 
+ 
         return new Promise(resolve => {
             setTimeout(() => {
                 toastr["warning"](  ' Checking this id '+bookid+' Job Status! ', ' warning! ');
@@ -5982,8 +5983,8 @@ $(document).ready(function() {
         });
     }
     function resolveAfter2Seconds(driverid,bookid,status) {
-        var countr = 0; // per-call local counter — never shared across dispatches
 
+ 
         return new Promise(resolve => {
             setTimeout(() => {
                 toastr["warning"](  ' Checking this id '+bookid+' Job Status! ', ' warning! ');
@@ -8295,7 +8296,7 @@ $(document).ready(function() {
         }
        
 
-        $scope.selecteddriver = -2;
+        $scope.selecteddriver = 0;
         $scope.LoginDriver = [];
         // login driver list
         $scope.LoginDrivers = function() {
