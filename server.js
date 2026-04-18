@@ -820,21 +820,40 @@ const server = http.createServer(async (req, res) => {
           }
           // Re-query after potential hail insertion so Available can complete a just-created job
           const allDriverJobs = jobStore.filter(matchesDriver);
+          // Only activate ONE job when driver goes Busy (the highest-priority live one).
+          // Activating all non-terminal jobs at once causes mass-completion when the
+          // driver later goes Available, which is the "accidental cancel" bug.
+          let activatedOne = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus)) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
-            } else if (newStatus === 'Busy' && !TERM.has(job.BookingStatus) && job.BookingStatus !== 'Active') {
+            } else if (newStatus === 'Busy' && !activatedOne &&
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
+              // Only promote the single most relevant job (Assigned/Picking first, then Offered)
               job.BookingStatus = 'Active';
+              activatedOne = true;
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
-            } else if (newStatus === 'Available' && (job.BookingStatus === 'Active' || job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking')) {
-              job.BookingStatus = 'Completed';
-              job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
+            } else if (newStatus === 'Available') {
+              if (job.BookingStatus === 'Active') {
+                // Trip genuinely finished — mark Completed
+                job.BookingStatus = 'Completed';
+                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
+              } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
+                // Driver went Available without completing the trip — return job to Unassigned
+                // so the dispatcher can re-offer it. Do NOT auto-complete.
+                job.BookingStatus = 'Pending';
+                job.returnReason  = 'Driver returned job (went available)';
+                job.DriverId = 0;
+                job.VehicleId = 0;
+                console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Pending (driver went Available without completing)`);
+              }
+              // Offered/Unreached/Pending: driver going Available with no active trip — leave as-is
             }
           });
           saveJobStore();
@@ -1316,21 +1335,32 @@ const server = http.createServer(async (req, res) => {
             }
           }
           const allDriverJobs = jobStore.filter(matchesDriverDS);
+          let activatedOneDS = false;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus)) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
-            } else if (newStatus === 'Busy' && !TERMINAL.has(job.BookingStatus) && job.BookingStatus !== 'Active') {
+            } else if (newStatus === 'Busy' && !activatedOneDS &&
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
               job.BookingStatus = 'Active';
+              activatedOneDS = true;
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
-            } else if (newStatus === 'Available' && (job.BookingStatus === 'Active' || job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking')) {
-              job.BookingStatus = 'Completed';
-              job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
+            } else if (newStatus === 'Available') {
+              if (job.BookingStatus === 'Active') {
+                job.BookingStatus = 'Completed';
+                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
+              } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
+                job.BookingStatus = 'Pending';
+                job.returnReason  = 'Driver returned job (went available)';
+                job.DriverId = 0;
+                job.VehicleId = 0;
+                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (driver went Available without completing)`);
+              }
             }
           });
           saveJobStore();
