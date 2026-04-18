@@ -5760,12 +5760,12 @@ $(document).ready(function() {
                 bookingid:     _bookingidStr,
                 content:       'You have offered new Job please view details',
                 joboffer:      String(bookingId),
-                jobpickup:     details.pickup     || '',
+                jobpickup:     details.pickup     || 'Street / Hail Pickup',
                 jobdropoff:    details.dropoff    || '',
                 JobphoneNo:    details.phone      || '',
                 jobname:       details.name       || '',
-                jobbags:       details.bags       || 0,
-                jobpassengers: details.passengers || 1,
+                jobbags:       String(details.bags       || 0),
+                jobpassengers: String(details.passengers || 1),
                 jobvehicletype:details.vehicleType|| '',
                 jobinfo:       details.rideinfo   || '',
                 jobCount:      1
@@ -8499,19 +8499,34 @@ $(document).ready(function() {
                     for (var _i = 0; _i < _all.length; _i++) {
                         if (String(_all[_i].Id) === String(_bid) || String(_all[_i].BookingId) === String(_bid)) { _j = _all[_i]; break; }
                     }
-                    writeJobDetailsToFirebase(_vid, _vid, _bid, {
-                        pickup:      _j ? (_j.PickAddress || _j.PickLocation || '') : '',
-                        dropoff:     _j ? (_j.DropAddress || _j.DropLocation || '') : '',
-                        phone:       _j ? (_j.PhoneNo || _j.PassengerId || '')      : '',
-                        name:        _j ? (_j.Name     || _j.UserFName  || '')      : '',
-                        bags:        _j ? (_j.Bags     || _j.BagsNo     || 0)       : 0,
-                        passengers:  _j ? (_j.Passengers || _j.PassengersNo || 1)   : 1,
-                        vehicleType: _j ? (_j.VehicleType || '')                    : '',
-                        rideinfo:    _j ? (_j.EntitiesDetails || '')                : '',
-                        status:      'Offered',
-                        source:      (_uid && _uid !== '' && _uid !== 'null') ? 'android' : 'Dispatcher',
-                        u_id:        (_uid && _uid !== '' && _uid !== 'null') ? _uid : ''
-                    });
+                    var _src = (_uid && _uid !== '' && _uid !== 'null') ? 'android' : 'Dispatcher';
+                    var _u   = (_uid && _uid !== '' && _uid !== 'null') ? _uid : '';
+                    function _doWrite(job) {
+                        writeJobDetailsToFirebase(_vid, _vid, _bid, {
+                            pickup:      job.PickAddress    || job.PickLocation    || '',
+                            dropoff:     job.DropAddress    || job.DropLocation    || '',
+                            phone:       job.PhoneNo        || job.PassengerId     || '',
+                            name:        job.Name           || job.UserFName       || '',
+                            bags:        job.Bags           || job.BagsNo          || 0,
+                            passengers:  job.Passengers     || job.PassengersNo    || 1,
+                            vehicleType: job.VehicleType    || '',
+                            rideinfo:    job.EntitiesDetails|| '',
+                            status:      'Offered',
+                            source:      _src,
+                            u_id:        _u
+                        });
+                    }
+                    if (_j) {
+                        _doWrite(_j);
+                    } else {
+                        // Job not in scope — fetch from server so driver gets real details
+                        Selector1([{ name: 'Id', value: _bid }], 'JobDetails').then(function(r) {
+                            try {
+                                var _fetched = JSON.parse(r.d);
+                                _doWrite(_fetched && _fetched.length > 0 ? _fetched[0] : {});
+                            } catch(e) { _doWrite({}); }
+                        }).fail(function() { _doWrite({}); });
+                    }
                 })(BookingId, JobVehicleId, U_id);
                 angular.element(document.getElementById('myangular')).scope().AssignedJobs();
             }
