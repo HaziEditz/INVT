@@ -13734,7 +13734,7 @@ $(document).ready(function() {
                             $scope.selecteddriver = -1;
                             $scope.selecteddriverpre = 0;
                         }else if($res["dt1"][0].BookingStatus == 'Pending'){
-                            $scope.selecteddriver = 0;
+                            $scope.selecteddriver = -2;
                             $scope.selecteddriverpre = 0;
                         }else if($res["dt1"][0].BookingStatus == 'Offered'){
                                   $scope.vehicleidpre =  $res["dt1"][0].vehicleid;
@@ -13830,7 +13830,7 @@ $(document).ready(function() {
                 var DriveId = "";
                 if(laterjob){
                   
-                    if ($scope.selecteddriver == 0) {
+                    if ($scope.selecteddriver == 0 || $scope.selecteddriver == -2) {
                         DriveId = "0";
                         bookstatus = "Pending";
                     }
@@ -13844,7 +13844,7 @@ $(document).ready(function() {
                     }
 
                 }else{
-                    if ($scope.selecteddriver == 0) {
+                    if ($scope.selecteddriver == 0 || $scope.selecteddriver == -2) {
                         DriveId = "0";
                         bookstatus = "Pending";
                     }
@@ -13950,7 +13950,7 @@ $(document).ready(function() {
                     
                         if  ( $scope.bookingtime_select == 1 ) {
                         
-                            if($scope.selecteddriver == 0 ){
+                            if($scope.selecteddriver == 0 || $scope.selecteddriver == -2){
                           
                              
                                 toastr["success"](  "Booking Update", 'success!');   
@@ -13968,7 +13968,7 @@ $(document).ready(function() {
                             }  
                         }else{
                         
-                            if ($scope.selecteddriver == 0) {
+                            if ($scope.selecteddriver == 0 || $scope.selecteddriver == -2) {
                                 toastr["success"](  "Booking Update", 'success!');
                          
                             } else if(   $scope.selecteddriver == -1){
