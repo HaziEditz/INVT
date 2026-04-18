@@ -5874,7 +5874,10 @@ $(document).ready(function() {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                             firebase.database().ref().child("/notification/" + driverid).remove();
+                            // Write Away to driver's status node (driver app heartbeat path) so
+                            // the driver's phone shows Away mode and they can press Available.
                             firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                            firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             _immediateJobPending(id);
@@ -5910,6 +5913,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                                    firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     _immediateJobPending(id);
@@ -5956,6 +5960,7 @@ $(document).ready(function() {
                                 $('#Divo'+bookid).remove();
                                 firebase.database().ref().child("/notification/" + driverid).remove();
                                 firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                                firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                 _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -6000,9 +6005,12 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
                     firebase.database().ref().child("/notification/" + driverid).remove();
-                    // Write Away to driver's Firebase jobs node so their phone and the dispatch
-                    // tab both reflect Away status. Driver must manually set Available from their app.
+                    // Write Away to BOTH Firebase paths:
+                    //   jobs/ → driver app reads this for its own status display
+                    //   online/ → dispatch console reads this via tallo listener
+                    // Driver must manually press Available on their app to come back online.
                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                    firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc && _fbsc.driverdatarealx) {
