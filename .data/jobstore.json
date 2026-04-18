@@ -32,11 +32,12 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Completed",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
-    "TarriffType": "Automatic"
+    "TarriffType": "Automatic",
+    "returnReason": "No Response – Not Accepted"
   },
   {
     "Id": 937301,

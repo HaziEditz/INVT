@@ -6124,6 +6124,9 @@ $(document).ready(function() {
                         if (typeof _fbsc.getjobs     === 'function') _fbsc.getjobs();
                         if (typeof _fbsc.AssignedJobs === 'function') _fbsc.AssignedJobs();
                     }
+                    // Release dedup lock so next driver in queue gets offered immediately.
+                    if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                    if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
                 }, 27000);
             }, 0);
         });
@@ -6354,6 +6357,9 @@ $(document).ready(function() {
                         if (typeof _fbsc2.getjobs     === 'function') _fbsc2.getjobs();
                         if (typeof _fbsc2.AssignedJobs === 'function') _fbsc2.AssignedJobs();
                     }
+                    // Release dedup lock so next driver in queue gets offered immediately.
+                    if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                    if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
                 }, 27000);
             }, 0);
         });
@@ -6385,6 +6391,10 @@ $(document).ready(function() {
         _sc.oferunassignedjob_list = (_sc.unassignedjob_list || []).filter(function(j) { return j.BookingStatus === 'Offered'; });
         _sc.UnAssignedCountoffer = _sc.oferunassignedjob_list.length;
         if (!_sc.$$phase) _sc.$digest();
+        // Clear the offer-dedup lock so smartAutoDispatch can immediately try the next driver
+        // (resolver Promises never resolve, so this is the only reliable place to release it).
+        if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[jobId];
+        if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
     }
 
 
@@ -11170,6 +11180,19 @@ $(document).ready(function() {
                     Object.keys(_triedDriversForJob).forEach(function(jid) {
                         if (!pendingJobs.find(function(j) { return String(j.Id) === jid; })) {
                             delete _triedDriversForJob[jid];
+                        }
+                    });
+
+                    // Stale-lock cleanup: the resolver Promises never call resolve(), so
+                    // _activeOfferIds[id] stays true even after a driver rejects/times out and
+                    // the job returns to Pending. Detect this: if a job is Pending on the server
+                    // AND we already have tried-driver history for it, the lock is stale — clear it
+                    // so the next driver in queue gets offered.
+                    pendingJobs.forEach(function(j) {
+                        var tried = _triedDriversForJob[String(j.Id)] || [];
+                        if (_activeOfferIds[j.Id] && tried.length > 0) {
+                            console.log('[smartAutoDispatch] stale lock cleared for job #' + j.Id + ' (tried ' + tried.length + ' driver(s))');
+                            delete _activeOfferIds[j.Id];
                         }
                     });
 
