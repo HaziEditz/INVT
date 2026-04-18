@@ -851,7 +851,10 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
             return;
           }
-          job.BookingStatus = newStatus;
+          // Unreached (no response timeout) → skip the holding state, land straight on Pending
+          // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
+          const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
+          job.BookingStatus = effectiveStatus;
           if (returnReason) job.returnReason = returnReason;
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
@@ -940,16 +943,8 @@ const server = http.createServer(async (req, res) => {
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
-              } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
-                // Driver went Available without completing the trip — return job to Unassigned
-                // so the dispatcher can re-offer it. Do NOT auto-complete.
-                job.BookingStatus = 'Pending';
-                job.returnReason  = 'Driver returned job (went available)';
-                job.DriverId = 0;
-                job.VehicleId = 0;
-                console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Pending (driver went Available without completing)`);
               }
-              // Offered/Unreached/Pending: driver going Available with no active trip — leave as-is
+              // Assigned/Picking/Offered/Unreached/Pending: driver going Available with no active trip — leave as-is
             }
           });
           saveJobStore();
@@ -1395,7 +1390,10 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
             return;
           }
-          job.BookingStatus = newStatus;
+          // Unreached (no response timeout) → skip the holding state, land straight on Pending
+          // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
+          const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
+          job.BookingStatus = effectiveStatus2;
           if (returnReason) job.returnReason = returnReason;
           // Only release (reset) the driver when the job is being cancelled/unassigned.
           // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
@@ -1475,13 +1473,8 @@ const server = http.createServer(async (req, res) => {
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
-              } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
-                job.BookingStatus = 'Pending';
-                job.returnReason  = 'Driver returned job (went available)';
-                job.DriverId = 0;
-                job.VehicleId = 0;
-                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (driver went Available without completing)`);
               }
+              // Assigned/Picking/Offered/Unreached/Pending: driver going Available — leave job as-is
             }
           });
           saveJobStore();
