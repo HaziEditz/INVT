@@ -2410,31 +2410,33 @@ $(document).ready(function() {
                                                             </label>
                                                             </br>
                                                              
-                                                            <div ng-show="bookingtime_select == 1" style="margin-top:6px;">
-                                                                <div style="margin-bottom:4px;">
-                                                                    <label class="label label-default" style="margin-right:4px;font-weight:bold;">Date</label>
-                                                                    <input class="label label-primary" type="date" id="laterDate" ng-model="latedate" style="padding:2px 6px;" />
+                                                            <div ng-show="bookingtime_select == 1" style="margin-top:8px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:8px 10px;">
+                                                                <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
+                                                                    <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Date</label>
+                                                                    <input type="date" id="laterDate" ng-model="latedate" class="form-control" style="height:28px; font-size:12px; padding:2px 6px; flex:1; border:1px solid #ced4da; border-radius:4px; cursor:pointer;" />
                                                                 </div>
-                                                                <div style="margin-bottom:4px;">
-                                                                    <label class="label label-default" style="margin-right:4px;font-weight:bold;">Time (24h)</label>
-                                                                    <select onchange="checktime_now(this.value)" class="label label-primary" id="ddlLaterHrs" ng-model="ddlLaterHrs">
-                                                                        <option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option>
-                                                                        <option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option>
-                                                                        <option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option>
-                                                                        <option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
-                                                                        <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option>
-                                                                        <option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option>
-                                                                    </select>
-                                                                    <span style="font-weight:bold;margin:0 3px;">:</span>
-                                                                    <select ng-model="ddlLaterMins" onchange="minutechecks_now(this.value)" class="label label-primary" id="ddlLaterMins">
-                                                                        <option value="00">00</option><option value="05">05</option><option value="10">10</option><option value="15">15</option>
-                                                                        <option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="35">35</option>
-                                                                        <option value="40">40</option><option value="45">45</option><option value="50">50</option><option value="55">55</option>
-                                                                    </select>
+                                                                <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
+                                                                    <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Time (24h)</label>
+                                                                    <div style="display:flex; align-items:center; gap:4px;">
+                                                                        <select onchange="checktime_now(this.value)" class="form-control" id="ddlLaterHrs" ng-model="ddlLaterHrs" style="height:28px; font-size:12px; padding:2px 4px; width:58px;">
+                                                                            <option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option>
+                                                                            <option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option>
+                                                                            <option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option>
+                                                                            <option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
+                                                                            <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option>
+                                                                            <option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option>
+                                                                        </select>
+                                                                        <span style="font-weight:bold; font-size:14px;">:</span>
+                                                                        <select ng-model="ddlLaterMins" onchange="minutechecks_now(this.value)" class="form-control" id="ddlLaterMins" style="height:28px; font-size:12px; padding:2px 4px; width:58px;">
+                                                                            <option value="00">00</option><option value="05">05</option><option value="10">10</option><option value="15">15</option>
+                                                                            <option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="35">35</option>
+                                                                            <option value="40">40</option><option value="45">45</option><option value="50">50</option><option value="55">55</option>
+                                                                        </select>
+                                                                    </div>
                                                                 </div>
-                                                                <div style="margin-bottom:4px;">
-                                                                    <label class="label label-default" style="margin-right:4px;font-weight:bold;">Dispatch before</label>
-                                                                    <select id="assign_notice" ng-model="assign_notice" class="label label-primary">
+                                                                <div style="display:flex; align-items:center; gap:8px;">
+                                                                    <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Dispatch before</label>
+                                                                    <select id="assign_notice" ng-model="assign_notice" class="form-control" style="height:28px; font-size:12px; padding:2px 4px; flex:1;">
                                                                         <option value="0">0 min</option>
                                                                         <option value="5">5 min</option>
                                                                         <option value="10">10 min</option>
