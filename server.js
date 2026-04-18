@@ -593,8 +593,38 @@ const server = http.createServer(async (req, res) => {
         saveJobStore();
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
+      } else if (action === 'UpdateBooking') {
+        // Called by cancelactivejob / close-ride flow.
+        // Marks the job as Closed, moves it to closedJobStore, and releases the driver.
+        const closeId = parseInt(param('BookingId') || '0') || 0;
+        const dropLoc  = param('DropLocation')  || '';
+        const distance = param('Distance')  || '0';
+        const cost     = param('Cost')      || '0';
+        const rideCost = param('RideCost')  || '0';
+        const jobIdx   = jobStore.findIndex(j => j.Id === closeId);
+        if (jobIdx !== -1) {
+          const job = jobStore[jobIdx];
+          job.BookingStatus = 'Closed';
+          if (dropLoc)  job.DropAddress = dropLoc;
+          if (distance) job.EstimatedDistance = distance;
+          if (cost)     job.Cost = cost;
+          if (rideCost) job.RideCost = rideCost;
+          // Release the driver back to Available
+          const closingDriverId = job.DriverId;
+          const zd = ZONE_DRIVERS.find(d => d.driverid === closingDriverId || d.VehicleId === closingDriverId);
+          if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+          // Move to closed store
+          closedJobStore.push(job);
+          jobStore.splice(jobIdx, 1);
+          saveJobStore();
+          console.log(`200: POST ${urlPath} [action=UpdateBooking] -> closed job #${closeId}, driver ${closingDriverId} released`);
+          arrayD(res, [{ Result: 'Ride Ended Successfully', BookingId: closeId }]);
+        } else {
+          // Job may already be closed or not found
+          console.log(`200: POST ${urlPath} [action=UpdateBooking] -> job #${closeId} not found (may be already closed)`);
+          arrayD(res, [{ Result: 'Ride Ended Successfully', BookingId: closeId }]);
+        }
       } else {
-        // UpdateBooking, etc.
         console.log(`200: POST ${urlPath} [action=${action}] -> OK`);
         successD(res, 'Operation Successfully Performed');
       }
