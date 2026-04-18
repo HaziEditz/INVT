@@ -7725,7 +7725,9 @@ $(document).ready(function() {
                     _ActiveJobsdata();
                 }
             }else if(oldi == "Away"){
-                if (neww == "Busy"){
+                if (neww == "Available"){
+                    _getjobs();
+                } else if (neww == "Busy"){
                     _ActiveJobsdata();
                     console.log("away to Busy");
                 } else if (neww == "Picking"){
@@ -7866,12 +7868,6 @@ $(document).ready(function() {
                     }
                     // Use the saved old status — not the (possibly already overwritten) array entry
                     if(_savedOldStatus  != datacom.vehiclestatus){
-                        // Guard: ignore 'Away' coming from Firebase (driver app sets Away on reject).
-                        // Away should only be set by the dispatch-side no-response timer directly on
-                        // driverdatarealx — never propagated from Firebase.
-                        if (datacom.vehiclestatus === 'Away') {
-                            datacom.vehiclestatus = 'Available';
-                        }
                         $scope.changedata(_savedOldStatus ,datacom.vehiclestatus);
                         // Auto-transition linked job status when driver Firebase status changes.
                         // Busy     → job becomes Active   (driver started meter / picked up pax)
