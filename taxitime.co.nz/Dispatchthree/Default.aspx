@@ -13589,12 +13589,12 @@ $(document).ready(function() {
                 var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 var bookMid  = new Date(booking.getFullYear(), booking.getMonth(), booking.getDate());
                 var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
-                if (minsUntil >= -10 && minsUntil <= 10) return 'ASAP';
-                if (dayDiff === 0)  return 'Today ' + timeStr;
-                if (dayDiff === 1)  return 'Tomorrow ' + timeStr;
+                var prefix = minsUntil > 10 ? 'Book: ' : '';
+                if (dayDiff === 0)  return prefix + 'Today ' + timeStr;
+                if (dayDiff === 1)  return prefix + 'Tomorrow ' + timeStr;
                 var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
                 var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                return days[booking.getDay()] + ' ' + booking.getDate() + ' ' + months[booking.getMonth()] + ', ' + timeStr;
+                return prefix + days[booking.getDay()] + ' ' + booking.getDate() + ' ' + months[booking.getMonth()] + ', ' + timeStr;
             }
 
             $scope.jobTypeLabel = function (jobMins, dispatchBefore) {
