@@ -5826,8 +5826,8 @@ $(document).ready(function() {
  
     
     function resolveAfter2Secondsx(vehivle  , driverid,bookid,status) {
+        var countr = 0; // per-call local counter — never shared across dispatches
 
- 
         return new Promise(resolve => {
             setTimeout(() => {
                 toastr["warning"](  ' Checking this id '+bookid+' Job Status! ', ' warning! ');
@@ -5982,8 +5982,8 @@ $(document).ready(function() {
         });
     }
     function resolveAfter2Seconds(driverid,bookid,status) {
+        var countr = 0; // per-call local counter — never shared across dispatches
 
- 
         return new Promise(resolve => {
             setTimeout(() => {
                 toastr["warning"](  ' Checking this id '+bookid+' Job Status! ', ' warning! ');
