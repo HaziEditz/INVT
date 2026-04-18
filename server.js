@@ -36,8 +36,19 @@ const COOKIE_FILE     = path.join(DATA_DIR, 'session.txt');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
-let nextJobId = 937300;
-function newJobId() { return nextJobId++; }
+// Booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
+let _idSeqDate = '';
+let _idSeqCounter = 0;
+function newJobId() {
+  const now = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(now.getFullYear());
+  const today = dd + mm + yyyy;
+  if (today !== _idSeqDate) { _idSeqDate = today; _idSeqCounter = 0; }
+  _idSeqCounter++;
+  return parseInt(today + String(_idSeqCounter).padStart(3, '0'));
+}
 
 // ─── In-memory message store ──────────────────────────────────────────────────
 let nextMsgId = 100;
@@ -75,6 +86,15 @@ function calcJobMins(bookingDateTimeStr) {
   return Math.round((bdt - now) / 60000);
 }
 
+// Sort jobs newest-first: prefer JobCompleteTime (for closed jobs), then BookingDateTime.
+function sortByRecent(jobs) {
+  return [...jobs].sort((a, b) => {
+    const ta = new Date((a.JobCompleteTime || a.BookingDateTime || '').replace(/\.$/, '').trim()).getTime() || 0;
+    const tb = new Date((b.JobCompleteTime || b.BookingDateTime || '').replace(/\.$/, '').trim()).getTime() || 0;
+    return tb - ta;
+  });
+}
+
 // Add UI-friendly field aliases to a job object so Angular ng-repeat bindings work
 // (template uses BookingDate, BookingTime, PassengerId, TarriffType, bookingidx)
 function enrichSearchResult(j) {
@@ -107,11 +127,25 @@ try {
 
 const jobStore = _savedJobStore;
 
-// Advance nextJobId past any already-saved IDs so new jobs don't collide
-if (jobStore.length > 0) {
-  const maxId = Math.max(...jobStore.map(j => j.Id || 0));
-  if (maxId >= nextJobId) nextJobId = maxId + 1;
-}
+// Sync the daily sequence counter so new IDs don't collide with saved ones.
+// Existing IDs in the new DDMMYYYY+seq format start with today's date prefix.
+(function syncIdSequence() {
+  const now = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(now.getFullYear());
+  const prefix = dd + mm + yyyy;   // e.g. "18042026"
+  const prefixNum = parseInt(prefix + '000');
+  const maxSeq = jobStore.reduce((mx, j) => {
+    const id = j.Id || 0;
+    if (id >= prefixNum && id < prefixNum + 1000) {
+      const seq = id - prefixNum;
+      return Math.max(mx, seq);
+    }
+    return mx;
+  }, 0);
+  if (maxSeq > 0) { _idSeqDate = prefix; _idSeqCounter = maxSeq; }
+})();
 
 // Self-heal: any job that is Assigned but has no driver (DriverId=0) got orphaned.
 // Recover it to Pending so the dispatcher can re-offer it.
@@ -973,7 +1007,7 @@ const server = http.createServer(async (req, res) => {
         const allJobs = [...jobStore, ...closedJobStore];
         let results = searchId > 0 ? allJobs.filter(j => j.Id === searchId) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
-        results = results.map(enrichSearchResult);
+        results = sortByRecent(results.map(enrichSearchResult));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -982,7 +1016,7 @@ const server = http.createServer(async (req, res) => {
         const allJobs = [...jobStore, ...closedJobStore];
         let results = searchName ? allJobs.filter(j => (j.Name || '').toLowerCase().includes(searchName)) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
-        results = results.map(enrichSearchResult);
+        results = sortByRecent(results.map(enrichSearchResult));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -991,7 +1025,7 @@ const server = http.createServer(async (req, res) => {
         const allJobs = [...jobStore, ...closedJobStore];
         let results = searchPhone ? allJobs.filter(j => (j.PhoneNo || '').replace(/\s/g, '').includes(searchPhone)) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
-        results = results.map(enrichSearchResult);
+        results = sortByRecent(results.map(enrichSearchResult));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -1000,7 +1034,7 @@ const server = http.createServer(async (req, res) => {
         const allJobs = [...jobStore, ...closedJobStore];
         let results = dateStr ? allJobs.filter(j => (j.BookingDateTime || '').substring(0, 10) >= dateStr) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
-        results = results.map(enrichSearchResult);
+        results = sortByRecent(results.map(enrichSearchResult));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -1009,7 +1043,7 @@ const server = http.createServer(async (req, res) => {
         const allJobs = [...jobStore, ...closedJobStore];
         let results = dateStr ? allJobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= dateStr) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
-        results = results.map(enrichSearchResult);
+        results = sortByRecent(results.map(enrichSearchResult));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -1022,7 +1056,7 @@ const server = http.createServer(async (req, res) => {
           return (!fromStr || jDate >= fromStr) && (!toStr || jDate <= toStr);
         });
         results = applyStatusFilter(results, param('JobStatus'));
-        results = results.map(enrichSearchResult);
+        results = sortByRecent(results.map(enrichSearchResult));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
         arrayD(res, results);
 
@@ -1275,6 +1309,7 @@ const server = http.createServer(async (req, res) => {
         });
         const dt2 = [...seenDrivers.values()];
         const dt3 = [...seenVehicles.values()];
+        jobs = sortByRecent(jobs);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${jobs.length} closed jobs (${liveTerminal.length} live)`);
         objectD(res, { dt1: jobs, dt2, dt3 });
 
