@@ -845,8 +845,11 @@ const server = http.createServer(async (req, res) => {
           const currentStatus = job.BookingStatus || '';
           const isAccepted = currentStatus === 'Assigned' || currentStatus === 'Active' || currentStatus === 'Picking';
           const isDowngrade = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
-          const isExplicitReject = returnReason.toLowerCase().includes('reject');
-          if (isAccepted && isDowngrade && !isExplicitReject) {
+          // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
+          const rr = returnReason.toLowerCase();
+          const isExplicitReject = rr.includes('reject') || rr.includes('no response') || rr.includes('not accepted');
+          const hasNoDriver = !job.DriverId || job.DriverId === 0;
+          if (isAccepted && isDowngrade && !isExplicitReject && !hasNoDriver) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED downgrade: job #${bookingId} is ${currentStatus}, refusing to set ${newStatus} (reason: "${returnReason}")`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
             return;
@@ -1397,8 +1400,11 @@ const server = http.createServer(async (req, res) => {
           const currentStatus2 = job.BookingStatus || '';
           const isAccepted2 = currentStatus2 === 'Assigned' || currentStatus2 === 'Active' || currentStatus2 === 'Picking';
           const isDowngrade2 = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
-          const isExplicitReject2 = returnReason.toLowerCase().includes('reject');
-          if (isAccepted2 && isDowngrade2 && !isExplicitReject2) {
+          // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
+          const rr2 = returnReason.toLowerCase();
+          const isExplicitReject2 = rr2.includes('reject') || rr2.includes('no response') || rr2.includes('not accepted');
+          const hasNoDriver2 = !job.DriverId || job.DriverId === 0;
+          if (isAccepted2 && isDowngrade2 && !isExplicitReject2 && !hasNoDriver2) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED downgrade: job #${bookingId} is ${currentStatus2}, refusing to set ${newStatus} (reason: "${returnReason}")`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
             return;
