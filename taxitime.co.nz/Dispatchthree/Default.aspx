@@ -2502,7 +2502,7 @@ $(document).ready(function() {
                                                                 
 
                                                             <div>
-                                                               <span class="label label-primary" id="timesuggested" ng-show="bookingtime_select == 1">
+                                                               <span class="label label-primary" id="timesuggested" ng-show="bookingtime_select == 1" style="color:#c0392b; font-size:11px; font-weight:600; background:transparent; border:none;">
 
                                                                 </span>
 
