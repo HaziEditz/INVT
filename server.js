@@ -843,6 +843,14 @@ const server = http.createServer(async (req, res) => {
           // Assigned = driver accepted. Active = trip in progress.
           // Only allow Assigned→Pending if the driver explicitly rejected (returnReason says so).
           const currentStatus = job.BookingStatus || '';
+          // Atomic double-offer guard: if two dispatch sessions race, the first one to arrive
+          // sets status=Offered. The second must be blocked — job already belongs to another driver.
+          const incomingDriverId = parseInt(param('driverid') || '0') || 0;
+          if (newStatus === 'Offered' && currentStatus === 'Offered' && job.DriverId && job.DriverId !== incomingDriverId) {
+            console.log(`  [changeriddestatusforoffer/DP] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId}`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            return;
+          }
           const isAccepted = currentStatus === 'Assigned' || currentStatus === 'Active' || currentStatus === 'Picking';
           const isDowngrade = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
           // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
@@ -859,7 +867,11 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus;
           if (returnReason) job.returnReason = returnReason;
-          // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
+          // Track which driver has the current offer so the double-offer guard can compare.
+          // Also set DriverId when driver accepts so the job appears correctly in Assigned tab.
+          if (effectiveStatus === 'Offered' && incomingDriverId > 0) {
+            job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
+          }
           if (effectiveStatus === 'Assigned') {
             const acceptDriverId = parseInt(param('driverid') || '0') || 0;
             if (acceptDriverId > 0) { job.DriverId = acceptDriverId; job.VehicleId = acceptDriverId; }
@@ -1402,6 +1414,13 @@ const server = http.createServer(async (req, res) => {
         if (job && newStatus) {
           // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
           const currentStatus2 = job.BookingStatus || '';
+          // Atomic double-offer guard: block second offer if job is already Offered to a different driver.
+          const incomingDriverId2 = parseInt(param('driverid') || '0') || 0;
+          if (newStatus === 'Offered' && currentStatus2 === 'Offered' && job.DriverId && job.DriverId !== incomingDriverId2) {
+            console.log(`  [changeriddestatusforoffer/DS] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId2}`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            return;
+          }
           const isAccepted2 = currentStatus2 === 'Assigned' || currentStatus2 === 'Active' || currentStatus2 === 'Picking';
           const isDowngrade2 = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
           // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
@@ -1418,6 +1437,10 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus2;
           if (returnReason) job.returnReason = returnReason;
+          // Track which driver has the current offer so the double-offer guard can compare.
+          if (effectiveStatus2 === 'Offered' && incomingDriverId2 > 0) {
+            job.DriverId = incomingDriverId2; job.VehicleId = incomingDriverId2;
+          }
           // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
           if (effectiveStatus2 === 'Assigned') {
             const acceptDriverId2 = parseInt(param('driverid') || '0') || 0;

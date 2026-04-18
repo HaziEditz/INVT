@@ -5870,31 +5870,40 @@ $(document).ready(function() {
 
     
 
-    function checkingjobz(vehicle , id,driverid){
+    function checkingjobz(vehicle , id, driverid, settleCallback){
         $message  = 'Driver did not respond';
         console.log("checking job");
         setTimeout(function(){
+            // Mark settled in the parent resolver so the 27s timer doesn't double-fire.
+            if (typeof settleCallback === 'function') settleCallback();
             // Removed .vowali DOM guard — Assigned jobs are not in the Offer tab so
             // the guard prevented convertstatus1 from ever running for them.
             // convertstatus1's checkriddestatusforoffer call is the actual guard.
             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
             $('#Divo'+id).remove();
             firebase.database().ref().child("/notification/" + driverid).remove();
-            convertstatus1(vehicle , id,'Unreached', driverid ,  $message ) ; 
+            convertstatus1(vehicle , id,'Unreached', driverid ,  $message ) ;
+            // Release the offer-lock immediately so smartAutoDispatch can try the next driver
+            // without waiting for the 27s resolver timeout (which would block for 7 more seconds).
+            _immediateJobPending(id);
         }, 20000);
       
   
 
     }
-    function checkingjob(id,driverid){
+    function checkingjob(id, driverid, settleCallback){
         $message  = 'Not shown – driver app in background';
         console.log("checking job");
         setTimeout(function(){
+            // Mark settled in the parent resolver so the 27s timer doesn't double-fire.
+            if (typeof settleCallback === 'function') settleCallback();
             // Removed .vowali DOM guard — same reason as checkingjobz above.
             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
             $('#Divo'+id).remove();
             firebase.database().ref().child("/notification/" + driverid).remove();
-            convertstatus(id,'Unreached', driverid ,  $message ) ; 
+            convertstatus(id,'Unreached', driverid ,  $message ) ;
+            // Release the offer-lock immediately so smartAutoDispatch can try the next driver.
+            _immediateJobPending(id);
         }, 20000);
       
   
@@ -5959,7 +5968,7 @@ $(document).ready(function() {
                                 toastr["error"]("Driver app not connected. Job returned to queue.", 'Driver Offline!');
                             }
                         });
-                        checkingjobz(vehivle , id, driverid);
+                        checkingjobz(vehivle , id, driverid, function(){ settled = true; });
                         return;
  
                     }
@@ -6196,7 +6205,7 @@ $(document).ready(function() {
                                 toastr["error"]("Driver app not connected. Job returned to queue.", 'Driver Offline!');
                             }
                         });
-                        checkingjob(id, driverid);
+                        checkingjob(id, driverid, function(){ settled = true; });
                         return;
  
                     }
