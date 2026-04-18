@@ -7884,6 +7884,9 @@ $(document).ready(function() {
                         var _drvId  = datacom.driverid || datacom.VehicleId || '';
                         var _newSt  = datacom.vehiclestatus;
                         if (_drvId && (_newSt === 'Busy' || _newSt === 'Available' || _newSt === 'Picking' || _newSt === 'Assigned')) {
+                            // Capture closure vars so the async callback can use them
+                            var _capDatacom = datacom;
+                            var _capIncs    = incs;
                             jQuery.ajax({
                                 type: 'POST',
                                 url: 'DataManager/Data.aspx/DataSelector',
@@ -7897,30 +7900,31 @@ $(document).ready(function() {
                                 ], action: '[DriverStatusChanged]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
                                 success: function(_resp) {
-                                    // If server blocked this Available (stale heartbeat while away-locked),
-                                    // revert the driver back to Away on the dispatch screen immediately.
                                     try {
                                         var _r = (_resp && _resp.d) ? JSON.parse(_resp.d) : null;
                                         if (_r && _r.awayLocked) {
+                                            // Server blocked this Available — driver is still Away.
+                                            // For Available the screen update was deferred, so there
+                                            // is nothing to revert. Just refresh the zone table so
+                                            // the Away colour is confirmed on screen.
                                             var _scAL = angular.element(document.getElementById('myangular')).scope();
-                                            if (_scAL && _scAL.driverdatarealx) {
-                                                for (var _ai = 0; _ai < _scAL.driverdatarealx.length; _ai++) {
-                                                    var _ald = _scAL.driverdatarealx[_ai];
-                                                    if (String(_ald.driverid || _ald.VehicleId) === String(_drvId)) {
-                                                        _ald.vehiclestatus = 'Away';
-                                                        _scAL.driverlist = _scAL.driverdatarealx;
-                                                        if (typeof _scAL.zonetablez === 'function') _scAL.zonetablez();
-                                                        if (!_scAL.$$phase) _scAL.$digest();
-                                                        break;
-                                                    }
-                                                }
+                                            if (_scAL) {
+                                                if (typeof _scAL.zonetablez === 'function') _scAL.zonetablez();
+                                                if (!_scAL.$$phase) _scAL.$digest();
                                             }
                                             return;
                                         }
                                     } catch(e) {}
-                                    // Server approved the status change — refresh relevant tabs.
+                                    // Server approved — now commit the driver data to the screen.
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
                                     if (_sc) {
+                                        if (_newSt === 'Available') {
+                                            // Deferred update: write the approved Available data now.
+                                            _sc.driverdatarealx[_capIncs] = _capDatacom;
+                                            _sc.driverlist = _sc.driverdatarealx;
+                                            if (typeof _sc.zonetablez === 'function') _sc.zonetablez();
+                                            if (!_sc.$$phase) _sc.$digest();
+                                        }
                                         if (_newSt === 'Busy')      { if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } }
                                         if (_newSt === 'Picking')   { if (typeof _sc.AssignedJobs === 'function') { _sc.AssignedJobs(); } if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } }
                                         if (_newSt === 'Available') { if (typeof _sc.getjobs === 'function') { _sc.getjobs(); } if (typeof _sc.ActiveJobsdata === 'function') { _sc.ActiveJobsdata(); } }
@@ -7928,11 +7932,22 @@ $(document).ready(function() {
                                     }
                                 }
                             });
+                            // For Available: defer the screen update until AJAX confirms the server
+                            // didn't block it (prevents green flash on stale heartbeats).
+                            // For Busy/Picking/Assigned: update immediately — these are never blocked.
+                            if (_newSt !== 'Available') {
+                                $scope.driverdatarealx[incs] = datacom;
+                                $scope.driverlist = $scope.driverdatarealx;
+                                $scope.zonetablez();
+                                if (!$scope.$$phase) { $scope.$digest(); }
+                            }
+                        } else {
+                            // Away / other statuses not sent to server — update screen directly.
+                            $scope.driverdatarealx[incs] =  datacom;
+                            $scope.driverlist =  $scope.driverdatarealx;
+                            $scope.zonetablez();
+                            if (!$scope.$$phase) { $scope.$digest(); }
                         }
-                        $scope.driverdatarealx[incs] =  datacom;
-                        $scope.driverlist =  $scope.driverdatarealx;
-                        $scope.zonetablez();
-                        if (!$scope.$$phase) { $scope.$digest(); }
                     }
                     if (!$scope.$$phase) { $scope.$digest(); }
                        
