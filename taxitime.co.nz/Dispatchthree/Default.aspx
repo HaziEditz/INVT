@@ -338,7 +338,7 @@
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
+                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
@@ -730,7 +730,7 @@
 
                                                                     {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
+                                                                <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -2822,7 +2822,7 @@ $(document).ready(function() {
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
+                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
@@ -2988,7 +2988,7 @@ $(document).ready(function() {
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
+                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
@@ -3400,7 +3400,7 @@ $(document).ready(function() {
 
                                                                     {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime) }} 
+                                                                <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -13480,7 +13480,7 @@ $(document).ready(function() {
             }
             $scope.getjobs();
             $scope.GetJobsdelivery();
-            $scope.datecreate = function (data) {
+            $scope.datecreate = function (data, dispatchBefore) {
                 if (!data) return '';
                 var clean = data.replace(/\.$/, '').trim();
                 var booking = new Date(clean);
@@ -13490,7 +13490,6 @@ $(document).ready(function() {
                     return (d[2] || '') + '-' + (d[1] || '') + ' ' + (p[1] ? p[1].substring(0, 5) : '');
                 }
                 var now = new Date();
-                var minsUntil = Math.round((booking - now) / 60000);
                 var h = booking.getHours();
                 var mi = booking.getMinutes();
                 var ampm = h >= 12 ? 'PM' : 'AM';
@@ -13499,7 +13498,9 @@ $(document).ready(function() {
                 var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 var bookMid  = new Date(booking.getFullYear(), booking.getMonth(), booking.getDate());
                 var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
-                var prefix = minsUntil > 10 ? 'Pickup: ' : '';
+                // Pre-booked jobs always show "Pickup:" label so the time is unambiguous
+                var db = parseInt(dispatchBefore) || 0;
+                var prefix = db > 0 ? 'Pickup: ' : '';
                 if (dayDiff === 0)  return prefix + 'Today ' + timeStr;
                 if (dayDiff === 1)  return prefix + 'Tomorrow ' + timeStr;
                 var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
