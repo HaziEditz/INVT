@@ -1,3 +1,7 @@
+// Must be set before any Date operations — forces all new Date() calls to use NZ time
+// so BookingDateTime, JobMins, and dispatch timestamps match the dispatcher's local clock.
+process.env.TZ = 'Pacific/Auckland';
+
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -598,7 +602,61 @@ const server = http.createServer(async (req, res) => {
 
     // ── /DataProcessor — all write operations ──────────────────────────────
     if (urlPath.includes('/DataProcessor')) {
-      if (action === '[ProcUpdateJobv6]') {
+      if (action === 'InsertBookingv4' || action === '[AddBookingConsole]') {
+        const newId = newJobId();
+        const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
+        const dropAddr = param('DropLocation') || param('DropAddress') || '';
+        const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
+        const dropLatLng = param('DropLatLng') || '0,0';
+        const bookingDT = param('BookingDateTime') || (() => {
+          const now = new Date();
+          return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:00.`;
+        })();
+        const pickingDT = param('PickingDateTime') || bookingDT;
+        const vehicleType = param('VehicleType') || 'Not Specified';
+        const driverId  = parseInt(param('DId') || '0') || 0;
+        const vehicleId = parseInt(param('VId') || '0') || 0;
+        const passengers = parseInt(param('PassengersNo') || '1') || 1;
+        const bags = parseInt(param('BagsNo') || '0') || 0;
+        const wheelchairs = parseInt(param('WheelChairsNo') || '0') || 0;
+        const name = param('Name') || '';
+        const phone = param('PassengerId') || '';
+        const entitiesDetails = param('EntitiesDetails') || '';
+        const dispatchBefore = parseInt(param('DispatchBefore') || param('Dispatchbefore') || '10') || 10;
+        const bookingType = param('Bookingtype') || 'Normal Ride';
+        const dispatcherName = param('DispatcherName') || 'Dispatcher';
+        const u_id = param('u_id') || param('U_id') || null;
+        const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
+        const newJob = {
+          Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
+          useremail: null, usertype: null, webstatus: '0',
+          Name: name, PhoneNo: phone,
+          BookingDateTime: bookingDT,
+          Pickingtime: pickingDT,
+          Recieve_payment: param('Recieve_payment') || '',
+          DispatchTimebefore: String(dispatchBefore),
+          VehicleId: vehicleId, DriverId: driverId,
+          DispatcherName: dispatcherName,
+          Nextstop: String(param('nextstop') || '0'), nextstopdata: param('nextstopdata') || '',
+          Passengers: passengers, passengername: '',
+          PickLatLng: pickLatLng, DropLatLng: dropLatLng,
+          Bags: bags, WheelChairs: wheelchairs, VehiclesReguired: parseInt(param('VRequired') || '1') || 1,
+          Acc_job_id: param('Acc_job_id') || '', Account_id: param('Account_id') || '',
+          PickAddress: pickAddr, DropAddress: dropAddr,
+          EntitiesDetails: entitiesDetails, U_id: u_id,
+          BookingSource: param('Source') || 'Dispatch Console',
+          BookingStatus: bookstatus,
+          VehicleType: vehicleType,
+          EstimatedDistance: param('Distance') || '0',
+          EstimatedTime: param('Time') || '0',
+          TarriffType: 'Automatic',
+        };
+        jobStore.push(newJob);
+        saveJobStore();
+        console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT})`);
+        arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
+
+      } else if (action === '[ProcUpdateJobv6]') {
         const jobId = parseInt(param('Id')) || 0;
         const job = jobStore.find(j => j.Id === jobId);
         if (job) {

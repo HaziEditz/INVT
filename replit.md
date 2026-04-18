@@ -112,6 +112,8 @@ The server also maintains an **in-memory job store** for the unassigned job list
 ### DataProcessor action routing
 | Action | Response |
 |---|---|
+| `InsertBookingv4` | Creates job in store (local fallback; real backend tried first), same response as DataSelectorRide path |
+| `[AddBookingConsole]` | Creates job in store (dispatch console creates jobs via this action); same logic as InsertBookingv4 |
 | `[ProcUpdateJobv6]` | Updates job in store, returns `"Booking Details Update Successfully"` |
 | `[CancelUnAssignedJobStatusFromJobList]` | Removes job from store |
 | `[AssignJobStatusFromJobList]` | Marks job as Offered |
@@ -304,6 +306,10 @@ Driver app should:
     - **Cancel**: `FnCancelRide` now scans `jobs/{SomeSession2}` and sets `{ Status:'Cancelled', BookingId }` on any node whose `BookingId` matches the cancelled job — so the driver app sees the cancellation.
     - **Driver bailing on accepted job**: `[DriverStatusChanged]` Available handler no longer auto-completes `Assigned`/`Picking` jobs. They now return to `Pending` (Unassigned tab) with reason "Driver returned job (went available)". Only `Active` jobs (passenger in car) are auto-completed when driver goes Available.
     - **Busy → Active one-job rule**: `[DriverStatusChanged]` Busy handler now only activates the single most-relevant job (Assigned/Picking/Offered), preventing mass-activation when multiple jobs exist for the same driver.
+
+### Timezone + job creation fixes (session current)
+93. **Server timestamps were UTC, not NZ time** — `new Date()` in Node.js on Replit uses UTC by default. All server-generated `BookingDateTime` values (fallback path in `InsertBookingv4`), `JobMins` in `calcJobMins`, job ID date prefix in `newJobId()`, and `_closedDate` seed dates were all 12-13 hours behind NZ time. Fixed: added `process.env.TZ = 'Pacific/Auckland'` at the very top of server.js (before any `require()`). Job IDs now use the correct NZ date prefix (e.g., `19042026xxx` for April 19 NZST) and all timestamps are in NZ local time.
+94. **`[AddBookingConsole]` and `InsertBookingv4` not handled in DataProcessor block** — Both actions are proxied to the real backend first. When the real backend has no session, they fell through to the generic `"Operation Successfully Performed"` catch-all inside the `/DataProcessor` block — job was never created in the local store, and the new booking would not appear in the unassigned list. Fixed: added a full job-creation handler for both `InsertBookingv4` and `[AddBookingConsole]` at the top of the `/DataProcessor` block, using the same NZ-correct timestamp logic.
 
 ## Known Limitations (Not Fixable Without Live Credentials)
 
