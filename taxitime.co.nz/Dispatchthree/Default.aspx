@@ -5575,10 +5575,8 @@ $(document).ready(function() {
         }
     }
     // Sends a visible notification to the driver app explaining why they are Away.
-    // Mirrors the FnNewMessage format exactly so the driver app's existing message
-    // handler fires:
-    //   /chat/{id}         → { content: 'You have New Message' }  (type flag)
-    //   /notification/{id} → { content: <actual message text> }   (what driver reads)
+    // Clears /notification/{id} first (awaits remove), then writes the Away message
+    // so it is never immediately overwritten by a stale remove that fires after the write.
     // reason: 'reject' | 'timeout'
     function FnNotifyDriverAway(DriverId, reason) {
         if (!DriverId) return;
@@ -5587,18 +5585,21 @@ $(document).ready(function() {
             : 'You are now Away — job not accepted in time. Tap Available when ready to accept jobs.';
         var now = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
         var bookingidStr = 'Taxi Time,' + msg + ',' + now + ',0,Dispatcher';
-        var updates = {};
-        // /chat/ uses the type flag so the driver app's message handler fires
-        updates['/chat/' + DriverId] = {
-            bookingid: bookingidStr,
-            content: 'You have New Message'
-        };
-        // /notification/ carries the actual text the driver reads
-        updates['/notification/' + DriverId] = {
-            bookingid: bookingidStr,
-            content: msg
-        };
-        firebase.database().ref().update(updates).catch(function(e) {
+        var db = firebase.database();
+        // Remove first so the driver app's listener sees the fresh write as a new value,
+        // then write both paths atomically via update().
+        db.ref('/notification/' + DriverId).remove().then(function() {
+            var updates = {};
+            updates['/notification/' + DriverId] = {
+                bookingid: bookingidStr,
+                content: msg
+            };
+            updates['/chat/' + DriverId] = {
+                bookingid: bookingidStr,
+                content: msg
+            };
+            return db.ref().update(updates);
+        }).catch(function(e) {
             console.warn('[FnNotifyDriverAway] Firebase write failed:', e);
         });
     }
@@ -5918,7 +5919,6 @@ $(document).ready(function() {
                             settled = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                            firebase.database().ref().child("/notification/" + driverid).remove();
                             firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                             FnNotifyDriverAway(driverid, 'reject');
@@ -5971,7 +5971,6 @@ $(document).ready(function() {
                                     settled = true;
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                    firebase.database().ref().child("/notification/" + driverid).remove();
                                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                     FnNotifyDriverAway(driverid, 'reject');
@@ -6032,7 +6031,6 @@ $(document).ready(function() {
                                 settled = true;
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                 firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                firebase.database().ref().child("/notification/" + driverid).remove();
                                 firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                 FnNotifyDriverAway(driverid, 'reject');
@@ -6096,7 +6094,6 @@ $(document).ready(function() {
                     _jobsRef.off("value", _jobsListener);
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                    firebase.database().ref().child("/notification/" + driverid).remove();
                     // Write Away to BOTH Firebase paths:
                     //   jobs/ → driver app reads this for its own status display
                     //   online/ → dispatch console reads this via tallo listener
