@@ -758,6 +758,13 @@ const server = http.createServer(async (req, res) => {
           if (param('VehicleType'))     job.VehicleType    = param('VehicleType');
           job.VehicleId = vehicleId;
           job.DriverId  = driverId;
+          // Persist booking time and dispatch notice — sent by both updateride and updateride2.
+          // Dispatchbefore=0 means ASAP; >0 means pre-booked (advance notice in minutes).
+          // Must use explicit undefined check because 0 is falsy but is a valid ASAP value.
+          const _dbRaw = param('Dispatchbefore');
+          if (_dbRaw !== undefined) job.DispatchTimebefore = String(parseInt(_dbRaw) || 0);
+          const _newDT = param('DateTime');
+          if (_newDT) { job.BookingDateTime = _newDT; job.Pickingtime = _newDT; }
           // Only change status for jobs that are still in a pre-dispatch state.
           // Never overwrite Active/Assigned — editing a live job must not cancel it.
           const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);

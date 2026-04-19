@@ -14205,33 +14205,31 @@ $(document).ready(function() {
  
                         strtime = strtime.replace(xdelete, "");
                         console.log(newtime);
-                        if( newtime > 0){ 
-                            //$('#nowcheck').attr('checked', true);
-                               $scope.bookingtime_select = 0;  
-                               $("#ddlLaterMins").val('00');
-                               $("#ddlLaterHrs").val('00');
-                               $("#assign_notice").val( '0');
-                            $scope.ddlLaterMins = '00';
-                            $scope.assign_notice = '0';
-                            $scope.ddlLaterHrs = '00';
-                        }else if(newtime < 0 && _dispatchBefore > 0){
-                            // Only switch to "Later" for genuine pre-bookings (DispatchTimebefore > 0).
-                            // ASAP console jobs have DispatchTimebefore=0 and must never enter Later mode
-                            // even when JobMins is slightly negative (booking time already passed).
+                        if (_dispatchBefore > 0) {
+                            // Genuine pre-booking: DispatchTimebefore > 0 is the definitive signal.
+                            // Works correctly whether the dispatch time is still future (newtime > 0)
+                            // or has already passed (newtime < 0) — both cases are "For Later" jobs.
                             $scope.bookingtime_select = 1;
                             $scope.DispatchTimebefore = $res["dt1"][0].DispatchTimebefore;
                             var datetime = $res["dt1"][0].BookingDateTime;
                             $scope.myTime = datetime.substr(11, 2);
                             $scope.myTime2 = datetime.substr(14, 2);
                             $scope.datetimemain  = new  Date(strtime);
-                          
-                              $scope.ddlLaterMins =  $scope.myTime2;
+                            $scope.ddlLaterMins =  $scope.myTime2;
                             $scope.assign_notice = $res["dt1"][0].DispatchTimebefore;
                             $scope.ddlLaterHrs =  $scope.myTime;
-
                             $("#ddlLaterMins").val($scope.myTime2);
                             $("#ddlLaterHrs").val($scope.myTime);
-                           $("#assign_notice").val($res["dt1"][0].DispatchTimebefore);
+                            $("#assign_notice").val($res["dt1"][0].DispatchTimebefore);
+                        } else {
+                            // ASAP job (DispatchTimebefore=0): open in "Now" mode.
+                            $scope.bookingtime_select = 0;
+                            $("#ddlLaterMins").val('00');
+                            $("#ddlLaterHrs").val('00');
+                            $("#assign_notice").val('0');
+                            $scope.ddlLaterMins = '00';
+                            $scope.assign_notice = '0';
+                            $scope.ddlLaterHrs = '00';
                         }
                         var   currentdriverid = $res["dt1"][0].DriverId;
                         $("#PickupZoneId").text( $res["dt1"][0].ZoneId);
