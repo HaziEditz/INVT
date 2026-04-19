@@ -1191,10 +1191,13 @@ const server = http.createServer(async (req, res) => {
               clearDriverHomeState(_releaseDriverId); // home state consumed
             }
             console.log(`  [changeriddestatusforoffer/DP] driver ${_releaseDriverId} → ${newDriverStatus} q=${_newQueueNo || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault})`);
-            // When manually unassigning (driverid=0 sent), clear the job's DriverId so it
-            // shows in the Unassigned tab and auto-dispatch can pick it up again.
+            // Clear job's DriverId when:
+            //   (a) client explicitly sends driverid=0 (manual unassign / timeout), OR
+            //   (b) newStatus is Unreached (auto-dispatch timeout — job must be re-offerable)
             const _rawDrv = param('driverid');
-            if (_rawDrv !== undefined && _rawDrv !== null && parseInt(_rawDrv) === 0) { job.DriverId = 0; job.VehicleId = 0; }
+            const _clearDrv = (newStatus === 'Unreached') ||
+                              (_rawDrv !== undefined && _rawDrv !== null && parseInt(_rawDrv) === 0);
+            if (_clearDrv) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
         }
@@ -1982,9 +1985,13 @@ const server = http.createServer(async (req, res) => {
               clearDriverHomeState(_releaseDriverId2);
             }
             console.log(`  [changeriddestatusforoffer/DS] driver ${_releaseDriverId2} → ${newDriverStatus2} q=${_newQueueNo2 || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault2})`);
-            // When manually unassigning (driverid=0 sent), clear the job's DriverId.
+            // Clear job's DriverId when:
+            //   (a) client explicitly sends driverid=0 (manual unassign / timeout), OR
+            //   (b) newStatus is Unreached (auto-dispatch timeout — job must be re-offerable)
             const _rawDrv2 = param('driverid');
-            if (_rawDrv2 !== undefined && _rawDrv2 !== null && parseInt(_rawDrv2) === 0) { job.DriverId = 0; job.VehicleId = 0; }
+            const _clearDrv2 = (newStatus === 'Unreached') ||
+                               (_rawDrv2 !== undefined && _rawDrv2 !== null && parseInt(_rawDrv2) === 0);
+            if (_clearDrv2) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
         }

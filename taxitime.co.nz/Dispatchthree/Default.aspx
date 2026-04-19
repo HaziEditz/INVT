@@ -6113,6 +6113,8 @@ $(document).ready(function() {
                         }
                         if (!_fbsc.$$phase) _fbsc.$digest();
                     }
+                    // Immediately clear Offered tab in UI — don't wait for convertstatus1 AJAX round-trip
+                    if (typeof _immediateJobPending === 'function') _immediateJobPending(id);
                     convertstatus1(vehivle, id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
                     if (_fbsc) {
                         if (typeof _fbsc.getjobs     === 'function') _fbsc.getjobs();
@@ -6479,8 +6481,10 @@ $(document).ready(function() {
                 // Job not in scope yet — fetch from server and send notification
                 Selector1([{ name: 'Id', value: bookid }], 'JobDetails').then(function(jr) {
                     try {
-                        var _jd = (typeof jr === 'string' ? JSON.parse(jr) : jr);
-                        var _jrow = (_jd && _jd.dt1 && _jd.dt1[0]) ? _jd.dt1[0] : null;
+                        // JobDetails returns arrayD → { d: "[{...}]" }; parse jr.d as the array
+                        var _raw = (jr && jr.d) ? JSON.parse(jr.d) : (typeof jr === 'string' ? JSON.parse(jr) : []);
+                        var _jrow = Array.isArray(_raw) ? (_raw[0] || null)
+                                  : (_raw && _raw.dt1 && _raw.dt1[0] ? _raw.dt1[0] : null);
                         if (_jrow) {
                             writeJobDetailsToFirebase(driverid, vehicle, bookid, {
                                 pickup:      _jrow.PickAddress    || _jrow.PickLocation    || '',
@@ -6650,7 +6654,8 @@ $(document).ready(function() {
                        
                        var  param = [   { "name": "bookingid", "Value": id},
                          { "name": "ridestatus", "Value": status},
-                         { "name": "returnreason", "Value": messagezz || ''}
+                         { "name": "returnreason", "Value": messagezz || ''},
+                         { "name": "driverid",     "Value": String(driverid || 0) }
                        ];
 
                        
@@ -11523,10 +11528,15 @@ $(document).ready(function() {
                         ? _sc.driverdatarealx.filter(function(dv) { return dv.vehiclestatus === 'Available'; })
                         : [];
 
-                    // Cleanup: remove tried-driver records for jobs no longer pending
+                    // Cleanup: remove tried-driver records for jobs no longer pending.
+                    // IMPORTANT: skip deletion when a job is currently in "Offered" state
+                    // (_activeOfferIds tracks it). If we deleted now the timed-out driver
+                    // would loop straight back to #1 when the job returns to Pending.
                     Object.keys(_triedDriversForJob).forEach(function(jid) {
                         if (!pendingJobs.find(function(j) { return String(j.Id) === jid; })) {
-                            delete _triedDriversForJob[jid];
+                            if (!_activeOfferIds[jid]) {
+                                delete _triedDriversForJob[jid];
+                            }
                         }
                     });
 
