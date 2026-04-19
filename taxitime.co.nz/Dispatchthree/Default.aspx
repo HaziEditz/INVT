@@ -8881,6 +8881,23 @@ $(document).ready(function() {
                 $("#ddlVehicleType").append("<option value='0' selected='selected'>Automatic</option>");
 
             }else{
+                // If driver is live in Firebase, use their vehiclenumber directly —
+                // avoids a mismatch when the backend DB has a different call sign.
+                var _sid = String($scope.selecteddriver);
+                var _liveDriver = null;
+                for (var _li = 0; _li < $scope.driverdatarealx.length; _li++) {
+                    if (String($scope.driverdatarealx[_li].driverid) === _sid) {
+                        _liveDriver = $scope.driverdatarealx[_li];
+                        break;
+                    }
+                }
+                if (_liveDriver) {
+                    var _vno = _liveDriver.vehiclenumber || _liveDriver.VehicleId || _sid;
+                    var _vid = _liveDriver.VehicleId   || _liveDriver.vehiclenumber || _sid;
+                    $("#ddlVehicleType").empty();
+                    $("#ddlVehicleType").append("<option value='" + _vid + "' selected='selected'>" + _vno + "</option>");
+                    return;
+                }
                 var param = [{ "name": "DriverId", "value": $scope.selecteddriver }];
                 var proc = '[RetrieveVehicle]';
                 jQuery.ajax(
