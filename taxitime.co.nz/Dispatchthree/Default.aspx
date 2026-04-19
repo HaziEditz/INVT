@@ -14215,6 +14215,9 @@ $(document).ready(function() {
                             $scope.myTime = datetime.substr(11, 2);
                             $scope.myTime2 = datetime.substr(14, 2);
                             $scope.datetimemain  = new  Date(strtime);
+                            // Populate the #laterDate input so updateride2 reads the correct date.
+                            // strtime is "YYYY-MM-DD" — the same format the date input expects.
+                            $("#laterDate").val(strtime);
                             $scope.ddlLaterMins =  $scope.myTime2;
                             $scope.assign_notice = $res["dt1"][0].DispatchTimebefore;
                             $scope.ddlLaterHrs =  $scope.myTime;
