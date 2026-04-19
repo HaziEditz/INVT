@@ -14185,7 +14185,8 @@ $(document).ready(function() {
                                $scope.setvalue(0);
                         }
  
-                        var newtime =  remaining_time + parseInt($res["dt1"][0].DispatchTimebefore) ;
+                        var _dispatchBefore = parseInt($res["dt1"][0].DispatchTimebefore) || 0;
+                        var newtime =  remaining_time + _dispatchBefore ;
                         var d = new Date();
 
                         var month = d.getMonth() + 1;
@@ -14213,8 +14214,10 @@ $(document).ready(function() {
                             $scope.ddlLaterMins = '00';
                             $scope.assign_notice = '0';
                             $scope.ddlLaterHrs = '00';
-                        }else if(newtime < 0){
-                            //$('#latecheck').attr('checked', true);
+                        }else if(newtime < 0 && _dispatchBefore > 0){
+                            // Only switch to "Later" for genuine pre-bookings (DispatchTimebefore > 0).
+                            // ASAP console jobs have DispatchTimebefore=0 and must never enter Later mode
+                            // even when JobMins is slightly negative (booking time already passed).
                             $scope.bookingtime_select = 1;
                             $scope.DispatchTimebefore = $res["dt1"][0].DispatchTimebefore;
                             var datetime = $res["dt1"][0].BookingDateTime;
