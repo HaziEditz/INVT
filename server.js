@@ -169,7 +169,10 @@ const jobStore = _savedJobStore;
 })();
 
 function saveJobStore() {
-  try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) { console.log('[persist] jobstore save error:', e.message); }
+  // Async write — avoids blocking the event loop on every job status change.
+  fs.writeFile(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2), (err) => {
+    if (err) console.log('[persist] jobstore save error:', err.message);
+  });
 }
 
 // Live drivers come exclusively from Firebase (online/1216).
@@ -590,8 +593,8 @@ const server = http.createServer(async (req, res) => {
       // Job list reads — served entirely from local store
       '[UnAssignedJobsv3]', '[deviUnAssignedJobsv2]',
       '[AssignedJobsv2]', '[ActiveJobsv3]',
-      // Job write / status changes — v2 is our custom local action; real backend synced in background
-      '[AssignJobStatusFromJobListv2]',
+      // Job write / status changes — both plain and v2 are handled locally; v2 does background sync
+      '[AssignJobStatusFromJobList]', '[AssignJobStatusFromJobListv2]',
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
       '[changeriddestatusforoffer]', '[DriverStatusChanged]',
       '[checkjobstatus]', '[checkjobstatusv2]',
@@ -2311,6 +2314,37 @@ const server = http.createServer(async (req, res) => {
   });
   fs.createReadStream(filePath).pipe(res);
 });
+
+// ─── Periodic in-memory map cleanup ──────────────────────────────────────────
+// AWAY_LOCKED, DISPATCHER_RECALLED, and DRIVER_ZONE_MEMORY all grow unbounded
+// if drivers disconnect without going through a clean status transition.
+// Run a sweep every 10 minutes to remove expired / stale entries.
+setInterval(() => {
+  const now = Date.now();
+  // AWAY_LOCKED: entries older than 5 minutes (TTL is 3 min, this catches edge cases)
+  for (const id of Object.keys(AWAY_LOCKED)) {
+    if (now - AWAY_LOCKED[id].ts > 5 * 60 * 1000) {
+      delete AWAY_LOCKED[id];
+      console.log(`[cleanup] AWAY_LOCKED stale entry removed for driver ${id}`);
+    }
+  }
+  // DISPATCHER_RECALLED: entries are self-expiring (isDispatcherRecalled deletes them
+  // on read), but sweep any that were never read.
+  for (const jobId of Object.keys(DISPATCHER_RECALLED)) {
+    if (now > DISPATCHER_RECALLED[jobId]) {
+      delete DISPATCHER_RECALLED[jobId];
+    }
+  }
+  // DRIVER_ZONE_MEMORY: remove entries for drivers not seen in the last 8 hours.
+  // Zone memory is only useful for the current shift window.
+  for (const id of Object.keys(DRIVER_ZONE_MEMORY)) {
+    const entry = DRIVER_ZONE_MEMORY[id];
+    if (entry && entry.savedAt && now - entry.savedAt > 8 * 60 * 60 * 1000) {
+      delete DRIVER_ZONE_MEMORY[id];
+      console.log(`[cleanup] DRIVER_ZONE_MEMORY stale entry removed for driver ${id}`);
+    }
+  }
+}, 10 * 60 * 1000);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

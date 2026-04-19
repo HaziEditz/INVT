@@ -9203,7 +9203,7 @@ $(document).ready(function() {
                 {"name": "quenumber", "Value": quenumber1 }
                 ], "[UnAssignJobStatusFromJobList]");
                  FnCancelRide(driverId, BookingId);
-                 angular.element(document.getElementById('myangular')).scope().AssignedJobs();
+                 var _sc9206 = angular.element(document.getElementById('myangular')).scope(); if (_sc9206 && typeof _sc9206.AssignedJobs === 'function') _sc9206.AssignedJobs();
                  $scope.getjobs();
             }
             else {
@@ -9216,7 +9216,7 @@ $(document).ready(function() {
                 {"name": "reternVehicleid" , "Value" : VehicleId},
                 {"name":"reterndriverId" , "Value" : driverId} , 
                  { "name": "quenumber", "Value": quenumber1 }
-                ], "[AssignJobStatusFromJobList]");
+                ], "[AssignJobStatusFromJobListv2]");
               
                 FnCancelRide(driverId, BookingId);
                 // Single atomic Firebase write — includes bookingid+content+all detail fields
@@ -9261,8 +9261,11 @@ $(document).ready(function() {
                 })(BookingId, JobVehicleId, U_id);
                 // Start a 27 s no-response watcher so the job returns to Unassigned
                 // automatically if the driver never accepts or rejects.
-                acknowledgemethod(JobVehicleId, BookingId, "Offered");
-                angular.element(document.getElementById('myangular')).scope().AssignedJobs();
+                // Use acknowledgemethodx (patched path) — carries driverid=0 on timeout,
+                // _immediateJobPending, and all fix-#115 improvements.
+                acknowledgemethodx(JobVehicleId, JobVehicleId, BookingId, "Offered");
+                var _sc9265 = angular.element(document.getElementById('myangular')).scope();
+                if (_sc9265 && typeof _sc9265.AssignedJobs === 'function') _sc9265.AssignedJobs();
             }
             
  
@@ -13355,7 +13358,7 @@ $(document).ready(function() {
                     $("#Divo" + BookingId + "").remove();
         
               
-                    acknowledgemethod(JobVehicleId, BookingId, "Offered")
+                    acknowledgemethodx(JobVehicleId, JobVehicleId, BookingId, "Offered");
 
                 
 
@@ -13381,13 +13384,13 @@ $(document).ready(function() {
                     { "name": "BookingId", "Value": BookingId },
                     { "name": "VehicleId", "Value": JobVehicleId },
                     {"name": "reternVehicleid" , "Value" : VehicleId},
-                    {"name":"reterndriverId" , "Value" : driverId}], "[AssignJobStatusFromJobList]");
+                    {"name":"reterndriverId" , "Value" : driverId}], "[AssignJobStatusFromJobListv2]");
                     FnCancelRide(driverId, BookingId);
 
                     sendJobToDriver(JobVehicleId, JobVehicleId, BookingId, 'Offered', U_id);
  
                     $("#Divo" + BookingId + "").remove();
-                    acknowledgemethod(JobVehicleId, BookingId, "Offered")
+                    acknowledgemethodx(JobVehicleId, JobVehicleId, BookingId, "Offered");
 
                 }
     
@@ -14827,7 +14830,7 @@ $(document).ready(function() {
                         $('#largeModal').modal('hide');
                         $("#PickupZoneId").text('');
                         if(BookingStatusx == "Offered") {
-                             acknowledgemethod(DriveId, BookingIz, BookingStatusx)
+                             acknowledgemethodx(DriveId, DriveId, BookingIz, BookingStatusx);
                             }
                     }else{
                   
@@ -15474,7 +15477,9 @@ $(document).ready(function() {
         var scope = angular.element(document.querySelector('[ng-controller]')).scope();
         if (!scope) return;
 
-        scope.$apply(function() {
+        // Guard against "apply already in progress" if called during an existing digest cycle
+        var _doApply = function(fn) { if (!scope.$$phase) { scope.$apply(fn); } else { fn(); } };
+        _doApply(function() {
             if (isNoOne || val === -1) {
                 scope.quickSetNoOne(jobId);
             } else if (val > 0) {
