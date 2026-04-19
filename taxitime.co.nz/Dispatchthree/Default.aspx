@@ -8237,7 +8237,16 @@ $(document).ready(function() {
             grouped2 = Object.create(null);
             
             dataStuff.forEach(function (a) {
-                var zn = a.zonename || a.zoneid || 'Zone';
+                var zn = a.zonename;
+                if (!zn && a.zoneid && ZonesArea && ZonesArea['dt1']) {
+                    for (var _zi = 0; _zi < ZonesArea['dt1'].length; _zi++) {
+                        if (String(ZonesArea['dt1'][_zi].ZoneId) === String(a.zoneid)) {
+                            zn = ZonesArea['dt1'][_zi].ZoneName;
+                            break;
+                        }
+                    }
+                }
+                zn = zn || a.zoneid || 'Zone';
                 grouped[zn] = grouped[zn] || [];
                 a.zonename = a.zonename || zn;
                 grouped[zn].push(a);
