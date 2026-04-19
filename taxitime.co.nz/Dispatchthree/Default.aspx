@@ -5035,6 +5035,9 @@ $(document).ready(function() {
      
     var cars_Ref = firebase.database().ref("online/" + SomeSession2 + "");
     console.log(cars_Ref);
+    // Tracks pending removal timers keyed by vehicleKey — used to delay driver removal
+    // when Firebase disconnects (phone screen off) so drivers don't flash off the board.
+    var _disconnectTimers = {};
     // Gate all driver-tracking listeners on Firebase auth being resolved
     firebase.auth().onAuthStateChanged(function(user) {
     if (user) {
@@ -5042,6 +5045,11 @@ $(document).ready(function() {
     cars_Ref.on('child_added', function (data) {
         var driverData = data.val();
         if (!driverData || typeof driverData !== 'object') return;
+        // Cancel any pending removal timer — driver reconnected after screen-off.
+        if (_disconnectTimers[data.key]) {
+            clearTimeout(_disconnectTimers[data.key]);
+            delete _disconnectTimers[data.key];
+        }
         // Handle nested structure: { vehicleId: { driverid, vehiclenumber, ... } }
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
@@ -5463,24 +5471,32 @@ $(document).ready(function() {
      cars_Ref.on('child_removed', function (data) {
         var vehicleKey = data.key;
         var driverData = data.val();
-        // Remove map marker using the full driver object
-        if (driverData && typeof driverData === 'object' && markers[driverData.vehiclenumber]) {
-            markers[driverData.vehiclenumber].setMap(null);
-        }
-        // Always remove from Angular scope by vehicleKey
-        var removeFn = function(sc) {
-            sc.driverdatarealx = sc.driverdatarealx.filter(function(d) {
-                var matchById  = String(d.VehicleId) === String(vehicleKey);
-                var matchByNum = driverData && driverData.vehiclenumber && d.vehiclenumber === driverData.vehiclenumber;
-                return !matchById && !matchByNum;
-            });
-            sc.driverlist = sc.driverdatarealx;
-            sc.zonetablez();
-            if (!sc.$$phase) { sc.$digest(); }
-        };
-        var _sc = angular.element(document.getElementById('myangular')).scope();
-        if (_sc) { removeFn(_sc); }
-        else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
+        // Delay removal for 30 minutes — Firebase disconnects temporarily when the
+        // driver's phone screen turns off. Only remove after prolonged absence.
+        // If child_added fires before the timer expires (driver reconnected), the
+        // timer is cancelled in the child_added handler above.
+        if (_disconnectTimers[vehicleKey]) clearTimeout(_disconnectTimers[vehicleKey]);
+        _disconnectTimers[vehicleKey] = setTimeout(function() {
+            delete _disconnectTimers[vehicleKey];
+            // Remove map marker using the full driver object
+            if (driverData && typeof driverData === 'object' && markers[driverData.vehiclenumber]) {
+                markers[driverData.vehiclenumber].setMap(null);
+            }
+            // Remove from Angular scope by vehicleKey
+            var removeFn = function(sc) {
+                sc.driverdatarealx = sc.driverdatarealx.filter(function(d) {
+                    var matchById  = String(d.VehicleId) === String(vehicleKey);
+                    var matchByNum = driverData && driverData.vehiclenumber && d.vehiclenumber === driverData.vehiclenumber;
+                    return !matchById && !matchByNum;
+                });
+                sc.driverlist = sc.driverdatarealx;
+                sc.zonetablez();
+                if (!sc.$$phase) { sc.$digest(); }
+            };
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (_sc) { removeFn(_sc); }
+            else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
+        }, 1800000); // 30 minutes — dispatcher removes manually; screen-off won't clear driver
     });
     } // end if (user)
     }); // end onAuthStateChanged
@@ -7997,11 +8013,20 @@ $(document).ready(function() {
                                 if (!$scope.$$phase) { $scope.$digest(); }
                             }
                         } else {
-                            // Away / other statuses not sent to server — update screen directly.
-                            $scope.driverdatarealx[incs] =  datacom;
-                            $scope.driverlist =  $scope.driverdatarealx;
-                            $scope.zonetablez();
-                            if (!$scope.$$phase) { $scope.$digest(); }
+                            // Away / other statuses not sent to server.
+                            // IMPORTANT: ignore 'Away' arriving from Firebase here.
+                            // The driver app sends Away when it goes to the background (phone
+                            // switches apps / screen dims). We never want that to set the driver
+                            // Away on the dispatch board — only the dispatcher can do that.
+                            // Dispatcher-initiated Away is written directly to driverdatarealx
+                            // by the reject/timeout code paths, NOT via tallo, so suppressing
+                            // it here has no effect on legitimate dispatcher actions.
+                            if (datacom.vehiclestatus !== 'Away') {
+                                $scope.driverdatarealx[incs] =  datacom;
+                                $scope.driverlist =  $scope.driverdatarealx;
+                                $scope.zonetablez();
+                                if (!$scope.$$phase) { $scope.$digest(); }
+                            }
                         }
                     }
                     if (!$scope.$$phase) { $scope.$digest(); }
