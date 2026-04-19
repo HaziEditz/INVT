@@ -9973,7 +9973,7 @@ $(document).ready(function() {
                     { "name": "PassengerId", "Value": $scope.account_PhoneNo  },
                     { "name": "Email", "Value":  $scope.account_Email },
                     { "name": "Account_id", "Value":  $scope.account_Select_Id  },
-                    { "name": "VId", "Value": $("#ddlVehicleType").val() }, 
+                    { "name": "VId", "Value": extra }, 
                     { "name": "DId", "Value": $scope.selecteddriver },
                     { "name": "PickLatLng", "Value": $("#LocalPickLat").val() + "," + $("#LocalPickLng").val() },
                     { "name": "DropLatLng", "Value": $("#LocalDropLat").val() + "," + $("#LocalDropLng").val() },
@@ -10091,7 +10091,7 @@ $(document).ready(function() {
                                             console.log($res[0].BookingId)
                                             console.log($res[0].BookingStatus)
 
-                                            writeJobDetailsToFirebase(driverset, $("#ddlVehicleType").val(), $res[0].BookingId, {
+                                            writeJobDetailsToFirebase(driverset, extra, $res[0].BookingId, {
                                                 pickup:      _snap.pickup,
                                                 dropoff:     _snap.dropoff,
                                                 phone:       _snap.phone,
@@ -10104,7 +10104,7 @@ $(document).ready(function() {
                                                 source:      'Dispatcher'
                                             });
                                      
-                                            acknowledgemethodx( $("#ddlVehicleType").val() , driverset, $res[0].BookingId,"Offered");  
+                                            acknowledgemethodx(extra, driverset, $res[0].BookingId,"Offered");  
                                         }
 
                                             

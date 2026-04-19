@@ -689,7 +689,8 @@ const server = http.createServer(async (req, res) => {
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
         const driverId  = parseInt(param('DId') || '0') || 0;
-        const vehicleId = parseInt(param('VId') || '0') || 0;
+        // VehicleId is a string call-sign (e.g. "T201") — do NOT parseInt it or 'T201' becomes 0.
+        const vehicleId = param('VId') || '0';
         const passengers = parseInt(param('PassengersNo') || '1') || 1;
         const bags = parseInt(param('BagsNo') || '0') || 0;
         const wheelchairs = parseInt(param('WheelChairsNo') || '0') || 0;
@@ -785,7 +786,8 @@ const server = http.createServer(async (req, res) => {
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
         const driverId  = parseInt(param('DId') || '0') || 0;
-        const vehicleId = parseInt(param('VId') || '0') || 0;
+        // VehicleId is a string call-sign (e.g. "T201") — do NOT parseInt it or 'T201' becomes 0.
+        const vehicleId = param('VId') || '0';
         const passengers = parseInt(param('PassengersNo') || '1') || 1;
         const bags = parseInt(param('BagsNo') || '0') || 0;
         const wheelchairs = parseInt(param('WheelChairsNo') || '0') || 0;
