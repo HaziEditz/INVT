@@ -1100,19 +1100,21 @@ const server = http.createServer(async (req, res) => {
           }
           const isAccepted = currentStatus === 'Assigned' || currentStatus === 'Active' || currentStatus === 'Picking';
           const isDowngrade = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
-          // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
           const rr = returnReason.toLowerCase();
-          const isExplicitReject = rr.includes('reject') || rr.includes('no response') || rr.includes('not accepted') || rr.includes('manually unassigned');
+          // Timeout reasons (dispatch window expired, no-response) must NEVER cancel an already-accepted job.
+          // Only a genuine driver reject or dispatcher manual-unassign can downgrade Assigned/Active/Picking.
+          const isTimeoutReason = rr.includes('no response') || rr.includes('not accepted');
+          const isExplicitReject = (rr.includes('reject') && !isTimeoutReason) || rr.includes('manually unassigned');
           const hasNoDriver = !job.DriverId || job.DriverId === 0;
-          if (isAccepted && isDowngrade && !isExplicitReject && !hasNoDriver) {
+          if (isAccepted && isDowngrade && (!isExplicitReject || isTimeoutReason) && !hasNoDriver) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED downgrade: job #${bookingId} is ${currentStatus}, refusing to set ${newStatus} (reason: "${returnReason}")`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
           // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
-          // This is a driver-initiated cancel, not a pre-acceptance rejection.
+          // This is a driver-initiated cancel, not a pre-acceptance rejection and not a timeout.
           // Move to closed jobs as Cancelled and notify dispatcher.
-          const isDriverPostAcceptCancel = isExplicitReject && !hasNoDriver &&
+          const isDriverPostAcceptCancel = isExplicitReject && !isTimeoutReason && !hasNoDriver &&
             !rr.includes('manually unassigned') &&
             (currentStatus === 'Assigned' || currentStatus === 'Picking') &&
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
@@ -1890,17 +1892,20 @@ const server = http.createServer(async (req, res) => {
           }
           const isAccepted2 = currentStatus2 === 'Assigned' || currentStatus2 === 'Active' || currentStatus2 === 'Picking';
           const isDowngrade2 = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
-          // Allow: driver explicitly rejected, OR driver didn't respond (timeout), OR job has no real driver set yet.
           const rr2 = returnReason.toLowerCase();
-          const isExplicitReject2 = rr2.includes('reject') || rr2.includes('no response') || rr2.includes('not accepted') || rr2.includes('manually unassigned');
+          // Timeout reasons (dispatch window expired, no-response) must NEVER cancel an already-accepted job.
+          // Only a genuine driver reject or dispatcher manual-unassign can downgrade Assigned/Active/Picking.
+          const isTimeoutReason2 = rr2.includes('no response') || rr2.includes('not accepted');
+          const isExplicitReject2 = (rr2.includes('reject') && !isTimeoutReason2) || rr2.includes('manually unassigned');
           const hasNoDriver2 = !job.DriverId || job.DriverId === 0;
-          if (isAccepted2 && isDowngrade2 && !isExplicitReject2 && !hasNoDriver2) {
+          if (isAccepted2 && isDowngrade2 && (!isExplicitReject2 || isTimeoutReason2) && !hasNoDriver2) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED downgrade: job #${bookingId} is ${currentStatus2}, refusing to set ${newStatus} (reason: "${returnReason}")`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
           // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
-          const isDriverPostAcceptCancel2 = isExplicitReject2 && !hasNoDriver2 &&
+          // Not a timeout fire — a genuine driver-side cancel after accepting (Fix #108).
+          const isDriverPostAcceptCancel2 = isExplicitReject2 && !isTimeoutReason2 && !hasNoDriver2 &&
             !rr2.includes('manually unassigned') &&
             (currentStatus2 === 'Assigned' || currentStatus2 === 'Picking') &&
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
