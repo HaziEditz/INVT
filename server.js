@@ -1226,6 +1226,20 @@ const server = http.createServer(async (req, res) => {
           if (zdSync && zonequeue) zdSync.zonequeue = zonequeue;
 
           // ── Away-lock logic ──────────────────────────────────────────────────
+          // Guard: if an Away signal arrives for a driver who already has an
+          // Assigned/Picking/Active job, it is a stale Fix-#106 acknowledge that
+          // lost the race against the driver's own Accept signal.  Ignore it
+          // entirely so we don't overwrite a genuine acceptance.
+          if (newStatus === 'Away') {
+            const _staleAwayCheck = jobStore.some(j =>
+              matchesDriver(j) && (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Picking' || j.BookingStatus === 'Active')
+            );
+            if (_staleAwayCheck) {
+              console.log(`  [DriverStatusChanged/DP] driver ${driverId} Away IGNORED — driver has an active/assigned job (stale Fix-#106 ack)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], staleAway: true });
+              return;
+            }
+          }
           // Step 1: If locked driver sends Away heartbeat, record acknowledgement.
           //         This proves the driver's phone switched to Away mode.
           if (newStatus === 'Away' && isAwayLocked(driverId)) {
@@ -1294,8 +1308,10 @@ const server = http.createServer(async (req, res) => {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
-                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
-              // Only promote the single most relevant job (Assigned/Picking first, then Offered)
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered' ||
+                        (job.BookingStatus === 'Pending' && !orphaned))) {
+              // Pending + Busy: driver skipped the Accept step (e.g. Away→Busy after dispatch timeout)
+              // but the job's DriverId still matches — activate it so dispatch shows Active.
               job.BookingStatus = 'Active';
               activatedOne = true;
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
@@ -1994,6 +2010,19 @@ const server = http.createServer(async (req, res) => {
           if (zdSyncDS && zonequeueDS) zdSyncDS.zonequeue = zonequeueDS;
 
           // ── Away-lock logic ──────────────────────────────────────────────────
+          // Guard: stale Fix-#106 Away acknowledge that lost the race against
+          // the driver's own Accept signal — ignore it so a genuine acceptance
+          // is never overwritten by a late dispatcher-side Away.
+          if (newStatus === 'Away') {
+            const _staleAwayCheckDS = jobStore.some(j =>
+              matchesDriverDS(j) && (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Picking' || j.BookingStatus === 'Active')
+            );
+            if (_staleAwayCheckDS) {
+              console.log(`  [DriverStatusChanged/DS] driver ${driverId} Away IGNORED — driver has an active/assigned job (stale Fix-#106 ack)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], staleAway: true });
+              return;
+            }
+          }
           // Step 1: Away heartbeat from driver app → record acknowledgement.
           if (newStatus === 'Away' && isAwayLocked(driverId)) {
             acknowledgeAway(driverId);
@@ -2054,7 +2083,8 @@ const server = http.createServer(async (req, res) => {
               job.BookingStatus = 'Assigned';
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
-                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered' ||
+                        (job.BookingStatus === 'Pending' && !orphanedDS))) {
               job.BookingStatus = 'Active';
               activatedOneDS = true;
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
