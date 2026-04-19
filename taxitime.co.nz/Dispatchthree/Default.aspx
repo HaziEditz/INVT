@@ -8238,9 +8238,14 @@ $(document).ready(function() {
             
             dataStuff.forEach(function (a) {
                 var zn = a.zonename;
-                if (!zn && a.zoneid && ZonesArea && ZonesArea['dt1']) {
+                // Replace if missing OR if it looks like a raw numeric zone ID —
+                // that happens when Firebase arrives before ZonesArea has loaded and
+                // the previous run stored the numeric ID as the name.
+                var _numericName = zn && /^\d+$/.test(String(zn));
+                if ((!zn || _numericName) && ZonesArea && ZonesArea['dt1']) {
+                    var _lid = a.zoneid || zn;
                     for (var _zi = 0; _zi < ZonesArea['dt1'].length; _zi++) {
-                        if (String(ZonesArea['dt1'][_zi].ZoneId) === String(a.zoneid)) {
+                        if (String(ZonesArea['dt1'][_zi].ZoneId) === String(_lid)) {
                             zn = ZonesArea['dt1'][_zi].ZoneName;
                             break;
                         }
@@ -8248,7 +8253,7 @@ $(document).ready(function() {
                 }
                 zn = zn || a.zoneid || 'Zone';
                 grouped[zn] = grouped[zn] || [];
-                a.zonename = a.zonename || zn;
+                a.zonename = zn;
                 grouped[zn].push(a);
             });
             dataStuff.forEach(function (a) {
@@ -9028,7 +9033,13 @@ $(document).ready(function() {
                           }
                           else {
                               ZonesArea = JSON.parse(response.d);
-                       
+                              // Re-run zone grouping now that names are available.
+                              // Firebase data often arrives before this AJAX completes,
+                              // so the first changezone() run stored numeric IDs; this
+                              // corrects them immediately without waiting 15 s.
+                              if (typeof $scope !== 'undefined' && typeof $scope.zonetablez === 'function') {
+                                  $scope.zonetablez();
+                              }
                           }
                            
                       }
