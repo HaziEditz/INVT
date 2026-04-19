@@ -2667,7 +2667,7 @@ $(document).ready(function() {
                                                                     <option ng-value="-2" data-foo="0"  data-zoneq="0">Pending (Broadcast)</option>
                                                                     <option ng-value="-1" data-foo="0"  data-zoneq="0">No One</option>
                                                                          
-                                                                   <option ng-repeat ="driz in LoginDriverdata" data-zoneq="{{driz.zonequeue}}"   data-foo="{{driz.VehicleId}}" ng-value="{{driz.Id}}">  {{driz.UserFName}} / {{driz.VehicleNo }} </option>
+                                                                   <option ng-repeat ="driz in LoginDriverdata" ng-if="!isDriverInRealtime(driz.Id)" data-zoneq="{{driz.zonequeue}}"   data-foo="{{driz.VehicleId}}" ng-value="{{driz.Id}}">  {{driz.UserFName}} / {{driz.VehicleNo }} </option>
 
                                                                  <option ng-repeat ="driwqq in driverdatarealx" ng-show="{{checkofferjob(driwqq.driverid)}}" ng-if="driwqq.vehiclestatus == 'Available'  &&   true == checkjobvehile1(driwqq.vehicletype )" data-zoneq="{{driwqq.zonequeue}}"   data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber }}  {{driwqq.vehicletype}} </option>
                                                                 </select> 
@@ -7971,6 +7971,19 @@ $(document).ready(function() {
         $scope.adddrivernew = function(datacom){
             $scope.tallo(datacom);
         }
+
+        // Returns true if a driver (by Id/DriverId) is already present in the live
+        // Firebase driver list (driverdatarealx).  Used to suppress duplicate DB entries
+        // in the LoginDriverdata repeat when the same driver is online.
+        $scope.isDriverInRealtime = function(driverId) {
+            if (!driverId) return false;
+            var sid = String(driverId);
+            for (var i = 0; i < $scope.driverdatarealx.length; i++) {
+                if (String($scope.driverdatarealx[i].driverid) === sid) return true;
+            }
+            return false;
+        };
+
         $scope.tallo = function(datacom) {
             // Guard: must have at least driverid or vehiclenumber to be a valid driver entry
             if (!datacom || (typeof datacom !== 'object')) return;
