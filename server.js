@@ -790,8 +790,16 @@ const server = http.createServer(async (req, res) => {
       } else if (action === '[CancelUnAssignedJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;
         const idx = jobStore.findIndex(j => j.Id === bookingId);
-        if (idx !== -1) { jobStore.splice(idx, 1); saveJobStore(); }
-        console.log(`200: POST ${urlPath} [action=${action}] -> removed job #${bookingId}`);
+        if (idx !== -1) {
+          const job = jobStore[idx];
+          job.BookingStatus = 'Cancel';
+          job.CancelledBy   = 'Dispatcher';
+          job.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          closedJobStore.push(job);
+          jobStore.splice(idx, 1);
+          saveJobStore();
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId} -> moved to closedJobStore`);
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]' || action === '[UnAssignJobStatusFromJobList]') {
@@ -1380,10 +1388,14 @@ const server = http.createServer(async (req, res) => {
               zd.jobCount   = 0;
             }
           }
+          job.BookingStatus = 'Cancel';
+          job.CancelledBy   = 'Dispatcher';
+          job.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          closedJobStore.push(job);
           jobStore.splice(idx, 1);
           saveJobStore();
         }
-        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId}`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: driverId }]);
 
       } else {

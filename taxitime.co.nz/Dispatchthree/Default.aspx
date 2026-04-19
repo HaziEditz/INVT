@@ -16413,7 +16413,9 @@ $(document).ready(function() {
                             datas.push("<span>"+$res["dt1"][$i].PhoneNo+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].VehicleNo+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].UserFName + $res["dt1"][$i].UserLName+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].BookingSource+"</span>");
+                            var cancelledBy = $res["dt1"][$i].CancelledBy;
+                            var sourceLabel = cancelledBy ? ('Cancelled by ' + cancelledBy) : ($res["dt1"][$i].BookingSource || '');
+                            datas.push("<span>"+sourceLabel+"</span>");
                             datas.push("<span>"+$res["dt1"][$i].BookingStatus+"</span>");
                             datasetx.push(datas);
                         }
