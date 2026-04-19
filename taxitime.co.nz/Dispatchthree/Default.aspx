@@ -6675,6 +6675,24 @@ $(document).ready(function() {
                                       if (typeof sc.AssignedJobs === 'function') { sc.AssignedJobs(); }
                                       if (typeof sc.ActiveJobsdata === 'function') { sc.ActiveJobsdata(); }
                                   }
+                                  // Fix #106: Acknowledge the away-lock immediately (same as convertstatus).
+                                  if (driverid && String(driverid) !== '0') {
+                                      var _drv1 = sc && sc.driverdatarealx && sc.driverdatarealx.find(function(d) {
+                                          return String(d.driverid) === String(driverid) || String(d.VehicleId) === String(driverid);
+                                      });
+                                      jQuery.ajax({
+                                          type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                                          data: JSON.stringify({ data: [
+                                              { name: 'driverid',      Value: String(driverid) },
+                                              { name: 'newstatus',     Value: 'Away' },
+                                              { name: 'vehiclenumber', Value: _drv1 ? String(_drv1.vehiclenumber || '') : '' },
+                                              { name: 'drivername',    Value: _drv1 ? String(_drv1.drivername   || '') : '' },
+                                              { name: 'lat',           Value: _drv1 ? String(_drv1.lat          || '') : '' },
+                                              { name: 'lng',           Value: _drv1 ? String(_drv1.lng          || '') : '' }
+                                          ], action: '[DriverStatusChanged]' }),
+                                          dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+                                      });
+                                  }
                               }
                           });
  
@@ -6739,7 +6757,29 @@ $(document).ready(function() {
                                   var sc = angular.element(document.getElementById('myangular')).scope();
                                   sc.getjobs();
                                   if (typeof sc.AssignedJobs === 'function') { sc.AssignedJobs(); }
-                            
+                                  // Fix #106: Acknowledge the away-lock immediately so the driver can
+                                  // tap Available to come back without being permanently blocked.
+                                  // [changeriddestatusforoffer] may have just called setAwayLock on the
+                                  // server. Sending newstatus=Away here calls acknowledgeAway (no-op if
+                                  // no lock was set), so the very next Available from the driver clears
+                                  // the lock and is processed normally.
+                                  if (driverid && String(driverid) !== '0') {
+                                      var _drv = sc && sc.driverdatarealx && sc.driverdatarealx.find(function(d) {
+                                          return String(d.driverid) === String(driverid) || String(d.VehicleId) === String(driverid);
+                                      });
+                                      jQuery.ajax({
+                                          type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                                          data: JSON.stringify({ data: [
+                                              { name: 'driverid',      Value: String(driverid) },
+                                              { name: 'newstatus',     Value: 'Away' },
+                                              { name: 'vehiclenumber', Value: _drv ? String(_drv.vehiclenumber || '') : '' },
+                                              { name: 'drivername',    Value: _drv ? String(_drv.drivername   || '') : '' },
+                                              { name: 'lat',           Value: _drv ? String(_drv.lat          || '') : '' },
+                                              { name: 'lng',           Value: _drv ? String(_drv.lng          || '') : '' }
+                                          ], action: '[DriverStatusChanged]' }),
+                                          dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+                                      });
+                                  }
                               }
                           });
  
