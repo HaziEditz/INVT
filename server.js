@@ -1092,6 +1092,32 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
+          // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
+          // This is a driver-initiated cancel, not a pre-acceptance rejection.
+          // Move to closed jobs as Cancelled and notify dispatcher.
+          const isDriverPostAcceptCancel = isExplicitReject && !hasNoDriver &&
+            (currentStatus === 'Assigned' || currentStatus === 'Picking') &&
+            (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
+          if (isDriverPostAcceptCancel) {
+            const _dcDriverId = job.DriverId;
+            job.BookingStatus = 'Cancelled';
+            job.CancelledBy   = 'Driver';
+            job.returnReason  = 'Driver cancelled after accepting';
+            job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+            const _dcIdx = jobStore.indexOf(job);
+            if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
+            closedJobStore.push(job);
+            // Release driver back to Away (driver's fault)
+            const _dcZd = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId || d.VehicleId === _dcDriverId);
+            if (_dcZd) { _dcZd.vehiclestatus = 'Away'; }
+            setAwayLock(_dcDriverId);
+            clearDriverHomeState(_dcDriverId);
+            saveJobStore();
+            _newQueueNo = null;
+            console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled after accepting)`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId } });
+            return;
+          }
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
           // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
           const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
@@ -1165,7 +1191,8 @@ const server = http.createServer(async (req, res) => {
           return String(j.DriverId) === driverId || String(j.VehicleId) === driverId ||
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
-        let _dscQueueNo = null; // new queue number to return to client for Firebase write
+        let _dscQueueNo = null;      // new queue number to return to client for Firebase write
+        let _dscDriverCancelled = null; // set when driver cancels an accepted/assigned job
         if (driverId && newStatus) {
           // Sync zone data into ZONE_DRIVERS if provided by client
           const zdSync = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
@@ -1255,8 +1282,20 @@ const server = http.createServer(async (req, res) => {
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
+              } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
+                // Driver went Available while still Assigned — driver cancelled after accepting.
+                // Move to closed jobs so the dispatcher can see it.
+                job.BookingStatus = 'Cancelled';
+                job.CancelledBy   = 'Driver';
+                job.returnReason  = 'Driver cancelled after accepting';
+                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                const idx = jobStore.indexOf(job);
+                if (idx !== -1) jobStore.splice(idx, 1);
+                closedJobStore.push(job);
+                _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
+                console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
               }
-              // Assigned/Picking/Offered/Unreached/Pending: driver going Available with no active trip — leave as-is
+              // Offered/Unreached/Pending: driver going Available — leave as-is
             }
           });
           // When driver goes Available: calculate their new queue position and update ZONE_DRIVERS
@@ -1275,7 +1314,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null });
 
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
@@ -1809,6 +1848,28 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
+          // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
+          const isDriverPostAcceptCancel2 = isExplicitReject2 && !hasNoDriver2 &&
+            (currentStatus2 === 'Assigned' || currentStatus2 === 'Picking') &&
+            (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
+          if (isDriverPostAcceptCancel2) {
+            const _dcDriverId2 = job.DriverId;
+            job.BookingStatus = 'Cancelled';
+            job.CancelledBy   = 'Driver';
+            job.returnReason  = 'Driver cancelled after accepting';
+            job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+            const _dcIdx2 = jobStore.indexOf(job);
+            if (_dcIdx2 !== -1) jobStore.splice(_dcIdx2, 1);
+            closedJobStore.push(job);
+            const _dcZd2 = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId2 || d.VehicleId === _dcDriverId2);
+            if (_dcZd2) { _dcZd2.vehiclestatus = 'Away'; }
+            setAwayLock(_dcDriverId2);
+            clearDriverHomeState(_dcDriverId2);
+            saveJobStore();
+            console.log(`  [changeriddestatusforoffer/DS] Job #${bookingId} -> Cancelled (driver ${_dcDriverId2} cancelled after accepting)`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId2 } });
+            return;
+          }
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
           // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
           const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
@@ -1879,6 +1940,7 @@ const server = http.createServer(async (req, res) => {
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
         let _dssQueueNo = null;
+        let _dssDriverCancelled = null;
         if (driverId && newStatus) {
           // Sync zone data from client into ZONE_DRIVERS
           const zdSyncDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
@@ -1958,8 +2020,19 @@ const server = http.createServer(async (req, res) => {
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
+              } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
+                // Driver cancelled after accepting — move to closed jobs
+                job.BookingStatus = 'Cancelled';
+                job.CancelledBy   = 'Driver';
+                job.returnReason  = 'Driver cancelled after accepting';
+                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                const idxDS = jobStore.indexOf(job);
+                if (idxDS !== -1) jobStore.splice(idxDS, 1);
+                closedJobStore.push(job);
+                _dssDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
+                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
               }
-              // Assigned/Picking/Offered/Unreached/Pending: driver going Available — leave job as-is
+              // Offered/Unreached/Pending: driver going Available — leave job as-is
             }
           });
           // When driver goes Available: calculate their new queue position
@@ -1978,7 +2051,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null, driverCancelled: _dssDriverCancelled || null });
 
       } else if (action === '[UnAssignedJobsv3]') {
         const resp = buildJobListResponse(jobStore);

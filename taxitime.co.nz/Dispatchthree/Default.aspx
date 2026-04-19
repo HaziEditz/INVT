@@ -6773,6 +6773,17 @@ $(document).ready(function() {
                                           }
                                           if (_drCvt) _drCvt.zonequeue = _rCvt.newQueueNo;
                                       }
+                                      // Driver cancelled an accepted job — alert dispatcher + refresh closed jobs
+                                      if (_rCvt && _rCvt.driverCancelled) {
+                                          var _dcC = _rCvt.driverCancelled;
+                                          var _dcCLabel = _dcC.vehiclenumber || String(_dcC.driverId || driverid || '');
+                                          toastr["warning"](
+                                              'Driver ' + _dcCLabel + ' cancelled job #' + (_dcC.jobId || id) + ' after accepting.',
+                                              'Driver Cancelled Job!'
+                                          );
+                                          if (typeof sc.ClosedJobsdata  === 'function') sc.ClosedJobsdata();
+                                          if (typeof sc.ActiveJobsdata  === 'function') sc.ActiveJobsdata();
+                                      }
                                   } catch(e) {}
                                   // Fix #106: Acknowledge the away-lock immediately so the driver can
                                   // tap Available to come back without being permanently blocked.
@@ -8091,6 +8102,24 @@ $(document).ready(function() {
                                                 if (_scQ.driverdatarealx[_capIncs]) {
                                                     _scQ.driverdatarealx[_capIncs].zonequeue = _r.newQueueNo;
                                                 }
+                                            }
+                                        }
+                                        // Driver cancelled an accepted job — alert the dispatcher
+                                        if (_r && _r.driverCancelled && _newSt === 'Available') {
+                                            var _dc = _r.driverCancelled;
+                                            var _dcLabel = _dc.vehiclenumber || _dc.driverId || _capDid;
+                                            var _dcJob   = _dc.jobId || '';
+                                            toastr["warning"](
+                                                'Driver ' + _dcLabel + ' cancelled job #' + _dcJob + ' after accepting.',
+                                                'Driver Cancelled Job!'
+                                            );
+                                            // Refresh all tabs so the cancelled job appears in Closed Jobs
+                                            var _scDC = angular.element(document.getElementById('myangular')).scope();
+                                            if (_scDC) {
+                                                if (typeof _scDC.getjobs         === 'function') _scDC.getjobs();
+                                                if (typeof _scDC.AssignedJobs    === 'function') _scDC.AssignedJobs();
+                                                if (typeof _scDC.ActiveJobsdata  === 'function') _scDC.ActiveJobsdata();
+                                                if (typeof _scDC.ClosedJobsdata  === 'function') _scDC.ClosedJobsdata();
                                             }
                                         }
                                     } catch(e) {}
