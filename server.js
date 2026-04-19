@@ -762,7 +762,9 @@ const server = http.createServer(async (req, res) => {
           // Never overwrite Active/Assigned — editing a live job must not cancel it.
           const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);
           if (editableStatuses.has(job.BookingStatus || '')) {
-            job.BookingStatus = driverId > 0 ? 'Offered' : 'Pending';
+            if (driverId > 0)       job.BookingStatus = 'Offered';
+            else if (driverId === -1) job.BookingStatus = 'No One';
+            else                     job.BookingStatus = 'Pending';
           }
           if (job.BookingStatus === 'Offered') job.returnReason = '';
           saveJobStore();
@@ -1412,8 +1414,9 @@ const server = http.createServer(async (req, res) => {
             }
           }
         });
-        // Return jobs that need auto-dispatch: Pending and No One statuses.
-        const autoJobs = jobStore.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'No One');
+        // Return jobs that need auto-dispatch: Pending only.
+        // "No One" jobs are explicitly excluded — dispatcher flagged them as manual-only.
+        const autoJobs = jobStore.filter(j => j.BookingStatus === 'Pending');
         const dt1 = autoJobs.map(j => ({
           Id: j.Id,
           ZoneId: j.ZoneId || 1,
