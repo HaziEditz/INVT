@@ -8026,6 +8026,24 @@ $(document).ready(function() {
                                 $scope.driverlist =  $scope.driverdatarealx;
                                 $scope.zonetablez();
                                 if (!$scope.$$phase) { $scope.$digest(); }
+                            } else if (_savedOldStatus !== 'Away') {
+                                // Driver app sent Away (backgrounded), but driver's real
+                                // status on the dispatch board is still _savedOldStatus.
+                                // Write the real status back to Firebase so the driver app
+                                // stays in sync — driver never sees a spurious Away.
+                                // Only do this when the driver was NOT already Away (i.e.
+                                // dispatcher hadn't set Away first), to avoid overwriting a
+                                // legitimate dispatcher-set Away.
+                                try {
+                                    var _vid = datacom.VehicleId || datacom.driverid || '';
+                                    var _did = datacom.driverid  || '';
+                                    if (_vid && SomeSession2) {
+                                        firebase.database().ref("online/" + SomeSession2 + "/" + _vid).update({ vehiclestatus: _savedOldStatus });
+                                        if (_did) {
+                                            firebase.database().ref("jobs/" + SomeSession2 + "/" + _vid + "/" + _did).update({ vehiclestatus: _savedOldStatus });
+                                        }
+                                    }
+                                } catch(e) {}
                             }
                         }
                     }
