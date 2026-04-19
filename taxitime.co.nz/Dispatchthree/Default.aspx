@@ -5574,6 +5574,27 @@ $(document).ready(function() {
             firebase.database().ref().child("/Passengerjobs/" + u_id).update({ status: "cancel" });
         }
     }
+    // Sends a visible notification to the driver app explaining why they are Away.
+    // Written to /notification/ (pop-up alert) and /chat/ (in-app message) so the
+    // driver sees it regardless of which screen they are on when Away is set.
+    // reason: 'reject' | 'timeout'
+    function FnNotifyDriverAway(DriverId, reason) {
+        if (!DriverId) return;
+        var msg = reason === 'reject'
+            ? 'You are now Away — you rejected the job. Tap Available when ready to accept jobs.'
+            : 'You are now Away — job not accepted in time. Tap Available when ready to accept jobs.';
+        var postData = {
+            bookingid: 'AWAY_NOTICE,,Away Notice,,' + (reason === 'reject' ? 'Rejected' : 'No Response'),
+            content: msg
+        };
+        var updates = {};
+        updates['/notification/' + DriverId] = postData;
+        updates['/chat/' + DriverId] = postData;
+        firebase.database().ref().update(updates).catch(function(e) {
+            console.warn('[FnNotifyDriverAway] Firebase write failed:', e);
+        });
+    }
+
     function writeautodispatch(DriverId, BookingId ) {
 
        
@@ -5892,6 +5913,7 @@ $(document).ready(function() {
                             firebase.database().ref().child("/notification/" + driverid).remove();
                             firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                            FnNotifyDriverAway(driverid, 'reject');
                             // Immediately update driver colour — don't wait for Firebase propagation
                             (function(_drvid, _veh) {
                                 var _sc = angular.element(document.getElementById('myangular')).scope();
@@ -5944,6 +5966,7 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + driverid).remove();
                                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                                    FnNotifyDriverAway(driverid, 'reject');
                                     (function(_drvid, _veh) {
                                         var _sc = angular.element(document.getElementById('myangular')).scope();
                                         if (_sc && _sc.driverdatarealx) {
@@ -6004,6 +6027,7 @@ $(document).ready(function() {
                                 firebase.database().ref().child("/notification/" + driverid).remove();
                                 firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                                FnNotifyDriverAway(driverid, 'reject');
                                 (function(_drvid, _veh) {
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
                                     if (_sc && _sc.driverdatarealx) {
@@ -6071,6 +6095,7 @@ $(document).ready(function() {
                     // Driver must manually press Available on their app to come back online.
                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                    FnNotifyDriverAway(driverid, 'timeout');
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc && _fbsc.driverdatarealx) {
