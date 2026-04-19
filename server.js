@@ -226,6 +226,77 @@ function canUnlockWithAvailable(driverId) {
   return !!(lock && lock.ackAway);
 }
 
+// ─── Driver Zone Memory ────────────────────────────────────────────────────────
+// Tracks each driver's zone + queue position so we can intelligently restore
+// their slot when a job finishes or is cancelled.
+//
+// Rules:
+//   1. Available after Away (reject/timeout)     → end of queue in current zone
+//   2. Job cancelled, driver still in same zone  → restore original slot number
+//   3. Job cancelled, driver in a different zone → queue #1 in that (new) zone
+//   4. Driver zone changes back to home zone     → restore home queue position
+//
+const DRIVER_ZONE_MEMORY = {};
+
+// Save a driver's current zone & queue position as their "home state".
+// Call this when they are Available and before they are dispatched.
+function saveDriverHomeState(driverId, zd) {
+  if (!driverId || !zd) return;
+  const id = String(driverId);
+  DRIVER_ZONE_MEMORY[id] = Object.assign(DRIVER_ZONE_MEMORY[id] || {}, {
+    homeZone:     zd.zonename  || '',
+    homeZoneId:   zd.zoneid    || '',
+    homeQueuePos: parseInt(zd.zonequeue) || 999,
+    savedAt:      Date.now(),
+  });
+  console.log(`  [zoneMemory] driver ${driverId} home saved → zone="${zd.zonename}" q=${zd.zonequeue}`);
+}
+
+function getDriverHomeState(driverId) {
+  return DRIVER_ZONE_MEMORY[String(driverId)] || null;
+}
+
+function clearDriverHomeState(driverId) {
+  delete DRIVER_ZONE_MEMORY[String(driverId)];
+}
+
+// Return the queue number at the end of a zone's Available list.
+// (excludeDriverId skips the driver being repositioned so they don't count themselves.)
+function nextQueueInZone(zoneName, excludeDriverId) {
+  const zone = (zoneName || '').toLowerCase().trim();
+  const inZone = ZONE_DRIVERS.filter(d => {
+    const dz = (d.zonename || '').toLowerCase().trim();
+    return dz === zone &&
+           d.vehiclestatus === 'Available' &&
+           String(d.driverid || d.VehicleId) !== String(excludeDriverId);
+  });
+  if (!inZone.length) return 1;
+  const maxQ = Math.max(...inZone.map(d => parseInt(d.zonequeue) || 0));
+  return maxQ + 1;
+}
+
+// Given a driver's current zone and their zone-memory record, return the correct
+// queue position to assign when they go Available.
+//   • Same zone as home → restore their saved slot (or end if slot is now taken)
+//   • Different zone    → #1 (they arrived to serve a cross-zone job, reward them)
+//   • No memory         → end of current zone queue
+function calcRestoredQueue(driverId, currentZone) {
+  const mem = getDriverHomeState(driverId);
+  const czLower = (currentZone || '').toLowerCase().trim();
+  if (!mem) {
+    return nextQueueInZone(currentZone, driverId);
+  }
+  const homeZoneLower = (mem.homeZone || '').toLowerCase().trim();
+  if (czLower === homeZoneLower && czLower !== '') {
+    // Same zone: restore original slot (clamp to actual end if others filled it)
+    const endPos = nextQueueInZone(currentZone, driverId);
+    return Math.min(mem.homeQueuePos, endPos);
+  } else {
+    // Different zone: reward with pole position
+    return 1;
+  }
+}
+
 // Build full job-list DataSelector response
 function buildJobListResponse(jobs) {
   // Terminal statuses — jobs in these states are done and must NOT appear in the dispatcher queue
@@ -983,7 +1054,7 @@ const server = http.createServer(async (req, res) => {
         const queueNo   = parseInt(param('QueueNo') || '1') || 1;
         const driver = ZONE_DRIVERS.find(d => String(d.VehicleId) === vehicleId);
         if (driver) {
-          driver.QueueNo = queueNo;
+          driver.zonequeue = queueNo; // fix: was driver.QueueNo (wrong field)
           console.log(`200: POST ${urlPath} [action=[UpdateQueueNo]] -> vehicle ${vehicleId} queue → ${queueNo}`);
         } else {
           console.log(`200: POST ${urlPath} [action=[UpdateQueueNo]] -> vehicle ${vehicleId} not found (no-op)`);
@@ -996,6 +1067,7 @@ const server = http.createServer(async (req, res) => {
         const newStatus = param('ridestatus') || '';
         const returnReason = (param('returnreason') || '').trim();
         const job = jobStore.find(j => j.Id === bookingId);
+        let _newQueueNo = null; // hoisted — available even when (job && newStatus) is falsy
         if (job && newStatus) {
           // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
           // Assigned = driver accepted. Active = trip in progress.
@@ -1030,6 +1102,9 @@ const server = http.createServer(async (req, res) => {
           if (effectiveStatus === 'Offered' && incomingDriverId > 0) {
             job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
             job.offeredAt = Date.now(); // stale-offer watchdog uses this
+            // Save home zone & queue before the driver is dispatched
+            const zdOffer = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId || d.VehicleId === incomingDriverId);
+            if (zdOffer) saveDriverHomeState(incomingDriverId, zdOffer);
           }
           if (effectiveStatus === 'Assigned') {
             const acceptDriverId = parseInt(param('driverid') || '0') || 0;
@@ -1037,16 +1112,29 @@ const server = http.createServer(async (req, res) => {
           }
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
-            const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
+            const _releaseDriverId = job.DriverId;
+            const zd = ZONE_DRIVERS.find(d => d.driverid === _releaseDriverId || d.VehicleId === _releaseDriverId);
             // Away if: driver didn't respond (Unreached), OR driver explicitly rejected/not accepted.
             // Available only if: job was manually cancelled/unassigned by dispatcher (no driver fault).
             const _driverFault = newStatus === 'Unreached' || isExplicitReject;
             const _cancelByDispatcher = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject;
             const newDriverStatus = (_driverFault && !_cancelByDispatcher) ? 'Away' : 'Available';
-            if (zd) { zd.vehiclestatus = newDriverStatus; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
-            if (newDriverStatus === 'Away') setAwayLock(job.DriverId);
-            else clearAwayLock(job.DriverId);
-            console.log(`  [changeriddestatusforoffer/DP] driver ${job.DriverId} → ${newDriverStatus} (newStatus=${newStatus} driverFault=${_driverFault})`);
+            if (zd) {
+              // For Available returns: calculate smart queue position based on zone rules
+              if (newDriverStatus === 'Available') {
+                _newQueueNo = calcRestoredQueue(_releaseDriverId, zd.zonename);
+                zd.zonequeue = _newQueueNo;
+                zd.queueWaitSince = Date.now();
+              }
+              zd.vehiclestatus = newDriverStatus;
+              zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+            }
+            if (newDriverStatus === 'Away') setAwayLock(_releaseDriverId);
+            else {
+              clearAwayLock(_releaseDriverId);
+              clearDriverHomeState(_releaseDriverId); // home state consumed
+            }
+            console.log(`  [changeriddestatusforoffer/DP] driver ${_releaseDriverId} → ${newDriverStatus} q=${_newQueueNo || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault})`);
             // When manually unassigning (driverid=0 sent), clear the job's DriverId so it
             // shows in the Unassigned tab and auto-dispatch can pick it up again.
             const _rawDrv = param('driverid');
@@ -1055,7 +1143,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _newQueueNo });
 
       } else if (action === '[DriverStatusChanged]') {
         // Called via Action() → DataProcessor URL when Firebase vehiclestatus changes.
@@ -1067,6 +1155,8 @@ const server = http.createServer(async (req, res) => {
         const drivername    = (param('drivername') || '').toString().trim();
         const lat           = (param('lat') || '').toString().trim();
         const lng           = (param('lng') || '').toString().trim();
+        const zonename      = (param('zonename') || '').toString().trim();
+        const zonequeue     = parseInt(param('zonequeue') || '0') || 0;
         const TERM = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
         // Match jobs by DriverId, VehicleId, OR VehicleNo so numeric/string IDs and
         // vehicle numbers (e.g. "1212" vs "T201") all resolve correctly.
@@ -1075,7 +1165,13 @@ const server = http.createServer(async (req, res) => {
           return String(j.DriverId) === driverId || String(j.VehicleId) === driverId ||
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
+        let _dscQueueNo = null; // new queue number to return to client for Firebase write
         if (driverId && newStatus) {
+          // Sync zone data into ZONE_DRIVERS if provided by client
+          const zdSync = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+          if (zdSync && zonename) zdSync.zonename = zonename;
+          if (zdSync && zonequeue) zdSync.zonequeue = zonequeue;
+
           // ── Away-lock logic ──────────────────────────────────────────────────
           // Step 1: If locked driver sends Away heartbeat, record acknowledgement.
           //         This proves the driver's phone switched to Away mode.
@@ -1099,6 +1195,8 @@ const server = http.createServer(async (req, res) => {
           // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
+            // Save home zone/queue before driver heads off to a job
+            if (zdSync) saveDriverHomeState(driverId, zdSync);
           }
           const driverJobs = jobStore.filter(matchesDriver);
           // Hail / street pickup: driver went Busy with no pre-booked live job
@@ -1161,10 +1259,23 @@ const server = http.createServer(async (req, res) => {
               // Assigned/Picking/Offered/Unreached/Pending: driver going Available with no active trip — leave as-is
             }
           });
+          // When driver goes Available: calculate their new queue position and update ZONE_DRIVERS
+          if (newStatus === 'Available') {
+            const zdAvail = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+            if (zdAvail) {
+              const currentZone = zdAvail.zonename || zonename || '';
+              _dscQueueNo = calcRestoredQueue(driverId, currentZone);
+              zdAvail.zonequeue = _dscQueueNo;
+              zdAvail.vehiclestatus = 'Available';
+              zdAvail.queueWaitSince = Date.now();
+              clearDriverHomeState(driverId); // home state consumed
+              console.log(`  [DriverStatusChanged/DP] driver ${driverId} Available → zone="${currentZone}" newQueue=${_dscQueueNo}`);
+            }
+          }
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null });
 
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
@@ -1676,6 +1787,7 @@ const server = http.createServer(async (req, res) => {
         const newStatus = param('ridestatus') || '';
         const returnReason = (param('returnreason') || '').trim();
         const job = jobStore.find(j => j.Id === bookingId);
+        let _newQueueNo2 = null; // hoisted — available even when (job && newStatus) is falsy
         if (job && newStatus) {
           // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
           const currentStatus2 = job.BookingStatus || '';
@@ -1706,6 +1818,9 @@ const server = http.createServer(async (req, res) => {
           if (effectiveStatus2 === 'Offered' && incomingDriverId2 > 0) {
             job.DriverId = incomingDriverId2; job.VehicleId = incomingDriverId2;
             job.offeredAt = Date.now(); // stale-offer watchdog uses this
+            // Save home zone & queue before the driver is dispatched
+            const zdOffer2 = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId2 || d.VehicleId === incomingDriverId2);
+            if (zdOffer2) saveDriverHomeState(incomingDriverId2, zdOffer2);
           }
           // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
           if (effectiveStatus2 === 'Assigned') {
@@ -1714,17 +1829,29 @@ const server = http.createServer(async (req, res) => {
           }
           // Only release (reset) the driver when the job is being cancelled/unassigned.
           // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
-          const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
-          if (releaseStatuses.has(newStatus)) {
-            const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
+          const releaseStatuses2 = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
+          if (releaseStatuses2.has(newStatus)) {
+            const _releaseDriverId2 = job.DriverId;
+            const zd = ZONE_DRIVERS.find(d => d.driverid === _releaseDriverId2 || d.VehicleId === _releaseDriverId2);
             // Away if driver didn't respond or explicitly rejected. Available only if dispatcher cancelled.
             const _driverFault2 = newStatus === 'Unreached' || isExplicitReject2;
             const _cancelByDispatcher2 = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject2;
             const newDriverStatus2 = (_driverFault2 && !_cancelByDispatcher2) ? 'Away' : 'Available';
-            if (zd) { zd.vehiclestatus = newDriverStatus2; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
-            if (newDriverStatus2 === 'Away') setAwayLock(job.DriverId);
-            else clearAwayLock(job.DriverId);
-            console.log(`  [changeriddestatusforoffer/DS] driver ${job.DriverId} → ${newDriverStatus2} (newStatus=${newStatus} driverFault=${_driverFault2})`);
+            if (zd) {
+              if (newDriverStatus2 === 'Available') {
+                _newQueueNo2 = calcRestoredQueue(_releaseDriverId2, zd.zonename);
+                zd.zonequeue = _newQueueNo2;
+                zd.queueWaitSince = Date.now();
+              }
+              zd.vehiclestatus = newDriverStatus2;
+              zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+            }
+            if (newDriverStatus2 === 'Away') setAwayLock(_releaseDriverId2);
+            else {
+              clearAwayLock(_releaseDriverId2);
+              clearDriverHomeState(_releaseDriverId2);
+            }
+            console.log(`  [changeriddestatusforoffer/DS] driver ${_releaseDriverId2} → ${newDriverStatus2} q=${_newQueueNo2 || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault2})`);
             // When manually unassigning (driverid=0 sent), clear the job's DriverId.
             const _rawDrv2 = param('driverid');
             if (_rawDrv2 !== undefined && _rawDrv2 !== null && parseInt(_rawDrv2) === 0) { job.DriverId = 0; job.VehicleId = 0; }
@@ -1732,7 +1859,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _newQueueNo2 });
 
       } else if (action === '[DriverStatusChanged]') {
         // Auto-transition job status when a driver's Firebase vehiclestatus changes.
@@ -1743,13 +1870,21 @@ const server = http.createServer(async (req, res) => {
         const drivername    = (param('drivername') || '').trim();
         const lat           = (param('lat') || '').trim();
         const lng           = (param('lng') || '').trim();
+        const zonenameDS    = (param('zonename') || '').trim();
+        const zonequeueDS   = parseInt(param('zonequeue') || '0') || 0;
         const TERMINAL = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
         function matchesDriverDS(j) {
           const vid = vehiclenumber;
           return String(j.DriverId) === driverId || String(j.VehicleId) === driverId ||
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
+        let _dssQueueNo = null;
         if (driverId && newStatus) {
+          // Sync zone data from client into ZONE_DRIVERS
+          const zdSyncDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+          if (zdSyncDS && zonenameDS) zdSyncDS.zonename = zonenameDS;
+          if (zdSyncDS && zonequeueDS) zdSyncDS.zonequeue = zonequeueDS;
+
           // ── Away-lock logic ──────────────────────────────────────────────────
           // Step 1: Away heartbeat from driver app → record acknowledgement.
           if (newStatus === 'Away' && isAwayLocked(driverId)) {
@@ -1772,6 +1907,7 @@ const server = http.createServer(async (req, res) => {
           // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
+            if (zdSyncDS) saveDriverHomeState(driverId, zdSyncDS);
           }
           const driverJobs = jobStore.filter(matchesDriverDS);
           // Hail / street pickup: driver went Busy with no pre-booked live job
@@ -1826,10 +1962,23 @@ const server = http.createServer(async (req, res) => {
               // Assigned/Picking/Offered/Unreached/Pending: driver going Available — leave job as-is
             }
           });
+          // When driver goes Available: calculate their new queue position
+          if (newStatus === 'Available') {
+            const zdAvailDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+            if (zdAvailDS) {
+              const currentZoneDS = zdAvailDS.zonename || zonenameDS || '';
+              _dssQueueNo = calcRestoredQueue(driverId, currentZoneDS);
+              zdAvailDS.zonequeue = _dssQueueNo;
+              zdAvailDS.vehiclestatus = 'Available';
+              zdAvailDS.queueWaitSince = Date.now();
+              clearDriverHomeState(driverId);
+              console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available → zone="${currentZoneDS}" newQueue=${_dssQueueNo}`);
+            }
+          }
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null });
 
       } else if (action === '[UnAssignedJobsv3]') {
         const resp = buildJobListResponse(jobStore);

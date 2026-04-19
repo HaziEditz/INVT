@@ -6757,6 +6757,23 @@ $(document).ready(function() {
                                   var sc = angular.element(document.getElementById('myangular')).scope();
                                   sc.getjobs();
                                   if (typeof sc.AssignedJobs === 'function') { sc.AssignedJobs(); }
+                                  // Write restored queue position to Firebase if server returned one
+                                  try {
+                                      var _rCvt = (response && response.d) ? JSON.parse(response.d) : null;
+                                      if (_rCvt && _rCvt.newQueueNo && driverid && String(driverid) !== '0' && SomeSession2) {
+                                          var _drCvt = sc && sc.driverdatarealx && sc.driverdatarealx.find(function(d) {
+                                              return String(d.driverid) === String(driverid) || String(d.VehicleId) === String(driverid);
+                                          });
+                                          var _vidCvt = _drCvt ? String(_drCvt.VehicleId || _drCvt.vehiclenumber || driverid) : String(driverid);
+                                          var _fbCvt = { zonequeue: _rCvt.newQueueNo };
+                                          if (_rCvt.queueWaitSince) _fbCvt.queueWaitSince = _rCvt.queueWaitSince;
+                                          firebase.database().ref("online/" + SomeSession2 + "/" + _vidCvt).update(_fbCvt);
+                                          if (String(driverid) !== _vidCvt) {
+                                              firebase.database().ref("jobs/" + SomeSession2 + "/" + _vidCvt + "/" + String(driverid)).update(_fbCvt);
+                                          }
+                                          if (_drCvt) _drCvt.zonequeue = _rCvt.newQueueNo;
+                                      }
+                                  } catch(e) {}
                                   // Fix #106: Acknowledge the away-lock immediately so the driver can
                                   // tap Available to come back without being permanently blocked.
                                   // [changeriddestatusforoffer] may have just called setAwayLock on the
@@ -8028,6 +8045,8 @@ $(document).ready(function() {
                             // Capture closure vars so the async callback can use them
                             var _capDatacom = datacom;
                             var _capIncs    = incs;
+                            var _capVid     = String(datacom.VehicleId || datacom.vehiclenumber || _drvId);
+                            var _capDid     = String(datacom.driverid || _drvId);
                             jQuery.ajax({
                                 type: 'POST',
                                 url: 'DataManager/Data.aspx/DataSelector',
@@ -8037,7 +8056,9 @@ $(document).ready(function() {
                                     { name:'vehiclenumber', Value: String(datacom.vehiclenumber || datacom.VehicleNo || '') },
                                     { name:'drivername',    Value: String(datacom.drivername    || datacom.VehicleDetails || '') },
                                     { name:'lat',           Value: String(datacom.lat || '') },
-                                    { name:'lng',           Value: String(datacom.lng || '') }
+                                    { name:'lng',           Value: String(datacom.lng || '') },
+                                    { name:'zonename',      Value: String(datacom.zonename  || '') },
+                                    { name:'zonequeue',     Value: String(datacom.zonequeue || '0') }
                                 ], action: '[DriverStatusChanged]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
                                 success: function(_resp) {
@@ -8054,6 +8075,23 @@ $(document).ready(function() {
                                                 if (!_scAL.$$phase) _scAL.$digest();
                                             }
                                             return;
+                                        }
+                                        // When server returns a new queue number (driver came back Available),
+                                        // write it to Firebase so the driver app and other nodes see it.
+                                        if (_r && _r.newQueueNo && _newSt === 'Available' && SomeSession2) {
+                                            var _fbQueue = { zonequeue: _r.newQueueNo };
+                                            if (_r.queueWaitSince) _fbQueue.queueWaitSince = _r.queueWaitSince;
+                                            firebase.database().ref("online/" + SomeSession2 + "/" + _capVid).update(_fbQueue);
+                                            if (_capDid && _capDid !== _capVid) {
+                                                firebase.database().ref("jobs/" + SomeSession2 + "/" + _capVid + "/" + _capDid).update(_fbQueue);
+                                            }
+                                            // Also update local driver data so the dispatch board reflects it
+                                            var _scQ = angular.element(document.getElementById('myangular')).scope();
+                                            if (_scQ && _scQ.driverdatarealx && _capIncs !== undefined) {
+                                                if (_scQ.driverdatarealx[_capIncs]) {
+                                                    _scQ.driverdatarealx[_capIncs].zonequeue = _r.newQueueNo;
+                                                }
+                                            }
                                         }
                                     } catch(e) {}
                                     // Server approved — now commit the driver data to the screen.
