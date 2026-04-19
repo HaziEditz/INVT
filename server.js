@@ -190,6 +190,23 @@ const ZONE_DRIVERS = [];
 const AWAY_LOCKED = {};
 const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 
+// Track jobs the dispatcher has deliberately recalled so [DriverStatusChanged] never
+// mis-classifies the resulting driver Available signal as a driver-initiated cancel.
+const DISPATCHER_RECALLED = {}; // jobId → expiry timestamp
+const DISPATCHER_RECALLED_TTL_MS = 10 * 1000; // 10 s window covers any network race
+function markDispatcherRecalled(jobId) {
+  DISPATCHER_RECALLED[String(jobId)] = Date.now() + DISPATCHER_RECALLED_TTL_MS;
+}
+function isDispatcherRecalled(jobId) {
+  const exp = DISPATCHER_RECALLED[String(jobId)];
+  if (!exp) return false;
+  if (Date.now() > exp) { delete DISPATCHER_RECALLED[String(jobId)]; return false; }
+  return true;
+}
+function clearDispatcherRecalled(jobId) {
+  delete DISPATCHER_RECALLED[String(jobId)];
+}
+
 function setAwayLock(driverId) {
   if (!driverId || String(driverId) === '0') return;
   AWAY_LOCKED[String(driverId)] = { ts: Date.now(), ackAway: false };
@@ -1096,6 +1113,7 @@ const server = http.createServer(async (req, res) => {
           // This is a driver-initiated cancel, not a pre-acceptance rejection.
           // Move to closed jobs as Cancelled and notify dispatcher.
           const isDriverPostAcceptCancel = isExplicitReject && !hasNoDriver &&
+            !rr.includes('manually unassigned') &&
             (currentStatus === 'Assigned' || currentStatus === 'Picking') &&
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
           if (isDriverPostAcceptCancel) {
@@ -1123,6 +1141,9 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
             return;
           }
+          // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
+          // won't misread the driver's resulting Available heartbeat as a driver-initiated cancel.
+          if (rr.includes('manually unassigned') && bookingId > 0) markDispatcherRecalled(bookingId);
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
           // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
           const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
@@ -1288,17 +1309,26 @@ const server = http.createServer(async (req, res) => {
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
-                // Driver went Available while still Assigned — driver cancelled after accepting.
-                // Move to closed jobs so the dispatcher can see it.
-                job.BookingStatus = 'Cancelled';
-                job.CancelledBy   = 'Driver';
-                job.returnReason  = 'Driver cancelled after accepting';
-                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-                const idx = jobStore.indexOf(job);
-                if (idx !== -1) jobStore.splice(idx, 1);
-                closedJobStore.push(job);
-                _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
-                console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
+                if (isDispatcherRecalled(job.Id)) {
+                  // Dispatcher-initiated recall: driver's Available is a side-effect of FnCancelRide.
+                  // [changeriddestatusforoffer] will set job to Pending; just leave it or set Pending here.
+                  job.BookingStatus = 'Pending';
+                  job.DriverId = 0; job.VehicleId = 0;
+                  job.returnReason = 'Manually unassigned';
+                  clearDispatcherRecalled(job.Id);
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
+                } else {
+                  // Driver went Available while still Assigned — driver cancelled after accepting.
+                  job.BookingStatus = 'Cancelled';
+                  job.CancelledBy   = 'Driver';
+                  job.returnReason  = 'Driver cancelled after accepting';
+                  job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                  const idx = jobStore.indexOf(job);
+                  if (idx !== -1) jobStore.splice(idx, 1);
+                  closedJobStore.push(job);
+                  _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
+                }
               }
               // Offered/Unreached/Pending: driver going Available — leave as-is
             }
@@ -1855,6 +1885,7 @@ const server = http.createServer(async (req, res) => {
           }
           // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
           const isDriverPostAcceptCancel2 = isExplicitReject2 && !hasNoDriver2 &&
+            !rr2.includes('manually unassigned') &&
             (currentStatus2 === 'Assigned' || currentStatus2 === 'Picking') &&
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
           if (isDriverPostAcceptCancel2) {
@@ -1882,6 +1913,9 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _dcQueueNo2 });
             return;
           }
+          // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
+          // won't misread the driver's resulting Available heartbeat as a driver-initiated cancel.
+          if (rr2.includes('manually unassigned') && bookingId > 0) markDispatcherRecalled(bookingId);
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
           // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
           const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
@@ -2033,16 +2067,24 @@ const server = http.createServer(async (req, res) => {
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
-                // Driver cancelled after accepting — move to closed jobs
-                job.BookingStatus = 'Cancelled';
-                job.CancelledBy   = 'Driver';
-                job.returnReason  = 'Driver cancelled after accepting';
-                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-                const idxDS = jobStore.indexOf(job);
-                if (idxDS !== -1) jobStore.splice(idxDS, 1);
-                closedJobStore.push(job);
-                _dssDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
-                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
+                if (isDispatcherRecalled(job.Id)) {
+                  job.BookingStatus = 'Pending';
+                  job.DriverId = 0; job.VehicleId = 0;
+                  job.returnReason = 'Manually unassigned';
+                  clearDispatcherRecalled(job.Id);
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
+                } else {
+                  // Driver cancelled after accepting — move to closed jobs
+                  job.BookingStatus = 'Cancelled';
+                  job.CancelledBy   = 'Driver';
+                  job.returnReason  = 'Driver cancelled after accepting';
+                  job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                  const idxDS = jobStore.indexOf(job);
+                  if (idxDS !== -1) jobStore.splice(idxDS, 1);
+                  closedJobStore.push(job);
+                  _dssDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
+                }
               }
               // Offered/Unreached/Pending: driver going Available — leave job as-is
             }
