@@ -359,6 +359,8 @@ Driver app should:
 
 121. **[MEDIUM] Unguarded `.scope().AssignedJobs()` call at line ~9206** — In the "reassign driver" branch the call to `.scope().AssignedJobs()` had no null guard. In production mode AngularJS disables `.scope()`, so this would throw and break the entire reassign flow. Fixed (Default.aspx): added null check before calling AssignedJobs.
 
+123. **[HIGH — server crash] `param().trim()` crashed when numeric values arrived** — `[DriverStatusChanged]` and several other handlers called `(param('lat') || '').trim()` directly. When the caller sends `lat` as a JSON number (e.g. `-46.41` not `"-46.41"`), the `||` resolves to the number and `.trim()` throws `TypeError: (param(...) || "").trim is not a function`, crashing the Node.js process. Any driver app or script sending numeric coordinates would have taken down the server. Found during load test. Fixed (server.js): bulk-replaced all `(param(...) || '').trim()` patterns to `(param(...) || '').toString().trim()` using a Node.js one-liner — 23 sites fixed across all request handlers.
+
 122. **[MEDIUM] Server-side in-memory maps never cleaned up** — `AWAY_LOCKED`, `DISPATCHER_RECALLED`, and `DRIVER_ZONE_MEMORY` all accumulated entries indefinitely. Drivers who disconnected without a clean status transition left stale entries forever, slowly growing memory usage. Fixed (server.js): added a `setInterval` cleanup every 10 minutes that removes AWAY_LOCKED entries older than 5 min, DISPATCHER_RECALLED entries past their expiry timestamp, and DRIVER_ZONE_MEMORY entries older than 8 hours (shift boundary).
 
 ## Known Limitations (Not Fixable Without Live Credentials)

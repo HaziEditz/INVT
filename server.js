@@ -179,6 +179,11 @@ function saveJobStore() {
 // This array is kept as an empty structure so dependent code paths don't crash.
 const ZONE_DRIVERS = [];
 
+// Load-test tracking sets — track injected test driver/job IDs so /dev/loadtest/clear
+// can remove exactly them without affecting real data.
+const LT_DRIVER_IDS = new Set();
+const LT_JOB_IDS    = new Set();
+
 // Drivers locked to Away because they didn't accept / rejected a job.
 // Format: { "driverId": { ts: <ms>, ackAway: <bool> } }
 //
@@ -551,6 +556,98 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     res.end();
+    return;
+  }
+
+  // ── Dev / Load-test endpoints ────────────────────────────────────────────
+  // POST /dev/loadtest/seed?drivers=N&jobs=M
+  //   Injects N simulated Available drivers into ZONE_DRIVERS and M Pending
+  //   jobs into jobStore so the load test script can exercise auto-dispatch,
+  //   polling, and status-change endpoints without needing a real driver app.
+  // POST /dev/loadtest/clear
+  //   Removes all injected test data (drivers whose id starts with 9000,
+  //   jobs whose Id is in the LT_JOB_IDS set).
+  if (urlPath === '/dev/loadtest/seed' && req.method === 'POST') {
+    const qs   = new URL('http://x' + req.url).searchParams;
+    const nD   = Math.min(parseInt(qs.get('drivers') || '10'), 100);
+    const nJ   = Math.min(parseInt(qs.get('jobs')    || '20'), 200);
+    const zones = ['Central','North','South','East','West'];
+    LT_DRIVER_IDS.clear();
+    LT_JOB_IDS.clear();
+    // Inject fake drivers
+    for (let i = 0; i < nD; i++) {
+      const did = 9000 + i;
+      LT_DRIVER_IDS.add(String(did));
+      // Remove any stale entry first
+      const ei = ZONE_DRIVERS.findIndex(d => String(d.driverid) === String(did));
+      if (ei !== -1) ZONE_DRIVERS.splice(ei, 1);
+      ZONE_DRIVERS.push({
+        driverid:      did,
+        VehicleId:     did,
+        drivername:    `Test Driver ${i + 1}`,
+        vehiclestatus: 'Available',
+        zonename:      zones[i % zones.length],
+        zoneid:        String(i % zones.length + 1),
+        zonequeue:     i + 1,
+        queueWaitSince: Date.now(),
+        lat:           -46.40 + (Math.random() * 0.1),
+        lng:           168.35 + (Math.random() * 0.1),
+        _isLoadTest:   true,
+      });
+    }
+    // Inject fake jobs
+    const pickAddrs  = ['1 Dee St','2 Tay St','3 Kelvin St','4 Esk St','5 Don St'];
+    const dropAddrs  = ['Invercargill Airport','ILT Stadium','Southland Hospital','Queens Park','The Warehouse'];
+    const names      = ['Alice T','Bob M','Carol W','Dave R','Eve S'];
+    for (let j = 0; j < nJ; j++) {
+      const jid = newJobId();
+      LT_JOB_IDS.add(String(jid));
+      jobStore.push({
+        Id: jid, BookingId: jid,
+        BookingDateTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        PickAddress:  pickAddrs[j % pickAddrs.length] + ', Invercargill',
+        DropAddress:  dropAddrs[j % dropAddrs.length],
+        Name:         names[j % names.length],
+        PhoneNo:      `021 ${900000 + j}`,
+        BookingStatus: 'Pending',
+        DriverId: 0, VehicleId: 0, VehicleNo: '',
+        Passengers: 1, Bags: 0,
+        returnReason: '',
+        _isLoadTest: true,
+      });
+    }
+    console.log(`[loadtest] seeded ${nD} drivers, ${nJ} jobs`);
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({ ok: true, drivers: nD, jobs: nJ,
+      driverIds: [...LT_DRIVER_IDS], jobIds: [...LT_JOB_IDS] }));
+    return;
+  }
+  if (urlPath === '/dev/loadtest/clear' && req.method === 'POST') {
+    let driversRemoved = 0, jobsRemoved = 0;
+    for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+      if (ZONE_DRIVERS[i]._isLoadTest) { ZONE_DRIVERS.splice(i, 1); driversRemoved++; }
+    }
+    for (let i = jobStore.length - 1; i >= 0; i--) {
+      if (jobStore[i]._isLoadTest) { jobStore.splice(i, 1); jobsRemoved++; }
+    }
+    LT_DRIVER_IDS.clear();
+    LT_JOB_IDS.clear();
+    saveJobStore();
+    console.log(`[loadtest] cleared ${driversRemoved} drivers, ${jobsRemoved} jobs`);
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({ ok: true, driversRemoved, jobsRemoved }));
+    return;
+  }
+  if (urlPath === '/dev/loadtest/status' && req.method === 'GET') {
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({
+      totalDrivers:    ZONE_DRIVERS.length,
+      testDrivers:     ZONE_DRIVERS.filter(d => d._isLoadTest).length,
+      totalJobs:       jobStore.length,
+      testJobs:        jobStore.filter(j => j._isLoadTest).length,
+      awayLocked:      Object.keys(AWAY_LOCKED).length,
+      zoneMemory:      Object.keys(DRIVER_ZONE_MEMORY).length,
+    }));
     return;
   }
 
@@ -994,7 +1091,7 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[DriverMessageInsert]') {
         // Incoming message FROM a driver → dispatcher (sent via Firebase, stored here for history)
-        const senderId  = (param('SenderId') || '').trim();
+        const senderId  = (param('SenderId') || '').toString().trim();
         const message   = param('Message') || '';
         const dateTime  = param('DateTime') || '';
         const datePart  = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
@@ -1087,7 +1184,7 @@ const server = http.createServer(async (req, res) => {
         // Called via Action() → DataProcessor URL. Update a job's booking status.
         const bookingId = parseInt(param('bookingid') || '0') || 0;
         const newStatus = param('ridestatus') || '';
-        const returnReason = (param('returnreason') || '').trim();
+        const returnReason = (param('returnreason') || '').toString().trim();
         const job = jobStore.find(j => j.Id === bookingId);
         let _newQueueNo = null; // hoisted — available even when (job && newStatus) is falsy
         if (job && newStatus) {
@@ -1495,7 +1592,7 @@ const server = http.createServer(async (req, res) => {
         arrayD(res, chatList);
 
       } else if (action === '[DispatcherUnReadMessages]') {
-        const driverId = (param('Id') || '').trim();
+        const driverId = (param('Id') || '').toString().trim();
         const unread = messageStore.filter(m => String(m.SenderId) === driverId && !m.IsRead);
         unread.forEach(m => { m.IsRead = true; });
         const mapped = unread.map(m => ({
@@ -1885,7 +1982,7 @@ const server = http.createServer(async (req, res) => {
         // Update a job's booking status (e.g. mark as Unreached after failed dispatch)
         const bookingId = parseInt(param('bookingid') || '0') || 0;
         const newStatus = param('ridestatus') || '';
-        const returnReason = (param('returnreason') || '').trim();
+        const returnReason = (param('returnreason') || '').toString().trim();
         const job = jobStore.find(j => j.Id === bookingId);
         let _newQueueNo2 = null; // hoisted — available even when (job && newStatus) is falsy
         if (job && newStatus) {
@@ -2004,13 +2101,13 @@ const server = http.createServer(async (req, res) => {
       } else if (action === '[DriverStatusChanged]') {
         // Auto-transition job status when a driver's Firebase vehiclestatus changes.
         // Hail: if driver goes Busy with no live job, auto-create a street-pickup entry.
-        const driverId      = (param('driverid') || '').trim();
-        const newStatus     = (param('newstatus') || '').trim();
-        const vehiclenumber = (param('vehiclenumber') || '').trim();
-        const drivername    = (param('drivername') || '').trim();
-        const lat           = (param('lat') || '').trim();
-        const lng           = (param('lng') || '').trim();
-        const zonenameDS    = (param('zonename') || '').trim();
+        const driverId      = (param('driverid') || '').toString().trim();
+        const newStatus     = (param('newstatus') || '').toString().trim();
+        const vehiclenumber = (param('vehiclenumber') || '').toString().trim();
+        const drivername    = (param('drivername') || '').toString().trim();
+        const lat           = (param('lat') || '').toString().trim();
+        const lng           = (param('lng') || '').toString().trim();
+        const zonenameDS    = (param('zonename') || '').toString().trim();
         const zonequeueDS   = parseInt(param('zonequeue') || '0') || 0;
         const TERMINAL = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
         function matchesDriverDS(j) {
@@ -2165,7 +2262,7 @@ const server = http.createServer(async (req, res) => {
         objectD(res, resp);
 
       } else if (action === '[DispatcherConversation]') {
-        const driverId = (param('Id') || '').trim();
+        const driverId = (param('Id') || '').toString().trim();
         const dt1 = [{ PlayerId: '' }];
         const convo = messageStore.filter(m => String(m.SenderId) === driverId || String(m.ReceiverId) === driverId);
         convo.forEach(m => { if (String(m.SenderId) === driverId) m.IsRead = true; });
