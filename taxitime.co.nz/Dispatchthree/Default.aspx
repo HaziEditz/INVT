@@ -6785,28 +6785,34 @@ $(document).ready(function() {
                                           if (typeof sc.ActiveJobsdata  === 'function') sc.ActiveJobsdata();
                                       }
                                   } catch(e) {}
-                                  // Fix #106: Acknowledge the away-lock immediately so the driver can
-                                  // tap Available to come back without being permanently blocked.
-                                  // [changeriddestatusforoffer] may have just called setAwayLock on the
-                                  // server. Sending newstatus=Away here calls acknowledgeAway (no-op if
-                                  // no lock was set), so the very next Available from the driver clears
-                                  // the lock and is processed normally.
+                                  // Fix #106/#108: If driver cancelled after accepting (no-show), server set them Available — sync Firebase.
+                                  // Otherwise send Away-acknowledge so their next Available clears the lock.
                                   if (driverid && String(driverid) !== '0') {
                                       var _drv = sc && sc.driverdatarealx && sc.driverdatarealx.find(function(d) {
                                           return String(d.driverid) === String(driverid) || String(d.VehicleId) === String(driverid);
                                       });
-                                      jQuery.ajax({
-                                          type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
-                                          data: JSON.stringify({ data: [
-                                              { name: 'driverid',      Value: String(driverid) },
-                                              { name: 'newstatus',     Value: 'Away' },
-                                              { name: 'vehiclenumber', Value: _drv ? String(_drv.vehiclenumber || '') : '' },
-                                              { name: 'drivername',    Value: _drv ? String(_drv.drivername   || '') : '' },
-                                              { name: 'lat',           Value: _drv ? String(_drv.lat          || '') : '' },
-                                              { name: 'lng',           Value: _drv ? String(_drv.lng          || '') : '' }
-                                          ], action: '[DriverStatusChanged]' }),
-                                          dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
-                                      });
+                                      var _rCvtParsed = null;
+                                      try { _rCvtParsed = (response && response.d) ? JSON.parse(response.d) : null; } catch(e2) {}
+                                      if (_rCvtParsed && _rCvtParsed.driverCancelled) {
+                                          var _drvVidC = _drv ? String(_drv.VehicleId || _drv.vehiclenumber || driverid) : String(driverid);
+                                          var _fbDcUp = { vehiclestatus: 'Available' };
+                                          if (_rCvtParsed.newQueueNo)     _fbDcUp.zonequeue      = _rCvtParsed.newQueueNo;
+                                          if (_rCvtParsed.queueWaitSince) _fbDcUp.queueWaitSince = _rCvtParsed.queueWaitSince;
+                                          firebase.database().ref('online/' + SomeSession2 + '/' + _drvVidC).update(_fbDcUp);
+                                      } else {
+                                          jQuery.ajax({
+                                              type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                                              data: JSON.stringify({ data: [
+                                                  { name: 'driverid',      Value: String(driverid) },
+                                                  { name: 'newstatus',     Value: 'Away' },
+                                                  { name: 'vehiclenumber', Value: _drv ? String(_drv.vehiclenumber || '') : '' },
+                                                  { name: 'drivername',    Value: _drv ? String(_drv.drivername   || '') : '' },
+                                                  { name: 'lat',           Value: _drv ? String(_drv.lat          || '') : '' },
+                                                  { name: 'lng',           Value: _drv ? String(_drv.lng          || '') : '' }
+                                              ], action: '[DriverStatusChanged]' }),
+                                              dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+                                          });
+                                      }
                                   }
                               }
                           });

@@ -1107,15 +1107,20 @@ const server = http.createServer(async (req, res) => {
             const _dcIdx = jobStore.indexOf(job);
             if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
             closedJobStore.push(job);
-            // Release driver back to Away (driver's fault)
+            // Driver cancelled (e.g. no-show / not at address) — return to Available immediately
             const _dcZd = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId || d.VehicleId === _dcDriverId);
-            if (_dcZd) { _dcZd.vehiclestatus = 'Away'; }
-            setAwayLock(_dcDriverId);
+            let _dcQueueNo = null;
+            if (_dcZd) {
+              _dcQueueNo = calcRestoredQueue(_dcDriverId, _dcZd.zonename || '');
+              _dcZd.vehiclestatus = 'Available';
+              _dcZd.zonequeue     = _dcQueueNo;
+              _dcZd.queueWaitSince = Date.now();
+            }
+            clearAwayLock(_dcDriverId);
             clearDriverHomeState(_dcDriverId);
             saveJobStore();
-            _newQueueNo = null;
-            console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled after accepting)`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId } });
+            console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled after accepting → Available q=${_dcQueueNo})`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
             return;
           }
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
@@ -1861,13 +1866,20 @@ const server = http.createServer(async (req, res) => {
             const _dcIdx2 = jobStore.indexOf(job);
             if (_dcIdx2 !== -1) jobStore.splice(_dcIdx2, 1);
             closedJobStore.push(job);
+            // Driver cancelled (no-show / not at pickup) — return to Available immediately
             const _dcZd2 = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId2 || d.VehicleId === _dcDriverId2);
-            if (_dcZd2) { _dcZd2.vehiclestatus = 'Away'; }
-            setAwayLock(_dcDriverId2);
+            let _dcQueueNo2 = null;
+            if (_dcZd2) {
+              _dcQueueNo2 = calcRestoredQueue(_dcDriverId2, _dcZd2.zonename || '');
+              _dcZd2.vehiclestatus = 'Available';
+              _dcZd2.zonequeue     = _dcQueueNo2;
+              _dcZd2.queueWaitSince = Date.now();
+            }
+            clearAwayLock(_dcDriverId2);
             clearDriverHomeState(_dcDriverId2);
             saveJobStore();
-            console.log(`  [changeriddestatusforoffer/DS] Job #${bookingId} -> Cancelled (driver ${_dcDriverId2} cancelled after accepting)`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId2 } });
+            console.log(`  [changeriddestatusforoffer/DS] Job #${bookingId} -> Cancelled (driver ${_dcDriverId2} cancelled after accepting → Available q=${_dcQueueNo2})`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _dcQueueNo2 });
             return;
           }
           // Unreached (no response timeout) → skip the holding state, land straight on Pending
