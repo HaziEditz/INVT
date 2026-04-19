@@ -157,7 +157,7 @@
         }
         
       },
-   		 "companies": {
+                 "companies": {
            ".read": "auth != null",
           ".write": "auth != null",
       "$companyid": {
@@ -166,7 +166,7 @@
           "$userid": {
           ".validate": "$userid!='null'",
             ".read": "auth != null",
-          	".write": "auth != null"
+                ".write": "auth != null"
           }
         }
       }
@@ -237,6 +237,13 @@
           ".read": "auth != null",
           ".write": "auth != null"
         }
+      }
+    },
+    "jobDetails": {
+      "$bookingId": {
+        ".validate": "$bookingId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     }
   }

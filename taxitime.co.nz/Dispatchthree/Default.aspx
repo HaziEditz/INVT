@@ -9947,7 +9947,6 @@ $(document).ready(function() {
                   
                    
                 $scope.clearsection();  
-                $scope.getjobs();
                 $('#largeModal').modal('hide'); 
                 //if($('#checkitt').is(":checked")){  
                    
