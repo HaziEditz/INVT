@@ -526,7 +526,7 @@ const server = http.createServer(async (req, res) => {
       // Admin
       '[KickDriver]', '[DispatcherKickUsers]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
-      '[CancelJobStatusFromJobList]',
+      '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -1326,6 +1326,35 @@ const server = http.createServer(async (req, res) => {
         ];
         console.log(`200: POST ${urlPath} [action=${action}] -> ${demoApprovals.length} all approvals`);
         arrayD(res, demoApprovals);
+
+      } else if (action === '[QuickSetNoOne]') {
+        // Quick dispatcher action: mark job as "No One" from card dropdown.
+        // Works regardless of current status (Pending/Offered/Assigned/Unreached/No One).
+        // Releases any currently-assigned driver back to Available.
+        const bookingId = parseInt(param('BookingId')) || 0;
+        const job = jobStore.find(j => j.Id === bookingId);
+        if (job) {
+          const preActiveSt = new Set(['Pending','Offered','Assigned','Unreached','No One','Reject','']);
+          if (preActiveSt.has(job.BookingStatus || '')) {
+            const prevDriverId = job.DriverId || 0;
+            job.BookingStatus = 'No One';
+            job.DriverId  = 0;
+            job.VehicleId = 0;
+            if (prevDriverId > 0) {
+              const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
+              if (zd) {
+                zd.vehiclestatus = 'Available';
+                zd.JobphoneNo = '';
+                zd.jobpickup  = '';
+                zd.jobdropoff = '';
+                zd.jobCount   = 0;
+              }
+            }
+            saveJobStore();
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} set to No One`);
+        successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[CancelJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;

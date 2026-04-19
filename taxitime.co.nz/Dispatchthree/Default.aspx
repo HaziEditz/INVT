@@ -819,9 +819,9 @@
                                                             <div class="row nopad col-sm-9  col-md-9 col-xl-9">
                                                               
 
-                                                                <select id="sa{{value.Id}}" class="form-control UnAssignJobsList2" style="width: 160px;">
+                                                                <select id="sa{{value.Id}}" class="form-control UnAssignJobsList2" onchange="quickCardChange(this)" style="width: 160px;">
                                                                     <option value="0"  >Select Driver</option>
-                                                                    <option value="0"  >No One</option>
+                                                                    <option value="0"  data-is-noone="true">No One</option>
                                                                     <option ng-repeat="drivi in driverlistx" value="{{drivi.Id}}">  {{drivi.VehicleNo}} {{"/" +  drivi.VehicleName}}  </option>
                                                                 </select>
 
@@ -2865,8 +2865,8 @@ $(document).ready(function() {
                                                                 </div>
                                                                 
                                                                 <div id="spxa{{value.Id}}" style="position: absolute; right:  0px; top:7px;  z-index:1;">
-                                                                 <select  id="spx{{value.Id}}" class="form-control"      onclick="showwxx()" style="width: 100px; height:30px; font-size:14px;">
-                                                                    <option value="0"  ng-selected="0 == checkvalue('spx' , value.Id,'spxa')" data-zoneq="0"  data-doo="0">No One </option>
+                                                                 <select  id="spx{{value.Id}}" class="form-control"      onclick="showwxx()" onchange="quickCardChange(this)" style="width: 100px; height:30px; font-size:14px;">
+                                                                    <option value="0"  ng-selected="0 == checkvalue('spx' , value.Id,'spxa')" data-zoneq="0"  data-doo="0" data-is-noone="true">No One </option>
                                                                      <option value="0" ng-selected="0 == checkvalue('spx' , value.Id,'0')" data-zoneq="0"  data-doo="0">Select Driver</option>
 
                                                                     <option ng-repeat="drivi in driverdatarealx" ng-show="{{checkofferjob(drivi.driverid)}}" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)"  ng-selected="drivi.driverid ==  checkvalue('spx' , value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}"  data-doo="{{drivi.VehicleId}}"> {{drivi.vehiclenumber}}/{{drivi.vehicletype}}  </option>
@@ -3031,8 +3031,8 @@ $(document).ready(function() {
                                                                 </div>
                                                                 
                                                                 <div id="spxa{{value.Id}}" style="position: absolute; right:  0px;">
-                                                                 <select id="spx{{value.Id}}" class="form-control"      onclick="showwxx()" style="width: 100px; height:30px; font-size:14px;">
-                                                                    <option value="0"  ng-selected="0 == checkvalue('spx' , value.Id,'spxa')" data-zoneq="0"  data-doo="0">No One </option>
+                                                                 <select id="spx{{value.Id}}" class="form-control"      onclick="showwxx()" onchange="quickCardChange(this)" style="width: 100px; height:30px; font-size:14px;">
+                                                                    <option value="0"  ng-selected="0 == checkvalue('spx' , value.Id,'spxa')" data-zoneq="0"  data-doo="0" data-is-noone="true">No One </option>
                                                                      <option value="0" ng-selected="0 == checkvalue('spx' , value.Id,'0')" data-zoneq="0"  data-doo="0" >Select Driver</option>
                                                                       
                                                                     <option ng-repeat="drivia in driverdatarealx  " ng-show="{{checkofferjob(drivia.driverid)}}"  ng-if="drivia.vehiclestatus == 'Available'  && true == checkjobvehile(value.VehicleType, drivia.vehicletype)" ng-selected="drivia.driverid ==  checkvalue('spx' , value.Id,'0')" value="{{drivia.driverid}}" data-zoneq="{{drivia.zonequeue}}"  data-doo="{{drivia.VehicleId}}">  {{drivia.vehiclenumber}}/{{drivia.vehicletype}}  </option>
@@ -3486,9 +3486,9 @@ $(document).ready(function() {
                                                             <div class="row nopad col-sm-9  col-md-9 col-xl-9">
                                                               
 
-                                                                <select id="sax{{value.Id}}" class="form-control UnAssignJobsList2" style="width: 160px;">
+                                                                <select id="sax{{value.Id}}" class="form-control UnAssignJobsList2" onchange="quickCardChange(this)" style="width: 160px;">
                                                                     <option value="0"  >Select Driver</option>
-                                                                    <option value="0"  >No One</option>
+                                                                    <option value="0"  data-is-noone="true">No One</option>
                                                                     <option ng-repeat="drivi in driverlistx" value="{{drivi.Id}}">   {{drivi.VehicleNo}} {{"/" +  drivi.VehicleName}}  </option>
                                                                 </select>
 
@@ -13060,6 +13060,20 @@ $(document).ready(function() {
             } 
             //end deliv
 
+            $scope.quickSetNoOne = function(jobId) {
+                $http({
+                    method: 'POST',
+                    url: 'DataManager/Data.aspx/DataProcessor',
+                    data: { data: [{ name: 'BookingId', Value: jobId }], action: '[QuickSetNoOne]' }
+                }).then(function(resp) {
+                    if (resp.data.d === 'Operation Successfully Performed') {
+                        toastr['success']('Set to No One', 'Done');
+                        $scope.getjobs();
+                        $scope.AssignedJobs();
+                    }
+                }, function(err) { console.log('[quickSetNoOne] error', err); });
+            };
+
             $scope.AssignPendingJobFromJobList2 = function(BookingId, VehicleId ,driverId, u_id , types) {
                
                
@@ -15177,6 +15191,47 @@ $(document).ready(function() {
 
         //setTimeout(function(){ refreshjob = 0 ; }, 15000);
     
+    }
+
+    function quickCardChange(selectEl) {
+        var selectedOption = selectEl.options[selectEl.selectedIndex];
+        var isNoOne = selectedOption.getAttribute('data-is-noone') === 'true';
+        var val = parseInt(selectEl.value);
+        var selectId = selectEl.id;
+
+        var prefix = '', jobId = 0;
+        if (selectId.indexOf('spx') === 0)      { prefix = 'spx'; jobId = parseInt(selectId.slice(3)); }
+        else if (selectId.indexOf('sax') === 0) { prefix = 'sax'; jobId = parseInt(selectId.slice(3)); }
+        else if (selectId.indexOf('sa')  === 0) { prefix = 'sa';  jobId = parseInt(selectId.slice(2)); }
+        else return;
+        if (!jobId || isNaN(jobId)) return;
+
+        var scope = angular.element(document.querySelector('[ng-controller]')).scope();
+        if (!scope) return;
+
+        scope.$apply(function() {
+            if (isNoOne) {
+                scope.quickSetNoOne(jobId);
+            } else if (val > 0) {
+                if (prefix === 'spx') {
+                    var lists = [scope.unassignedjob_list || [], scope.oferunassignedjob_list || []];
+                    var job = null;
+                    for (var i = 0; i < lists.length && !job; i++) {
+                        for (var j = 0; j < lists[i].length; j++) {
+                            if (lists[i][j].Id === jobId) { job = lists[i][j]; break; }
+                        }
+                    }
+                    if (job) { scope.AssignPendingJobFromJobList(job.Id, job.VehicleId, job.DriverId, job.U_id, job.BookingStatus, 'spx'); }
+                } else {
+                    var al = scope.assignedjob_list || [];
+                    var aj = null;
+                    for (var k = 0; k < al.length; k++) {
+                        if (al[k].Id === jobId) { aj = al[k]; break; }
+                    }
+                    if (aj) { scope.AssignPendingJobFromJobList2(aj.Id, aj.VehicleId, aj.DriverId, aj.U_id, prefix); }
+                }
+            }
+        });
     }
    
      
