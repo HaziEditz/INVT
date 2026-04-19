@@ -5575,21 +5575,29 @@ $(document).ready(function() {
         }
     }
     // Sends a visible notification to the driver app explaining why they are Away.
-    // Written to /notification/ (pop-up alert) and /chat/ (in-app message) so the
-    // driver sees it regardless of which screen they are on when Away is set.
+    // Mirrors the FnNewMessage format exactly so the driver app's existing message
+    // handler fires:
+    //   /chat/{id}         → { content: 'You have New Message' }  (type flag)
+    //   /notification/{id} → { content: <actual message text> }   (what driver reads)
     // reason: 'reject' | 'timeout'
     function FnNotifyDriverAway(DriverId, reason) {
         if (!DriverId) return;
         var msg = reason === 'reject'
             ? 'You are now Away — you rejected the job. Tap Available when ready to accept jobs.'
             : 'You are now Away — job not accepted in time. Tap Available when ready to accept jobs.';
-        var postData = {
-            bookingid: 'AWAY_NOTICE,,Away Notice,,' + (reason === 'reject' ? 'Rejected' : 'No Response'),
+        var now = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
+        var bookingidStr = 'Taxi Time,' + msg + ',' + now + ',0,Dispatcher';
+        var updates = {};
+        // /chat/ uses the type flag so the driver app's message handler fires
+        updates['/chat/' + DriverId] = {
+            bookingid: bookingidStr,
+            content: 'You have New Message'
+        };
+        // /notification/ carries the actual text the driver reads
+        updates['/notification/' + DriverId] = {
+            bookingid: bookingidStr,
             content: msg
         };
-        var updates = {};
-        updates['/notification/' + DriverId] = postData;
-        updates['/chat/' + DriverId] = postData;
         firebase.database().ref().update(updates).catch(function(e) {
             console.warn('[FnNotifyDriverAway] Firebase write failed:', e);
         });
