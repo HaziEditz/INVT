@@ -13674,7 +13674,24 @@ $(document).ready(function() {
 
                         FnKickDriver(_suspDriverId, _suspVehicleId, "Suspended");
                         toastr["success"]('Driver suspended until ' + new Date(_suspUntil).toLocaleString('en-NZ') + '.', 'Suspended!');
+                        // Remove driver from Firebase online presence
                         try { firebase.database().ref("online/" + SomeSession2 + "/" + _suspVehicleId).remove(); } catch(e) {}
+                        // Write suspension record to Firebase so the driver app can detect and block login
+                        // Path: suspended/{companyId}/{vehicleId}
+                        // The app should check this node on launch and block access if type==='suspended' and suspendedUntil is in the future
+                        try {
+                            var _fbSuspUntil = new Date(_suspUntil).toISOString();
+                            var _fbSuspMsg   = 'Your account has been suspended until ' +
+                                new Date(_suspUntil).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) +
+                                '. Please contact your dispatcher.';
+                            firebase.database().ref('suspended/' + SomeSession2 + '/' + _suspVehicleId).set({
+                                type:           'suspended',
+                                message:        _fbSuspMsg,
+                                suspendedUntil: _fbSuspUntil,
+                                suspendedBy:    (typeof TT_Name !== 'undefined' ? TT_Name : 'Dispatcher'),
+                                timestamp:      Date.now()
+                            });
+                        } catch(e) {}
                         _removeDriverLocally(String(id || _suspVehicleId));
                         $scope.getSuspendedDrivers();
                     }
@@ -13710,6 +13727,8 @@ $(document).ready(function() {
                             { name: 'DriverId',  Value: String(driver.driverId  || '') },
                             { name: 'VehicleId', Value: String(driver.vehicleId || '') }
                         ], '[UnsuspendDriver]');
+                        // Clear the Firebase suspension record so the driver app allows login again
+                        try { firebase.database().ref('suspended/' + SomeSession2 + '/' + (driver.vehicleId || driver.driverId)).remove(); } catch(e) {}
                         toastr['success']((driver.drivername || driver.vehiclenumber) + ' restored to Away.', 'Restored!');
                         $scope.getSuspendedDrivers();
                     }
@@ -13745,11 +13764,22 @@ $(document).ready(function() {
                     }
                 }).then(function(result) {
                     if (result.value) {
+                        var _updIso = new Date(result.value).toISOString();
                         Action([
                             { name: 'DriverId',       Value: String(driver.driverId  || '') },
                             { name: 'VehicleId',      Value: String(driver.vehicleId || '') },
-                            { name: 'SuspendedUntil', Value: new Date(result.value).toISOString() }
+                            { name: 'SuspendedUntil', Value: _updIso }
                         ], '[UpdateSuspensionTime]');
+                        // Update the Firebase suspension record so the driver app gets the new end time
+                        try {
+                            firebase.database().ref('suspended/' + SomeSession2 + '/' + (driver.vehicleId || driver.driverId)).update({
+                                suspendedUntil: _updIso,
+                                message: 'Your account has been suspended until ' +
+                                    new Date(result.value).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) +
+                                    '. Please contact your dispatcher.',
+                                timestamp: Date.now()
+                            });
+                        } catch(e) {}
                         toastr['success']('Suspension updated until ' + new Date(result.value).toLocaleString('en-NZ') + '.', 'Updated!');
                         $scope.getSuspendedDrivers();
                     }

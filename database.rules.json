@@ -245,6 +245,16 @@
         ".read": "auth != null",
         ".write": "auth != null"
       }
+    },
+    "suspended": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$vehicleId": {
+          ".validate": "$vehicleId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
     }
   }
 }
