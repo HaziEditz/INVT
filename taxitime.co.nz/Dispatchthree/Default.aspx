@@ -1938,6 +1938,9 @@
                             <button class="tt-tab-btn" data-panel="ttGroup">
                                 <i class="fa fa-users"></i> Group
                             </button>
+                            <button class="tt-tab-btn" data-panel="ttDriverChat" onclick="populateDriverChatDropdowns()">
+                                <i class="fa fa-exchange"></i> Driver
+                            </button>
                         </div>
 
                         <!-- Direct chat -->
@@ -2015,6 +2018,32 @@
                                 <textarea id="TxtGroupMsg" placeholder="Type your group message…"></textarea>
                                 <button id="btnGroupMessage" class="tt-send-btn">
                                     <i class="fa fa-paper-plane"></i> Send to Group
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Driver to Driver relay -->
+                        <div class="tt-tab-panel" id="ttDriverChat">
+                            <div class="tt-group-panel">
+                                <h4><i class="fa fa-exchange"></i> Driver to Driver</h4>
+                                <p>Send a message from one driver to another. Both drivers will see it in their chat.</p>
+                                <div class="tt-group-filters">
+                                    <div class="tt-filter-item">
+                                        <label>From Driver</label>
+                                        <select id="ddlD2DFrom">
+                                            <option value="">Select sender…</option>
+                                        </select>
+                                    </div>
+                                    <div class="tt-filter-item">
+                                        <label>To Driver</label>
+                                        <select id="ddlD2DTo">
+                                            <option value="">Select recipient…</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <textarea id="TxtD2DMsg" placeholder="Type the message…"></textarea>
+                                <button id="btnD2DMessage" class="tt-send-btn" onclick="DriverToDriverMessage()">
+                                    <i class="fa fa-paper-plane"></i> Send Driver to Driver
                                 </button>
                             </div>
                         </div>

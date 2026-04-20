@@ -1133,14 +1133,21 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[MessageInsert]') {
         const receiverId = (param('RecieverId') || param('ReceiverId') || '').trim();
+        const senderId   = (param('SenderId') || 'Dispatcher').toString().trim();
         const message    = param('Message') || '';
         const dateTime   = param('DateTime') || '';
         const datePart   = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
         const timePart   = dateTime.substring(11) || '';
         if (message.trim() && receiverId) {
-          const msg = { Id: nextMsgId++, SenderId: 'Dispatcher', ReceiverId: receiverId, SenderName: 'Dispatcher', Message: message, Date: datePart, Time: timePart, IsRead: true };
+          // Resolve sender name from ZONE_DRIVERS if it's a driver ID (not 'Dispatcher')
+          let senderName = 'Dispatcher';
+          if (senderId && senderId !== 'Dispatcher') {
+            const zdSend = ZONE_DRIVERS.find(d => String(d.driverid) === senderId || String(d.VehicleId) === senderId);
+            senderName = (zdSend && zdSend.drivername) || ('Driver ' + senderId);
+          }
+          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: receiverId, SenderName: senderName, Message: message, Date: datePart, Time: timePart, IsRead: true };
           messageStore.push(msg);
-          console.log(`200: POST ${urlPath} [action=${action}] -> message saved to driver #${receiverId}`);
+          console.log(`200: POST ${urlPath} [action=${action}] -> message from ${senderName} to driver #${receiverId}`);
         }
         successD(res, 'Message Saved');
 

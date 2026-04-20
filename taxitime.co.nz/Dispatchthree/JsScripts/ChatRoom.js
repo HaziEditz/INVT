@@ -26,7 +26,8 @@ $(function () {
         $(this).addClass('active');
         $('.tt-tab-panel').removeClass('active');
         $('#' + target).addClass('active');
-        if (target === 'ttDirect') GetDetails();
+        if (target === 'ttDirect')      GetDetails();
+        if (target === 'ttDriverChat')  populateDriverChatDropdowns();
     });
 
     // Message send
@@ -525,6 +526,77 @@ function _showDriverMessage(driverId, driverName, text) {
     ], "[DriverMessageInsert]");
 
     GetDetails();
+}
+
+// ── Driver to Driver relay ────────────────────────────────────────────────────
+function populateDriverChatDropdowns() {
+    var live = _getLiveDrivers();
+    var $from = $('#ddlD2DFrom').empty().append('<option value="">Select sender…</option>');
+    var $to   = $('#ddlD2DTo').empty().append('<option value="">Select recipient…</option>');
+    live.forEach(function (d) {
+        var fullName = ((d.UserFName || '') + ' ' + (d.UserLName || '')).trim() || ('Driver ' + d.Id);
+        var opt = '<option value="' + d.Id + '" data-name="' + fullName + '">' + fullName + '</option>';
+        $from.append(opt);
+        $to.append(opt);
+    });
+    if (live.length === 0) {
+        $from.append('<option disabled>No drivers online</option>');
+        $to.append('<option disabled>No drivers online</option>');
+    }
+}
+
+function DriverToDriverMessage() {
+    var msg      = $('#TxtD2DMsg').val().trim();
+    var fromId   = $('#ddlD2DFrom').val();
+    var toId     = $('#ddlD2DTo').val();
+    var fromName = $('#ddlD2DFrom option:selected').data('name') || ('Driver ' + fromId);
+    var toName   = $('#ddlD2DTo option:selected').data('name')   || ('Driver ' + toId);
+
+    if (!msg)    { toastr["warning"]("Please enter a message.", "Driver to Driver"); return; }
+    if (!fromId) { toastr["warning"]("Select a sender driver.", "Driver to Driver"); return; }
+    if (!toId)   { toastr["warning"]("Select a recipient driver.", "Driver to Driver"); return; }
+    if (fromId === toId) { toastr["warning"]("Sender and recipient cannot be the same driver.", "Driver to Driver"); return; }
+
+    var d    = new Date();
+    var date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    var h    = (d.getHours()   < 10 ? '0' : '') + d.getHours();
+    var mn   = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+    var dt   = date + ' ' + h + ':' + mn;
+
+    var companyId = localStorage.getItem('TT_CId') || '';
+
+    // Write message to /chat/{toDriver} AND /notification/{toDriver}
+    // Format: "senderName,message,datetime,companyId,Driver"  (driver app parses this)
+    var chatPayload = {
+        bookingid: fromName + ',' + msg + ',' + dt + ',' + companyId + ',Driver',
+        content:   msg
+    };
+    var updates = {};
+    updates['/chat/' + toId]         = chatPayload;
+    updates['/notification/' + toId] = { bookingid: chatPayload.bookingid, content: msg };
+
+    try {
+        firebase.database().ref().update(updates).then(function () {
+            toastr["success"](
+                '<b>' + fromName + '</b> → <b>' + toName + '</b><br>' + msg,
+                'Driver Message Sent', { timeOut: 5000 }
+            );
+            $('#TxtD2DMsg').val('');
+        }).catch(function (err) {
+            console.error('[D2D] Firebase write failed:', err);
+            toastr["error"]("Could not send driver-to-driver message.", "Firebase Error");
+        });
+    } catch (e) {
+        toastr["error"]("Firebase unavailable. Message not sent.", "Driver to Driver");
+    }
+
+    // Persist for history
+    Action([
+        { "name": "RecieverId", "Value": toId   },
+        { "name": "SenderId",   "Value": fromId  },
+        { "name": "Message",    "Value": '[From ' + fromName + '] ' + msg },
+        { "name": "DateTime",   "Value": dt }
+    ], "[MessageInsert]");
 }
 
 // ── Misc stubs ────────────────────────────────────────────────────────────────
