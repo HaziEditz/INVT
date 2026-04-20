@@ -13677,14 +13677,16 @@ $(document).ready(function() {
                         // Remove driver from Firebase online presence
                         try { firebase.database().ref("online/" + SomeSession2 + "/" + _suspVehicleId).remove(); } catch(e) {}
                         // Write suspension record to Firebase so the driver app can detect and block login
-                        // Path: suspended/{companyId}/{vehicleId}
-                        // The app should check this node on launch and block access if type==='suspended' and suspendedUntil is in the future
+                        // Path: suspended/{companyId}/{vehicleNumber}
+                        // Key is the vehicle PLATE NUMBER (e.g. "T201") — same identifier the driver app uses
+                        // The app checks this node on launch and blocks login if type==='suspended' and suspendedUntil is in the future
+                        var _fbVehicleKey = _suspVehicleNumber || _suspVehicleId;
                         try {
                             var _fbSuspUntil = new Date(_suspUntil).toISOString();
                             var _fbSuspMsg   = 'Your account has been suspended until ' +
                                 new Date(_suspUntil).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) +
                                 '. Please contact your dispatcher.';
-                            firebase.database().ref('suspended/' + SomeSession2 + '/' + _suspVehicleId).set({
+                            firebase.database().ref('suspended/' + SomeSession2 + '/' + _fbVehicleKey).set({
                                 type:           'suspended',
                                 message:        _fbSuspMsg,
                                 suspendedUntil: _fbSuspUntil,
@@ -13728,7 +13730,8 @@ $(document).ready(function() {
                             { name: 'VehicleId', Value: String(driver.vehicleId || '') }
                         ], '[UnsuspendDriver]');
                         // Clear the Firebase suspension record so the driver app allows login again
-                        try { firebase.database().ref('suspended/' + SomeSession2 + '/' + (driver.vehicleId || driver.driverId)).remove(); } catch(e) {}
+                        // Key must be the vehicle PLATE NUMBER (e.g. "T201") to match what the app reads
+                        try { firebase.database().ref('suspended/' + SomeSession2 + '/' + (driver.vehiclenumber || driver.vehicleId || driver.driverId)).remove(); } catch(e) {}
                         toastr['success']((driver.drivername || driver.vehiclenumber) + ' restored to Away.', 'Restored!');
                         $scope.getSuspendedDrivers();
                     }
@@ -13771,8 +13774,9 @@ $(document).ready(function() {
                             { name: 'SuspendedUntil', Value: _updIso }
                         ], '[UpdateSuspensionTime]');
                         // Update the Firebase suspension record so the driver app gets the new end time
+                        // Key must be the vehicle PLATE NUMBER (e.g. "T201") to match what the app reads
                         try {
-                            firebase.database().ref('suspended/' + SomeSession2 + '/' + (driver.vehicleId || driver.driverId)).update({
+                            firebase.database().ref('suspended/' + SomeSession2 + '/' + (driver.vehiclenumber || driver.vehicleId || driver.driverId)).update({
                                 suspendedUntil: _updIso,
                                 message: 'Your account has been suspended until ' +
                                     new Date(result.value).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) +
