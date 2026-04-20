@@ -199,8 +199,28 @@ const AWAY_LOCKED = {};
 const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 
 // Suspended drivers — removed from live board but restorable by the dispatcher.
-// Each entry: { driverId, vehicleId, drivername, vehiclenumber, vehicletype, zonename, suspendedAt }
+// Each entry: { driverId, vehicleId, drivername, vehiclenumber, vehicletype, zonename, suspendedAt, suspendedUntil }
+// suspendedUntil: ISO string — when null/undefined the suspension is indefinite.
 const SUSPENDED_DRIVERS = [];
+
+// Auto-expire suspended drivers: check every 60 s, restore any whose suspendedUntil has passed.
+setInterval(function() {
+  const now = Date.now();
+  for (let i = SUSPENDED_DRIVERS.length - 1; i >= 0; i--) {
+    const s = SUSPENDED_DRIVERS[i];
+    if (s.suspendedUntil && new Date(s.suspendedUntil).getTime() <= now) {
+      SUSPENDED_DRIVERS.splice(i, 1);
+      const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+      ZONE_DRIVERS.push({
+        driverid: s.driverId, VehicleId: s.vehicleId,
+        drivername: s.drivername, vehiclenumber: s.vehiclenumber,
+        vehicletype: s.vehicletype, zonename: s.zonename,
+        vehiclestatus: 'Away', zonequeue: maxQ + 1, queueWaitSince: Date.now(),
+      });
+      console.log(`[AutoExpire] Driver ${s.driverId}/${s.vehicleId} suspension expired — restored to Away`);
+    }
+  }
+}, 60000);
 
 // Track jobs the dispatcher has deliberately recalled so [DriverStatusChanged] never
 // mis-classifies the resulting driver Available signal as a driver-initiated cancel.
@@ -716,7 +736,7 @@ const server = http.createServer(async (req, res) => {
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
       // Admin
-      '[KickDriver]', '[DispatcherKickUsers]', '[GetSuspendedDrivers]', '[UnsuspendDriver]', '[UpdateQueueNo]',
+      '[KickDriver]', '[DispatcherKickUsers]', '[GetSuspendedDrivers]', '[UnsuspendDriver]', '[UpdateSuspensionTime]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
       '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
     ]);
@@ -1172,6 +1192,8 @@ const server = http.createServer(async (req, res) => {
           // Remove any previous suspension record for this driver first
           const _prevIdx = SUSPENDED_DRIVERS.findIndex(s => String(s.driverId) === String(_suspZd.driverid) || String(s.vehicleId) === String(_suspZd.VehicleId));
           if (_prevIdx !== -1) SUSPENDED_DRIVERS.splice(_prevIdx, 1);
+          const _suspUntilRaw = (param('SuspendedUntil') || '').toString().trim();
+          const _suspUntil = _suspUntilRaw ? new Date(_suspUntilRaw).toISOString() : null;
           SUSPENDED_DRIVERS.push({
             driverId:      String(_suspZd.driverid),
             vehicleId:     String(_suspZd.VehicleId),
@@ -1180,6 +1202,7 @@ const server = http.createServer(async (req, res) => {
             vehicletype:   _suspZd.vehicletype   || '',
             zonename:      _suspZd.zonename      || '',
             suspendedAt:   new Date().toISOString(),
+            suspendedUntil: _suspUntil,
           });
         }
         const beforeLen2 = ZONE_DRIVERS.length;
@@ -1221,6 +1244,17 @@ const server = http.createServer(async (req, res) => {
         }
         console.log(`200: POST ${urlPath} [action=[UnsuspendDriver]] -> ${restored ? 'restored ' + _unsDrvId : 'not found ' + _unsDrvId}`);
         objectD(res, { dt1: restored ? [restored] : [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[UpdateSuspensionTime]') {
+        const _updDrvId  = (param('DriverId')       || '').toString().trim();
+        const _updVehId  = (param('VehicleId')      || '').toString().trim();
+        const _updUntil  = (param('SuspendedUntil') || '').toString().trim();
+        const _updEntry  = SUSPENDED_DRIVERS.find(s => String(s.driverId) === _updDrvId || String(s.vehicleId) === _updVehId);
+        if (_updEntry) {
+          _updEntry.suspendedUntil = _updUntil ? new Date(_updUntil).toISOString() : null;
+        }
+        console.log(`200: POST ${urlPath} [action=[UpdateSuspensionTime]] -> ${_updEntry ? 'updated ' + _updDrvId + ' until ' + _updEntry.suspendedUntil : 'not found'}`);
+        objectD(res, { dt1: _updEntry ? [_updEntry] : [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[UpdateQueueNo]') {
         const vehicleId = param('VehicleId') || '';

@@ -874,7 +874,8 @@
                                 <th style="padding:12px 16px; font-weight:600;">Driver</th>
                                 <th style="padding:12px 16px; font-weight:600;">Zone</th>
                                 <th style="padding:12px 16px; font-weight:600;">Suspended At</th>
-                                <th style="padding:12px 16px; font-weight:600; text-align:center;">Action</th>
+                                <th style="padding:12px 16px; font-weight:600;">Suspended Until</th>
+                                <th style="padding:12px 16px; font-weight:600; text-align:center;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -885,14 +886,23 @@
                                 <td style="padding:13px 16px;">{{susp.drivername || '—'}}</td>
                                 <td style="padding:13px 16px; color:#555;">{{susp.zonename || '—'}}</td>
                                 <td style="padding:13px 16px; font-size:11px; color:#999;">{{susp.suspendedAt | date:'HH:mm dd/MM/yy'}}</td>
-                                <td style="padding:13px 16px; text-align:center;">
-                                    <button class="btn btn-sm btn-success" ng-click="unsuspendDriver(susp)" style="font-size:12px; padding:5px 14px; border-radius:6px;">
-                                        <i class="fa fa-undo" style="margin-right:5px;"></i>Restore
+                                <td style="padding:13px 16px; font-size:12px;">
+                                    <span ng-if="susp.suspendedUntil" style="color:#c0392b; font-weight:600;">
+                                        {{susp.suspendedUntil | date:'HH:mm dd/MM/yy'}}
+                                    </span>
+                                    <span ng-if="!susp.suspendedUntil" style="color:#aaa;">Indefinite</span>
+                                </td>
+                                <td style="padding:13px 16px; text-align:center; white-space:nowrap;">
+                                    <button class="btn btn-sm" ng-click="editSuspensionTime(susp)" style="font-size:12px; padding:5px 12px; border-radius:6px; background:#e67e22; color:#fff; margin-right:5px;">
+                                        <i class="fa fa-clock-o" style="margin-right:4px;"></i>Edit Time
+                                    </button>
+                                    <button class="btn btn-sm btn-success" ng-click="unsuspendDriver(susp)" style="font-size:12px; padding:5px 12px; border-radius:6px;">
+                                        <i class="fa fa-undo" style="margin-right:4px;"></i>Restore
                                     </button>
                                 </td>
                             </tr>
                             <tr ng-if="!suspendedDriversList.length">
-                                <td colspan="5" style="padding:36px; text-align:center; color:#bbb; font-size:14px;">
+                                <td colspan="6" style="padding:36px; text-align:center; color:#bbb; font-size:14px;">
                                     <i class="fa fa-check-circle" style="font-size:28px; display:block; margin-bottom:10px; color:#27ae60;"></i>
                                     No suspended drivers
                                 </td>
@@ -13580,35 +13590,65 @@ $(document).ready(function() {
                 });
             }
 
-            $scope.ShowSuspendDetails= function(id) {
+            // Helper: set the datetime-local input in the suspend Swal to now + N hours
+            window._setSuspendDuration = function(hours) {
+                var el = document.getElementById('_suspendUntilInput');
+                if (!el) return;
+                var d = new Date(Date.now() + hours * 3600000);
+                el.value = d.toISOString().slice(0, 16);
+            };
+
+            $scope.ShowSuspendDetails = function(id) {
                 var _suspDriverId  = ($("#lblDriverId").text()      || '').trim() || String(id || '');
                 var _suspVehicleId = ($("#lblBookingHeadId").text() || '').trim() || String(id || '');
+                var _driverLabel   = ($("#lblDriverName").text()    || '').trim() || _suspVehicleId;
+
+                // Default: 24 hours from now
+                var _defUntil = new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 16);
 
                 Swal.fire({
-                    title: 'Are you sure?',
-                    text: "You want to Suspend this Driver",
-                    icon: 'warning',
+                    title: '<span style="color:#c0392b;"><i class="fa fa-ban"></i> Suspend Driver</span>',
+                    html:
+                        '<p style="margin:4px 0 14px; color:#555; font-size:14px;">Suspending: <strong>' + (_driverLabel || _suspVehicleId) + '</strong></p>' +
+                        '<p style="margin-bottom:10px; color:#777; font-size:13px;">How long should this suspension last?</p>' +
+                        '<div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px;">' +
+                          '<button type="button" onclick="_setSuspendDuration(1)"  style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#e67e22; color:#fff; border:none; border-radius:6px; cursor:pointer;">1 Hour</button>' +
+                          '<button type="button" onclick="_setSuspendDuration(4)"  style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#e67e22; color:#fff; border:none; border-radius:6px; cursor:pointer;">4 Hours</button>' +
+                          '<button type="button" onclick="_setSuspendDuration(24)" style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#e67e22; color:#fff; border:none; border-radius:6px; cursor:pointer;">1 Day</button>' +
+                          '<button type="button" onclick="_setSuspendDuration(168)" style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#c0392b; color:#fff; border:none; border-radius:6px; cursor:pointer;">1 Week</button>' +
+                        '</div>' +
+                        '<label style="font-size:12px; color:#888; display:block; margin-bottom:6px; text-align:left;">Or pick a specific date &amp; time (NZ time):</label>' +
+                        '<input id="_suspendUntilInput" type="datetime-local" value="' + _defUntil + '" style="width:100%; padding:9px; border:1px solid #ddd; border-radius:6px; font-size:14px;">',
                     showCancelButton: true,
-                    confirmButtonColor: '#3085d6',
-                    cancelButtonColor: '#d33',
-                    confirmButtonText: 'Yes, suspend Driver!'
-                }).then((result) => {
+                    confirmButtonColor: '#c0392b',
+                    cancelButtonColor: '#aaa',
+                    confirmButtonText: 'Suspend Driver',
+                    cancelButtonText: 'Cancel',
+                    preConfirm: function() {
+                        var v = document.getElementById('_suspendUntilInput').value;
+                        if (!v) { Swal.showValidationMessage('Please select a suspension end time'); return false; }
+                        if (new Date(v).getTime() <= Date.now()) { Swal.showValidationMessage('End time must be in the future'); return false; }
+                        return v;
+                    }
+                }).then(function(result) {
                     if (result.value) {
+                        var _suspUntil = result.value; // datetime-local string
                         Action([
-                            { "name": "DriverId",          "Value": _suspDriverId },
-                            { "name": "VehicleId",         "Value": _suspVehicleId },
-                            { "name": "PenaltyReason",     "Value": "Suspended" },
-                            { "name": "PenaltyDateTime",   "Value": $scope.CurrentDateTime }],
+                            { "name": "DriverId",        "Value": _suspDriverId },
+                            { "name": "VehicleId",       "Value": _suspVehicleId },
+                            { "name": "PenaltyReason",   "Value": "Suspended" },
+                            { "name": "PenaltyDateTime", "Value": $scope.CurrentDateTime },
+                            { "name": "SuspendedUntil",  "Value": new Date(_suspUntil).toISOString() }],
                             "[DispatcherKickUsers]");
 
                         FnKickDriver(_suspDriverId, _suspVehicleId, "Suspended");
-                        toastr["success"]('Driver Suspended Successfully.', 'Success!');
-                        try { firebase.database().ref("online/" + SomeSession2 + "/" + _suspVehicleId).remove(); } catch(e){}
+                        toastr["success"]('Driver suspended until ' + new Date(_suspUntil).toLocaleString('en-NZ') + '.', 'Suspended!');
+                        try { firebase.database().ref("online/" + SomeSession2 + "/" + _suspVehicleId).remove(); } catch(e) {}
                         _removeDriverLocally(String(id || _suspVehicleId));
                         $scope.getSuspendedDrivers();
                     }
                 });
-            }
+            };
             //end kicked//
 
             $scope.suspendedDriversList = [];
@@ -13640,6 +13680,43 @@ $(document).ready(function() {
                             { name: 'VehicleId', Value: String(driver.vehicleId || '') }
                         ], '[UnsuspendDriver]');
                         toastr['success']((driver.drivername || driver.vehiclenumber) + ' restored to Away.', 'Restored!');
+                        $scope.getSuspendedDrivers();
+                    }
+                });
+            };
+
+            $scope.editSuspensionTime = function(driver) {
+                var _curUntil = driver.suspendedUntil ? new Date(driver.suspendedUntil).toISOString().slice(0, 16) : new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 16);
+                Swal.fire({
+                    title: '<i class="fa fa-clock-o" style="color:#e67e22;"></i> Edit Suspension',
+                    html:
+                        '<p style="margin:4px 0 12px; font-size:14px; color:#555;">Driver: <strong>' + (driver.drivername || driver.vehiclenumber) + '</strong></p>' +
+                        '<div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px;">' +
+                          '<button type="button" onclick="_setSuspendDuration(1)"  style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#e67e22; color:#fff; border:none; border-radius:6px; cursor:pointer;">+1 Hour</button>' +
+                          '<button type="button" onclick="_setSuspendDuration(4)"  style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#e67e22; color:#fff; border:none; border-radius:6px; cursor:pointer;">+4 Hours</button>' +
+                          '<button type="button" onclick="_setSuspendDuration(24)" style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#e67e22; color:#fff; border:none; border-radius:6px; cursor:pointer;">+1 Day</button>' +
+                          '<button type="button" onclick="_setSuspendDuration(168)" style="flex:1; padding:7px 6px; font-size:12px; font-weight:600; background:#c0392b; color:#fff; border:none; border-radius:6px; cursor:pointer;">+1 Week</button>' +
+                        '</div>' +
+                        '<label style="font-size:12px; color:#888; display:block; margin-bottom:6px; text-align:left;">Suspended until:</label>' +
+                        '<input id="_suspendUntilInput" type="datetime-local" value="' + _curUntil + '" style="width:100%; padding:9px; border:1px solid #ddd; border-radius:6px; font-size:14px;">',
+                    showCancelButton: true,
+                    confirmButtonColor: '#e67e22',
+                    cancelButtonColor: '#aaa',
+                    confirmButtonText: 'Update',
+                    preConfirm: function() {
+                        var v = document.getElementById('_suspendUntilInput').value;
+                        if (!v) { Swal.showValidationMessage('Please select a date and time'); return false; }
+                        if (new Date(v).getTime() <= Date.now()) { Swal.showValidationMessage('End time must be in the future'); return false; }
+                        return v;
+                    }
+                }).then(function(result) {
+                    if (result.value) {
+                        Action([
+                            { name: 'DriverId',       Value: String(driver.driverId  || '') },
+                            { name: 'VehicleId',      Value: String(driver.vehicleId || '') },
+                            { name: 'SuspendedUntil', Value: new Date(result.value).toISOString() }
+                        ], '[UpdateSuspensionTime]');
+                        toastr['success']('Suspension updated until ' + new Date(result.value).toLocaleString('en-NZ') + '.', 'Updated!');
                         $scope.getSuspendedDrivers();
                     }
                 });
