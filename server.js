@@ -892,8 +892,18 @@ const server = http.createServer(async (req, res) => {
           if (rideCost) job.RideCost = rideCost;
           // Release the driver back to Available
           const closingDriverId = job.DriverId;
-          const zd = ZONE_DRIVERS.find(d => d.driverid === closingDriverId || d.VehicleId === closingDriverId);
+          const zd = ZONE_DRIVERS.find(d =>
+            String(d.driverid) === String(closingDriverId) || String(d.VehicleId) === String(closingDriverId));
           if (zd) { zd.vehiclestatus = 'Available'; zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0; }
+          // Enrich UserFName/UserLName from ZONE_DRIVERS if not already set
+          if ((job.UserFName === undefined || job.UserFName === null) && zd && zd.drivername) {
+            const _parts = zd.drivername.trim().split(/\s+/);
+            job.UserFName = _parts[0] || '';
+            job.UserLName = _parts.slice(1).join(' ') || '';
+          } else {
+            if (job.UserFName === undefined) job.UserFName = '';
+            if (job.UserLName === undefined) job.UserLName = '';
+          }
           // Move to closed store
           closedJobStore.push(job);
           jobStore.splice(jobIdx, 1);
@@ -1508,6 +1518,10 @@ const server = http.createServer(async (req, res) => {
               const hailId = newJobId();
               const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
+              // Resolve driver name — prefer param, fall back to ZONE_DRIVERS
+              const _hailZd = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+              const _hailFullName = drivername || (_hailZd && _hailZd.drivername) || '';
+              const _hailParts = _hailFullName.trim().split(/\s+/);
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
                 DriverId: driverId,
@@ -1519,7 +1533,7 @@ const server = http.createServer(async (req, res) => {
                 DropLatLng: '',
                 BookingDateTime: now, JobCompleteTime: '',
                 BookingSource: 'Hail', booking_type: 'Hail',
-                JobMins: 0, UserFName: drivername, UserLName: '',
+                JobMins: 0, UserFName: _hailParts[0] || '', UserLName: _hailParts.slice(1).join(' ') || '',
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
@@ -1542,8 +1556,23 @@ const server = http.createServer(async (req, res) => {
             // Guard: if job has no driver (orphaned) skip the Assigned transition so
             // we don't re-lock an already-released job into Assigned again.
             const orphaned = !job.DriverId || String(job.DriverId) === '0';
+            // Helper: stamp driver name on the job from the drivername param or ZONE_DRIVERS
+            function _stampDriverName(j) {
+              if (j.UserFName && String(j.UserFName).trim()) return; // already set
+              const zdN = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+              const fullName = (zdN && zdN.drivername) ? zdN.drivername : (drivername || '');
+              if (fullName) {
+                const parts = fullName.trim().split(/\s+/);
+                j.UserFName = parts[0] || '';
+                j.UserLName = parts.slice(1).join(' ') || '';
+              } else {
+                if (j.UserFName === undefined) j.UserFName = '';
+                if (j.UserLName === undefined) j.UserLName = '';
+              }
+            }
             if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus) && !orphaned) {
               job.BookingStatus = 'Assigned';
+              _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered' ||
@@ -1552,15 +1581,19 @@ const server = http.createServer(async (req, res) => {
               // but the job's DriverId still matches — activate it so dispatch shows Active.
               job.BookingStatus = 'Active';
               activatedOne = true;
+              _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
                 // Trip genuinely finished — mark Completed
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                _stampDriverName(job);
+                saveJobStore();
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailable) {
@@ -2008,8 +2041,11 @@ const server = http.createServer(async (req, res) => {
         const toDate   = (param('ToDate')   || param('ToDate ')   || '').toString().trim();
         const driverFilterRaw  = (param('DriverId')  || '').toString().trim();
         const vehicleFilterRaw = (param('VehicleId') || param('VehicleId ') || '').toString().trim();
+        // Support both numeric and string (e.g. "D001") driver/vehicle IDs
         const driverFilter  = parseInt(driverFilterRaw)  || 0;
         const vehicleFilter = parseInt(vehicleFilterRaw) || 0;
+        const driverFilterStr  = driverFilterRaw;
+        const vehicleFilterStr = vehicleFilterRaw;
         console.log(`  [ClosedJobs] params: status='${statusFilter}' from='${fromDate}' to='${toDate}' driver='${driverFilterRaw}' vehicle='${vehicleFilterRaw}'`);
         // Terminal statuses — include these from the live jobStore as well as the static store
         // 'Completed' is our mock convention; 'Dispatched' is the real-backend convention for done rides.
@@ -2030,19 +2066,44 @@ const server = http.createServer(async (req, res) => {
           jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= toDate);
           console.log(`  [ClosedJobs] after toDate '${toDate}': ${jobs.length} jobs`);
         }
-        if (driverFilter > 0) {
-          jobs = jobs.filter(j => String(j.DriverId) === String(driverFilter));
-          console.log(`  [ClosedJobs] after driverFilter ${driverFilter}: ${jobs.length} jobs`);
+        if (driverFilterStr) {
+          const dfNum = parseInt(driverFilterStr) || 0;
+          jobs = jobs.filter(j =>
+            String(j.DriverId) === driverFilterStr ||
+            (dfNum > 0 && String(j.DriverId) === String(dfNum))
+          );
+          console.log(`  [ClosedJobs] after driverFilter ${driverFilterStr}: ${jobs.length} jobs`);
         }
-        if (vehicleFilter > 0) {
-          jobs = jobs.filter(j => String(j.VehicleId) === String(vehicleFilter) || String(j.VehicleNo) === String(vehicleFilter));
-          console.log(`  [ClosedJobs] after vehicleFilter ${vehicleFilter}: ${jobs.length} jobs`);
+        if (vehicleFilterStr) {
+          const vfNum = parseInt(vehicleFilterStr) || 0;
+          jobs = jobs.filter(j =>
+            String(j.VehicleId) === vehicleFilterStr ||
+            String(j.VehicleNo)  === vehicleFilterStr ||
+            (vfNum > 0 && (String(j.VehicleId) === String(vfNum) || String(j.VehicleNo) === String(vfNum)))
+          );
+          console.log(`  [ClosedJobs] after vehicleFilter ${vehicleFilterStr}: ${jobs.length} jobs`);
         }
+        // Enrich UserFName/UserLName: dispatcher client does `UserFName + UserLName` and
+        // shows "undefined" when these fields are missing.  Resolve from ZONE_DRIVERS or
+        // fall back to DriverId so the column is always a readable string.
+        jobs = jobs.map(j => {
+          if (j.UserFName !== undefined && j.UserFName !== null) return j; // already set
+          const zdN = j.DriverId ? ZONE_DRIVERS.find(d =>
+            String(d.driverid) === String(j.DriverId) || String(d.VehicleId) === String(j.DriverId)) : null;
+          let fName = '', lName = '';
+          if (zdN && zdN.drivername) {
+            const parts = zdN.drivername.trim().split(/\s+/);
+            fName = parts[0] || '';
+            lName = parts.slice(1).join(' ') || '';
+          }
+          return { ...j, UserFName: fName, UserLName: lName };
+        });
         // Build driver/vehicle lists from the actual job results for the filter dropdowns
         const seenDrivers = new Map(), seenVehicles = new Map();
         jobs.forEach(j => {
           if (j.DriverId && !seenDrivers.has(j.DriverId)) {
-            seenDrivers.set(j.DriverId, { Id: j.DriverId, DriveName: (j.UserFName || '') + ' ' + (j.UserLName || '') });
+            const dname = ((j.UserFName || '') + ' ' + (j.UserLName || '')).trim() || String(j.DriverId);
+            seenDrivers.set(j.DriverId, { Id: j.DriverId, DriveName: dname });
           }
           if (j.VehicleId && !seenVehicles.has(j.VehicleId)) {
             seenVehicles.set(j.VehicleId, { Id: j.VehicleId, VehicleNo: j.VehicleNo || String(j.VehicleId) });
@@ -2344,6 +2405,10 @@ const server = http.createServer(async (req, res) => {
               const hailId = newJobId();
               const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
+              // Resolve driver name — prefer param, fall back to ZONE_DRIVERS
+              const _hailZdDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+              const _hailFullNameDS = drivername || (_hailZdDS && _hailZdDS.drivername) || '';
+              const _hailPartsDS = _hailFullNameDS.trim().split(/\s+/);
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
                 DriverId: driverId,
@@ -2355,7 +2420,7 @@ const server = http.createServer(async (req, res) => {
                 DropLatLng: '',
                 BookingDateTime: now, JobCompleteTime: '',
                 BookingSource: 'Hail', booking_type: 'Hail',
-                JobMins: 0, UserFName: drivername, UserLName: '',
+                JobMins: 0, UserFName: _hailPartsDS[0] || '', UserLName: _hailPartsDS.slice(1).join(' ') || '',
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
@@ -2367,25 +2432,38 @@ const server = http.createServer(async (req, res) => {
           // Protect Assigned jobs when driver completes a simultaneous Active (Hail) job.
           const _hasActiveBeforeAvailableDS = newStatus === 'Available' &&
             allDriverJobs.some(j => j.BookingStatus === 'Active');
+          // Helper: stamp driver name onto a job using param or ZONE_DRIVERS fallback
+          function _stampDriverNameDS(j) {
+            if (j.UserFName && String(j.UserFName).trim()) return;
+            const zdNameDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+            const fullNameDS = (zdNameDS && zdNameDS.drivername) ? zdNameDS.drivername : (drivername || '');
+            const pDS = fullNameDS.trim().split(/\s+/);
+            j.UserFName = pDS[0] || '';
+            j.UserLName = pDS.slice(1).join(' ') || '';
+          }
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             const orphanedDS = !job.DriverId || String(job.DriverId) === '0';
             if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus) && !orphanedDS) {
               job.BookingStatus = 'Assigned';
+              _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered' ||
                         (job.BookingStatus === 'Pending' && !orphanedDS))) {
               job.BookingStatus = 'Active';
               activatedOneDS = true;
+              _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                _stampDriverNameDS(job);
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailableDS) {
