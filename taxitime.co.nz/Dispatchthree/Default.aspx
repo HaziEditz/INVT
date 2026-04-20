@@ -5990,7 +5990,7 @@ $(document).ready(function() {
     // reason: 'reject' | 'timeout'
     function FnNotifyDriverAway(DriverId, reason) {
         if (!DriverId) return;
-        var _fbUid = getPlayerIdForDriver(DriverId);
+        var _fbUid = DriverId;
         var msg = reason === 'reject'
             ? 'You are now Away — you rejected the job. Tap Available when ready to accept jobs.'
             : 'You are now Away — job not accepted in time. Tap Available when ready to accept jobs.';
@@ -6161,7 +6161,8 @@ $(document).ready(function() {
                 jobFare:       String(details.fare || ''),
                 jobCount:      1
             };
-            var _fbUidNotif = getPlayerIdForDriver(driverId);
+            // Driver app listens at /notification/{driverId} (SQL driverid) — use directly.
+            var _fbUidNotif = driverId;
             var notifRef = db.ref('/notification/' + _fbUidNotif);
             var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + _fbUidNotif);
 
@@ -6246,7 +6247,7 @@ $(document).ready(function() {
     function checkingjobz(vehicle , id, driverid, settleCallback){
         $message  = 'Driver did not respond';
         console.log("checking job");
-        var _fbUidCjz = getPlayerIdForDriver(driverid);
+        var _fbUidCjz = driverid;
         setTimeout(function(){
             if (typeof settleCallback === 'function') settleCallback();
             firebase.database().ref().child("joback/"+id+"/"+_fbUidCjz).remove();
@@ -6262,7 +6263,7 @@ $(document).ready(function() {
     function checkingjob(id, driverid, settleCallback){
         $message  = 'Not shown – driver app in background';
         console.log("checking job");
-        var _fbUidCj = getPlayerIdForDriver(driverid);
+        var _fbUidCj = driverid;
         setTimeout(function(){
             if (typeof settleCallback === 'function') settleCallback();
             firebase.database().ref().child("joback/"+id+"/"+_fbUidCj).remove();
@@ -6288,11 +6289,11 @@ $(document).ready(function() {
                 data[1] = status;
                 ridestatusz.push(data);
                 var id =     bookid;
-                // _fbd = Firebase auth UID for this driver (used for all Firebase paths).
-                // driverid = SQL driver ID (kept for server API calls and toast display).
-                var _fbd = getPlayerIdForDriver(driverid);
+                // _fbd = SQL driverid — the path the driver app listens on.
+                // driverid = SQL driver ID (server API calls, toast display, and all Firebase paths).
+                var _fbd = driverid;
                 console.log(id);
-                console.log('[resolveAfter2Secondsx] sql driverid:', driverid, '→ firebase uid:', _fbd);
+                console.log('[resolveAfter2Secondsx] driverid:', driverid);
                 var DbRefz = firebase.database();
                 var refaz  = DbRefz.ref("joback/"+id+"/"+_fbd);
                 var reponsex = 0;
@@ -6582,8 +6583,8 @@ $(document).ready(function() {
                 data[1] = status;
                 ridestatusz.push(data);
                 var id =     bookid;
-                var _fbd = getPlayerIdForDriver(driverid);
-                console.log('[resolveAfter2Seconds] sql driverid:', driverid, '→ firebase uid:', _fbd);
+                var _fbd = driverid;
+                console.log('[resolveAfter2Seconds] driverid:', driverid);
                 var DbRefz = firebase.database();
                 var refaz  = DbRefz.ref("joback/"+id+"/"+_fbd);
                 var reponsex = 0;
@@ -6889,9 +6890,9 @@ $(document).ready(function() {
             return;
         }
         // Server confirmed offer — now notify the driver via Firebase.
-        // Resolve Firebase UID from SQL driverid for all Firebase path writes.
-        var _fbDrvId = getPlayerIdForDriver(driverid);
-        console.log('[acknowledgemethodx] sql driverid:', driverid, '→ firebase uid:', _fbDrvId, 'job:', bookid);
+        // Use SQL driverid directly — the driver app listens at /notification/{driverid}.
+        var _fbDrvId = driverid;
+        console.log('[acknowledgemethodx] driverid:', driverid, 'job:', bookid);
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         try {
@@ -7002,8 +7003,8 @@ $(document).ready(function() {
             return;
         }
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
-        var _fbDrvIdM = getPlayerIdForDriver(driverid);
-        console.log('[acknowledgemethod] sql driverid:', driverid, '→ firebase uid:', _fbDrvIdM, 'job:', bookid);
+        var _fbDrvIdM = driverid;
+        console.log('[acknowledgemethod] driverid:', driverid, 'job:', bookid);
         firebase.database().ref("joback/"+bookid+"/"+_fbDrvIdM).set({'jobstatus':'Offer','status':'Sent'});
         // Also write to /notification/{driverId} so the driver app shows the offer screen.
         try {
@@ -7246,7 +7247,7 @@ $(document).ready(function() {
                                               return String(d.driverid) === String(driverid) || String(d.VehicleId) === String(driverid);
                                           });
                                           var _vidCvt = _drCvt ? String(_drCvt.VehicleId || _drCvt.vehiclenumber || driverid) : String(driverid);
-                                          var _uidCvt = _drCvt ? String(_drCvt.PlayerId || _drCvt.driverid || driverid) : getPlayerIdForDriver(String(driverid));
+                                          var _uidCvt = _drCvt ? String(_drCvt.driverid || driverid) : String(driverid);
                                           var _fbCvt = { zonequeue: _rCvt.newQueueNo };
                                           if (_rCvt.queueWaitSince) _fbCvt.queueWaitSince = _rCvt.queueWaitSince;
                                           firebase.database().ref("online/" + SomeSession2 + "/" + _vidCvt).update(_fbCvt);
@@ -12083,7 +12084,7 @@ $(document).ready(function() {
                         var best = sorted[0];
                         if (!best) continue;
 
-                        // SQL driver ID for server API calls; Firebase UID resolved inside acknowledgemethodx/resolveAfter2Secondsx via getPlayerIdForDriver.
+                        // SQL driverid for both server calls and all Firebase paths (notification/joback/jobs).
                         var driverId  = best.driverid || best.PlayerId || '';
                         var vehicleId = best.VehicleId || best.vehicleid || best.vehiclenumber || driverId;
                         if (!driverId) continue;
