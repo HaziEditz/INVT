@@ -11516,11 +11516,14 @@ $(document).ready(function() {
 
       
         
-        $scope.showdiv = function(id) {
-            // Toggle the spx opened flag — checkdata() reads this to drive the
-            // Angular binding. Direct DOM writes get overwritten on every $digest.
-            var currentlyOpen = spx[id] && spx[id].opened === true;
-            spx[id] = { id: id, vallue: (spx[id] ? spx[id].vallue : 0), opened: !currentlyOpen };
+        $scope.showdiv  = function(id){
+      
+            
+            if(document.getElementById('datassun'+id).style.display == 'none'){
+                document.getElementById('datassun'+id).style.display = 'block'
+            }else{
+                document.getElementById('datassun'+id).style.display = 'none'
+            } 
         }
         $scope.checkdata  = function(number ){ 
     
