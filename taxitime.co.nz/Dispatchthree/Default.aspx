@@ -6413,6 +6413,7 @@ $(document).ready(function() {
                             settled = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                            firebase.database().ref().child("/notification/" + _fbd).remove();
                             firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                             FnNotifyDriverAway(driverid, 'reject');
@@ -6465,6 +6466,7 @@ $(document).ready(function() {
                                     settled = true;
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                    firebase.database().ref().child("/notification/" + _fbd).remove();
                                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                     FnNotifyDriverAway(driverid, 'reject');
@@ -6525,6 +6527,7 @@ $(document).ready(function() {
                                 settled = true;
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                 firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                firebase.database().ref().child("/notification/" + _fbd).remove();
                                 firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                 FnNotifyDriverAway(driverid, 'reject');
@@ -6592,6 +6595,7 @@ $(document).ready(function() {
                     //   jobs/ → driver app reads this for its own status display
                     //   online/ → dispatch console reads this via tallo listener
                     // Driver must manually press Available on their app to come back online.
+                    firebase.database().ref().child("/notification/" + _fbd).remove();
                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     FnNotifyDriverAway(driverid, 'timeout');
