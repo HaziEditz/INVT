@@ -1532,6 +1532,11 @@ const server = http.createServer(async (req, res) => {
           // Activating all non-terminal jobs at once causes mass-completion when the
           // driver later goes Available, which is the "accidental cancel" bug.
           let activatedOne = false;
+          // Pre-compute: if driver has an Active job AND an Assigned job simultaneously,
+          // Available = trip completion (not a driver cancel of the Assigned job).
+          // This protects a dispatcher-assigned job when driver completes a Hail/street pickup.
+          const _hasActiveBeforeAvailable = newStatus === 'Available' &&
+            allDriverJobs.some(j => j.BookingStatus === 'Active');
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             // Guard: if job has no driver (orphaned) skip the Assigned transition so
@@ -1558,7 +1563,11 @@ const server = http.createServer(async (req, res) => {
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
-                if (isDispatcherRecalled(job.Id)) {
+                if (_hasActiveBeforeAvailable) {
+                  // Driver completed a Hail/active job — the Assigned job is a SEPARATE
+                  // dispatcher-booked job that must not be touched.
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (Assigned) protected — driver completed a different Active job`);
+                } else if (isDispatcherRecalled(job.Id)) {
                   // Dispatcher-initiated recall: driver's Available is a side-effect of FnCancelRide.
                   // [changeriddestatusforoffer] will set job to Pending; just leave it or set Pending here.
                   job.BookingStatus = 'Pending';
@@ -1567,7 +1576,7 @@ const server = http.createServer(async (req, res) => {
                   clearDispatcherRecalled(job.Id);
                   console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
                 } else {
-                  // Driver went Available while still Assigned — driver cancelled after accepting.
+                  // Driver went Available while still Assigned (no other Active job) — driver cancelled.
                   job.BookingStatus = 'Cancelled';
                   job.CancelledBy   = 'Driver';
                   job.returnReason  = 'Driver cancelled after accepting';
@@ -1879,8 +1888,9 @@ const server = http.createServer(async (req, res) => {
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[AssignedJobsv2]') {
-        console.log(`200: POST ${urlPath} [action=${action}] -> assigned jobs`);
-        objectD(res, buildAssignedResponse(jobStore));
+        const _assignedResp = buildAssignedResponse(jobStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_assignedResp.dt1.length} assigned (ids: ${_assignedResp.dt1.map(j=>j.Id).join(',')||'none'})`);
+        objectD(res, _assignedResp);
 
       } else if (action === 'AutoDispatchVehiclesallride') {
         // Stale-offer watchdog: if a job has been stuck in "Offered" for more than 2 minutes,
@@ -2354,6 +2364,9 @@ const server = http.createServer(async (req, res) => {
           }
           const allDriverJobs = jobStore.filter(matchesDriverDS);
           let activatedOneDS = false;
+          // Protect Assigned jobs when driver completes a simultaneous Active (Hail) job.
+          const _hasActiveBeforeAvailableDS = newStatus === 'Available' &&
+            allDriverJobs.some(j => j.BookingStatus === 'Active');
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             const orphanedDS = !job.DriverId || String(job.DriverId) === '0';
@@ -2375,7 +2388,11 @@ const server = http.createServer(async (req, res) => {
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
-                if (isDispatcherRecalled(job.Id)) {
+                if (_hasActiveBeforeAvailableDS) {
+                  // Driver completed a Hail/active job — the Assigned job is a separate
+                  // dispatcher-booked trip that must not be cancelled.
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (Assigned) protected — driver completed a different Active job`);
+                } else if (isDispatcherRecalled(job.Id)) {
                   job.BookingStatus = 'Pending';
                   job.DriverId = 0; job.VehicleId = 0;
                   job.returnReason = 'Manually unassigned';
