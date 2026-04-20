@@ -198,6 +198,10 @@ const LT_JOB_IDS    = new Set();
 const AWAY_LOCKED = {};
 const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 
+// Suspended drivers — removed from live board but restorable by the dispatcher.
+// Each entry: { driverId, vehicleId, drivername, vehiclenumber, vehicletype, zonename, suspendedAt }
+const SUSPENDED_DRIVERS = [];
+
 // Track jobs the dispatcher has deliberately recalled so [DriverStatusChanged] never
 // mis-classifies the resulting driver Available signal as a driver-initiated cancel.
 const DISPATCHER_RECALLED = {}; // jobId → expiry timestamp
@@ -712,7 +716,7 @@ const server = http.createServer(async (req, res) => {
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
       // Admin
-      '[KickDriver]', '[DispatcherKickUsers]', '[UpdateQueueNo]',
+      '[KickDriver]', '[DispatcherKickUsers]', '[GetSuspendedDrivers]', '[UnsuspendDriver]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
       '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
     ]);
@@ -1156,17 +1160,67 @@ const server = http.createServer(async (req, res) => {
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[DispatcherKickUsers]') {
-        const driverId  = param('DriverId') || '';
-        const vehicleId = param('VehicleId') || '';
-        // Suspend: remove driver from demo roster (same effect as kick for demo)
+        const driverId  = (param('DriverId')  || '').toString().trim();
+        const vehicleId = (param('VehicleId') || '').toString().trim();
+        const vehicleIdNum = parseInt(vehicleId) || 0;
+        // Save driver info before removing so it can be restored later
+        const _suspZd = ZONE_DRIVERS.find(d =>
+          String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
+          (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))
+        );
+        if (_suspZd) {
+          // Remove any previous suspension record for this driver first
+          const _prevIdx = SUSPENDED_DRIVERS.findIndex(s => String(s.driverId) === String(_suspZd.driverid) || String(s.vehicleId) === String(_suspZd.VehicleId));
+          if (_prevIdx !== -1) SUSPENDED_DRIVERS.splice(_prevIdx, 1);
+          SUSPENDED_DRIVERS.push({
+            driverId:      String(_suspZd.driverid),
+            vehicleId:     String(_suspZd.VehicleId),
+            drivername:    _suspZd.drivername    || '',
+            vehiclenumber: _suspZd.vehiclenumber || '',
+            vehicletype:   _suspZd.vehicletype   || '',
+            zonename:      _suspZd.zonename      || '',
+            suspendedAt:   new Date().toISOString(),
+          });
+        }
         const beforeLen2 = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
-          if (String(ZONE_DRIVERS[i].driverid) === driverId || String(ZONE_DRIVERS[i].VehicleId) === vehicleId) {
+          const d = ZONE_DRIVERS[i];
+          if (String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
+              (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))) {
             ZONE_DRIVERS.splice(i, 1);
           }
         }
-        console.log(`200: POST ${urlPath} [action=[DispatcherKickUsers]] -> driver ${driverId} suspended (removed ${beforeLen2 - ZONE_DRIVERS.length} entries)`);
+        console.log(`200: POST ${urlPath} [action=[DispatcherKickUsers]] -> driver ${driverId}/${vehicleId} suspended (removed ${beforeLen2 - ZONE_DRIVERS.length} entries, suspended list: ${SUSPENDED_DRIVERS.length})`);
         successD(res, 'Operation Successfully Performed');
+
+      } else if (action === '[GetSuspendedDrivers]') {
+        console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${SUSPENDED_DRIVERS.length} suspended driver(s)`);
+        objectD(res, { dt1: SUSPENDED_DRIVERS, dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[UnsuspendDriver]') {
+        const _unsDrvId  = (param('DriverId')  || '').toString().trim();
+        const _unsVehId  = (param('VehicleId') || '').toString().trim();
+        const _unsIdx = SUSPENDED_DRIVERS.findIndex(s => String(s.driverId) === _unsDrvId || String(s.vehicleId) === _unsVehId);
+        let restored = null;
+        if (_unsIdx !== -1) {
+          restored = SUSPENDED_DRIVERS[_unsIdx];
+          SUSPENDED_DRIVERS.splice(_unsIdx, 1);
+          // Re-add to ZONE_DRIVERS as Available at end of queue
+          const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+          ZONE_DRIVERS.push({
+            driverid:      restored.driverId,
+            VehicleId:     restored.vehicleId,
+            drivername:    restored.drivername,
+            vehiclenumber: restored.vehiclenumber,
+            vehicletype:   restored.vehicletype,
+            zonename:      restored.zonename,
+            vehiclestatus: 'Away',
+            zonequeue:     maxQ + 1,
+            queueWaitSince: Date.now(),
+          });
+        }
+        console.log(`200: POST ${urlPath} [action=[UnsuspendDriver]] -> ${restored ? 'restored ' + _unsDrvId : 'not found ' + _unsDrvId}`);
+        objectD(res, { dt1: restored ? [restored] : [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[UpdateQueueNo]') {
         const vehicleId = param('VehicleId') || '';

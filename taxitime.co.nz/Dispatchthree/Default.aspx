@@ -3918,6 +3918,39 @@ $(document).ready(function() {
                                 <!-- table-wrapper -->
                             </div>
                           </div>
+                                       <div id="menu4" class="container tab-pane fade"><br>
+                                          <div>
+                                <div>
+                                    <div class="table-responsive">
+                                        <table style="width:100%;">
+                                            <thead>
+                                                <tr>
+                                                    <th class="wd-15p">Vehicle</th>
+                                                    <th class="wd-20p">Driver</th>
+                                                    <th class="wd-15p">Zone</th>
+                                                    <th class="wd-20p">Suspended At</th>
+                                                    <th class="wd-15p">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tr ng-repeat="susp in suspendedDriversList" style="background:#fff3f3; font-weight:600;">
+                                                <td>{{susp.vehiclenumber}} / {{susp.vehicletype}}</td>
+                                                <td>{{susp.drivername || '—'}}</td>
+                                                <td>{{susp.zonename || '—'}}</td>
+                                                <td style="font-size:11px; color:#888;">{{susp.suspendedAt | date:'HH:mm:ss dd/MM/yy'}}</td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-success" ng-click="unsuspendDriver(susp)" title="Restore driver to active board">
+                                                        <i class="fa fa-undo"></i> Restore
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            <tr ng-if="!suspendedDriversList.length">
+                                                <td colspan="5" style="text-align:center; color:#aaa; padding:18px;">No suspended drivers</td>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                          </div>
                                   </div>
                                   <ul class="nav nav-tabs" role="tablist" style=" margin-left: 13px; margin-top: 6px; ">
                                     <li class=" ">
@@ -3931,6 +3964,11 @@ $(document).ready(function() {
                                     </li>
                                       <li  >
                                       <a   data-toggle="tab" href="#menu3">Away</a>
+                                    </li>
+                                    <li>
+                                      <a data-toggle="tab" href="#menu4" ng-click="getSuspendedDrivers()" style="color:#c0392b; font-weight:600;">
+                                        Suspended <span ng-if="suspendedDriversList.length > 0" style="background:#c0392b; color:#fff; border-radius:10px; padding:1px 7px; font-size:11px; margin-left:4px;">{{suspendedDriversList.length}}</span>
+                                      </a>
                                     </li>
                                   </ul>
 
@@ -13511,10 +13549,47 @@ $(document).ready(function() {
                         toastr["success"]('Driver Suspended Successfully.', 'Success!');
                         try { firebase.database().ref("online/" + SomeSession2 + "/" + _suspVehicleId).remove(); } catch(e){}
                         _removeDriverLocally(String(id || _suspVehicleId));
+                        $scope.getSuspendedDrivers();
                     }
                 });
             }
             //end kicked//
+
+            $scope.suspendedDriversList = [];
+
+            $scope.getSuspendedDrivers = function() {
+                Selector([], '[GetSuspendedDrivers]').then(function(result) {
+                    try {
+                        var res = JSON.parse(result.d);
+                        $scope.suspendedDriversList = (res && res.dt1) ? res.dt1 : [];
+                        var sc3 = angular.element(document.getElementById('myangular')).scope();
+                        if (sc3 && !sc3.$$phase) sc3.$apply();
+                    } catch(e) {}
+                });
+            };
+
+            $scope.unsuspendDriver = function(driver) {
+                Swal.fire({
+                    title: 'Restore Driver?',
+                    text: 'Return ' + (driver.drivername || driver.vehiclenumber || 'this driver') + ' to the active board as Away?',
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonColor: '#27ae60',
+                    cancelButtonColor: '#aaa',
+                    confirmButtonText: 'Yes, Restore!'
+                }).then(function(result) {
+                    if (result.value) {
+                        Action([
+                            { name: 'DriverId',  Value: String(driver.driverId  || '') },
+                            { name: 'VehicleId', Value: String(driver.vehicleId || '') }
+                        ], '[UnsuspendDriver]');
+                        toastr['success']((driver.drivername || driver.vehiclenumber) + ' restored to Away.', 'Restored!');
+                        $scope.getSuspendedDrivers();
+                    }
+                });
+            };
+
+            $scope.getSuspendedDrivers();
 
 
             $scope.showmakert1 = function(id, pickup){
