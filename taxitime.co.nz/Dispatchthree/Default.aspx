@@ -6092,17 +6092,15 @@ $(document).ready(function() {
     // Replaces the separate writeNewPost call — all fields are written in a single atomic
     // set so there is no race condition between the notification bookingid and the detail fields.
     // Writes to:
-    //   /notification/{firebaseUID}  — single set with bookingid + all detail fields
-    //   /jobDetails/{bookingId}      — standalone detail node for direct lookup
+    //   /notification/{SQL driverid}  — single set with bookingid + all detail fields
+    //   /jobDetails/{bookingId}       — standalone detail node for direct lookup
+    // IMPORTANT: driverId must ALWAYS be the SQL driverid (not Firebase UID, not vehicleId).
+    //            Use getSqlDriverId(anyId) to resolve before calling this function.
     // NOTE: we do NOT update online/{companyId}/{vehicleId} because that is the live-status
     // node; writing to it triggers spurious vehiclestatus change events in the dispatcher.
 
-    // getPlayerIdForDriver — given any driver identifier (SQL driver ID OR Firebase UID),
-    // returns the Firebase auth UID that the driver app listens on at /notification/{uid}.
-    // Strategy: scan driverdatarealx (populated from the Firebase online/ listener) for a
-    // driver whose driverid, VehicleId, vehiclenumber, or PlayerId matches the input.
-    // Falls back to the input value unchanged if no match — so if the caller already has
-    // the Firebase UID (e.g. smartAutoDispatch passes best.PlayerId), it still works.
+    // getPlayerIdForDriver — legacy helper, kept for backward compat.
+    // New code should use getSqlDriverId() below instead.
     function getPlayerIdForDriver(anyId) {
         if (!anyId || String(anyId) === '0' || String(anyId) === '-1') return String(anyId || '');
         try {
@@ -6122,6 +6120,37 @@ $(document).ready(function() {
                 }
             }
         } catch(_e) {}
+        return String(anyId);
+    }
+
+    // getSqlDriverId — THE canonical lookup used by every dispatch path.
+    // Given any driver identifier (VehicleId, Firebase PlayerId, SQL driverid, vehiclenumber),
+    // returns the SQL driverid — the key the driver app listens on at:
+    //   /notification/{driverid}
+    //   /joback/{bookingId}/{driverid}
+    //   /jobs/{companyId}/{vehicleId}/{driverid}
+    // Falls back to the input unchanged when no match is found (safe for drivers that are
+    // already represented as SQL IDs, or when driverdatarealx hasn't loaded yet).
+    function getSqlDriverId(anyId) {
+        if (!anyId || String(anyId) === '0' || String(anyId) === '-1') return String(anyId || '');
+        try {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (_sc && _sc.driverdatarealx && _sc.driverdatarealx.length) {
+                var _sid = String(anyId);
+                for (var _i2 = 0; _i2 < _sc.driverdatarealx.length; _i2++) {
+                    var _d2 = _sc.driverdatarealx[_i2];
+                    if (
+                        String(_d2.driverid)      === _sid ||
+                        String(_d2.VehicleId)     === _sid ||
+                        String(_d2.vehiclenumber) === _sid ||
+                        String(_d2.PlayerId)      === _sid
+                    ) {
+                        // Prefer SQL driverid; fall back to PlayerId then the input
+                        return String(_d2.driverid || _d2.PlayerId || _sid);
+                    }
+                }
+            }
+        } catch(_e2) {}
         return String(anyId);
     }
 
@@ -10878,7 +10907,7 @@ $(document).ready(function() {
                                                             
                                                                      writeautodispatch(id, id);
                                                                      writeautodispatch(obj[i].PlayerId, id);
-                                                                     sendJobToDriver(obj[i].PlayerId, obj[i].vehicleidno || obj[i].PlayerId, id, 'Pending');
+                                                                     sendJobToDriver(obj[i].driverid || obj[i].PlayerId, obj[i].vehicleidno || obj[i].PlayerId, id, 'Pending');
                                                                      myResolve("notexist");
 
                                                                  }else{
@@ -12208,9 +12237,10 @@ $(document).ready(function() {
                                 document.getElementById('Divoo'+ Id).innerHTML = "Going To "+random100["dt2"][random4].VehicleNo +" / "+random100["dt2"][random4].VehicleName;
                                 document.getElementById('Divoo'+ Id).style.background =  red;
                                               
-                                sendJobToDriver(driverid, driverid, id, 'Pending');
+                                var _sqlDrvId77 = getSqlDriverId(driverid);
+                                sendJobToDriver(_sqlDrvId77, driverid, id, 'Pending');
                                 var DbRef = firebase.database();
-                                var refaz= DbRef.ref("joback/" + id  + "/"+driverid);
+                                var refaz= DbRef.ref("joback/" + id  + "/"+_sqlDrvId77);
 
                                 refaz.set({'jobstatus':'Offer','status':'Sent'});
                                 var localva  =  'Normal';
@@ -13865,11 +13895,12 @@ $(document).ready(function() {
               
     
 
-                    sendJobToDriver(JobVehicleId, JobVehicleId, BookingId, 'Offered', u_id);
+                    var _pendDrvSqlId = getSqlDriverId(JobVehicleId);
+                    sendJobToDriver(_pendDrvSqlId, JobVehicleId, BookingId, 'Offered', u_id);
                     $("#Divo" + BookingId + "").remove();
         
               
-                    acknowledgemethodx(JobVehicleId, JobVehicleId, BookingId, "Offered");
+                    acknowledgemethodx(JobVehicleId, _pendDrvSqlId, BookingId, "Offered");
 
                 
 
@@ -13898,10 +13929,11 @@ $(document).ready(function() {
                     {"name":"reterndriverId" , "Value" : driverId}], "[AssignJobStatusFromJobListv2]");
                     FnCancelRide(driverId, BookingId);
 
-                    sendJobToDriver(JobVehicleId, JobVehicleId, BookingId, 'Offered', U_id);
+                    var _assignDrvSqlId = getSqlDriverId(JobVehicleId);
+                    sendJobToDriver(_assignDrvSqlId, JobVehicleId, BookingId, 'Offered', U_id);
  
                     $("#Divo" + BookingId + "").remove();
-                    acknowledgemethodx(JobVehicleId, JobVehicleId, BookingId, "Offered");
+                    acknowledgemethodx(JobVehicleId, _assignDrvSqlId, BookingId, "Offered");
 
                 }
     
@@ -15494,7 +15526,7 @@ $(document).ready(function() {
                            
                                 BookingStatusx = "Offered";
                               
-                                    sendJobToDriver(DriveId, DriveId, BookingIz, 'Offered');
+                                    sendJobToDriver(getSqlDriverId(DriveId), DriveId, BookingIz, 'Offered');
                                     toastr["success"](  "Job send to Driver", 'success!');
                                
                               
