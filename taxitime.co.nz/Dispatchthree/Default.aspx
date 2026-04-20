@@ -854,6 +854,59 @@
             </div>
         </div>
     </div>
+
+    <!-- Suspended Drivers Modal -->
+    <div class="modal fade" id="suspended-drivers-modal" style="overflow:auto;">
+        <div class="modal-dialog" style="max-width:860px; width:96vw; margin:24px auto;">
+            <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
+                <div class="modal-header" style="background:#c0392b; color:#fff; padding:14px 20px; border:none; display:flex; align-items:center; justify-content:space-between;">
+                    <h5 style="margin:0; font-size:15px; font-weight:600; letter-spacing:0.4px;">
+                        <i class="fa fa-ban" style="margin-right:8px;"></i>Suspended Drivers
+                        <span ng-if="suspendedDriversList.length > 0" style="background:rgba(255,255,255,0.25); border-radius:10px; padding:1px 10px; font-size:13px; margin-left:10px;">{{suspendedDriversList.length}}</span>
+                    </h5>
+                    <button class="close" data-dismiss="modal" style="color:#fff; opacity:0.8; font-size:22px; margin:0; padding:0; line-height:1;">&times;</button>
+                </div>
+                <div class="modal-body" style="padding:0; background:#fff;">
+                    <table style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr style="background:#f4f5f7; font-size:12px; color:#666; text-transform:uppercase; letter-spacing:0.5px;">
+                                <th style="padding:12px 16px; font-weight:600;">Vehicle / Type</th>
+                                <th style="padding:12px 16px; font-weight:600;">Driver</th>
+                                <th style="padding:12px 16px; font-weight:600;">Zone</th>
+                                <th style="padding:12px 16px; font-weight:600;">Suspended At</th>
+                                <th style="padding:12px 16px; font-weight:600; text-align:center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr ng-repeat="susp in suspendedDriversList" style="border-bottom:1px solid #f0f0f0;">
+                                <td style="padding:13px 16px; font-weight:600; color:#1a2535;">
+                                    {{susp.vehiclenumber}} <span style="color:#888; font-weight:400;">/ {{susp.vehicletype || '—'}}</span>
+                                </td>
+                                <td style="padding:13px 16px;">{{susp.drivername || '—'}}</td>
+                                <td style="padding:13px 16px; color:#555;">{{susp.zonename || '—'}}</td>
+                                <td style="padding:13px 16px; font-size:11px; color:#999;">{{susp.suspendedAt | date:'HH:mm dd/MM/yy'}}</td>
+                                <td style="padding:13px 16px; text-align:center;">
+                                    <button class="btn btn-sm btn-success" ng-click="unsuspendDriver(susp)" style="font-size:12px; padding:5px 14px; border-radius:6px;">
+                                        <i class="fa fa-undo" style="margin-right:5px;"></i>Restore
+                                    </button>
+                                </td>
+                            </tr>
+                            <tr ng-if="!suspendedDriversList.length">
+                                <td colspan="5" style="padding:36px; text-align:center; color:#bbb; font-size:14px;">
+                                    <i class="fa fa-check-circle" style="font-size:28px; display:block; margin-bottom:10px; color:#27ae60;"></i>
+                                    No suspended drivers
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer" style="background:#f9f9f9; border-top:1px solid #eee; padding:10px 20px; text-align:right;">
+                    <button class="btn btn-sm" data-dismiss="modal" style="background:#ddd; color:#555; border-radius:6px; padding:6px 18px;">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
       <div class="modal fade" id="search-jobs" style="overflow:auto;">
         <div class="modal-dialog" style="max-width:1160px; width:96vw; margin:24px auto;">
             <div class="modal-content" style="border:none; border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.28);">
@@ -2300,6 +2353,9 @@ $(document).ready(function() {
                            <div class="d-flex order-lg-10 ml-auto">
                         <div class="topnav">
                             <a data-toggle="modal" data-target="#Filter-jobs">Filter</a>
+                            <a data-toggle="modal" data-target="#suspended-drivers-modal" ng-click="getSuspendedDrivers()" style="color:#e74c3c; font-weight:700;">
+                                Suspended<span ng-if="suspendedDriversList.length > 0" style="background:#e74c3c;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;margin-left:5px;font-weight:700;">{{suspendedDriversList.length}}</span>
+                            </a>
                             <a data-toggle="modal" data-target="#search-jobs">Search Jobs</a>
                               
                             <a data-toggle="modal" data-target="#closed-jobs">Closed Jobs</a>
