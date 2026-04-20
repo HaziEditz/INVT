@@ -2007,7 +2007,7 @@ const server = http.createServer(async (req, res) => {
           EstimatedDistance:  assignedJob.EstimatedDistance || '0',
           EstimatedTime:      assignedJob.EstimatedTime || '0',
         }] : [];
-        console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleId} (${dt1.length ? zd.drivername : 'not found'}), ${dt2.length} job(s)`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleIdStr} (${dt1.length ? zd.drivername : 'not found'}), ${dt2.length} job(s)`);
         objectD(res, { dt1, dt2, dt3: [], dt4: [], dt5: [] });
 
       } else if (action === 'AutoDispatchVehiclesv2') {
