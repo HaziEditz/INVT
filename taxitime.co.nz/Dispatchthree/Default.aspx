@@ -8227,6 +8227,18 @@ $(document).ready(function() {
                                 success: function(_resp) {
                                     try {
                                         var _r = (_resp && _resp.d) ? JSON.parse(_resp.d) : null;
+                                        // ── Suspension gate ──────────────────────────────────────────
+                                        if (_r && _r.dt1 && _r.dt1[0] && _r.dt1[0].suspended) {
+                                            var _suspMsg = _r.dt1[0].message || 'Your account is suspended. Please contact your dispatcher.';
+                                            var _suspUntil = _r.dt1[0].suspendedUntil;
+                                            // Write suspension message to driver's Firebase notification node
+                                            try {
+                                                firebase.database().ref('notification/' + _capDid).set({ message: _suspMsg, type: 'suspended', suspendedUntil: _suspUntil || null, timestamp: Date.now() });
+                                            } catch(e) {}
+                                            // Remove from board immediately
+                                            _removeDriverLocally(String(_capVid));
+                                            return;
+                                        }
                                         if (_r && _r.awayLocked) {
                                             // Server blocked this Available — driver is still Away.
                                             // For Available the screen update was deferred, so there

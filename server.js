@@ -1415,6 +1415,18 @@ const server = http.createServer(async (req, res) => {
         let _dscQueueNo = null;      // new queue number to return to client for Firebase write
         let _dscDriverCancelled = null; // set when driver cancels an accepted/assigned job
         if (driverId && newStatus) {
+          // ── Suspension gate ───────────────────────────────────────────────────
+          const _suspCheck = SUSPENDED_DRIVERS.find(s => String(s.driverId) === driverId || String(s.vehicleId) === driverId);
+          if (_suspCheck) {
+            const _stillSusp = !_suspCheck.suspendedUntil || new Date(_suspCheck.suspendedUntil).getTime() > Date.now();
+            if (_stillSusp) {
+              const _untilStr = _suspCheck.suspendedUntil ? new Date(_suspCheck.suspendedUntil).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) : 'further notice';
+              const _suspMsg  = `Your account is suspended until ${_untilStr}. Please contact your dispatcher.`;
+              console.log(`  [DriverStatusChanged/DP] BLOCKED — driver ${driverId} is suspended until ${_suspCheck.suspendedUntil || 'further notice'}`);
+              objectD(res, { dt1: [{ suspended: true, message: _suspMsg, suspendedUntil: _suspCheck.suspendedUntil || null }], dt2: [], dt3: [], dt4: [], dt5: [] });
+              return;
+            }
+          }
           // Sync zone data into ZONE_DRIVERS if provided by client
           const zdSync = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
           if (zdSync && zonename) zdSync.zonename = zonename;
@@ -1810,7 +1822,12 @@ const server = http.createServer(async (req, res) => {
 
     // ── /DataSelector — read operations with action routing ───────────────
     if (urlPath.includes('/DataSelector') && !urlPath.includes('/DataSelectorLess') && !urlPath.includes('/DataSelectorRide')) {
-      if (action === 'RetrieveAlarms' || action === 'AllAlarms' || action === 'RetrieveAlarts' || action === 'RetrieveAlerts' || action === 'GetAlarms' || action === 'GetAlerts') {
+      if (action === '[GetSuspendedDrivers]') {
+        console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${SUSPENDED_DRIVERS.length} suspended driver(s)`);
+        objectD(res, { dt1: SUSPENDED_DRIVERS, dt2: [], dt3: [], dt4: [], dt5: [] });
+        return;
+
+      } else if (action === 'RetrieveAlarms' || action === 'AllAlarms' || action === 'RetrieveAlarts' || action === 'RetrieveAlerts' || action === 'GetAlarms' || action === 'GetAlerts') {
         console.log(`200: POST ${urlPath} [action=${action}] -> []`);
         jsonReply(res, { d: '[]' });
 
@@ -2216,6 +2233,18 @@ const server = http.createServer(async (req, res) => {
         let _dssQueueNo = null;
         let _dssDriverCancelled = null;
         if (driverId && newStatus) {
+          // ── Suspension gate ───────────────────────────────────────────────────
+          const _suspCheckDS = SUSPENDED_DRIVERS.find(s => String(s.driverId) === driverId || String(s.vehicleId) === driverId);
+          if (_suspCheckDS) {
+            const _stillSuspDS = !_suspCheckDS.suspendedUntil || new Date(_suspCheckDS.suspendedUntil).getTime() > Date.now();
+            if (_stillSuspDS) {
+              const _untilStrDS = _suspCheckDS.suspendedUntil ? new Date(_suspCheckDS.suspendedUntil).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) : 'further notice';
+              const _suspMsgDS  = `Your account is suspended until ${_untilStrDS}. Please contact your dispatcher.`;
+              console.log(`  [DriverStatusChanged/DS] BLOCKED — driver ${driverId} is suspended until ${_suspCheckDS.suspendedUntil || 'further notice'}`);
+              objectD(res, { dt1: [{ suspended: true, message: _suspMsgDS, suspendedUntil: _suspCheckDS.suspendedUntil || null }], dt2: [], dt3: [], dt4: [], dt5: [] });
+              return;
+            }
+          }
           // Sync zone data from client into ZONE_DRIVERS
           const zdSyncDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
           if (zdSyncDS && zonenameDS) zdSyncDS.zonename = zonenameDS;
