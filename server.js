@@ -34,9 +34,10 @@ const mimeTypes = {
 };
 
 // ─── Persistent data directory ────────────────────────────────────────────────
-const DATA_DIR      = path.join(__dirname, '.data');
-const JOB_STORE_FILE  = path.join(DATA_DIR, 'jobstore.json');
-const COOKIE_FILE     = path.join(DATA_DIR, 'session.txt');
+const DATA_DIR               = path.join(__dirname, '.data');
+const JOB_STORE_FILE         = path.join(DATA_DIR, 'jobstore.json');
+const SUSPENDED_DRIVERS_FILE = path.join(DATA_DIR, 'suspended_drivers.json');
+const COOKIE_FILE            = path.join(DATA_DIR, 'session.txt');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
@@ -201,7 +202,22 @@ const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 // Suspended drivers — removed from live board but restorable by the dispatcher.
 // Each entry: { driverId, vehicleId, drivername, vehiclenumber, vehicletype, zonename, suspendedAt, suspendedUntil }
 // suspendedUntil: ISO string — when null/undefined the suspension is indefinite.
-const SUSPENDED_DRIVERS = [];
+// Loaded from disk on startup so suspensions survive server restarts.
+let _savedSuspendedDrivers = [];
+try {
+  if (fs.existsSync(SUSPENDED_DRIVERS_FILE)) {
+    _savedSuspendedDrivers = JSON.parse(fs.readFileSync(SUSPENDED_DRIVERS_FILE, 'utf8')) || [];
+    console.log(`[persist] loaded ${_savedSuspendedDrivers.length} suspended driver(s) from disk`);
+  }
+} catch(e) { console.log('[persist] suspended_drivers load error:', e.message); }
+
+const SUSPENDED_DRIVERS = _savedSuspendedDrivers;
+
+function saveSuspendedDrivers() {
+  fs.writeFile(SUSPENDED_DRIVERS_FILE, JSON.stringify(SUSPENDED_DRIVERS, null, 2), (err) => {
+    if (err) console.log('[persist] suspended_drivers save error:', err.message);
+  });
+}
 
 // Auto-expire suspended drivers: check every 60 s, restore any whose suspendedUntil has passed.
 setInterval(function() {
@@ -218,6 +234,7 @@ setInterval(function() {
         vehiclestatus: 'Away', zonequeue: maxQ + 1, queueWaitSince: Date.now(),
       });
       console.log(`[AutoExpire] Driver ${s.driverId}/${s.vehicleId} suspension expired — restored to Away`);
+      saveSuspendedDrivers();
     }
   }
 }, 60000);
@@ -1204,6 +1221,7 @@ const server = http.createServer(async (req, res) => {
             suspendedAt:   new Date().toISOString(),
             suspendedUntil: _suspUntil,
           });
+          saveSuspendedDrivers();
         }
         const beforeLen2 = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
@@ -1228,6 +1246,7 @@ const server = http.createServer(async (req, res) => {
         if (_unsIdx !== -1) {
           restored = SUSPENDED_DRIVERS[_unsIdx];
           SUSPENDED_DRIVERS.splice(_unsIdx, 1);
+          saveSuspendedDrivers();
           // Re-add to ZONE_DRIVERS as Available at end of queue
           const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
           ZONE_DRIVERS.push({
@@ -1252,6 +1271,7 @@ const server = http.createServer(async (req, res) => {
         const _updEntry  = SUSPENDED_DRIVERS.find(s => String(s.driverId) === _updDrvId || String(s.vehicleId) === _updVehId);
         if (_updEntry) {
           _updEntry.suspendedUntil = _updUntil ? new Date(_updUntil).toISOString() : null;
+          saveSuspendedDrivers();
         }
         console.log(`200: POST ${urlPath} [action=[UpdateSuspensionTime]] -> ${_updEntry ? 'updated ' + _updDrvId + ' until ' + _updEntry.suspendedUntil : 'not found'}`);
         objectD(res, { dt1: _updEntry ? [_updEntry] : [], dt2: [], dt3: [], dt4: [], dt5: [] });
