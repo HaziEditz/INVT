@@ -13434,8 +13434,30 @@ $(document).ready(function() {
      
 
             //kicked and suspends//
-            $scope.ShowKickDetails  = function(id) {
+            function _removeDriverLocally(vehicleIdStr) {
+                // Remove the driver from the live board immediately — no Firebase round-trip needed.
+                // vehicleIdStr is the VehicleId (call sign or numeric string) from selectedone.
+                if ($scope.driverdatarealx) {
+                    var idStr = String(vehicleIdStr || '');
+                    $scope.driverdatarealx = $scope.driverdatarealx.filter(function(d) {
+                        return String(d.VehicleId) !== idStr && String(d.driverid) !== idStr && String(d.PlayerId) !== idStr;
+                    });
+                }
+                var sc2 = angular.element(document.getElementById('myangular')).scope();
+                if (sc2) {
+                    if (typeof sc2.drivertable  === 'function') sc2.drivertable();
+                    if (typeof sc2.zonetablez   === 'function') sc2.zonetablez();
+                    if (typeof sc2.changezone   === 'function') sc2.changezone();
+                }
+                $('#VehicleDetails').modal('hide');
+            }
 
+            $scope.ShowKickDetails  = function(id) {
+                // `id` = selectedone = VehicleId string from the driver row click.
+                // Labels (#lblDriverId, #lblBookingHeadId) may be empty if [VehicleInfov2] failed,
+                // so fall back to `id` directly for both DriverId and VehicleId.
+                var _kickDriverId  = ($("#lblDriverId").text()      || '').trim() || String(id || '');
+                var _kickVehicleId = ($("#lblBookingHeadId").text() || '').trim() || String(id || '');
 
                 Swal.fire({
                     title: 'Are you sure?',
@@ -13447,31 +13469,26 @@ $(document).ready(function() {
                     confirmButtonText: 'Yes, Kick Driver!'
                 }).then((result) => {
                     if (result.value) {
-
-
                         Action([
-                   { "name": "VehicleId", "Value": $("#lblBookingHeadId").text() }, 
-                   { "name": "DriverId", "Value": $("#lblDriverId").text() }, 
-                   { "name": "PenaltyReason", "Value": "Kicked" },
-                   { "name": "PenaltyDate", "Value": $scope.CurrentDateTime },
-                   { "name": "PenaltyUpToDateTime", "Value": "" + " " + "12:00:00" }],
-                   "[KickDriver]");
+                            { "name": "VehicleId",            "Value": _kickVehicleId },
+                            { "name": "DriverId",             "Value": _kickDriverId },
+                            { "name": "PenaltyReason",        "Value": "Kicked" },
+                            { "name": "PenaltyDate",          "Value": $scope.CurrentDateTime },
+                            { "name": "PenaltyUpToDateTime",  "Value": "" + " " + "12:00:00" }],
+                            "[KickDriver]");
 
-                        FnKickDriver($("#lblDriverId").text(), $("#lblBookingHeadId").text(), "Kicked");
-                 
+                        FnKickDriver(_kickDriverId, _kickVehicleId, "Kicked");
                         toastr["success"]('Driver Kicked Successfully.', 'Success!');
-                        firebase.database().ref("online/" + SomeSession2 + "/"+$("#lblBookingHeadId").text()).remove();
-                        //$scope.drivertable();
-                        //$scope.zonetablez();
+                        // Remove from local board immediately (Firebase remove may be blocked by rules)
+                        try { firebase.database().ref("online/" + SomeSession2 + "/" + _kickVehicleId).remove(); } catch(e){}
+                        _removeDriverLocally(String(id || _kickVehicleId));
                     }
-                })
-
-           
-    
-
+                });
             }
 
             $scope.ShowSuspendDetails= function(id) {
+                var _suspDriverId  = ($("#lblDriverId").text()      || '').trim() || String(id || '');
+                var _suspVehicleId = ($("#lblBookingHeadId").text() || '').trim() || String(id || '');
 
                 Swal.fire({
                     title: 'Are you sure?',
@@ -13483,27 +13500,19 @@ $(document).ready(function() {
                     confirmButtonText: 'Yes, suspend Driver!'
                 }).then((result) => {
                     if (result.value) {
-
-
                         Action([
-                  { "name": "DriverId", "Value": $("#lblDriverId").text() }, 
-                  { "name": "VehicleId", "Value": $("#lblBookingHeadId").text() },
-                  { "name": "PenaltyReason", "Value": "Suspended" },
-                  { "name": "PenaltyDateTime", "Value": $scope.CurrentDateTime }],
-                  "[DispatcherKickUsers]");
-          
-                        FnKickDriver($("#lblDriverId").text(), $("#lblBookingHeadId").text(), "Suspended");
-               
-                        toastr["success"]('Driver suspend Successfully.', 'Success!');
-                        firebase.database().ref("online/" + SomeSession2 + "/"+$("#lblBookingHeadId").text()).remove();
+                            { "name": "DriverId",          "Value": _suspDriverId },
+                            { "name": "VehicleId",         "Value": _suspVehicleId },
+                            { "name": "PenaltyReason",     "Value": "Suspended" },
+                            { "name": "PenaltyDateTime",   "Value": $scope.CurrentDateTime }],
+                            "[DispatcherKickUsers]");
 
-                        //$scope.drivertable();
-                        //$scope.zonetablez();
+                        FnKickDriver(_suspDriverId, _suspVehicleId, "Suspended");
+                        toastr["success"]('Driver Suspended Successfully.', 'Success!');
+                        try { firebase.database().ref("online/" + SomeSession2 + "/" + _suspVehicleId).remove(); } catch(e){}
+                        _removeDriverLocally(String(id || _suspVehicleId));
                     }
-                })
-           
-                //$("#VehicleDetails").modal('hide');
-
+                });
             }
             //end kicked//
 

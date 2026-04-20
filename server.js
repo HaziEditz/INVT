@@ -1914,10 +1914,20 @@ const server = http.createServer(async (req, res) => {
         objectD(res, { dt1: jobs, dt2, dt3 });
 
       } else if (action === '[VehicleInfov2]') {
-        const vehicleId = parseInt(param('Id') || param('id') || '0') || 0;
+        // Vehicle IDs can be alphanumeric call signs ("T201") or numeric ("1212") — never parseInt
+        const vehicleIdStr = (param('Id') || param('id') || '').toString().trim();
+        const vehicleIdNum = parseInt(vehicleIdStr) || 0;
         // Look up driver in ZONE_DRIVERS (demo) or from jobStore assigned driver
-        const zd = ZONE_DRIVERS.find(d => d.VehicleId === vehicleId || d.driverid === vehicleId);
-        const assignedJob = jobStore.find(j => j.VehicleId === vehicleId || j.DriverId === vehicleId);
+        const zd = ZONE_DRIVERS.find(d =>
+          String(d.VehicleId) === vehicleIdStr ||
+          String(d.driverid)  === vehicleIdStr ||
+          (vehicleIdNum > 0 && (d.VehicleId === vehicleIdNum || d.driverid === vehicleIdNum))
+        );
+        const assignedJob = jobStore.find(j =>
+          String(j.VehicleId) === vehicleIdStr ||
+          String(j.DriverId)  === vehicleIdStr ||
+          (vehicleIdNum > 0 && (j.VehicleId === vehicleIdNum || j.DriverId === vehicleIdNum))
+        );
         const dt1 = zd ? [{
           DriverId: zd.driverid,
           Lat:  '-46.4227',
