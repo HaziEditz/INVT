@@ -11588,7 +11588,17 @@ $(document).ready(function() {
                             var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
                             return triedIds.indexOf(dvId) === -1;
                         });
-                        if (!availableDrivers.length) continue; // all available drivers already tried for this job
+                        if (!availableDrivers.length) {
+                            // All currently-available drivers have already been tried.
+                            // If at least one driver IS available (just already tried), reset
+                            // the tried list so the job loops back round and keeps being offered
+                            // until someone accepts — no job should sit in Pending forever.
+                            if (allAvailable.length > 0) {
+                                _triedDriversForJob[String(jobId)] = [];
+                                console.log('[smartAutoDispatch] Job #' + jobId + ' — all available drivers tried, resetting loop');
+                            }
+                            continue; // re-offer on next 10s cycle
+                        }
 
                         // Primary sort: zonequeue ascending (1 = first in queue).
                         // Tiebreaker: distance to pickup if GPS available.
