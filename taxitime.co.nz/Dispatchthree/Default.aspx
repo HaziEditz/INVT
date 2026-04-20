@@ -5818,7 +5818,27 @@ $(document).ready(function() {
              }, false);
         
 
-            (function(dval) {
+            (function(dval, vehicleKeyChanged) {
+                // If the driver app signals logout (Offline, LoggedOut, etc.) or clears
+                // vehiclestatus, remove them from the board immediately instead of updating.
+                var _offlineStatuses = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
+                var _isLogout = !dval.vehiclestatus || _offlineStatuses.indexOf(dval.vehiclestatus) !== -1;
+                if (_isLogout) {
+                    if (_disconnectTimers[vehicleKeyChanged]) {
+                        clearTimeout(_disconnectTimers[vehicleKeyChanged]);
+                        delete _disconnectTimers[vehicleKeyChanged];
+                    }
+                    var _scOff = angular.element(document.getElementById('myangular')).scope();
+                    if (_scOff) {
+                        _scOff.adddriverremove(dval, vehicleKeyChanged);
+                    } else {
+                        setTimeout(function() {
+                            var _scOff2 = angular.element(document.getElementById('myangular')).scope();
+                            if (_scOff2) _scOff2.adddriverremove(dval, vehicleKeyChanged);
+                        }, 1500);
+                    }
+                    return;
+                }
                 var _sc = angular.element(document.getElementById('myangular')).scope();
                 if (_sc) {
                     _sc.adddrivernew(dval);
@@ -5828,7 +5848,7 @@ $(document).ready(function() {
                         if (_sc2) _sc2.adddrivernew(dval);
                     }, 1500);
                 }
-            })(childsnapshot.val());
+            })(childsnapshot.val(), data.key);
         }
     });
 

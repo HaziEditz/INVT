@@ -1463,6 +1463,24 @@ const server = http.createServer(async (req, res) => {
               return;
             }
           }
+          // ── Logout ──────────────────────────────────────────────────────────
+          // Driver app explicitly signed off. Remove from ZONE_DRIVERS so the
+          // server no longer offers them jobs. The dispatcher's Firebase listener
+          // handles the visual removal on the board side.
+          const _logoutStatuses = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
+          if (_logoutStatuses.indexOf(newStatus) !== -1) {
+            const _beforeLen = ZONE_DRIVERS.length;
+            const _kept = ZONE_DRIVERS.filter(d =>
+              String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
+              (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber))
+            );
+            ZONE_DRIVERS.length = 0;
+            _kept.forEach(d => ZONE_DRIVERS.push(d));
+            console.log(`200: POST ${urlPath} [action=[DriverStatusChanged]] -> driver ${driverId} logged out (removed ${_beforeLen - ZONE_DRIVERS.length} from ZONE_DRIVERS)`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            return;
+          }
+
           // Sync zone data into ZONE_DRIVERS if provided by client
           const zdSync = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
           if (zdSync && zonename) zdSync.zonename = zonename;
@@ -2353,6 +2371,21 @@ const server = http.createServer(async (req, res) => {
               return;
             }
           }
+          // ── Logout ──────────────────────────────────────────────────────────
+          const _logoutStatusesDS = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
+          if (_logoutStatusesDS.indexOf(newStatus) !== -1) {
+            const _beforeLenDS = ZONE_DRIVERS.length;
+            const _keptDS = ZONE_DRIVERS.filter(d =>
+              String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
+              (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber))
+            );
+            ZONE_DRIVERS.length = 0;
+            _keptDS.forEach(d => ZONE_DRIVERS.push(d));
+            console.log(`200: POST ${urlPath} [action=[DriverStatusChanged]] -> driver ${driverId} logged out (DS path, removed ${_beforeLenDS - ZONE_DRIVERS.length} from ZONE_DRIVERS)`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+            return;
+          }
+
           // Sync zone data from client into ZONE_DRIVERS
           const zdSyncDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
           if (zdSyncDS && zonenameDS) zdSyncDS.zonename = zonenameDS;
