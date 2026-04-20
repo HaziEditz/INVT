@@ -5431,10 +5431,22 @@ $(document).ready(function() {
             clearTimeout(_disconnectTimers[data.key]);
             delete _disconnectTimers[data.key];
         }
-        // Handle nested structure: { vehicleId: { driverid, vehiclenumber, ... } }
+        // Handle nested structure: { firebaseUID: { driverid, vehiclenumber, ... } }
+        // The outer key IS the Firebase auth UID — capture it as PlayerId before unwrapping.
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
-            if (keys.length > 0) driverData = driverData[keys[0]];
+            if (keys.length > 0) {
+                var _fbUid = keys[0];
+                driverData = driverData[_fbUid];
+                // Store the Firebase UID so notifications go to the right path
+                if (driverData && typeof driverData === 'object' && !driverData.PlayerId) {
+                    driverData.PlayerId = _fbUid;
+                }
+            }
+        }
+        // Also stamp PlayerId if the field is already flat but PlayerId is missing
+        if (driverData && !driverData.PlayerId && driverData.driverid) {
+            driverData.PlayerId = String(driverData.driverid);
         }
         if (!driverData || typeof driverData !== 'object') return;
         cars_count++;
@@ -5467,10 +5479,20 @@ $(document).ready(function() {
     cars_Ref.on('child_changed', function (data) {
         var driverData = data.val();
         if (!driverData || typeof driverData !== 'object') return;
-        // Handle nested structure: { vehicleId: { driverid, vehiclenumber, ... } }
+        // Handle nested structure: { firebaseUID: { driverid, vehiclenumber, ... } }
+        // Capture the Firebase auth UID as PlayerId before unwrapping.
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
-            if (keys.length > 0) driverData = driverData[keys[0]];
+            if (keys.length > 0) {
+                var _fbUid = keys[0];
+                driverData = driverData[_fbUid];
+                if (driverData && typeof driverData === 'object' && !driverData.PlayerId) {
+                    driverData.PlayerId = _fbUid;
+                }
+            }
+        }
+        if (driverData && !driverData.PlayerId && driverData.driverid) {
+            driverData.PlayerId = String(driverData.driverid);
         }
         if (!driverData || typeof driverData !== 'object') return;
         var childsnapshot = { val: function() { return driverData; } };
