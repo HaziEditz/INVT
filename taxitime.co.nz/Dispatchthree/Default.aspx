@@ -7885,8 +7885,10 @@ $(document).ready(function() {
                         $('#lblVehicleName').text($data.VehicleName || '—');
                         $('#lblVehicleSign').text($data.CallSign || '—');
                         $('#lblVehicleNo').text($data.VehicleNo || '—');
+                        // BookingId from server = vehicle ID key used for Firebase lookup, kick, suspend
                         $('#lblBookingHeadId').text($data.BookingId);
-                        $('#lblDriverPhone').text($data.BookingId || '—');
+                        // ActiveBookingId = real booking reference — blank when driver has no live job
+                        $('#lblDriverPhone').text($data.ActiveBookingId || '—');
                         var _drvFullName2 = (($data.UserFName || '') + ' ' + ($data.UserLName || '')).trim() || 'Driver';
                         $('#lblDriverName').text(_drvFullName2);
                         var _nameParts2 = _drvFullName2.split(' ').filter(function(p){ return p.length > 0; });
@@ -12606,8 +12608,10 @@ $(document).ready(function() {
                         $('#lblVehicleName').text($data.VehicleName || '—');
                         $('#lblVehicleSign').text($data.CallSign || '—');
                         $('#lblVehicleNo').text($data.VehicleNo || '—');
+                        // BookingId from server = vehicle ID key used for Firebase lookup, kick, suspend
                         $('#lblBookingHeadId').text($data.BookingId);
-                        $('#lblDriverPhone').text($data.BookingId || '—');
+                        // ActiveBookingId = real booking reference — blank when driver has no live job
+                        $('#lblDriverPhone').text($data.ActiveBookingId || '—');
                         var _drvFullName = (($data.UserFName || '') + ' ' + ($data.UserLName || '')).trim() || 'Driver';
                         $('#lblDriverName').text(_drvFullName);
                         // Avatar initials

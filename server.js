@@ -2055,30 +2055,38 @@ const server = http.createServer(async (req, res) => {
           String(j.DriverId)  === vehicleIdStr ||
           (vehicleIdNum > 0 && (j.VehicleId === vehicleIdNum || j.DriverId === vehicleIdNum))
         );
+        // Only treat a job as active if it's in a current working state — not completed/cancelled
+        const ACTIVE_STATUSES = new Set(['Offered','Assigned','Active','Picking','Arrived']);
+        const activeJob = assignedJob && ACTIVE_STATUSES.has(assignedJob.BookingStatus) ? assignedJob : null;
         const dt1 = zd ? [{
           DriverId: zd.driverid,
-          Lat:  '-46.4227',
-          Lng:  '168.3767',
+          // Return empty lat/lng so the client falls back to the Firebase live position
+          Lat:  '',
+          Lng:  '',
           PlayerId: '',
           VehicleName: zd.vehicletype,
           CallSign: zd.vehiclenumber,
           VehicleNo: zd.vehiclenumber,
-          BookingId: assignedJob ? assignedJob.Id : '',
+          // BookingId here holds the VEHICLE ID — used by the client for Firebase lookup, kick, suspend
+          // (this matches real-server behaviour where BookingId = vehicleId in VehicleInfov2)
+          BookingId: vehicleIdStr,
+          // ActiveBookingId is the actual booking reference — only set when driver has a live job
+          ActiveBookingId: activeJob ? String(activeJob.Id) : '',
           UserFName: (zd.drivername || '').split(' ')[0] || '',
           UserLName: (zd.drivername || '').split(' ').slice(1).join(' ') || '',
           VehicleImage: '',
         }] : [];
-        const dt2 = assignedJob ? [{
-          BookingStatus:      assignedJob.BookingStatus,
-          BookingDateTime:    assignedJob.BookingDateTime,
-          PassengerId:        assignedJob.Name || assignedJob.passengername || '',
-          PickAddress:        assignedJob.PickAddress || '',
-          DropAddress:        assignedJob.DropAddress || '',
-          Passengers:         assignedJob.Passengers || 1,
-          Bags:               assignedJob.Bags || 0,
-          WheelChairs:        assignedJob.WheelChairs || 0,
-          EstimatedDistance:  assignedJob.EstimatedDistance || '0',
-          EstimatedTime:      assignedJob.EstimatedTime || '0',
+        const dt2 = activeJob ? [{
+          BookingStatus:      activeJob.BookingStatus,
+          BookingDateTime:    activeJob.BookingDateTime,
+          PassengerId:        activeJob.Name || activeJob.passengername || '',
+          PickAddress:        activeJob.PickAddress || '',
+          DropAddress:        activeJob.DropAddress || '',
+          Passengers:         activeJob.Passengers || 1,
+          Bags:               activeJob.Bags || 0,
+          WheelChairs:        activeJob.WheelChairs || 0,
+          EstimatedDistance:  activeJob.EstimatedDistance || '0',
+          EstimatedTime:      activeJob.EstimatedTime || '0',
         }] : [];
         console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleIdStr} (${dt1.length ? zd.drivername : 'not found'}), ${dt2.length} job(s)`);
         objectD(res, { dt1, dt2, dt3: [], dt4: [], dt5: [] });
