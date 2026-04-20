@@ -1200,29 +1200,28 @@ const server = http.createServer(async (req, res) => {
         const driverId  = (param('DriverId')  || '').toString().trim();
         const vehicleId = (param('VehicleId') || '').toString().trim();
         const vehicleIdNum = parseInt(vehicleId) || 0;
-        // Save driver info before removing so it can be restored later
+        // Try to find full driver record in ZONE_DRIVERS; fall back to request params if not found
+        // (drivers shown on board from Firebase may not be in ZONE_DRIVERS if no status change was sent)
         const _suspZd = ZONE_DRIVERS.find(d =>
           String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
           (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))
         );
-        if (_suspZd) {
-          // Remove any previous suspension record for this driver first
-          const _prevIdx = SUSPENDED_DRIVERS.findIndex(s => String(s.driverId) === String(_suspZd.driverid) || String(s.vehicleId) === String(_suspZd.VehicleId));
-          if (_prevIdx !== -1) SUSPENDED_DRIVERS.splice(_prevIdx, 1);
-          const _suspUntilRaw = (param('SuspendedUntil') || '').toString().trim();
-          const _suspUntil = _suspUntilRaw ? new Date(_suspUntilRaw).toISOString() : null;
-          SUSPENDED_DRIVERS.push({
-            driverId:      String(_suspZd.driverid),
-            vehicleId:     String(_suspZd.VehicleId),
-            drivername:    _suspZd.drivername    || '',
-            vehiclenumber: _suspZd.vehiclenumber || '',
-            vehicletype:   _suspZd.vehicletype   || '',
-            zonename:      _suspZd.zonename      || '',
-            suspendedAt:   new Date().toISOString(),
-            suspendedUntil: _suspUntil,
-          });
-          saveSuspendedDrivers();
-        }
+        const _suspUntilRaw = (param('SuspendedUntil') || '').toString().trim();
+        const _suspUntil = _suspUntilRaw ? new Date(_suspUntilRaw).toISOString() : null;
+        // Always record the suspension — use ZONE_DRIVERS data if found, else use request params
+        const _prevIdx = SUSPENDED_DRIVERS.findIndex(s => String(s.driverId) === driverId || String(s.vehicleId) === vehicleId);
+        if (_prevIdx !== -1) SUSPENDED_DRIVERS.splice(_prevIdx, 1);
+        SUSPENDED_DRIVERS.push({
+          driverId:      driverId,
+          vehicleId:     vehicleId,
+          drivername:    (_suspZd && _suspZd.drivername)    || param('DriverName')    || '',
+          vehiclenumber: (_suspZd && _suspZd.vehiclenumber) || param('VehicleNumber') || vehicleId,
+          vehicletype:   (_suspZd && _suspZd.vehicletype)   || param('VehicleType')   || '',
+          zonename:      (_suspZd && _suspZd.zonename)      || param('ZoneName')      || '',
+          suspendedAt:   new Date().toISOString(),
+          suspendedUntil: _suspUntil,
+        });
+        saveSuspendedDrivers();
         const beforeLen2 = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
           const d = ZONE_DRIVERS[i];
@@ -1436,7 +1435,10 @@ const server = http.createServer(async (req, res) => {
         let _dscDriverCancelled = null; // set when driver cancels an accepted/assigned job
         if (driverId && newStatus) {
           // ── Suspension gate ───────────────────────────────────────────────────
-          const _suspCheck = SUSPENDED_DRIVERS.find(s => String(s.driverId) === driverId || String(s.vehicleId) === driverId);
+          const _suspCheck = SUSPENDED_DRIVERS.find(s =>
+            String(s.driverId) === driverId || String(s.vehicleId) === driverId ||
+            (vehiclenumber && (String(s.driverId) === vehiclenumber || String(s.vehicleId) === vehiclenumber))
+          );
           if (_suspCheck) {
             const _stillSusp = !_suspCheck.suspendedUntil || new Date(_suspCheck.suspendedUntil).getTime() > Date.now();
             if (_stillSusp) {
@@ -2254,7 +2256,10 @@ const server = http.createServer(async (req, res) => {
         let _dssDriverCancelled = null;
         if (driverId && newStatus) {
           // ── Suspension gate ───────────────────────────────────────────────────
-          const _suspCheckDS = SUSPENDED_DRIVERS.find(s => String(s.driverId) === driverId || String(s.vehicleId) === driverId);
+          const _suspCheckDS = SUSPENDED_DRIVERS.find(s =>
+            String(s.driverId) === driverId || String(s.vehicleId) === driverId ||
+            (vehiclenumber && (String(s.driverId) === vehiclenumber || String(s.vehicleId) === vehiclenumber))
+          );
           if (_suspCheckDS) {
             const _stillSuspDS = !_suspCheckDS.suspendedUntil || new Date(_suspCheckDS.suspendedUntil).getTime() > Date.now();
             if (_stillSuspDS) {

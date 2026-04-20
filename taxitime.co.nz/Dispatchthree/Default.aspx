@@ -13602,12 +13602,18 @@ $(document).ready(function() {
                 });
             }
 
-            // Helper: set the datetime-local input in the suspend Swal to now + N hours
+            // Helper: format a Date as a datetime-local compatible string (YYYY-MM-DDTHH:MM) in LOCAL browser time
+            function _toLocalDateTimeStr(d) {
+                var pad = function(n) { return String(n).padStart(2, '0'); };
+                return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+                       'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+            }
+            // Helper: set the datetime-local input in the suspend Swal to now + N hours (in local time)
             window._setSuspendDuration = function(hours) {
                 var el = document.getElementById('_suspendUntilInput');
                 if (!el) return;
                 var d = new Date(Date.now() + hours * 3600000);
-                el.value = d.toISOString().slice(0, 16);
+                el.value = _toLocalDateTimeStr(d);
             };
 
             $scope.ShowSuspendDetails = function(id) {
@@ -13615,8 +13621,17 @@ $(document).ready(function() {
                 var _suspVehicleId = ($("#lblBookingHeadId").text() || '').trim() || String(id || '');
                 var _driverLabel   = ($("#lblDriverName").text()    || '').trim() || _suspVehicleId;
 
-                // Default: 24 hours from now
-                var _defUntil = new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 16);
+                // Look up full driver record from the live board so we can pass all fields to the server
+                var _drvRec = ($scope.driverdatarealx || []).find(function(d) {
+                    return String(d.VehicleId) === _suspVehicleId || String(d.driverid || d.DriverId) === _suspDriverId;
+                });
+                var _suspDriverName    = (_drvRec && _drvRec.drivername)    || _driverLabel   || '';
+                var _suspVehicleNumber = (_drvRec && _drvRec.vehiclenumber) || _suspVehicleId || '';
+                var _suspVehicleType   = (_drvRec && _drvRec.vehicletype)   || '';
+                var _suspZoneName      = (_drvRec && _drvRec.zonename)      || '';
+
+                // Default: 24 hours from now, formatted in LOCAL time for datetime-local input
+                var _defUntil = _toLocalDateTimeStr(new Date(Date.now() + 24 * 3600000));
 
                 Swal.fire({
                     title: '<span style="color:#c0392b;"><i class="fa fa-ban"></i> Suspend Driver</span>',
@@ -13648,6 +13663,10 @@ $(document).ready(function() {
                         Action([
                             { "name": "DriverId",        "Value": _suspDriverId },
                             { "name": "VehicleId",       "Value": _suspVehicleId },
+                            { "name": "DriverName",      "Value": _suspDriverName },
+                            { "name": "VehicleNumber",   "Value": _suspVehicleNumber },
+                            { "name": "VehicleType",     "Value": _suspVehicleType },
+                            { "name": "ZoneName",        "Value": _suspZoneName },
                             { "name": "PenaltyReason",   "Value": "Suspended" },
                             { "name": "PenaltyDateTime", "Value": $scope.CurrentDateTime },
                             { "name": "SuspendedUntil",  "Value": new Date(_suspUntil).toISOString() }],
@@ -13698,7 +13717,10 @@ $(document).ready(function() {
             };
 
             $scope.editSuspensionTime = function(driver) {
-                var _curUntil = driver.suspendedUntil ? new Date(driver.suspendedUntil).toISOString().slice(0, 16) : new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 16);
+                // suspendedUntil is an ISO UTC string from the server — convert to LOCAL time for datetime-local input
+                var _curUntil = driver.suspendedUntil
+                    ? _toLocalDateTimeStr(new Date(driver.suspendedUntil))
+                    : _toLocalDateTimeStr(new Date(Date.now() + 24 * 3600000));
                 Swal.fire({
                     title: '<i class="fa fa-clock-o" style="color:#e67e22;"></i> Edit Suspension',
                     html:
