@@ -6641,8 +6641,14 @@ $(document).ready(function() {
                cache: false,
                success: function (result) {
                    var ridestatus= JSON.parse(result.d);
-                    
-                   if(ridestatus["dt1"].length > 0) {
+                   var _cs1Job = ridestatus["dt1"] && ridestatus["dt1"].length > 0 ? ridestatus["dt1"][0] : null;
+                   // Bug fix #124a: If the job is already Assigned/Active/Picking the driver accepted
+                   // just before or around the 27s timeout — do NOT send the Unreached downgrade.
+                   // Without this guard, the gate check returns the job (Assigned is in its eligible set)
+                   // and the outer code proceeds to call [changeriddestatusforoffer] with Unreached,
+                   // which the server BLOCKS but the client still shows "you missed the job".
+                   var _cs1AlreadyAccepted = _cs1Job && (['Assigned','Active','Picking'].indexOf(_cs1Job.BookingStatus) !== -1);
+                   if(_cs1Job && !_cs1AlreadyAccepted) {
 
                        if(messagezz == ''){
 
@@ -6672,6 +6678,21 @@ $(document).ready(function() {
                               contentType: "application/json; charset=utf-8",
                               cache: false,
                               success: function (response) {
+                                  // Bug fix #124b: Server blocks the Unreached downgrade when the job was
+                                  // already accepted (race: driver accepted milliseconds before the timeout
+                                  // AJAX completed). Do NOT show the "missed" toast or Away-lock the driver.
+                                  try {
+                                      var _r1 = JSON.parse(response.d || '{}');
+                                      if (_r1 && _r1.blocked === true) {
+                                          console.log('[convertstatus1] server blocked Unreached — driver already accepted job #' + id);
+                                          var scb = angular.element(document.getElementById('myangular')).scope();
+                                          if (scb) {
+                                              if (typeof scb.AssignedJobs === 'function') scb.AssignedJobs();
+                                              if (typeof scb.getjobs === 'function') scb.getjobs();
+                                          }
+                                          return;
+                                      }
+                                  } catch(e) {}
                                   console.log("status :" + status);
                                   toastr["warning"]('Driver did not respond. Job returned to queue.', 'Warning!');
                                   var sc = angular.element(document.getElementById('myangular')).scope();
@@ -6702,7 +6723,10 @@ $(document).ready(function() {
                           });
  
                    }else{
-                    
+                       // Job was already accepted or not found — do nothing, no toast, no away-lock.
+                       if (_cs1AlreadyAccepted) {
+                           console.log('[convertstatus1] skipped Unreached for job #' + id + ' — already ' + _cs1Job.BookingStatus);
+                       }
                    }
 
                }
