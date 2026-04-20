@@ -2339,7 +2339,7 @@
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "offeredAt": 1776686157877,
+    "offeredAt": null,
     "returnReason": "No Response – Not Accepted"
   }
 ]

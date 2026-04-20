@@ -5990,24 +5990,17 @@ $(document).ready(function() {
     // reason: 'reject' | 'timeout'
     function FnNotifyDriverAway(DriverId, reason) {
         if (!DriverId) return;
+        var _fbUid = getPlayerIdForDriver(DriverId);
         var msg = reason === 'reject'
             ? 'You are now Away — you rejected the job. Tap Available when ready to accept jobs.'
             : 'You are now Away — job not accepted in time. Tap Available when ready to accept jobs.';
         var now = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
         var bookingidStr = 'Taxi Time,' + msg + ',' + now + ',0,Dispatcher';
         var db = firebase.database();
-        // Remove first so the driver app's listener sees the fresh write as a new value,
-        // then write both paths atomically via update().
-        db.ref('/notification/' + DriverId).remove().then(function() {
+        db.ref('/notification/' + _fbUid).remove().then(function() {
             var updates = {};
-            updates['/notification/' + DriverId] = {
-                bookingid: bookingidStr,
-                content: msg
-            };
-            updates['/chat/' + DriverId] = {
-                bookingid: bookingidStr,
-                content: msg
-            };
+            updates['/notification/' + _fbUid] = { bookingid: bookingidStr, content: msg };
+            updates['/chat/' + _fbUid]         = { bookingid: bookingidStr, content: msg };
             return db.ref().update(updates);
         }).catch(function(e) {
             console.warn('[FnNotifyDriverAway] Firebase write failed:', e);
@@ -6099,10 +6092,39 @@ $(document).ready(function() {
     // Replaces the separate writeNewPost call — all fields are written in a single atomic
     // set so there is no race condition between the notification bookingid and the detail fields.
     // Writes to:
-    //   /notification/{driverId}  — single set with bookingid + all detail fields
-    //   /jobDetails/{bookingId}   — standalone detail node for direct lookup
+    //   /notification/{firebaseUID}  — single set with bookingid + all detail fields
+    //   /jobDetails/{bookingId}      — standalone detail node for direct lookup
     // NOTE: we do NOT update online/{companyId}/{vehicleId} because that is the live-status
     // node; writing to it triggers spurious vehiclestatus change events in the dispatcher.
+
+    // getPlayerIdForDriver — given any driver identifier (SQL driver ID OR Firebase UID),
+    // returns the Firebase auth UID that the driver app listens on at /notification/{uid}.
+    // Strategy: scan driverdatarealx (populated from the Firebase online/ listener) for a
+    // driver whose driverid, VehicleId, vehiclenumber, or PlayerId matches the input.
+    // Falls back to the input value unchanged if no match — so if the caller already has
+    // the Firebase UID (e.g. smartAutoDispatch passes best.PlayerId), it still works.
+    function getPlayerIdForDriver(anyId) {
+        if (!anyId || String(anyId) === '0' || String(anyId) === '-1') return String(anyId || '');
+        try {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (_sc && _sc.driverdatarealx && _sc.driverdatarealx.length) {
+                var _sid = String(anyId);
+                for (var _i = 0; _i < _sc.driverdatarealx.length; _i++) {
+                    var _d = _sc.driverdatarealx[_i];
+                    if (
+                        String(_d.driverid)      === _sid ||
+                        String(_d.VehicleId)     === _sid ||
+                        String(_d.vehiclenumber) === _sid ||
+                        String(_d.PlayerId)      === _sid
+                    ) {
+                        return _d.PlayerId || _sid;
+                    }
+                }
+            }
+        } catch(_e) {}
+        return String(anyId);
+    }
+
     function writeJobDetailsToFirebase(driverId, vehicleId, bookingId, details) {
         try {
             if (!driverId || String(driverId) === 'null' || String(driverId) === 'undefined') {
@@ -6139,13 +6161,14 @@ $(document).ready(function() {
                 jobFare:       String(details.fare || ''),
                 jobCount:      1
             };
-            var notifRef = db.ref('/notification/' + driverId);
-            var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + driverId);
+            var _fbUidNotif = getPlayerIdForDriver(driverId);
+            var notifRef = db.ref('/notification/' + _fbUidNotif);
+            var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + _fbUidNotif);
 
             function _doWrite() {
                 notifRef.remove()
                     .then(function() { return notifRef.set(fullPayload); })
-                    .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', driverId, 'job', bookingId); })
+                    .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', _fbUidNotif, '(sql:', driverId, ') job', bookingId); })
                     .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
             }
 
@@ -6223,18 +6246,13 @@ $(document).ready(function() {
     function checkingjobz(vehicle , id, driverid, settleCallback){
         $message  = 'Driver did not respond';
         console.log("checking job");
+        var _fbUidCjz = getPlayerIdForDriver(driverid);
         setTimeout(function(){
-            // Mark settled in the parent resolver so the 27s timer doesn't double-fire.
             if (typeof settleCallback === 'function') settleCallback();
-            // Removed .vowali DOM guard — Assigned jobs are not in the Offer tab so
-            // the guard prevented convertstatus1 from ever running for them.
-            // convertstatus1's checkriddestatusforoffer call is the actual guard.
-            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+            firebase.database().ref().child("joback/"+id+"/"+_fbUidCjz).remove();
             $('#Divo'+id).remove();
-            firebase.database().ref().child("/notification/" + driverid).remove();
+            firebase.database().ref().child("/notification/" + _fbUidCjz).remove();
             convertstatus1(vehicle , id,'Unreached', driverid ,  $message ) ;
-            // Release the offer-lock immediately so smartAutoDispatch can try the next driver
-            // without waiting for the 27s resolver timeout (which would block for 7 more seconds).
             _immediateJobPending(id);
         }, 20000);
       
@@ -6244,15 +6262,13 @@ $(document).ready(function() {
     function checkingjob(id, driverid, settleCallback){
         $message  = 'Not shown – driver app in background';
         console.log("checking job");
+        var _fbUidCj = getPlayerIdForDriver(driverid);
         setTimeout(function(){
-            // Mark settled in the parent resolver so the 27s timer doesn't double-fire.
             if (typeof settleCallback === 'function') settleCallback();
-            // Removed .vowali DOM guard — same reason as checkingjobz above.
-            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+            firebase.database().ref().child("joback/"+id+"/"+_fbUidCj).remove();
             $('#Divo'+id).remove();
-            firebase.database().ref().child("/notification/" + driverid).remove();
+            firebase.database().ref().child("/notification/" + _fbUidCj).remove();
             convertstatus(id,'Unreached', driverid ,  $message ) ;
-            // Release the offer-lock immediately so smartAutoDispatch can try the next driver.
             _immediateJobPending(id);
         }, 20000);
       
@@ -6272,10 +6288,13 @@ $(document).ready(function() {
                 data[1] = status;
                 ridestatusz.push(data);
                 var id =     bookid;
+                // _fbd = Firebase auth UID for this driver (used for all Firebase paths).
+                // driverid = SQL driver ID (kept for server API calls and toast display).
+                var _fbd = getPlayerIdForDriver(driverid);
                 console.log(id);
-                console.log(driverid);
+                console.log('[resolveAfter2Secondsx] sql driverid:', driverid, '→ firebase uid:', _fbd);
                 var DbRefz = firebase.database();
-                var refaz  = DbRefz.ref("joback/"+id+"/"+driverid);
+                var refaz  = DbRefz.ref("joback/"+id+"/"+_fbd);
                 var reponsex = 0;
                 // settled flag — whichever path (joback legacy OR jobs new) fires first wins
                 var settled = false;
@@ -6283,8 +6302,8 @@ $(document).ready(function() {
                 var _connRef = firebase.database().ref('.info/connected');
 
                 // Secondary listener: new driver app writes acceptance to
-                // jobs/{companyId}/{vehicleId}/{driverId}  { Status:"DriverAccepted", BookingId:"..." }
-                var _jobsRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid);
+                // jobs/{companyId}/{vehicleId}/{firebaseUID}  { Status:"DriverAccepted", BookingId:"..." }
+                var _jobsRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd);
                 var _jobsListener = _jobsRef.on("value", function(jsnap) {
                     if (settled) { _jobsRef.off("value", _jobsListener); return; }
                     var jd = jsnap.val();
@@ -6293,7 +6312,7 @@ $(document).ready(function() {
                         settled = true;
                         _jobsRef.off("value", _jobsListener);
                         refaz.off("value", listener);
-                        firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                        firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                         $('#Divo'+id).remove();
                         localva = "Accept";
                         toastr["success"](driverid + " Accept The Job!", 'success!');
@@ -6331,7 +6350,7 @@ $(document).ready(function() {
                         if ($respp['jobstatus'] === 'Assigned' || _jst === 'assigned') {
                             settled = true;
                             toastr["success"](driverid + " Accept The Job!", 'success!');
-                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                            firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                             _jobsRef.off("value", _jobsListener);
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
@@ -6343,8 +6362,8 @@ $(document).ready(function() {
                         } else if ($respp['jobstatus'] === 'Reject' || _jst === 'reject') {
                             settled = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
-                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                            firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                            firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                            firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                             FnNotifyDriverAway(driverid, 'reject');
                             // Immediately update driver colour — don't wait for Firebase propagation
@@ -6384,7 +6403,7 @@ $(document).ready(function() {
                                 if($respp['discription']  == 'Ride Status successfully Updated to Assigned'){
                                     settled = true;
                                     toastr["success"](  driverid +  " Accept The Job!", 'success!');
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                     refaz.off("value", listener);
 
                                     $('#Divo'+bookid).remove();
@@ -6395,8 +6414,8 @@ $(document).ready(function() {
                                
                                     settled = true;
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                     FnNotifyDriverAway(driverid, 'reject');
                                     (function(_drvid, _veh) {
@@ -6423,10 +6442,10 @@ $(document).ready(function() {
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
                                     console.log("Reject by job reached but is in background");
                                     $message  = 'Not shown – app in background';
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    firebase.database().ref().child("/notification/" + driverid).remove();
+                                    firebase.database().ref().child("/notification/" + _fbd).remove();
                                     _immediateJobPending(id);
                                     convertstatus(id, 'Pending', driverid, $message);
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -6443,7 +6462,7 @@ $(document).ready(function() {
                                 console.log("Accpet");
                                 settled = true;
                                 toastr["success"](  driverid +  " Accept The Job!", 'success!');
-                                firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 localva = "Accept";
@@ -6455,8 +6474,8 @@ $(document).ready(function() {
                                 localva = "Reject";
                                 settled = true;
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
-                                firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                                firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                 FnNotifyDriverAway(driverid, 'reject');
                                 (function(_drvid, _veh) {
@@ -6486,8 +6505,8 @@ $(document).ready(function() {
                                     console.log("Clear");
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                    firebase.database().ref().child("/notification/" + driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                    firebase.database().ref().child("/notification/" + _fbd).remove();
                                     convertstatus(id, 'Pending', driverid, 'No response from driver');
                                     return;
                                 }else{
@@ -6518,12 +6537,12 @@ $(document).ready(function() {
                     settled = true;
                     _jobsRef.off("value", _jobsListener);
                     refaz.off("value", listener);
-                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                     // Write Away to BOTH Firebase paths:
                     //   jobs/ → driver app reads this for its own status display
                     //   online/ → dispatch console reads this via tallo listener
                     // Driver must manually press Available on their app to come back online.
-                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + driverid).update({ vehiclestatus: 'Away' });
+                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     FnNotifyDriverAway(driverid, 'timeout');
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
@@ -6563,10 +6582,10 @@ $(document).ready(function() {
                 data[1] = status;
                 ridestatusz.push(data);
                 var id =     bookid;
-                console.log(id);
-                console.log(driverid);
+                var _fbd = getPlayerIdForDriver(driverid);
+                console.log('[resolveAfter2Seconds] sql driverid:', driverid, '→ firebase uid:', _fbd);
                 var DbRefz = firebase.database();
-                var refaz  = DbRefz.ref("joback/"+id+"/"+driverid);
+                var refaz  = DbRefz.ref("joback/"+id+"/"+_fbd);
                 var reponsex = 0;
                 var settled2 = false;
                 // Connectivity reference — used to distinguish offline vs no-data
@@ -6590,7 +6609,7 @@ $(document).ready(function() {
                                 settled2 = true;
                                 _jobsRootRef.off("value", _jobsRootListener);
                                 refaz.off("value", listener);
-                                firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                 $('#Divo'+id).remove();
                                 localva = "Accept";
                                 toastr["success"](driverid + " Accept The Job!", 'success!');
@@ -6627,7 +6646,7 @@ $(document).ready(function() {
                         if ($respp['jobstatus'] === 'Assigned' || _jst2 === 'assigned') {
                             settled2 = true;
                             toastr["success"](driverid + " Accept The Job!", 'success!');
-                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                            firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                             _jobsRootRef.off("value", _jobsRootListener);
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
@@ -6639,8 +6658,8 @@ $(document).ready(function() {
                         } else if ($respp['jobstatus'] === 'Reject' || _jst2 === 'reject') {
                             settled2 = true;
                             toastr["error"](driverid + " Reject The Job!", 'error!');
-                            firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                            firebase.database().ref().child("/notification/" + driverid).remove();
+                            firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                            firebase.database().ref().child("/notification/" + _fbd).remove();
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             _immediateJobPending(id);
@@ -6662,7 +6681,7 @@ $(document).ready(function() {
                                 if($respp['discription']  == 'Ride Status successfully Updated to Assigned'){
                                     settled2 = true;
                                     toastr["success"](  driverid +  " Accept The Job!", 'success!');
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                     refaz.off("value", listener);
 
                                     $('#Divo'+bookid).remove();
@@ -6673,8 +6692,8 @@ $(document).ready(function() {
                                
                                     settled2 = true;
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                    firebase.database().ref().child("/notification/" + driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                    firebase.database().ref().child("/notification/" + _fbd).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     _immediateJobPending(id);
@@ -6684,10 +6703,10 @@ $(document).ready(function() {
                                 }else if($respp['discription'] == 'job reached but will not be displayed'){
                                     console.log("Reject by job reached but is in background");
                                     $message  = 'Not shown – app in background';
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    firebase.database().ref().child("/notification/" + driverid).remove();
+                                    firebase.database().ref().child("/notification/" + _fbd).remove();
                                     _immediateJobPending(id);
                                     convertstatus(id, 'Pending', driverid, $message);
                                     angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -6704,7 +6723,7 @@ $(document).ready(function() {
                                 console.log("Accpet");
                                 settled2 = true;
                                 toastr["success"](  driverid +  " Accept The Job!", 'success!');
-                                firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 localva = "Accept";
@@ -6716,10 +6735,10 @@ $(document).ready(function() {
                                 localva = "Reject";
                                 settled2 = true;
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
-                                firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
+                                firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
-                                firebase.database().ref().child("/notification/" + driverid).remove();
+                                firebase.database().ref().child("/notification/" + _fbd).remove();
                                 _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -6730,8 +6749,8 @@ $(document).ready(function() {
                                     console.log("Clear");
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
-                                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                                    firebase.database().ref().child("/notification/" + driverid).remove();
+                                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                    firebase.database().ref().child("/notification/" + _fbd).remove();
                                     convertstatus(id, 'Pending', driverid, 'No response from driver');
                                     return;
                                 }else{
@@ -6761,8 +6780,8 @@ $(document).ready(function() {
                     settled2 = true;
                     _jobsRootRef.off("value", _jobsRootListener);
                     refaz.off("value", listener);
-                    firebase.database().ref().child("joback/"+id+"/"+driverid).remove();
-                    firebase.database().ref().child("/notification/" + driverid).remove();
+                    firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                    firebase.database().ref().child("/notification/" + _fbd).remove();
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc2 = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc2 && _fbsc2.driverdatarealx) {
@@ -6870,10 +6889,13 @@ $(document).ready(function() {
             return;
         }
         // Server confirmed offer — now notify the driver via Firebase.
+        // Resolve Firebase UID from SQL driverid for all Firebase path writes.
+        var _fbDrvId = getPlayerIdForDriver(driverid);
+        console.log('[acknowledgemethodx] sql driverid:', driverid, '→ firebase uid:', _fbDrvId, 'job:', bookid);
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
         try {
-            firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'})
+            firebase.database().ref("joback/"+bookid+"/"+_fbDrvId).set({'jobstatus':'Offer','status':'Sent'})
                 .catch(function(e) { console.warn('[acknowledgemethodx] joback write failed:', e.code || e.message || e); });
         } catch(_jobackErr) { console.warn('[acknowledgemethodx] joback write error:', _jobackErr); }
         // ALSO write to /notification/{driverId} so the driver app knows which job to display.
@@ -6980,7 +7002,9 @@ $(document).ready(function() {
             return;
         }
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
-        firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
+        var _fbDrvIdM = getPlayerIdForDriver(driverid);
+        console.log('[acknowledgemethod] sql driverid:', driverid, '→ firebase uid:', _fbDrvIdM, 'job:', bookid);
+        firebase.database().ref("joback/"+bookid+"/"+_fbDrvIdM).set({'jobstatus':'Offer','status':'Sent'});
         // Also write to /notification/{driverId} so the driver app shows the offer screen.
         try {
             var _notifScopeM = angular.element(document.getElementById('myangular')).scope();
@@ -7222,11 +7246,12 @@ $(document).ready(function() {
                                               return String(d.driverid) === String(driverid) || String(d.VehicleId) === String(driverid);
                                           });
                                           var _vidCvt = _drCvt ? String(_drCvt.VehicleId || _drCvt.vehiclenumber || driverid) : String(driverid);
+                                          var _uidCvt = _drCvt ? String(_drCvt.PlayerId || _drCvt.driverid || driverid) : getPlayerIdForDriver(String(driverid));
                                           var _fbCvt = { zonequeue: _rCvt.newQueueNo };
                                           if (_rCvt.queueWaitSince) _fbCvt.queueWaitSince = _rCvt.queueWaitSince;
                                           firebase.database().ref("online/" + SomeSession2 + "/" + _vidCvt).update(_fbCvt);
-                                          if (String(driverid) !== _vidCvt) {
-                                              firebase.database().ref("jobs/" + SomeSession2 + "/" + _vidCvt + "/" + String(driverid)).update(_fbCvt);
+                                          if (_uidCvt !== _vidCvt) {
+                                              firebase.database().ref("jobs/" + SomeSession2 + "/" + _vidCvt + "/" + _uidCvt).update(_fbCvt);
                                           }
                                           if (_drCvt) _drCvt.zonequeue = _rCvt.newQueueNo;
                                       }
@@ -12058,7 +12083,8 @@ $(document).ready(function() {
                         var best = sorted[0];
                         if (!best) continue;
 
-                        var driverId  = best.PlayerId || best.driverid || '';
+                        // SQL driver ID for server API calls; Firebase UID resolved inside acknowledgemethodx/resolveAfter2Secondsx via getPlayerIdForDriver.
+                        var driverId  = best.driverid || best.PlayerId || '';
                         var vehicleId = best.VehicleId || best.vehicleid || best.vehiclenumber || driverId;
                         if (!driverId) continue;
 
@@ -12066,7 +12092,7 @@ $(document).ready(function() {
                         if (!_triedDriversForJob[String(jobId)]) _triedDriversForJob[String(jobId)] = [];
                         _triedDriversForJob[String(jobId)].push(String(driverId));
 
-                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?') + ' (tried so far: ' + _triedDriversForJob[String(jobId)].length + ')');
+                        console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (fbUID:' + (best.PlayerId || driverId) + ', car:' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?'));
                         // Do NOT pre-assign on server — DriverId is set only when driver accepts (convertstatus → Assigned).
                         acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
                         break; // one offer per cycle — wait for accept/reject/timeout before trying next
