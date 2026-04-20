@@ -1301,8 +1301,10 @@ const server = http.createServer(async (req, res) => {
           const currentStatus = job.BookingStatus || '';
           // Atomic double-offer guard: if two dispatch sessions race, the first one to arrive
           // sets status=Offered. The second must be blocked — job already belongs to another driver.
-          const incomingDriverId = parseInt(param('driverid') || '0') || 0;
-          if (newStatus === 'Offered' && currentStatus === 'Offered' && job.DriverId && job.DriverId !== incomingDriverId) {
+          // Accept both numeric IDs (1212) and string IDs ('D001', 'T201') from driver app.
+          const _rawDriverId = (param('driverid') || '').toString().trim();
+          const incomingDriverId = parseInt(_rawDriverId) > 0 ? parseInt(_rawDriverId) : (_rawDriverId || 0);
+          if (newStatus === 'Offered' && currentStatus === 'Offered' && job.DriverId && String(job.DriverId) !== String(incomingDriverId)) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId}`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
@@ -1362,7 +1364,7 @@ const server = http.createServer(async (req, res) => {
           if (returnReason) job.returnReason = returnReason;
           // Track which driver has the current offer so the double-offer guard can compare.
           // Also set DriverId when driver accepts so the job appears correctly in Assigned tab.
-          if (effectiveStatus === 'Offered' && incomingDriverId > 0) {
+          if (effectiveStatus === 'Offered' && incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
             job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
             job.offeredAt = Date.now(); // stale-offer watchdog uses this
             // Save home zone & queue before the driver is dispatched
@@ -1370,8 +1372,10 @@ const server = http.createServer(async (req, res) => {
             if (zdOffer) saveDriverHomeState(incomingDriverId, zdOffer);
           }
           if (effectiveStatus === 'Assigned') {
-            const acceptDriverId = parseInt(param('driverid') || '0') || 0;
-            if (acceptDriverId > 0) { job.DriverId = acceptDriverId; job.VehicleId = acceptDriverId; }
+            // incomingDriverId already parsed above (handles both '1212' and 'D001' string IDs)
+            if (incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
+              job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
+            }
           }
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
           if (releaseStatuses.has(newStatus)) {
