@@ -6083,6 +6083,20 @@ $(document).ready(function() {
     // node; writing to it triggers spurious vehiclestatus change events in the dispatcher.
     function writeJobDetailsToFirebase(driverId, vehicleId, bookingId, details) {
         try {
+            if (!driverId || String(driverId) === 'null' || String(driverId) === 'undefined') {
+                console.warn('[writeJobDetailsToFirebase] invalid driverId:', driverId, '— aborting write');
+                return;
+            }
+            var _user = firebase.auth().currentUser;
+            if (!_user) {
+                console.warn('[writeJobDetailsToFirebase] no Firebase auth user — queuing write after sign-in');
+                firebase.auth().signInAnonymously().then(function() {
+                    writeJobDetailsToFirebase(driverId, vehicleId, bookingId, details);
+                }).catch(function(e) {
+                    console.warn('[writeJobDetailsToFirebase] anonymous sign-in failed:', e.code || e);
+                });
+                return;
+            }
             var db = firebase.database();
             var _uid   = details.u_id   || $("#UId").text() || '';
             var _src   = details.source || 'Dispatcher';
@@ -6103,30 +6117,31 @@ $(document).ready(function() {
                 jobFare:       String(details.fare || ''),
                 jobCount:      1
             };
-            // Pre-offer check (contract rule 4): verify driver is not already on a different job.
-            // jobs/{companyId}/{vehicleId}/{driverId} — if BookingId exists and differs, driver is busy.
             var notifRef = db.ref('/notification/' + driverId);
             var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + driverId);
+
+            function _doWrite() {
+                notifRef.remove()
+                    .then(function() { return notifRef.set(fullPayload); })
+                    .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', driverId, 'job', bookingId); })
+                    .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
+            }
+
             _jobsNodeRef.once('value').then(function(jsnap) {
                 var jd = jsnap.val();
                 if (jd && jd.BookingId && String(jd.BookingId) !== String(bookingId)) {
                     toastr["warning"]("Driver may be on another job (BookingId: " + jd.BookingId + "). Proceeding with offer.", 'warning!');
                     console.warn('[writeJobDetailsToFirebase] driver', driverId, 'has active job', jd.BookingId, '— overriding with', bookingId);
                 }
-                // Send the offer regardless (dispatcher's decision to proceed)
-                notifRef.remove().then(function() {
-                    notifRef.set(fullPayload);
-                });
+                _doWrite();
             }).catch(function() {
-                // If check fails, proceed anyway
-                notifRef.remove().then(function() {
-                    notifRef.set(fullPayload);
-                });
+                _doWrite();
             });
-            // Standalone lookup node (no vehiclestatus fields — safe to write)
-            db.ref('/jobDetails/' + bookingId).set(fullPayload);
+
+            db.ref('/jobDetails/' + bookingId).set(fullPayload)
+                .catch(function(e) { console.warn('[writeJobDetailsToFirebase] jobDetails write failed:', e.code || e.message || e); });
         } catch(e) {
-            console.warn('[writeJobDetailsToFirebase] error:', e);
+            console.warn('[writeJobDetailsToFirebase] error:', e.code || e.message || e);
         }
     }
 
@@ -6835,7 +6850,10 @@ $(document).ready(function() {
         // Server confirmed offer — now notify the driver via Firebase.
         // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
         // and fire "Driver may not be available" toast immediately.
-        firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'});
+        try {
+            firebase.database().ref("joback/"+bookid+"/"+driverid).set({'jobstatus':'Offer','status':'Sent'})
+                .catch(function(e) { console.warn('[acknowledgemethodx] joback write failed:', e.code || e.message || e); });
+        } catch(_jobackErr) { console.warn('[acknowledgemethodx] joback write error:', _jobackErr); }
         // ALSO write to /notification/{driverId} so the driver app knows which job to display.
         // Without this, the driver app never learns the bookingId and cannot show the offer screen.
         try {
@@ -6890,7 +6908,7 @@ $(document).ready(function() {
                     } catch(_je) { console.warn('[acknowledgemethodx] JobDetails fetch parse error:', _je); }
                 }).catch(function() {});
             }
-        } catch(_notifErr) { console.warn('[acknowledgemethodx] notification write error:', _notifErr); }
+        } catch(_notifErr) { console.warn('[acknowledgemethodx] notification write error:', _notifErr && (_notifErr.code || _notifErr.message) ? (_notifErr.code + ': ' + _notifErr.message) : _notifErr); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
         delete _activeOfferIds[bookid];
         // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
@@ -6970,7 +6988,7 @@ $(document).ready(function() {
                     source:      'Dispatcher'
                 });
             }
-        } catch(_notifErrM) { console.warn('[acknowledgemethod] notification write error:', _notifErrM); }
+        } catch(_notifErrM) { console.warn('[acknowledgemethod] notification write error:', _notifErrM && (_notifErrM.code || _notifErrM.message) ? (_notifErrM.code + ': ' + _notifErrM.message) : _notifErrM); }
         const result = await resolveAfter2Seconds(driverid,bookid,status);
         delete _activeOfferIds[bookid];
         // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
