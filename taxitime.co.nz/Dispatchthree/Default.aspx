@@ -12092,6 +12092,10 @@ $(document).ready(function() {
                     // The lock is now always cleaned up by the actual resolution paths:
                     // acceptance → settled=true, rejection → _immediateJobPending, timeout → 27s timer.
 
+                    // Track which drivers are already claimed in this cycle — prevents the same
+                    // driver receiving two jobs simultaneously when multiple jobs are pending.
+                    var _claimedThisCycle = {};
+
                     for (var ji = 0; ji < pendingJobs.length; ji++) {
                         var job = pendingJobs[ji];
                         var jobId = job.Id;
@@ -12101,18 +12105,21 @@ $(document).ready(function() {
                         var pickLat = parseFloat(pickParts[0]) || 0;
                         var pickLng = parseFloat(pickParts[1]) || 0;
 
-                        // Exclude drivers already offered this specific job (rejected or timed out)
+                        // Exclude drivers already offered this specific job AND drivers
+                        // already claimed for another job in this same cycle.
                         var triedIds = _triedDriversForJob[String(jobId)] || [];
                         var availableDrivers = allAvailable.filter(function(dv) {
                             var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
-                            return triedIds.indexOf(dvId) === -1;
+                            return triedIds.indexOf(dvId) === -1 && !_claimedThisCycle[dvId];
                         });
                         if (!availableDrivers.length) {
-                            // All currently-available drivers have already been tried.
-                            // If at least one driver IS available (just already tried), reset
-                            // the tried list so the job loops back round and keeps being offered
-                            // until someone accepts — no job should sit in Pending forever.
-                            if (allAvailable.length > 0) {
+                            // All unclaimed available drivers have already been tried for this job.
+                            // Reset the tried list so the job loops back and keeps being offered.
+                            var _unclaimedAvailable = allAvailable.filter(function(dv) {
+                                var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
+                                return !_claimedThisCycle[dvId];
+                            });
+                            if (_unclaimedAvailable.length > 0) {
                                 _triedDriversForJob[String(jobId)] = [];
                                 console.log('[smartAutoDispatch] Job #' + jobId + ' — all available drivers tried, resetting loop');
                             }
@@ -12136,19 +12143,23 @@ $(document).ready(function() {
                         var best = sorted[0];
                         if (!best) continue;
 
-                        // SQL driverid for both server calls and all Firebase paths (notification/joback/jobs).
+                        // SQL driverid for both server calls and all Firebase paths.
                         var driverId  = best.driverid || best.PlayerId || '';
                         var vehicleId = best.VehicleId || best.vehicleid || best.vehiclenumber || driverId;
                         if (!driverId) continue;
 
-                        // Record this driver as tried so they are skipped on the next cycle
+                        // Claim this driver for this cycle — no other job can be offered to them
+                        // in the same iteration, preventing double-dispatch.
+                        _claimedThisCycle[String(driverId)] = true;
+
+                        // Record this driver as tried for this job so they are skipped if the
+                        // job returns to Pending (reject / timeout).
                         if (!_triedDriversForJob[String(jobId)]) _triedDriversForJob[String(jobId)] = [];
                         _triedDriversForJob[String(jobId)].push(String(driverId));
 
                         console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (fbUID:' + (best.PlayerId || driverId) + ', car:' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?'));
-                        // Do NOT pre-assign on server — DriverId is set only when driver accepts (convertstatus → Assigned).
                         acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
-                        break; // one offer per cycle — wait for accept/reject/timeout before trying next
+                        // No break — continue to offer remaining pending jobs to other available drivers.
                     }
                 } catch(e) {
                     console.warn('[smartAutoDispatch] error:', e);
