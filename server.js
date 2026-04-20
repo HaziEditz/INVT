@@ -2072,24 +2072,24 @@ const server = http.createServer(async (req, res) => {
         // Only treat a job as active if it's in a current working state — not completed/cancelled
         const ACTIVE_STATUSES = new Set(['Offered','Assigned','Active','Picking','Arrived']);
         const activeJob = assignedJob && ACTIVE_STATUSES.has(assignedJob.BookingStatus) ? assignedJob : null;
-        const dt1 = zd ? [{
-          DriverId: zd.driverid,
-          // Return empty lat/lng so the client falls back to the Firebase live position
-          Lat:  '',
-          Lng:  '',
-          PlayerId: '',
-          VehicleName: zd.vehicletype,
-          CallSign: zd.vehiclenumber,
-          VehicleNo: zd.vehiclenumber,
-          // BookingId here holds the VEHICLE ID — used by the client for Firebase lookup, kick, suspend
-          // (this matches real-server behaviour where BookingId = vehicleId in VehicleInfov2)
-          BookingId: vehicleIdStr,
-          // ActiveBookingId is the actual booking reference — only set when driver has a live job
+        // Always return a dt1 record so the client can set lblDriverId / lblBookingHeadId
+        // correctly — even if this driver is not yet in ZONE_DRIVERS (e.g. Firebase-only drivers).
+        // When not found, use the vehicleIdStr as both DriverId and BookingId so kick/suspend
+        // targets exactly the vehicle the dispatcher clicked.
+        const dt1 = [{
+          DriverId:        zd ? zd.driverid : vehicleIdStr,
+          Lat:             '',
+          Lng:             '',
+          PlayerId:        '',
+          VehicleName:     zd ? zd.vehicletype   : '',
+          CallSign:        zd ? zd.vehiclenumber  : vehicleIdStr,
+          VehicleNo:       zd ? zd.vehiclenumber  : vehicleIdStr,
+          BookingId:       vehicleIdStr,
           ActiveBookingId: activeJob ? String(activeJob.Id) : '',
-          UserFName: (zd.drivername || '').split(' ')[0] || '',
-          UserLName: (zd.drivername || '').split(' ').slice(1).join(' ') || '',
-          VehicleImage: '',
-        }] : [];
+          UserFName:       zd ? (zd.drivername || '').split(' ')[0] : '',
+          UserLName:       zd ? (zd.drivername || '').split(' ').slice(1).join(' ') : '',
+          VehicleImage:    '',
+        }];
         const dt2 = activeJob ? [{
           BookingStatus:      activeJob.BookingStatus,
           BookingDateTime:    activeJob.BookingDateTime,
@@ -2102,7 +2102,7 @@ const server = http.createServer(async (req, res) => {
           EstimatedDistance:  activeJob.EstimatedDistance || '0',
           EstimatedTime:      activeJob.EstimatedTime || '0',
         }] : [];
-        console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleIdStr} (${dt1.length ? zd.drivername : 'not found'}), ${dt2.length} job(s)`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleIdStr} (${zd ? zd.drivername : 'not in roster'}), ${dt2.length} job(s)`);
         objectD(res, { dt1, dt2, dt3: [], dt4: [], dt5: [] });
 
       } else if (action === 'AutoDispatchVehiclesv2') {

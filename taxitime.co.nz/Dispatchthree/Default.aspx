@@ -8210,6 +8210,9 @@ $(document).ready(function() {
         $scope.VehicleDetails = function(ele){
             $('#VehicleDetails').modal('show');
             $scope.selectedone = ele;
+            // Pre-clear labels to prevent stale values from a previous driver selection
+            $('#lblDriverId').text('');
+            $('#lblBookingHeadId').text('');
             var param = [{ "name": "Id", "value": ele }];
             var proc = '[VehicleInfo]';
             Selector(param, proc).then(function (result) {
@@ -8221,7 +8224,7 @@ $(document).ready(function() {
                 else {
                     $res = JSON.parse(result.d);
                     $show = 0;
-                    if ($res["dt1"].length != []) {
+                    if ($res["dt1"].length > 0) {
                         console.log( $res["dt1"]);
                         $data =  $res["dt1"][0];
                         $scope.driveridselected = $data.DriverId;
@@ -12933,6 +12936,10 @@ $(document).ready(function() {
             $('#VehicleDetails').modal('show');
             $('#loading').show();
             $scope.selectedone = ele;
+            // Pre-clear labels so stale values from a previous selection never bleed into
+            // kick/suspend if this driver is not found in the server roster.
+            $('#lblDriverId').text('');
+            $('#lblBookingHeadId').text('');
             var param = [{ "name": "Id", "value": ele }];
             var proc = '[VehicleInfov2]';
             Selector(param, proc).then(function (result) {
@@ -12944,7 +12951,7 @@ $(document).ready(function() {
                 else {
                     $res = JSON.parse(result.d);
                     $show = 0;
-                    if ($res["dt1"].length != []) {
+                    if ($res["dt1"].length > 0) {
                         $("#VehicleJobs").empty();
                         console.log( $res["dt1"]);
                         $data =  $res["dt1"][0];
