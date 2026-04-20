@@ -4517,7 +4517,38 @@ $(document).ready(function() {
                 if ($res["dt5"].length != []) {
                     $("#AwayVehicles").text($res["dt5"][0].Away);
                 }
-
+                // dt6: server-side list of currently-online driver IDs (from ZONE_DRIVERS).
+                // If non-empty, any driver in the real-time display who is NOT in this list
+                // has already logged out on the server side — remove them from the board
+                // immediately instead of waiting for the Firebase child_removed 2-min delay.
+                var _onlineIds = $res["dt6"];
+                if (_onlineIds && _onlineIds.length > 0) {
+                    var _sc6 = angular.element(document.getElementById('myangular')).scope();
+                    if (_sc6 && _sc6.driverdatarealx && _sc6.driverdatarealx.length > 0) {
+                        var _changed = false;
+                        _sc6.driverdatarealx = _sc6.driverdatarealx.filter(function(d) {
+                            var _did  = String(d.driverid  || '');
+                            var _vid  = String(d.VehicleId || '');
+                            var _found = _onlineIds.some(function(o) {
+                                return (o.id  && (_did === o.id  || _vid === o.id))  ||
+                                       (o.vid && (_did === o.vid || _vid === o.vid));
+                            });
+                            if (!_found) {
+                                console.log('[VehiclesStatus] driver', _did || _vid, 'not in server ZONE_DRIVERS — removing from board');
+                                if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
+                                    markers[d.vehiclenumber].setMap(null);
+                                }
+                                _changed = true;
+                            }
+                            return _found;
+                        });
+                        if (_changed) {
+                            _sc6.driverlist = _sc6.driverdatarealx;
+                            if (typeof _sc6.zonetablez === 'function') _sc6.zonetablez();
+                            if (!_sc6.$$phase) _sc6.$digest();
+                        }
+                    }
+                }
             }
         });
         JobsCount();

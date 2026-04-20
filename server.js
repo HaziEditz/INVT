@@ -180,6 +180,10 @@ function saveJobStore() {
 // This array is kept as an empty structure so dependent code paths don't crash.
 const ZONE_DRIVERS = [];
 
+// Used by VehiclesStatus to skip driver-ID sync during the first 90 s after restart
+// (ZONE_DRIVERS may be incomplete while Firebase re-delivers child_added events).
+const SERVER_START_TIME = Date.now();
+
 // Load-test tracking sets — track injected test driver/job IDs so /dev/loadtest/clear
 // can remove exactly them without affecting real data.
 const LT_DRIVER_IDS = new Set();
@@ -1642,7 +1646,9 @@ const server = http.createServer(async (req, res) => {
               // Offered/Unreached/Pending: driver going Available — leave as-is
             }
           });
-          // When driver goes Available: calculate their new queue position and update ZONE_DRIVERS
+          // When driver goes Available: calculate their new queue position and update ZONE_DRIVERS.
+          // If the driver isn't in ZONE_DRIVERS yet (first login), add them so dt6 (VehiclesStatus)
+          // can accurately report who is online and detect logouts on the next poll.
           if (newStatus === 'Available') {
             const zdAvail = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
             if (zdAvail) {
@@ -1653,6 +1659,25 @@ const server = http.createServer(async (req, res) => {
               zdAvail.queueWaitSince = Date.now();
               clearDriverHomeState(driverId); // home state consumed
               console.log(`  [DriverStatusChanged/DP] driver ${driverId} Available → zone="${currentZone}" newQueue=${_dscQueueNo}`);
+            } else {
+              // First time this driver is seen — add them to ZONE_DRIVERS
+              const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+              _dscQueueNo = maxQ + 1;
+              ZONE_DRIVERS.push({
+                driverid:      driverId,
+                VehicleId:     vehiclenumber || driverId,
+                drivername:    drivername || driverId,
+                vehiclenumber: vehiclenumber || driverId,
+                vehicletype:   (param('vehicletype') || '').toString().trim() || '',
+                zonename:      zonename || '',
+                zoneid:        (param('zoneid') || '').toString().trim() || '',
+                vehiclestatus: 'Available',
+                zonequeue:     _dscQueueNo,
+                lat:           lat || '',
+                lng:           lng || '',
+                queueWaitSince: Date.now(),
+              });
+              console.log(`  [DriverStatusChanged/DP] NEW driver ${driverId} (${vehiclenumber}) added to ZONE_DRIVERS q=${_dscQueueNo} zone="${zonename}"`);
             }
           }
           saveJobStore();
@@ -2029,12 +2054,22 @@ const server = http.createServer(async (req, res) => {
         const busyCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Busy').length;
         const freeCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available').length;
         const awayCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Away').length;
+        // dt6: list of currently-online driver IDs so the dispatcher can immediately
+        // remove drivers who have logged out via the server path but whose Firebase
+        // node hasn't been cleaned up yet (screen-off onDisconnect delay).
+        // Only populated when ZONE_DRIVERS has entries AND the server has been running
+        // for > 90 s (avoids wiping valid drivers during a fresh server restart).
+        const _serverAgeMs = Date.now() - SERVER_START_TIME;
+        const _onlineIds = (_serverAgeMs > 90000 && ZONE_DRIVERS.length > 0)
+          ? ZONE_DRIVERS.map(d => ({ id: String(d.driverid || ''), vid: String(d.VehicleId || '') }))
+          : [];
         const vehicleStatus = {
           dt1: [{ All: ZONE_DRIVERS.length }],
           dt2: [{ Busy: busyCount }],
           dt3: [{ Free: freeCount }],
           dt4: [{ Picking: ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Picking').length }],
           dt5: [{ Away: awayCount }],
+          dt6: _onlineIds,
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} vehicles`);
         objectD(res, vehicleStatus);
@@ -2525,7 +2560,8 @@ const server = http.createServer(async (req, res) => {
               // Offered/Unreached/Pending: driver going Available — leave job as-is
             }
           });
-          // When driver goes Available: calculate their new queue position
+          // When driver goes Available: calculate their new queue position.
+          // If the driver isn't in ZONE_DRIVERS yet (first login), add them so dt6 is accurate.
           if (newStatus === 'Available') {
             const zdAvailDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
             if (zdAvailDS) {
@@ -2536,6 +2572,25 @@ const server = http.createServer(async (req, res) => {
               zdAvailDS.queueWaitSince = Date.now();
               clearDriverHomeState(driverId);
               console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available → zone="${currentZoneDS}" newQueue=${_dssQueueNo}`);
+            } else {
+              // First time this driver is seen — add them to ZONE_DRIVERS
+              const maxQDS = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+              _dssQueueNo = maxQDS + 1;
+              ZONE_DRIVERS.push({
+                driverid:      driverId,
+                VehicleId:     vehiclenumber || driverId,
+                drivername:    drivername || driverId,
+                vehiclenumber: vehiclenumber || driverId,
+                vehicletype:   (param('vehicletype') || '').toString().trim() || '',
+                zonename:      zonenameDS || '',
+                zoneid:        (param('zoneid') || '').toString().trim() || '',
+                vehiclestatus: 'Available',
+                zonequeue:     _dssQueueNo,
+                lat:           lat || '',
+                lng:           lng || '',
+                queueWaitSince: Date.now(),
+              });
+              console.log(`  [DriverStatusChanged/DS] NEW driver ${driverId} (${vehiclenumber}) added to ZONE_DRIVERS q=${_dssQueueNo} zone="${zonenameDS}"`);
             }
           }
           saveJobStore();
