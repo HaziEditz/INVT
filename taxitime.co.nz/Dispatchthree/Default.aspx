@@ -174,6 +174,112 @@
         animation: glowing2 2000ms infinite;
     }
 
+    /* ── Notification panel ─────────────────────────────────── */
+    #alertshow {
+        display: none;
+        position: absolute;
+        top: 44px;
+        right: 0;
+        width: 340px;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+        z-index: 9999;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+    }
+    #alertshow .tt-notif-header {
+        background: #1a1a2e;
+        color: #fff;
+        padding: 11px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    #alertshow .tt-notif-clear {
+        font-size: 11px;
+        color: #a0aec0;
+        cursor: pointer;
+        font-weight: 400;
+        background: none;
+        border: none;
+        padding: 0;
+    }
+    #alertshow .tt-notif-clear:hover { color: #fff; }
+    #alertshow .tt-notif-list { max-height: 380px; overflow-y: auto; }
+    #alertshow .tt-notif-item {
+        display: flex;
+        gap: 10px;
+        padding: 10px 13px;
+        border-bottom: 1px solid #edf2f7;
+        transition: background 0.15s;
+        cursor: default;
+    }
+    #alertshow .tt-notif-item:hover { background: #f7fafc; }
+    #alertshow .tt-notif-item.unread { background: #f0f7ff; }
+    #alertshow .tt-notif-avatar {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+    }
+    #alertshow .tt-notif-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #2d3748;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #alertshow .tt-notif-body {
+        font-size: 11px;
+        color: #718096;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #alertshow .tt-notif-time {
+        font-size: 10px;
+        color: #a0aec0;
+        margin-top: 3px;
+        white-space: nowrap;
+    }
+    #alertshow .tt-notif-empty {
+        text-align: center;
+        padding: 32px 16px;
+        color: #a0aec0;
+        font-size: 13px;
+    }
+    #alertshow .tt-notif-empty i { font-size: 28px; display: block; margin-bottom: 8px; opacity: 0.35; }
+    /* Bell badge */
+    .tt-bell-wrap { position: relative; display: inline-block; cursor: pointer; }
+    .tt-bell-wrap .fa-bell { font-size: 20px; color: #e53e3e; }
+    #total_notification {
+        position: absolute;
+        top: -6px;
+        right: -8px;
+        background: #e53e3e;
+        color: #fff;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 700;
+        min-width: 16px;
+        height: 16px;
+        line-height: 16px;
+        padding: 0 4px;
+        text-align: center;
+        display: none;
+        pointer-events: none;
+    }
+    #total_notification.visible { display: inline-block; }
+
     input.form-control {
         height: 29px;
     }
@@ -2378,23 +2484,18 @@ $(document).ready(function() {
                         </div>  
                          <div class="dropdown"    >
                            <input type="hidden"  id="totalnoti" value=""   />
-                          <i class="fa fa-bell   dropdown-toggle"  onclick="shownotiii();" style="color:red; margin-top: 13px;
-                             margin-right: 11px;" data-toggle="dropdown">
+                          <i class="fa fa-bell" onclick="shownotiii();" style="color:red; margin-top: 13px;
+                             margin-right: 11px; cursor:pointer; font-size:20px;">
                               <span id="total_notification"  onclick="shownotiii();">0</span></i>
                       
-                          <div class="dropdown-menu" id="alertshow" style="margin-left: -141px;  width: 350px;  margin-top: 27px;">
-                          
-                          </div>
+                          <div id="alertshow"></div>
                         </div>
                               <script>
-                                  function shownotiii(){ 
-
-                                      console.log(document.getElementById('alertshow').style.display);
-                                      if(document.getElementById('alertshow').style.display == 'none'){
-                                          document.getElementById('alertshow').style.display = 'block';
-                                      }else{
-                                          document.getElementById('alertshow').style.display = 'none';
-                                      }
+                                  function shownotiii(){
+                                      if (window._TT) { _TT.toggle(); return; }
+                                      var el = document.getElementById('alertshow');
+                                      if (!el) return;
+                                      el.style.display = el.style.display === 'block' ? 'none' : 'block';
                                   }
 
                               </script>
@@ -5137,6 +5238,182 @@ $(document).ready(function() {
  
     console.log(SomeSession2);
      
+    // ── Taxi Time Notification Manager ───────────────────────────────────────
+    window._TT = (function() {
+        var ITEMS  = [];
+        var UNREAD = 0;
+        var MAX    = 60;
+
+        var TYPES = {
+            emergency: { icon: 'fa-ambulance',    color: '#e53e3e', bg: '#fff5f5' },
+            booking:   { icon: 'fa-car',          color: '#2b6cb0', bg: '#ebf8ff' },
+            driver:    { icon: 'fa-user-plus',    color: '#276749', bg: '#f0fff4' },
+            message:   { icon: 'fa-comment',      color: '#6b46c1', bg: '#faf5ff' },
+            complete:  { icon: 'fa-check-circle', color: '#276749', bg: '#f0fff4' },
+            cancel:    { icon: 'fa-times-circle', color: '#c05621', bg: '#fffaf0' },
+            info:      { icon: 'fa-bell',         color: '#2b6cb0', bg: '#ebf8ff' }
+        };
+
+        function _timeAgo(ts) {
+            var s = Math.floor((Date.now() - ts) / 1000);
+            if (s < 5)  return 'Just now';
+            if (s < 60) return s + 's ago';
+            var m = Math.floor(s / 60);
+            if (m < 60) return m + 'm ago';
+            return Math.floor(m / 60) + 'h ago';
+        }
+
+        function _renderBell() {
+            var el = document.getElementById('total_notification');
+            if (!el) return;
+            if (UNREAD > 0) {
+                el.innerHTML = UNREAD > 99 ? '99+' : UNREAD;
+                el.classList.add('visible');
+            } else {
+                el.innerHTML = '0';
+                el.classList.remove('visible');
+            }
+        }
+
+        function _renderPanel() {
+            var el = document.getElementById('alertshow');
+            if (!el) return;
+            var st = TYPES;
+            var html = '<div class="tt-notif-header">' +
+                '<span><i class="fa fa-bell-o" style="color:#dfba5f;margin-right:7px;"></i>Notifications</span>' +
+                '<button class="tt-notif-clear" onclick="window._TT.clear()">Clear all</button>' +
+                '</div>';
+            if (ITEMS.length === 0) {
+                html += '<div class="tt-notif-empty"><i class="fa fa-bell-o"></i>No notifications yet</div>';
+            } else {
+                html += '<div class="tt-notif-list">';
+                for (var i = 0; i < ITEMS.length; i++) {
+                    var n = ITEMS[i];
+                    var s = st[n.type] || st.info;
+                    html += '<div class="tt-notif-item' + (n.read ? '' : ' unread') + '">' +
+                        '<div class="tt-notif-avatar" style="background:' + s.bg + ';">' +
+                        '<i class="fa ' + s.icon + '" style="color:' + s.color + ';"></i></div>' +
+                        '<div style="flex:1;min-width:0;">' +
+                        '<div class="tt-notif-title">' + _esc(n.title) + '</div>' +
+                        (n.body ? '<div class="tt-notif-body">' + _esc(n.body) + '</div>' : '') +
+                        '<div class="tt-notif-time">' + _timeAgo(n.ts) + '</div>' +
+                        '</div></div>';
+                }
+                html += '</div>';
+            }
+            el.innerHTML = html;
+        }
+
+        function _esc(s) {
+            return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function _sound(type) {
+            try {
+                var ctx = new (window.AudioContext || window.webkitAudioContext)();
+                var osc = ctx.createOscillator();
+                var gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                gain.gain.setValueAtTime(0.25, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+                if (type === 'emergency') {
+                    osc.frequency.setValueAtTime(880, ctx.currentTime);
+                    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.12);
+                    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.24);
+                } else if (type === 'booking') {
+                    osc.frequency.setValueAtTime(523, ctx.currentTime);
+                    osc.frequency.setValueAtTime(659, ctx.currentTime + 0.15);
+                } else if (type === 'message') {
+                    osc.frequency.setValueAtTime(880, ctx.currentTime);
+                    osc.frequency.setValueAtTime(1047, ctx.currentTime + 0.12);
+                } else {
+                    osc.frequency.setValueAtTime(660, ctx.currentTime);
+                }
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.5);
+            } catch(e) {}
+        }
+
+        function _browserNotify(title, body) {
+            try {
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification('Taxi Time — ' + title, { body: body || '' });
+                }
+            } catch(e) {}
+        }
+
+        // Request browser notification permission once
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        return {
+            push: function(type, title, body) {
+                ITEMS.unshift({ id: Date.now(), type: type, title: title, body: body || '', ts: Date.now(), read: false });
+                if (ITEMS.length > MAX) ITEMS.length = MAX;
+                UNREAD++;
+                _renderBell();
+                _renderPanel();
+                _sound(type);
+                _browserNotify(title, body);
+            },
+            open: function() {
+                // Mark all read
+                ITEMS.forEach(function(n) { n.read = true; });
+                UNREAD = 0;
+                _renderBell();
+                _renderPanel();
+                var el = document.getElementById('alertshow');
+                if (el) el.style.display = 'block';
+            },
+            toggle: function() {
+                var el = document.getElementById('alertshow');
+                if (!el) return;
+                if (el.style.display === 'block') {
+                    el.style.display = 'none';
+                } else {
+                    this.open();
+                }
+            },
+            clear: function() {
+                ITEMS = [];
+                UNREAD = 0;
+                _renderBell();
+                _renderPanel();
+                var el = document.getElementById('alertshow');
+                if (el) el.style.display = 'none';
+            }
+        };
+    })();
+
+    // Close notification panel when clicking outside it
+    document.addEventListener('click', function(e) {
+        var panel = document.getElementById('alertshow');
+        if (!panel || panel.style.display !== 'block') return;
+        var wrap = e.target.closest ? e.target.closest('.dropdown') : null;
+        if (!wrap) { panel.style.display = 'none'; }
+    });
+
+    // Watch for new unassigned bookings every 8 seconds
+    var _ttLastJobCount = -1;
+    setInterval(function() {
+        try {
+            var sc = angular.element(document.getElementById('myangular')).scope();
+            if (!sc || !sc.unassignedjob_list) return;
+            var count = sc.unassignedjob_list.length;
+            if (_ttLastJobCount >= 0 && count > _ttLastJobCount) {
+                var diff = count - _ttLastJobCount;
+                var newest = sc.unassignedjob_list[0] || {};
+                _TT.push('booking',
+                    diff === 1 ? 'New booking #' + (newest.Id || '') : diff + ' new bookings arrived',
+                    (newest.PickAddress || '') + (newest.DropAddress ? ' → ' + newest.DropAddress : '')
+                );
+            }
+            _ttLastJobCount = count;
+        } catch(e) {}
+    }, 8000);
+
     var cars_Ref = firebase.database().ref("online/" + SomeSession2 + "");
     console.log(cars_Ref);
     // Tracks pending removal timers keyed by vehicleKey — used to delay driver removal
@@ -5161,6 +5438,13 @@ $(document).ready(function() {
         }
         if (!driverData || typeof driverData !== 'object') return;
         cars_count++;
+        // Notification: driver came online
+        if (window._TT && (driverData.vehiclenumber || driverData.drivername)) {
+            _TT.push('driver',
+                (driverData.vehiclenumber || 'Driver') + ' is now online',
+                (driverData.drivername  || '') + (driverData.zonename ? ' — ' + driverData.zonename : '')
+            );
+        }
         // Guard AddCar — Google Maps may not be ready yet when Firebase fires
         if (typeof google !== 'undefined' && typeof AddCar === 'function') {
             try { AddCar(driverData, driverData); } catch(e) {}
@@ -16104,9 +16388,14 @@ $(document).ready(function() {
         });
     }
     function FnEmergency(DriverId, DriverName, Lat, Lng, Vehicle, Time) {
-      
- 
-     
+        // Notification: emergency alert
+        if (window._TT) {
+            _TT.push('emergency',
+                'EMERGENCY — ' + (Vehicle || DriverId),
+                (DriverName ? DriverName + ' needs help' : 'Driver needs assistance')
+            );
+        }
+
         Addmanager([
                  { "name": "DriverId", "Value": DriverId},
                  { "name": "DriverName", "Value": DriverName},

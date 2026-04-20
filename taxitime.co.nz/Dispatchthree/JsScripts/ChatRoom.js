@@ -488,6 +488,14 @@ function _handleChatNode(snapshot) {
 }
 
 function _showDriverMessage(driverId, driverName, text) {
+    // Notification bell
+    if (window._TT) {
+        _TT.push('message',
+            'Message from ' + (driverName || 'Driver'),
+            text
+        );
+    }
+
     var now  = new Date();
     var h    = (now.getHours()   < 10 ? '0' : '') + now.getHours();
     var mn   = (now.getMinutes() < 10 ? '0' : '') + now.getMinutes();
