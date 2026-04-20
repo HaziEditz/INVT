@@ -7092,39 +7092,38 @@ $(document).ready(function() {
          var someSession = localStorage.getItem('TT_Name') || 'safinah mohammed';
 
          function FnFindMyVehicle() {
-             // Primary: use the lat/lng stored when the popup was opened
-             var storedLat = parseFloat($("#VehicleLat").text());
-             var storedLng = parseFloat($("#VehicleLng").text());
+             // Get the vehicle ID of the currently-open driver panel.
+             // selectedone is set by VehicleDetailschng(ele) where ele = driverz.VehicleId
+             // which is the same key used in Firebase online/{companyId}/{vehicleId}
+             var sc = angular.element(document.getElementById('myangular')).scope();
+             var vehicleId = String((sc && sc.selectedone) ? sc.selectedone : ($("#lblBookingHeadId").text() || ''));
 
-             if (!isNaN(storedLat) && !isNaN(storedLng) && storedLat !== 0 && storedLng !== 0) {
-                 var loc = new google.maps.LatLng(storedLat, storedLng);
-                 map.setCenter(loc);
-                 map.setZoom(15);
-                 $("#VehicleDetails").modal('hide');
+             if (!vehicleId) {
+                 toastr["warning"]('No driver selected.', 'Find on Map');
                  return;
              }
 
-             // Fallback: query Firebase live position
-             ref.once('value', function (snapshot) {
-                 var found = false;
-                 snapshot.forEach(function (childsnapshot) {
-                     var key1 = childsnapshot.key;
-                     childsnapshot.forEach(function (childsnapshot1) {
-                         if (key1 == $("#lblBookingHeadId").text()) {
-                             var VehicleLat = parseFloat(childsnapshot1.val().lat);
-                             var VehicleLng = parseFloat(childsnapshot1.val().lng);
-                             var VehicleLocation1 = new google.maps.LatLng(VehicleLat, VehicleLng);
-                             map.setCenter(VehicleLocation1);
-                             map.setZoom(15);
+             // Query Firebase directly for this vehicle's live GPS position
+             // Path: online/{companyId}/{vehicleId}/{uid} → { lat, lng, ... }
+             firebase.database().ref("online/" + SomeSession2 + "/" + vehicleId)
+                 .once('value', function(vehicleSnap) {
+                     var found = false;
+                     vehicleSnap.forEach(function(uidSnap) {
+                         if (found) return true; // already located, stop iterating
+                         var d = uidSnap.val() || {};
+                         var lat = parseFloat(d.lat);
+                         var lng = parseFloat(d.lng);
+                         if (!isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
+                             map.setCenter(new google.maps.LatLng(lat, lng));
+                             map.setZoom(16);
                              $("#VehicleDetails").modal('hide');
                              found = true;
                          }
                      });
+                     if (!found) {
+                         toastr["warning"]('Driver location not available on map.', 'Find on Map');
+                     }
                  });
-                 if (!found) {
-                     toastr["warning"]('Driver location not available on map.', 'Find on Map');
-                 }
-             });
          }
 
 
