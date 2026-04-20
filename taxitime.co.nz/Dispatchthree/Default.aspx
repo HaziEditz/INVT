@@ -5590,7 +5590,7 @@ $(document).ready(function() {
             var _sc = angular.element(document.getElementById('myangular')).scope();
             if (_sc) { removeFn(_sc); }
             else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
-        }, 1800000); // 30 minutes — dispatcher removes manually; screen-off won't clear driver
+        }, 120000); // 2 minutes — long enough to survive screen-off reconnects (10-30s), short enough to clear genuine sign-outs promptly
     });
     } // end if (user)
     }); // end onAuthStateChanged
