@@ -7157,36 +7157,58 @@ $(document).ready(function() {
                     .set({ jobstatus: 'Offer', status: 'Sent' })
                     .catch(function(e) { console.warn('[acknowledgemethodx/busy] joback write failed:', e); });
             } catch(e) { console.warn('[acknowledgemethodx/busy] joback write error:', e); }
-            // ── Silent badge notification ────────────────────────────────────────────
-            // Write a minimal payload to /notification/{driverId} that lights up the
-            // driver app's Offer tab badge (jobCount) and exposes the job number
-            // (joboffer) WITHOUT triggering the full-screen popup.
-            //
-            // The full writeJobDetailsToFirebase payload includes a `content` field
-            // ('You have offered new Job please view details').  The driver app almost
-            // certainly checks for that field (or its non-empty value) before showing
-            // the popup, so we intentionally omit it here.  All other display fields
-            // are also omitted to keep the footprint minimal — the driver app's Offer
-            // tab will still show the offer via the joback/ node written above.
-            //
-            // If the driver app shows the popup regardless of `content` being absent
-            // (i.e., any write to /notification/ triggers it), this silent write cannot
-            // suppress the popup without a driver-app change — see task notes.
+            // ── Silent badge + job detail notification ───────────────────────────────
+            // Write full job details (pickup, dropoff, name, phone, fare, etc.) to
+            // /notification/{driverId} WITHOUT the `content` field.
+            // Rationale: the driver app gates its full-screen popup on `content` being
+            // present; omitting it keeps the Offer tab badge lit and the job detail
+            // visible in the Offer list without interrupting the driver's active Hail.
+            // We also write to /jobDetails/{bookingId} so the driver app can resolve
+            // full details from there if needed.
             try {
-                var _silentPayload = { joboffer: String(bookid), jobCount: 1 };
-                // Store for browser-devtools inspection: open console and read
-                // window._lastBusyDriverNotifPayload to confirm no `content` field.
+                // Look up job from Angular scope job lists
+                var _pqSc = angular.element(document.getElementById('myangular')).scope();
+                var _pqAllJobs = [].concat(
+                    (_pqSc && _pqSc.data1) ? _pqSc.data1 : [],
+                    (_pqSc && _pqSc.data2) ? _pqSc.data2 : [],
+                    (_pqSc && _pqSc.data3) ? _pqSc.data3 : [],
+                    (_pqSc && _pqSc.tstst) ? _pqSc.tstst : []
+                );
+                var _pqJob = null;
+                for (var _pqi = 0; _pqi < _pqAllJobs.length; _pqi++) {
+                    if (String(_pqAllJobs[_pqi].Id) === String(bookid) || String(_pqAllJobs[_pqi].BookingId) === String(bookid)) {
+                        _pqJob = _pqAllJobs[_pqi]; break;
+                    }
+                }
+                var _pqUid = $("#UId").text() || '';
+                var _pqBidStr = String(bookid) + ',Pending,' + String(driverid) + ',' + _pqUid + ',Dispatcher';
+                var _silentPayload = {
+                    bookingid:      _pqBidStr,
+                    joboffer:       String(bookid),
+                    jobpickup:      (_pqJob && (_pqJob.PickAddress  || _pqJob.PickLocation))  || 'Street / Hail Pickup',
+                    jobdropoff:     (_pqJob && (_pqJob.DropAddress  || _pqJob.DropLocation))  || '',
+                    JobphoneNo:     (_pqJob && (_pqJob.PhoneNo      || _pqJob.PassengerId))   || '',
+                    jobname:        (_pqJob && (_pqJob.Name         || _pqJob.UserFName))     || '',
+                    jobbags:        String((_pqJob && (_pqJob.Bags  || _pqJob.BagsNo))        || 0),
+                    jobpassengers:  String((_pqJob && (_pqJob.Passengers || _pqJob.PassengersNo)) || 1),
+                    jobvehicletype: (_pqJob && _pqJob.VehicleType)  || '',
+                    jobinfo:        (_pqJob && _pqJob.EntitiesDetails) || '',
+                    jobFare:        String((_pqJob && (_pqJob.Fare  || _pqJob.jobFare))       || ''),
+                    jobCount:       1
+                    // NOTE: 'content' field intentionally omitted — suppresses full-screen popup
+                };
                 window._lastBusyDriverNotifPayload = {
                     path:    '/notification/' + driverid,
                     payload: _silentPayload,
                     sentAt:  new Date().toISOString(),
-                    note:    'Silent badge — no content field. Full popup write would include content:"You have offered new Job please view details"'
+                    note:    'Silent badge with job details — no content field. Popup suppressed if driver app gates on content.'
                 };
                 console.group('[acknowledgemethodx/busy] SILENT BADGE PATH — driver ' + driverid + ' job ' + bookid);
                 console.log('Firebase path :', '/notification/' + driverid);
                 console.log('Payload written:', JSON.stringify(_silentPayload));
                 console.log('content field  : ABSENT (badge-only; popup suppressed if driver app gates on content)');
-                console.log('Full popup payload would include: content, jobpickup, jobdropoff, JobphoneNo, jobname, jobFare...');
+                console.log('jobpickup      :', _silentPayload.jobpickup);
+                console.log('jobdropoff     :', _silentPayload.jobdropoff);
                 console.log('Inspect window._lastBusyDriverNotifPayload in devtools to confirm.');
                 console.groupEnd();
                 var _silentNotifRef = firebase.database().ref('/notification/' + driverid);
@@ -7194,6 +7216,9 @@ $(document).ready(function() {
                     return _silentNotifRef.set(_silentPayload);
                 }).then(function() {
                     console.log('[acknowledgemethodx/busy] silent badge notification written for driver', driverid, 'job', bookid);
+                    // Also write to /jobDetails so driver app can resolve full details
+                    firebase.database().ref('/jobDetails/' + bookid).set(_silentPayload)
+                        .catch(function(e) { console.warn('[acknowledgemethodx/busy] jobDetails write failed:', e); });
                 }).catch(function(e) {
                     console.warn('[acknowledgemethodx/busy] silent badge notification failed:', e);
                 });
