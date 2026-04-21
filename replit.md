@@ -421,6 +421,31 @@ Driver app should:
     - **Queue tab UI**: New `Queue (N)` tab between Offer and Assign. Shows each queued job with driver, pickup, dropoff, and a Recall button. Tab refreshes every 3s via `getQueuedJobs()`.
     - **`acknowledgemethodx` patch**: Also searches `$scope.queuedJobs` for job details so Firebase notification has full pickup/dropoff for re-offered queue jobs.
 
+## Bug-Fix Log — Session #92 (2026-04-21)
+
+### #92a — `Queued` status invisible in Assign tab (BUG FIX)
+- **Root cause**: `buildAssignedResponse` filtered only `BookingStatus === 'Assigned'`. When a Busy driver accepted a pre-queue offer the job transitions to `Queued`, which was never included — the dispatcher's Assign tab showed nothing.
+- **Fix**: Added `|| j.BookingStatus === 'Queued'` to the filter in `buildAssignedResponse`.
+
+### #92b — `AutoDispatchVehiclesv2` zone filter always ignored (BUG FIX)
+- **Root cause**: Zone filter used `d.zoneid === zoneId` where `zoneId` was `parseInt(...)` (integer) and `d.zoneid` is stored as a string. Strict equality always `false` → all drivers returned regardless of zone.
+- **Fix**: Changed to `String(d.zoneid) === zoneId` (both sides string). ZoneId param also now read as string directly.
+
+### #92c — Seed endpoint cap too low (BUG FIX)
+- **Root cause**: `/dev/loadtest/seed` was capped at `Math.min(..., 100)` drivers and `Math.min(..., 200)` jobs, preventing the 500-driver/2000-job load test from running at full scale.
+- **Fix**: Caps raised to 500 drivers, 2000 jobs.
+
+### #92d — Comprehensive load test (scripts/loadtest.js)
+- **Full suite**: 101 assertions across all server flows.
+- **Flows tested**: seed/status, job-list reads (UA, Assigned, Active, VehiclesStatus, JobsCount, AutoDispatch, Delivery), create job (3 sources), dispatch lifecycle (offer→accept→busy→available→complete, 100 concurrent), cancel flows (dispatcher cancel, cancel assigned, driver cancel, Unreached timeout), update ride + editjob, close ride + ClosedJobs search, Hail flow, pre-queue Queued flow (QueueJob/GetQueuedJobs/RecallQueuedJob + Assign tab visibility), search (by ID/name/phone/date/range), driver admin (suspend/unsuspend/kick/queue update), messaging (send/broadcast/group/retrieve/conversation), Away-lock flow, double-offer guard, downgrade guard, no-show/QuickSetNoOne, tariff sync + DispatchEstimation, 200 concurrent job-list reads (65 req/s sustained).
+- **Result**: 101/101 PASS with 500 drivers and 2000 jobs.
+
+### Known duplicate code (NOT refactored — risk too high)
+- `InsertBookingv4` block (~120 lines) duplicated in `/DataSelectorRide` and `/DataProcessor` handlers.
+- `[changeriddestatusforoffer]` (~150 lines) duplicated across DP and DS path.
+- `[DriverStatusChanged]` (~250 lines) duplicated across DP and DS path.
+- Flagged for future extraction into shared helpers when safe to do so.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.

@@ -453,9 +453,13 @@ function buildDeliveryResponse(jobs) {
 
 function buildAssignedResponse(jobs) {
   // 'Offered' = dispatcher sent the job, driver hasn't accepted yet → stays in Pending/Offered tab
-  // 'Assigned' = driver accepted → shows in Assigned tab only
+  // 'Assigned' = driver accepted → shows in Assigned tab
+  // 'Queued'   = Busy driver accepted a pre-queue offer → shows in Assigned tab (no Recall button)
   // Exclude orphaned jobs (Assigned but DriverId=0) — those appear in Unassigned tab instead.
-  const assigned = jobs.filter(j => j.BookingStatus === 'Assigned' && j.DriverId && String(j.DriverId) !== '0');
+  const assigned = jobs.filter(j =>
+    (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Queued') &&
+    j.DriverId && String(j.DriverId) !== '0'
+  );
   const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
   const activeCount = jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length;
   return {
@@ -664,8 +668,8 @@ const server = http.createServer(async (req, res) => {
   //   jobs whose Id is in the LT_JOB_IDS set).
   if (urlPath === '/dev/loadtest/seed' && req.method === 'POST') {
     const qs   = new URL('http://x' + req.url).searchParams;
-    const nD   = Math.min(parseInt(qs.get('drivers') || '10'), 100);
-    const nJ   = Math.min(parseInt(qs.get('jobs')    || '20'), 200);
+    const nD   = Math.min(parseInt(qs.get('drivers') || '10'), 500);
+    const nJ   = Math.min(parseInt(qs.get('jobs')    || '20'), 2000);
     const zones = ['Central','North','South','East','West'];
     LT_DRIVER_IDS.clear();
     LT_JOB_IDS.clear();
@@ -2364,8 +2368,8 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === 'AutoDispatchVehiclesv2') {
         // Return available drivers in the requested zone
-        const zoneId = parseInt(param('ZoneId') || '0') || 0;
-        const avail = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available' && (!zoneId || d.zoneid === zoneId));
+        const zoneId = (param('ZoneId') || '').toString().trim();
+        const avail = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available' && (!zoneId || String(d.zoneid) === zoneId));
         const dt2 = avail.map(d => ({
           VehicleId: d.VehicleId, driverid: d.driverid, drivername: d.drivername,
           vehiclenumber: d.vehiclenumber, vehicletype: d.vehicletype,

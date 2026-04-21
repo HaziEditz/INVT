@@ -1,4 +1,348 @@
 {
+  "9000": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9001": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9002": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9003": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9005": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9007": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9008": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9010": {
+    "zonename": "Central",
+    "zoneid": "1"
+  },
+  "9011": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9012": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9013": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9014": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9016": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9017": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9019": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9020": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9021": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9022": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9024": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9025": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9026": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9027": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9028": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9029": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9030": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9031": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9032": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9033": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9034": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9035": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9036": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9037": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9038": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9039": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9040": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9041": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9042": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9043": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9044": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9045": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9046": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9047": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9049": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9050": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9051": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9053": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9054": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9055": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9056": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9057": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9058": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9059": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9060": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9062": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9063": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9064": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9065": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9066": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9069": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9070": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9071": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9072": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9073": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9074": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9075": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9076": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9077": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9078": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9079": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9080": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9081": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9082": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9084": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9085": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9086": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9087": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9088": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9089": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9091": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9093": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9094": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
+  "9095": {
+    "zonename": "North",
+    "zoneid": "1"
+  },
+  "9096": {
+    "zonename": "North",
+    "zoneid": "2"
+  },
+  "9097": {
+    "zonename": "North",
+    "zoneid": "3"
+  },
+  "9098": {
+    "zonename": "North",
+    "zoneid": "4"
+  },
+  "9099": {
+    "zonename": "North",
+    "zoneid": "5"
+  },
   "D001": {
     "zonename": "North",
     "zoneid": ""
