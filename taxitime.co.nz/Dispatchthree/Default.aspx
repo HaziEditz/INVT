@@ -7122,6 +7122,31 @@ $(document).ready(function() {
         var _isBusyPreQueue = window._driverQueueMap &&
                               String(window._driverQueueMap[driverid]) === String(bookid);
         if (_isBusyPreQueue) {
+            // ── Safety guard: verify driver is still actually Busy ──────────────────
+            // A race can occur: driver finishes Hail → goes Available → Firebase fires
+            // → smartAutoDispatch offers same job again (normal path) → acknowledgemethodx
+            // finds stale _driverQueueMap entry → would wrongly take the Busy path again.
+            // We prevent the loop by checking the driver's live status here.
+            var _busyGuardDrv = null;
+            try {
+                var _busyGuardSc  = angular.element(document.getElementById('myangular')).scope();
+                var _busyGuardArr = (_busyGuardSc && _busyGuardSc.driverdatarealx) ? _busyGuardSc.driverdatarealx : [];
+                for (var _bgIdx = 0; _bgIdx < _busyGuardArr.length; _bgIdx++) {
+                    if (String(_busyGuardArr[_bgIdx].driverid) === String(driverid)) {
+                        _busyGuardDrv = _busyGuardArr[_bgIdx]; break;
+                    }
+                }
+            } catch(e) {}
+            var _drvrActuallyBusy = _busyGuardDrv && _busyGuardDrv.vehiclestatus === 'Busy';
+            if (!_drvrActuallyBusy) {
+                // Driver is Available/not found — stale map entry.
+                // Clear it so the normal offer path below runs with popup.
+                var _guardStatus = _busyGuardDrv ? _busyGuardDrv.vehiclestatus : '(not in driver list)';
+                console.log('[acknowledgemethodx] pre-queue guard: driver ' + driverid + ' status=' + _guardStatus + ' — not Busy, clearing stale driverQueueMap entry, offering normally with popup');
+                delete window._driverQueueMap[String(driverid)];
+                // Fall through to normal offer path
+            } else {
+            // ── Genuine Busy pre-queue path ─────────────────────────────────────────
             console.log('[acknowledgemethodx] Busy pre-queue — job #' + bookid + ' stays Pending, watching for driver ' + driverid);
             // Release the dedup lock immediately — we are NOT holding resolveAfter2Secondsx open.
             // Holding it would block future Available-driver offers for the same job.
@@ -7175,6 +7200,7 @@ $(document).ready(function() {
             } catch(e) { console.warn('[acknowledgemethodx/busy] silent badge notification error:', e); }
             _watchBusyDriverAcceptance(vehicle, driverid, bookid);
             return;
+            } // end else (genuine Busy guard)
         }
         // ── NORMAL (Available driver) path ───────────────────────────────────────────
         // Mark job as Offered on server — await so we only notify the driver if the
@@ -8742,6 +8768,28 @@ $(document).ready(function() {
                                                 }
                                             }
                                         });
+                                    } else {
+                                        // No queued job on the server — driver went Available without accepting
+                                        // the silent pre-queue offer.  Clear the stale _driverQueueMap entry
+                                        // so smartAutoDispatch stops looping and re-offers with a popup.
+                                        var _stalePQJob = window._driverQueueMap && window._driverQueueMap[String(driverId)];
+                                        if (_stalePQJob) {
+                                            console.log('[changedata Busy→Available] stale pre-queue offer for job #' + _stalePQJob + ' (driver ' + driverId + ' never accepted) — clearing map, re-offering with popup');
+                                            delete window._driverQueueMap[String(driverId)];
+                                            var _cdscS = angular.element(document.getElementById('myangular')).scope();
+                                            var _cdVehS = String(driverId);
+                                            if (_cdscS && _cdscS.driverdatarealx) {
+                                                for (var _cdiS = 0; _cdiS < _cdscS.driverdatarealx.length; _cdiS++) {
+                                                    var _cddS = _cdscS.driverdatarealx[_cdiS];
+                                                    if (String(_cddS.driverid) === String(driverId)) {
+                                                        _cdVehS = _cddS.VehicleId || _cddS.vehiclenumber || String(driverId);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
+                                            acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                        }
                                     }
                                 } catch(e) { console.warn('[changedata Busy→Available] queued job check error:', e); }
                             }
