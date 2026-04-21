@@ -18028,18 +18028,20 @@ $(document).ready(function() {
                             datas.push($action);
                             $refresh = " <span><i class='fa fa-refresh txt-theme' onclick='event.stopPropagation(); RefreshJob(" + $res["dt1"][$i].Id + ")'></i></span>";
                             datas.push($refresh);
-                            datas.push("<span>"+ $res["dt1"][$i].BookingDateTime+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].JobCompleteTime+"</span>");
-                            datas.push("<div id='lessshow'  style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span>"+$res["dt1"][$i].PickAddress+"</span></div>");
-                            datas.push("<div id='lessshow' style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span style='width:20px;'>"+$res["dt1"][$i].DropAddress+"</span></div>");
-                            datas.push("<span>"+$res["dt1"][$i].Name+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].PhoneNo+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].VehicleNo+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].UserFName + $res["dt1"][$i].UserLName+"</span>");
+                            datas.push("<span>"+ ($res["dt1"][$i].BookingDateTime || '')+"</span>");
+                            datas.push("<span>"+($res["dt1"][$i].JobCompleteTime || '')+"</span>");
+                            datas.push("<div id='lessshow'  style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span>"+($res["dt1"][$i].PickAddress || '')+"</span></div>");
+                            datas.push("<div id='lessshow' style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span style='width:20px;'>"+($res["dt1"][$i].DropAddress || '')+"</span></div>");
+                            datas.push("<span>"+($res["dt1"][$i].Name || '')+"</span>");
+                            datas.push("<span>"+($res["dt1"][$i].PhoneNo || '')+"</span>");
+                            datas.push("<span>"+($res["dt1"][$i].VehicleNo || '')+"</span>");
+                            datas.push("<span>"+($res["dt1"][$i].UserFName || '') + ($res["dt1"][$i].UserLName || '')+"</span>");
                             var cancelledBy = $res["dt1"][$i].CancelledBy;
                             var sourceLabel = cancelledBy ? ('Cancelled by ' + cancelledBy) : ($res["dt1"][$i].BookingSource || '');
                             datas.push("<span>"+sourceLabel+"</span>");
-                            datas.push("<span>"+$res["dt1"][$i].BookingStatus+"</span>");
+                            var _rawStatus = $res["dt1"][$i].BookingStatus || '';
+                            var _displayStatus = (_rawStatus === 'Dispatched' || _rawStatus === 'Closed') ? 'Completed' : _rawStatus;
+                            datas.push("<span>"+_displayStatus+"</span>");
                             datasetx.push(datas);
                         }
           

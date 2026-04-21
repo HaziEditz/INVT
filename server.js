@@ -79,12 +79,12 @@ function _closedDate(daysAgo, time) {
   return `${y}-${m}-${dd} ${time}.`;
 }
 const closedJobStore = [
-  { Id: 937100, BookingDateTime: _closedDate(0, '09:00:00'), JobCompleteTime: _closedDate(0, '09:28:00'), PickAddress: '12 Dee St, Invercargill', DropAddress: 'Invercargill Hospital, Kew Rd', Name: 'Alice Brown', PhoneNo: '021 400 1001', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
-  { Id: 937101, BookingDateTime: _closedDate(0, '11:15:00'), JobCompleteTime: _closedDate(0, '11:47:00'), PickAddress: '88 Tay St, Invercargill', DropAddress: 'Invercargill Airport', Name: 'Brian Clark', PhoneNo: '021 400 1002', VehicleNo: 'T202', UserFName: 'Sarah', UserLName: 'Wilson', BookingSource: 'Dispatch Console', BookingStatus: 'Dispatched', DriverId: 102, VehicleId: 202 },
-  { Id: 937102, BookingDateTime: _closedDate(1, '13:30:00'), JobCompleteTime: '', PickAddress: '5 Don St, Invercargill', DropAddress: 'Waikiwi Mall', Name: 'Carol Evans', PhoneNo: '021 400 1003', VehicleNo: 'T203', UserFName: 'David', UserLName: 'Thompson', BookingSource: 'Phone', BookingStatus: 'Cancel', DriverId: 103, VehicleId: 203 },
-  { Id: 937103, BookingDateTime: _closedDate(1, '07:45:00'), JobCompleteTime: _closedDate(1, '08:05:00'), PickAddress: '200 Elles Rd, Invercargill', DropAddress: '14 Yarrow St, Invercargill', Name: 'Daniel Ford', PhoneNo: '021 400 1004', VehicleNo: 'T204', UserFName: 'Emma', UserLName: 'Davies', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 104, VehicleId: 204 },
+  { Id: 937100, BookingDateTime: _closedDate(0, '09:00:00'), JobCompleteTime: _closedDate(0, '09:28:00'), PickAddress: '12 Dee St, Invercargill', DropAddress: 'Invercargill Hospital, Kew Rd', Name: 'Alice Brown', PhoneNo: '021 400 1001', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Completed', DriverId: 101, VehicleId: 201 },
+  { Id: 937101, BookingDateTime: _closedDate(0, '11:15:00'), JobCompleteTime: _closedDate(0, '11:47:00'), PickAddress: '88 Tay St, Invercargill', DropAddress: 'Invercargill Airport', Name: 'Brian Clark', PhoneNo: '021 400 1002', VehicleNo: 'T202', UserFName: 'Sarah', UserLName: 'Wilson', BookingSource: 'Dispatch Console', BookingStatus: 'Completed', DriverId: 102, VehicleId: 202 },
+  { Id: 937102, BookingDateTime: _closedDate(1, '13:30:00'), JobCompleteTime: '', PickAddress: '5 Don St, Invercargill', DropAddress: 'Waikiwi Mall', Name: 'Carol Evans', PhoneNo: '021 400 1003', VehicleNo: 'T203', UserFName: 'David', UserLName: 'Thompson', BookingSource: 'Phone', BookingStatus: 'Cancelled', CancelledBy: 'Dispatcher', DriverId: 103, VehicleId: 203 },
+  { Id: 937103, BookingDateTime: _closedDate(1, '07:45:00'), JobCompleteTime: _closedDate(1, '08:05:00'), PickAddress: '200 Elles Rd, Invercargill', DropAddress: '14 Yarrow St, Invercargill', Name: 'Daniel Ford', PhoneNo: '021 400 1004', VehicleNo: 'T204', UserFName: 'Emma', UserLName: 'Davies', BookingSource: 'App', BookingStatus: 'Completed', DriverId: 104, VehicleId: 204 },
   { Id: 937104, BookingDateTime: _closedDate(2, '16:00:00'), JobCompleteTime: '', PickAddress: '3 Leven St, Invercargill', DropAddress: 'Queens Park, Invercargill', Name: 'Eve Green', PhoneNo: '021 400 1005', VehicleNo: 'T205', UserFName: 'James', UserLName: 'Brown', BookingSource: 'Dispatch Console', BookingStatus: 'No Show', DriverId: 105, VehicleId: 205 },
-  { Id: 937105, BookingDateTime: _closedDate(2, '10:00:00'), JobCompleteTime: _closedDate(2, '10:22:00'), PickAddress: 'Invercargill Airport', DropAddress: '56 Gala St, Invercargill', Name: 'Frank Harris', PhoneNo: '021 400 1006', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Dispatched', DriverId: 101, VehicleId: 201 },
+  { Id: 937105, BookingDateTime: _closedDate(2, '10:00:00'), JobCompleteTime: _closedDate(2, '10:22:00'), PickAddress: 'Invercargill Airport', DropAddress: '56 Gala St, Invercargill', Name: 'Frank Harris', PhoneNo: '021 400 1006', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Completed', DriverId: 101, VehicleId: 201 },
 ];
 
 function calcJobMins(bookingDateTimeStr) {
@@ -1093,7 +1093,7 @@ const server = http.createServer(async (req, res) => {
         const idx = jobStore.findIndex(j => j.Id === bookingId);
         if (idx !== -1) {
           const job = jobStore[idx];
-          job.BookingStatus = 'Cancel';
+          job.BookingStatus = 'Cancelled';
           job.CancelledBy   = 'Dispatcher';
           job.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
           closedJobStore.push(job);
@@ -1981,7 +1981,7 @@ const server = http.createServer(async (req, res) => {
               zd.jobCount   = 0;
             }
           }
-          job.BookingStatus = 'Cancel';
+          job.BookingStatus = 'Cancelled';
           job.CancelledBy   = 'Dispatcher';
           job.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
           closedJobStore.push(job);

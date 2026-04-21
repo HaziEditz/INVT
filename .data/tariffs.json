@@ -1,20 +1,11 @@
 [
   {
-    "Id": 1,
-    "TariffName": "Standard",
+    "Id": 5,
+    "TariffName": "tarrif 1",
     "StartPrice": 5,
-    "DistanceRate": 3.5,
+    "DistanceRate": 4.6,
     "WaitingRate": 1,
-    "MinimumFare": 5,
-    "CurrencyName": "NZD"
-  },
-  {
-    "Id": 2,
-    "TariffName": "Airport",
-    "StartPrice": 8,
-    "DistanceRate": 4,
-    "WaitingRate": 0.5,
-    "MinimumFare": 8,
+    "MinimumFare": 0,
     "CurrencyName": "NZD"
   }
 ]
