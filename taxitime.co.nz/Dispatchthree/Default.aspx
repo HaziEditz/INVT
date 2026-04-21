@@ -4974,9 +4974,15 @@ $(document).ready(function() {
     var car8600 = '';
     // This Function will create a car icon with angle and add/display that marker on the map
     function AddCar(data,olddata) {
-      
-
-
+        // If a marker already exists for this vehicle number, remove it from the map
+        // before creating a new one.  This prevents ghost/duplicate icons when:
+        //   (a) the driver app reconnects with a new Firebase key (two child_added events),
+        //   (b) child_changed fires close to child_added causing two AddCar calls,
+        //   (c) totaldis <= 0.01 triggers a recreate while an animation is still running.
+        if (data && data.vehiclenumber && typeof markers !== 'undefined' && markers[data.vehiclenumber]) {
+            try { markers[data.vehiclenumber].setMap(null); } catch(e) {}
+            delete markers[data.vehiclenumber];
+        }
 
 
         var date1 = new Date(data.time ); 
@@ -8663,8 +8669,10 @@ $(document).ready(function() {
                     if (datacom.lat && datacom.lng && (datacom.lat !== _oldLat || datacom.lng !== _oldLng)) {
                         var _detectedZone = _getZoneForLatLng(datacom.lat, datacom.lng);
                         if (_detectedZone) {
-                            if (_detectedZone.zoneName !== datacom.zonename) {
-                                console.log('[zoneDetect] driver', datacom.vehiclenumber, 'moved to zone', _detectedZone.zoneName, '(was', datacom.zonename + ')');
+                            // Compare against the stored zone (not the Firebase field, which driver apps often leave empty)
+                            var _storedZone = $scope.driverdatarealx[incs].zonename || '';
+                            if (_detectedZone.zoneName !== _storedZone) {
+                                console.log('[zoneDetect] driver', datacom.vehiclenumber, 'moved to zone', _detectedZone.zoneName, '(was', _storedZone + ')');
                             }
                             datacom.zonename = _detectedZone.zoneName;
                             datacom.zoneid   = _detectedZone.zoneId;
