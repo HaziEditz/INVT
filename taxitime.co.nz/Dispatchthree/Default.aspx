@@ -7062,6 +7062,17 @@ $(document).ready(function() {
             firebase.database().ref("joback/"+bookid+"/"+_fbDrvId).set({'jobstatus':'Offer','status':'Sent'})
                 .catch(function(e) { console.warn('[acknowledgemethodx] joback write failed:', e.code || e.message || e); });
         } catch(_jobackErr) { console.warn('[acknowledgemethodx] joback write error:', _jobackErr); }
+        // For pre-queue offers to Busy drivers: skip the /notification write entirely.
+        // Writing to /notification triggers the offer popup on the driver's main screen — exactly
+        // what we do NOT want when the driver is on a Hail trip.  The joback entry above is
+        // enough for the resolver to track acceptance.  The job stays pending on server; if the
+        // driver opens their Offer tab manually they can still accept from there.
+        var _isBusyPreQueue = window._driverQueueMap && String(window._driverQueueMap[driverid]) === String(bookid);
+        if (_isBusyPreQueue) {
+            console.log('[acknowledgemethodx] Busy pre-queue offer for job #' + bookid + ' → skipping notification write (silent offer)');
+            resolveAfter2Secondsx(vehicle, driverid, bookid, status);
+            return;
+        }
         // ALSO write to /notification/{driverId} so the driver app knows which job to display.
         // Without this, the driver app never learns the bookingId and cannot show the offer screen.
         try {
