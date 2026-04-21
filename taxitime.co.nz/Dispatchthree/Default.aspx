@@ -6683,24 +6683,7 @@ $(document).ready(function() {
                     _jobsRef.off("value", _jobsListener);
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
-                    // Check if this was a pre-queue offer to a Busy driver.
-                    // _driverQueueMap still holds the entry at this point — _immediateJobPending clears it below.
-                    var _wasBusyOffer = window._driverQueueMap && String(window._driverQueueMap[driverid]) === String(id);
-                    if (_wasBusyOffer) {
-                        // Silent timeout for Busy driver: do NOT remove /notification (avoids "you missed" popup),
-                        // do NOT set driver Away (they are still on their Hail trip), just quietly return job to Pending.
-                        if (typeof _immediateJobPending === 'function') _immediateJobPending(id);
-                        convertstatus(id, 'Pending', driverid, 'Pre-queue timeout \u2013 driver busy');
-                        var _fbscB = angular.element(document.getElementById('myangular')).scope();
-                        if (_fbscB) {
-                            if (typeof _fbscB.getjobs     === 'function') _fbscB.getjobs();
-                            if (typeof _fbscB.AssignedJobs === 'function') _fbscB.AssignedJobs();
-                        }
-                        if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
-                        if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
-                        return;
-                    }
-                    // Normal (Available driver) timeout: remove notification, set Away, mark Unreached.
+                    // Normal timeout: remove notification, set Away, mark Unreached.
                     // Write Away to BOTH Firebase paths:
                     //   jobs/ → driver app reads this for its own status display
                     //   online/ → dispatch console reads this via tallo listener
@@ -7062,17 +7045,6 @@ $(document).ready(function() {
             firebase.database().ref("joback/"+bookid+"/"+_fbDrvId).set({'jobstatus':'Offer','status':'Sent'})
                 .catch(function(e) { console.warn('[acknowledgemethodx] joback write failed:', e.code || e.message || e); });
         } catch(_jobackErr) { console.warn('[acknowledgemethodx] joback write error:', _jobackErr); }
-        // For pre-queue offers to Busy drivers: skip the /notification write entirely.
-        // Writing to /notification triggers the offer popup on the driver's main screen — exactly
-        // what we do NOT want when the driver is on a Hail trip.  The joback entry above is
-        // enough for the resolver to track acceptance.  The job stays pending on server; if the
-        // driver opens their Offer tab manually they can still accept from there.
-        var _isBusyPreQueue = window._driverQueueMap && String(window._driverQueueMap[driverid]) === String(bookid);
-        if (_isBusyPreQueue) {
-            console.log('[acknowledgemethodx] Busy pre-queue offer for job #' + bookid + ' → skipping notification write (silent offer)');
-            resolveAfter2Secondsx(vehicle, driverid, bookid, status);
-            return;
-        }
         // ALSO write to /notification/{driverId} so the driver app knows which job to display.
         // Without this, the driver app never learns the bookingId and cannot show the offer screen.
         try {
@@ -12259,16 +12231,16 @@ $(document).ready(function() {
 
                     // Use Angular scope's driverdatarealx — already has zonequeue and live status
                     var _sc = angular.element(document.getElementById('myangular')).scope();
-                    // Include Available drivers AND Busy (Hail/active job) drivers who don't yet
-                    // have a pre-queued job pending. Busy drivers get a silent offer (driver app
-                    // flashes Offer tab — no popup interrupt) so it doesn't disturb their current job.
-                    var allAvailable = (_sc && _sc.driverdatarealx)
-                        ? _sc.driverdatarealx.filter(function(dv) {
-                            if (dv.vehiclestatus === 'Available') return true;
-                            if (dv.vehiclestatus === 'Busy' && !window._driverQueueMap[String(dv.driverid)]) return true;
-                            return false;
-                          })
-                        : [];
+                    var _allDrivers = (_sc && _sc.driverdatarealx) ? _sc.driverdatarealx : [];
+                    // Only Available drivers get normal offers (popup + timer).
+                    // Busy drivers are kept separate — they are only used as a fallback per-job
+                    // when NO Available driver is untried for that job.
+                    var _availableOnly = _allDrivers.filter(function(dv) { return dv.vehiclestatus === 'Available'; });
+                    var _busyOnly      = _allDrivers.filter(function(dv) {
+                        return dv.vehiclestatus === 'Busy' && !window._driverQueueMap[String(dv.driverid)];
+                    });
+                    // allAvailable starts as Available-only; Busy drivers are appended per-job below.
+                    var allAvailable = _availableOnly.slice();
 
                     // Cleanup: remove tried-driver records for jobs no longer pending.
                     // IMPORTANT: skip deletion when a job is currently in "Offered" state
@@ -12304,24 +12276,28 @@ $(document).ready(function() {
                         // Exclude drivers already offered this specific job AND drivers
                         // already claimed for another job in this same cycle.
                         var triedIds = _triedDriversForJob[String(jobId)] || [];
-                        var availableDrivers = allAvailable.filter(function(dv) {
+
+                        // First try Available drivers only.
+                        var availableDrivers = _availableOnly.filter(function(dv) {
                             var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
                             return triedIds.indexOf(dvId) === -1 && !_claimedThisCycle[dvId];
                         });
+
                         if (!availableDrivers.length) {
-                            // All unclaimed available drivers have already been tried for this job.
-                            // Reset the tried list ONLY if there are genuinely Available (non-Busy) drivers
-                            // still unclaimed — Busy drivers should NOT trigger a reset, otherwise the same
-                            // Busy driver gets re-offered the same job in a continuous loop.
-                            var _unclaimedAvailable = allAvailable.filter(function(dv) {
+                            // No untried Available drivers for this job.
+                            // Check if there are more Available drivers to loop back to.
+                            var _unclaimedAvail = _availableOnly.filter(function(dv) {
                                 var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
-                                return !_claimedThisCycle[dvId] && dv.vehiclestatus !== 'Busy';
+                                return !_claimedThisCycle[dvId];
                             });
-                            if (_unclaimedAvailable.length > 0) {
+                            if (_unclaimedAvail.length > 0) {
+                                // Reset tried list and retry Available drivers from the top on next cycle.
                                 _triedDriversForJob[String(jobId)] = [];
                                 console.log('[smartAutoDispatch] Job #' + jobId + ' — all available drivers tried, resetting loop');
                             }
-                            continue; // re-offer on next 10s cycle
+                            // Job stays in U-A (Pending). If the driver app's Offer tab shows pending
+                            // jobs, Busy drivers will already see it there passively — no offer needed.
+                            continue;
                         }
 
                         // Primary sort: zonequeue ascending (1 = first in queue).
@@ -12354,12 +12330,6 @@ $(document).ready(function() {
                         // job returns to Pending (reject / timeout).
                         if (!_triedDriversForJob[String(jobId)]) _triedDriversForJob[String(jobId)] = [];
                         _triedDriversForJob[String(jobId)].push(String(driverId));
-
-                        // If this driver is Busy, mark them in the pre-queue map so they don't
-                        // get offered a second job before they've accepted/rejected this one.
-                        if (best.vehiclestatus === 'Busy') {
-                            window._driverQueueMap[String(driverId)] = String(jobId);
-                        }
 
                         console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (fbUID:' + (best.PlayerId || driverId) + ', car:' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?'));
                         acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
