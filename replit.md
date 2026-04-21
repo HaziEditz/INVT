@@ -389,6 +389,14 @@ Driver app should:
 82. **`[MessageInsert]` ignored SenderId** — The server handler only used `RecieverId` and `Dispatcher` as the fixed sender. Updated to accept an optional `SenderId` param so driver-to-driver relays are stored with the correct source driver's name.
 83. **New driver onboarding in ZONE_DRIVERS** — `[DriverStatusChanged]` Available handler (both DP and DS paths) only updated existing ZONE_DRIVERS entries but never added new ones. When a dispatcher's Firebase `child_added` fires and calls `[DriverStatusChanged]`, ZONE_DRIVERS was never populated. Added `else` branch in both paths to push new drivers (with queue position = maxQ+1), so `dt6` (VehiclesStatus) accurately reflects online drivers and logout detection works correctly.
 
+84. **Pre-queue feature for Busy (Hail) drivers** — Busy/Hail drivers can now grab a pending U-A job while on an active trip. Full implementation:
+    - **Server**: `[QueueJob]` (marks job Queued + driverId), `[RecallQueuedJob]` (Queued → Pending), `[GetQueuedJobs]` (read queued list). New `queued` status added to OPEN_ST so it's not filtered from open-job queries. All three actions added to LOCAL_ONLY_ACTIONS + DataSelector section.
+    - **Resolver intercept**: All acceptance paths in `resolveAfter2Secondsx` and `resolveAfter2Seconds` now call `_resolveAcceptance(bookingId, driverId)` — if driver is Busy, calls `[QueueJob]` instead of Assigned; if Available, normal Assigned flow.
+    - **smartAutoDispatch**: Now also offers pending jobs to Busy drivers who don't already have a Queued job (`_driverQueueMap` tracks this).
+    - **Auto re-offer**: `changedata('Busy', 'Available', driverId)` detects if the driver has a Queued job, recalls it to Pending, then immediately re-offers via `acknowledgemethodx` so the driver sees the popup.
+    - **Queue tab UI**: New `Queue (N)` tab between Offer and Assign. Shows each queued job with driver, pickup, dropoff, and a Recall button. Tab refreshes every 3s via `getQueuedJobs()`.
+    - **`acknowledgemethodx` patch**: Also searches `$scope.queuedJobs` for job details so Firebase notification has full pickup/dropoff for re-offered queue jobs.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.

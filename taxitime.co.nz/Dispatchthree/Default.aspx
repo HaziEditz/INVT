@@ -2977,6 +2977,7 @@ $(document).ready(function() {
                                             <ul class="nav panel-tabs">
                                                 <li class="" ng-click="getjobs(0)"><a href="#tab5" class="active show" data-toggle="tab">U-A<span>({{UnAssignedCount}})</span></a></li>
                                                <li class="" ng-click="getjobs(0)"><a href="#tab9" class=" " data-toggle="tab">Offer<span>({{UnAssignedCountoffer}})</span></a></li>
+                                               <li class="" ng-click="getQueuedJobs()"><a href="#tab10" class=" " data-toggle="tab">Queue<span ng-style="{color: QueuedCount > 0 ? '#e67e22' : ''}"> ({{QueuedCount}})</span></a></li>
 
                                                  <li ng-click="AssignedJobs(0)"><a ng-click="AssignedJobs()" href="#tab6" data-toggle="tab" class="">Assign<span ng-click="AssignedJobs()">({{AssignedCount}})</span></a></li>
                                                 <li><a ng-click="ActiveJobsdata(0)" href="#tab7" data-toggle="tab" class="">Active <span>({{ActiveCount}})</span></a></li>
@@ -3338,6 +3339,42 @@ $(document).ready(function() {
 
                                                     <!-- enddiv -->
                                                 </div>
+
+                                                <!-- ── Queue Tab: jobs held for Busy/Hail drivers ── -->
+                                                <div class="tab-pane vowali" id="tab10">
+                                                    <div ng-if="queuedJobs.length == 0" style="padding:20px;text-align:center;color:#888;">
+                                                        No queued jobs
+                                                    </div>
+                                                    <div ng-repeat="qj in queuedJobs" style="margin-bottom:12px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12">
+                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="background:#fff;border:1px solid #e67e22;border-radius:4px;padding:8px;">
+                                                            <div class="col-sm-12">
+                                                                <span class="label label-pill label-warning mt-2" style="background:#e67e22;color:#fff;font-weight:bold;">
+                                                                    <i class="fa fa-clock-o"></i> QUEUED
+                                                                </span>
+                                                                <span class="label label-pill label-primary mt-2">
+                                                                    <i class="glyphicon glyphicon-tag"></i> #{{qj.Id}}
+                                                                </span>
+                                                                <span class="label label-pill mt-2" style="background:#2980b9;color:#fff;">
+                                                                    <i class="fa fa-car"></i> Driver {{qj.DriverId}}
+                                                                </span>
+                                                            </div>
+                                                            <div class="col-sm-12" style="margin-top:6px;font-size:12px;">
+                                                                <div><i class="fa fa-map-marker" style="color:#27ae60;"></i> <strong>From:</strong> {{qj.PickAddress || '—'}}</div>
+                                                                <div><i class="fa fa-flag-checkered" style="color:#c0392b;"></i> <strong>To:</strong> {{qj.DropAddress || '—'}}</div>
+                                                                <div ng-if="qj.UserFName"><i class="fa fa-user"></i> {{qj.UserFName}} {{qj.UserLName}}</div>
+                                                            </div>
+                                                            <div class="col-sm-12" style="margin-top:8px;">
+                                                                <button class="btn btn-xs btn-danger"
+                                                                    ng-click="recallQueuedJob(qj.Id, qj.DriverId)"
+                                                                    title="Return this job to Unassigned queue">
+                                                                    <i class="fa fa-undo"></i> Recall
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <!-- ── end Queue Tab ── -->
+
                                                 <div class="tab-pane" id="tab6">
                                                     
 
@@ -6401,6 +6438,91 @@ $(document).ready(function() {
     }
  
     
+    // ── Queue Feature helpers ────────────────────────────────────────────────
+    // _driverQueueMap: { driverId → jobId } — tracks which Busy driver has a queued job
+    window._driverQueueMap = window._driverQueueMap || {};
+
+    // Returns true when the given driverId is currently in Busy status in the live driver list.
+    function isDriverBusy(driverId) {
+        try {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (_sc && _sc.driverdatarealx) {
+                var _sid = String(driverId);
+                for (var _qi = 0; _qi < _sc.driverdatarealx.length; _qi++) {
+                    var _qd = _sc.driverdatarealx[_qi];
+                    if (String(_qd.driverid) === _sid || String(_qd.VehicleId) === _sid) {
+                        return _qd.vehiclestatus === 'Busy';
+                    }
+                }
+            }
+        } catch(_qe) {}
+        return false;
+    }
+
+    // Called when a Busy driver accepts a job offer — queues it instead of assigning directly.
+    function queueJobForDriver(bookingId, driverId) {
+        jQuery.ajax({
+            type: 'POST',
+            url: 'DataManager/Data.aspx/DataSelector',
+            data: JSON.stringify({ data: [
+                { name: 'bookingid', Value: String(bookingId) },
+                { name: 'driverid',  Value: String(driverId)  }
+            ], action: '[QueueJob]' }),
+            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+        }).done(function(r) {
+            try {
+                var _qr = JSON.parse(r.d || '{}');
+                if (_qr.ok) {
+                    window._driverQueueMap[String(driverId)] = String(bookingId);
+                    toastr['info']('Job #' + bookingId + ' queued for driver ' + driverId + ' (on Hail)', 'Queued!');
+                    var _qsc = angular.element(document.getElementById('myangular')).scope();
+                    if (_qsc) {
+                        if (typeof _qsc.getjobs        === 'function') _qsc.getjobs();
+                        if (typeof _qsc.getQueuedJobs  === 'function') _qsc.getQueuedJobs();
+                    }
+                } else {
+                    toastr['warning']('Queue failed: ' + (_qr.msg || 'unknown'), 'Queue error');
+                }
+            } catch(_qe2) {}
+        });
+    }
+
+    // Dispatcher recalls a queued job back to Pending (from Queue tab Recall button).
+    function recallQueuedJobFn(bookingId, driverId) {
+        jQuery.ajax({
+            type: 'POST',
+            url: 'DataManager/Data.aspx/DataSelector',
+            data: JSON.stringify({ data: [
+                { name: 'bookingid', Value: String(bookingId) }
+            ], action: '[RecallQueuedJob]' }),
+            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+        }).done(function() {
+            delete window._driverQueueMap[String(driverId)];
+            toastr['warning']('Job #' + bookingId + ' recalled — back in Unassigned queue', 'Recalled');
+            var _rsc = angular.element(document.getElementById('myangular')).scope();
+            if (_rsc) {
+                if (typeof _rsc.getjobs       === 'function') _rsc.getjobs();
+                if (typeof _rsc.getQueuedJobs === 'function') _rsc.getQueuedJobs();
+            }
+        });
+    }
+
+    // Single acceptance handler: if driver is Busy → queue; otherwise → assign.
+    // Also refreshes job lists after either branch.
+    function _resolveAcceptance(bookingId, driverId) {
+        if (isDriverBusy(driverId)) {
+            queueJobForDriver(bookingId, driverId);
+        } else {
+            convertstatus(bookingId, 'Assigned', driverId, '');
+            var _asc = angular.element(document.getElementById('myangular')).scope();
+            if (_asc) {
+                if (typeof _asc.getjobs      === 'function') _asc.getjobs();
+                if (typeof _asc.AssignedJobs === 'function') _asc.AssignedJobs();
+            }
+        }
+    }
+    // ── end Queue Feature helpers ────────────────────────────────────────────
+
     function resolveAfter2Secondsx(vehivle  , driverid,bookid,status) {
 
  
@@ -6440,12 +6562,7 @@ $(document).ready(function() {
                         $('#Divo'+id).remove();
                         localva = "Accept";
                         toastr["success"](driverid + " Accept The Job!", 'success!');
-                        convertstatus(id, 'Assigned', driverid, '');
-                        var _scjx = angular.element(document.getElementById('myangular')).scope();
-                        if (_scjx) {
-                            if (typeof _scjx.getjobs === 'function') _scjx.getjobs();
-                            if (typeof _scjx.AssignedJobs === 'function') _scjx.AssignedJobs();
-                        }
+                        _resolveAcceptance(id, driverid);
                     }
                 });
 
@@ -6479,9 +6596,7 @@ $(document).ready(function() {
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             localva = "Accept";
-                            convertstatus(id, 'Assigned', driverid, '');
-                            var _scx1 = angular.element(document.getElementById('myangular')).scope();
-                            if (_scx1) { if (typeof _scx1.getjobs === 'function') _scx1.getjobs(); if (typeof _scx1.AssignedJobs === 'function') _scx1.AssignedJobs(); }
+                            _resolveAcceptance(id, driverid);
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst === 'reject') {
                             settled = true;
@@ -6532,8 +6647,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
 
                                     $('#Divo'+bookid).remove();
-                                    convertstatus(id, 'Assigned', driverid, '');
-                                    angular.element(document.getElementById('myangular')).scope().getjobs( );
+                                    _resolveAcceptance(id, driverid);
                                     return;
                                 }else if($respp['discription'] == 'Ride Status successfully Updated to Reject'){
                                
@@ -6592,8 +6706,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 localva = "Accept";
-                                convertstatus(id, 'Assigned', driverid, '');
-                                angular.element(document.getElementById('myangular')).scope().getjobs( );
+                                _resolveAcceptance(id, driverid);
                                 return;
                             }else if($respp['jobstatus'] == 'Reject' ){
                                 console.log("Reject");
@@ -6741,12 +6854,7 @@ $(document).ready(function() {
                                 $('#Divo'+id).remove();
                                 localva = "Accept";
                                 toastr["success"](driverid + " Accept The Job!", 'success!');
-                                convertstatus(id, 'Assigned', driverid, '');
-                                var _scj2 = angular.element(document.getElementById('myangular')).scope();
-                                if (_scj2) {
-                                    if (typeof _scj2.getjobs === 'function') _scj2.getjobs();
-                                    if (typeof _scj2.AssignedJobs === 'function') _scj2.AssignedJobs();
-                                }
+                                _resolveAcceptance(id, driverid);
                             }
                         });
                     });
@@ -6779,9 +6887,7 @@ $(document).ready(function() {
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             localva = "Accept";
-                            convertstatus(id, 'Assigned', driverid, '');
-                            var _scx3 = angular.element(document.getElementById('myangular')).scope();
-                            if (_scx3) { if (typeof _scx3.getjobs === 'function') _scx3.getjobs(); if (typeof _scx3.AssignedJobs === 'function') _scx3.AssignedJobs(); }
+                            _resolveAcceptance(id, driverid);
                             return;
                         } else if ($respp['jobstatus'] === 'Reject' || _jst2 === 'reject') {
                             settled2 = true;
@@ -6813,8 +6919,7 @@ $(document).ready(function() {
                                     refaz.off("value", listener);
 
                                     $('#Divo'+bookid).remove();
-                                    convertstatus(id, 'Assigned', driverid, '');
-                                    angular.element(document.getElementById('myangular')).scope().getjobs( );
+                                    _resolveAcceptance(id, driverid);
                                     return;
                                 }else if($respp['discription'] == 'Ride Status successfully Updated to Reject'){
                                
@@ -6855,8 +6960,7 @@ $(document).ready(function() {
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
                                 localva = "Accept";
-                                convertstatus(id, 'Assigned', driverid, '');
-                                angular.element(document.getElementById('myangular')).scope().getjobs( );
+                                _resolveAcceptance(id, driverid);
                                 return;
                             }else if($respp['jobstatus'] == 'Reject' ){
                                 console.log("Reject");
@@ -7031,10 +7135,11 @@ $(document).ready(function() {
         try {
             var _notifScope = angular.element(document.getElementById('myangular')).scope();
             var _allJobs = [].concat(
-                (_notifScope && _notifScope.data1)  ? _notifScope.data1  : [],
-                (_notifScope && _notifScope.data2)  ? _notifScope.data2  : [],
-                (_notifScope && _notifScope.data3)  ? _notifScope.data3  : [],
-                (_notifScope && _notifScope.tstst)  ? _notifScope.tstst  : []
+                (_notifScope && _notifScope.data1)      ? _notifScope.data1      : [],
+                (_notifScope && _notifScope.data2)      ? _notifScope.data2      : [],
+                (_notifScope && _notifScope.data3)      ? _notifScope.data3      : [],
+                (_notifScope && _notifScope.tstst)      ? _notifScope.tstst      : [],
+                (_notifScope && _notifScope.queuedJobs) ? _notifScope.queuedJobs : []
             );
             var _notifJob = null;
             for (var _ni = 0; _ni < _allJobs.length; _ni++) {
@@ -8469,7 +8574,7 @@ $(document).ready(function() {
             }
         }
 
-        $scope.changedata = function(oldi , neww){
+        $scope.changedata = function(oldi , neww, driverId){
             var _getjobs        = typeof $scope.getjobs        === 'function' ? $scope.getjobs.bind($scope)        : function(){};
             var _AssignedJobs   = typeof $scope.AssignedJobs   === 'function' ? $scope.AssignedJobs.bind($scope)   : function(){};
             var _ActiveJobsdata = typeof $scope.ActiveJobsdata === 'function' ? $scope.ActiveJobsdata.bind($scope) : function(){};
@@ -8509,6 +8614,38 @@ $(document).ready(function() {
                 if (neww == "Available"){
                     _getjobs();
                     _ActiveJobsdata();
+                    // Queue feature: if this driver has a Queued job, recall it → Pending,
+                    // then immediately re-offer so the driver sees the popup.
+                    if (driverId) {
+                        var _qjId = window._driverQueueMap[String(driverId)];
+                        if (_qjId) {
+                            jQuery.ajax({
+                                type: 'POST',
+                                url: 'DataManager/Data.aspx/DataSelector',
+                                data: JSON.stringify({ data: [
+                                    { name: 'bookingid', Value: String(_qjId) }
+                                ], action: '[RecallQueuedJob]' }),
+                                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+                            }).done(function() {
+                                delete window._driverQueueMap[String(driverId)];
+                                // Now re-offer: find driver's vehicleId and use acknowledgemethodx
+                                var _drvRec = null;
+                                var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                                if (_sc2 && _sc2.driverdatarealx) {
+                                    for (var _ri = 0; _ri < _sc2.driverdatarealx.length; _ri++) {
+                                        if (String(_sc2.driverdatarealx[_ri].driverid) === String(driverId)) {
+                                            _drvRec = _sc2.driverdatarealx[_ri];
+                                            break;
+                                        }
+                                    }
+                                }
+                                var _vidRe = _drvRec ? (_drvRec.VehicleId || _drvRec.vehiclenumber || driverId) : driverId;
+                                toastr['info']('Re-offering queued job #' + _qjId + ' to driver ' + driverId, 'Re-Offer');
+                                acknowledgemethodx(_vidRe, String(driverId), String(_qjId), 'Pending');
+                                if (typeof _sc2.getQueuedJobs === 'function') _sc2.getQueuedJobs();
+                            });
+                        }
+                    }
                 }
             }else if(oldi == "Away"){
                 if (neww == "Available"){
@@ -8741,7 +8878,7 @@ $(document).ready(function() {
                     }
                     // Use the saved old status — not the (possibly already overwritten) array entry
                     if(_savedOldStatus  != datacom.vehiclestatus){
-                        $scope.changedata(_savedOldStatus ,datacom.vehiclestatus);
+                        $scope.changedata(_savedOldStatus, datacom.vehiclestatus, datacom.driverid || datacom.VehicleId || '');
                         // Auto-transition linked job status when driver Firebase status changes.
                         // Busy     → job becomes Active   (driver started meter / picked up pax)
                         // Picking  → job becomes Assigned (driver accepted, en route)
@@ -12212,8 +12349,14 @@ $(document).ready(function() {
 
                     // Use Angular scope's driverdatarealx — already has zonequeue and live status
                     var _sc = angular.element(document.getElementById('myangular')).scope();
+                    // Queue feature: also offer to Busy (Hail) drivers who don't yet have a queued job.
+                    // Their acceptance will be intercepted by _resolveAcceptance → queueJobForDriver.
                     var allAvailable = (_sc && _sc.driverdatarealx)
-                        ? _sc.driverdatarealx.filter(function(dv) { return dv.vehiclestatus === 'Available'; })
+                        ? _sc.driverdatarealx.filter(function(dv) {
+                            if (dv.vehiclestatus === 'Available') return true;
+                            if (dv.vehiclestatus === 'Busy' && !window._driverQueueMap[String(dv.driverid)]) return true;
+                            return false;
+                          })
                         : [];
 
                     // Cleanup: remove tried-driver records for jobs no longer pending.
@@ -13814,9 +13957,42 @@ $(document).ready(function() {
             if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
             if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
             if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
+            if (typeof $scope.getQueuedJobs  === 'function') { $scope.getQueuedJobs(); }
         }, 3000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
+
+        // ── Queue feature scope ─────────────────────────────────────────────
+        $scope.queuedJobs  = [];
+        $scope.QueuedCount = 0;
+
+        $scope.getQueuedJobs = function() {
+            jQuery.ajax({
+                type: 'POST',
+                url: 'DataManager/Data.aspx/DataSelector',
+                data: JSON.stringify({ data: [], action: '[GetQueuedJobs]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+            }).done(function(r) {
+                try {
+                    var _qr = JSON.parse(r.d || '{}');
+                    var _list = (_qr && _qr.dt1) ? _qr.dt1 : [];
+                    $scope.queuedJobs  = _list;
+                    $scope.QueuedCount = _list.length;
+                    // Rebuild _driverQueueMap from server state so it stays in sync after refresh
+                    window._driverQueueMap = window._driverQueueMap || {};
+                    _list.forEach(function(qj) {
+                        if (qj.DriverId) window._driverQueueMap[String(qj.DriverId)] = String(qj.Id);
+                    });
+                    if (!$scope.$$phase) { $scope.$apply(); }
+                } catch(_e) {}
+            });
+        };
+
+        $scope.recallQueuedJob = function(bookingId, driverId) {
+            recallQueuedJobFn(bookingId, driverId);
+        };
+        // ── end Queue feature scope ─────────────────────────────────────────
+
         $scope.getjobs = function (ok='') {
           
             var now = new Date();
@@ -13936,9 +14112,13 @@ $(document).ready(function() {
                 });
 
                 // If there are pending (Pending-status) unassigned jobs and an Available
-                // driver exists, immediately try to offer — don't wait for the 10-s timer.
+                // or Busy-without-queue driver exists, immediately try to offer.
                 var _hasPending = $scope.unassignedjob_list.some(function(j) { return j.BookingStatus === 'Pending'; });
-                var _hasAvail   = ($scope.driverdatarealx || []).some(function(d) { return d.vehiclestatus === 'Available'; });
+                var _hasAvail   = ($scope.driverdatarealx || []).some(function(d) {
+                    if (d.vehiclestatus === 'Available') return true;
+                    if (d.vehiclestatus === 'Busy' && !window._driverQueueMap[String(d.driverid)]) return true;
+                    return false;
+                });
                 if (_hasPending && _hasAvail) {
                     if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 800);
                 }

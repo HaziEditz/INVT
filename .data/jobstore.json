@@ -2753,7 +2753,7 @@
   },
   {
     "Id": 21042026022,
-    "BookingStatus": "Active",
+    "BookingStatus": "Completed",
     "DriverId": "D001",
     "VehicleId": "T201",
     "VehicleNo": "T201",
@@ -2764,7 +2764,7 @@
     "PickLatLng": "-46.3962111,168.3515301",
     "DropLatLng": "",
     "BookingDateTime": "2026-04-21 02:38:12.",
-    "JobCompleteTime": "",
+    "JobCompleteTime": "2026-04-21 03:12:16.",
     "BookingSource": "Hail",
     "booking_type": "Hail",
     "JobMins": 0,
@@ -2787,8 +2787,8 @@
     "Pickingtime": "2026-04-21 14:38:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": "0",
-    "DriverId": 0,
+    "VehicleId": null,
+    "DriverId": null,
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -2810,7 +2810,10 @@
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
-    "TarriffType": "Automatic"
+    "TarriffType": "Automatic",
+    "offeredAt": 1776741134968,
+    "returnReason": "No Response – Not Accepted",
+    "queuedAt": null
   },
   {
     "Id": 21042026024,
@@ -2826,7 +2829,7 @@
     "Pickingtime": "2026-04-21 14:40:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": "0",
+    "VehicleId": 0,
     "DriverId": 0,
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
@@ -2849,6 +2852,8 @@
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
-    "TarriffType": "Automatic"
+    "TarriffType": "Automatic",
+    "offeredAt": 1776741136571,
+    "returnReason": "No Response – Not Accepted"
   }
 ]

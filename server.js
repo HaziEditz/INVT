@@ -769,7 +769,7 @@ const server = http.createServer(async (req, res) => {
       const sf = (statusFilter || '').toLowerCase().trim();
       if (!sf || sf === 'all') return jobs;
       const CLOSED_ST = new Set(['dispatched','completed','done','closed','cancel','cancelled','no show','noshow','reject']);
-      const OPEN_ST   = new Set(['pending','offered','assigned','picking','active']);
+      const OPEN_ST   = new Set(['pending','offered','assigned','picking','active','queued']);
       let matchSet;
       if (sf === 'closed')     matchSet = CLOSED_ST;
       else if (sf === 'open')  matchSet = OPEN_ST;
@@ -811,6 +811,7 @@ const server = http.createServer(async (req, res) => {
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
       '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
       '[TariffSync]',
+      '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -2133,6 +2134,55 @@ const server = http.createServer(async (req, res) => {
           console.log(`[TariffSync] parse error:`, e.message);
           objectD(res, { ok: false, error: e.message });
         }
+
+      } else if (action === '[QueueJob]') {
+        const _qBookingId = param('bookingid');
+        const _qDriverId  = (param('driverid') || '').toString().trim();
+        const _qJob = jobStore.find(j => String(j.Id) === String(_qBookingId));
+        if (!_qJob) { objectD(res, { ok: false, msg: 'job not found' }); }
+        else if (_qJob.BookingStatus !== 'Offered' && _qJob.BookingStatus !== 'Pending') {
+          objectD(res, { ok: false, msg: `cannot queue job with status ${_qJob.BookingStatus}` });
+        } else {
+          _qJob.BookingStatus = 'Queued';
+          _qJob.DriverId = _qDriverId;
+          _qJob.queuedAt = Date.now();
+          saveJobStore();
+          console.log(`[QueueJob] job #${_qBookingId} → Queued for driver ${_qDriverId}`);
+          objectD(res, { ok: true });
+        }
+
+      } else if (action === '[RecallQueuedJob]') {
+        const _rqBookingId = param('bookingid');
+        const _rqJob = jobStore.find(j => String(j.Id) === String(_rqBookingId));
+        if (!_rqJob) { objectD(res, { ok: false, msg: 'job not found' }); }
+        else {
+          const _prevSt = _rqJob.BookingStatus;
+          _rqJob.BookingStatus = 'Pending';
+          _rqJob.DriverId  = null;
+          _rqJob.VehicleId = null;
+          _rqJob.queuedAt  = null;
+          saveJobStore();
+          console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → Pending`);
+          objectD(res, { ok: true });
+        }
+
+      } else if (action === '[GetQueuedJobs]') {
+        const _gqJobs = jobStore.filter(j => j.BookingStatus === 'Queued');
+        const _gqDt1  = _gqJobs.map(j => ({
+          Id:              j.Id,
+          DriverId:        j.DriverId   || '',
+          PickAddress:     j.PickAddress  || j.PickLocation  || '',
+          DropAddress:     j.DropAddress  || j.DropLocation  || '',
+          BookingDateTime: j.BookingDateTime || '',
+          UserFName:       j.UserFName   || '',
+          UserLName:       j.UserLName   || '',
+          VehicleType:     j.VehicleType || '',
+          BookingSource:   j.BookingSource || '',
+          PhoneNo:         j.PhoneNo     || '',
+          queuedAt:        j.queuedAt    || 0,
+        }));
+        console.log(`[GetQueuedJobs] → ${_gqDt1.length} queued job(s)`);
+        objectD(res, { dt1: _gqDt1 });
 
       } else if (action === 'VehiclesStatus') {
         const busyCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Busy').length;
