@@ -7058,20 +7058,89 @@ $(document).ready(function() {
 
 
     
+    // _watchBusyDriverAcceptance: lightweight Firebase watcher for Busy-driver pre-queue offers.
+    // Does NOT set job to Offered, does NOT call resolveAfter2Secondsx, has NO timeout,
+    // and NEVER writes Away to Firebase — the Busy driver's Hail is completely undisturbed.
+    // Job stays Pending in U-A while the driver sees it silently in their Offer tab.
+    // If driver accepts → _resolveAcceptance → [QueueJob].
+    // If driver rejects → _driverQueueMap cleared, job stays Pending, no Away penalty.
+    function _watchBusyDriverAcceptance(vehicle, driverid, bookid) {
+        var _wbBook   = String(bookid);
+        var _wbDrv    = String(driverid);
+        var _wbRef    = firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv);
+        var _wbJobRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicle + '/' + _wbDrv);
+        var _wbDone   = false;
+
+        function _wbCleanup() {
+            _wbRef.off('value', _wbListener);
+            _wbJobRef.off('value', _wbJobsListener);
+            firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv).remove();
+        }
+        function _wbAccept() {
+            if (_wbDone) return; _wbDone = true;
+            _wbCleanup();
+            delete _activeOfferIds[bookid];
+            toastr['success'](driverid + ' accepted pre-queue job #' + bookid + ' — queuing until trip done', 'Pre-Queue');
+            _resolveAcceptance(bookid, driverid);
+        }
+        function _wbReject() {
+            if (_wbDone) return; _wbDone = true;
+            _wbCleanup();
+            delete window._driverQueueMap[_wbDrv];
+            delete _activeOfferIds[bookid];
+            toastr['info'](driverid + ' declined pre-queue offer — job stays in queue', 'Pre-Queue');
+            if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 400);
+        }
+        var _wbListener = _wbRef.on('value', function(snap) {
+            if (_wbDone) { _wbRef.off('value', _wbListener); return; }
+            var v = snap.val();
+            if (!v) return;
+            var jst = (v.jobstatus || '').toLowerCase();
+            if (jst === 'assigned' || v.discription === 'Ride Status successfully Updated to Assigned') { _wbAccept(); return; }
+            if (jst === 'reject'   || v.discription === 'Ride Status successfully Updated to Reject')   { _wbReject(); return; }
+        });
+        var _wbJobsListener = _wbJobRef.on('value', function(jsnap) {
+            if (_wbDone) { _wbJobRef.off('value', _wbJobsListener); return; }
+            var jd = jsnap.val();
+            if (jd && String(jd.BookingId) === _wbBook && (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) { _wbAccept(); }
+        });
+        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (no timeout, no Away)');
+    }
+
     async function acknowledgemethodx(vehicle , driverid,bookid,status){
         if(status == "Offered"){
             status  = "Pending";
         }
         // Dedup: if this bookingId is already being monitored, skip a second invocation.
-        // Without this, two concurrent resolvers could race — one cancels an accepted job.
         if (_activeOfferIds[bookid]) {
             console.log('[dedup] acknowledgemethodx skipped for bookid', bookid, '— already active');
             return;
         }
         _activeOfferIds[bookid] = true;
-        // Mark job as Offered on server FIRST — await the response so we only send the Firebase
-        // driver notification if the server actually accepted the offer (double-offer guard).
-        // If the server blocks it (job already Offered/Assigned to another driver), abort here.
+
+        // ── PRE-QUEUE (Busy driver) path ─────────────────────────────────────────────
+        // MUST be checked BEFORE calling [changeriddestatusforoffer] so the job never
+        // leaves Pending status — it stays in U-A and the driver sees it silently in
+        // their Offer tab.  No popup, no 27-s timeout, no Away write, Hail unaffected.
+        var _isBusyPreQueue = window._driverQueueMap &&
+                              String(window._driverQueueMap[driverid]) === String(bookid);
+        if (_isBusyPreQueue) {
+            console.log('[acknowledgemethodx] Busy pre-queue — job #' + bookid + ' stays Pending, watching for driver ' + driverid);
+            // Release the dedup lock immediately — we are NOT holding resolveAfter2Secondsx open.
+            // Holding it would block future Available-driver offers for the same job.
+            delete _activeOfferIds[bookid];
+            // Write joback so the acceptance watcher has something to listen on.
+            try {
+                firebase.database().ref('joback/' + bookid + '/' + driverid)
+                    .set({ jobstatus: 'Offer', status: 'Sent' })
+                    .catch(function(e) { console.warn('[acknowledgemethodx/busy] joback write failed:', e); });
+            } catch(e) { console.warn('[acknowledgemethodx/busy] joback write error:', e); }
+            _watchBusyDriverAcceptance(vehicle, driverid, bookid);
+            return;
+        }
+        // ── NORMAL (Available driver) path ───────────────────────────────────────────
+        // Mark job as Offered on server — await so we only notify the driver if the
+        // server accepted (double-offer guard).
         var _serverAccepted = await new Promise(function(resolve) {
             jQuery.ajax({
                 type: "POST", url: "DataManager/Data.aspx/DataProcessor",
@@ -7083,7 +7152,6 @@ $(document).ready(function() {
                 ], action: "[changeriddestatusforoffer]" }),
                 dataType: "json", contentType: "application/json; charset=utf-8", cache: false,
                 success: function(resp) {
-                    // Server sets blocked:true in the response when the double-offer guard fires.
                     try {
                         var _r = JSON.parse(resp.d || '{}');
                         var _blocked = _r && _r.blocked === true;
@@ -7103,28 +7171,14 @@ $(document).ready(function() {
             delete _activeOfferIds[bookid];
             return;
         }
-        // Server confirmed offer — now notify the driver via Firebase.
-        // Use SQL driverid directly — the driver app listens at /notification/{driverid}.
         var _fbDrvId = driverid;
         console.log('[acknowledgemethodx] driverid:', driverid, 'job:', bookid);
-        // Pre-seed the joback entry so resolveAfter2Secondsx doesn't see null
-        // and fire "Driver may not be available" toast immediately.
+        // Pre-seed joback so resolveAfter2Secondsx doesn't fire "Driver offline" immediately.
         try {
             firebase.database().ref("joback/"+bookid+"/"+_fbDrvId).set({'jobstatus':'Offer','status':'Sent'})
                 .catch(function(e) { console.warn('[acknowledgemethodx] joback write failed:', e.code || e.message || e); });
         } catch(_jobackErr) { console.warn('[acknowledgemethodx] joback write error:', _jobackErr); }
-        // For pre-queue offers to Busy drivers: skip the /notification write.
-        // The job is marked Offered on the server and joback is written so the resolver watches.
-        // No popup on the driver's main screen — job appears silently in the Offer tab only.
-        // If they accept while Busy → job goes to Queued (not Assigned) via _resolveAcceptance.
-        var _isBusyPreQueue = window._driverQueueMap && String(window._driverQueueMap[driverid]) === String(bookid);
-        if (_isBusyPreQueue) {
-            console.log('[acknowledgemethodx] Busy pre-queue offer for job #' + bookid + ' — silent (no notification write)');
-            resolveAfter2Secondsx(vehicle, driverid, bookid, status);
-            return;
-        }
-        // ALSO write to /notification/{driverId} so the driver app knows which job to display.
-        // Without this, the driver app never learns the bookingId and cannot show the offer screen.
+        // Write /notification so the driver app shows the offer popup.
         try {
             var _notifScope = angular.element(document.getElementById('myangular')).scope();
             var _allJobs = [].concat(
@@ -7153,10 +7207,8 @@ $(document).ready(function() {
                     source:      'Dispatcher'
                 });
             } else {
-                // Job not in scope yet — fetch from server and send notification
                 Selector1([{ name: 'Id', value: bookid }], 'JobDetails').then(function(jr) {
                     try {
-                        // JobDetails returns arrayD → { d: "[{...}]" }; parse jr.d as the array
                         var _raw = (jr && jr.d) ? JSON.parse(jr.d) : (typeof jr === 'string' ? JSON.parse(jr) : []);
                         var _jrow = Array.isArray(_raw) ? (_raw[0] || null)
                                   : (_raw && _raw.dt1 && _raw.dt1[0] ? _raw.dt1[0] : null);
@@ -7180,7 +7232,6 @@ $(document).ready(function() {
         } catch(_notifErr) { console.warn('[acknowledgemethodx] notification write error:', _notifErr && (_notifErr.code || _notifErr.message) ? (_notifErr.code + ': ' + _notifErr.message) : _notifErr); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
         delete _activeOfferIds[bookid];
-        // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
         if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 400);
     }
 
