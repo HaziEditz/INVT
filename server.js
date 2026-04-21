@@ -38,6 +38,7 @@ const DATA_DIR               = path.join(__dirname, '.data');
 const JOB_STORE_FILE         = path.join(DATA_DIR, 'jobstore.json');
 const SUSPENDED_DRIVERS_FILE = path.join(DATA_DIR, 'suspended_drivers.json');
 const COOKIE_FILE            = path.join(DATA_DIR, 'session.txt');
+const ZONE_ASSIGNMENTS_FILE  = path.join(DATA_DIR, 'zone_assignments.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
@@ -221,6 +222,29 @@ function saveSuspendedDrivers() {
   fs.writeFile(SUSPENDED_DRIVERS_FILE, JSON.stringify(SUSPENDED_DRIVERS, null, 2), (err) => {
     if (err) console.log('[persist] suspended_drivers save error:', err.message);
   });
+}
+
+// ─── Persisted zone assignments ──────────────────────────────────────────────
+// Maps driverId → { zonename, zoneid } so zone survives server restarts.
+// Saved every time a driver's zone is confirmed (Available with non-empty zone).
+let ZONE_ASSIGNMENTS = {};
+try {
+  if (fs.existsSync(ZONE_ASSIGNMENTS_FILE)) {
+    ZONE_ASSIGNMENTS = JSON.parse(fs.readFileSync(ZONE_ASSIGNMENTS_FILE, 'utf8')) || {};
+    console.log(`[persist] loaded zone assignments for ${Object.keys(ZONE_ASSIGNMENTS).length} driver(s)`);
+  }
+} catch(e) { console.log('[persist] zone_assignments load error:', e.message); }
+
+function saveZoneAssignment(driverId, zonename, zoneid) {
+  if (!driverId || !zonename) return;
+  ZONE_ASSIGNMENTS[String(driverId)] = { zonename, zoneid: zoneid || '' };
+  fs.writeFile(ZONE_ASSIGNMENTS_FILE, JSON.stringify(ZONE_ASSIGNMENTS, null, 2), (err) => {
+    if (err) console.log('[persist] zone_assignments save error:', err.message);
+  });
+}
+
+function getSavedZone(driverId) {
+  return ZONE_ASSIGNMENTS[String(driverId)] || null;
 }
 
 // Auto-expire suspended drivers: check every 60 s, restore any whose suspendedUntil has passed.
@@ -1673,10 +1697,16 @@ const server = http.createServer(async (req, res) => {
               zdAvail.queueWaitSince = Date.now();
               if (lat) zdAvail.lat = lat;
               if (lng) zdAvail.lng = lng;
+              if (currentZone) saveZoneAssignment(driverId, currentZone, zdAvail.zoneid || '');
               clearDriverHomeState(driverId); // home state consumed
               console.log(`  [DriverStatusChanged/DP] driver ${driverId} Available → zone="${currentZone}" newQueue=${_dscQueueNo}`);
             } else {
-              // First time this driver is seen — add them to ZONE_DRIVERS
+              // First time this driver is seen — add them to ZONE_DRIVERS.
+              // Restore last-known zone from disk if the request has no zone info.
+              const _savedZn = getSavedZone(driverId);
+              const _useZone   = zonename || (_savedZn && _savedZn.zonename) || '';
+              const _useZoneId = (param('zoneid') || '').toString().trim() || (_savedZn && _savedZn.zoneid) || '';
+              if (_savedZn && !zonename) console.log(`  [DriverStatusChanged/DP] driver ${driverId} zone restored from disk: "${_useZone}"`);
               const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
               _dscQueueNo = maxQ + 1;
               ZONE_DRIVERS.push({
@@ -1685,8 +1715,8 @@ const server = http.createServer(async (req, res) => {
                 drivername:    drivername || driverId,
                 vehiclenumber: vehiclenumber || driverId,
                 vehicletype:   (param('vehicletype') || '').toString().trim() || '',
-                zonename:      zonename || '',
-                zoneid:        (param('zoneid') || '').toString().trim() || '',
+                zonename:      _useZone,
+                zoneid:        _useZoneId,
                 vehiclestatus: 'Available',
                 zonequeue:     _dscQueueNo,
                 lat:           lat || '',
@@ -2077,7 +2107,12 @@ const server = http.createServer(async (req, res) => {
         // for > 90 s (avoids wiping valid drivers during a fresh server restart).
         const _serverAgeMs = Date.now() - SERVER_START_TIME;
         const _onlineIds = (_serverAgeMs > 90000 && ZONE_DRIVERS.length > 0)
-          ? ZONE_DRIVERS.map(d => ({ id: String(d.driverid || ''), vid: String(d.VehicleId || '') }))
+          ? ZONE_DRIVERS.map(d => ({
+              id:    String(d.driverid  || ''),
+              vid:   String(d.VehicleId || ''),
+              zone:  d.zonename  || '',
+              zoneq: d.zonequeue || 0,
+            }))
           : [];
         const vehicleStatus = {
           dt1: [{ All: ZONE_DRIVERS.length }],
@@ -2595,10 +2630,16 @@ const server = http.createServer(async (req, res) => {
               zdAvailDS.queueWaitSince = Date.now();
               if (lat) zdAvailDS.lat = lat;
               if (lng) zdAvailDS.lng = lng;
+              if (currentZoneDS) saveZoneAssignment(driverId, currentZoneDS, zdAvailDS.zoneid || '');
               clearDriverHomeState(driverId);
               console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available → zone="${currentZoneDS}" newQueue=${_dssQueueNo}`);
             } else {
-              // First time this driver is seen — add them to ZONE_DRIVERS
+              // First time this driver is seen — add them to ZONE_DRIVERS.
+              // Restore last-known zone from disk if the request has no zone info.
+              const _savedZnDS = getSavedZone(driverId);
+              const _useZoneDS   = zonenameDS || (_savedZnDS && _savedZnDS.zonename) || '';
+              const _useZoneIdDS = (param('zoneid') || '').toString().trim() || (_savedZnDS && _savedZnDS.zoneid) || '';
+              if (_savedZnDS && !zonenameDS) console.log(`  [DriverStatusChanged/DS] driver ${driverId} zone restored from disk: "${_useZoneDS}"`);
               const maxQDS = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
               _dssQueueNo = maxQDS + 1;
               ZONE_DRIVERS.push({
@@ -2607,15 +2648,16 @@ const server = http.createServer(async (req, res) => {
                 drivername:    drivername || driverId,
                 vehiclenumber: vehiclenumber || driverId,
                 vehicletype:   (param('vehicletype') || '').toString().trim() || '',
-                zonename:      zonenameDS || '',
-                zoneid:        (param('zoneid') || '').toString().trim() || '',
+                zonename:      _useZoneDS,
+                zoneid:        _useZoneIdDS,
                 vehiclestatus: 'Available',
                 zonequeue:     _dssQueueNo,
                 lat:           lat || '',
                 lng:           lng || '',
                 queueWaitSince: Date.now(),
               });
-              console.log(`  [DriverStatusChanged/DS] NEW driver ${driverId} (${vehiclenumber}) added to ZONE_DRIVERS q=${_dssQueueNo} zone="${zonenameDS}"`);
+              if (_useZoneDS) saveZoneAssignment(driverId, _useZoneDS, _useZoneIdDS);
+              console.log(`  [DriverStatusChanged/DS] NEW driver ${driverId} (${vehiclenumber}) added to ZONE_DRIVERS q=${_dssQueueNo} zone="${_useZoneDS}"`);
             }
           }
           saveJobStore();

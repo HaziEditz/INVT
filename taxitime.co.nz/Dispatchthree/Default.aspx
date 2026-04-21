@@ -4558,15 +4558,23 @@ $(document).ready(function() {
                         _sc6.driverdatarealx = _sc6.driverdatarealx.filter(function(d) {
                             var _did  = String(d.driverid  || '');
                             var _vid  = String(d.VehicleId || '');
+                            var _match = null;
                             var _found = _onlineIds.some(function(o) {
-                                return (o.id  && (_did === o.id  || _vid === o.id))  ||
-                                       (o.vid && (_did === o.vid || _vid === o.vid));
+                                var hit = (o.id  && (_did === o.id  || _vid === o.id))  ||
+                                          (o.vid && (_did === o.vid || _vid === o.vid));
+                                if (hit) _match = o;
+                                return hit;
                             });
                             if (!_found) {
                                 console.log('[VehiclesStatus] driver', _did || _vid, 'not in server ZONE_DRIVERS — removing from board');
                                 if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
                                     markers[d.vehiclenumber].setMap(null);
                                 }
+                                _changed = true;
+                            } else if (_match && _match.zone && !d.zonename) {
+                                // Backfill zone from server when driver has no zone (e.g. no GPS)
+                                d.zonename = _match.zone;
+                                if (_match.zoneq && !d.zonequeue) d.zonequeue = _match.zoneq;
                                 _changed = true;
                             }
                             return _found;
