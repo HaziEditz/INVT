@@ -8533,6 +8533,12 @@ $(document).ready(function() {
                     _ActiveJobsdata();
                 }
             }
+            // Any time a driver becomes Available, immediately try to offer pending U-A jobs.
+            // Without this, smartAutoDispatch could take up to 10 s to react, leaving
+            // jobs visible in the U-A tab but never sent to the driver app as an offer.
+            if (neww === 'Available') {
+                if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 600);
+            }
             if (!$scope.$$phase) { $scope.$digest(); }
         }
 
@@ -13928,6 +13934,14 @@ $(document).ready(function() {
                     }
                     return urgencyScore(a) - urgencyScore(b);
                 });
+
+                // If there are pending (Pending-status) unassigned jobs and an Available
+                // driver exists, immediately try to offer — don't wait for the 10-s timer.
+                var _hasPending = $scope.unassignedjob_list.some(function(j) { return j.BookingStatus === 'Pending'; });
+                var _hasAvail   = ($scope.driverdatarealx || []).some(function(d) { return d.vehiclestatus === 'Available'; });
+                if (_hasPending && _hasAvail) {
+                    if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 800);
+                }
 
                     $scope.driverlist = $scope.jobsdata['dt5'];
                     //$scope.$digest();
