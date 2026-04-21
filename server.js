@@ -2282,8 +2282,29 @@ const server = http.createServer(async (req, res) => {
         // Enrich UserFName/UserLName: dispatcher client does `UserFName + UserLName` and
         // shows "undefined" when these fields are missing.  Resolve from ZONE_DRIVERS or
         // fall back to DriverId so the column is always a readable string.
+        // Also enrich hail jobs so Pick/Drop columns show meaningful text:
+        //   - PickAddress "Hail - lat,lng" → "Hail Pickup (lat, lng)" for readability
+        //   - DropAddress "" on hail → "Street Pickup" so the cell is never blank
         jobs = jobs.map(j => {
-          if (j.UserFName !== undefined && j.UserFName !== null) return j; // already set
+          const isHail = j.BookingSource === 'Hail' || j.booking_type === 'Hail';
+          let pickAddr = j.PickAddress || '';
+          let dropAddr = j.DropAddress || '';
+          // Reformat coordinate-style pickup to be clearly labelled
+          if (isHail && pickAddr.startsWith('Hail - ')) {
+            const coords = pickAddr.slice('Hail - '.length).trim();
+            pickAddr = 'Hail Pickup (' + coords + ')';
+          } else if (isHail && (!pickAddr || pickAddr === 'Hail / Street Pickup')) {
+            pickAddr = 'Hail / Street Pickup';
+          }
+          // Fill blank drop-off for hail jobs
+          if (isHail && !dropAddr.trim()) {
+            dropAddr = 'Street Pickup (no destination)';
+          }
+          if (j.UserFName !== undefined && j.UserFName !== null) {
+            // UserFName already set — only update address fields if needed
+            if (isHail) return { ...j, PickAddress: pickAddr, DropAddress: dropAddr };
+            return j;
+          }
           const zdN = j.DriverId ? ZONE_DRIVERS.find(d =>
             String(d.driverid) === String(j.DriverId) || String(d.VehicleId) === String(j.DriverId)) : null;
           let fName = '', lName = '';
@@ -2292,7 +2313,7 @@ const server = http.createServer(async (req, res) => {
             fName = parts[0] || '';
             lName = parts.slice(1).join(' ') || '';
           }
-          return { ...j, UserFName: fName, UserLName: lName };
+          return { ...j, UserFName: fName, UserLName: lName, PickAddress: pickAddr, DropAddress: dropAddr };
         });
         // Build driver/vehicle lists from the actual job results for the filter dropdowns
         const seenDrivers = new Map(), seenVehicles = new Map();

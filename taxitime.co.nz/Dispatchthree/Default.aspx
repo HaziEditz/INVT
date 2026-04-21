@@ -18030,7 +18030,16 @@ $(document).ready(function() {
                             datas.push($refresh);
                             datas.push("<span>"+ ($res["dt1"][$i].BookingDateTime || '')+"</span>");
                             datas.push("<span>"+($res["dt1"][$i].JobCompleteTime || '')+"</span>");
-                            datas.push("<div id='lessshow'  style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span>"+($res["dt1"][$i].PickAddress || '')+"</span></div>");
+                            var _pick = $res["dt1"][$i].PickAddress || '';
+                            var _pickLatLng = $res["dt1"][$i].PickLatLng || '';
+                            var _pickHtml;
+                            if (_pickLatLng && _pick.indexOf('Hail') === 0) {
+                                var _mapsUrl = 'https://maps.google.com/?q=' + encodeURIComponent(_pickLatLng);
+                                _pickHtml = "<a href='" + _mapsUrl + "' target='_blank' title='Open in Google Maps' style='color:#d4a017;'>"+_pick+"</a>";
+                            } else {
+                                _pickHtml = "<span>"+_pick+"</span>";
+                            }
+                            datas.push("<div id='lessshow'  style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'>"+_pickHtml+"</div>");
                             datas.push("<div id='lessshow' style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span style='width:20px;'>"+($res["dt1"][$i].DropAddress || '')+"</span></div>");
                             datas.push("<span>"+($res["dt1"][$i].Name || '')+"</span>");
                             datas.push("<span>"+($res["dt1"][$i].PhoneNo || '')+"</span>");
