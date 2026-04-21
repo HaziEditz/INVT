@@ -7148,12 +7148,25 @@ $(document).ready(function() {
             // (i.e., any write to /notification/ triggers it), this silent write cannot
             // suppress the popup without a driver-app change — see task notes.
             try {
+                var _silentPayload = { joboffer: String(bookid), jobCount: 1 };
+                // Store for browser-devtools inspection: open console and read
+                // window._lastBusyDriverNotifPayload to confirm no `content` field.
+                window._lastBusyDriverNotifPayload = {
+                    path:    '/notification/' + driverid,
+                    payload: _silentPayload,
+                    sentAt:  new Date().toISOString(),
+                    note:    'Silent badge — no content field. Full popup write would include content:"You have offered new Job please view details"'
+                };
+                console.group('[acknowledgemethodx/busy] SILENT BADGE PATH — driver ' + driverid + ' job ' + bookid);
+                console.log('Firebase path :', '/notification/' + driverid);
+                console.log('Payload written:', JSON.stringify(_silentPayload));
+                console.log('content field  : ABSENT (badge-only; popup suppressed if driver app gates on content)');
+                console.log('Full popup payload would include: content, jobpickup, jobdropoff, JobphoneNo, jobname, jobFare...');
+                console.log('Inspect window._lastBusyDriverNotifPayload in devtools to confirm.');
+                console.groupEnd();
                 var _silentNotifRef = firebase.database().ref('/notification/' + driverid);
                 _silentNotifRef.remove().then(function() {
-                    return _silentNotifRef.set({
-                        joboffer:  String(bookid),
-                        jobCount:  1
-                    });
+                    return _silentNotifRef.set(_silentPayload);
                 }).then(function() {
                     console.log('[acknowledgemethodx/busy] silent badge notification written for driver', driverid, 'job', bookid);
                 }).catch(function(e) {
