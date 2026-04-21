@@ -2787,8 +2787,8 @@
     "Pickingtime": "2026-04-21 14:38:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": null,
-    "DriverId": null,
+    "VehicleId": 0,
+    "DriverId": 0,
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -2811,7 +2811,7 @@
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "offeredAt": 1776741134968,
+    "offeredAt": 1776744847660,
     "returnReason": "No Response – Not Accepted",
     "queuedAt": null
   },
@@ -2853,7 +2853,7 @@
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "offeredAt": 1776741136571,
+    "offeredAt": 1776744848702,
     "returnReason": "No Response – Not Accepted"
   }
 ]
