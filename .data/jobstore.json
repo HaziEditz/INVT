@@ -2986,8 +2986,8 @@
     "Pickingtime": "2026-04-22 03:54:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": 0,
-    "DriverId": 0,
+    "VehicleId": "D001",
+    "DriverId": "D001",
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -3005,13 +3005,15 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Pending",
+    "BookingStatus": "Assigned",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
     "returnReason": "No Response – Not Accepted",
-    "offeredAt": 1776787948135
+    "offeredAt": 1776788232013,
+    "UserFName": "Ad",
+    "UserLName": ""
   },
   {
     "Id": 22042026009,
