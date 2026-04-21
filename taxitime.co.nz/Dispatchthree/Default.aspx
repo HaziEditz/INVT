@@ -6683,6 +6683,24 @@ $(document).ready(function() {
                     _jobsRef.off("value", _jobsListener);
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                    // Check if this was a pre-queue offer to a Busy driver.
+                    // _driverQueueMap still holds the entry at this point — _immediateJobPending clears it below.
+                    var _wasBusyOffer = window._driverQueueMap && String(window._driverQueueMap[driverid]) === String(id);
+                    if (_wasBusyOffer) {
+                        // Silent timeout for Busy driver: do NOT remove /notification (avoids "you missed" popup),
+                        // do NOT set driver Away (they are still on their Hail trip), just quietly return job to Pending.
+                        if (typeof _immediateJobPending === 'function') _immediateJobPending(id);
+                        convertstatus(id, 'Pending', driverid, 'Pre-queue timeout \u2013 driver busy');
+                        var _fbscB = angular.element(document.getElementById('myangular')).scope();
+                        if (_fbscB) {
+                            if (typeof _fbscB.getjobs     === 'function') _fbscB.getjobs();
+                            if (typeof _fbscB.AssignedJobs === 'function') _fbscB.AssignedJobs();
+                        }
+                        if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                        if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
+                        return;
+                    }
+                    // Normal (Available driver) timeout: remove notification, set Away, mark Unreached.
                     // Write Away to BOTH Firebase paths:
                     //   jobs/ → driver app reads this for its own status display
                     //   online/ → dispatch console reads this via tallo listener
@@ -12281,10 +12299,12 @@ $(document).ready(function() {
                         });
                         if (!availableDrivers.length) {
                             // All unclaimed available drivers have already been tried for this job.
-                            // Reset the tried list so the job loops back and keeps being offered.
+                            // Reset the tried list ONLY if there are genuinely Available (non-Busy) drivers
+                            // still unclaimed — Busy drivers should NOT trigger a reset, otherwise the same
+                            // Busy driver gets re-offered the same job in a continuous loop.
                             var _unclaimedAvailable = allAvailable.filter(function(dv) {
                                 var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
-                                return !_claimedThisCycle[dvId];
+                                return !_claimedThisCycle[dvId] && dv.vehiclestatus !== 'Busy';
                             });
                             if (_unclaimedAvailable.length > 0) {
                                 _triedDriversForJob[String(jobId)] = [];
