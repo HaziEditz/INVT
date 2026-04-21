@@ -3475,6 +3475,40 @@ $(document).ready(function() {
 
                                                         </div>
                                                     </div>
+
+                                                    <!-- QUEUED JOBS (Busy-driver Pre-Queue) -->
+                                                    <div ng-if="queuedJobs && queuedJobs.length > 0" style="margin-top:10px;">
+                                                        <div class="col-sm-12" style="background:#7b4f0026;border-left:4px solid #e67e22;border-radius:6px;padding:6px 8px;margin-bottom:6px;">
+                                                            <strong style="color:#e67e22;"><i class="fa fa-clock-o"></i> Queued (Busy Driver Pre-Queue)</strong>
+                                                        </div>
+                                                        <div ng-repeat="(qk, qv) in queuedJobs" class="nopad col-sm-12 col-md-12 col-xl-12"
+                                                             style="background:rgba(230,126,34,0.12);border:1px solid #e67e22;border-radius:6px;margin-bottom:8px;">
+                                                            <div class="row nopad col-sm-12" style="padding:4px 0;">
+                                                                <span class="label label-pill mt-2" style="background:#e67e22;color:#fff;">
+                                                                    <i class="glyphicon glyphicon-tag"></i> #{{qv.Id}}</span>
+                                                                <span class="label label-pill label-primary mt-2">
+                                                                    <i class="fa fa-clock-o"></i> {{qv.BookingDateTime}}</span>
+                                                                <span class="label label-pill label-primary mt-2">
+                                                                    <i class="fa fa-user"></i> {{qv.passengername || qv.Name}}</span>
+                                                                <span class="label label-pill label-primary mt-2">
+                                                                    <i class="fa fa-phone"></i> {{qv.PhoneNo}}</span>
+                                                                <span class="label label-pill label-warning mt-2">
+                                                                    <i class="fa fa-car"></i> {{qv.drivername}} {{qv.VehicleNo}} <em style="opacity:.8;">(Busy)</em></span>
+                                                                <span class="label label-pill label-info mt-2">
+                                                                    <i class="fa fa-circle" style="color:#e67e22;"></i> Queued</span>
+                                                                <span class="label label-pill label-danger mt-2" style="cursor:pointer;float:right;margin-right:6px;"
+                                                                      ng-click="recallQueuedJob(qv.Id)" title="Recall job back to Unassigned queue">
+                                                                    <i class="fa fa-undo"></i> Recall</span>
+                                                            </div>
+                                                            <div class="row nopad col-sm-12" style="padding:2px 0 4px 0;font-size:12px;opacity:.85;">
+                                                                <span class="label label-pill label-primary mt-2" style="max-width:40%;overflow:hidden;white-space:nowrap;">
+                                                                    <i class="fa fa-circle" style="color:green;"></i> {{qv.PickAddress}}</span>
+                                                                <span class="label label-pill label-primary mt-2" style="max-width:35%;overflow:hidden;white-space:nowrap;">
+                                                                    <i class="fa fa-circle" style="color:red;"></i> {{qv.DropAddress}}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <!-- END QUEUED JOBS -->
                                                     
                                                 </div>
                                                 <div class="tab-pane" id="tab7">
@@ -6416,15 +6450,49 @@ $(document).ready(function() {
     window._driverQueueMap = window._driverQueueMap || {};
 
     function _resolveAcceptance(bookingId, driverId) {
-        // Whether driver is Busy or Available, job always goes to Assigned — no new status needed.
-        // The driver app's own queue tab holds the active + newly assigned job.
-        convertstatus(bookingId, 'Assigned', driverId, '');
-        // Clear any pre-queue tracking for this driver
-        delete window._driverQueueMap[String(driverId)];
-        var _asc = angular.element(document.getElementById('myangular')).scope();
-        if (_asc) {
-            if (typeof _asc.getjobs      === 'function') _asc.getjobs();
-            if (typeof _asc.AssignedJobs === 'function') _asc.AssignedJobs();
+        // Check if the accepting driver is currently Busy (on a Hail/active trip).
+        // If Busy: queue the job (hold it for them) — it will popup again when they go Available.
+        // If Available: assign normally.
+        var _rasc = angular.element(document.getElementById('myangular')).scope();
+        var _driverIsBusy = false;
+        if (_rasc && _rasc.driverdatarealx) {
+            for (var _ri = 0; _ri < _rasc.driverdatarealx.length; _ri++) {
+                var _rd = _rasc.driverdatarealx[_ri];
+                if (String(_rd.driverid) === String(driverId) || String(_rd.VehicleId) === String(driverId)) {
+                    _driverIsBusy = (_rd.vehiclestatus === 'Busy');
+                    break;
+                }
+            }
+        }
+        if (_driverIsBusy) {
+            // Driver accepted while Busy — queue the job so it pops up again when Available.
+            jQuery.ajax({
+                type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
+                data: JSON.stringify({ data: [
+                    { name: 'bookingid', Value: bookingId },
+                    { name: 'driverid',  Value: driverId  }
+                ], action: '[QueueJob]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                success: function() {
+                    console.log('[_resolveAcceptance] Busy driver ' + driverId + ' queued job #' + bookingId);
+                    toastr['info'](driverId + ' accepted — job queued until they finish current trip', 'Pre-Queued');
+                    if (_rasc) {
+                        if (typeof _rasc.getjobs      === 'function') _rasc.getjobs();
+                        if (typeof _rasc.AssignedJobs === 'function') _rasc.AssignedJobs();
+                        if (typeof _rasc.getQueuedJobs === 'function') _rasc.getQueuedJobs();
+                    }
+                }
+            });
+            // Keep _driverQueueMap entry — it marks this driver as having a queued job.
+            // The changedata Busy→Available handler will clear it and re-offer.
+        } else {
+            // Driver is Available — assign immediately.
+            convertstatus(bookingId, 'Assigned', driverId, '');
+            delete window._driverQueueMap[String(driverId)];
+            if (_rasc) {
+                if (typeof _rasc.getjobs      === 'function') _rasc.getjobs();
+                if (typeof _rasc.AssignedJobs === 'function') _rasc.AssignedJobs();
+            }
         }
     }
 
@@ -7045,6 +7113,16 @@ $(document).ready(function() {
             firebase.database().ref("joback/"+bookid+"/"+_fbDrvId).set({'jobstatus':'Offer','status':'Sent'})
                 .catch(function(e) { console.warn('[acknowledgemethodx] joback write failed:', e.code || e.message || e); });
         } catch(_jobackErr) { console.warn('[acknowledgemethodx] joback write error:', _jobackErr); }
+        // For pre-queue offers to Busy drivers: skip the /notification write.
+        // The job is marked Offered on the server and joback is written so the resolver watches.
+        // No popup on the driver's main screen — job appears silently in the Offer tab only.
+        // If they accept while Busy → job goes to Queued (not Assigned) via _resolveAcceptance.
+        var _isBusyPreQueue = window._driverQueueMap && String(window._driverQueueMap[driverid]) === String(bookid);
+        if (_isBusyPreQueue) {
+            console.log('[acknowledgemethodx] Busy pre-queue offer for job #' + bookid + ' — silent (no notification write)');
+            resolveAfter2Secondsx(vehicle, driverid, bookid, status);
+            return;
+        }
         // ALSO write to /notification/{driverId} so the driver app knows which job to display.
         // Without this, the driver app never learns the bookingId and cannot show the offer screen.
         try {
@@ -8528,6 +8606,58 @@ $(document).ready(function() {
                 if (neww == "Available"){
                     _getjobs();
                     _ActiveJobsdata();
+                    // Check if this driver had a job queued while Busy.
+                    // If so: recall it to Pending and immediately re-offer with a popup.
+                    if (driverId) {
+                        jQuery.ajax({
+                            type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                            data: JSON.stringify({ data: [], action: '[GetQueuedJobs]' }),
+                            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                            success: function(resp) {
+                                try {
+                                    var _gqr = JSON.parse(resp.d || '{}');
+                                    var _gqJobs = (_gqr && _gqr.dt1) ? _gqr.dt1 : [];
+                                    var _myQJob = null;
+                                    for (var _qi = 0; _qi < _gqJobs.length; _qi++) {
+                                        if (String(_gqJobs[_qi].DriverId) === String(driverId)) {
+                                            _myQJob = _gqJobs[_qi]; break;
+                                        }
+                                    }
+                                    if (_myQJob) {
+                                        // Recall to Pending then immediately re-offer with popup.
+                                        jQuery.ajax({
+                                            type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
+                                            data: JSON.stringify({ data: [{ name: 'bookingid', Value: _myQJob.Id }], action: '[RecallQueuedJob]' }),
+                                            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                                            success: function() {
+                                                delete window._driverQueueMap[String(driverId)];
+                                                toastr['info'](driverId + ' is now Available — re-offering queued job #' + _myQJob.Id, 'Queue');
+                                                // Find vehicle ID for this driver
+                                                var _cdsc = angular.element(document.getElementById('myangular')).scope();
+                                                var _cdVeh = driverId;
+                                                if (_cdsc && _cdsc.driverdatarealx) {
+                                                    for (var _cdi = 0; _cdi < _cdsc.driverdatarealx.length; _cdi++) {
+                                                        var _cdd = _cdsc.driverdatarealx[_cdi];
+                                                        if (String(_cdd.driverid) === String(driverId)) {
+                                                            _cdVeh = _cdd.VehicleId || _cdd.vehiclenumber || driverId;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                // Re-offer with full popup (driver is now Available).
+                                                acknowledgemethodx(_cdVeh, driverId, _myQJob.Id, 'Pending');
+                                                if (_cdsc) {
+                                                    if (typeof _cdsc.getjobs       === 'function') _cdsc.getjobs();
+                                                    if (typeof _cdsc.AssignedJobs  === 'function') _cdsc.AssignedJobs();
+                                                    if (typeof _cdsc.getQueuedJobs === 'function') _cdsc.getQueuedJobs();
+                                                }
+                                            }
+                                        });
+                                    }
+                                } catch(e) { console.warn('[changedata Busy→Available] queued job check error:', e); }
+                            }
+                        });
+                    }
                 }
             }else if(oldi == "Away"){
                 if (neww == "Available"){
@@ -12294,9 +12424,37 @@ $(document).ready(function() {
                                 // Reset tried list and retry Available drivers from the top on next cycle.
                                 _triedDriversForJob[String(jobId)] = [];
                                 console.log('[smartAutoDispatch] Job #' + jobId + ' — all available drivers tried, resetting loop');
+                                continue;
                             }
-                            // Job stays in U-A (Pending). If the driver app's Offer tab shows pending
-                            // jobs, Busy drivers will already see it there passively — no offer needed.
+                            // No Available drivers at all — try Busy drivers as silent fallback.
+                            // Busy drivers are offered silently (no notification popup). The offer appears
+                            // in their Offer tab only. If they accept while Busy, job goes to Queued status
+                            // and pops up again when they become Available.
+                            var busyFallback = _busyOnly.filter(function(dv) {
+                                var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
+                                return triedIds.indexOf(dvId) === -1 && !_claimedThisCycle[dvId];
+                            });
+                            if (!busyFallback.length) {
+                                // All Busy drivers tried too — reset the Busy tried list and wait.
+                                _triedDriversForJob[String(jobId)] = [];
+                                continue;
+                            }
+                            // Offer the nearest/first Busy driver silently.
+                            var busySorted = busyFallback.slice().sort(function(a, b) {
+                                var qa = parseInt(a.zonequeue) || 999;
+                                var qb = parseInt(b.zonequeue) || 999;
+                                return qa - qb;
+                            });
+                            var busyBest = busySorted[0];
+                            var busyDrvId  = busyBest.driverid || busyBest.PlayerId || '';
+                            var busyVehId  = busyBest.VehicleId || busyBest.vehicleid || busyBest.vehiclenumber || busyDrvId;
+                            if (!busyDrvId) { continue; }
+                            _claimedThisCycle[String(busyDrvId)] = true;
+                            if (!_triedDriversForJob[String(jobId)]) _triedDriversForJob[String(jobId)] = [];
+                            _triedDriversForJob[String(jobId)].push(String(busyDrvId));
+                            window._driverQueueMap[String(busyDrvId)] = String(jobId);
+                            console.log('[smartAutoDispatch] Job #' + jobId + ' → Busy driver ' + busyDrvId + ' (silent pre-queue offer)');
+                            acknowledgemethodx(busyVehId, busyDrvId, jobId, 'Pending');
                             continue;
                         }
 
@@ -15921,6 +16079,7 @@ $(document).ready(function() {
                        
                         $scope.assignedjob_list = $scope.assigneddata['dt1'];
                         $scope.AssignedCount = $scope.assigneddata['dt1'].length;
+                        if (typeof $scope.getQueuedJobs === 'function') $scope.getQueuedJobs();
                         //$scope.$digest();
                     }, function myError(response) {
 
@@ -15929,6 +16088,48 @@ $(document).ready(function() {
                     });
 
                 }
+
+                $scope.queuedJobs = [];
+                $scope.getQueuedJobs = function() {
+                    $http({
+                        method: 'POST',
+                        url: 'DataManager/Data.aspx/DataSelector',
+                        data: { data: [], action: '[GetQueuedJobs]' }
+                    }).then(function(response) {
+                        try {
+                            var d = JSON.parse(response.data.d || '{}');
+                            $scope.queuedJobs = (d && d.dt1) ? d.dt1 : [];
+                        } catch(e) { $scope.queuedJobs = []; }
+                    }, function() { $scope.queuedJobs = []; });
+                };
+
+                $scope.recallQueuedJob = function(jobId) {
+                    if (!confirm('Recall queued job #' + jobId + ' back to Unassigned queue?')) return;
+                    $http({
+                        method: 'POST',
+                        url: 'DataManager/Data.aspx/DataProcessor',
+                        data: { data: [{ name: 'bookingid', Value: jobId }], action: '[RecallQueuedJob]' }
+                    }).then(function(response) {
+                        try {
+                            var d = JSON.parse(response.data.d || '{}');
+                            if (d && d.recalled) {
+                                toastr['success']('Job #' + jobId + ' recalled to Unassigned queue.', 'Queue Recall');
+                                delete window._driverQueueMap[String(d.driverId || '')];
+                                $scope.getQueuedJobs();
+                                $scope.getjobs();
+                            }
+                        } catch(e) {}
+                    });
+                };
+
+                setInterval(function() {
+                    try {
+                        var _qsc = angular.element(document.getElementById('myangular')).scope();
+                        if (_qsc && typeof _qsc.getQueuedJobs === 'function') {
+                            _qsc.getQueuedJobs();
+                        }
+                    } catch(e) {}
+                }, 5000);
         
                     $scope.cancelactivejob = function(id){
             
