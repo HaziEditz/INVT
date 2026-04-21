@@ -8584,6 +8584,26 @@ $(document).ready(function() {
             return false;
         };
 
+        // Returns {zoneId, zoneName} for a lat/lng based on stored Firebase tariffZone polygons.
+        // Returns null if zone data not loaded or point is outside all zones.
+        function _getZoneForLatLng(lat, lng) {
+            if (!window._zoneGridData || !window._zoneGridData.length) return null;
+            var fLat = parseFloat(lat), fLng = parseFloat(lng);
+            if (!fLat || !fLng || isNaN(fLat) || isNaN(fLng)) return null;
+            try {
+                var pt = new google.maps.LatLng(fLat, fLng);
+                for (var zi = 0; zi < window._zoneGridData.length; zi++) {
+                    var z = window._zoneGridData[zi];
+                    if (!z.paths || z.paths.length < 3) continue;
+                    var poly = new google.maps.Polygon({ paths: z.paths });
+                    if (google.maps.geometry.poly.containsLocation(pt, poly)) {
+                        return { zoneId: z.Id, zoneName: z.TariffName };
+                    }
+                }
+            } catch(e) {}
+            return null;
+        }
+
         $scope.tallo = function(datacom) {
             // Guard: must have at least driverid or vehiclenumber to be a valid driver entry
             if (!datacom || (typeof datacom !== 'object')) return;
@@ -8627,11 +8647,46 @@ $(document).ready(function() {
                         $scope.driverdatarealx[incs] = _patched;
                     }
 
+                    // Zone auto-detection: when driver's GPS position changes, compute which
+                    // zone they're in from the Firebase tariffZone polygons. This covers the
+                    // case where the driver app doesn't send an updated zonename field.
+                    var _oldLat = $scope.driverdatarealx[incs].lat;
+                    var _oldLng = $scope.driverdatarealx[incs].lng;
+                    if (datacom.lat && datacom.lng && (datacom.lat !== _oldLat || datacom.lng !== _oldLng)) {
+                        var _detectedZone = _getZoneForLatLng(datacom.lat, datacom.lng);
+                        if (_detectedZone) {
+                            if (_detectedZone.zoneName !== datacom.zonename) {
+                                console.log('[zoneDetect] driver', datacom.vehiclenumber, 'moved to zone', _detectedZone.zoneName, '(was', datacom.zonename + ')');
+                            }
+                            datacom.zonename = _detectedZone.zoneName;
+                            datacom.zoneid   = _detectedZone.zoneId;
+                        }
+                    }
+
                     if($scope.driverdatarealx[incs].zonename  != datacom.zonename ){
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
                         if (!$scope.$$phase) { $scope.$digest(); }
+                        // Tell the server about the zone change so ZONE_DRIVERS stays in sync.
+                        // Only fire when this was driven by GPS detection, not a status change
+                        // (status changes already call [DriverStatusChanged] below).
+                        if (datacom.vehiclestatus === _savedOldStatus) {
+                            jQuery.ajax({
+                                type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                                data: JSON.stringify({ data: [
+                                    { name: 'driverid',      Value: String(datacom.driverid  || datacom.VehicleId || '') },
+                                    { name: 'newstatus',     Value: String(datacom.vehiclestatus || _savedOldStatus) },
+                                    { name: 'vehiclenumber', Value: String(datacom.vehiclenumber || '') },
+                                    { name: 'drivername',    Value: String(datacom.drivername   || '') },
+                                    { name: 'lat',           Value: String(datacom.lat || '') },
+                                    { name: 'lng',           Value: String(datacom.lng || '') },
+                                    { name: 'zonename',      Value: String(datacom.zonename  || '') },
+                                    { name: 'zonequeue',     Value: String(datacom.zonequeue || '0') }
+                                ], action: '[DriverStatusChanged]' }),
+                                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+                            });
+                        }
                     }
                     if($scope.driverdatarealx[incs].zonequeue  != datacom.zonequeue ){
                         _patchDriver(datacom);
@@ -8821,15 +8876,16 @@ $(document).ready(function() {
                  
          
             }else{
+                // New driver: detect zone from GPS coordinates if not already provided
+                if (datacom.lat && datacom.lng) {
+                    var _newDriverZone = _getZoneForLatLng(datacom.lat, datacom.lng);
+                    if (_newDriverZone) {
+                        datacom.zonename = datacom.zonename || _newDriverZone.zoneName;
+                        datacom.zoneid   = datacom.zoneid   || _newDriverZone.zoneId;
+                    }
+                }
                 $scope.driverdatarealx.push( datacom);
                 $scope.driverlist =  $scope.driverdatarealx;
-                //if($('#checkitt').is(":checked")){  
-                   
-                //    $scope.zonetablez();
-                        
-                //}else{
-                //    $scope.changezone($scope.driverdatarealx); 
-                //}
                 $scope.zonetablez();
                 if (!$scope.$$phase) { $scope.$digest(); }
             }
@@ -13492,19 +13548,40 @@ $(document).ready(function() {
                     firebase.database().ref('tariffZones').on('value', function(snapshot) {
                         console.log('[tariffZones] snapshot exists:', snapshot.exists(), 'numChildren:', snapshot.numChildren());
                         var list = [];
+                        var gridData = [];
                         snapshot.forEach(function(child) {
                             var t = child.val();
                             console.log('[tariffZones] child key:', child.key, 'val:', JSON.stringify(t));
                             if (t) {
-                                // Accept both exact case and common variations
                                 var id = t.Id !== undefined ? t.Id : (t.id !== undefined ? t.id : child.key);
                                 var name = t.TariffName || t.tariffName || t.name || t.zoneName || t.ZoneName || '';
                                 if (name) {
                                     list.push({ Id: id, TariffName: name });
                                 }
+                                // Also store zone polygon paths for driver zone detection
+                                // coordinates format: [[lat,lng], [lat,lng], ...]
+                                var coords = t.coordinates || t.Coordinates || t.coords;
+                                if (name && coords && coords.length >= 3) {
+                                    var paths = [];
+                                    for (var ci = 0; ci < coords.length; ci++) {
+                                        var c = coords[ci];
+                                        if (Array.isArray(c) && c.length >= 2) {
+                                            paths.push({ lat: parseFloat(c[0]), lng: parseFloat(c[1]) });
+                                        } else if (c && typeof c === 'object') {
+                                            paths.push({ lat: parseFloat(c.lat || c.Lat), lng: parseFloat(c.lng || c.Lng) });
+                                        }
+                                    }
+                                    if (paths.length >= 3) {
+                                        gridData.push({ Id: id, TariffName: name, paths: paths });
+                                    }
+                                }
                             }
                         });
                         console.log('[tariffZones] built list:', JSON.stringify(list));
+                        if (gridData.length > 0) {
+                            window._zoneGridData = gridData;
+                            console.log('[tariffZones] stored', gridData.length, 'zone polygons for driver zone detection');
+                        }
                         if (list.length > 0) {
                             $scope.tarriflist = list;
                             if (!$scope.$$phase) { $scope.$digest(); }

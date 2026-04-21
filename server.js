@@ -1659,11 +1659,20 @@ const server = http.createServer(async (req, res) => {
           if (newStatus === 'Available') {
             const zdAvail = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
             if (zdAvail) {
-              const currentZone = zdAvail.zonename || zonename || '';
+              // Apply new zone if client sent one (GPS-detected zone change)
+              const incomingZone = zonename || '';
+              if (incomingZone && incomingZone !== zdAvail.zonename) {
+                console.log(`  [DriverStatusChanged/DP] driver ${driverId} zone change ${zdAvail.zonename} → ${incomingZone}`);
+                zdAvail.zonename = incomingZone;
+                if (param('zoneid')) zdAvail.zoneid = (param('zoneid') || '').toString().trim();
+              }
+              const currentZone = zdAvail.zonename || '';
               _dscQueueNo = calcRestoredQueue(driverId, currentZone);
               zdAvail.zonequeue = _dscQueueNo;
               zdAvail.vehiclestatus = 'Available';
               zdAvail.queueWaitSince = Date.now();
+              if (lat) zdAvail.lat = lat;
+              if (lng) zdAvail.lng = lng;
               clearDriverHomeState(driverId); // home state consumed
               console.log(`  [DriverStatusChanged/DP] driver ${driverId} Available → zone="${currentZone}" newQueue=${_dscQueueNo}`);
             } else {
@@ -2572,11 +2581,20 @@ const server = http.createServer(async (req, res) => {
           if (newStatus === 'Available') {
             const zdAvailDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
             if (zdAvailDS) {
-              const currentZoneDS = zdAvailDS.zonename || zonenameDS || '';
+              // Apply new zone if client sent one (GPS-detected zone change)
+              const incomingZoneDS = zonenameDS || '';
+              if (incomingZoneDS && incomingZoneDS !== zdAvailDS.zonename) {
+                console.log(`  [DriverStatusChanged/DS] driver ${driverId} zone change ${zdAvailDS.zonename} → ${incomingZoneDS}`);
+                zdAvailDS.zonename = incomingZoneDS;
+                if (param('zoneid')) zdAvailDS.zoneid = (param('zoneid') || '').toString().trim();
+              }
+              const currentZoneDS = zdAvailDS.zonename || '';
               _dssQueueNo = calcRestoredQueue(driverId, currentZoneDS);
               zdAvailDS.zonequeue = _dssQueueNo;
               zdAvailDS.vehiclestatus = 'Available';
               zdAvailDS.queueWaitSince = Date.now();
+              if (lat) zdAvailDS.lat = lat;
+              if (lng) zdAvailDS.lng = lng;
               clearDriverHomeState(driverId);
               console.log(`  [DriverStatusChanged/DS] driver ${driverId} Available → zone="${currentZoneDS}" newQueue=${_dssQueueNo}`);
             } else {
