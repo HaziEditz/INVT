@@ -2106,6 +2106,7 @@
                         <div class="drv-header-badges">
                             <span id="lblVehicleSign" class="drv-badge-callsign"></span>
                             <span id="driverStatusBadge" class="drv-badge-status">Online</span>
+                            <span id="lblJobCountBadge" class="drv-badge-status" style="display:none;background:#e67e22;color:#fff;font-weight:bold;margin-left:4px;"></span>
                         </div>
                     </div>
                 </div>
@@ -3369,6 +3370,13 @@ $(document).ready(function() {
                                                             <span class="label label-pill label-info mt-2">
                                                                 <i class="fa fa-circle" style="color:{{avalue.BookingStatus=='Offered'?'orange':avalue.BookingStatus=='Assigned'?'limegreen':'#aaa'}}"></i>
                                                                 {{avalue.BookingStatus}}
+                                                            </span>
+                                                            <span class="label label-pill mt-2"
+                                                                ng-if="driverJobCount(avalue.DriverId) > 1"
+                                                                style="background:#e67e22;color:#fff;font-weight:bold;"
+                                                                title="This driver has multiple jobs assigned">
+                                                                <i class="fa fa-stack-overflow"></i>
+                                                                {{driverJobCount(avalue.DriverId)}} jobs
                                                             </span>
                                                              <i ng-if="avalue.DropLatLng != '0,0'" ng-mouseover="showmakert(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" ng-mouseleave="markerremove(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
                                                                 <i ng-if="avalue.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(avalue.Id,avalue.PickLatLng)" ng-mouseleave="markerremove1(avalue.Id,avalue.PickLatLng )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
@@ -6403,8 +6411,16 @@ $(document).ready(function() {
     }
  
     
+    // _driverQueueMap: { driverId → jobId } tracks Busy drivers who were offered a pre-queue job.
+    // Cleared when the driver accepts (job becomes Assigned normally).
+    window._driverQueueMap = window._driverQueueMap || {};
+
     function _resolveAcceptance(bookingId, driverId) {
+        // Whether driver is Busy or Available, job always goes to Assigned — no new status needed.
+        // The driver app's own queue tab holds the active + newly assigned job.
         convertstatus(bookingId, 'Assigned', driverId, '');
+        // Clear any pre-queue tracking for this driver
+        delete window._driverQueueMap[String(driverId)];
         var _asc = angular.element(document.getElementById('myangular')).scope();
         if (_asc) {
             if (typeof _asc.getjobs      === 'function') _asc.getjobs();
@@ -6957,6 +6973,15 @@ $(document).ready(function() {
         // Clear the offer-dedup lock so smartAutoDispatch can immediately try the next driver
         // (resolver Promises never resolve, so this is the only reliable place to release it).
         if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[jobId];
+        // Clear any Busy-driver pre-queue lock for this job (rejection/timeout path).
+        // This lets the same or another Busy driver be offered the job on the next cycle.
+        if (window._driverQueueMap) {
+            Object.keys(window._driverQueueMap).forEach(function(dId) {
+                if (String(window._driverQueueMap[dId]) === String(jobId)) {
+                    delete window._driverQueueMap[dId];
+                }
+            });
+        }
         if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
     }
 
@@ -12205,8 +12230,15 @@ $(document).ready(function() {
 
                     // Use Angular scope's driverdatarealx — already has zonequeue and live status
                     var _sc = angular.element(document.getElementById('myangular')).scope();
+                    // Include Available drivers AND Busy (Hail/active job) drivers who don't yet
+                    // have a pre-queued job pending. Busy drivers get a silent offer (driver app
+                    // flashes Offer tab — no popup interrupt) so it doesn't disturb their current job.
                     var allAvailable = (_sc && _sc.driverdatarealx)
-                        ? _sc.driverdatarealx.filter(function(dv) { return dv.vehiclestatus === 'Available'; })
+                        ? _sc.driverdatarealx.filter(function(dv) {
+                            if (dv.vehiclestatus === 'Available') return true;
+                            if (dv.vehiclestatus === 'Busy' && !window._driverQueueMap[String(dv.driverid)]) return true;
+                            return false;
+                          })
                         : [];
 
                     // Cleanup: remove tried-driver records for jobs no longer pending.
@@ -12291,6 +12323,12 @@ $(document).ready(function() {
                         // job returns to Pending (reject / timeout).
                         if (!_triedDriversForJob[String(jobId)]) _triedDriversForJob[String(jobId)] = [];
                         _triedDriversForJob[String(jobId)].push(String(driverId));
+
+                        // If this driver is Busy, mark them in the pre-queue map so they don't
+                        // get offered a second job before they've accepted/rejected this one.
+                        if (best.vehiclestatus === 'Busy') {
+                            window._driverQueueMap[String(driverId)] = String(jobId);
+                        }
 
                         console.log('[smartAutoDispatch] Job #' + jobId + ' → driver ' + driverId + ' (fbUID:' + (best.PlayerId || driverId) + ', car:' + (best.vehiclenumber || '') + ') queue#' + (best.zonequeue || '?'));
                         acknowledgemethodx(vehicleId, driverId, jobId, 'Pending');
@@ -13136,6 +13174,7 @@ $(document).ready(function() {
             // kick/suspend if this driver is not found in the server roster.
             $('#lblDriverId').text('');
             $('#lblBookingHeadId').text('');
+            $('#lblJobCountBadge').hide();
             var param = [{ "name": "Id", "value": ele }];
             var proc = '[VehicleInfov2]';
             Selector(param, proc).then(function (result) {
@@ -13165,6 +13204,13 @@ $(document).ready(function() {
                         $('#lblBookingHeadId').text($data.BookingId);
                         // ActiveBookingId = real booking reference — blank when driver has no live job
                         $('#lblDriverPhone').text($data.ActiveBookingId || '—');
+                        // Job count badge — show when driver has more than 1 active job
+                        var _jc = $data.JobCount || 0;
+                        if (_jc > 1) {
+                            $('#lblJobCountBadge').text(_jc + ' jobs').show();
+                        } else {
+                            $('#lblJobCountBadge').hide();
+                        }
                         var _drvFullName = (($data.UserFName || '') + ' ' + ($data.UserLName || '')).trim() || 'Driver';
                         $('#lblDriverName').text(_drvFullName);
                         // Avatar initials
@@ -13930,7 +13976,11 @@ $(document).ready(function() {
                 });
 
                 var _hasPending = $scope.unassignedjob_list.some(function(j) { return j.BookingStatus === 'Pending'; });
-                var _hasAvail   = ($scope.driverdatarealx || []).some(function(d) { return d.vehiclestatus === 'Available'; });
+                var _hasAvail   = ($scope.driverdatarealx || []).some(function(d) {
+                    if (d.vehiclestatus === 'Available') return true;
+                    if (d.vehiclestatus === 'Busy' && !window._driverQueueMap[String(d.driverid)]) return true;
+                    return false;
+                });
                 if (_hasPending && _hasAvail) {
                     if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 800);
                 }
@@ -15829,6 +15879,18 @@ $(document).ready(function() {
                 });
 
             }
+
+                // Returns how many jobs in assignedjob_list belong to the given driverId.
+                // Used by the Assign tab badge to show "2 jobs" when a driver has multiple.
+                $scope.driverJobCount = function(driverId) {
+                    if (!driverId || !$scope.assignedjob_list) return 0;
+                    var _did = String(driverId);
+                    var _cnt = 0;
+                    for (var _dji = 0; _dji < $scope.assignedjob_list.length; _dji++) {
+                        if (String($scope.assignedjob_list[_dji].DriverId || '') === _did) _cnt++;
+                    }
+                    return _cnt;
+                };
 
                 $scope.AssignedJobs = function (ok='') {
                     if(ok == 0){

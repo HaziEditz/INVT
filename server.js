@@ -2317,14 +2317,16 @@ const server = http.createServer(async (req, res) => {
           String(d.driverid)  === vehicleIdStr ||
           (vehicleIdNum > 0 && (d.VehicleId === vehicleIdNum || d.driverid === vehicleIdNum))
         );
-        const assignedJob = jobStore.find(j =>
-          String(j.VehicleId) === vehicleIdStr ||
-          String(j.DriverId)  === vehicleIdStr ||
-          (vehicleIdNum > 0 && (j.VehicleId === vehicleIdNum || j.DriverId === vehicleIdNum))
-        );
         // Only treat a job as active if it's in a current working state — not completed/cancelled
         const ACTIVE_STATUSES = new Set(['Offered','Assigned','Active','Picking','Arrived']);
-        const activeJob = assignedJob && ACTIVE_STATUSES.has(assignedJob.BookingStatus) ? assignedJob : null;
+        // Collect ALL jobs for this driver (supports pre-queue: driver may have 2 assigned jobs)
+        const driverJobs = jobStore.filter(j => {
+          const matchV = String(j.VehicleId) === vehicleIdStr || (vehicleIdNum > 0 && j.VehicleId === vehicleIdNum);
+          const matchD = String(j.DriverId)  === vehicleIdStr || (vehicleIdNum > 0 && j.DriverId  === vehicleIdNum);
+          return (matchV || matchD) && ACTIVE_STATUSES.has(j.BookingStatus);
+        });
+        // Primary job (most recent active) for the ActiveBookingId field
+        const activeJob = driverJobs.length > 0 ? driverJobs[driverJobs.length - 1] : null;
         // Always return a dt1 record so the client can set lblDriverId / lblBookingHeadId
         // correctly — even if this driver is not yet in ZONE_DRIVERS (e.g. Firebase-only drivers).
         // When not found, use the vehicleIdStr as both DriverId and BookingId so kick/suspend
@@ -2342,19 +2344,21 @@ const server = http.createServer(async (req, res) => {
           UserFName:       zd ? (zd.drivername || '').split(' ')[0] : '',
           UserLName:       zd ? (zd.drivername || '').split(' ').slice(1).join(' ') : '',
           VehicleImage:    '',
+          JobCount:        driverJobs.length,
         }];
-        const dt2 = activeJob ? [{
-          BookingStatus:      activeJob.BookingStatus,
-          BookingDateTime:    activeJob.BookingDateTime,
-          PassengerId:        activeJob.Name || activeJob.passengername || '',
-          PickAddress:        activeJob.PickAddress || '',
-          DropAddress:        activeJob.DropAddress || '',
-          Passengers:         activeJob.Passengers || 1,
-          Bags:               activeJob.Bags || 0,
-          WheelChairs:        activeJob.WheelChairs || 0,
-          EstimatedDistance:  activeJob.EstimatedDistance || '0',
-          EstimatedTime:      activeJob.EstimatedTime || '0',
-        }] : [];
+        const dt2 = driverJobs.map(j => ({
+          Id:                 j.Id,
+          BookingStatus:      j.BookingStatus,
+          BookingDateTime:    j.BookingDateTime,
+          PassengerId:        j.Name || j.passengername || '',
+          PickAddress:        j.PickAddress || '',
+          DropAddress:        j.DropAddress || '',
+          Passengers:         j.Passengers || 1,
+          Bags:               j.Bags || 0,
+          WheelChairs:        j.WheelChairs || 0,
+          EstimatedDistance:  j.EstimatedDistance || '0',
+          EstimatedTime:      j.EstimatedTime || '0',
+        }));
         console.log(`200: POST ${urlPath} [action=${action}] -> vehicle #${vehicleIdStr} (${zd ? zd.drivername : 'not in roster'}), ${dt2.length} job(s)`);
         objectD(res, { dt1, dt2, dt3: [], dt4: [], dt5: [] });
 
