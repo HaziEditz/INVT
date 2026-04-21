@@ -1,0 +1,11 @@
+[
+  {
+    "Id": 5,
+    "TariffName": "tarrif 1",
+    "StartPrice": 5,
+    "DistanceRate": 4.6,
+    "WaitingRate": 1,
+    "MinimumFare": 0,
+    "CurrencyName": "NZD"
+  }
+]

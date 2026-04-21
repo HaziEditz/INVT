@@ -13602,6 +13602,41 @@ $(document).ready(function() {
                             $scope.tarriflist = list;
                             if (!$scope.$$phase) { $scope.$digest(); }
                         }
+                        // Push real tariff pricing to the server so the driver app and
+                        // DispatchEstimation return the company's actual rates.
+                        // Only include entries that carry pricing (not zone-grid entries).
+                        var _syncTariffs = [];
+                        snapshot.forEach(function(child) {
+                            if (child.key && child.key.indexOf('zone_grid_') === 0) return;
+                            var t = child.val();
+                            if (!t) return;
+                            var name = t.TariffName || t.tariffName || t.name || t.zoneName || t.ZoneName || '';
+                            if (!name) return;
+                            _syncTariffs.push({
+                                Id:           t.Id !== undefined ? t.Id : child.key,
+                                TariffName:   name,
+                                StartPrice:   parseFloat(t.baseFare  || t.StartPrice  || 0),
+                                DistanceRate: parseFloat(t.pricePerKm || t.DistanceRate || 0),
+                                WaitingRate:  parseFloat(t.waitingRate || t.WaitingRate || 0),
+                                MinimumFare:  parseFloat(t.minimumFare || t.MinimumFare || 0),
+                                CurrencyName: t.CurrencyName || 'NZD',
+                            });
+                        });
+                        if (_syncTariffs.length > 0) {
+                            console.log('[tariffZones] syncing', _syncTariffs.length, 'tariff(s) to server');
+                            jQuery.ajax({
+                                type: 'POST',
+                                url: 'DataManager/Data.aspx/DataSelector',
+                                data: JSON.stringify({ data: [
+                                    { name: 'tariffs', Value: JSON.stringify(_syncTariffs) }
+                                ], action: '[TariffSync]' }),
+                                dataType: 'json',
+                                contentType: 'application/json; charset=utf-8',
+                                cache: false
+                            }).done(function(r) {
+                                console.log('[tariffZones] TariffSync result:', JSON.stringify(r));
+                            });
+                        }
                     }, function(err) {
                         console.error('[tariffZones] Firebase read error:', err.code, err.message);
                     });

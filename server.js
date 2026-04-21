@@ -39,6 +39,7 @@ const JOB_STORE_FILE         = path.join(DATA_DIR, 'jobstore.json');
 const SUSPENDED_DRIVERS_FILE = path.join(DATA_DIR, 'suspended_drivers.json');
 const COOKIE_FILE            = path.join(DATA_DIR, 'session.txt');
 const ZONE_ASSIGNMENTS_FILE  = path.join(DATA_DIR, 'zone_assignments.json');
+const TARIFF_STORE_FILE      = path.join(DATA_DIR, 'tariffs.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
@@ -245,6 +246,31 @@ function saveZoneAssignment(driverId, zonename, zoneid) {
 
 function getSavedZone(driverId) {
   return ZONE_ASSIGNMENTS[String(driverId)] || null;
+}
+
+// ─── Persisted tariff store ───────────────────────────────────────────────────
+// Mirrors the real tariff list from Firebase so the driver app and fare
+// estimator always use the company's actual rates instead of hardcoded defaults.
+// The dispatch console pushes an update via [TariffSync] whenever it reads the
+// tariffZones Firebase node.
+const _DEFAULT_TARIFFS = [
+  { Id: 1, TariffName: 'Standard',  StartPrice: 3.50, DistanceRate: 2.20, WaitingRate: 0, MinimumFare: 0, CurrencyName: 'NZD' },
+];
+let TARIFF_STORE = _DEFAULT_TARIFFS;
+try {
+  if (fs.existsSync(TARIFF_STORE_FILE)) {
+    const _loaded = JSON.parse(fs.readFileSync(TARIFF_STORE_FILE, 'utf8'));
+    if (Array.isArray(_loaded) && _loaded.length > 0) {
+      TARIFF_STORE = _loaded;
+      console.log(`[persist] loaded ${TARIFF_STORE.length} tariff(s) from disk`);
+    }
+  }
+} catch(e) { console.log('[persist] tariffs load error:', e.message); }
+
+function saveTariffStore() {
+  fs.writeFile(TARIFF_STORE_FILE, JSON.stringify(TARIFF_STORE, null, 2), (err) => {
+    if (err) console.log('[persist] tariffs save error:', err.message);
+  });
 }
 
 // Auto-expire suspended drivers: check every 60 s, restore any whose suspendedUntil has passed.
@@ -784,6 +810,7 @@ const server = http.createServer(async (req, res) => {
       '[KickDriver]', '[DispatcherKickUsers]', '[GetSuspendedDrivers]', '[UnsuspendDriver]', '[UpdateSuspensionTime]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
       '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
+      '[TariffSync]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -1757,15 +1784,11 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === 'DispatchEstimation') {
         // Return tariff pricing so trip cost can be calculated in the booking form.
-        const TARIFFS = {
-          1:  { StartPrice: 3.50, DistanceRate: 2.20, CurrencyName: 'NZD' },
-          2:  { StartPrice: 5.00, DistanceRate: 2.50, CurrencyName: 'NZD' },
-          3:  { StartPrice: 4.50, DistanceRate: 2.40, CurrencyName: 'NZD' },
-          '-1': { StartPrice: 0,  DistanceRate: 0,    CurrencyName: 'NZD' },
-        };
-        const tid = String(param('TariffId') || '1');
-        const tariff = TARIFFS[tid] || TARIFFS['1'];
-        console.log(`200: POST ${urlPath} [action=${action}] -> tariff id ${tid}`);
+        // Use the live TARIFF_STORE (synced from Firebase by the dispatch console).
+        const tid = String(param('TariffId') || '');
+        let tariff = tid ? TARIFF_STORE.find(t => String(t.Id) === tid) : null;
+        if (!tariff) tariff = TARIFF_STORE[0] || { StartPrice: 0, DistanceRate: 0, WaitingRate: 0, MinimumFare: 0, CurrencyName: 'NZD' };
+        console.log(`200: POST ${urlPath} [action=${action}] -> tariff id ${tid || 'default'} "${tariff.TariffName}" SP=${tariff.StartPrice} DR=${tariff.DistanceRate}`);
         arrayD(res, [tariff]);
 
       } else if (action === '[ActiveJobsv3]') {
@@ -2085,16 +2108,31 @@ const server = http.createServer(async (req, res) => {
             { Id: 3, VehicleName: 'Van' },
             { Id: 4, VehicleName: 'Wheelchair' },
           ],
-          dt4: [
-            { Id: 1, TariffName: 'Standard',  StartPrice: 3.50, DistanceRate: 2.20, CurrencyName: 'NZD' },
-            { Id: 2, TariffName: 'Airport',   StartPrice: 5.00, DistanceRate: 2.50, CurrencyName: 'NZD' },
-            { Id: 3, TariffName: 'Evening',   StartPrice: 4.50, DistanceRate: 2.40, CurrencyName: 'NZD' },
-            { Id: -1, TariffName: 'Custom',   StartPrice: 0,    DistanceRate: 0,    CurrencyName: 'NZD' },
-          ],
+          dt4: TARIFF_STORE,
           dt5: [{ PublicKey: '' }],
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> dispatcher settings`);
         objectD(res, settings);
+
+      } else if (action === '[TariffSync]') {
+        // The dispatch console pushes the real tariff list from Firebase here.
+        // Accepts a JSON array of tariff objects via the 'tariffs' param.
+        // Format: [{Id, TariffName, StartPrice, DistanceRate, WaitingRate, MinimumFare, CurrencyName}]
+        try {
+          const _raw = (param('tariffs') || '').toString().trim();
+          const _arr = JSON.parse(_raw);
+          if (Array.isArray(_arr) && _arr.length > 0) {
+            TARIFF_STORE = _arr;
+            saveTariffStore();
+            console.log(`200: POST ${urlPath} [action=${action}] -> synced ${_arr.length} tariff(s): ${_arr.map(t => '"' + t.TariffName + '"').join(', ')}`);
+            objectD(res, { ok: true, count: _arr.length });
+          } else {
+            objectD(res, { ok: false, error: 'empty or invalid array' });
+          }
+        } catch(e) {
+          console.log(`[TariffSync] parse error:`, e.message);
+          objectD(res, { ok: false, error: e.message });
+        }
 
       } else if (action === 'VehiclesStatus') {
         const busyCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Busy').length;
