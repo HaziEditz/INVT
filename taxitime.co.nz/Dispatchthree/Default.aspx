@@ -3496,9 +3496,6 @@ $(document).ready(function() {
                                                                     <i class="fa fa-car"></i> {{qv.drivername}} {{qv.VehicleNo}} <em style="opacity:.8;">(Busy)</em></span>
                                                                 <span class="label label-pill label-info mt-2">
                                                                     <i class="fa fa-circle" style="color:#e67e22;"></i> Queued</span>
-                                                                <span class="label label-pill label-danger mt-2" style="cursor:pointer;float:right;margin-right:6px;"
-                                                                      ng-click="recallQueuedJob(qv.Id)" title="Recall job back to Unassigned queue">
-                                                                    <i class="fa fa-undo"></i> Recall</span>
                                                             </div>
                                                             <div class="row nopad col-sm-12" style="padding:2px 0 4px 0;font-size:12px;opacity:.85;">
                                                                 <span class="label label-pill label-primary mt-2" style="max-width:40%;overflow:hidden;white-space:nowrap;">
@@ -7135,6 +7132,34 @@ $(document).ready(function() {
                     .set({ jobstatus: 'Offer', status: 'Sent' })
                     .catch(function(e) { console.warn('[acknowledgemethodx/busy] joback write failed:', e); });
             } catch(e) { console.warn('[acknowledgemethodx/busy] joback write error:', e); }
+            // ── Silent badge notification ────────────────────────────────────────────
+            // Write a minimal payload to /notification/{driverId} that lights up the
+            // driver app's Offer tab badge (jobCount) and exposes the job number
+            // (joboffer) WITHOUT triggering the full-screen popup.
+            //
+            // The full writeJobDetailsToFirebase payload includes a `content` field
+            // ('You have offered new Job please view details').  The driver app almost
+            // certainly checks for that field (or its non-empty value) before showing
+            // the popup, so we intentionally omit it here.  All other display fields
+            // are also omitted to keep the footprint minimal — the driver app's Offer
+            // tab will still show the offer via the joback/ node written above.
+            //
+            // If the driver app shows the popup regardless of `content` being absent
+            // (i.e., any write to /notification/ triggers it), this silent write cannot
+            // suppress the popup without a driver-app change — see task notes.
+            try {
+                var _silentNotifRef = firebase.database().ref('/notification/' + driverid);
+                _silentNotifRef.remove().then(function() {
+                    return _silentNotifRef.set({
+                        joboffer:  String(bookid),
+                        jobCount:  1
+                    });
+                }).then(function() {
+                    console.log('[acknowledgemethodx/busy] silent badge notification written for driver', driverid, 'job', bookid);
+                }).catch(function(e) {
+                    console.warn('[acknowledgemethodx/busy] silent badge notification failed:', e);
+                });
+            } catch(e) { console.warn('[acknowledgemethodx/busy] silent badge notification error:', e); }
             _watchBusyDriverAcceptance(vehicle, driverid, bookid);
             return;
         }
