@@ -3005,11 +3005,12 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
-    "TarriffType": "Automatic"
+    "TarriffType": "Automatic",
+    "returnReason": "Driver returned job (went available)"
   },
   {
     "Id": 22042026009,
