@@ -444,9 +444,9 @@
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -837,9 +837,9 @@
 
                                                                     {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
                                                                 </div>
@@ -3021,9 +3021,9 @@ $(document).ready(function() {
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -3188,9 +3188,9 @@ $(document).ready(function() {
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -3641,9 +3641,9 @@ $(document).ready(function() {
 
                                                                     {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
                                                                 </div>
@@ -14273,10 +14273,10 @@ $(document).ready(function() {
                    
                 $scope.UnAssignedCountoffer = $scope.oferunassignedjob_list.length;
 
-                // Snapshot current open-card key fields before the list is replaced
+                // Snapshot full job state before the list is replaced (for auto-close comparison)
                 var _prevJobMap = {};
                 ($scope.unassignedjob_list || []).forEach(function(j) {
-                    _prevJobMap[j.Id] = { status: j.BookingStatus, driver: j.DriverId, vehicle: j.VehicleId };
+                    _prevJobMap[j.Id] = JSON.stringify(j);
                 });
 
                 $scope.unassignedjob_list = $scope.jobsdata['dt1'];
@@ -14305,15 +14305,15 @@ $(document).ready(function() {
                     return urgencyScore(a) - urgencyScore(b);
                 });
 
-                // Auto-close expanded cards whose job status/driver/vehicle changed
+                // Auto-close expanded cards when ANY field of the job changed
                 var _newIdSet = {};
                 ($scope.unassignedjob_list || []).forEach(function(j) { _newIdSet[j.Id] = j; });
                 Object.keys($scope.openCards).forEach(function(id) {
                     if (!$scope.openCards[id]) return;
-                    var _prev = _prevJobMap[id];
+                    var _prevSnap = _prevJobMap[id];
                     var _newJ = _newIdSet[id];
-                    if (!_newJ || !_prev) { $scope.openCards[id] = false; return; }
-                    if (_prev.status !== _newJ.BookingStatus || _prev.driver !== _newJ.DriverId || _prev.vehicle !== _newJ.VehicleId) {
+                    // Job gone from list, or it changed in any way → auto-close
+                    if (!_newJ || !_prevSnap || _prevSnap !== JSON.stringify(_newJ)) {
                         $scope.openCards[id] = false;
                     }
                 });
@@ -15319,12 +15319,12 @@ $(document).ready(function() {
                 var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
                 // Pre-booked jobs always show "Pickup:" label so the time is unambiguous
                 var db = parseInt(dispatchBefore) || 0;
-                var prefix = db > 0 ? 'Pickup: ' : '';
-                if (dayDiff === 0)  return prefix + 'Today ' + timeStr;
-                if (dayDiff === 1)  return prefix + 'Tomorrow ' + timeStr;
+                var prefix = db > 0 ? 'Pkup: ' : '';
+                if (dayDiff === 0)  return prefix + timeStr;
+                if (dayDiff === 1)  return prefix + 'Tmrw ' + timeStr;
                 var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
                 var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                return prefix + days[booking.getDay()] + ' ' + booking.getDate() + ' ' + months[booking.getMonth()] + ', ' + timeStr;
+                return prefix + days[booking.getDay()] + ' ' + booking.getDate() + ' ' + months[booking.getMonth()] + ' ' + timeStr;
             }
 
             $scope.jobTypeLabel = function (jobMins, dispatchBefore) {
@@ -15342,7 +15342,7 @@ $(document).ready(function() {
                 var h = dispAt.getHours(), mi = dispAt.getMinutes();
                 var ampm = h >= 12 ? 'PM' : 'AM';
                 h = h % 12 || 12;
-                return 'Send at ' + h + ':' + (mi < 10 ? '0' : '') + mi + ' ' + ampm;
+                return '→ ' + h + ':' + (mi < 10 ? '0' : '') + mi + ' ' + ampm;
             };
             // Returns true when dispatch window is currently open (now >= pickup - dispatchBefore)
             $scope.dispatchWindowOpen = function (DispatchTimebefore, BookingDateTime) {
