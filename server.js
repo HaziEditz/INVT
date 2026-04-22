@@ -1416,14 +1416,14 @@ const server = http.createServer(async (req, res) => {
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
           if (isDriverPostAcceptCancel) {
             const _dcDriverId = job.DriverId;
-            job.BookingStatus = 'Cancelled';
-            job.CancelledBy   = 'Driver';
-            job.returnReason  = 'Driver cancelled after accepting';
-            job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-            const _dcIdx = jobStore.indexOf(job);
-            if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
-            closedJobStore.push(job);
-            // Driver cancelled (e.g. no-show / not at address) — return to Available immediately
+            // Driver recalled the job (cancelled after accepting) — return to unassigned queue as Pending
+            job.BookingStatus = 'Pending';
+            job.DriverId      = -2;
+            job.VehicleId     = 0;
+            job.returnReason  = 'Recalled by Driver';
+            delete job.CancelledBy;
+            delete job.JobCompleteTime;
+            // Keep in jobStore so the job can be re-dispatched
             const _dcZd = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId || d.VehicleId === _dcDriverId);
             let _dcQueueNo = null;
             if (_dcZd) {
@@ -1435,8 +1435,8 @@ const server = http.createServer(async (req, res) => {
             clearAwayLock(_dcDriverId);
             clearDriverHomeState(_dcDriverId);
             saveJobStore();
-            console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled after accepting → Available q=${_dcQueueNo})`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
+            console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Pending (driver ${_dcDriverId} recalled after accepting → Available q=${_dcQueueNo})`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
             return;
           }
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
@@ -2640,14 +2640,14 @@ const server = http.createServer(async (req, res) => {
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
           if (isDriverPostAcceptCancel2) {
             const _dcDriverId2 = job.DriverId;
-            job.BookingStatus = 'Cancelled';
-            job.CancelledBy   = 'Driver';
-            job.returnReason  = 'Driver cancelled after accepting';
-            job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-            const _dcIdx2 = jobStore.indexOf(job);
-            if (_dcIdx2 !== -1) jobStore.splice(_dcIdx2, 1);
-            closedJobStore.push(job);
-            // Driver cancelled (no-show / not at pickup) — return to Available immediately
+            // Driver recalled the job (cancelled after accepting) — return to unassigned queue as Pending
+            job.BookingStatus = 'Pending';
+            job.DriverId      = -2;
+            job.VehicleId     = 0;
+            job.returnReason  = 'Recalled by Driver';
+            delete job.CancelledBy;
+            delete job.JobCompleteTime;
+            // Keep in jobStore so the job can be re-dispatched
             const _dcZd2 = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId2 || d.VehicleId === _dcDriverId2);
             let _dcQueueNo2 = null;
             if (_dcZd2) {
@@ -2659,8 +2659,8 @@ const server = http.createServer(async (req, res) => {
             clearAwayLock(_dcDriverId2);
             clearDriverHomeState(_dcDriverId2);
             saveJobStore();
-            console.log(`  [changeriddestatusforoffer/DS] Job #${bookingId} -> Cancelled (driver ${_dcDriverId2} cancelled after accepting → Available q=${_dcQueueNo2})`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _dcQueueNo2 });
+            console.log(`  [changeriddestatusforoffer/DS] Job #${bookingId} -> Pending (driver ${_dcDriverId2} recalled after accepting → Available q=${_dcQueueNo2})`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _dcQueueNo2 });
             return;
           }
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]

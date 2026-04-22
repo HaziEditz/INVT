@@ -7651,16 +7651,16 @@ $(document).ready(function() {
                                           }
                                           if (_drCvt) _drCvt.zonequeue = _rCvt.newQueueNo;
                                       }
-                                      // Driver cancelled an accepted job — alert dispatcher + refresh closed jobs
-                                      if (_rCvt && _rCvt.driverCancelled) {
-                                          var _dcC = _rCvt.driverCancelled;
+                                      // Driver recalled an accepted job — alert dispatcher + refresh unassigned list
+                                      if (_rCvt && _rCvt.driverRecalled) {
+                                          var _dcC = _rCvt.driverRecalled;
                                           var _dcCLabel = _dcC.vehiclenumber || String(_dcC.driverId || driverid || '');
                                           toastr["warning"](
-                                              'Driver ' + _dcCLabel + ' cancelled job #' + (_dcC.jobId || id) + ' after accepting.',
-                                              'Driver Cancelled Job!'
+                                              'Driver ' + _dcCLabel + ' recalled job #' + (_dcC.jobId || id) + ' — returned to unassigned queue.',
+                                              'Job Recalled by Driver'
                                           );
-                                          if (typeof sc.ClosedJobsdata  === 'function') sc.ClosedJobsdata();
-                                          if (typeof sc.ActiveJobsdata  === 'function') sc.ActiveJobsdata();
+                                          if (typeof sc.getjobs         === 'function') sc.getjobs();
+                                          if (typeof sc.AssignedJobs    === 'function') sc.AssignedJobs();
                                       }
                                   } catch(e) {}
                                   // Fix #106/#108: If driver cancelled after accepting (no-show), server set them Available — sync Firebase.
@@ -7671,7 +7671,7 @@ $(document).ready(function() {
                                       });
                                       var _rCvtParsed = null;
                                       try { _rCvtParsed = (response && response.d) ? JSON.parse(response.d) : null; } catch(e2) {}
-                                      if (_rCvtParsed && _rCvtParsed.driverCancelled) {
+                                      if (_rCvtParsed && (_rCvtParsed.driverRecalled || _rCvtParsed.driverCancelled)) {
                                           var _drvVidC = _drv ? String(_drv.VehicleId || _drv.vehiclenumber || driverid) : String(driverid);
                                           var _fbDcUp = { vehiclestatus: 'Available' };
                                           if (_rCvtParsed.newQueueNo)     _fbDcUp.zonequeue      = _rCvtParsed.newQueueNo;
@@ -9154,16 +9154,16 @@ $(document).ready(function() {
                                                 }
                                             }
                                         }
-                                        // Driver cancelled an accepted job — alert the dispatcher
-                                        if (_r && _r.driverCancelled && _newSt === 'Available') {
-                                            var _dc = _r.driverCancelled;
+                                        // Driver recalled an accepted job — alert the dispatcher
+                                        if (_r && _r.driverRecalled && _newSt === 'Available') {
+                                            var _dc = _r.driverRecalled;
                                             var _dcLabel = _dc.vehiclenumber || _dc.driverId || _capDid;
                                             var _dcJob   = _dc.jobId || '';
                                             toastr["warning"](
-                                                'Driver ' + _dcLabel + ' cancelled job #' + _dcJob + ' after accepting.',
-                                                'Driver Cancelled Job!'
+                                                'Driver ' + _dcLabel + ' recalled job #' + _dcJob + ' — returned to unassigned queue.',
+                                                'Job Recalled by Driver'
                                             );
-                                            // Refresh all tabs so the cancelled job appears in Closed Jobs
+                                            // Refresh unassigned + assigned tabs so recalled job reappears
                                             var _scDC = angular.element(document.getElementById('myangular')).scope();
                                             if (_scDC) {
                                                 if (typeof _scDC.getjobs         === 'function') _scDC.getjobs();
