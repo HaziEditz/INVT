@@ -455,6 +455,17 @@ Driver app should:
 - **Important note**: Server timezone is `Pacific/Auckland` (UTC+12). Booking datetime strings are NZ local time. The filter parses them correctly using `new Date(rawDt)` with the server's NZ timezone. Test datetimes must be formatted in NZ local time (`toLocaleString('sv-SE', { timeZone: 'Pacific/Auckland' })`).
 - **Verified**: 8/8 scenarios pass — (A) far-future blocked from auto & visible to manual, (B) near-window job allowed, (C) immediate job allowed, (D) dispBefore=0 always allowed.
 
+## Bug-Fix Log — Session #96 (2026-04-22)
+
+### #96a — UA card "Send at HH:MM" dispatch-time badge (FEATURE)
+- **Request**: Pre-booked jobs in the UA list should give dispatchers an at-a-glance heads-up showing BOTH the pickup time AND the exact time they need to send a driver. Both auto-dispatchable and manually-dispatched pre-bookings should flash when the window opens.
+- **Changes** (`Default.aspx`):
+  - Added `$scope.dispatchAtLabel(BookingDateTime, DispatchTimebefore)` — computes pickup minus `DispatchTimebefore` minutes, formats as "Send at H:MM AM/PM". Returns `''` for ASAP jobs (dispatchBefore=0).
+  - Added `$scope.dispatchWindowOpen(DispatchTimebefore, BookingDateTime)` — returns `true` when `minsUntilPickup <= dispatchBefore` (i.e., window is currently open).
+  - Added badge (`<span ng-if="value.DispatchTimebefore > 0">`) in all 5 UA/delivery card instances (lines 449, 842, 3026, 3193, 3646): purple (`#6d28d9`) when window is upcoming, red (`#dc2626`) when window is open. Only visible for pre-booked jobs.
+- **Existing flash unchanged**: `alerting()` already applies `.button-glow` (red pulsing animation) to the card when the window opens — applies equally to auto-dispatch and manual pre-bookings.
+- **Result**: Dispatcher sees "Pickup: Today 3:00 PM" + "Send at 2:40 PM" on every pre-booking card; badge turns red and card flashes when it's time to dispatch.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.

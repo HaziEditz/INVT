@@ -446,6 +446,7 @@
 
                                                                  <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -838,6 +839,7 @@
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
                                                                 </div>
@@ -3021,6 +3023,7 @@ $(document).ready(function() {
 
                                                                  <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -3187,6 +3190,7 @@ $(document).ready(function() {
 
                                                                  <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -3639,6 +3643,7 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
                                                                 </div>
@@ -15289,6 +15294,26 @@ $(document).ready(function() {
                 if (db === 0) return 'ASAP';
                 return 'Pre-Booked';
             }
+            // Returns "Send at H:MM AM/PM" for pre-booked jobs (pickup minus dispatchBefore mins)
+            $scope.dispatchAtLabel = function (BookingDateTime, DispatchTimebefore) {
+                var db = parseInt(DispatchTimebefore) || 0;
+                if (db <= 0 || !BookingDateTime) return '';
+                var bdt = new Date(BookingDateTime.replace(/\.$/, '').trim());
+                if (isNaN(bdt.getTime())) return '';
+                var dispAt = new Date(bdt.getTime() - db * 60000);
+                var h = dispAt.getHours(), mi = dispAt.getMinutes();
+                var ampm = h >= 12 ? 'PM' : 'AM';
+                h = h % 12 || 12;
+                return 'Send at ' + h + ':' + (mi < 10 ? '0' : '') + mi + ' ' + ampm;
+            };
+            // Returns true when dispatch window is currently open (now >= pickup - dispatchBefore)
+            $scope.dispatchWindowOpen = function (DispatchTimebefore, BookingDateTime) {
+                var db = parseInt(DispatchTimebefore) || 0;
+                if (db <= 0 || !BookingDateTime) return false;
+                var bdt = new Date(BookingDateTime.replace(/\.$/, '').trim());
+                if (isNaN(bdt.getTime())) return false;
+                return Math.round((bdt - new Date()) / 60000) <= db;
+            };
             $scope.checklateornow = function (data1, data2) {
                 var jobMins = parseInt(data1) || 0;
                 var dispatchBefore = parseInt(data2) || 0;
