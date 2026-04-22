@@ -3085,7 +3085,7 @@ $(document).ready(function() {
                                                            
                                                             <div class="row nopad col-sm-12 col-md-12 col-xl-12">
                                                                  <div   style="position:absolute; left : -25px;" class="label label-pill label-primary mt-2"  >
-                                                                    <i class=" fa fa-eye"   aria-hidden="true" style="color:red; font-size:16px;" ng-click="showdiv(value.Id)" ></i>
+                                                                    <i class=" fa fa-eye"   aria-hidden="true" style="color:red; font-size:16px;" ng-click="$event.stopPropagation(); showdiv(value.Id)" ></i>
                                                                 </div>
                                                                 <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
@@ -3125,7 +3125,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad  col-sm-12 col-md-12 col-xl-12 row" style="display:{{checkdata(value.Id)}}" id="datassun{{value.Id}}">
+                                                        <div class="nopad  col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]" id="datassun{{value.Id}}">
                                                            <div class="row col-12">
                                                                 <div class="row nopad col-sm-4  col-md-2 col-xl-3">
                                                                 <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
@@ -3253,7 +3253,7 @@ $(document).ready(function() {
                                                            
                                                             <div class="row nopad col-sm-12 col-md-12 col-xl-12">
                                                                  <div   style="position:absolute; left : -25px;" class="label label-pill label-primary mt-2"  >
-                                                                    <i class=" fa fa-eye"   aria-hidden="true" style="color:red; font-size:16px;" ng-click="showdiv(value.Id)" ></i>
+                                                                    <i class=" fa fa-eye"   aria-hidden="true" style="color:red; font-size:16px;" ng-click="$event.stopPropagation(); showdiv(value.Id)" ></i>
                                                                 </div>
                                                                 <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
@@ -3293,7 +3293,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad  col-sm-12 col-md-12 col-xl-12 row" style="display:{{checkdata(value.Id)}}" id="datassun{{value.Id}}">
+                                                        <div class="nopad  col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]" id="datassun{{value.Id}}">
                                                            <div class="row col-12">
                                                                 <div class="row nopad col-sm-4  col-md-2 col-xl-3">
                                                                 <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
@@ -12093,13 +12093,7 @@ $(document).ready(function() {
       
         
         $scope.showdiv  = function(id){
-      
-            
-            if(document.getElementById('datassun'+id).style.display == 'none'){
-                document.getElementById('datassun'+id).style.display = 'block'
-            }else{
-                document.getElementById('datassun'+id).style.display = 'none'
-            } 
+            $scope.openCards[id] = !$scope.openCards[id];
         }
         $scope.checkdata  = function(number ){ 
     
