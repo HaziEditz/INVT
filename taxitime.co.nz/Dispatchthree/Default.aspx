@@ -10322,30 +10322,9 @@ $(document).ready(function() {
             }
             else {
                 laterchecking = 0;
-
-                var now = new Date();
-                var day = ("0" + now.getDate()).slice(-2);
-                var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                var todayz = now.getFullYear()+"-"+(month)+"-"+(day) ;
-                var d = new Date();
-
-                h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-                m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                BookingDateTime = todayz + " " + h + ':' + m;
-                DispatchingTime = new Date(BookingDateTime);
-
-
-                DispatchingTime.setMinutes(DispatchingTime.getMinutes() - 0);
-                var month = DispatchingTime.getMonth() + 1;
-                var date = DispatchingTime.getDate();
-                var DispatchOutput = DispatchingTime.getFullYear() + '-' +
-                    (('' + month).length < 2 ? '0' : '') +
-                    month + '-' +
-                    (('' + date).length < 2 ? '0' : '') + date;
-
-                h = (DispatchingTime.getHours() < 10 ? '0' : '') + DispatchingTime.getHours(),
-                m = (DispatchingTime.getMinutes() < 10 ? '0' : '') + DispatchingTime.getMinutes();
-                DispatchingTime = DispatchOutput + " " + h + ':' + m+':'+"00";
+                // ASAP edit — send blank DateTime so the server keeps the original booking time
+                BookingDateTime = '';
+                DispatchingTime = '';
                 var dispatchshowtime = 0;
             }
              
@@ -10790,30 +10769,9 @@ $(document).ready(function() {
                 }
                 else {
                     laterchecking = 0;
-
-                    var now = new Date();
-                    var day = ("0" + now.getDate()).slice(-2);
-                    var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                    var todayz = now.getFullYear()+"-"+(month)+"-"+(day) ;
-                    var d = new Date();
-
-                    h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-                    m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                    BookingDateTime = todayz + " " + h + ':' + m;
-                    DispatchingTime = new Date(BookingDateTime);
-
-
-                    DispatchingTime.setMinutes(DispatchingTime.getMinutes() - 0);
-                    var month = DispatchingTime.getMonth() + 1;
-                    var date = DispatchingTime.getDate();
-                    var DispatchOutput = DispatchingTime.getFullYear() + '-' +
-                        (('' + month).length < 2 ? '0' : '') +
-                        month + '-' +
-                        (('' + date).length < 2 ? '0' : '') + date;
-
-                    h = (DispatchingTime.getHours() < 10 ? '0' : '') + DispatchingTime.getHours(),
-                    m = (DispatchingTime.getMinutes() < 10 ? '0' : '') + DispatchingTime.getMinutes();
-                    DispatchingTime = DispatchOutput + " " + h + ':' + m+':'+"00";
+                    // ASAP edit — send blank DateTime so the server keeps the original booking time
+                    BookingDateTime = '';
+                    DispatchingTime = '';
                     var dispatchshowtime = 0;
                 }
 
@@ -15986,30 +15944,9 @@ $(document).ready(function() {
                 }
                 else {
                     laterchecking = 0;
-
-                    var now = new Date();
-                    var day = ("0" + now.getDate()).slice(-2);
-                    var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                    var todayz = now.getFullYear()+"-"+(month)+"-"+(day) ;
-                    var d = new Date();
-
-                    h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-                    m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                    BookingDateTime = todayz + " " + h + ':' + m;
-                    DispatchingTime = new Date(BookingDateTime);
-
-
-                    DispatchingTime.setMinutes(DispatchingTime.getMinutes() - 0);
-                    var month = DispatchingTime.getMonth() + 1;
-                    var date = DispatchingTime.getDate();
-                    var DispatchOutput = DispatchingTime.getFullYear() + '-' +
-                        (('' + month).length < 2 ? '0' : '') +
-                        month + '-' +
-                        (('' + date).length < 2 ? '0' : '') + date;
-
-                    h = (DispatchingTime.getHours() < 10 ? '0' : '') + DispatchingTime.getHours(),
-                    m = (DispatchingTime.getMinutes() < 10 ? '0' : '') + DispatchingTime.getMinutes();
-                    DispatchingTime = DispatchOutput + " " + h + ':' + m+':'+"00";
+                    // ASAP edit — send blank DateTime so the server keeps the original booking time
+                    BookingDateTime = '';
+                    DispatchingTime = '';
                     var dispatchshowtime = 0;
                 }
              
