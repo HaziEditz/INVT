@@ -7,5 +7,14 @@
     "WaitingRate": 1,
     "MinimumFare": 0,
     "CurrencyName": "NZD"
+  },
+  {
+    "Id": 6,
+    "TariffName": "Total Mobility",
+    "StartPrice": 15,
+    "DistanceRate": 6.5,
+    "WaitingRate": 2,
+    "MinimumFare": 0,
+    "CurrencyName": "NZD"
   }
 ]
