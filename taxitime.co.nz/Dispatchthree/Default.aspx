@@ -10544,6 +10544,9 @@ $(document).ready(function() {
                 if (result.data.d == "Booking Details Update Successfully" ) { 
                  
                     var  BookingIz =  $scope.updatebookingid ;
+                    // Dispatcher saved an edit — release the dispatch dedup lock so the job can be re-offered
+                    if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[BookingIz];
+                    if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(BookingIz)];
                     toastr["success"]("Job #" + BookingIz + " updated successfully.", "Booking Updated!");
                     if(laterjob){
                         FnCancelRide(previousdriverid,  BookingIz );
@@ -14507,6 +14510,9 @@ $(document).ready(function() {
             //end deliv
 
             $scope.quickSetNoOne = function(jobId) {
+                // Release dispatch dedup lock so the dispatcher can re-offer this job immediately
+                if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[jobId];
+                if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(jobId)];
                 $http({
                     method: 'POST',
                     url: 'DataManager/Data.aspx/DataProcessor',
@@ -14527,6 +14533,9 @@ $(document).ready(function() {
                 console.log(VehicleId);
                 $("#Div"+BookingId+"").remove();
                 if (JobVehicleId == '0') {
+                   // Release dispatch dedup lock so the job can be re-offered immediately
+                   if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[BookingId];
+                   if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(BookingId)];
                    $http({
                        method: "POST",
                        url: "DataManager/Data.aspx/DataProcessor",
@@ -14577,6 +14586,9 @@ $(document).ready(function() {
 
                 var JobVehicleId = $("#"+typex + BookingId + "").val();
                 if (JobVehicleId == '0') {
+                   // Release dispatch dedup lock so the job can be re-offered immediately
+                   if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[BookingId];
+                   if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(BookingId)];
                     $http({
                         method: "POST",
                         url: "DataManager/Data.aspx/DataProcessor",
@@ -16190,6 +16202,9 @@ $(document).ready(function() {
                     if (result.data.d == "Booking Details Update Successfully" ) { 
                  
                         var  BookingIz =  $scope.updatebookingid ;
+                    // Dispatcher saved an edit — release the dispatch dedup lock so the job can be re-offered
+                    if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[BookingIz];
+                    if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(BookingIz)];
                     
                         if  ( $scope.bookingtime_select == 1 ) {
                         
