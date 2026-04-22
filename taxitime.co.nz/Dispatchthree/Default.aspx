@@ -6759,11 +6759,37 @@ $(document).ready(function() {
                     //   online/ → dispatch console reads this via tallo listener
                     // Driver must manually press Available on their app to come back online.
                     firebase.database().ref().child("/notification/" + _fbd).remove();
+
+                    // Race-condition guard: two jobs offered simultaneously — driver accepts one,
+                    // then the other job's timeout fires. Don't set Away if the driver is already
+                    // Assigned/Picking (they responded to the other offer).
+                    var _fbsc = angular.element(document.getElementById('myangular')).scope();
+                    var _driverBusy = false;
+                    if (_fbsc && _fbsc.driverdatarealx) {
+                        for (var _di = 0; _di < _fbsc.driverdatarealx.length; _di++) {
+                            var _dd = _fbsc.driverdatarealx[_di];
+                            if (String(_dd.driverid) === String(driverid) || String(_dd.VehicleId) === String(vehivle)) {
+                                var _st = _dd.vehiclestatus;
+                                if (_st === 'Assigned' || _st === 'Picking' || _st === 'Busy') {
+                                    _driverBusy = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if (_driverBusy) {
+                        // Driver accepted a different job — skip Away, just mark this job Unreached
+                        console.log('[timeout] skipping Away for driver ' + driverid + ' — already Assigned/Picking (accepted other job)');
+                        convertstatus1(vehivle, id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
+                        if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                        if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
+                        return;
+                    }
+
                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     FnNotifyDriverAway(driverid, 'timeout');
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
-                    var _fbsc = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc && _fbsc.driverdatarealx) {
                         for (var _di = 0; _di < _fbsc.driverdatarealx.length; _di++) {
                             var _dd = _fbsc.driverdatarealx[_di];
