@@ -446,6 +446,15 @@ Driver app should:
 - `[DriverStatusChanged]` (~250 lines) duplicated across DP and DS path.
 - Flagged for future extraction into shared helpers when safe to do so.
 
+## Bug-Fix Log — Session #95 (2026-04-22)
+
+### #95a — "Later" tab jobs auto-dispatched immediately regardless of `DispatchTimebefore` (BUG FIX)
+- **Root cause**: `AutoDispatchVehiclesallride` returned all Pending jobs with no time-window gate. "For Later" pre-bookings carry `DispatchTimebefore` (minutes before pickup to start dispatching), but the handler ignored it — jobs dispatched the moment they were created, not when the window opened.
+- **Fix** (server.js `AutoDispatchVehiclesallride` ~line 2130): Added filter: if `dispBefore > 0`, compute `windowOpenMs = bookingMs - dispBefore * 60s`. If `Date.now() < windowOpenMs`, exclude the job and log the withheld minutes. Jobs with `dispBefore = 0` (ASAP/no restriction) always pass through.
+- **Companion fix** (`checkriddestatusforautodispatch` / `checkriddestatus` ~line 2507): Added the same gate so the auto-dispatch eligibility check also blocks pre-window jobs. `checkriddestatusforoffer` (manual dispatch path) deliberately NOT gated — dispatcher can always manually offer any job.
+- **Important note**: Server timezone is `Pacific/Auckland` (UTC+12). Booking datetime strings are NZ local time. The filter parses them correctly using `new Date(rawDt)` with the server's NZ timezone. Test datetimes must be formatted in NZ local time (`toLocaleString('sv-SE', { timeZone: 'Pacific/Auckland' })`).
+- **Verified**: 8/8 scenarios pass — (A) far-future blocked from auto & visible to manual, (B) near-window job allowed, (C) immediate job allowed, (D) dispBefore=0 always allowed.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.

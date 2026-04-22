@@ -2119,9 +2119,31 @@ const server = http.createServer(async (req, res) => {
             }
           }
         });
-        // Return jobs that need auto-dispatch: Pending only.
+        // Return jobs that need auto-dispatch: Pending only, AND within their dispatch window.
         // "No One" jobs are explicitly excluded — dispatcher flagged them as manual-only.
-        const autoJobs = jobStore.filter(j => j.BookingStatus === 'Pending');
+        // Later-tab jobs carry DispatchTimebefore (minutes before BookingDateTime to start
+        // dispatching). A job should NOT be offered until:
+        //   now  >=  BookingDateTime  -  DispatchTimebefore minutes
+        // i.e. the dispatch window has opened.  Jobs with DispatchTimebefore == 0 (or missing)
+        // are treated as "dispatch immediately" — no time restriction applied.
+        const autoJobs = jobStore.filter(j => {
+          if (j.BookingStatus !== 'Pending') return false;
+          const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;
+          if (dispBefore > 0 && j.BookingDateTime) {
+            const bookingMs = new Date(
+              j.BookingDateTime.replace(/\.$/, '').trim()
+            ).getTime();
+            if (!isNaN(bookingMs)) {
+              const windowOpenMs = bookingMs - dispBefore * 60 * 1000;
+              if (Date.now() < windowOpenMs) {
+                const minsLeft = Math.round((windowOpenMs - Date.now()) / 60000);
+                console.log(`  [AutoDispatch] job #${j.Id} withheld: dispatch window opens in ${minsLeft} min`);
+                return false;
+              }
+            }
+          }
+          return true;
+        });
         const dt1 = autoJobs.map(j => ({
           Id: j.Id,
           ZoneId: j.ZoneId || 1,
@@ -2472,7 +2494,21 @@ const server = http.createServer(async (req, res) => {
         const DISPATCHABLE = action === 'checkriddestatusforoffer'
           ? new Set(['Offered','Pending','Unreached','No One','Assigned'])
           : new Set(['Offered','Pending','Unreached','No One']);
-        const eligible = job && DISPATCHABLE.has(job.BookingStatus) ? [job] : [];
+        let eligible = job && DISPATCHABLE.has(job.BookingStatus) ? [job] : [];
+        // For auto-dispatch only (not manual offer): enforce the dispatch-before-time window.
+        // If the job's booking time is more than DispatchTimebefore minutes away, it is not
+        // yet eligible for auto-dispatch and must be withheld until the window opens.
+        if (eligible.length > 0 && action !== 'checkriddestatusforoffer') {
+          const _job = eligible[0];
+          const _dispBefore = parseInt(_job.DispatchTimebefore || '0') || 0;
+          if (_dispBefore > 0 && _job.BookingDateTime) {
+            const _bMs = new Date(_job.BookingDateTime.replace(/\.$/, '').trim()).getTime();
+            if (!isNaN(_bMs) && Date.now() < _bMs - _dispBefore * 60 * 1000) {
+              eligible = []; // window not yet open — block auto-dispatch
+              console.log(`  [${action}] Job #${bookingId} withheld: dispatch window opens in ${Math.round((_bMs - _dispBefore*60000 - Date.now())/60000)} min`);
+            }
+          }
+        }
         // dt2 carries the driver list for auto-dispatch (empty in mock — Firebase is source of truth)
         console.log(`200: POST ${urlPath} [action=${action}] -> ${eligible.length} eligible (status=${job ? job.BookingStatus : 'none'})`);
         objectD(res, { dt1: eligible, dt2: [], dt3: [], dt4: [], dt5: [] });
