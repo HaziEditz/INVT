@@ -507,7 +507,7 @@
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;">
                                                            
                                                             <div class="row nopad col-sm-12 col-md-12 col-xl-12">
-                                                                 <div data-toggle="collapse" style="position:absolute; left : -25px;" class="label label-pill label-primary mt-2" data-target="#datass{{key}}">
+                                                                 <div ng-click="$event.stopPropagation(); toggleCard(value.Id)" style="position:absolute; left : -25px; cursor:pointer;" class="label label-pill label-primary mt-2">
                                                                     <i class=" fa fa-eye" aria-hidden="true" style="color:red; font-size:16px;"></i>
                                                                 </div>
                                                                 <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
@@ -548,7 +548,7 @@
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad collapse  col-sm-12 col-md-12 col-xl-12 row" id="datass{{key}}">
+                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]">
                                                             <div class="row nopad col-sm-4  col-md-2 col-xl-3">
                                                                 <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
                                                                     <li>
@@ -825,7 +825,7 @@
                                                     </div>
                     <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs | filter : test">
                                                            
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" data-toggle="collapse" data-target="#datass{{key}}">
+                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
 
                                                                 <span   class="label label-pill label-primary mt-2"><i style="color: black;" class="glyphicon glyphicon-tag"></i>
@@ -871,7 +871,7 @@
                                                             </div>
                                                         </div>
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                            data-toggle="collapse" data-target="#datass{{key}}">
+                                                            ng-click="toggleCard(value.Id)">
                                                             <div class="row nopad col-sm-12 col-md-12 col-xl-12">
                                                                 <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
@@ -905,7 +905,7 @@
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad collapse  col-sm-12 col-md-12 col-xl-12 row" id="datass{{key}}">
+                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]">
                                                             <div class="row nopad col-sm-4  col-md-2 col-xl-3">
                                                                 <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
                                                                     <li>
@@ -3629,7 +3629,7 @@ $(document).ready(function() {
                                                 <div class="tab-pane " id="tab8">
                                                           <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs">
                                                            
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" data-toggle="collapse" data-target="#datass{{key}}">
+                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
 
                                                                 <span   class="label label-pill label-primary mt-2"><i style="color: black;" class="glyphicon glyphicon-tag"></i>
@@ -3672,7 +3672,7 @@ $(document).ready(function() {
                                                             </div>
                                                         </div>
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                            data-toggle="collapse" data-target="#datass{{key}}">
+                                                            ng-click="toggleCard(value.Id)">
                                                             <div class="row nopad col-sm-12 col-md-12 col-xl-12">
                                                                 <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                     <span>
@@ -3706,7 +3706,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad collapse  col-sm-12 col-md-12 col-xl-12 row" id="datass{{key}}">
+                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]">
                                                             <div class="row nopad col-sm-4  col-md-2 col-xl-3">
                                                                 <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
                                                                     <li>
@@ -14183,6 +14183,8 @@ $(document).ready(function() {
         }, 3000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
+        $scope.openCards = {};
+        $scope.toggleCard = function(id) { $scope.openCards[id] = !$scope.openCards[id]; };
 
         $scope.getjobs = function (ok='') {
           
