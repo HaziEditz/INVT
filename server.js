@@ -1114,6 +1114,8 @@ const server = http.createServer(async (req, res) => {
             if (driverId > 0) job.VehicleId = driverId;
             const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId);
             if (zd) {
+              // Save home zone/queue BEFORE the driver is taken off the queue
+              saveDriverHomeState(driverId, zd);
               zd.vehiclestatus = 'Picking';
               zd.JobphoneNo = job.PhoneNo || '';
               zd.jobpickup  = job.PickAddress || '';
@@ -1121,19 +1123,25 @@ const server = http.createServer(async (req, res) => {
               zd.jobCount   = 1;
             }
           } else {
-            // Unassign — restore demo driver to Available
+            // Unassign — restore driver to Available at their original queue position
             const prevDriverId = job.DriverId || 0;
             job.BookingStatus = 'Pending';
             job.DriverId = 0;
             job.VehicleId = 0;
             const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
             if (zd) {
-              zd.vehiclestatus = 'Available';
+              const _restoreQ = calcRestoredQueue(prevDriverId, zd.zonename);
+              zd.zonequeue      = _restoreQ;
+              zd.queueWaitSince = Date.now();
+              zd.vehiclestatus  = 'Available';
               zd.JobphoneNo = '';
               zd.jobpickup  = '';
               zd.jobdropoff = '';
               zd.jobCount   = 0;
+              console.log(`  [UnAssignJobStatusFromJobList] driver ${prevDriverId} → Available q=${_restoreQ} zone="${zd.zonename}"`);
             }
+            clearAwayLock(prevDriverId);
+            clearDriverHomeState(prevDriverId);
           }
           saveJobStore();
         }
@@ -1766,6 +1774,74 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null });
 
+      } else if (action === '[QuickSetNoOne]') {
+        // Quick dispatcher action: mark job as "No One" from card dropdown.
+        // Releases any currently-assigned driver back to Available at original queue position.
+        const _qsnBookingId = parseInt(param('BookingId')) || 0;
+        const _qsnJob = jobStore.find(j => j.Id === _qsnBookingId);
+        if (_qsnJob) {
+          const _qsnActiveSt = new Set(['Pending','Offered','Assigned','Unreached','No One','Reject','']);
+          if (_qsnActiveSt.has(_qsnJob.BookingStatus || '')) {
+            const _qsnPrevDrv = _qsnJob.DriverId || 0;
+            _qsnJob.BookingStatus = 'No One';
+            _qsnJob.DriverId  = 0;
+            _qsnJob.VehicleId = 0;
+            if (_qsnPrevDrv > 0) {
+              const _qsnZd = ZONE_DRIVERS.find(d => d.driverid === _qsnPrevDrv || d.VehicleId === _qsnPrevDrv);
+              if (_qsnZd) {
+                const _qsnQ = calcRestoredQueue(_qsnPrevDrv, _qsnZd.zonename);
+                _qsnZd.zonequeue      = _qsnQ;
+                _qsnZd.queueWaitSince = Date.now();
+                _qsnZd.vehiclestatus  = 'Available';
+                _qsnZd.JobphoneNo = '';
+                _qsnZd.jobpickup  = '';
+                _qsnZd.jobdropoff = '';
+                _qsnZd.jobCount   = 0;
+                console.log(`  [QuickSetNoOne/DP] driver ${_qsnPrevDrv} → Available q=${_qsnQ} zone="${_qsnZd.zonename}"`);
+              }
+              clearAwayLock(_qsnPrevDrv);
+              clearDriverHomeState(_qsnPrevDrv);
+            }
+            saveJobStore();
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${_qsnBookingId} set to No One`);
+        successD(res, 'Operation Successfully Performed');
+
+      } else if (action === '[CancelJobStatusFromJobList]') {
+        const _cjBookingId = parseInt(param('BookingId')) || 0;
+        const _cjIdx = jobStore.findIndex(j => j.Id === _cjBookingId);
+        let _cjDriverId = '0';
+        if (_cjIdx !== -1) {
+          const _cjJob = jobStore[_cjIdx];
+          _cjDriverId = String(_cjJob.DriverId || '0');
+          if (_cjJob.DriverId && _cjJob.DriverId > 0) {
+            const _cjDrvId = _cjJob.DriverId;
+            const _cjZd = ZONE_DRIVERS.find(d => d.driverid === _cjDrvId || d.VehicleId === _cjDrvId);
+            if (_cjZd) {
+              const _cjQ = calcRestoredQueue(_cjDrvId, _cjZd.zonename);
+              _cjZd.zonequeue      = _cjQ;
+              _cjZd.queueWaitSince = Date.now();
+              _cjZd.vehiclestatus  = 'Available';
+              _cjZd.JobphoneNo = '';
+              _cjZd.jobpickup  = '';
+              _cjZd.jobdropoff = '';
+              _cjZd.jobCount   = 0;
+              console.log(`  [CancelJobStatusFromJobList/DP] driver ${_cjDrvId} → Available q=${_cjQ} zone="${_cjZd.zonename}"`);
+            }
+            clearAwayLock(_cjDrvId);
+            clearDriverHomeState(_cjDrvId);
+          }
+          _cjJob.BookingStatus = 'Cancelled';
+          _cjJob.CancelledBy   = 'Dispatcher';
+          _cjJob.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          closedJobStore.push(_cjJob);
+          jobStore.splice(_cjIdx, 1);
+          saveJobStore();
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${_cjBookingId}, driver ${_cjDriverId} -> moved to closedJobStore`);
+        arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _cjDriverId }]);
+
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
         successD(res, 'Operation Successfully Performed');
@@ -2009,12 +2085,18 @@ const server = http.createServer(async (req, res) => {
             if (prevDriverId > 0) {
               const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
               if (zd) {
-                zd.vehiclestatus = 'Available';
+                const _restoreQ = calcRestoredQueue(prevDriverId, zd.zonename);
+                zd.zonequeue      = _restoreQ;
+                zd.queueWaitSince = Date.now();
+                zd.vehiclestatus  = 'Available';
                 zd.JobphoneNo = '';
                 zd.jobpickup  = '';
                 zd.jobdropoff = '';
                 zd.jobCount   = 0;
+                console.log(`  [QuickSetNoOne] driver ${prevDriverId} → Available q=${_restoreQ} zone="${zd.zonename}"`);
               }
+              clearAwayLock(prevDriverId);
+              clearDriverHomeState(prevDriverId);
             }
             saveJobStore();
           }
@@ -2030,14 +2112,21 @@ const server = http.createServer(async (req, res) => {
           const job = jobStore[idx];
           driverId = String(job.DriverId || '0');
           if (job.DriverId && job.DriverId > 0) {
-            const zd = ZONE_DRIVERS.find(d => d.driverid === job.DriverId || d.VehicleId === job.DriverId);
+            const _cancelDriverId = job.DriverId;
+            const zd = ZONE_DRIVERS.find(d => d.driverid === _cancelDriverId || d.VehicleId === _cancelDriverId);
             if (zd) {
-              zd.vehiclestatus = 'Available';
+              const _restoreQ = calcRestoredQueue(_cancelDriverId, zd.zonename);
+              zd.zonequeue      = _restoreQ;
+              zd.queueWaitSince = Date.now();
+              zd.vehiclestatus  = 'Available';
               zd.JobphoneNo = '';
               zd.jobpickup  = '';
               zd.jobdropoff = '';
               zd.jobCount   = 0;
+              console.log(`  [CancelJobStatusFromJobList] driver ${_cancelDriverId} → Available q=${_restoreQ} zone="${zd.zonename}"`);
             }
+            clearAwayLock(_cancelDriverId);
+            clearDriverHomeState(_cancelDriverId);
           }
           job.BookingStatus = 'Cancelled';
           job.CancelledBy   = 'Dispatcher';

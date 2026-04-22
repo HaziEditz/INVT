@@ -14476,12 +14476,22 @@ $(document).ready(function() {
                 console.log(VehicleId);
                 $("#Div"+BookingId+"").remove();
                 if (JobVehicleId == '0') {
-                   Action([
-                      { "name": "BookingId", "Value": BookingId },
-                      {"name":"reternVehicleid" , "Value" : VehicleId},
-                      {"name":"reterndriverId" , "Value" : driverId},
-                      { "name": "quenumber", "Value": 0 }
-                    ], "[UnAssignJobStatusFromJobList]");
+                   $http({
+                       method: "POST",
+                       url: "DataManager/Data.aspx/DataProcessor",
+                       data: {
+                           data: [
+                               { "name": "BookingId", "Value": BookingId },
+                               { "name": "reternVehicleid", "Value": VehicleId },
+                               { "name": "reterndriverId", "Value": driverId },
+                               { "name": "quenumber", "Value": 0 }
+                           ],
+                           action: "[UnAssignJobStatusFromJobList]"
+                       }
+                   }).then(function() {
+                       $scope.getjobs();
+                       $scope.AssignedJobs();
+                   });
                 }
                 else {
             
@@ -14516,11 +14526,22 @@ $(document).ready(function() {
 
                 var JobVehicleId = $("#"+typex + BookingId + "").val();
                 if (JobVehicleId == '0') {
-                    Action([
-             { "name": "BookingId", "Value": BookingId },
-                   {"name":"reternVehicleid" , "Value" : VehicleId},
-                   {"name":"reterndriverId" , "Value" : driverId},
-                       { "name": "quenumber", "Value": 0 }], "[UnAssignJobStatusFromJobList]");
+                    $http({
+                        method: "POST",
+                        url: "DataManager/Data.aspx/DataProcessor",
+                        data: {
+                            data: [
+                                { "name": "BookingId", "Value": BookingId },
+                                { "name": "reternVehicleid", "Value": VehicleId },
+                                { "name": "reterndriverId", "Value": driverId },
+                                { "name": "quenumber", "Value": 0 }
+                            ],
+                            action: "[UnAssignJobStatusFromJobList]"
+                        }
+                    }).then(function() {
+                        $scope.getjobs();
+                        $scope.AssignedJobs();
+                    });
                     FnCancelRide(driverId, BookingId);
                     $("#Div" + BookingId + "").remove();
         

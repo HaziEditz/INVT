@@ -466,6 +466,15 @@ Driver app should:
 - **Existing flash unchanged**: `alerting()` already applies `.button-glow` (red pulsing animation) to the card when the window opens — applies equally to auto-dispatch and manual pre-bookings.
 - **Result**: Dispatcher sees "Pickup: Today 3:00 PM" + "Send at 2:40 PM" on every pre-booking card; badge turns red and card flashes when it's time to dispatch.
 
+## Bug-Fix Log — Session #97 (2026-04-22)
+
+### #97a — Zone-queue restoration on unassign / cancel / no-show (BUG FIX)
+- **Root cause (routing)**: `[QuickSetNoOne]` and `[CancelJobStatusFromJobList]` handlers existed only in the DataSelectorLess routing block, but the frontend POSTs both actions to the DataProcessor URL. Every call fell through to the generic `successD('Operation Successfully Performed')` fallback — the job status was never changed, the driver was never freed, and the job disappeared from the UA list rather than reappearing as "No One".
+- **Fix (server.js ~1780)**: Added full `[QuickSetNoOne]` and `[CancelJobStatusFromJobList]` handlers to the DataProcessor block, immediately before its `else` fallback. Both implementations include the zone-queue restore logic (`calcRestoredQueue`, `clearDriverHomeState`, `clearAwayLock`).
+- **Additional fixes (server.js DataSelectorLess ~2004)**: Kept the DataSelectorLess copies in place (for any future DS-path callers). Added matching zone-restore logic to `[AssignJobStatusFromJobList]` (saves driver home state) and `[UnAssignJobStatusFromJobList]` (restores queue on unassign).
+- **Frontend (Default.aspx ~14472, ~14515)**: Converted fire-and-forget `Action()` to `$http` with `getjobs()` + `AssignedJobs()` callbacks in the value=0 (unassign) path of `AssignPendingJobFromJobList2` and `AssignJobFromJobList2` — eliminates the "job disappears after No One" UI bug.
+- **Verified**: 3/3 operations pass in automated test — T1 Assign→QSN: job reappears in UA as "No One" ✓; T2 Assign→UnAssign: job reappears in UA as "Pending" ✓; T3 Assign→Cancel: job removed from UA (Cancelled) ✓.
+
 ## Known Limitations (Not Fixable Without Live Credentials)
 
 - **Firebase Anonymous Auth** — Must be enabled in Firebase Console → Authentication → Sign-in providers → Anonymous. Until enabled, `firebase.auth().signInAnonymously()` fails with `auth/internal-error` and real-time features (driver locations, emergency alerts) do not load.
