@@ -1674,10 +1674,13 @@ const server = http.createServer(async (req, res) => {
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
-                // Trip genuinely finished — mark Completed
+                // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 _stampDriverName(job);
+                const _cIdx = jobStore.indexOf(job);
+                if (_cIdx !== -1) jobStore.splice(_cIdx, 1);
+                closedJobStore.push(job);
                 saveJobStore();
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
@@ -1866,7 +1869,55 @@ const server = http.createServer(async (req, res) => {
         const jobId = parseInt(param('Id') || '0') || 0;
         const allJobs = [...jobStore, ...closedJobStore];
         const job = allJobs.find(j => j.Id === jobId);
-        const result = job ? [{ ...job, bookingidx: job.Id, Route: '', JobMins: calcJobMins(job.BookingDateTime) }] : [];
+        let result = [];
+        if (job) {
+          const isHail = job.BookingSource === 'Hail' || job.booking_type === 'Hail';
+          // Look up tariff name from TARIFF_STORE if we have a TariffId
+          const tariffId = String(job.TariffId || '');
+          const tariffRec = tariffId ? TARIFF_STORE.find(t => String(t.Id) === tariffId) : null;
+          const tariffName = job.TarriffType || (tariffRec ? tariffRec.TariffName : '') || (isHail ? 'Hail' : '');
+          // Enrich hail pick/drop for the details popup (same as ClosedJobs table)
+          let pickAddr = job.PickAddress || '';
+          let dropAddr = job.DropAddress || '';
+          if (isHail) {
+            if (pickAddr.startsWith('Hail - ')) {
+              pickAddr = 'Hail Pickup (' + pickAddr.slice('Hail - '.length).trim() + ')';
+            } else if (!pickAddr) {
+              pickAddr = 'Hail / Street Pickup';
+            }
+            if (!dropAddr.trim()) dropAddr = 'Street Pickup (no destination)';
+          }
+          // The Job Details template uses different field names than the stored job:
+          //   ppname      ← Name (passenger name)
+          //   AccountId   ← PhoneNo (passenger phone)
+          //   newcompelete← JobCompleteTime (shown as "Job Complete Time" in the second occurrence)
+          //   TarriffType ← derived above
+          //   Passengers  ← TotalPassengers
+          //   Bags        ← TotalBags
+          //   WheelChairs ← WheelChairs (same name ✓)
+          // Look up vehicle info for CallSign and VehicleType
+          const zdV = job.VehicleId
+            ? ZONE_DRIVERS.find(d => String(d.VehicleId) === String(job.VehicleId) || String(d.vehiclenumber) === String(job.VehicleNo))
+            : null;
+          const callSign   = job.CallSign   || (zdV ? zdV.vehiclenumber  : '') || job.VehicleNo || '';
+          const vehicleType= job.VehicleType|| (zdV ? zdV.vehicletype    : '') || '';
+          result = [{
+            ...job,
+            bookingidx:    job.Id,
+            Route:         '',
+            JobMins:       calcJobMins(job.BookingDateTime),
+            ppname:        job.ppname        || job.Name        || '',
+            AccountId:     job.AccountId     || job.PhoneNo     || '',
+            newcompelete:  job.newcompelete  || job.JobCompleteTime || '',
+            TarriffType:   tariffName,
+            Passengers:    job.Passengers    || job.TotalPassengers || '',
+            Bags:          job.Bags          || job.TotalBags        || '',
+            PickAddress:   pickAddr,
+            DropAddress:   dropAddr,
+            CallSign:      callSign,
+            VehicleType:   vehicleType,
+          }];
+        }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${jobId}`);
         arrayD(res, result);
 
@@ -2697,9 +2748,14 @@ const server = http.createServer(async (req, res) => {
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
+                // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
                 _stampDriverNameDS(job);
+                const _cIdxDS = jobStore.indexOf(job);
+                if (_cIdxDS !== -1) jobStore.splice(_cIdxDS, 1);
+                closedJobStore.push(job);
+                saveJobStore();
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailableDS) {
