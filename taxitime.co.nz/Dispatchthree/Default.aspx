@@ -14232,9 +14232,13 @@ $(document).ready(function() {
                 $scope.UnAssignedCountoffer = $scope.oferunassignedjob_list.length;
 
                 // Snapshot full job state before the list is replaced (for auto-close comparison)
+                // Exclude JobMins — it is recomputed client-side every poll from the clock,
+                // so it always differs and would cause cards to close on every cycle.
                 var _prevJobMap = {};
                 ($scope.unassignedjob_list || []).forEach(function(j) {
-                    _prevJobMap[j.Id] = JSON.stringify(j);
+                    var _jc = angular.extend({}, j);
+                    delete _jc.JobMins;
+                    _prevJobMap[j.Id] = JSON.stringify(_jc);
                 });
 
                 $scope.unassignedjob_list = $scope.jobsdata['dt1'];
@@ -14263,15 +14267,21 @@ $(document).ready(function() {
                     return urgencyScore(a) - urgencyScore(b);
                 });
 
-                // Auto-close expanded cards when ANY field of the job changed
+                // Auto-close expanded cards when ANY server field of the job changed
                 var _newIdSet = {};
                 ($scope.unassignedjob_list || []).forEach(function(j) { _newIdSet[j.Id] = j; });
                 Object.keys($scope.openCards).forEach(function(id) {
                     if (!$scope.openCards[id]) return;
                     var _prevSnap = _prevJobMap[id];
                     var _newJ = _newIdSet[id];
-                    // Job gone from list, or it changed in any way → auto-close
-                    if (!_newJ || !_prevSnap || _prevSnap !== JSON.stringify(_newJ)) {
+                    // Job gone from list → auto-close
+                    if (!_newJ) { $scope.openCards[id] = false; return; }
+                    // No previous snapshot means the job is newly appeared — leave card open
+                    if (!_prevSnap) return;
+                    // Compare without JobMins (client-computed — changes every poll)
+                    var _newJc = angular.extend({}, _newJ);
+                    delete _newJc.JobMins;
+                    if (_prevSnap !== JSON.stringify(_newJc)) {
                         $scope.openCards[id] = false;
                     }
                 });
