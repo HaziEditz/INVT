@@ -4597,10 +4597,7 @@ $(document).ready(function() {
                 // has already logged out on the server side — remove them from the board
                 // immediately instead of waiting for the Firebase child_removed 2-min delay.
                 var _onlineIds = $res["dt6"];
-                // Run cleanup if dt6 is authoritative (server warm and sending the list).
-                // Even an empty dt6 means "no drivers online" — run the filter to remove
-                // anyone still on the board (last-driver sign-out case).
-                if (_onlineIds && $res["dt6_auth"]) {
+                if (_onlineIds && _onlineIds.length > 0) {
                     var _sc6 = angular.element(document.getElementById('myangular')).scope();
                     if (_sc6 && _sc6.driverdatarealx && _sc6.driverdatarealx.length > 0) {
                         var _changed = false;

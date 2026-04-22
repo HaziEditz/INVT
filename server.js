@@ -2368,11 +2368,14 @@ const server = http.createServer(async (req, res) => {
         // node hasn't been cleaned up yet (screen-off onDisconnect delay).
         // Authoritative after 90 s warm-up (avoids wiping valid drivers on fresh restart).
         const _serverAgeMs = Date.now() - SERVER_START_TIME;
-        // After warm-up, dt6 is always authoritative — even when empty (last driver signed out).
-        // The ZONE_DRIVERS.length > 0 guard was removed because it caused the last signed-out
-        // driver to stay on the board for the full 2-min child_removed fallback timer.
-        const _dt6Auth = _serverAgeMs > 90000;
-        const _onlineIds = _dt6Auth
+        // Only send the authoritative online list (dt6) when at least one driver is known
+        // to ZONE_DRIVERS AND the server has been up > 90 s.  Both guards are needed:
+        //  • The age guard avoids wiping valid drivers on a fresh server restart.
+        //  • The length guard avoids wiping drivers who are in Firebase but haven't
+        //    sent a [DriverStatusChanged] yet (idle drivers after server restart).
+        // The last-driver sign-out case (ZONE_DRIVERS → empty after all leave) is
+        // handled by the 30-second child_removed fallback timer in the frontend.
+        const _onlineIds = (_serverAgeMs > 90000 && ZONE_DRIVERS.length > 0)
           ? ZONE_DRIVERS.map(d => ({
               id:    String(d.driverid  || ''),
               vid:   String(d.VehicleId || ''),
@@ -2387,7 +2390,6 @@ const server = http.createServer(async (req, res) => {
           dt4: [{ Picking: ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Picking').length }],
           dt5: [{ Away: awayCount }],
           dt6: _onlineIds,
-          dt6_auth: _dt6Auth,
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} vehicles`);
         objectD(res, vehicleStatus);
