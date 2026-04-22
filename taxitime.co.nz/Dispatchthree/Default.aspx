@@ -10331,6 +10331,14 @@ $(document).ready(function() {
             if ($scope.bookingtime_select == 1) {
                 laterjob = true;
                 BookingDateTime = $("#laterDate").val() + " " + $("#ddlLaterHrs").val()  + ":" +$("#ddlLaterMins").val()   + ":00";
+
+                // Guard: block update if the chosen date/time is in the past
+                var _chosenDT = new Date(BookingDateTime);
+                if (!isNaN(_chosenDT.getTime()) && _chosenDT < new Date()) {
+                    Swal.fire('Invalid Time!', 'The selected pickup time is in the past. Please choose a future date and time.', 'warning');
+                    return;
+                }
+
                 DispatchingTime = new Date(BookingDateTime);
                 DispatchingTime.setMinutes(DispatchingTime.getMinutes() - $("#assign_notice").val() ) ;
                 var month = DispatchingTime.getMonth() + 1;
@@ -10790,6 +10798,14 @@ $(document).ready(function() {
                 var laterchecking = 0;
                 if ($scope.bookingtime_select == 1) {
                     BookingDateTime = $("#laterDate").val() + " " +  $("#ddlLaterHrs").val() + ":" +$("#ddlLaterMins").val()  + ":00";
+
+                    // Guard: block booking if the chosen date/time is in the past
+                    var _chosenDT = new Date(BookingDateTime);
+                    if (!isNaN(_chosenDT.getTime()) && _chosenDT < new Date()) {
+                        Swal.fire('Invalid Time!', 'The selected pickup time is in the past. Please choose a future date and time.', 'warning');
+                        return;
+                    }
+
                     DispatchingTime = new Date(BookingDateTime);
                     DispatchingTime.setMinutes(DispatchingTime.getMinutes() - $("#assign_notice").val()  );
                     var month = DispatchingTime.getMonth() + 1;
@@ -15989,6 +16005,14 @@ $(document).ready(function() {
                 if ($scope.bookingtime_select == 1) {
                     laterjob = true;
                     BookingDateTime = $("#laterDate").val() + " " + $("#ddlLaterHrs").val()   + ":" +  $("#ddlLaterMins").val( ) + ":00";
+
+                    // Guard: block update if the chosen date/time is in the past
+                    var _chosenDT = new Date(BookingDateTime);
+                    if (!isNaN(_chosenDT.getTime()) && _chosenDT < new Date()) {
+                        Swal.fire('Invalid Time!', 'The selected pickup time is in the past. Please choose a future date and time.', 'warning');
+                        return;
+                    }
+
                     DispatchingTime = new Date(BookingDateTime);
                     DispatchingTime.setMinutes(DispatchingTime.getMinutes() - $("#assign_notice").val()  );
                     var month = DispatchingTime.getMonth() + 1;
