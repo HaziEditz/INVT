@@ -10518,8 +10518,8 @@ $(document).ready(function() {
         
                 if (result.data.d == "Booking Details Update Successfully" ) { 
                  
-                    toastr["success"](   "Booking Information Successfully Submitted", 'success!'); 
                     var  BookingIz =  $scope.updatebookingid ;
+                    toastr["success"]("Job #" + BookingIz + " updated successfully.", "Booking Updated!");
                     if(laterjob){
                         FnCancelRide(previousdriverid,  BookingIz );
                         $("#Divo" + BookingIz + "").remove();
@@ -11094,7 +11094,7 @@ $(document).ready(function() {
                                 $res = JSON.parse($res.d);
                                         
                                 if ($res[0].Result == "Booking Information Successfully Submitted") {
-                                 
+                                    toastr["success"]("Job #" + $res[0].BookingId + " created.", "Booking Created!");
                                 }
                             }
 
@@ -11136,7 +11136,7 @@ $(document).ready(function() {
                                 if ($res[0].Result == "Booking Information Successfully Submitted") {
                                     console.log($("#ddlVehicleType").val())
                                     
-                                    toastr["success"]("Booking Information Successfully Submitted", 'success!');
+                                    toastr["success"]("Job #" + $res[0].BookingId + " created successfully.", "Booking Created!");
 
                                     console.log( $("#ddlVehicleType").val() );
                                     if($res[0].BookingStatus == "No One"){
