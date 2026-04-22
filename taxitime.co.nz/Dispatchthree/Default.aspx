@@ -10348,8 +10348,20 @@ $(document).ready(function() {
             }
             else {
                 laterchecking = 0;
-                // ASAP edit — send blank DateTime so the server keeps the original booking time
-                BookingDateTime = '';
+                if ($scope._origDispatchBefore > 0) {
+                    // Was a pre-booked job, now switched to ASAP → set BookingDateTime to now
+                    var now = new Date();
+                    var day = ("0" + now.getDate()).slice(-2);
+                    var month = ("0" + (now.getMonth() + 1)).slice(-2);
+                    var todayz = now.getFullYear() + "-" + month + "-" + day;
+                    var d = new Date();
+                    h = (d.getHours() < 10 ? '0' : '') + d.getHours();
+                    m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+                    BookingDateTime = todayz + " " + h + ':' + m;
+                } else {
+                    // Already ASAP — preserve original booking time (don't reset wait timer)
+                    BookingDateTime = '';
+                }
                 DispatchingTime = '';
                 var dispatchshowtime = 0;
             }
@@ -10795,8 +10807,20 @@ $(document).ready(function() {
                 }
                 else {
                     laterchecking = 0;
-                    // ASAP edit — send blank DateTime so the server keeps the original booking time
-                    BookingDateTime = '';
+                    if ($scope._origDispatchBefore > 0) {
+                        // Was a pre-booked job, now switched to ASAP → set BookingDateTime to now
+                        var now = new Date();
+                        var day = ("0" + now.getDate()).slice(-2);
+                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
+                        var todayz = now.getFullYear() + "-" + month + "-" + day;
+                        var d = new Date();
+                        h = (d.getHours() < 10 ? '0' : '') + d.getHours();
+                        m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+                        BookingDateTime = todayz + " " + h + ':' + m;
+                    } else {
+                        // Already ASAP — preserve original booking time (don't reset wait timer)
+                        BookingDateTime = '';
+                    }
                     DispatchingTime = '';
                     var dispatchshowtime = 0;
                 }
@@ -15804,6 +15828,8 @@ $(document).ready(function() {
                         }
  
                         var _dispatchBefore = parseInt($res["dt1"][0].DispatchTimebefore) || 0;
+                        // Remember original booking type so updateride can detect later→ASAP switch
+                        $scope._origDispatchBefore = _dispatchBefore;
                         var newtime =  remaining_time + _dispatchBefore ;
                         var d = new Date();
 
@@ -15980,8 +16006,20 @@ $(document).ready(function() {
                 }
                 else {
                     laterchecking = 0;
-                    // ASAP edit — send blank DateTime so the server keeps the original booking time
-                    BookingDateTime = '';
+                    if ($scope._origDispatchBefore > 0) {
+                        // Was a pre-booked job, now switched to ASAP → set BookingDateTime to now
+                        var now = new Date();
+                        var day = ("0" + now.getDate()).slice(-2);
+                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
+                        var todayz = now.getFullYear() + "-" + month + "-" + day;
+                        var d = new Date();
+                        h = (d.getHours() < 10 ? '0' : '') + d.getHours();
+                        m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+                        BookingDateTime = todayz + " " + h + ':' + m;
+                    } else {
+                        // Already ASAP — preserve original booking time (don't reset wait timer)
+                        BookingDateTime = '';
+                    }
                     DispatchingTime = '';
                     var dispatchshowtime = 0;
                 }
