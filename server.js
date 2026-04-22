@@ -1074,7 +1074,9 @@ const server = http.createServer(async (req, res) => {
             else if (driverId === -1) job.BookingStatus = 'No One';
             else                     job.BookingStatus = 'Pending';
           }
-          if (job.BookingStatus === 'Offered') job.returnReason = '';
+          // Dispatcher explicitly edited this job — always clear any previous offer-attempt reason
+          // (e.g. 'No Response', 'Recalled by Driver') so the badge doesn't linger after a re-edit.
+          job.returnReason = '';
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Booking Details Update Successfully"`);
