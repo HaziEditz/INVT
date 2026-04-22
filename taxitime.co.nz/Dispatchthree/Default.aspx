@@ -8566,7 +8566,7 @@ $(document).ready(function() {
                     $("#SearchedJobsDetails").empty();
                     if ($res.length != []) {
                         $scope.searchitem = $res;
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
                     else {
                         $scope.searchitem = [];
@@ -8704,7 +8704,7 @@ $(document).ready(function() {
                     var vnum = datacom.vehiclenumber || datacom.VehicleNo || '';
                     if(vnum && markers[vnum]){ markers[vnum].setMap(null); }
                     $scope.zonetablez();
-                    if (!$scope.$$phase) { $scope.$digest(); }
+                    if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     found = true;
                     break;
                 }
@@ -8855,7 +8855,7 @@ $(document).ready(function() {
             if (neww === 'Available') {
                 if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 600);
             }
-            if (!$scope.$$phase) { $scope.$digest(); }
+            if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
         }
 
         $scope.updatedatat = function(datacom){
@@ -9005,7 +9005,7 @@ $(document).ready(function() {
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                         // Tell the server about the zone change so ZONE_DRIVERS stays in sync.
                         // Only fire when this was driven by GPS detection, not a status change
                         // (status changes already call [DriverStatusChanged] below).
@@ -9030,13 +9030,13 @@ $(document).ready(function() {
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].joboffer  != datacom.joboffer ){
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
 
                     if($scope.driverdatarealx[incs].jobCount  != datacom.jobCount){
@@ -9047,13 +9047,13 @@ $(document).ready(function() {
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
                     if($scope.driverdatarealx[incs].JobphoneNo != datacom.JobphoneNo){
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
                     // Use the saved old status — not the (possibly already overwritten) array entry
                     if(_savedOldStatus  != datacom.vehiclestatus){
@@ -9171,7 +9171,7 @@ $(document).ready(function() {
                                 $scope.driverdatarealx[incs] = datacom;
                                 $scope.driverlist = $scope.driverdatarealx;
                                 $scope.zonetablez();
-                                if (!$scope.$$phase) { $scope.$digest(); }
+                                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                             }
                         } else {
                             // Away / other statuses not sent to server.
@@ -9186,7 +9186,7 @@ $(document).ready(function() {
                                 $scope.driverdatarealx[incs] =  datacom;
                                 $scope.driverlist =  $scope.driverdatarealx;
                                 $scope.zonetablez();
-                                if (!$scope.$$phase) { $scope.$digest(); }
+                                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                             } else if (_savedOldStatus !== 'Away') {
                                 // Driver app sent Away (backgrounded), but driver's real
                                 // status on the dispatch board is still _savedOldStatus.
@@ -9208,7 +9208,7 @@ $(document).ready(function() {
                             }
                         }
                     }
-                    if (!$scope.$$phase) { $scope.$digest(); }
+                    if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                        
                 }
                  
@@ -9225,7 +9225,7 @@ $(document).ready(function() {
                 $scope.driverdatarealx.push( datacom);
                 $scope.driverlist =  $scope.driverdatarealx;
                 $scope.zonetablez();
-                if (!$scope.$$phase) { $scope.$digest(); }
+                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
             }
            
         }
@@ -9345,7 +9345,7 @@ $(document).ready(function() {
                     $("#SearchedJobsDetails").empty();
                     if ($res.length != []) {
                         $scope.searchitem = $res;
-                        if (!$scope.$$phase) { $scope.$digest(); }
+                        if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
                     else {
                         $scope.searchitem =[];
@@ -9389,7 +9389,7 @@ $(document).ready(function() {
                         $res = JSON.parse(result.d);
                         if ($res && $res.length > 0) {
                             $scope.jobdetailshowing = $res;
-                            if (!$scope.$$phase) { $scope.$digest(); }
+                            if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                         }
                     } catch(e) {}
                 });
@@ -11766,7 +11766,7 @@ $(document).ready(function() {
                                console.log("status need to change");
                                $scope.getjobs( );
                                myResolve('dont');
-                               if (!$scope.$$phase) { $scope.$digest(); }
+                               if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                            },
                            error:  function (response) {
                                myResolve('dont');
@@ -11847,7 +11847,7 @@ $(document).ready(function() {
                                                     console.log(obj[i].PlayerId + " Reject The Job!  ");
                                                     firebase.database().ref().child("joback/"+id+"/"+obj[i].PlayerId).remove();
                                                     $scope.zonetablez();
-                                                    if (!$scope.$$phase) { $scope.$digest(); }
+                                                    if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                                                     firebase.database().ref().child("/notification/" + obj[i].PlayerId).remove();
                                                     firebase.database().ref().child("/autodisp/"+ obj[i].PlayerId).remove();
                                                     myResolve("reject");
@@ -13111,7 +13111,7 @@ $(document).ready(function() {
         $scope.searchitemreset = function(){
             $scope.jobdetailshowing = [];
            $scope.searchitem = [];
-            if (!$scope.$$phase) { $scope.$digest(); }
+            if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
         }
         $scope.clearsection = function(){
            
@@ -13601,7 +13601,7 @@ $(document).ready(function() {
 
                     
                         $('#loading').remove();
-                     if (!$scope.$$phase) { $scope.$digest(); }
+                     if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
                   
                    
@@ -13971,7 +13971,7 @@ $(document).ready(function() {
                         }
                         if (list.length > 0) {
                             $scope.tarriflist = list;
-                            if (!$scope.$$phase) { $scope.$digest(); }
+                            if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                         }
                         // Push real tariff pricing to the server so the driver app and
                         // DispatchEstimation return the company's actual rates.
@@ -14116,7 +14116,7 @@ $(document).ready(function() {
                 $('#PickingVehicles').text(_picking);
                 $('#BusyVehicles').text(_busy);
                 $('#AwayVehicles').text(_away);
-                if (!$scope.$$phase) { $scope.$digest(); }
+                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                 return;
             }
 
