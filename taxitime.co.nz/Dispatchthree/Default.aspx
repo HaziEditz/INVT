@@ -6782,6 +6782,7 @@ $(document).ready(function() {
                         console.log('[timeout] skipping Away for driver ' + driverid + ' — already Assigned/Picking (accepted other job)');
                         convertstatus1(vehivle, id, 'Unreached', driverid, 'No Response \u2013 Not Accepted');
                         if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                        if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverid)];
                         if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
                         return;
                     }
@@ -6809,6 +6810,7 @@ $(document).ready(function() {
                     }
                     // Release dedup lock so next driver in queue gets offered immediately.
                     if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                    if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverid)];
                     if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
                 }, 27000);
             }, 0);
@@ -7035,6 +7037,7 @@ $(document).ready(function() {
                     }
                     // Release dedup lock so next driver in queue gets offered immediately.
                     if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[id];
+                    if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverid)];
                     if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 500);
                 }, 27000);
             }, 0);
@@ -7046,6 +7049,10 @@ $(document).ready(function() {
     // Prevents multiple concurrent fallback timers from firing for the same job
     // (which would allow one to cancel an already-accepted job).
     var _activeOfferIds = {};
+    // Tracks which driverIds currently have an active offer in-flight (driverId → jobId).
+    // Prevents smartAutoDispatch from sending a second job to the same driver while an
+    // offer is already outstanding, regardless of how many dispatch cycles fire.
+    var _activeOfferDrivers = {};
     // Tracks which driverIds have already been offered each job (by jobId string).
     // Ensures rejected/timed-out drivers are skipped and the next in queue is tried.
     var _triedDriversForJob = {};
@@ -7070,6 +7077,14 @@ $(document).ready(function() {
         // Clear the offer-dedup lock so smartAutoDispatch can immediately try the next driver
         // (resolver Promises never resolve, so this is the only reliable place to release it).
         if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[jobId];
+        // Also release the per-driver lock for whichever driver was offering this job.
+        if (typeof _activeOfferDrivers !== 'undefined') {
+            Object.keys(_activeOfferDrivers).forEach(function(dId) {
+                if (String(_activeOfferDrivers[dId]) === String(jobId)) {
+                    delete _activeOfferDrivers[dId];
+                }
+            });
+        }
         // Clear any Busy-driver pre-queue lock for this job (rejection/timeout path).
         // This lets the same or another Busy driver be offered the job on the next cycle.
         if (window._driverQueueMap) {
@@ -7145,6 +7160,8 @@ $(document).ready(function() {
             return;
         }
         _activeOfferIds[bookid] = true;
+        // Lock this driver from receiving any other job while this offer is outstanding.
+        _activeOfferDrivers[String(driverid)] = String(bookid);
 
         // ── PRE-QUEUE (Busy driver) path ─────────────────────────────────────────────
         // MUST be checked BEFORE calling [changeriddestatusforoffer] so the job never
@@ -7182,6 +7199,7 @@ $(document).ready(function() {
             // Release the dedup lock immediately — we are NOT holding resolveAfter2Secondsx open.
             // Holding it would block future Available-driver offers for the same job.
             delete _activeOfferIds[bookid];
+            delete _activeOfferDrivers[String(driverid)];
             // Write joback so the acceptance watcher has something to listen on.
             try {
                 firebase.database().ref('joback/' + bookid + '/' + driverid)
@@ -7289,6 +7307,7 @@ $(document).ready(function() {
         });
         if (!_serverAccepted) {
             delete _activeOfferIds[bookid];
+            delete _activeOfferDrivers[String(driverid)];
             return;
         }
         var _fbDrvId = driverid;
@@ -7352,6 +7371,7 @@ $(document).ready(function() {
         } catch(_notifErr) { console.warn('[acknowledgemethodx] notification write error:', _notifErr && (_notifErr.code || _notifErr.message) ? (_notifErr.code + ': ' + _notifErr.message) : _notifErr); }
         const result = await resolveAfter2Secondsx(vehicle , driverid,bookid,status);
         delete _activeOfferIds[bookid];
+        delete _activeOfferDrivers[String(driverid)];
         if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 400);
     }
 
@@ -7365,6 +7385,8 @@ $(document).ready(function() {
             return;
         }
         _activeOfferIds[bookid] = true;
+        // Lock this driver from receiving any other job while this offer is outstanding.
+        _activeOfferDrivers[String(driverid)] = String(bookid);
         // Await server confirmation before writing to Firebase — prevents driver getting
         // a notification when the server's double-offer guard blocks a duplicate.
         var _serverAcceptedM = await new Promise(function(resolve) {
@@ -7395,6 +7417,7 @@ $(document).ready(function() {
         });
         if (!_serverAcceptedM) {
             delete _activeOfferIds[bookid];
+            delete _activeOfferDrivers[String(driverid)];
             return;
         }
         // Pre-seed the joback entry so resolveAfter2Seconds doesn't see null immediately.
@@ -7433,6 +7456,7 @@ $(document).ready(function() {
         } catch(_notifErrM) { console.warn('[acknowledgemethod] notification write error:', _notifErrM && (_notifErrM.code || _notifErrM.message) ? (_notifErrM.code + ': ' + _notifErrM.message) : _notifErrM); }
         const result = await resolveAfter2Seconds(driverid,bookid,status);
         delete _activeOfferIds[bookid];
+        delete _activeOfferDrivers[String(driverid)];
         // Immediately try the next available driver rather than waiting up to 10 s for the next interval.
         if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 400);
     }
@@ -12553,7 +12577,11 @@ $(document).ready(function() {
                     // Only Available drivers get normal offers (popup + timer).
                     // Busy drivers are kept separate — they are only used as a fallback per-job
                     // when NO Available driver is untried for that job.
-                    var _availableOnly = _allDrivers.filter(function(dv) { return dv.vehiclestatus === 'Available'; });
+                    var _availableOnly = _allDrivers.filter(function(dv) {
+                        var _dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
+                        // Exclude drivers that already have an outstanding offer for another job.
+                        return dv.vehiclestatus === 'Available' && !_activeOfferDrivers[_dvId];
+                    });
                     var _busyOnly      = _allDrivers.filter(function(dv) {
                         return dv.vehiclestatus === 'Busy' && !window._driverQueueMap[String(dv.driverid)];
                     });

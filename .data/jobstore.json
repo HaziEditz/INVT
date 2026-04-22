@@ -3511,10 +3511,10 @@
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "offeredAt": 1776862198518,
+    "offeredAt": 1776863222206,
     "UserFName": "Ad",
     "UserLName": "",
-    "returnReason": "Driver returned job (went available)"
+    "returnReason": "No Response – Not Accepted"
   },
   {
     "Id": 23042026002,
@@ -3530,8 +3530,8 @@
     "Pickingtime": "2026-04-23 00:58:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": "D001",
-    "DriverId": "D001",
+    "VehicleId": 0,
+    "DriverId": 0,
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -3549,13 +3549,14 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "offeredAt": 1776862703105,
+    "offeredAt": 1776863222590,
     "UserFName": "Ad",
-    "UserLName": ""
+    "UserLName": "",
+    "returnReason": "No Response – Not Accepted"
   }
 ]
