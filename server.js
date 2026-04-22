@@ -2366,10 +2366,13 @@ const server = http.createServer(async (req, res) => {
         // dt6: list of currently-online driver IDs so the dispatcher can immediately
         // remove drivers who have logged out via the server path but whose Firebase
         // node hasn't been cleaned up yet (screen-off onDisconnect delay).
-        // Only populated when ZONE_DRIVERS has entries AND the server has been running
-        // for > 90 s (avoids wiping valid drivers during a fresh server restart).
+        // Authoritative after 90 s warm-up (avoids wiping valid drivers on fresh restart).
         const _serverAgeMs = Date.now() - SERVER_START_TIME;
-        const _onlineIds = (_serverAgeMs > 90000 && ZONE_DRIVERS.length > 0)
+        // After warm-up, dt6 is always authoritative — even when empty (last driver signed out).
+        // The ZONE_DRIVERS.length > 0 guard was removed because it caused the last signed-out
+        // driver to stay on the board for the full 2-min child_removed fallback timer.
+        const _dt6Auth = _serverAgeMs > 90000;
+        const _onlineIds = _dt6Auth
           ? ZONE_DRIVERS.map(d => ({
               id:    String(d.driverid  || ''),
               vid:   String(d.VehicleId || ''),
@@ -2384,6 +2387,7 @@ const server = http.createServer(async (req, res) => {
           dt4: [{ Picking: ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Picking').length }],
           dt5: [{ Away: awayCount }],
           dt6: _onlineIds,
+          dt6_auth: _dt6Auth,
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} vehicles`);
         objectD(res, vehicleStatus);
