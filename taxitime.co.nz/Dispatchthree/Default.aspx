@@ -14272,6 +14272,13 @@ $(document).ready(function() {
                 }
                    
                 $scope.UnAssignedCountoffer = $scope.oferunassignedjob_list.length;
+
+                // Snapshot current open-card key fields before the list is replaced
+                var _prevJobMap = {};
+                ($scope.unassignedjob_list || []).forEach(function(j) {
+                    _prevJobMap[j.Id] = { status: j.BookingStatus, driver: j.DriverId, vehicle: j.VehicleId };
+                });
+
                 $scope.unassignedjob_list = $scope.jobsdata['dt1'];
 
                 // Recompute JobMins client-side using the browser's local clock
@@ -14296,6 +14303,19 @@ $(document).ready(function() {
                         return mins - db;
                     }
                     return urgencyScore(a) - urgencyScore(b);
+                });
+
+                // Auto-close expanded cards whose job status/driver/vehicle changed
+                var _newIdSet = {};
+                ($scope.unassignedjob_list || []).forEach(function(j) { _newIdSet[j.Id] = j; });
+                Object.keys($scope.openCards).forEach(function(id) {
+                    if (!$scope.openCards[id]) return;
+                    var _prev = _prevJobMap[id];
+                    var _newJ = _newIdSet[id];
+                    if (!_newJ || !_prev) { $scope.openCards[id] = false; return; }
+                    if (_prev.status !== _newJ.BookingStatus || _prev.driver !== _newJ.DriverId || _prev.vehicle !== _newJ.VehicleId) {
+                        $scope.openCards[id] = false;
+                    }
                 });
 
                 var _hasPending = $scope.unassignedjob_list.some(function(j) { return j.BookingStatus === 'Pending'; });
