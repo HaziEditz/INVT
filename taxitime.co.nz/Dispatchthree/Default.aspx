@@ -1202,14 +1202,14 @@
                                      </div>
                                        <div class="col-4">
                                     <label  class="label label-pill label-primary mt-2 ng-binding">Passenger Name:</label>
-                                    <h6> {{showi.ppname}}  </h6>
+                                    <h6> {{showi.ppname || '—'}}  </h6>
                                      </div>
                                        <div class="col-4">
                                     <label  class="label label-pill label-primary mt-2 ng-binding">Passenger Phone :</label>
                                     <h6> {{showi.AccountId}}</h6>
                                      </div>
                                          <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Job Complete Time:</label>
+                                    <label  class="label label-pill label-primary mt-2 ng-binding">Closed Time:</label>
                                     <h6> {{showi.JobCompleteTime}}</h6>
                                      </div>
                                 
@@ -1352,12 +1352,12 @@
                             <label style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px; display:block;">Booking Status</label>
                             <select id="SearchJobsStatus" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
                                 <option selected="selected" value="">All</option>
-                                <option value="Dispatched">Complete</option>
+                                <option value="Completed">Complete</option>
                                 <option value="Active">Active</option>
                                 <option value="Assigned">Assigned</option>
                                 <option value="Pending">Pending</option>
                                 <option value="Offered">Offered</option>
-                                <option value="Cancel">Cancel</option>
+                                <option value="Cancelled">Cancel</option>
                                 <option value="No Show">No Shown</option>
                             </select>
                         </div>

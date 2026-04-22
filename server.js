@@ -1901,11 +1901,18 @@ const server = http.createServer(async (req, res) => {
             : null;
           const callSign   = job.CallSign   || (zdV ? zdV.vehiclenumber  : '') || job.VehicleNo || '';
           const vehicleType= job.VehicleType|| (zdV ? zdV.vehicletype    : '') || '';
+          // Normalize raw driver-app status values to what the UI expects.
+          // 'Dispatched' and 'Closed' and 'Done' all mean the trip finished successfully.
+          // 'Cancel' is an older spelling of 'Cancelled'.
+          const RAW_STATUS = job.BookingStatus || '';
+          const STATUS_MAP = { Dispatched: 'Completed', Closed: 'Completed', Done: 'Completed', Cancel: 'Cancelled' };
+          const normStatus = STATUS_MAP[RAW_STATUS] || RAW_STATUS;
           result = [{
             ...job,
             bookingidx:    job.Id,
             Route:         '',
             JobMins:       calcJobMins(job.BookingDateTime),
+            BookingStatus: normStatus,
             ppname:        job.ppname        || job.Name        || '',
             AccountId:     job.AccountId     || job.PhoneNo     || '',
             newcompelete:  job.newcompelete  || job.JobCompleteTime || '',
