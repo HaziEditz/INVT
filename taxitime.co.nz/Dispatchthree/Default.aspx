@@ -7310,6 +7310,13 @@ $(document).ready(function() {
             delete _activeOfferDrivers[String(driverid)];
             return;
         }
+        // Track this driver as tried for this job — ensures that if the dispatcher releases
+        // the job back to "No One", smartAutoDispatch skips this driver for one cycle instead
+        // of immediately re-offering to the same person who was just released.
+        if (!_triedDriversForJob[String(bookid)]) _triedDriversForJob[String(bookid)] = [];
+        if (_triedDriversForJob[String(bookid)].indexOf(String(driverid)) === -1) {
+            _triedDriversForJob[String(bookid)].push(String(driverid));
+        }
         var _fbDrvId = driverid;
         console.log('[acknowledgemethodx] driverid:', driverid, 'job:', bookid);
         // Pre-seed joback so resolveAfter2Secondsx doesn't fire "Driver offline" immediately.
@@ -14538,9 +14545,13 @@ $(document).ready(function() {
             //end deliv
 
             $scope.quickSetNoOne = function(jobId) {
-                // Release dispatch dedup lock so the dispatcher can re-offer this job immediately
+                // Release the per-job offer lock so a new offer can start.
+                // NOTE: _triedDriversForJob is intentionally NOT cleared here — the just-released
+                // driver was added to it by acknowledgemethodx, so smartAutoDispatch will skip
+                // them for one cycle rather than immediately re-offering the same job back to
+                // the same driver.  The loop reset inside smartAutoDispatch handles the reset
+                // once all available drivers have been tried.
                 if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[jobId];
-                if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(jobId)];
                 $http({
                     method: 'POST',
                     url: 'DataManager/Data.aspx/DataProcessor',
@@ -14561,9 +14572,10 @@ $(document).ready(function() {
                 console.log(VehicleId);
                 $("#Div"+BookingId+"").remove();
                 if (JobVehicleId == '0') {
-                   // Release dispatch dedup lock so the job can be re-offered immediately
+                   // Release the per-job offer lock so a new offer can start.
+                   // Do NOT clear _triedDriversForJob — the released driver was tracked by
+                   // acknowledgemethodx and should be skipped for one cycle before retry.
                    if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[BookingId];
-                   if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(BookingId)];
                    $http({
                        method: "POST",
                        url: "DataManager/Data.aspx/DataProcessor",
@@ -14614,9 +14626,10 @@ $(document).ready(function() {
 
                 var JobVehicleId = $("#"+typex + BookingId + "").val();
                 if (JobVehicleId == '0') {
-                   // Release dispatch dedup lock so the job can be re-offered immediately
+                   // Release the per-job offer lock so a new offer can start.
+                   // Do NOT clear _triedDriversForJob — released driver is tracked and should
+                   // be skipped for one dispatch cycle before being re-tried.
                    if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[BookingId];
-                   if (typeof _triedDriversForJob !== 'undefined') delete _triedDriversForJob[String(BookingId)];
                     $http({
                         method: "POST",
                         url: "DataManager/Data.aspx/DataProcessor",
