@@ -4521,6 +4521,11 @@ $(document).ready(function() {
         timerId = window.setInterval(callback, interval);
         state = 1;
     }
+    // Tracks the last time each Firebase driver node was seen via child_added / child_changed.
+    // Declared here (outer scope) so both VehiclesStatus ghost-sweep and the Firebase
+    // auth callback can access the same map.
+    var _driverLastSeen = {};
+
     var timerozjob = new IntervalTimer(function () {
          
         VehiclesStatus();
@@ -4632,6 +4637,68 @@ $(document).ready(function() {
                         }
                     }
                 }
+
+                // ── Ghost-driver sweep ────────────────────────────────────────────────────
+                // Drivers whose Firebase node was never deleted (app closed without sign-out)
+                // accumulate in driverdatarealx forever.  If a driver:
+                //   • is NOT in server ZONE_DRIVERS  (never registered since last server boot)
+                //   • AND their Firebase node has not sent ANY update for > 15 minutes
+                // they are treated as a ghost and removed from the board.
+                // The threshold is generous enough to survive stationary-driver dry spells
+                // and short network outages.
+                var _ghostStaleMs = 15 * 60 * 1000; // 15 minutes
+                var _ghostNow     = Date.now();
+                var _sc7 = angular.element(document.getElementById('myangular')).scope();
+                if (_sc7 && _sc7.driverdatarealx && _sc7.driverdatarealx.length > 0) {
+                    var _ghostChanged = false;
+                    _sc7.driverdatarealx = _sc7.driverdatarealx.filter(function(d) {
+                        var _did = String(d.driverid  || '');
+                        var _vid = String(d.VehicleId || '');
+                        // Look up Firebase key: prefer PlayerId (UID key), fall back to VehicleId/driverid
+                        var _fbKey = String(d.PlayerId || _vid || _did);
+
+                        // If the driver is registered with the server (dt6), always keep them.
+                        if (_onlineIds && _onlineIds.length > 0) {
+                            var _serverKnows = _onlineIds.some(function(o) {
+                                return (o.id  && (_did === o.id  || _vid === o.id))  ||
+                                       (o.vid && (_did === o.vid || _vid === o.vid));
+                            });
+                            if (_serverKnows) return true;
+                        }
+
+                        // Driver is NOT in ZONE_DRIVERS — check Firebase inactivity age.
+                        var _lastSeen = _driverLastSeen[_fbKey] ||
+                                        _driverLastSeen[_vid]   ||
+                                        _driverLastSeen[_did];
+                        if (!_lastSeen) return true; // No tracking data yet — give benefit of doubt
+
+                        var _ageMs = _ghostNow - _lastSeen;
+                        if (_ageMs > _ghostStaleMs) {
+                            console.warn('[GhostSweep] removing stale driver', _did || _vid,
+                                         '— no Firebase activity for', Math.round(_ageMs / 60000), 'min');
+                            // Clear map marker
+                            if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
+                                markers[d.vehiclenumber].setMap(null);
+                            }
+                            // Delete the stale Firebase node so it doesn't re-trigger child_added
+                            if (typeof SomeSession2 !== 'undefined' && SomeSession2 && _fbKey) {
+                                try {
+                                    firebase.database().ref('online/' + SomeSession2 + '/' + _fbKey).remove();
+                                } catch(e) {}
+                            }
+                            delete _driverLastSeen[_fbKey];
+                            _ghostChanged = true;
+                            return false; // drop from driverdatarealx
+                        }
+                        return true; // not yet stale — keep
+                    });
+                    if (_ghostChanged) {
+                        _sc7.driverlist = _sc7.driverdatarealx;
+                        if (typeof _sc7.zonetablez === 'function') _sc7.zonetablez();
+                        if (!_sc7.$$phase) _sc7.$digest();
+                    }
+                }
+                // ── end ghost-driver sweep ────────────────────────────────────────────────
             }
         });
         JobsCount();
@@ -5539,6 +5606,8 @@ $(document).ready(function() {
     // Tracks pending removal timers keyed by vehicleKey — used to delay driver removal
     // when Firebase disconnects (phone screen off) so drivers don't flash off the board.
     var _disconnectTimers = {};
+    // _driverLastSeen is declared at the outer scope (before timerozjob) so that both
+    // the Firebase auth callback and VehiclesStatus ghost-sweep can share the same map.
     // Gate all driver-tracking listeners on Firebase auth being resolved
     firebase.auth().onAuthStateChanged(function(user) {
     if (user) {
@@ -5551,6 +5620,8 @@ $(document).ready(function() {
             clearTimeout(_disconnectTimers[data.key]);
             delete _disconnectTimers[data.key];
         }
+        // Record first-seen time for ghost-driver staleness detection.
+        _driverLastSeen[data.key] = Date.now();
         // Handle nested structure: { firebaseUID: { driverid, vehiclenumber, ... } }
         // The outer key IS the Firebase auth UID — capture it as PlayerId before unwrapping.
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
@@ -5944,6 +6015,7 @@ $(document).ready(function() {
                 var _offlineStatuses = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
                 var _isLogout = !dval.vehiclestatus || _offlineStatuses.indexOf(dval.vehiclestatus) !== -1;
                 if (_isLogout) {
+                    delete _driverLastSeen[vehicleKeyChanged]; // signing out — remove from stale tracker
                     if (_disconnectTimers[vehicleKeyChanged]) {
                         clearTimeout(_disconnectTimers[vehicleKeyChanged]);
                         delete _disconnectTimers[vehicleKeyChanged];
@@ -5959,6 +6031,8 @@ $(document).ready(function() {
                     }
                     return;
                 }
+                // Driver is active — refresh last-seen timestamp for ghost detection.
+                _driverLastSeen[vehicleKeyChanged] = Date.now();
                 var _sc = angular.element(document.getElementById('myangular')).scope();
                 if (_sc) {
                     _sc.adddrivernew(dval);
@@ -6026,6 +6100,7 @@ $(document).ready(function() {
         // If child_added fires before the timer expires (driver reconnected), the
         // timer is cancelled in the child_added handler above.
         if (_disconnectTimers[vehicleKey]) clearTimeout(_disconnectTimers[vehicleKey]);
+        delete _driverLastSeen[vehicleKey]; // node deleted — no longer stale-trackable
         _disconnectTimers[vehicleKey] = setTimeout(function() {
             delete _disconnectTimers[vehicleKey];
             // Remove map marker using the full driver object
