@@ -14176,6 +14176,7 @@ $(document).ready(function() {
             if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
         }, 600);
         setInterval(function() {
+            if (document.activeElement && document.activeElement.tagName === 'SELECT') return;
             if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
             if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
             if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
