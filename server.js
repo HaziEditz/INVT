@@ -1532,6 +1532,7 @@ const server = http.createServer(async (req, res) => {
         const lng           = (param('lng') || '').toString().trim();
         const zonename      = (param('zonename') || '').toString().trim();
         const zonequeue     = parseInt(param('zonequeue') || '0') || 0;
+        const zoneOnly      = param('zoneOnly') === 'true';
         const TERM = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
         // Match jobs by DriverId, VehicleId, OR VehicleNo so numeric/string IDs and
         // vehicle numbers (e.g. "1212" vs "T201") all resolve correctly.
@@ -1725,6 +1726,11 @@ const server = http.createServer(async (req, res) => {
                   job.returnReason = 'Manually unassigned';
                   clearDispatcherRecalled(job.Id);
                   console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
+                } else if (zoneOnly) {
+                  // GPS zone-only update — status has not actually changed.
+                  // Treating this as a recall would incorrectly cancel an active assignment,
+                  // so we skip recall/cancel detection entirely.
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (${prev}) zone-only update — skipping recall detection`);
                 } else {
                   // Driver went Available while still Assigned/Picking (no other Active job).
                   // This happens when the driver recalls/cancels via the app (status flip, no joback).
@@ -2819,6 +2825,7 @@ const server = http.createServer(async (req, res) => {
         const lng           = (param('lng') || '').toString().trim();
         const zonenameDS    = (param('zonename') || '').toString().trim();
         const zonequeueDS   = parseInt(param('zonequeue') || '0') || 0;
+        const zoneOnlyDS    = param('zoneOnly') === 'true';
         const TERMINAL = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
         function matchesDriverDS(j) {
           const vid = vehiclenumber;
@@ -2987,6 +2994,11 @@ const server = http.createServer(async (req, res) => {
                   job.returnReason = 'Manually unassigned';
                   clearDispatcherRecalled(job.Id);
                   console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
+                } else if (zoneOnlyDS) {
+                  // GPS zone-only update — status has not actually changed.
+                  // Treating this as a recall would incorrectly cancel an active assignment,
+                  // so we skip recall/cancel detection entirely.
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (${prev}) zone-only update — skipping recall detection`);
                 } else {
                   // Driver went Available while still Assigned/Picking (no other Active job).
                   // This happens when the driver recalls/cancels via the app (status flip, no joback).

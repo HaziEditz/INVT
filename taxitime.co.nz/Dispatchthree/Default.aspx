@@ -9291,7 +9291,8 @@ $(document).ready(function() {
                                     { name: 'lat',           Value: String(datacom.lat || '') },
                                     { name: 'lng',           Value: String(datacom.lng || '') },
                                     { name: 'zonename',      Value: String(datacom.zonename  || '') },
-                                    { name: 'zonequeue',     Value: String(datacom.zonequeue || '0') }
+                                    { name: 'zonequeue',     Value: String(datacom.zonequeue || '0') },
+                                    { name: 'zoneOnly',      Value: 'true' }
                                 ], action: '[DriverStatusChanged]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
                             });
