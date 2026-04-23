@@ -7834,6 +7834,16 @@ $(document).ready(function() {
                                           if (typeof _triedDriversForJob !== 'undefined' && _dcCJob) {
                                               delete _triedDriversForJob[_dcCJob];
                                           }
+                                          // resolveAfter2Secondsx never resolves on acceptance, so the
+                                          // post-await cleanup in acknowledgemethodx never runs.
+                                          // Clear the active-offer locks here so smartAutoDispatch sees
+                                          // the job as available to re-offer.
+                                          if (typeof _activeOfferIds     !== 'undefined' && _dcCJob) {
+                                              delete _activeOfferIds[_dcCJob];
+                                          }
+                                          if (typeof _activeOfferDrivers !== 'undefined' && driverid) {
+                                              delete _activeOfferDrivers[String(driverid)];
+                                          }
                                           if (typeof sc.getjobs         === 'function') sc.getjobs();
                                           if (typeof sc.AssignedJobs    === 'function') sc.AssignedJobs();
                                           // Kick smartAutoDispatch immediately so the recalled job is
@@ -9394,6 +9404,17 @@ $(document).ready(function() {
                                             // without needing a reset cycle first.
                                             if (typeof _triedDriversForJob !== 'undefined' && _dcJob) {
                                                 delete _triedDriversForJob[_dcJob];
+                                            }
+                                            // resolveAfter2Secondsx never resolves on acceptance, so
+                                            // acknowledgemethodx's post-await cleanup (delete _activeOfferIds)
+                                            // never runs.  Clear both locks here so smartAutoDispatch can
+                                            // immediately see this job as offerable again.
+                                            if (typeof _activeOfferIds     !== 'undefined' && _dcJob) {
+                                                delete _activeOfferIds[_dcJob];
+                                            }
+                                            if (typeof _activeOfferDrivers !== 'undefined') {
+                                                var _dcDriverKey = _capDid || '';
+                                                if (_dcDriverKey) delete _activeOfferDrivers[_dcDriverKey];
                                             }
                                             // Refresh unassigned + assigned tabs so recalled job reappears
                                             var _scDC = angular.element(document.getElementById('myangular')).scope();
