@@ -3506,13 +3506,14 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Active",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
-    "offeredAt": 1776961513561,
+    "offeredAt": 1776962267584,
     "UserFName": "Ad",
-    "UserLName": ""
+    "UserLName": "",
+    "returnReason": "No Response – Not Accepted"
   }
 ]
