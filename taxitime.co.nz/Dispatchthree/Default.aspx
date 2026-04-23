@@ -7825,10 +7825,15 @@ $(document).ready(function() {
                                       if (_rCvt && _rCvt.driverRecalled) {
                                           var _dcC = _rCvt.driverRecalled;
                                           var _dcCLabel = _dcC.vehiclenumber || String(_dcC.driverId || driverid || '');
+                                          var _dcCJob   = String(_dcC.jobId || id || '');
                                           toastr["warning"](
-                                              'Driver ' + _dcCLabel + ' recalled job #' + (_dcC.jobId || id) + ' — returned to unassigned queue.',
+                                              'Driver ' + _dcCLabel + ' recalled job #' + _dcCJob + ' — returned to unassigned queue.',
                                               'Job Recalled by Driver'
                                           );
+                                          // Clear tried-driver record so smartAutoDispatch re-offers immediately.
+                                          if (typeof _triedDriversForJob !== 'undefined' && _dcCJob) {
+                                              delete _triedDriversForJob[_dcCJob];
+                                          }
                                           if (typeof sc.getjobs         === 'function') sc.getjobs();
                                           if (typeof sc.AssignedJobs    === 'function') sc.AssignedJobs();
                                           // Kick smartAutoDispatch immediately so the recalled job is
@@ -9368,11 +9373,28 @@ $(document).ready(function() {
                                         if (_r && _r.driverRecalled && _newSt === 'Available') {
                                             var _dc = _r.driverRecalled;
                                             var _dcLabel = _dc.vehiclenumber || _dc.driverId || _capDid;
-                                            var _dcJob   = _dc.jobId || '';
+                                            var _dcJob   = String(_dc.jobId || '');
                                             toastr["warning"](
                                                 'Driver ' + _dcLabel + ' recalled job #' + _dcJob + ' — returned to unassigned queue.',
                                                 'Job Recalled by Driver'
                                             );
+                                            // Immediately commit driver Available status so smartAutoDispatch
+                                            // sees the Available driver when it runs 700ms from now.
+                                            // (The normal deferred commit happens after this block, but
+                                            // _sadTrigger is already scheduled by then — too late.)
+                                            var _scRC = angular.element(document.getElementById('myangular')).scope();
+                                            if (_scRC && _capIncs !== undefined && _capDatacom) {
+                                                _scRC.driverdatarealx[_capIncs] = _capDatacom;
+                                                _scRC.driverlist = _scRC.driverdatarealx;
+                                                if (typeof _scRC.zonetablez === 'function') _scRC.zonetablez();
+                                                if (!_scRC.$$phase) _scRC.$digest();
+                                            }
+                                            // Clear tried-driver record for the recalled job so smartAutoDispatch
+                                            // can re-offer the same driver (e.g. the only available one)
+                                            // without needing a reset cycle first.
+                                            if (typeof _triedDriversForJob !== 'undefined' && _dcJob) {
+                                                delete _triedDriversForJob[_dcJob];
+                                            }
                                             // Refresh unassigned + assigned tabs so recalled job reappears
                                             var _scDC = angular.element(document.getElementById('myangular')).scope();
                                             if (_scDC) {
