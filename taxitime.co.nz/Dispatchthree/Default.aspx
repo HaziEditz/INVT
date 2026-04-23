@@ -8906,28 +8906,28 @@ $(document).ready(function() {
                                         }
                                     }
                                     if (_myQJob) {
-                                        // Recall to Pending then immediately re-offer with popup.
+                                        // Driver already accepted this job while Busy — promote directly
+                                        // to Assigned without recalling to Pending or sending a second popup.
+                                        // Previously this code called [RecallQueuedJob] (cleared DriverId,
+                                        // moved job back to Pending) then re-sent a full popup offer,
+                                        // which (a) caused the Assigned tab to flicker/clear, (b) forced the
+                                        // driver to accept the same job a second time, and (c) temporarily
+                                        // changed all the displayed job data.  The new path skips all that.
                                         jQuery.ajax({
                                             type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
-                                            data: JSON.stringify({ data: [{ name: 'bookingid', Value: _myQJob.Id }], action: '[RecallQueuedJob]' }),
+                                            data: JSON.stringify({ data: [{ name: 'bookingid', Value: _myQJob.Id }], action: '[PromoteQueuedToAssigned]' }),
                                             dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
-                                            success: function() {
+                                            success: function(promResp) {
+                                                var _pr = {};
+                                                try { _pr = JSON.parse(promResp.d || '{}'); } catch(e) {}
                                                 delete window._driverQueueMap[String(driverId)];
-                                                toastr['info'](driverId + ' is now Available — re-offering queued job #' + _myQJob.Id, 'Queue');
-                                                // Find vehicle ID for this driver
-                                                var _cdsc = angular.element(document.getElementById('myangular')).scope();
-                                                var _cdVeh = driverId;
-                                                if (_cdsc && _cdsc.driverdatarealx) {
-                                                    for (var _cdi = 0; _cdi < _cdsc.driverdatarealx.length; _cdi++) {
-                                                        var _cdd = _cdsc.driverdatarealx[_cdi];
-                                                        if (String(_cdd.driverid) === String(driverId)) {
-                                                            _cdVeh = _cdd.VehicleId || _cdd.vehiclenumber || driverId;
-                                                            break;
-                                                        }
-                                                    }
+                                                if (_pr.ok) {
+                                                    toastr['success'](driverId + ' is now Available — job #' + _myQJob.Id + ' auto-assigned (no re-offer needed)', 'Queue');
+                                                } else {
+                                                    // Race: job was already recalled/cancelled by dispatcher — just clear map
+                                                    console.log('[changedata Busy→Available] PromoteQueuedToAssigned returned', _pr.alreadyStatus || 'not-ok', 'for job #' + _myQJob.Id + ' — leaving as-is');
                                                 }
-                                                // Re-offer with full popup (driver is now Available).
-                                                acknowledgemethodx(_cdVeh, driverId, _myQJob.Id, 'Pending');
+                                                var _cdsc = angular.element(document.getElementById('myangular')).scope();
                                                 if (_cdsc) {
                                                     if (typeof _cdsc.getjobs       === 'function') _cdsc.getjobs();
                                                     if (typeof _cdsc.AssignedJobs  === 'function') _cdsc.AssignedJobs();

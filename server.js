@@ -815,7 +815,7 @@ const server = http.createServer(async (req, res) => {
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
       '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
       '[TariffSync]',
-      '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]',
+      '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]', '[PromoteQueuedToAssigned]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -2350,6 +2350,30 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
           console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → Pending`);
           objectD(res, { ok: true });
+        }
+
+      } else if (action === '[PromoteQueuedToAssigned]') {
+        // Called when a Busy driver who accepted a pre-queue offer finishes their current
+        // trip and goes Available.  Instead of recalling the job back to Pending and
+        // sending a second popup offer (which causes the Assigned tab to flicker and
+        // forces the driver to accept the same job twice), this endpoint promotes the
+        // job directly from Queued → Assigned while keeping DriverId intact.
+        const _pqaBookingId = param('bookingid');
+        const _pqaJob = jobStore.find(j => String(j.Id) === String(_pqaBookingId));
+        if (!_pqaJob) {
+          objectD(res, { ok: false, msg: 'job not found' });
+        } else if (_pqaJob.BookingStatus !== 'Queued') {
+          // Race-condition safety: if the job is no longer Queued (already promoted,
+          // recalled, or cancelled by dispatcher), report the current status so the
+          // client can decide what to do without corrupting state.
+          objectD(res, { ok: false, alreadyStatus: _pqaJob.BookingStatus, driverId: _pqaJob.DriverId });
+        } else {
+          const _pqaDriverId = _pqaJob.DriverId;
+          _pqaJob.BookingStatus = 'Assigned';
+          _pqaJob.queuedAt = null;
+          saveJobStore();
+          console.log(`[PromoteQueuedToAssigned] job #${_pqaBookingId} Queued → Assigned (driver ${_pqaDriverId})`);
+          objectD(res, { ok: true, driverId: _pqaDriverId });
         }
 
       } else if (action === '[GetQueuedJobs]') {
