@@ -7850,6 +7850,26 @@ $(document).ready(function() {
                                           // re-offered without waiting for the next 10-second polling cycle.
                                           if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 700);
                                       }
+                                      // Driver cancelled at pickup — close the job (not re-dispatched).
+                                      if (_rCvt && _rCvt.driverCancelled) {
+                                          var _dccCvt = _rCvt.driverCancelled;
+                                          var _dccCvtLabel = _dccCvt.vehiclenumber || String(_dccCvt.driverId || driverid || '');
+                                          var _dccCvtJob   = String(_dccCvt.jobId || id || '');
+                                          toastr["error"](
+                                              'Driver ' + _dccCvtLabel + ' cancelled job #' + _dccCvtJob + ' at pickup — job closed.',
+                                              'Job Cancelled by Driver'
+                                          );
+                                          // Clear all offer locks — job is terminal, no re-dispatch.
+                                          if (typeof _activeOfferIds     !== 'undefined' && _dccCvtJob) delete _activeOfferIds[_dccCvtJob];
+                                          if (typeof _activeOfferDrivers !== 'undefined' && driverid)   delete _activeOfferDrivers[String(driverid)];
+                                          if (typeof _triedDriversForJob !== 'undefined' && _dccCvtJob) delete _triedDriversForJob[_dccCvtJob];
+                                          // Refresh job lists — job now appears in Closed tab.
+                                          if (typeof sc.ClosedJobsdata  === 'function') sc.ClosedJobsdata();
+                                          if (typeof sc.AssignedJobs    === 'function') sc.AssignedJobs();
+                                          if (typeof sc.ActiveJobsdata  === 'function') sc.ActiveJobsdata();
+                                          if (typeof sc.getjobs         === 'function') sc.getjobs();
+                                          // No _sadTrigger — job is terminal, no re-dispatch needed.
+                                      }
                                   } catch(e) {}
                                   // Fix #106/#108: If driver cancelled after accepting (no-show), server set them Available — sync Firebase.
                                   // Otherwise send Away-acknowledge so their next Available clears the lock.
@@ -9426,6 +9446,29 @@ $(document).ready(function() {
                                             }
                                             // Kick smartAutoDispatch immediately — don't wait for next 10-second cycle.
                                             if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 700);
+                                        }
+                                        // Driver cancelled at pickup (arrived, then cancelled) — close the job.
+                                        if (_r && _r.driverCancelled && _newSt === 'Available') {
+                                            var _dcc = _r.driverCancelled;
+                                            var _dccLabel = _dcc.vehiclenumber || _dcc.driverId || _capDid;
+                                            var _dccJob   = String(_dcc.jobId || '');
+                                            toastr["error"](
+                                                'Driver ' + _dccLabel + ' cancelled job #' + _dccJob + ' at pickup — job closed.',
+                                                'Job Cancelled by Driver'
+                                            );
+                                            // Clear offer locks so this job does not block future dispatch.
+                                            if (typeof _activeOfferIds     !== 'undefined' && _dccJob) delete _activeOfferIds[_dccJob];
+                                            if (typeof _activeOfferDrivers !== 'undefined' && _capDid) delete _activeOfferDrivers[_capDid];
+                                            if (typeof _triedDriversForJob !== 'undefined' && _dccJob) delete _triedDriversForJob[_dccJob];
+                                            // Refresh job lists — job should now appear in Closed tab.
+                                            var _scDCC = angular.element(document.getElementById('myangular')).scope();
+                                            if (_scDCC) {
+                                                if (typeof _scDCC.ClosedJobsdata  === 'function') _scDCC.ClosedJobsdata();
+                                                if (typeof _scDCC.AssignedJobs    === 'function') _scDCC.AssignedJobs();
+                                                if (typeof _scDCC.ActiveJobsdata  === 'function') _scDCC.ActiveJobsdata();
+                                                if (typeof _scDCC.getjobs         === 'function') _scDCC.getjobs();
+                                            }
+                                            // No _sadTrigger — job is terminal, no re-dispatch needed.
                                         }
                                     } catch(e) {}
                                     // Server approved — now commit the driver data to the screen.

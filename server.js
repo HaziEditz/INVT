@@ -1423,27 +1423,40 @@ const server = http.createServer(async (req, res) => {
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
           if (isDriverPostAcceptCancel) {
             const _dcDriverId = job.DriverId;
-            // Driver recalled the job (cancelled after accepting) — return to unassigned queue as Pending
-            job.BookingStatus = 'Pending';
-            job.DriverId      = -2;
-            job.VehicleId     = 0;
-            job.returnReason  = 'Recalled by Driver';
-            delete job.CancelledBy;
-            delete job.JobCompleteTime;
-            // Keep in jobStore so the job can be re-dispatched
             const _dcZd = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId || d.VehicleId === _dcDriverId);
             let _dcQueueNo = null;
             if (_dcZd) {
               _dcQueueNo = calcRestoredQueue(_dcDriverId, _dcZd.zonename || '');
-              _dcZd.vehiclestatus = 'Available';
-              _dcZd.zonequeue     = _dcQueueNo;
+              _dcZd.vehiclestatus  = 'Available';
+              _dcZd.zonequeue      = _dcQueueNo;
               _dcZd.queueWaitSince = Date.now();
             }
             clearAwayLock(_dcDriverId);
             clearDriverHomeState(_dcDriverId);
-            saveJobStore();
-            console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Pending (driver ${_dcDriverId} recalled after accepting → Available q=${_dcQueueNo})`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
+            if (currentStatus === 'Picking') {
+              // Driver cancelled at pickup (arrived, passenger no-show or trip cancelled).
+              // Close the job as Cancelled — do NOT return to Pending for re-dispatch.
+              job.BookingStatus   = 'Cancelled';
+              job.CancelledBy     = 'Driver';
+              job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              const _dcIdx = jobStore.indexOf(job);
+              if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
+              closedJobStore.push(job);
+              saveJobStore();
+              console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled at pickup → Available q=${_dcQueueNo})`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
+            } else {
+              // Assigned state: driver recalled before arriving — return to Pending for re-dispatch.
+              job.BookingStatus = 'Pending';
+              job.DriverId      = -2;
+              job.VehicleId     = 0;
+              job.returnReason  = 'Recalled by Driver';
+              delete job.CancelledBy;
+              delete job.JobCompleteTime;
+              saveJobStore();
+              console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Pending (driver ${_dcDriverId} recalled after accepting → Available q=${_dcQueueNo})`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
+            }
             return;
           }
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
@@ -1713,17 +1726,8 @@ const server = http.createServer(async (req, res) => {
                   clearDispatcherRecalled(job.Id);
                   console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
                 } else {
-                  // Driver went Available while still Assigned (no other Active job).
-                  // This happens when the driver recalls/cancels via their app — their app
-                  // updates their Firebase status to Available without writing a joback reject.
-                  // Do NOT cancel the job — return it to Pending so it can be re-dispatched,
-                  // exactly the same as the [changeriddestatusforoffer] driver-recall path.
-                  job.BookingStatus = 'Pending';
-                  job.DriverId      = -2;   // sentinel: recalled-by-driver, not yet re-offered
-                  job.VehicleId     = 0;
-                  job.returnReason  = 'Recalled by Driver';
-                  delete job.CancelledBy;
-                  delete job.JobCompleteTime;
+                  // Driver went Available while still Assigned/Picking (no other Active job).
+                  // This happens when the driver recalls/cancels via the app (status flip, no joback).
                   const _zdRec = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
                   if (_zdRec) {
                     _dscQueueNo = calcRestoredQueue(driverId, _zdRec.zonename || '');
@@ -1733,9 +1737,29 @@ const server = http.createServer(async (req, res) => {
                   }
                   clearAwayLock(driverId);
                   clearDriverHomeState(driverId);
-                  saveJobStore();
-                  _dscDriverRecalled  = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dscQueueNo };
-                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (driver recalled — returned to queue, q=${_dscQueueNo})`);
+                  if (prev === 'Picking') {
+                    // Driver arrived at pickup then cancelled — close as Cancelled (terminal).
+                    job.BookingStatus   = 'Cancelled';
+                    job.CancelledBy     = 'Driver';
+                    job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                    const _cIdxDp = jobStore.indexOf(job);
+                    if (_cIdxDp !== -1) jobStore.splice(_cIdxDp, 1);
+                    closedJobStore.push(job);
+                    saveJobStore();
+                    _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dscQueueNo };
+                    console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled at pickup, q=${_dscQueueNo})`);
+                  } else {
+                    // Assigned state: driver recalled before arriving — return to Pending for re-dispatch.
+                    job.BookingStatus = 'Pending';
+                    job.DriverId      = -2;
+                    job.VehicleId     = 0;
+                    job.returnReason  = 'Recalled by Driver';
+                    delete job.CancelledBy;
+                    delete job.JobCompleteTime;
+                    saveJobStore();
+                    _dscDriverRecalled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dscQueueNo };
+                    console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (driver recalled — returned to queue, q=${_dscQueueNo})`);
+                  }
                 }
               }
               // Offered/Unreached/Pending: driver going Available — leave as-is
@@ -2964,16 +2988,8 @@ const server = http.createServer(async (req, res) => {
                   clearDispatcherRecalled(job.Id);
                   console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
                 } else {
-                  // Driver went Available while still Assigned — driver recalled/cancelled
-                  // via the driver app (status flip, no joback reject written).
-                  // Return to Pending so it can be re-dispatched, same as the
-                  // [changeriddestatusforoffer] driver-recall path.
-                  job.BookingStatus = 'Pending';
-                  job.DriverId      = -2;
-                  job.VehicleId     = 0;
-                  job.returnReason  = 'Recalled by Driver';
-                  delete job.CancelledBy;
-                  delete job.JobCompleteTime;
+                  // Driver went Available while still Assigned/Picking (no other Active job).
+                  // This happens when the driver recalls/cancels via the app (status flip, no joback).
                   const _zdRecDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
                   if (_zdRecDS) {
                     _dssQueueNo = calcRestoredQueue(driverId, _zdRecDS.zonename || '');
@@ -2983,9 +2999,29 @@ const server = http.createServer(async (req, res) => {
                   }
                   clearAwayLock(driverId);
                   clearDriverHomeState(driverId);
-                  saveJobStore();
-                  _dssDriverRecalled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dssQueueNo };
-                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (driver recalled — returned to queue, q=${_dssQueueNo})`);
+                  if (prev === 'Picking') {
+                    // Driver arrived at pickup then cancelled — close as Cancelled (terminal).
+                    job.BookingStatus   = 'Cancelled';
+                    job.CancelledBy     = 'Driver';
+                    job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                    const _cIdxDs = jobStore.indexOf(job);
+                    if (_cIdxDs !== -1) jobStore.splice(_cIdxDs, 1);
+                    closedJobStore.push(job);
+                    saveJobStore();
+                    _dssDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dssQueueNo };
+                    console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled at pickup, q=${_dssQueueNo})`);
+                  } else {
+                    // Assigned state: driver recalled before arriving — return to Pending for re-dispatch.
+                    job.BookingStatus = 'Pending';
+                    job.DriverId      = -2;
+                    job.VehicleId     = 0;
+                    job.returnReason  = 'Recalled by Driver';
+                    delete job.CancelledBy;
+                    delete job.JobCompleteTime;
+                    saveJobStore();
+                    _dssDriverRecalled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dssQueueNo };
+                    console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Pending (driver recalled — returned to queue, q=${_dssQueueNo})`);
+                  }
                 }
               }
               // Offered/Unreached/Pending: driver going Available — leave job as-is
