@@ -497,3 +497,18 @@ Driver app should:
 - Dispatcher: `Safinah Mohammed` (returned by LoginSelector, stored in `TT_Name`)
 - Dispatcher ID: `1051` (stored in `TT_DId`; NOT used for Firebase paths — see below)
 - Company: `1216` (stored in `TT_CId`; used for ALL Firebase `online/` paths)
+
+### #106 — Driver randomly disappears from dispatch board mid-session (BUG FIX)
+- **Symptom**: A driver who is actively online (Firebase node present, GPS updates flowing) suddenly vanishes from the dispatch board and appears to have "signed out" — even though they never explicitly logged out.
+- **Root cause** (`Default.aspx` line 6016): In the `child_changed` Firebase listener, the sign-out gate was:
+  ```js
+  var _isLogout = !dval.vehiclestatus || _offlineStatuses.indexOf(dval.vehiclestatus) !== -1;
+  ```
+  The `!dval.vehiclestatus` half evaluates `true` when `vehiclestatus` is `undefined`, `null`, or `""`.  
+  The driver app commonly sends **location-only Firebase updates** (lat/lng, battery level, etc.) that do **not** include the `vehiclestatus` field. Every such update has `vehiclestatus === undefined`, so `!undefined` = `true` → `_isLogout = true` → `adddriverremove()` fires → driver disappears from the board as if they signed out.  
+  Also triggers during a brief status transition where the driver app temporarily clears `vehiclestatus` before writing the new status.
+- **Fix**: Changed to only sign out on an explicit offline keyword — never on missing/empty status:
+  ```js
+  var _isLogout = !!dval.vehiclestatus && _offlineStatuses.indexOf(dval.vehiclestatus) !== -1;
+  ```
+  Now: `undefined` / `null` / `""` → `false` → driver stays on board. `"Offline"` / `"LoggedOut"` / etc. → `true` → driver correctly removed.

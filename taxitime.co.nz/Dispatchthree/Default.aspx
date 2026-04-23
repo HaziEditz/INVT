@@ -6010,10 +6010,15 @@ $(document).ready(function() {
         
 
             (function(dval, vehicleKeyChanged) {
-                // If the driver app signals logout (Offline, LoggedOut, etc.) or clears
-                // vehiclestatus, remove them from the board immediately instead of updating.
+                // If the driver app signals logout (Offline, LoggedOut, etc.), remove them
+                // from the board immediately instead of updating.
+                // NOTE: do NOT treat missing/empty vehiclestatus as a logout. The driver app
+                // sometimes sends location-only updates (lat/lng/battery) without including the
+                // vehiclestatus field, or briefly clears it during a status transition. Previously
+                // `!dval.vehiclestatus` caused those partial updates to be misread as sign-outs,
+                // removing an active driver from the board. Only an explicit offline keyword is logout.
                 var _offlineStatuses = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
-                var _isLogout = !dval.vehiclestatus || _offlineStatuses.indexOf(dval.vehiclestatus) !== -1;
+                var _isLogout = !!dval.vehiclestatus && _offlineStatuses.indexOf(dval.vehiclestatus) !== -1;
                 if (_isLogout) {
                     delete _driverLastSeen[vehicleKeyChanged]; // signing out — remove from stale tracker
                     if (_disconnectTimers[vehicleKeyChanged]) {
