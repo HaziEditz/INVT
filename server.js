@@ -1524,6 +1524,7 @@ const server = http.createServer(async (req, res) => {
         }
         let _dscQueueNo = null;      // new queue number to return to client for Firebase write
         let _dscDriverCancelled = null; // set when driver cancels an accepted/assigned job
+        let _dscDriverRecalled  = null; // set when driver recalls (job returned to Pending)
         if (driverId && newStatus) {
           // ── Suspension gate ───────────────────────────────────────────────────
           const _suspCheck = SUSPENDED_DRIVERS.find(s =>
@@ -1707,16 +1708,29 @@ const server = http.createServer(async (req, res) => {
                   clearDispatcherRecalled(job.Id);
                   console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (dispatcher recall — not a driver cancel)`);
                 } else {
-                  // Driver went Available while still Assigned (no other Active job) — driver cancelled.
-                  job.BookingStatus = 'Cancelled';
-                  job.CancelledBy   = 'Driver';
-                  job.returnReason  = 'Driver cancelled after accepting';
-                  job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
-                  const idx = jobStore.indexOf(job);
-                  if (idx !== -1) jobStore.splice(idx, 1);
-                  closedJobStore.push(job);
-                  _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber };
-                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled after accepting)`);
+                  // Driver went Available while still Assigned (no other Active job).
+                  // This happens when the driver recalls/cancels via their app — their app
+                  // updates their Firebase status to Available without writing a joback reject.
+                  // Do NOT cancel the job — return it to Pending so it can be re-dispatched,
+                  // exactly the same as the [changeriddestatusforoffer] driver-recall path.
+                  job.BookingStatus = 'Pending';
+                  job.DriverId      = -2;   // sentinel: recalled-by-driver, not yet re-offered
+                  job.VehicleId     = 0;
+                  job.returnReason  = 'Recalled by Driver';
+                  delete job.CancelledBy;
+                  delete job.JobCompleteTime;
+                  const _zdRec = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+                  if (_zdRec) {
+                    _dscQueueNo = calcRestoredQueue(driverId, _zdRec.zonename || '');
+                    _zdRec.vehiclestatus  = 'Available';
+                    _zdRec.zonequeue      = _dscQueueNo;
+                    _zdRec.queueWaitSince = Date.now();
+                  }
+                  clearAwayLock(driverId);
+                  clearDriverHomeState(driverId);
+                  saveJobStore();
+                  _dscDriverRecalled  = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dscQueueNo };
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Pending (driver recalled — returned to queue, q=${_dscQueueNo})`);
                 }
               }
               // Offered/Unreached/Pending: driver going Available — leave as-is
@@ -1774,7 +1788,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null, driverRecalled: _dscDriverRecalled || null });
 
       } else if (action === '[QuickSetNoOne]') {
         // Quick dispatcher action: mark job as "No One" from card dropdown.
