@@ -889,7 +889,9 @@ const server = http.createServer(async (req, res) => {
         })();
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
-        const driverId  = parseInt(param('DId') || '0') || 0;
+        const _rawDId   = parseInt(param('DId') || '0') || 0;
+        // Clamp stale sentinels (e.g. -2 "recalled") to 0 (Pending/no driver). Only -1 ("No One") is intentional.
+        const driverId  = (_rawDId === -1) ? -1 : Math.max(0, _rawDId);
         // VehicleId is a string call-sign (e.g. "T201") — do NOT parseInt it or 'T201' becomes 0.
         const vehicleId = param('VId') || '0';
         const passengers = parseInt(param('PassengersNo') || '1') || 1;
@@ -996,7 +998,9 @@ const server = http.createServer(async (req, res) => {
         })();
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
-        const driverId  = parseInt(param('DId') || '0') || 0;
+        const _rawDId2  = parseInt(param('DId') || '0') || 0;
+        // Clamp stale sentinels (e.g. -2 "recalled") to 0 (Pending/no driver). Only -1 ("No One") is intentional.
+        const driverId  = (_rawDId2 === -1) ? -1 : Math.max(0, _rawDId2);
         // VehicleId is a string call-sign (e.g. "T201") — do NOT parseInt it or 'T201' becomes 0.
         const vehicleId = param('VId') || '0';
         const passengers = parseInt(param('PassengersNo') || '1') || 1;
@@ -1044,7 +1048,8 @@ const server = http.createServer(async (req, res) => {
         const jobId = parseInt(param('Id')) || 0;
         const job = jobStore.find(j => j.Id === jobId);
         if (job) {
-          const driverId  = parseInt(param('DId') || '0') || 0;
+          const _rawDId3  = parseInt(param('DId') || '0') || 0;
+          const driverId  = (_rawDId3 === -1) ? -1 : Math.max(0, _rawDId3);
           const vehicleId = parseInt(param('VId') || '0') || 0;
           if (param('PickLocation'))    job.PickAddress    = param('PickLocation');
           if (param('DropLocation'))    job.DropAddress    = param('DropLocation');
@@ -3236,7 +3241,7 @@ server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is in use. Killing existing process and retrying...`);
     const { execSync } = require('child_process');
-    try { execSync(`fuser -k ${PORT}/tcp`); } catch (e) {}
+    try { execSync(`pkill -9 -f "node server.js"`); } catch (e) {}
     setTimeout(() => {
       server.close();
       server.listen(PORT, HOST, () => console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`));
