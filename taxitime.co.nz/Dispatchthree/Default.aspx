@@ -7241,6 +7241,8 @@ $(document).ready(function() {
         function _wbAccept() {
             if (_wbDone) return; _wbDone = true;
             _wbCleanup();
+            // Clean up external kill-switch entry.
+            if (window._busyWatcherCleanupMap) delete window._busyWatcherCleanupMap[_wbBook];
             delete _activeOfferIds[bookid];
             toastr['success'](driverid + ' accepted pre-queue job #' + bookid + ' — queuing until trip done', 'Pre-Queue');
             _resolveAcceptance(bookid, driverid);
@@ -7248,6 +7250,7 @@ $(document).ready(function() {
         function _wbReject() {
             if (_wbDone) return; _wbDone = true;
             _wbCleanup();
+            if (window._busyWatcherCleanupMap) delete window._busyWatcherCleanupMap[_wbBook];
             delete window._driverQueueMap[_wbDrv];
             delete _activeOfferIds[bookid];
             toastr['info'](driverid + ' declined pre-queue offer — job stays in queue', 'Pre-Queue');
@@ -7266,6 +7269,23 @@ $(document).ready(function() {
             var jd = jsnap.val();
             if (jd && String(jd.BookingId) === _wbBook && (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) { _wbAccept(); }
         });
+
+        // Register an external kill-switch so changedata(Busy→Available) can cancel this
+        // watcher if the driver finishes their trip without accepting the pre-queue offer.
+        // The kill-switch sets _wbDone=true and removes Firebase listeners WITHOUT removing
+        // the joback node — the subsequent acknowledgemethodx call will use that path for
+        // the new popup offer, so we must NOT remove it here.
+        if (!window._busyWatcherCleanupMap) window._busyWatcherCleanupMap = {};
+        window._busyWatcherCleanupMap[_wbBook] = function _wbExternalCancel() {
+            if (_wbDone) return;
+            _wbDone = true;
+            _wbRef.off('value', _wbListener);
+            _wbJobRef.off('value', _wbJobsListener);
+            // Note: intentionally NOT calling joback.remove() here so acknowledgemethodx
+            // can set up its own resolveAfter2Secondsx listener on the same path cleanly.
+            delete window._busyWatcherCleanupMap[_wbBook];
+        };
+
         console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (no timeout, no Away)');
     }
 
@@ -8986,6 +9006,17 @@ $(document).ready(function() {
                                         }
                                         toastr['info'](driverId + ' finished trip — sending popup for queued job #' + _myQJob.Id, 'Queue Ready');
                                         console.log('[changedata Busy→Available] queued job #' + _myQJob.Id + ' → sending popup to driver ' + driverId + ' (vehicle ' + _cdVeh2 + ')');
+                                        // Kill the old _watchBusyDriverAcceptance watcher (dedup lock + Firebase
+                                        // listener) before calling acknowledgemethodx so it doesn't double-fire
+                                        // when acknowledgemethodx writes to the same joback path.
+                                        var _qJobKey = String(_myQJob.Id);
+                                        if (window._busyWatcherCleanupMap && window._busyWatcherCleanupMap[_qJobKey]) {
+                                            window._busyWatcherCleanupMap[_qJobKey]();
+                                        }
+                                        // Dedup lock was cleared by _wbAccept() when driver accepted,
+                                        // but defensively clear it here too in case of a race.
+                                        if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[_qJobKey];
+                                        if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverId)];
                                         acknowledgemethodx(_cdVeh2, String(driverId), _myQJob.Id, 'Pending');
                                     } else {
                                         // No queued job on the server — driver went Available without accepting
@@ -8995,6 +9026,19 @@ $(document).ready(function() {
                                         if (_stalePQJob) {
                                             console.log('[changedata Busy→Available] stale pre-queue offer for job #' + _stalePQJob + ' (driver ' + driverId + ' never accepted) — clearing map, re-offering with popup');
                                             delete window._driverQueueMap[String(driverId)];
+                                            // ── BUG FIX: The _watchBusyDriverAcceptance watcher set
+                                            // _activeOfferIds[_stalePQJob]=true when the Busy badge was
+                                            // sent.  That lock was NEVER cleared (no accept, no reject).
+                                            // If we call acknowledgemethodx without clearing it, the dedup
+                                            // guard silently swallows the popup and the driver gets nothing.
+                                            // Kill the watcher and clear both dedup entries first.
+                                            var _spKey = String(_stalePQJob);
+                                            if (window._busyWatcherCleanupMap && window._busyWatcherCleanupMap[_spKey]) {
+                                                window._busyWatcherCleanupMap[_spKey](); // sets _wbDone=true, removes Firebase listeners
+                                                console.log('[changedata Busy→Available] killed stale watcher for job #' + _spKey);
+                                            }
+                                            if (typeof _activeOfferIds !== 'undefined')    delete _activeOfferIds[_spKey];
+                                            if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverId)];
                                             var _cdscS = angular.element(document.getElementById('myangular')).scope();
                                             var _cdVehS = String(driverId);
                                             if (_cdscS && _cdscS.driverdatarealx) {
