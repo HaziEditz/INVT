@@ -14504,7 +14504,7 @@ $(document).ready(function() {
             if (typeof $scope.AssignedJobs   === 'function') { $scope.AssignedJobs(); }
             if (typeof $scope.ActiveJobsdata === 'function') { $scope.ActiveJobsdata(); }
             if (typeof $scope.getjobs        === 'function') { $scope.getjobs(); }
-        }, 3000);
+        }, 10000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
         $scope.openCards = {};
