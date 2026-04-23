@@ -7831,6 +7831,9 @@ $(document).ready(function() {
                                           );
                                           if (typeof sc.getjobs         === 'function') sc.getjobs();
                                           if (typeof sc.AssignedJobs    === 'function') sc.AssignedJobs();
+                                          // Kick smartAutoDispatch immediately so the recalled job is
+                                          // re-offered without waiting for the next 10-second polling cycle.
+                                          if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 700);
                                       }
                                   } catch(e) {}
                                   // Fix #106/#108: If driver cancelled after accepting (no-show), server set them Available — sync Firebase.
@@ -9378,6 +9381,8 @@ $(document).ready(function() {
                                                 if (typeof _scDC.ActiveJobsdata  === 'function') _scDC.ActiveJobsdata();
                                                 if (typeof _scDC.ClosedJobsdata  === 'function') _scDC.ClosedJobsdata();
                                             }
+                                            // Kick smartAutoDispatch immediately — don't wait for next 10-second cycle.
+                                            if (typeof _sadTrigger === 'function') setTimeout(_sadTrigger, 700);
                                         }
                                     } catch(e) {}
                                     // Server approved — now commit the driver data to the screen.
