@@ -696,9 +696,6 @@
                                                                     <span class="label label-pill label-warning mt-2" ng-click="EditJob(avalue.Id , avalue.quenumber)">
                                                                         <i class="  glyphicon glyphicon-edit "></i>
                                                                     </span>
-                                                                    <span class="label label-pill label-danger mt-2" ng-click="CancelJob(avalue.Id,avalue.U_id , avalue.ZoneId , avalue.quenumber)">
-                                                                        <i class="  glyphicon glyphicon-trash "></i>
-                                                                    </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i class="  fa fa-headphones "></i>{{avalue.DispatcherName}}
                                                                     </span>
@@ -3462,9 +3459,6 @@ $(document).ready(function() {
 
                                                                     <span class="label label-pill label-warning mt-2" ng-click="EditJob(avalue.Id , avalue.quenumber)">
                                                                         <i class="  glyphicon glyphicon-edit "></i>
-                                                                    </span>
-                                                                    <span class="label label-pill label-danger mt-2" ng-click="CancelJob(avalue.Id,avalue.U_id , avalue.ZoneId , avalue.quenumber)">
-                                                                        <i class="  glyphicon glyphicon-trash "></i>
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i class="  fa fa-headphones "></i>{{avalue.DispatcherName}}
