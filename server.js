@@ -2209,6 +2209,17 @@ const server = http.createServer(async (req, res) => {
               j.VehicleId = null;
             }
           }
+          // Orphaned-job watchdog: Assigned status but no driver assigned (DriverId=0/null).
+          // These jobs were orphaned mid-session (e.g. page reload while driver was Busy →
+          // Available, or a status-update race that set Assigned without a driverId).
+          // The startup self-heal catches jobs at boot; this catches runtime orphans so they
+          // are re-dispatchable without requiring a server restart.
+          if (j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0')) {
+            console.log(`  [AutoDispatch] orphan watchdog: job #${j.Id} is Assigned with no driver — resetting to Pending`);
+            j.BookingStatus = 'Pending';
+            j.returnReason  = j.returnReason || 'Recovered (orphaned Assigned)';
+            saveJobStore();
+          }
         });
         // Return jobs that need auto-dispatch: Pending only, AND within their dispatch window.
         // "No One" jobs are explicitly excluded — dispatcher flagged them as manual-only.
