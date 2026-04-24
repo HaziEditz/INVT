@@ -9528,6 +9528,19 @@ $(document).ready(function() {
                                         }
                                     }
                                 } catch(e) {}
+                                // Even though we suppress the Away status, still update the driver's
+                                // GPS position (and direction) from the Away heartbeat so the map
+                                // reflects where the driver was when their phone went to background.
+                                if (datacom.lat && datacom.lng) {
+                                    $scope.driverdatarealx[incs].lat = datacom.lat;
+                                    $scope.driverdatarealx[incs].lng = datacom.lng;
+                                }
+                                if (datacom.Direction !== undefined) {
+                                    $scope.driverdatarealx[incs].Direction = datacom.Direction;
+                                }
+                                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) {
+                                    $scope.$digest();
+                                }
                             }
                         }
                     }
