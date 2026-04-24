@@ -70,22 +70,19 @@ function buildDriverChatList() {
   });
 }
 
-// ─── Closed job store (historical demo data) ──────────────────────────────────
-// Closed job demo records — dates are kept within the past 7 days so they
-// survive the client-side "DateFrom = today" filter in the ClosedJobs search.
-function _closedDate(daysAgo, time) {
-  const d = new Date(); d.setDate(d.getDate() - daysAgo);
-  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${dd} ${time}.`;
-}
-const closedJobStore = [
-  { Id: 937100, BookingDateTime: _closedDate(0, '09:00:00'), JobCompleteTime: _closedDate(0, '09:28:00'), PickAddress: '12 Dee St, Invercargill', DropAddress: 'Invercargill Hospital, Kew Rd', Name: 'Alice Brown', PhoneNo: '021 400 1001', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Completed', DriverId: 101, VehicleId: 201 },
-  { Id: 937101, BookingDateTime: _closedDate(0, '11:15:00'), JobCompleteTime: _closedDate(0, '11:47:00'), PickAddress: '88 Tay St, Invercargill', DropAddress: 'Invercargill Airport', Name: 'Brian Clark', PhoneNo: '021 400 1002', VehicleNo: 'T202', UserFName: 'Sarah', UserLName: 'Wilson', BookingSource: 'Dispatch Console', BookingStatus: 'Completed', DriverId: 102, VehicleId: 202 },
-  { Id: 937102, BookingDateTime: _closedDate(1, '13:30:00'), JobCompleteTime: '', PickAddress: '5 Don St, Invercargill', DropAddress: 'Waikiwi Mall', Name: 'Carol Evans', PhoneNo: '021 400 1003', VehicleNo: 'T203', UserFName: 'David', UserLName: 'Thompson', BookingSource: 'Phone', BookingStatus: 'Cancelled', CancelledBy: 'Dispatcher', DriverId: 103, VehicleId: 203 },
-  { Id: 937103, BookingDateTime: _closedDate(1, '07:45:00'), JobCompleteTime: _closedDate(1, '08:05:00'), PickAddress: '200 Elles Rd, Invercargill', DropAddress: '14 Yarrow St, Invercargill', Name: 'Daniel Ford', PhoneNo: '021 400 1004', VehicleNo: 'T204', UserFName: 'Emma', UserLName: 'Davies', BookingSource: 'App', BookingStatus: 'Completed', DriverId: 104, VehicleId: 204 },
-  { Id: 937104, BookingDateTime: _closedDate(2, '16:00:00'), JobCompleteTime: '', PickAddress: '3 Leven St, Invercargill', DropAddress: 'Queens Park, Invercargill', Name: 'Eve Green', PhoneNo: '021 400 1005', VehicleNo: 'T205', UserFName: 'James', UserLName: 'Brown', BookingSource: 'Dispatch Console', BookingStatus: 'No Show', DriverId: 105, VehicleId: 205 },
-  { Id: 937105, BookingDateTime: _closedDate(2, '10:00:00'), JobCompleteTime: _closedDate(2, '10:22:00'), PickAddress: 'Invercargill Airport', DropAddress: '56 Gala St, Invercargill', Name: 'Frank Harris', PhoneNo: '021 400 1006', VehicleNo: 'T201', UserFName: 'Michael', UserLName: 'Johnson', BookingSource: 'App', BookingStatus: 'Completed', DriverId: 101, VehicleId: 201 },
-];
+// ─── Closed job store ─────────────────────────────────────────────────────────
+// Persisted to disk so real completed jobs survive server restarts.
+const CLOSED_JOB_STORE_FILE = path.join(DATA_DIR, 'closedjobstore.json');
+
+let _savedClosedJobStore = [];
+try {
+  if (fs.existsSync(CLOSED_JOB_STORE_FILE)) {
+    _savedClosedJobStore = JSON.parse(fs.readFileSync(CLOSED_JOB_STORE_FILE, 'utf8')) || [];
+    console.log(`[persist] loaded ${_savedClosedJobStore.length} closed jobs from disk`);
+  }
+} catch(e) { console.log('[persist] closedjobstore load error:', e.message); }
+
+const closedJobStore = _savedClosedJobStore;
 
 function calcJobMins(bookingDateTimeStr) {
   const bdt = new Date(bookingDateTimeStr.replace(/\.$/, '').trim());
@@ -175,6 +172,12 @@ function saveJobStore() {
   // Async write — avoids blocking the event loop on every job status change.
   fs.writeFile(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2), (err) => {
     if (err) console.log('[persist] jobstore save error:', err.message);
+  });
+}
+
+function saveClosedJobStore() {
+  fs.writeFile(CLOSED_JOB_STORE_FILE, JSON.stringify(closedJobStore, null, 2), (err) => {
+    if (err) console.log('[persist] closedjobstore save error:', err.message);
   });
 }
 
@@ -970,6 +973,7 @@ const server = http.createServer(async (req, res) => {
           closedJobStore.push(job);
           jobStore.splice(jobIdx, 1);
           saveJobStore();
+          saveClosedJobStore();
           console.log(`200: POST ${urlPath} [action=UpdateBooking] -> closed job #${closeId}, driver ${closingDriverId} released`);
           arrayD(res, [{ Result: 'Ride Ended Successfully', BookingId: closeId }]);
         } else {
@@ -1106,6 +1110,7 @@ const server = http.createServer(async (req, res) => {
           closedJobStore.push(job);
           jobStore.splice(idx, 1);
           saveJobStore();
+          saveClosedJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId} -> moved to closedJobStore`);
         successD(res, 'Operation Successfully Performed');
@@ -1443,6 +1448,7 @@ const server = http.createServer(async (req, res) => {
               if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
               closedJobStore.push(job);
               saveJobStore();
+              saveClosedJobStore();
               console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled at pickup → Available q=${_dcQueueNo})`);
               objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
             } else {
@@ -1737,6 +1743,7 @@ const server = http.createServer(async (req, res) => {
                 if (_cIdx !== -1) jobStore.splice(_cIdx, 1);
                 closedJobStore.push(job);
                 saveJobStore();
+                saveClosedJobStore();
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailable) {
@@ -1777,6 +1784,7 @@ const server = http.createServer(async (req, res) => {
                     if (_cIdxDp !== -1) jobStore.splice(_cIdxDp, 1);
                     closedJobStore.push(job);
                     saveJobStore();
+                    saveClosedJobStore();
                     _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dscQueueNo };
                     console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled at pickup, q=${_dscQueueNo})`);
                   } else {
@@ -1914,6 +1922,7 @@ const server = http.createServer(async (req, res) => {
           closedJobStore.push(_cjJob);
           jobStore.splice(_cjIdx, 1);
           saveJobStore();
+          saveClosedJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${_cjBookingId}, driver ${_cjDriverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _cjDriverId }]);
@@ -2210,6 +2219,7 @@ const server = http.createServer(async (req, res) => {
           closedJobStore.push(job);
           jobStore.splice(idx, 1);
           saveJobStore();
+          saveClosedJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: driverId }]);
@@ -2541,11 +2551,17 @@ const server = http.createServer(async (req, res) => {
           console.log(`  [ClosedJobs] after status filter '${statusFilter}': ${jobs.length} jobs`);
         }
         if (fromDate) {
-          jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) >= fromDate);
+          jobs = jobs.filter(j => {
+            const ds = (j.JobCompleteTime || j.BookingDateTime || '').replace(/\.$/, '').trim();
+            return ds.substring(0, 10) >= fromDate;
+          });
           console.log(`  [ClosedJobs] after fromDate '${fromDate}': ${jobs.length} jobs`);
         }
         if (toDate) {
-          jobs = jobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= toDate);
+          jobs = jobs.filter(j => {
+            const ds = (j.JobCompleteTime || j.BookingDateTime || '').replace(/\.$/, '').trim();
+            return ds.substring(0, 10) <= toDate;
+          });
           console.log(`  [ClosedJobs] after toDate '${toDate}': ${jobs.length} jobs`);
         }
         if (driverFilterStr) {
@@ -3030,6 +3046,7 @@ const server = http.createServer(async (req, res) => {
                 if (_cIdxDS !== -1) jobStore.splice(_cIdxDS, 1);
                 closedJobStore.push(job);
                 saveJobStore();
+                saveClosedJobStore();
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailableDS) {
@@ -3068,6 +3085,7 @@ const server = http.createServer(async (req, res) => {
                     if (_cIdxDs !== -1) jobStore.splice(_cIdxDs, 1);
                     closedJobStore.push(job);
                     saveJobStore();
+                    saveClosedJobStore();
                     _dssDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dssQueueNo };
                     console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled at pickup, q=${_dssQueueNo})`);
                   } else {

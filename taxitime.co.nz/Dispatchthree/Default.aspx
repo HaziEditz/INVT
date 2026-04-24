@@ -14521,6 +14521,12 @@ $(document).ready(function() {
         $scope.openCards = {};
         $scope.toggleCard = function(id) { $scope.openCards[id] = !$scope.openCards[id]; };
 
+        $scope.ClosedJobsdata = function() {
+            if ($('#closed-jobs').hasClass('in') || $('#closed-jobs').is(':visible')) {
+                FnClosedJobs();
+            }
+        };
+
         $scope.getjobs = function (ok='') {
           
             var now = new Date();
