@@ -1503,6 +1503,37 @@
                             <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Closed</div><div style="font-size:12px; color:#333;" id="jdp-closed"></div></div>
                             <div><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Vehicle Type</div><div style="font-size:12px; color:#333;" id="jdp-vtype"></div></div>
                         </div>
+                        <!-- Timeline -->
+                        <div id="jdp-timeline-wrap" style="display:none; background:#fff; border:1px solid #e2e4ea; border-radius:8px; padding:14px 16px; margin-bottom:14px;">
+                            <div style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:12px; border-bottom:1px solid #f0f0f0; padding-bottom:6px;"><i class="fa fa-clock-o" style="margin-right:5px; color:#dfba5f;"></i>Ride Timeline</div>
+                            <div id="jdp-timeline" style="position:relative; padding-left:22px; border-left:2px solid #e8e9f0;"></div>
+                            <div id="jdp-duration-row" style="display:none; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; display:flex; flex-wrap:wrap; gap:16px;">
+                                <div id="jdp-duration-accept-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Response Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-duration-accept"></div></div>
+                                <div id="jdp-duration-ride-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Trip Duration</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-duration-ride"></div></div>
+                                <div id="jdp-duration-total-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Total Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-duration-total"></div></div>
+                            </div>
+                        </div>
+                        <!-- Fare breakdown -->
+                        <div id="jdp-fare-wrap" style="display:none; background:#fff; border:1px solid #e2e4ea; border-radius:8px; padding:14px 16px; margin-bottom:14px;">
+                            <div style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:10px; border-bottom:1px solid #f0f0f0; padding-bottom:6px;"><i class="fa fa-dollar" style="margin-right:5px; color:#dfba5f;"></i>Fare</div>
+                            <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:10px;">
+                                <div id="jdp-fare-distance-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Distance</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-distance"></div></div>
+                                <div id="jdp-fare-ride-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Ride Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-ride"></div></div>
+                                <div id="jdp-fare-waiting-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waiting"></div></div>
+                                <div id="jdp-fare-driver-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Driver Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-driver"></div></div>
+                            </div>
+                            <div id="jdp-fare-total-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:2px solid #f0f0f0;">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:11px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Total Fare</span>
+                                    <span style="font-size:20px; font-weight:700; color:#1a1a2e;" id="jdp-fare-total"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Route map -->
+                        <div id="jdp-map-wrap" style="display:none; margin-bottom:14px; border-radius:8px; overflow:hidden; border:1px solid #e2e4ea;">
+                            <div style="font-size:10px; font-weight:700; color:#666; text-transform:uppercase; letter-spacing:0.6px; padding:10px 14px; background:#f8f9fb; border-bottom:1px solid #e0e2e8;"><i class="fa fa-map" style="margin-right:5px; color:#dfba5f;"></i>Route</div>
+                            <div id="jdp-map" style="height:210px; background:#e8e9f0;"></div>
+                        </div>
                         <!-- Notes -->
                         <div id="jdp-notes-wrap" style="display:none; background:#fffbf0; border:1px solid #f0dda0; border-radius:8px; padding:12px 16px; margin-bottom:14px;">
                             <div style="font-size:10px; font-weight:700; color:#b8960a; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px;">Ride Notes</div>
@@ -18703,6 +18734,118 @@ $(document).ready(function() {
             // ── Shared Job Detail Popup ─────────────────────────────────────────
             // Called from Closed Jobs DataTable rows AND Search Jobs result cards.
             // Opens a stacked popup modal and populates it with data from JobDetails endpoint.
+            // ── Job Detail Popup helpers ─────────────────────────────────────────────
+            function jdpFmtMins(mins) {
+                if (mins < 0) mins = 0;
+                if (mins >= 60) return Math.floor(mins/60) + 'h ' + (mins%60) + 'm';
+                return mins + ' min';
+            }
+            function jdpParseDt(s) {
+                if (!s) return null;
+                var d = new Date(String(s).replace('.','').trim().replace(' ','T'));
+                return isNaN(d.getTime()) ? null : d;
+            }
+            function jdpMinsDiff(a, b) {
+                var da = jdpParseDt(a), db = jdpParseDt(b);
+                if (!da || !db) return null;
+                return jdpFmtMins(Math.round(Math.abs(db - da) / 60000));
+            }
+
+            function jdpBuildTimeline(j) {
+                var milestones = [
+                    { label: 'Booked',          time: j.BookingDateTime,                      icon: 'fa-calendar',        color: '#888' },
+                    { label: 'Dispatched',       time: j.OfferedAt,                            icon: 'fa-paper-plane',     color: '#5f9ea0' },
+                    { label: 'Driver Accepted',  time: j.AcceptedAt,                           icon: 'fa-check-circle',    color: '#27ae60' },
+                    { label: 'Driver On Way',    time: j.PickingAt,                            icon: 'fa-car',             color: '#2980b9' },
+                    { label: 'Meter Start',      time: j.ActiveAt,                             icon: 'fa-play-circle',     color: '#e67e22' },
+                    { label: 'Completed',        time: j.JobCompleteTime || j.newcompelete,    icon: 'fa-flag-checkered',  color: '#dfba5f' },
+                ];
+                var hasMilestone = milestones.some(function(m) { return m.time; });
+                if (!hasMilestone) { $('#jdp-timeline-wrap').hide(); return; }
+                var html = '';
+                milestones.forEach(function(m) {
+                    if (!m.time) return;
+                    html += '<div style="position:relative; margin-bottom:10px; padding-left:18px; min-height:22px;">';
+                    html += '<span style="position:absolute; left:-9px; top:3px; width:16px; height:16px; border-radius:50%; background:' + m.color + '; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px #fff;">';
+                    html += '<i class="fa ' + m.icon + '" style="font-size:7px; color:#fff;"></i></span>';
+                    html += '<div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.4px;">' + m.label + '</div>';
+                    html += '<div style="font-size:12px; color:#333; font-weight:500;">' + m.time + '</div>';
+                    html += '</div>';
+                });
+                $('#jdp-timeline').html(html);
+                $('#jdp-timeline-wrap').show();
+                var hasAny = false;
+                var complete = j.JobCompleteTime || j.newcompelete;
+                var resp = jdpMinsDiff(j.BookingDateTime, j.AcceptedAt);
+                if (resp) { $('#jdp-duration-accept').text(resp); $('#jdp-duration-accept-wrap').show(); hasAny = true; }
+                var trip = jdpMinsDiff(j.ActiveAt, complete);
+                if (trip) { $('#jdp-duration-ride').text(trip); $('#jdp-duration-ride-wrap').show(); hasAny = true; }
+                var tot = jdpMinsDiff(j.BookingDateTime, complete);
+                if (tot) { $('#jdp-duration-total').text(tot); $('#jdp-duration-total-wrap').show(); hasAny = true; }
+                if (hasAny) $('#jdp-duration-row').show();
+            }
+
+            function jdpBuildFare(j) {
+                var hasFare = false;
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
+                var dist = j.EstimatedDistance || j.Distance || '';
+                if (dist && dist !== '0') { $('#jdp-fare-distance').text(dist + ' km'); $('#jdp-fare-distance-wrap').show(); hasFare = true; }
+                function fmtDollar(v) { var n = parseFloat(v); return (!isNaN(n) && n > 0) ? '$' + n.toFixed(2) : null; }
+                var ride = fmtDollar(j.RideCost);
+                if (ride) { $('#jdp-fare-ride').text(ride); $('#jdp-fare-ride-wrap').show(); hasFare = true; }
+                var wait = fmtDollar(j.WaitingCost);
+                if (wait) { $('#jdp-fare-waiting').text(wait); $('#jdp-fare-waiting-wrap').show(); hasFare = true; }
+                var drv = fmtDollar(j.DriverCost);
+                if (drv) { $('#jdp-fare-driver').text(drv); $('#jdp-fare-driver-wrap').show(); hasFare = true; }
+                var total = parseFloat(j.Cost || '0') || (parseFloat(j.RideCost||'0') + parseFloat(j.WaitingCost||'0') + parseFloat(j.DriverCost||'0'));
+                if (total > 0) { $('#jdp-fare-total').text('$' + total.toFixed(2)); $('#jdp-fare-total-wrap').show(); hasFare = true; }
+                if (hasFare) $('#jdp-fare-wrap').show(); else $('#jdp-fare-wrap').hide();
+            }
+
+            function jdpGeocodeCoords(latlngStr, cb) {
+                if (!latlngStr) { cb(null); return; }
+                var parts = latlngStr.split(',');
+                if (parts.length < 2) { cb(null); return; }
+                var lat = parseFloat(parts[0].trim()), lng = parseFloat(parts[1].trim());
+                if (isNaN(lat) || isNaN(lng)) { cb(null); return; }
+                if (typeof google === 'undefined' || !google.maps || !google.maps.Geocoder) { cb(null); return; }
+                new google.maps.Geocoder().geocode({ location: { lat: lat, lng: lng } }, function(results, status) {
+                    cb((status === 'OK' && results && results.length) ? results[0].formatted_address : null);
+                });
+            }
+
+            var _jdpMapObj = null, _jdpDirRenderer = null;
+            function jdpDrawRoute(pickLL, dropLL) {
+                if (typeof google === 'undefined' || !google.maps) { $('#jdp-map-wrap').hide(); return; }
+                var pp = pickLL.split(','), dp = dropLL.split(',');
+                var origin = new google.maps.LatLng(parseFloat(pp[0]), parseFloat(pp[1]));
+                var dest   = new google.maps.LatLng(parseFloat(dp[0]), parseFloat(dp[1]));
+                var mapDiv = document.getElementById('jdp-map');
+                _jdpMapObj = new google.maps.Map(mapDiv, { zoom:13, center:origin, mapTypeId:'roadmap', disableDefaultUI:true, zoomControl:true });
+                if (_jdpDirRenderer) _jdpDirRenderer.setMap(null);
+                _jdpDirRenderer = new google.maps.DirectionsRenderer({ map: _jdpMapObj, suppressMarkers: false });
+                new google.maps.DirectionsService().route({ origin:origin, destination:dest, travelMode:'DRIVING' }, function(res, st) {
+                    if (st === 'OK') {
+                        _jdpDirRenderer.setDirections(res);
+                    } else {
+                        new google.maps.Marker({ map:_jdpMapObj, position:origin, title:'Pickup',   label:{text:'P', color:'#fff'} });
+                        new google.maps.Marker({ map:_jdpMapObj, position:dest,   title:'Drop-off', label:{text:'D', color:'#fff'} });
+                        _jdpMapObj.fitBounds(new google.maps.LatLngBounds(origin, dest));
+                    }
+                    $('#jdp-map-wrap').show();
+                });
+            }
+            function jdpDrawSinglePin(pickLL) {
+                if (typeof google === 'undefined' || !google.maps) { $('#jdp-map-wrap').hide(); return; }
+                var pp = pickLL.split(',');
+                var pos = new google.maps.LatLng(parseFloat(pp[0]), parseFloat(pp[1]));
+                var mapDiv = document.getElementById('jdp-map');
+                _jdpMapObj = new google.maps.Map(mapDiv, { zoom:15, center:pos, mapTypeId:'roadmap', disableDefaultUI:true, zoomControl:true });
+                new google.maps.Marker({ map:_jdpMapObj, position:pos, title:'Pickup' });
+                $('#jdp-map-wrap').show();
+            }
+            // ────────────────────────────────────────────────────────────────────────
+
             function ShowJobPopup(jobId) {
                 // Ensure stacked modals backdrop stacks correctly
                 $(document).off('shown.bs.modal.jdp').on('shown.bs.modal.jdp', '#job-detail-popup', function () {
@@ -18716,6 +18859,10 @@ $(document).ready(function() {
                 $('#jdp-loading').show();
                 $('#jdp-content').hide();
                 $('#jdp-notfound').hide();
+                $('#jdp-timeline-wrap,#jdp-fare-wrap,#jdp-map-wrap,#jdp-notes-wrap').hide();
+                $('#jdp-duration-accept-wrap,#jdp-duration-ride-wrap,#jdp-duration-total-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
+                $('#jdp-timeline').empty();
                 $('#job-detail-popup').modal('show');
 
                 // Fetch details
@@ -18748,11 +18895,41 @@ $(document).ready(function() {
                         $('#jdp-bags').text(j.Bags || '0');
                         $('#jdp-chairs').text(j.WheelChairs || '0');
                         $('#jdp-booked').text(j.BookingDateTime || '—');
-                        $('#jdp-closed').text(j.JobCompleteTime || '—');
+                        $('#jdp-closed').text(j.JobCompleteTime || j.newcompelete || '—');
                         $('#jdp-vtype').text(j.VehicleType || '—');
                         $('#jdp-tariff').text(j.TarriffType ? 'Tariff: ' + j.TarriffType : '');
                         var notes = j.EntitiesDetails || j.jobinfo || '';
                         if (notes) { $('#jdp-notes').text(notes); $('#jdp-notes-wrap').show(); } else { $('#jdp-notes-wrap').hide(); }
+
+                        // --- Timeline ---
+                        jdpBuildTimeline(j);
+
+                        // --- Fare breakdown ---
+                        jdpBuildFare(j);
+
+                        // --- Map route + address geocoding ---
+                        $('#jdp-map-wrap').hide();
+                        var isHailJob = (j.BookingSource === 'Hail' || j.booking_type === 'Hail');
+                        var pickLLRaw = (j.PickLatLng || '').toString().trim();
+                        var dropLLRaw = (j.DropLatLng || '').toString().trim();
+                        // Resolve pickup address if it still looks like raw coords
+                        function looksLikeCoords(s) { return /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test((s||'').trim()); }
+                        var pickText = $('#jdp-pickup').text();
+                        if (looksLikeCoords(pickText) || (isHailJob && looksLikeCoords(pickLLRaw))) {
+                            var geocodeLL = looksLikeCoords(pickText) ? pickText : pickLLRaw;
+                            jdpGeocodeCoords(geocodeLL, function(addr) { if (addr) $('#jdp-pickup').text(addr); });
+                        }
+                        var dropText = $('#jdp-dropoff').text();
+                        if (looksLikeCoords(dropText) && looksLikeCoords(dropLLRaw)) {
+                            jdpGeocodeCoords(dropLLRaw, function(addr) { if (addr) $('#jdp-dropoff').text(addr); });
+                        }
+                        // Draw route map if we have both pickup and dropoff GPS
+                        if (pickLLRaw && dropLLRaw) {
+                            jdpDrawRoute(pickLLRaw, dropLLRaw);
+                        } else if (pickLLRaw && looksLikeCoords(pickLLRaw)) {
+                            jdpDrawSinglePin(pickLLRaw);
+                        }
+
                         // Also update the Angular scope right-panel (Search Jobs) in parallel
                         try {
                             var sc = angular.element(document.getElementById('myangular')).scope();

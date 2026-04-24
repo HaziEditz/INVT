@@ -943,18 +943,27 @@ const server = http.createServer(async (req, res) => {
         // Called by cancelactivejob / close-ride flow.
         // Marks the job as Closed, moves it to closedJobStore, and releases the driver.
         const closeId = parseInt(param('BookingId') || '0') || 0;
-        const dropLoc  = param('DropLocation')  || '';
-        const distance = param('Distance')  || '0';
-        const cost     = param('Cost')      || '0';
-        const rideCost = param('RideCost')  || '0';
+        const dropLoc     = param('DropLocation')  || '';
+        const distance    = param('Distance')      || '0';
+        const cost        = param('Cost')          || '0';
+        const rideCost    = param('RideCost')      || '0';
+        const waitingCost = param('WaitingCost')   || '';
+        const waitingTime = param('WaitingTime')   || '';
+        const driverCost  = param('DriverCost')    || '';
+        const dropLatLng  = param('DropLatLng')    || '';
         const jobIdx   = jobStore.findIndex(j => j.Id === closeId);
         if (jobIdx !== -1) {
           const job = jobStore[jobIdx];
           job.BookingStatus = 'Closed';
-          if (dropLoc)  job.DropAddress = dropLoc;
-          if (distance) job.EstimatedDistance = distance;
-          if (cost)     job.Cost = cost;
-          if (rideCost) job.RideCost = rideCost;
+          if (dropLoc)     job.DropAddress     = dropLoc;
+          if (distance)    job.EstimatedDistance = distance;
+          if (cost)        job.Cost            = cost;
+          if (rideCost)    job.RideCost        = rideCost;
+          if (waitingCost) job.WaitingCost     = waitingCost;
+          if (waitingTime) job.WaitingTime     = waitingTime;
+          if (driverCost)  job.DriverCost      = driverCost;
+          if (dropLatLng)  job.DropLatLng      = dropLatLng;
+          if (!job.CompleteAt) job.CompleteAt  = new Date().toISOString().replace('T',' ').slice(0,19);
           // Release the driver back to Available
           const closingDriverId = job.DriverId;
           const zd = ZONE_DRIVERS.find(d =>
@@ -1473,6 +1482,10 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus;
           if (returnReason) job.returnReason = returnReason;
+          { const _ts = new Date().toISOString().replace('T',' ').slice(0,19);
+            if (effectiveStatus === 'Offered'  && !job.OfferedAt)  job.OfferedAt  = _ts;
+            if (effectiveStatus === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts;
+            if (effectiveStatus === 'Picking'  && !job.PickingAt)  job.PickingAt  = _ts; }
           // Track which driver has the current offer so the double-offer guard can compare.
           // Also set DriverId when driver accepts so the job appears correctly in Assigned tab.
           if (effectiveStatus === 'Offered' && incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
@@ -1668,6 +1681,7 @@ const server = http.createServer(async (req, res) => {
               const _hailZd = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
               const _hailFullName = drivername || (_hailZd && _hailZd.drivername) || '';
               const _hailParts = _hailFullName.trim().split(/\s+/);
+              const _hailNow = new Date().toISOString().replace('T',' ').slice(0,19);
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
                 DriverId: driverId,
@@ -1679,6 +1693,7 @@ const server = http.createServer(async (req, res) => {
                 DropLatLng: '',
                 BookingDateTime: now, JobCompleteTime: '',
                 BookingSource: 'Hail', booking_type: 'Hail',
+                AcceptedAt: _hailNow, ActiveAt: _hailNow,
                 JobMins: 0, UserFName: _hailParts[0] || '', UserLName: _hailParts.slice(1).join(' ') || '',
                 Route: '', bookingidx: hailId,
               });
@@ -1718,6 +1733,7 @@ const server = http.createServer(async (req, res) => {
             }
             if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus) && !orphaned) {
               job.BookingStatus = 'Assigned';
+              if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString().replace('T',' ').slice(0,19);
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
@@ -1727,10 +1743,12 @@ const server = http.createServer(async (req, res) => {
               // but the job's DriverId still matches — activate it so dispatch shows Active.
               job.BookingStatus = 'Active';
               activatedOne = true;
+              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString().replace('T',' ').slice(0,19);
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              if (!job.PickingAt) job.PickingAt = new Date().toISOString().replace('T',' ').slice(0,19);
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
@@ -2804,6 +2822,10 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus2;
           if (returnReason) job.returnReason = returnReason;
+          { const _ts2 = new Date().toISOString().replace('T',' ').slice(0,19);
+            if (effectiveStatus2 === 'Offered'  && !job.OfferedAt)  job.OfferedAt  = _ts2;
+            if (effectiveStatus2 === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts2;
+            if (effectiveStatus2 === 'Picking'  && !job.PickingAt)  job.PickingAt  = _ts2; }
           // Track which driver has the current offer so the double-offer guard can compare.
           if (effectiveStatus2 === 'Offered' && incomingDriverId2 > 0) {
             job.DriverId = incomingDriverId2; job.VehicleId = incomingDriverId2;
@@ -3023,6 +3045,7 @@ const server = http.createServer(async (req, res) => {
             const orphanedDS = !job.DriverId || String(job.DriverId) === '0';
             if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus) && !orphanedDS) {
               job.BookingStatus = 'Assigned';
+              if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString().replace('T',' ').slice(0,19);
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
@@ -3030,10 +3053,12 @@ const server = http.createServer(async (req, res) => {
                         (job.BookingStatus === 'Pending' && !orphanedDS))) {
               job.BookingStatus = 'Active';
               activatedOneDS = true;
+              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString().replace('T',' ').slice(0,19);
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              if (!job.PickingAt) job.PickingAt = new Date().toISOString().replace('T',' ').slice(0,19);
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
