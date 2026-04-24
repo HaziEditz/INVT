@@ -3353,13 +3353,14 @@ setInterval(() => {
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is in use. Killing existing process and retrying...`);
+    console.error(`Port ${PORT} is in use. Freeing port and retrying...`);
     const { execSync } = require('child_process');
-    try { execSync(`pkill -9 -f "node server.js"`); } catch (e) {}
+    // Kill only the process holding the port — NOT the current process.
+    // pkill -f "node server.js" would self-terminate; fuser targets the port holder.
+    try { execSync(`fuser -k ${PORT}/tcp 2>/dev/null || true`); } catch (e) {}
     setTimeout(() => {
-      server.close();
       server.listen(PORT, HOST, () => console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`));
-    }, 1000);
+    }, 1500);
   } else {
     console.error('Server error:', err);
     process.exit(1);
