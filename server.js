@@ -1620,8 +1620,33 @@ const server = http.createServer(async (req, res) => {
           // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
-            // Save home zone/queue before driver heads off to a job
-            if (zdSync) saveDriverHomeState(driverId, zdSync);
+            if (zdSync) {
+              // Save home zone/queue before driver heads off, then mark them Busy/Picking/Assigned
+              // so dt6 (VehiclesStatus) always includes them and the ghost sweep never fires.
+              saveDriverHomeState(driverId, zdSync);
+              zdSync.vehiclestatus = newStatus;
+              if (lat) zdSync.lat = lat;
+              if (lng) zdSync.lng = lng;
+            } else {
+              // Driver not in ZONE_DRIVERS — server was restarted during their trip.
+              // Add them now so dt6 includes them and the ghost sweep doesn't delete
+              // their Firebase presence node (which would show "removed from system").
+              const _savedZnDP = getSavedZone(driverId);
+              ZONE_DRIVERS.push({
+                driverid:      driverId,
+                VehicleId:     vehiclenumber || driverId,
+                drivername:    drivername    || driverId,
+                vehiclenumber: vehiclenumber || driverId,
+                vehicletype:   (param('vehicletype') || '').toString().trim() || '',
+                zonename:      zonename || (_savedZnDP && _savedZnDP.zonename) || '',
+                zoneid:        (_savedZnDP && _savedZnDP.zoneid) || '',
+                vehiclestatus: newStatus,
+                zonequeue:     0,
+                lat:           lat || '',
+                lng:           lng || '',
+              });
+              console.log(`  [DriverStatusChanged/DP] driver ${driverId} re-added to ZONE_DRIVERS as ${newStatus} (post-restart recovery)`);
+            }
           }
           const driverJobs = jobStore.filter(matchesDriver);
           // Hail / street pickup: driver went Busy with no pre-booked live job
@@ -2906,7 +2931,30 @@ const server = http.createServer(async (req, res) => {
           // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
-            if (zdSyncDS) saveDriverHomeState(driverId, zdSyncDS);
+            if (zdSyncDS) {
+              saveDriverHomeState(driverId, zdSyncDS);
+              zdSyncDS.vehiclestatus = newStatus;
+              if (lat) zdSyncDS.lat = lat;
+              if (lng) zdSyncDS.lng = lng;
+            } else {
+              // Driver not in ZONE_DRIVERS — server restarted during their trip.
+              // Add them now so dt6 always includes them and ghost sweep never fires.
+              const _savedZnDS = getSavedZone(driverId);
+              ZONE_DRIVERS.push({
+                driverid:      driverId,
+                VehicleId:     vehiclenumber || driverId,
+                drivername:    drivername    || driverId,
+                vehiclenumber: vehiclenumber || driverId,
+                vehicletype:   (param('vehicletype') || '').toString().trim() || '',
+                zonename:      zonename || (_savedZnDS && _savedZnDS.zonename) || '',
+                zoneid:        (_savedZnDS && _savedZnDS.zoneid) || '',
+                vehiclestatus: newStatus,
+                zonequeue:     0,
+                lat:           lat || '',
+                lng:           lng || '',
+              });
+              console.log(`  [DriverStatusChanged/DS] driver ${driverId} re-added to ZONE_DRIVERS as ${newStatus} (post-restart recovery)`);
+            }
           }
           const driverJobs = jobStore.filter(matchesDriverDS);
           // Hail / street pickup: driver went Busy with no pre-booked live job

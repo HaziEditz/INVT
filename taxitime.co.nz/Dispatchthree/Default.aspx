@@ -4680,12 +4680,10 @@ $(document).ready(function() {
                             if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
                                 markers[d.vehiclenumber].setMap(null);
                             }
-                            // Delete the stale Firebase node so it doesn't re-trigger child_added
-                            if (typeof SomeSession2 !== 'undefined' && SomeSession2 && _fbKey) {
-                                try {
-                                    firebase.database().ref('online/' + SomeSession2 + '/' + _fbKey).remove();
-                                } catch(e) {}
-                            }
+                            // NOTE: Do NOT delete the Firebase node here. Deleting online/{session}/{key}
+                            // causes the driver app to show "You have been removed from the system",
+                            // which would fire on any driver who is mid-trip with a backgrounded phone.
+                            // Firebase's own onDisconnect handler cleans up truly disconnected nodes.
                             delete _driverLastSeen[_fbKey];
                             _ghostChanged = true;
                             return false; // drop from driverdatarealx
