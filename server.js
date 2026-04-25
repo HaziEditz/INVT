@@ -1180,7 +1180,7 @@ const server = http.createServer(async (req, res) => {
     const token = createSessionToken(companyId);
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Set-Cookie': `BW_SID=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+      'Set-Cookie': `BW_SID=${token}; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
     });
     res.end(JSON.stringify({ ok: true, companyId }));
     console.log(`[session] login: companyId=${companyId} uid=${uid}`);

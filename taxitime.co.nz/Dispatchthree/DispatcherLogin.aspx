@@ -595,29 +595,43 @@
 
     // ── If Firebase says user is already signed in, go straight to console ──
     firebase.auth().onAuthStateChanged(function(user) {
-      if (user) {
-        var name = user.displayName || user.email.split('@')[0];
-        // Look up this user's company ID from Firebase before entering the console
-        firebase.database().ref('users/' + user.uid + '/companyId').once('value').then(function(snap) {
-          var cid = snap.val() || '1216';
+      if (!user) return; // not signed in — show the login form
+      var name = user.displayName || user.email.split('@')[0];
+      // Try to fetch companyId from Firebase DB; fall back to localStorage cache if
+      // the DB read fails (e.g. rules not yet deployed, or network issue).
+      var cachedCid = localStorage.getItem('TT_CId') || '';
+      firebase.database().ref('users/' + user.uid + '/companyId').once('value')
+        .then(function(snap) { return snap.val() || cachedCid; },
+              function()      { return cachedCid; }) // permission-denied → use cache
+        .then(function(cid) {
+          if (!cid) {
+            // No companyId available at all — cannot auto-login, show the form
+            console.warn('[auto-login] no companyId available; showing login form.');
+            return;
+          }
           localStorage.setItem('TT_Name',    name);
           localStorage.setItem('TT_DId',     '1051');
           localStorage.setItem('TT_Country', 'NZ');
           localStorage.setItem('TT_CId',     cid);
           localStorage.setItem('Country',    'NZ');
-          // Establish server-side session cookie so the dispatch console only sees this company's data
+          // Establish server-side session cookie
           return fetch('/api/session/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ companyId: cid, uid: user.uid }),
-            credentials: 'same-origin'
+            credentials: 'include'
+          }).then(function(resp) {
+            if (resp && resp.ok) {
+              window.location.replace('Default.aspx');
+            } else {
+              // companyId not in server store yet — stay on login form, user can re-enter credentials
+              console.warn('[auto-login] server rejected companyId ' + cid + '; showing login form.');
+            }
           });
-        }).then(function() {
-          window.location.replace('Default.aspx');
-        }).catch(function() {
-          window.location.replace('Default.aspx'); // proceed even if session setup fails
+        })
+        .catch(function(err) {
+          console.warn('[auto-login] unexpected error; showing login form.', err);
         });
-      }
     });
 
     // ── Mock-server login fallback (used when Firebase auth is unavailable) ──
@@ -645,11 +659,17 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ companyId: cid, uid: String(u.Id || '') }),
-            credentials: 'same-origin'
-          }).then(function() {
-            window.location.href = 'Default.aspx';
+            credentials: 'include'
+          }).then(function(resp) {
+            if (resp && resp.ok) {
+              window.location.href = 'Default.aspx';
+            } else {
+              resetBtn();
+              showError('Session could not be established. Please try again.');
+            }
           }).catch(function() {
-            window.location.href = 'Default.aspx';
+            resetBtn();
+            showError('Session setup failed. Please check your connection and try again.');
           });
         } else {
           resetBtn();
@@ -712,10 +732,8 @@
             localStorage.setItem('Country',    'NZ');
 
             // Also authenticate with the production backend so that the ASP.NET
-            // session cookie is set in the browser.  This allows all subsequent
-            // API calls (jobs, messages, drivers) to be proxied to the real server
-            // instead of falling back to the local mock.
-            return fetch('/DataManager/Data.aspx/LoginSelector', {
+            // session cookie is set in the browser.
+            fetch('/DataManager/Data.aspx/LoginSelector', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -724,8 +742,23 @@
                   { name: 'Password', value: password }
                 ]
               })
-            }).catch(function() {}).finally(function() {
-              window.location.href = 'Default.aspx';
+            }).catch(function() {});
+            // Establish BW_SID session cookie for server-side dispatch isolation
+            return fetch('/api/session/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ companyId: cid, uid: user.uid }),
+              credentials: 'include'
+            }).then(function(resp) {
+              if (resp && resp.ok) {
+                window.location.href = 'Default.aspx';
+              } else {
+                resetBtn();
+                showError('Session could not be established. Please try again.');
+              }
+            }).catch(function() {
+              resetBtn();
+              showError('Session setup failed. Please check your connection and try again.');
             });
           });
         })
