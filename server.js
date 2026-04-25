@@ -829,6 +829,18 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === '/' || urlPath === '') urlPath = '/Default.aspx';
 
+  // Server-side auth guard for the dispatch console.
+  // If the browser has no valid BW_SID cookie, redirect to the login page at the HTTP level
+  // so the client never receives Default.aspx and no client-side redirect loop occurs.
+  if (urlPath === '/Default.aspx' && req.method === 'GET') {
+    const companyId = getSessionCompanyId(req);
+    if (!companyId) {
+      res.writeHead(302, { Location: '/DispatcherLogin.aspx' });
+      res.end();
+      return;
+    }
+  }
+
   if (SILENT_OK_PATTERNS.some(p => urlPath.startsWith(p))) {
     res.writeHead(200, JSON_HEADERS);
     res.end('{}');
