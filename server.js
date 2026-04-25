@@ -639,6 +639,21 @@ const SILENT_OK_PATTERNS = ['/cdn-cgi/', '/%7B%7B', '/{{'];
 // ─── Request handler ──────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   let urlPath = req.url.split('?')[0];
+
+  // ── Proxy /__mockup/ to the mockup sandbox Vite dev server (port 23636) ──
+  if (urlPath.startsWith('/__mockup/')) {
+    const proxyReq = http.request(
+      { hostname: '127.0.0.1', port: 23636, path: req.url, method: req.method, headers: req.headers },
+      proxyRes => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      }
+    );
+    proxyReq.on('error', () => { res.writeHead(502); res.end('Mockup sandbox not running'); });
+    req.pipe(proxyReq, { end: true });
+    return;
+  }
+
   if (urlPath === '/' || urlPath === '') urlPath = '/Default.aspx';
 
   if (SILENT_OK_PATTERNS.some(p => urlPath.startsWith(p))) {
