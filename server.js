@@ -2,6 +2,13 @@
 // so BookingDateTime, JobMins, and dispatch timestamps match the dispatcher's local clock.
 process.env.TZ = 'Pacific/Auckland';
 
+// Returns current NZ local time as "YYYY-MM-DD HH:mm:ss" — same format and timezone
+// as BookingDateTime values that come from the browser form.
+// NOTE: toISOString() always returns UTC regardless of TZ env, so we must use this helper.
+function nowNZ() {
+  return new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }).replace('T', ' ').slice(0, 19);
+}
+
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -706,7 +713,7 @@ const server = http.createServer(async (req, res) => {
       LT_JOB_IDS.add(String(jid));
       jobStore.push({
         Id: jid, BookingId: jid,
-        BookingDateTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+        BookingDateTime: nowNZ(),
         PickAddress:  pickAddrs[j % pickAddrs.length] + ', Invercargill',
         DropAddress:  dropAddrs[j % dropAddrs.length],
         Name:         names[j % names.length],
@@ -963,7 +970,7 @@ const server = http.createServer(async (req, res) => {
           if (waitingTime) job.WaitingTime     = waitingTime;
           if (driverCost)  job.DriverCost      = driverCost;
           if (dropLatLng)  job.DropLatLng      = dropLatLng;
-          if (!job.CompleteAt) job.CompleteAt  = new Date().toISOString().replace('T',' ').slice(0,19);
+          if (!job.CompleteAt) job.CompleteAt  = nowNZ();
           // Release the driver back to Available
           const closingDriverId = job.DriverId;
           const zd = ZONE_DRIVERS.find(d =>
@@ -1115,7 +1122,7 @@ const server = http.createServer(async (req, res) => {
           const job = jobStore[idx];
           job.BookingStatus = 'Cancelled';
           job.CancelledBy   = 'Dispatcher';
-          job.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          job.JobCompleteTime = nowNZ();
           closedJobStore.push(job);
           jobStore.splice(idx, 1);
           saveJobStore();
@@ -1452,7 +1459,7 @@ const server = http.createServer(async (req, res) => {
               // Close the job as Cancelled — do NOT return to Pending for re-dispatch.
               job.BookingStatus   = 'Cancelled';
               job.CancelledBy     = 'Driver';
-              job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              job.JobCompleteTime = nowNZ() + '.';
               const _dcIdx = jobStore.indexOf(job);
               if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
               closedJobStore.push(job);
@@ -1482,7 +1489,7 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus;
           if (returnReason) job.returnReason = returnReason;
-          { const _ts = new Date().toISOString().replace('T',' ').slice(0,19);
+          { const _ts = nowNZ();
             if (effectiveStatus === 'Offered'  && !job.OfferedAt)  job.OfferedAt  = _ts;
             if (effectiveStatus === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts;
             if (effectiveStatus === 'Picking'  && !job.PickingAt)  job.PickingAt  = _ts; }
@@ -1675,13 +1682,13 @@ const server = http.createServer(async (req, res) => {
             );
             if (!hasLive) {
               const hailId = newJobId();
-              const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              const now = nowNZ() + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               // Resolve driver name — prefer param, fall back to ZONE_DRIVERS
               const _hailZd = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
               const _hailFullName = drivername || (_hailZd && _hailZd.drivername) || '';
               const _hailParts = _hailFullName.trim().split(/\s+/);
-              const _hailNow = new Date().toISOString().replace('T',' ').slice(0,19);
+              const _hailNow = nowNZ();
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
                 DriverId: driverId,
@@ -1733,7 +1740,7 @@ const server = http.createServer(async (req, res) => {
             }
             if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus) && !orphaned) {
               job.BookingStatus = 'Assigned';
-              if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString().replace('T',' ').slice(0,19);
+              if (!job.AcceptedAt) job.AcceptedAt = nowNZ();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOne &&
@@ -1743,19 +1750,19 @@ const server = http.createServer(async (req, res) => {
               // but the job's DriverId still matches — activate it so dispatch shows Active.
               job.BookingStatus = 'Active';
               activatedOne = true;
-              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString().replace('T',' ').slice(0,19);
+              if (!job.ActiveAt) job.ActiveAt = nowNZ();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
-              if (!job.PickingAt) job.PickingAt = new Date().toISOString().replace('T',' ').slice(0,19);
+              if (!job.PickingAt) job.PickingAt = nowNZ();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
                 // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
-                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                job.JobCompleteTime = nowNZ() + '.';
                 _stampDriverName(job);
                 const _cIdx = jobStore.indexOf(job);
                 if (_cIdx !== -1) jobStore.splice(_cIdx, 1);
@@ -1797,7 +1804,7 @@ const server = http.createServer(async (req, res) => {
                     // Driver arrived at pickup then cancelled — close as Cancelled (terminal).
                     job.BookingStatus   = 'Cancelled';
                     job.CancelledBy     = 'Driver';
-                    job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                    job.JobCompleteTime = nowNZ() + '.';
                     const _cIdxDp = jobStore.indexOf(job);
                     if (_cIdxDp !== -1) jobStore.splice(_cIdxDp, 1);
                     closedJobStore.push(job);
@@ -1936,7 +1943,7 @@ const server = http.createServer(async (req, res) => {
           }
           _cjJob.BookingStatus = 'Cancelled';
           _cjJob.CancelledBy   = 'Dispatcher';
-          _cjJob.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          _cjJob.JobCompleteTime = nowNZ();
           closedJobStore.push(_cjJob);
           jobStore.splice(_cjIdx, 1);
           saveJobStore();
@@ -2233,7 +2240,7 @@ const server = http.createServer(async (req, res) => {
           }
           job.BookingStatus = 'Cancelled';
           job.CancelledBy   = 'Dispatcher';
-          job.JobCompleteTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          job.JobCompleteTime = nowNZ();
           closedJobStore.push(job);
           jobStore.splice(idx, 1);
           saveJobStore();
@@ -2325,23 +2332,24 @@ const server = http.createServer(async (req, res) => {
         });
         // Return jobs that need auto-dispatch: Pending only, AND within their dispatch window.
         // "No One" jobs are explicitly excluded — dispatcher flagged them as manual-only.
-        // Later-tab jobs carry DispatchTimebefore (minutes before BookingDateTime to start
-        // dispatching). A job should NOT be offered until:
-        //   now  >=  BookingDateTime  -  DispatchTimebefore minutes
-        // i.e. the dispatch window has opened.  Jobs with DispatchTimebefore == 0 (or missing)
-        // are treated as "dispatch immediately" — no time restriction applied.
+        // Later-tab jobs carry DispatchTimebefore (minutes before pickup to start dispatching).
+        // Dispatch window uses Pickingtime (desired pickup time), NOT BookingDateTime (when booked).
+        // A job should NOT be offered until:
+        //   now  >=  Pickingtime  -  DispatchTimebefore minutes
+        // Jobs with DispatchTimebefore == 0 (or missing) are treated as "dispatch immediately".
         const autoJobs = jobStore.filter(j => {
           if (j.BookingStatus !== 'Pending') return false;
           const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;
-          if (dispBefore > 0 && j.BookingDateTime) {
-            const bookingMs = new Date(
-              j.BookingDateTime.replace(/\.$/, '').trim()
+          const pickupRef = j.Pickingtime || j.BookingDateTime;
+          if (dispBefore > 0 && pickupRef) {
+            const pickupMs = new Date(
+              pickupRef.replace(/\.$/, '').trim()
             ).getTime();
-            if (!isNaN(bookingMs)) {
-              const windowOpenMs = bookingMs - dispBefore * 60 * 1000;
+            if (!isNaN(pickupMs)) {
+              const windowOpenMs = pickupMs - dispBefore * 60 * 1000;
               if (Date.now() < windowOpenMs) {
                 const minsLeft = Math.round((windowOpenMs - Date.now()) / 60000);
-                console.log(`  [AutoDispatch] job #${j.Id} withheld: dispatch window opens in ${minsLeft} min`);
+                console.log(`  [AutoDispatch] job #${j.Id} withheld: dispatch window opens in ${minsLeft} min (pickup ${pickupRef})`);
                 return false;
               }
             }
@@ -2822,7 +2830,7 @@ const server = http.createServer(async (req, res) => {
           const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
           job.BookingStatus = effectiveStatus2;
           if (returnReason) job.returnReason = returnReason;
-          { const _ts2 = new Date().toISOString().replace('T',' ').slice(0,19);
+          { const _ts2 = nowNZ();
             if (effectiveStatus2 === 'Offered'  && !job.OfferedAt)  job.OfferedAt  = _ts2;
             if (effectiveStatus2 === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts2;
             if (effectiveStatus2 === 'Picking'  && !job.PickingAt)  job.PickingAt  = _ts2; }
@@ -3002,7 +3010,7 @@ const server = http.createServer(async (req, res) => {
             );
             if (!hasLive) {
               const hailId = newJobId();
-              const now = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+              const now = nowNZ() + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               // Resolve driver name — prefer param, fall back to ZONE_DRIVERS
               const _hailZdDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
@@ -3045,7 +3053,7 @@ const server = http.createServer(async (req, res) => {
             const orphanedDS = !job.DriverId || String(job.DriverId) === '0';
             if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus) && !orphanedDS) {
               job.BookingStatus = 'Assigned';
-              if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString().replace('T',' ').slice(0,19);
+              if (!job.AcceptedAt) job.AcceptedAt = nowNZ();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
@@ -3053,19 +3061,19 @@ const server = http.createServer(async (req, res) => {
                         (job.BookingStatus === 'Pending' && !orphanedDS))) {
               job.BookingStatus = 'Active';
               activatedOneDS = true;
-              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString().replace('T',' ').slice(0,19);
+              if (!job.ActiveAt) job.ActiveAt = nowNZ();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
-              if (!job.PickingAt) job.PickingAt = new Date().toISOString().replace('T',' ').slice(0,19);
+              if (!job.PickingAt) job.PickingAt = nowNZ();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
                 // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
-                job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                job.JobCompleteTime = nowNZ() + '.';
                 _stampDriverNameDS(job);
                 const _cIdxDS = jobStore.indexOf(job);
                 if (_cIdxDS !== -1) jobStore.splice(_cIdxDS, 1);
@@ -3105,7 +3113,7 @@ const server = http.createServer(async (req, res) => {
                     // Driver arrived at pickup then cancelled — close as Cancelled (terminal).
                     job.BookingStatus   = 'Cancelled';
                     job.CancelledBy     = 'Driver';
-                    job.JobCompleteTime = new Date().toISOString().replace('T',' ').slice(0,19) + '.';
+                    job.JobCompleteTime = nowNZ() + '.';
                     const _cIdxDs = jobStore.indexOf(job);
                     if (_cIdxDs !== -1) jobStore.splice(_cIdxDs, 1);
                     closedJobStore.push(job);

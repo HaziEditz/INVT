@@ -430,7 +430,7 @@
                 <div class="modal-body" style="padding:0;">
                     <div class="row" style="margin:0;">
                         <div class="col-lg-12 col-md-12 col-sm-12" style="padding:0 12px; height:460px; overflow-y:auto;">
-                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="getCardStyle(value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
+                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -497,7 +497,7 @@
 
                                                              
                                                                 
-                                                                </div><span class="assign-ctrl-wrap label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'sp')">
+                                                                </div><span class="assign-ctrl-wrap label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'sp')">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
 
@@ -823,7 +823,7 @@
 
                                                         </div>
                                                     </div>
-                    <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs | filter : test">
+                    <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs | filter : test">
                                                            
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -3038,7 +3038,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="getCardStyle(value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -3104,7 +3104,7 @@ $(document).ready(function() {
                                                                 </select>
  
                                                                  
-                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
+                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
 
@@ -3205,7 +3205,7 @@ $(document).ready(function() {
                                                 </div>
                                                 <div class="tab-pane vowali " id="tab9">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-style="getCardStyle(value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -3272,7 +3272,7 @@ $(document).ready(function() {
 
 
                                                                 
-                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
+                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
 
@@ -3658,7 +3658,7 @@ $(document).ready(function() {
                                                     
                                                 </div>
                                                 <div class="tab-pane " id="tab8">
-                                                          <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs">
+                                                          <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs">
                                                            
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -15714,9 +15714,7 @@ $(document).ready(function() {
                 var now = new Date();
                 var h = booking.getHours();
                 var mi = booking.getMinutes();
-                var ampm = h >= 12 ? 'PM' : 'AM';
-                h = h % 12 || 12;
-                var timeStr = h + ':' + (mi < 10 ? '0' : '') + mi + ' ' + ampm;
+                var timeStr = String(h).padStart(2,'0') + ':' + (mi < 10 ? '0' : '') + mi;
                 var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 var bookMid  = new Date(booking.getFullYear(), booking.getMonth(), booking.getDate());
                 var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
@@ -15743,9 +15741,7 @@ $(document).ready(function() {
                 if (isNaN(bdt.getTime())) return '';
                 var dispAt = new Date(bdt.getTime() - db * 60000);
                 var h = dispAt.getHours(), mi = dispAt.getMinutes();
-                var ampm = h >= 12 ? 'PM' : 'AM';
-                h = h % 12 || 12;
-                return '→ ' + h + ':' + (mi < 10 ? '0' : '') + mi + ' ' + ampm;
+                return '→ ' + String(h).padStart(2,'0') + ':' + (mi < 10 ? '0' : '') + mi;
             };
             // Returns true when dispatch window is currently open (now >= pickup - dispatchBefore)
             $scope.dispatchWindowOpen = function (DispatchTimebefore, BookingDateTime) {
