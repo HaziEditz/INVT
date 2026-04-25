@@ -2992,7 +2992,7 @@ const server = http.createServer(async (req, res) => {
                 drivername:    drivername    || driverId,
                 vehiclenumber: vehiclenumber || driverId,
                 vehicletype:   (param('vehicletype') || '').toString().trim() || '',
-                zonename:      zonename || (_savedZnDS && _savedZnDS.zonename) || '',
+                zonename:      zonenameDS || (_savedZnDS && _savedZnDS.zonename) || '',
                 zoneid:        (_savedZnDS && _savedZnDS.zoneid) || '',
                 vehiclestatus: newStatus,
                 zonequeue:     0,
