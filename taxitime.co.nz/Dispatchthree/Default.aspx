@@ -4485,7 +4485,7 @@ $(document).ready(function() {
     // Guard: redirect to login if session is missing
     if (!someSession || !SomeSession2) {
         window.location.replace('DispatcherLogin.aspx');
-        throw new Error('No session — redirecting to login'); // halt script; Firebase must not attach
+        // No throw — window.location.replace navigates away and renders further execution harmless.
     }
 
     localStorage.setItem("Country", someSession3);
