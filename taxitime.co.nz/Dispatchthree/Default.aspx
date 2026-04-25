@@ -5748,6 +5748,7 @@ $(document).ready(function() {
                 colorselected = '#ff3333';
                 ImageUrl = 'img/red.png';  
             }
+            if (typeof google === 'undefined' || !google.maps) return;
             var latlng = new google.maps.LatLng(parseFloat(childsnapshot.val().lat), parseFloat(childsnapshot.val().lng));
          
             if(markers[childsnapshot.val().vehiclenumber]){
