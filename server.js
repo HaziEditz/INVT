@@ -2520,14 +2520,20 @@ const server = http.createServer(async (req, res) => {
         //    sent a [DriverStatusChanged] yet (idle drivers after server restart).
         // The last-driver sign-out case (ZONE_DRIVERS → empty after all leave) is
         // handled by the 30-second child_removed fallback timer in the frontend.
-        const _onlineIds = (_serverAgeMs > 90000 && ZONE_DRIVERS.length > 0)
-          ? ZONE_DRIVERS.map(d => ({
-              id:    String(d.driverid  || ''),
-              vid:   String(d.VehicleId || ''),
-              zone:  d.zonename  || '',
-              zoneq: d.zonequeue || 0,
-            }))
-          : [];
+        // dt6 semantics:
+        //   Array with entries → server knows these drivers are online; remove any not in list
+        //   null              → server has been running > 90 s and confirms NO drivers are online; clear board
+        //   []                → server just started (< 90 s warm-up); don't remove anyone yet
+        const _onlineIds = _serverAgeMs > 90000
+          ? (ZONE_DRIVERS.length > 0
+              ? ZONE_DRIVERS.map(d => ({
+                  id:    String(d.driverid  || ''),
+                  vid:   String(d.VehicleId || ''),
+                  zone:  d.zonename  || '',
+                  zoneq: d.zonequeue || 0,
+                }))
+              : null)   // confirmed empty — signal client to clear board
+          : [];         // warm-up period — don't act yet
         const vehicleStatus = {
           dt1: [{ All: ZONE_DRIVERS.length }],
           dt2: [{ Busy: busyCount }],

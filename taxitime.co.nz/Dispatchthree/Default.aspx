@@ -4628,13 +4628,27 @@ $(document).ready(function() {
                 if ($res["dt5"].length != []) {
                     $("#AwayVehicles").text($res["dt5"][0].Away);
                 }
-                // dt6: server-side list of currently-online driver IDs (from ZONE_DRIVERS).
-                // If non-empty, any driver in the real-time display who is NOT in this list
-                // has already logged out on the server side — remove them from the board
-                // immediately instead of waiting for the Firebase child_removed 2-min delay.
+                // dt6 semantics from server:
+                //   Array with entries → known online drivers; remove any not in list
+                //   null              → server confirmed NO drivers online (last driver signed out); clear board
+                //   []                → server in warm-up (< 90 s); don't remove anyone yet
                 var _onlineIds = $res["dt6"];
-                if (_onlineIds && _onlineIds.length > 0) {
-                    var _sc6 = angular.element(document.getElementById('myangular')).scope();
+                var _sc6 = angular.element(document.getElementById('myangular')).scope();
+                if (_onlineIds === null) {
+                    // Last driver signed out — server confirmed board should be empty
+                    if (_sc6 && _sc6.driverdatarealx && _sc6.driverdatarealx.length > 0) {
+                        console.log('[VehiclesStatus] server confirmed 0 drivers — clearing board');
+                        _sc6.driverdatarealx.forEach(function(d) {
+                            if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
+                                markers[d.vehiclenumber].setMap(null);
+                            }
+                        });
+                        _sc6.driverdatarealx = [];
+                        _sc6.driverlist = [];
+                        if (typeof _sc6.zonetablez === 'function') _sc6.zonetablez();
+                        if (!_sc6.$$phase) _sc6.$digest();
+                    }
+                } else if (_onlineIds && _onlineIds.length > 0) {
                     if (_sc6 && _sc6.driverdatarealx && _sc6.driverdatarealx.length > 0) {
                         var _changed = false;
                         _sc6.driverdatarealx = _sc6.driverdatarealx.filter(function(d) {
@@ -4668,6 +4682,7 @@ $(document).ready(function() {
                         }
                     }
                 }
+                // _onlineIds === [] → server warm-up period, take no action
 
                 // ── Ghost-driver sweep ────────────────────────────────────────────────────
                 // Drivers whose Firebase node was never deleted (app closed without sign-out)
@@ -5653,9 +5668,11 @@ $(document).ready(function() {
         _driverLastSeen[data.key] = Date.now();
         // Handle nested structure: { firebaseUID: { driverid, vehiclenumber, ... } }
         // The outer key IS the Firebase auth UID — capture it as PlayerId before unwrapping.
+        // IMPORTANT: only unwrap when the first value is itself an object. Partial updates
+        // like { vehiclestatus: 'Offline' } must NOT be unwrapped (they are direct updates).
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
-            if (keys.length > 0) {
+            if (keys.length > 0 && typeof driverData[keys[0]] === 'object' && driverData[keys[0]] !== null) {
                 var _fbUid = keys[0];
                 driverData = driverData[_fbUid];
                 // Store the Firebase UID so notifications go to the right path
@@ -5701,9 +5718,11 @@ $(document).ready(function() {
         if (!driverData || typeof driverData !== 'object') return;
         // Handle nested structure: { firebaseUID: { driverid, vehiclenumber, ... } }
         // Capture the Firebase auth UID as PlayerId before unwrapping.
+        // IMPORTANT: only unwrap when the first value is itself an object. Partial updates
+        // like { vehiclestatus: 'Offline' } must NOT be unwrapped (they are direct updates).
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
-            if (keys.length > 0) {
+            if (keys.length > 0 && typeof driverData[keys[0]] === 'object' && driverData[keys[0]] !== null) {
                 var _fbUid = keys[0];
                 driverData = driverData[_fbUid];
                 if (driverData && typeof driverData === 'object' && !driverData.PlayerId) {
@@ -5715,6 +5734,8 @@ $(document).ready(function() {
             driverData.PlayerId = String(driverData.driverid);
         }
         if (!driverData || typeof driverData !== 'object') return;
+        // Attach the Firebase key so adddriverremove can match by it if VehicleId is absent
+        if (!driverData._fbKey) driverData._fbKey = data.key;
         var childsnapshot = { val: function() { return driverData; } };
         {
             var _scChanged = angular.element(document.getElementById('myangular')).scope();
@@ -8959,10 +8980,23 @@ $(document).ready(function() {
             for(var i = 0; i < $scope.driverdatarealx.length; i++) {
                 var d = $scope.driverdatarealx[i];
                 var matchById  = datacom.VehicleId  && String(d.VehicleId) === String(datacom.VehicleId);
-                var matchByKey = vehicleKey          && String(d.VehicleId) === String(vehicleKey);
+                // vehicleKey matches VehicleId, driverid, PlayerId, or vehiclenumber
+                var matchByKey = vehicleKey && (
+                    String(d.VehicleId)    === String(vehicleKey) ||
+                    String(d.driverid)     === String(vehicleKey) ||
+                    String(d.PlayerId||'') === String(vehicleKey) ||
+                    String(d.vehiclenumber||'') === String(vehicleKey)
+                );
+                // Also try _fbKey attached by child_changed listener
+                var matchByFbKey = datacom._fbKey && (
+                    String(d.VehicleId)    === String(datacom._fbKey) ||
+                    String(d.driverid)     === String(datacom._fbKey) ||
+                    String(d.PlayerId||'') === String(datacom._fbKey) ||
+                    String(d.vehiclenumber||'') === String(datacom._fbKey)
+                );
                 // Also handle driver app sending DriverId instead of driverid
                 var matchByDriverAppId = datacom.DriverId && (String(d.driverid) === String(datacom.DriverId) || String(d.VehicleId) === String(datacom.DriverId));
-                if (matchById || matchByKey || matchByDriverAppId) {
+                if (matchById || matchByKey || matchByFbKey || matchByDriverAppId) {
                     $scope.driverdatarealx.splice(i, 1);
                     $scope.driverlist = $scope.driverdatarealx;
                     var vnum = datacom.vehiclenumber || datacom.VehicleNo || '';
