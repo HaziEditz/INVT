@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Taxi Time — Dispatcher Login</title>
+  <title>BookaWaka — Dispatcher Login</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
@@ -332,9 +332,9 @@
   <!-- ── Left: Branding ── -->
   <div class="brand-panel">
     <div class="brand-logo">
-      <div class="taxi-icon">🚕</div>
+      <div class="taxi-icon">🚗</div>
       <div>
-        <div class="brand-name">Taxi Time</div>
+        <div class="brand-name">BookaWaka</div>
         <div class="brand-tagline">Dispatch Console</div>
       </div>
     </div>
@@ -384,7 +384,7 @@
           type="email"
           id="inputEmail"
           name="email"
-          placeholder="dispatch@taxitime.co.nz"
+          placeholder="dispatch@bookawaka.co.nz"
           autocomplete="email"
           required
         />
@@ -408,12 +408,12 @@
     <div class="divider">or</div>
 
     <div class="signup-card">
-      <p>New to Taxi Time?<br />Set up your company account in minutes.</p>
+      <p>New to BookaWaka?<br />Set up your company account in minutes.</p>
       <button type="button" class="btn-contact" onclick="openSignup()">Create Account</button>
     </div>
 
     <div class="footer-note">
-      &copy; 2026 Taxi Time &mdash; Invercargill, New Zealand
+      &copy; 2026 BookaWaka &mdash; New Zealand
     </div>
   </div>
 

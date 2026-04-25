@@ -1,8 +1,8 @@
-# INVT - Taxi Dispatch System ("Taxi Time")
+# BookaWaka — Taxi Dispatch System
 
 ## Project Overview
 
-A web-based Taxi Dispatch System for "Taxi Time" (taxitime.co.nz). Provides a real-time dispatch console for managing taxi bookings, vehicles, and drivers — styled as a professional Uber/Bolt-style dashboard.
+A web-based Taxi Dispatch System for "BookaWaka" (taxitime.co.nz). Provides a real-time dispatch console for managing taxi bookings, vehicles, and drivers — styled as a professional Uber/Bolt-style dashboard.
 
 ## Tech Stack
 

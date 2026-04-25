@@ -2388,7 +2388,7 @@ const server = http.createServer(async (req, res) => {
         // Return company settings, vehicle types (dt3), tariff list (dt4).
         const settings = {
           dt1: [{
-            CompanyName: 'Taxi Time',
+            CompanyName: 'BookaWaka',
             DirectBookingIsAllowed: '1',
             JobAllowedToAssignToaDriver: '1',
             AutoDispatch: '0',

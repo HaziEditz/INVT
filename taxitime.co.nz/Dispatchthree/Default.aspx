@@ -39,7 +39,7 @@
       <script src="DeletePopup/Delete.js"></script>
     <link href="DeletePopup/style2.css" rel="stylesheet" />
     <!-- Title -->
-    <title>360 Taxi Dispatch</title>
+    <title>BookaWaka — Dispatch</title>
     <link rel="stylesheet" href="assets/fonts/fonts/font-awesome.min.css">
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.6.9/angular.min.js"></script>
     <!-- Sidemenu Css -->
@@ -2485,7 +2485,7 @@ $(document).ready(function() {
                 <div class="container-fluid">
                     <div class="d-flex">
                             <a  href="#">
-                            <img src="images/logo3.png" class="header-brand-img" alt="360 TAXI">
+                            <img src="images/logo3.png" class="header-brand-img" alt="BookaWaka">
                              </a>
                            <button id="btnCreateJob" class="btn btn-danger" data-toggle="modal" ng-click="showfirst();"  >Create Job</button>
                         <p class="label label-success  "  style="padding: 10px;
@@ -5469,7 +5469,7 @@ $(document).ready(function() {
  
     console.log(SomeSession2);
      
-    // ── Taxi Time Notification Manager ───────────────────────────────────────
+    // ── BookaWaka Notification Manager ───────────────────────────────────────
     window._TT = (function() {
         var ITEMS  = [];
         var UNREAD = 0;
@@ -5569,7 +5569,7 @@ $(document).ready(function() {
         function _browserNotify(title, body) {
             try {
                 if ('Notification' in window && Notification.permission === 'granted') {
-                    new Notification('Taxi Time — ' + title, { body: body || '' });
+                    new Notification('BookaWaka — ' + title, { body: body || '' });
                 }
             } catch(e) {}
         }
@@ -6266,7 +6266,7 @@ $(document).ready(function() {
             ? 'You are now Away — you rejected the job. Tap Available when ready to accept jobs.'
             : 'You are now Away — job not accepted in time. Tap Available when ready to accept jobs.';
         var now = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
-        var bookingidStr = 'Taxi Time,' + msg + ',' + now + ',0,Dispatcher';
+        var bookingidStr = 'BookaWaka,' + msg + ',' + now + ',0,Dispatcher';
         var db = firebase.database();
         db.ref('/notification/' + _fbUid).remove().then(function() {
             var updates = {};
