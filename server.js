@@ -79,6 +79,13 @@ setInterval(() => {
     } else if (r.status === 'grace' && r.graceEnd && now > r.graceEnd) {
       r.status = 'deactivated';
       console.log(`[accounts] ${r.email} grace expired → deactivated`);
+      // Revoke Firebase adminAccess async
+      if (r.ownerUid && r.companyId && r.passwordHash) {
+        firebaseSignIn(r.email, r.passwordHash)
+          .then(({ idToken }) => firebaseDbDelete(`adminAccess/${r.companyId}/${r.ownerUid}`, idToken))
+          .then(() => console.log(`[accounts] Firebase: revoked adminAccess/${r.companyId}/${r.ownerUid}`))
+          .catch(e => console.log(`[accounts] Firebase revoke warning (auto-deactivate) for ${r.email}: ${e.message}`));
+      }
       changed = true;
     }
   });
@@ -87,6 +94,86 @@ setInterval(() => {
 
 // Super-admin key — set BW_ADMIN_KEY env var in Replit Secrets to secure the endpoints
 const ADMIN_KEY = process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026';
+
+// ─── Firebase REST helpers ────────────────────────────────────────────────────
+const FB_API_KEY  = 'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
+const FB_DB_URL   = 'https://taxilatest.firebaseio.com';
+
+function fbRequest(url, method, payload) {
+  return new Promise((resolve, reject) => {
+    const body = payload ? JSON.stringify(payload) : null;
+    const parsed = new URL(url);
+    const opts = {
+      hostname: parsed.hostname,
+      path:     parsed.pathname + parsed.search,
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (body) opts.headers['Content-Length'] = Buffer.byteLength(body);
+    const req = https.request(opts, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch(e) { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function firebaseCreateUser(email, password) {
+  const r = await fbRequest(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB_API_KEY}`,
+    'POST', { email, password, returnSecureToken: true }
+  );
+  if (r.status !== 200) {
+    const code = r.body?.error?.message || 'UNKNOWN';
+    // If email already exists, sign in instead so we still get uid+token
+    if (code === 'EMAIL_EXISTS') return firebaseSignIn(email, password);
+    throw new Error(`Firebase createUser failed: ${code}`);
+  }
+  return { uid: r.body.localId, idToken: r.body.idToken };
+}
+
+async function firebaseSignIn(email, password) {
+  const r = await fbRequest(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FB_API_KEY}`,
+    'POST', { email, password, returnSecureToken: true }
+  );
+  if (r.status !== 200) {
+    const code = r.body?.error?.message || 'UNKNOWN';
+    throw new Error(`Firebase signIn failed: ${code}`);
+  }
+  return { uid: r.body.localId, idToken: r.body.idToken };
+}
+
+// If BW_FIREBASE_SECRET env var is set, use it as admin token (bypasses rules).
+// Get it from: Firebase Console → Project Settings → Service Accounts → Database Secrets.
+// Otherwise falls back to the user's own ID token (requires rules to be deployed).
+function fbAuthToken(idToken) {
+  return process.env.BW_FIREBASE_SECRET || idToken;
+}
+
+async function firebaseDbSet(path, value, idToken) {
+  const r = await fbRequest(
+    `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
+    'PUT', value
+  );
+  if (r.status !== 200) throw new Error(`Firebase DB write failed: ${JSON.stringify(r.body)}`);
+  return r.body;
+}
+
+async function firebaseDbDelete(path, idToken) {
+  const r = await fbRequest(
+    `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
+    'DELETE', null
+  );
+  if (r.status !== 200 && r.status !== 204) throw new Error(`Firebase DB delete failed: ${JSON.stringify(r.body)}`);
+  return true;
+}
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
 // Booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
@@ -793,15 +880,34 @@ const server = http.createServer(async (req, res) => {
         }
         const now = Date.now();
         const companyId = String(now).slice(-4) + String(Math.floor(Math.random() * 90) + 10);
+
+        // Create (or sign in to) Firebase Auth account, then gate adminAccess in DB
+        let ownerUid = reg.ownerUid || null;
+        let fbError  = null;
+        try {
+          const { uid, idToken } = await firebaseCreateUser(reg.email, reg.passwordHash);
+          ownerUid = uid;
+          await firebaseDbSet(`adminAccess/${companyId}/${uid}`, true, idToken);
+          console.log(`[admin] Firebase: created auth user ${uid} and wrote adminAccess/${companyId}/${uid}`);
+        } catch(e) {
+          fbError = e.message;
+          console.log(`[admin] Firebase provisioning warning for ${reg.email}: ${e.message}`);
+        }
+
         reg.status     = 'trial';
         reg.companyId  = companyId;
+        reg.ownerUid   = ownerUid;
         reg.approvedAt = now;
         reg.trialStart = now;
         reg.trialEnd   = now + 10 * 24 * 60 * 60 * 1000;
         reg.graceEnd   = null;
         saveRegistrations();
-        console.log(`[admin] approved registration ${regId} → companyId=${companyId}, trial until ${new Date(reg.trialEnd).toISOString()}`);
-        jsonReply(res, { ok: true, companyId, trialEnd: reg.trialEnd, message: `Approved. 10-day trial starts now.` });
+        console.log(`[admin] approved registration ${regId} → companyId=${companyId}, uid=${ownerUid}, trial until ${new Date(reg.trialEnd).toISOString()}`);
+        jsonReply(res, {
+          ok: true, companyId, ownerUid, trialEnd: reg.trialEnd,
+          message: 'Approved. 10-day trial starts now.',
+          fbWarning: fbError || undefined,
+        });
         return;
       }
 
@@ -833,6 +939,13 @@ const server = http.createServer(async (req, res) => {
       if (action === 'deactivate' && req.method === 'POST') {
         reg.status = 'deactivated';
         saveRegistrations();
+        // Remove Firebase adminAccess node if we have the uid and password
+        if (reg.ownerUid && reg.companyId && reg.passwordHash) {
+          firebaseSignIn(reg.email, reg.passwordHash)
+            .then(({ idToken }) => firebaseDbDelete(`adminAccess/${reg.companyId}/${reg.ownerUid}`, idToken))
+            .then(() => console.log(`[admin] Firebase: deleted adminAccess/${reg.companyId}/${reg.ownerUid}`))
+            .catch(e => console.log(`[admin] Firebase revoke warning for ${reg.email}: ${e.message}`));
+        }
         console.log(`[admin] deactivated account ${regId} (${reg.email})`);
         jsonReply(res, { ok: true, message: 'Account deactivated.' });
         return;

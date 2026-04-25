@@ -22,7 +22,7 @@
   },
   {
     "id": "REG-1777118567416",
-    "status": "pending",
+    "status": "rejected",
     "submittedAt": 1777118567416,
     "company": "Invercargill Taxis Southland",
     "name": "Safinah Mohammed",
@@ -38,12 +38,12 @@
     "trialStart": null,
     "trialEnd": null,
     "graceEnd": null,
-    "rejectedAt": null,
-    "rejectedReason": null
+    "rejectedAt": 1777119433634,
+    "rejectedReason": "Does not meet requirements"
   },
   {
     "id": "REG-1777118637820",
-    "status": "pending",
+    "status": "rejected",
     "submittedAt": 1777118637820,
     "company": "Invercargill Taxis Southland",
     "name": "Safinah Mohammed",
@@ -59,7 +59,29 @@
     "trialStart": null,
     "trialEnd": null,
     "graceEnd": null,
+    "rejectedAt": 1777119425478,
+    "rejectedReason": "Service area not covered"
+  },
+  {
+    "id": "REG-1777119455429",
+    "status": "trial",
+    "submittedAt": 1777119455429,
+    "company": "Firebase Test Co",
+    "name": "Alice Test",
+    "email": "alicetest.bw2026@gmail.com",
+    "phone": "",
+    "passwordHash": "Test1234!",
+    "businessNumber": "",
+    "fleetSize": "",
+    "area": "",
+    "country": "NZ",
+    "companyId": "663539",
+    "approvedAt": 1777119456635,
+    "trialStart": 1777119456635,
+    "trialEnd": 1777983456635,
+    "graceEnd": null,
     "rejectedAt": null,
-    "rejectedReason": null
+    "rejectedReason": null,
+    "ownerUid": "AoiINxMMbfcNAfrxr5NJjnCXKpA3"
   }
 ]
