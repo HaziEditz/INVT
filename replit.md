@@ -37,6 +37,43 @@ Default key (override with env var `BW_ADMIN_KEY`): `bookawaka-admin-2026`
 | POST | `/admin/registrations/:id/activate` | Mark as paid / fully active |
 | POST | `/admin/registrations/:id/deactivate` | Manual deactivation |
 | GET | `/admin/accounts` | List all approved/active/trial/grace/deactivated accounts |
+| POST | `/admin/registrations/:id/fix-firebase` | Repair: write `users/{uid}/companyId` to Firebase for accounts approved before the multi-tenancy fix |
+
+### Session API (Dispatch Console)
+`POST /api/session/login` — called automatically by `DispatcherLogin.aspx` after successful Firebase auth or mock login.  
+Body: `{ companyId: "417942", uid: "firebase-uid" }`  
+Sets an **HttpOnly signed session cookie** (`BW_SID`) that identifies the company for all subsequent DataManager requests — enabling per-company data isolation.  
+The cookie is signed with `ADMIN_KEY` (HMAC-SHA256), expires in 7 days, and survives server restarts.
+
+## Multi-tenancy & Per-Company Data Isolation
+
+Each approved company gets a **unique 6-digit company ID** (collision-proof, checked against all existing IDs). On approval, the server:
+1. Creates a Firebase Auth account
+2. Writes `adminAccess/{companyId}/{uid}: true` (for admin/owner panel auth)
+3. Writes `users/{uid}/companyId: {companyId}` (so the dispatch console login lookup works)
+4. Writes `users/{uid}/companyName: {companyName}` (display name)
+
+**Login flow** (`DispatcherLogin.aspx`):
+1. Firebase Auth sign-in → read `users/{uid}/companyId` from Firebase DB
+2. Store `TT_CId` in localStorage
+3. Call `/api/session/login` to set a signed session cookie
+4. Redirect to `Default.aspx`
+
+**Server-side isolation**: Every DataManager request reads the `BW_SID` cookie to get the company ID. All job reads filter to that company's jobs. All job writes tag new jobs with the company ID.
+
+### Firebase Rules — MUST be deployed after any changes to `database.rules.json`
+The `users` path in Firebase requires these rules (already in `database.rules.json`, needs deploy):
+```json
+"users": {
+  "$uid": {
+    ".read": "auth != null && auth.uid === $uid",
+    ".write": "auth != null && auth.uid === $uid"
+  }
+}
+```
+**To deploy:** Run `firebase deploy --only database` from the project root, or paste rules in Firebase Console → Realtime Database → Rules.
+
+**Shortcut:** Set `BW_FIREBASE_SECRET` env var (Firebase DB Legacy Secret from Console → Project Settings → Service Accounts → Database Secrets) to bypass rules entirely for server-side writes.
 
 ### Account Status API (for all Repls)
 Public endpoint — no auth required:  

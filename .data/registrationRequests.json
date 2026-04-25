@@ -1,7 +1,7 @@
 [
   {
     "id": "REG-1777118438459",
-    "status": "trial",
+    "status": "deactivated",
     "submittedAt": 1777118438459,
     "company": "Test Taxis",
     "name": "Joe Bloggs",
@@ -64,7 +64,7 @@
   },
   {
     "id": "REG-1777119455429",
-    "status": "trial",
+    "status": "deactivated",
     "submittedAt": 1777119455429,
     "company": "Firebase Test Co",
     "name": "Alice Test",
@@ -83,5 +83,49 @@
     "rejectedAt": null,
     "rejectedReason": null,
     "ownerUid": "AoiINxMMbfcNAfrxr5NJjnCXKpA3"
+  },
+  {
+    "id": "REG-1777119773110",
+    "status": "active",
+    "submittedAt": 1777119773110,
+    "company": "Invercargill Taxis Southland LTD",
+    "name": "Hasnat Abdullah",
+    "email": "haziiscool12@gmail.com",
+    "phone": "0210497275",
+    "passwordHash": "123456",
+    "businessNumber": "1234567",
+    "fleetSize": "12",
+    "area": "Invercargill",
+    "country": "NZ",
+    "companyId": "417942",
+    "approvedAt": 1777119794179,
+    "trialStart": 1777119794179,
+    "trialEnd": 1777983794179,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null,
+    "ownerUid": null
+  },
+  {
+    "id": "REG-1777120835204",
+    "status": "active",
+    "submittedAt": 1777120835204,
+    "company": "Invercargill Taxis Southland",
+    "name": "Safinah Mohammed",
+    "email": "hasnat.abdullahcool@gmail.com",
+    "phone": "021304322",
+    "passwordHash": "123456",
+    "businessNumber": "1234567",
+    "fleetSize": "12",
+    "area": "Invercargill",
+    "country": "NZ",
+    "companyId": "714479",
+    "approvedAt": 1777120877144,
+    "trialStart": 1777120877144,
+    "trialEnd": 1777984877144,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null,
+    "ownerUid": "dBJKSLmLY8RZ8C523xAsCfgZcgA2"
   }
 ]

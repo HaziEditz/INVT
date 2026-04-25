@@ -605,7 +605,17 @@
           localStorage.setItem('TT_Country', 'NZ');
           localStorage.setItem('TT_CId',     cid);
           localStorage.setItem('Country',    'NZ');
+          // Establish server-side session cookie so the dispatch console only sees this company's data
+          return fetch('/api/session/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ companyId: cid, uid: user.uid }),
+            credentials: 'same-origin'
+          });
+        }).then(function() {
           window.location.replace('Default.aspx');
+        }).catch(function() {
+          window.location.replace('Default.aspx'); // proceed even if session setup fails
         });
       }
     });
@@ -624,12 +634,23 @@
         if (Array.isArray(arr) && arr.length > 0 && arr[0].CompanyId) {
           var u    = arr[0];
           var name = ((u.UserFName || '') + ' ' + (u.UserLName || '')).trim() || email.split('@')[0];
+          var cid  = String(u.CompanyId || '1216');
           localStorage.setItem('TT_Name',    name);
           localStorage.setItem('TT_DId',     String(u.Id      || '1051'));
           localStorage.setItem('TT_Country', u.Country         || 'NZ');
-          localStorage.setItem('TT_CId',     String(u.CompanyId|| '1216'));
+          localStorage.setItem('TT_CId',     cid);
           localStorage.setItem('Country',    u.Country         || 'NZ');
-          window.location.href = 'Default.aspx';
+          // Establish server-side session cookie for per-company data isolation
+          fetch('/api/session/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ companyId: cid, uid: String(u.Id || '') }),
+            credentials: 'same-origin'
+          }).then(function() {
+            window.location.href = 'Default.aspx';
+          }).catch(function() {
+            window.location.href = 'Default.aspx';
+          });
         } else {
           resetBtn();
           showError('Sign-in failed. Please check your credentials and try again.');

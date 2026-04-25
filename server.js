@@ -13,6 +13,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PORT = 5000;
 const HOST = '0.0.0.0';
@@ -94,6 +95,52 @@ setInterval(() => {
 
 // Super-admin key — set BW_ADMIN_KEY env var in Replit Secrets to secure the endpoints
 const ADMIN_KEY = process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026';
+
+// ─── Session token helpers ─────────────────────────────────────────────────────
+// Stateless signed cookies: companyId.expiry.hmac — survives server restarts.
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+function createSessionToken(companyId) {
+  const expiry = Date.now() + SESSION_TTL_MS;
+  const payload = `${companyId}.${expiry}`;
+  const sig = crypto.createHmac('sha256', ADMIN_KEY).update(payload).digest('hex');
+  return `${payload}.${sig}`;
+}
+function parseSessionToken(token) {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [companyId, expiry, sig] = parts;
+  const payload = `${companyId}.${expiry}`;
+  const expected = crypto.createHmac('sha256', ADMIN_KEY).update(payload).digest('hex');
+  if (sig !== expected) return null;
+  if (Date.now() > parseInt(expiry, 10)) return null;
+  return companyId;
+}
+function parseCookieString(str) {
+  const out = {};
+  (str || '').split(';').forEach(pair => {
+    const idx = pair.indexOf('=');
+    if (idx < 0) return;
+    out[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+  });
+  return out;
+}
+function getSessionCompanyId(req) {
+  const cookies = parseCookieString(req.headers.cookie || '');
+  return parseSessionToken(cookies['BW_SID'] || '') || null;
+}
+
+// ─── Collision-proof company ID generator ─────────────────────────────────────
+function generateCompanyId() {
+  const existing = new Set(
+    (registrationStore || []).map(r => r.companyId).filter(Boolean)
+  );
+  let id;
+  do {
+    id = String(100000 + Math.floor(Math.random() * 900000)); // 6-digit, 100000-999999
+  } while (existing.has(id));
+  return id;
+}
 
 // ─── Firebase REST helpers ────────────────────────────────────────────────────
 const FB_API_KEY  = 'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
@@ -853,7 +900,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Single-registration actions — parse /admin/registrations/:id[/action]
-    const regMatch = urlPath.match(/^\/admin\/registrations\/([^/]+)(\/\w+)?$/);
+    const regMatch = urlPath.match(/^\/admin\/registrations\/([^/]+)(\/[\w-]+)?$/);
     if (regMatch) {
       const regId  = regMatch[1];
       const action = (regMatch[2] || '').replace('/', '');
@@ -879,7 +926,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const now = Date.now();
-        const companyId = String(now).slice(-4) + String(Math.floor(Math.random() * 90) + 10);
+        const companyId = generateCompanyId();
 
         // Create (or sign in to) Firebase Auth account, then gate adminAccess in DB
         let ownerUid = reg.ownerUid || null;
@@ -887,8 +934,12 @@ const server = http.createServer(async (req, res) => {
         try {
           const { uid, idToken } = await firebaseCreateUser(reg.email, reg.passwordHash);
           ownerUid = uid;
+          // adminAccess: lets the admin/owner panel verify company membership
           await firebaseDbSet(`adminAccess/${companyId}/${uid}`, true, idToken);
-          console.log(`[admin] Firebase: created auth user ${uid} and wrote adminAccess/${companyId}/${uid}`);
+          // users/{uid}: dispatch console login reads companyId from here
+          await firebaseDbSet(`users/${uid}/companyId`,   companyId,    idToken);
+          await firebaseDbSet(`users/${uid}/companyName`, reg.company || '', idToken);
+          console.log(`[admin] Firebase: created auth user ${uid}, wrote adminAccess & users/${uid}/companyId=${companyId}`);
         } catch(e) {
           fbError = e.message;
           console.log(`[admin] Firebase provisioning warning for ${reg.email}: ${e.message}`);
@@ -948,6 +999,56 @@ const server = http.createServer(async (req, res) => {
         }
         console.log(`[admin] deactivated account ${regId} (${reg.email})`);
         jsonReply(res, { ok: true, message: 'Account deactivated.' });
+        return;
+      }
+
+      // POST /admin/registrations/:id/fix-firebase
+      // Repair: write users/{uid}/companyId to Firebase for already-approved accounts
+      // that were approved before this fix was deployed. Safe to call multiple times.
+      if (action === 'fix-firebase' && req.method === 'POST') {
+        if (!reg.companyId || !reg.passwordHash) {
+          jsonReply(res, { error: 'Account is missing companyId or password hash — cannot repair.' });
+          return;
+        }
+        let fbError = null;
+        let uid = reg.ownerUid || null;
+        try {
+          // If uid missing, try sign-in first; if that fails, create the user
+          let idToken;
+          if (uid) {
+            ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+          } else {
+            try {
+              ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+              // Sign-in succeeded — get uid from the token response
+              const tokenData = JSON.parse(Buffer.from(idToken.split('.')[1] + '==', 'base64').toString());
+              uid = tokenData.user_id || tokenData.sub || uid;
+            } catch(_) {
+              // Sign-in failed — create the Firebase user
+              const created = await firebaseCreateUser(reg.email, reg.passwordHash);
+              uid = created.uid;
+              idToken = created.idToken;
+            }
+          }
+          if (!uid) {
+            // Get uid from fresh sign-in token
+            ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+          }
+          // Re-sign in to get a fresh idToken (needed if uid was recovered above)
+          const fresh = await firebaseSignIn(reg.email, reg.passwordHash);
+          idToken = fresh.idToken;
+          uid = uid || fresh.uid;
+          await firebaseDbSet(`adminAccess/${reg.companyId}/${uid}`, true, idToken);
+          await firebaseDbSet(`users/${uid}/companyId`,   reg.companyId,     idToken);
+          await firebaseDbSet(`users/${uid}/companyName`, reg.company || '', idToken);
+          // Persist the uid if we just recovered it
+          if (!reg.ownerUid) { reg.ownerUid = uid; saveRegistrations(); }
+          console.log(`[admin] fix-firebase: wrote users/${uid}/companyId=${reg.companyId} for ${reg.email}`);
+        } catch(e) {
+          fbError = e.message;
+          console.log(`[admin] fix-firebase error for ${reg.email}: ${e.message}`);
+        }
+        jsonReply(res, { ok: !fbError, companyId: reg.companyId, uid, fbError: fbError || undefined });
         return;
       }
     }
@@ -1011,6 +1112,44 @@ const server = http.createServer(async (req, res) => {
     saveRegistrations();
     console.log(`200: POST ${urlPath} -> new registration [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
     jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
+    return;
+  }
+
+  // POST /api/session/login  — called by dispatch console after Firebase auth
+  // Body: { companyId, uid }  (both from localStorage / Firebase)
+  // Sets an HttpOnly signed session cookie so every subsequent DataManager request
+  // carries the company ID without needing it in every POST body.
+  if (urlPath === '/api/session/login' && req.method === 'POST') {
+    let body = {};
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw);
+    } catch(e) { /* empty body */ }
+
+    const companyId = String(body.companyId || '').trim();
+    const uid       = String(body.uid       || '').trim();
+
+    if (!companyId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'companyId is required' }));
+      return;
+    }
+
+    // Verify this companyId exists in our store (prevents spoofing)
+    const reg = registrationStore.find(r => r.companyId === companyId);
+    if (!reg) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unknown company' }));
+      return;
+    }
+
+    const token = createSessionToken(companyId);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': `BW_SID=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+    });
+    res.end(JSON.stringify({ ok: true, companyId }));
+    console.log(`[session] login: companyId=${companyId} uid=${uid}`);
     return;
   }
 
@@ -1144,6 +1283,18 @@ const server = http.createServer(async (req, res) => {
     try { parsed = JSON.parse(body); } catch (e) {}
     const action = (parsed.action || '').toString();
     const dataArr = Array.isArray(parsed.data) ? parsed.data : [];
+
+    // Company ID for this request — read from the signed session cookie set by /api/session/login.
+    // Falls back to a param in the data array (for driver-app / legacy callers that include it).
+    const sessionCompanyId = getSessionCompanyId(req)
+      || (dataArr.find(p => (p.name||'').toLowerCase() === 'companyid') || {}).value
+      || null;
+
+    // Helper: return only the jobs that belong to the requesting company.
+    function companyJobs(store) {
+      if (!sessionCompanyId) return store; // no session → return all (backward-compat fallback)
+      return store.filter(j => !j.companyId || j.companyId === sessionCompanyId);
+    }
 
     // Helper: find a param value by name (case-insensitive, trims trailing spaces)
     function param(name) {
@@ -1318,10 +1469,11 @@ const server = http.createServer(async (req, res) => {
           EstimatedDistance: param('Distance') || '0',
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
+          companyId: sessionCompanyId || '',
         };
         jobStore.push(newJob);
         saveJobStore();
-        console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId}`);
+        console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
       } else if (action === 'UpdateBooking') {
         // Called by cancelactivejob / close-ride flow.
@@ -1435,10 +1587,11 @@ const server = http.createServer(async (req, res) => {
           EstimatedDistance: param('Distance') || '0',
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
+          companyId: sessionCompanyId || '',
         };
         jobStore.push(newJob);
         saveJobStore();
-        console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT})`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
 
       } else if (action === '[ProcUpdateJobv6]') {
@@ -2364,16 +2517,16 @@ const server = http.createServer(async (req, res) => {
         arrayD(res, [tariff]);
 
       } else if (action === '[ActiveJobsv3]') {
-        const active = jobStore.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
+        const active = companyJobs(jobStore).filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
         const activeWithId = active.map(j => ({ ...j, BookingId: j.Id }));
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active companyId=${sessionCompanyId}`);
         arrayD(res, activeWithId);
 
       // ── Search actions ───────────────────────────────────────────────────────
       // Helper: add UI-friendly aliases so Angular ng-repeat bindings work
       } else if (action === '[SearchById]') {
         const searchId = parseInt(param('Id') || param('id') || '0') || 0;
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         let results = searchId > 0 ? allJobs.filter(j => j.Id === searchId) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
         results = sortByRecent(results.map(enrichSearchResult));
@@ -2382,7 +2535,7 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[SearchJobByName]') {
         const searchName = (param('Id') || '').toLowerCase();
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         let results = searchName ? allJobs.filter(j => (j.Name || '').toLowerCase().includes(searchName)) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
         results = sortByRecent(results.map(enrichSearchResult));
@@ -2391,7 +2544,7 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[SearchByPhoneNo]') {
         const searchPhone = (param('Id') || '').replace(/\s/g, '');
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         let results = searchPhone ? allJobs.filter(j => (j.PhoneNo || '').replace(/\s/g, '').includes(searchPhone)) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
         results = sortByRecent(results.map(enrichSearchResult));
@@ -2400,7 +2553,7 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[SearchByAfterDate]') {
         const dateStr = param('Id') || '';
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         let results = dateStr ? allJobs.filter(j => (j.BookingDateTime || '').substring(0, 10) >= dateStr) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
         results = sortByRecent(results.map(enrichSearchResult));
@@ -2409,7 +2562,7 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[SearchByBeforeDate]') {
         const dateStr = param('Id') || '';
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         let results = dateStr ? allJobs.filter(j => (j.BookingDateTime || '').substring(0, 10) <= dateStr) : allJobs;
         results = applyStatusFilter(results, param('JobStatus'));
         results = sortByRecent(results.map(enrichSearchResult));
@@ -2419,7 +2572,7 @@ const server = http.createServer(async (req, res) => {
       } else if (action === 'SearchJobDateBetween') {
         const fromStr = param('From') || '';
         const toStr   = param('To') || '';
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         let results = allJobs.filter(j => {
           const jDate = (j.BookingDateTime || '').substring(0, 10);
           return (!fromStr || jDate >= fromStr) && (!toStr || jDate <= toStr);
@@ -2431,7 +2584,7 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === 'JobDetails') {
         const jobId = parseInt(param('Id') || '0') || 0;
-        const allJobs = [...jobStore, ...closedJobStore];
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
         const job = allJobs.find(j => j.Id === jobId);
         let result = [];
         if (job) {
@@ -2674,8 +2827,8 @@ const server = http.createServer(async (req, res) => {
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[AssignedJobsv2]') {
-        const _assignedResp = buildAssignedResponse(jobStore);
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${_assignedResp.dt1.length} assigned (ids: ${_assignedResp.dt1.map(j=>j.Id).join(',')||'none'})`);
+        const _assignedResp = buildAssignedResponse(companyJobs(jobStore));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_assignedResp.dt1.length} assigned (ids: ${_assignedResp.dt1.map(j=>j.Id).join(',')||'none'}) companyId=${sessionCompanyId}`);
         objectD(res, _assignedResp);
 
       } else if (action === 'AutoDispatchVehiclesallride') {
@@ -3579,12 +3732,13 @@ const server = http.createServer(async (req, res) => {
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null, driverCancelled: _dssDriverCancelled || null, driverRecalled: _dssDriverRecalled || null, zoneOnly: zoneOnlyDS || false });
 
       } else if (action === '[UnAssignedJobsv3]') {
-        const resp = buildJobListResponse(jobStore);
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${jobStore.length} jobs (${resp.dt4[0].UnAssignedCount} unassigned)`);
+        const _cJobs = companyJobs(jobStore);
+        const resp = buildJobListResponse(_cJobs);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_cJobs.length} jobs (${resp.dt4[0].UnAssignedCount} unassigned) companyId=${sessionCompanyId}`);
         objectD(res, resp);
 
       } else if (action === '[deviUnAssignedJobsv2]') {
-        const resp = buildDeliveryResponse(jobStore);
+        const resp = buildDeliveryResponse(companyJobs(jobStore));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${resp.dt1.length} delivery jobs`);
         objectD(res, resp);
 
@@ -3602,8 +3756,8 @@ const server = http.createServer(async (req, res) => {
 
       } else {
         // Default: return live job list from in-memory store
-        const allJobs = buildJobListResponse(jobStore);
-        console.log(`200: POST ${urlPath} [action=${action || 'default'}] -> ${jobStore.length} jobs`);
+        const allJobs = buildJobListResponse(companyJobs(jobStore));
+        console.log(`200: POST ${urlPath} [action=${action || 'default'}] -> ${companyJobs(jobStore).length} jobs companyId=${sessionCompanyId}`);
         objectD(res, allJobs);
       }
       return;
