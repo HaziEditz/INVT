@@ -928,18 +928,27 @@ const server = http.createServer(async (req, res) => {
         const now = Date.now();
         const companyId = generateCompanyId();
 
-        // Create (or sign in to) Firebase Auth account, then gate adminAccess in DB
+        // Grant Firebase access: use the UID captured at registration time (best path),
+        // or fall back to creating/signing-in to get the UID now.
         let ownerUid = reg.ownerUid || null;
         let fbError  = null;
         try {
-          const { uid, idToken } = await firebaseCreateUser(reg.email, reg.passwordHash);
-          ownerUid = uid;
+          let idToken;
+          if (ownerUid) {
+            // UID already set at registration — sign in to get a fresh idToken
+            ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+          } else {
+            // Fallback: Firebase user wasn't created at registration — create it now
+            const created = await firebaseCreateUser(reg.email, reg.passwordHash);
+            ownerUid = created.uid;
+            idToken  = created.idToken;
+          }
           // adminAccess: lets the admin/owner panel verify company membership
-          await firebaseDbSet(`adminAccess/${companyId}/${uid}`, true, idToken);
+          await firebaseDbSet(`adminAccess/${companyId}/${ownerUid}`, true, idToken);
           // users/{uid}: dispatch console login reads companyId from here
-          await firebaseDbSet(`users/${uid}/companyId`,   companyId,    idToken);
-          await firebaseDbSet(`users/${uid}/companyName`, reg.company || '', idToken);
-          console.log(`[admin] Firebase: created auth user ${uid}, wrote adminAccess & users/${uid}/companyId=${companyId}`);
+          await firebaseDbSet(`users/${ownerUid}/companyId`,   companyId,      idToken);
+          await firebaseDbSet(`users/${ownerUid}/companyName`, reg.company || '', idToken);
+          console.log(`[admin] Firebase: uid=${ownerUid} — wrote adminAccess & users/${ownerUid}/companyId=${companyId}`);
         } catch(e) {
           fbError = e.message;
           console.log(`[admin] Firebase provisioning warning for ${reg.email}: ${e.message}`);
@@ -1101,6 +1110,7 @@ const server = http.createServer(async (req, res) => {
       area:           reqArea,
       country:        reqCountry,
       companyId:      null,
+      ownerUid:       null,  // set below after Firebase Auth creation
       approvedAt:     null,
       trialStart:     null,
       trialEnd:       null,
@@ -1111,6 +1121,18 @@ const server = http.createServer(async (req, res) => {
     registrationStore.push(newReg);
     saveRegistrations();
     console.log(`200: POST ${urlPath} -> new registration [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
+
+    // Create Firebase Auth account immediately so the UID is already known when the
+    // super admin approves. Best-effort — registration succeeds even if Firebase fails.
+    try {
+      const { uid } = await firebaseCreateUser(reqEmail, reqPass);
+      newReg.ownerUid = uid;
+      saveRegistrations();
+      console.log(`[registration] Firebase Auth created for ${reqEmail}: uid=${uid}`);
+    } catch(fbRegErr) {
+      console.log(`[registration] Firebase Auth creation note for ${reqEmail}: ${fbRegErr.message}`);
+    }
+
     jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
     return;
   }
@@ -3872,6 +3894,7 @@ const server = http.createServer(async (req, res) => {
         area:           reqArea,
         country:        reqCountry,
         companyId:      null,
+        ownerUid:       null,  // set below after Firebase Auth creation
         approvedAt:     null,
         trialStart:     null,
         trialEnd:       null,
@@ -3882,6 +3905,18 @@ const server = http.createServer(async (req, res) => {
       registrationStore.push(newReg);
       saveRegistrations();
       console.log(`200: POST ${urlPath} -> new registration request [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
+
+      // Create Firebase Auth account immediately so the UID is already known when the
+      // super admin approves. Best-effort — registration succeeds even if Firebase fails.
+      try {
+        const { uid } = await firebaseCreateUser(reqEmail, reqPass);
+        newReg.ownerUid = uid;
+        saveRegistrations();
+        console.log(`[registration] Firebase Auth created for ${reqEmail}: uid=${uid}`);
+      } catch(fbRegErr) {
+        console.log(`[registration] Firebase Auth creation note for ${reqEmail}: ${fbRegErr.message}`);
+      }
+
       jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
       return;
     }

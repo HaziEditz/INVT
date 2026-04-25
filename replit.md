@@ -53,6 +53,14 @@ Each approved company gets a **unique 6-digit company ID** (collision-proof, che
 3. Writes `users/{uid}/companyId: {companyId}` (so the dispatch console login lookup works)
 4. Writes `users/{uid}/companyName: {companyName}` (display name)
 
+**Registration flow** (`/DispatcherLogin.aspx/AccountRequest`):
+1. Owner submits form (company name, email, password, business details)
+2. Server stores the registration as `pending`
+3. **Immediately** creates a Firebase Auth account with that email+password → saves `ownerUid` to the pending record
+4. Super admin sees the pending registration with the UID already set
+5. On approval, server signs in (not creates) to get idToken, then writes `adminAccess/{companyId}/{uid}` and `users/{uid}/companyId`
+6. Owner panel can log in with the same email+password they registered with
+
 **Login flow** (`DispatcherLogin.aspx`):
 1. Firebase Auth sign-in → read `users/{uid}/companyId` from Firebase DB
 2. Store `TT_CId` in localStorage
