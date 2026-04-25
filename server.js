@@ -465,10 +465,10 @@ function buildAssignedResponse(jobs) {
   // 'Offered' = dispatcher sent the job, driver hasn't accepted yet → stays in Pending/Offered tab
   // 'Assigned' = driver accepted → shows in Assigned tab
   // 'Queued'   = Busy driver accepted a pre-queue offer → shows in Assigned tab (no Recall button)
-  // Exclude orphaned jobs (Assigned but DriverId=0) — those appear in Unassigned tab instead.
+  // Exclude orphaned jobs (Assigned but no real driver: DriverId=0 or -1) — those appear in Unassigned tab instead.
   const assigned = jobs.filter(j =>
     (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Queued') &&
-    j.DriverId && String(j.DriverId) !== '0'
+    j.DriverId && String(j.DriverId) !== '0' && String(j.DriverId) !== '-1'
   );
   const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
   const activeCount = jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length;
@@ -1082,8 +1082,6 @@ const server = http.createServer(async (req, res) => {
           if (param('WheelChairsNo'))   job.WheelChairs    = parseInt(param('WheelChairsNo')) || 0;
           if (param('EntitiesDetails')) job.EntitiesDetails= param('EntitiesDetails');
           if (param('VehicleType'))     job.VehicleType    = param('VehicleType');
-          job.VehicleId = vehicleId;
-          job.DriverId  = driverId;
           // Persist booking time and dispatch notice — sent by both updateride and updateride2.
           // Dispatchbefore=0 means ASAP; >0 means pre-booked (advance notice in minutes).
           // Must use explicit undefined check because 0 is falsy but is a valid ASAP value.
@@ -1091,10 +1089,13 @@ const server = http.createServer(async (req, res) => {
           if (_dbRaw !== undefined) job.DispatchTimebefore = String(parseInt(_dbRaw) || 0);
           const _newDT = param('DateTime');
           if (_newDT) { job.BookingDateTime = _newDT; job.Pickingtime = _newDT; }
-          // Only change status for jobs that are still in a pre-dispatch state.
-          // Never overwrite Active/Assigned — editing a live job must not cancel it.
+          // Only change status and driver assignment for jobs that are still in a pre-dispatch state.
+          // Never overwrite DriverId/VehicleId/BookingStatus for Assigned/Active/Picking jobs —
+          // the edit form sends DId:-1 (no driver selected) which would corrupt a live assignment.
           const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);
           if (editableStatuses.has(job.BookingStatus || '')) {
+            job.VehicleId = vehicleId;
+            job.DriverId  = driverId;
             if (driverId > 0)       job.BookingStatus = 'Offered';
             else if (driverId === -1) job.BookingStatus = 'No One';
             else                     job.BookingStatus = 'Pending';
@@ -2323,9 +2324,11 @@ const server = http.createServer(async (req, res) => {
           // Available, or a status-update race that set Assigned without a driverId).
           // The startup self-heal catches jobs at boot; this catches runtime orphans so they
           // are re-dispatchable without requiring a server restart.
-          if (j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0')) {
-            console.log(`  [AutoDispatch] orphan watchdog: job #${j.Id} is Assigned with no driver — resetting to Pending`);
+          if (j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0' || String(j.DriverId) === '-1')) {
+            console.log(`  [AutoDispatch] orphan watchdog: job #${j.Id} is Assigned with no driver (DriverId=${j.DriverId}) — resetting to Pending`);
             j.BookingStatus = 'Pending';
+            j.DriverId      = 0;
+            j.VehicleId     = 0;
             j.returnReason  = j.returnReason || 'Recovered (orphaned Assigned)';
             saveJobStore();
           }

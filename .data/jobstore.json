@@ -3528,7 +3528,7 @@
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
     "VehicleId": 0,
-    "DriverId": -1,
+    "DriverId": 0,
     "DispatcherName": "safinahmohammed",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -3546,7 +3546,7 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Van",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
@@ -3556,6 +3556,6 @@
     "AcceptedAt": "2026-04-25 21:02:55",
     "UserFName": "Ad",
     "UserLName": "",
-    "returnReason": ""
+    "returnReason": "Recovered (orphaned Assigned)"
   }
 ]
