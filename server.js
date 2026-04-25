@@ -41,13 +41,52 @@ const mimeTypes = {
 };
 
 // ─── Persistent data directory ────────────────────────────────────────────────
-const DATA_DIR               = path.join(__dirname, '.data');
-const JOB_STORE_FILE         = path.join(DATA_DIR, 'jobstore.json');
-const SUSPENDED_DRIVERS_FILE = path.join(DATA_DIR, 'suspended_drivers.json');
-const COOKIE_FILE            = path.join(DATA_DIR, 'session.txt');
-const ZONE_ASSIGNMENTS_FILE  = path.join(DATA_DIR, 'zone_assignments.json');
-const TARIFF_STORE_FILE      = path.join(DATA_DIR, 'tariffs.json');
+const DATA_DIR                  = path.join(__dirname, '.data');
+const JOB_STORE_FILE            = path.join(DATA_DIR, 'jobstore.json');
+const SUSPENDED_DRIVERS_FILE    = path.join(DATA_DIR, 'suspended_drivers.json');
+const COOKIE_FILE               = path.join(DATA_DIR, 'session.txt');
+const ZONE_ASSIGNMENTS_FILE     = path.join(DATA_DIR, 'zone_assignments.json');
+const TARIFF_STORE_FILE         = path.join(DATA_DIR, 'tariffs.json');
+const REGISTRATIONS_FILE        = path.join(DATA_DIR, 'registrationRequests.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
+
+// ─── Registration / account request store ────────────────────────────────────
+// status: pending | approved | rejected | trial | active | grace | deactivated
+let registrationStore = [];
+try {
+  if (fs.existsSync(REGISTRATIONS_FILE)) {
+    registrationStore = JSON.parse(fs.readFileSync(REGISTRATIONS_FILE, 'utf8')) || [];
+    console.log(`[persist] loaded ${registrationStore.length} registration request(s) from disk`);
+  }
+} catch(e) { console.log('[persist] registrations load error:', e.message); }
+
+function saveRegistrations() {
+  fs.writeFile(REGISTRATIONS_FILE, JSON.stringify(registrationStore, null, 2), err => {
+    if (err) console.log('[persist] registrations save error:', err.message);
+  });
+}
+
+// Run every 10 minutes — expire trials, move to grace period, then deactivate
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  registrationStore.forEach(r => {
+    if (r.status === 'trial' && r.trialEnd && now > r.trialEnd) {
+      r.status = 'grace';
+      r.graceEnd = r.trialEnd + 24 * 60 * 60 * 1000;
+      console.log(`[accounts] ${r.email} trial expired → grace period until ${new Date(r.graceEnd).toISOString()}`);
+      changed = true;
+    } else if (r.status === 'grace' && r.graceEnd && now > r.graceEnd) {
+      r.status = 'deactivated';
+      console.log(`[accounts] ${r.email} grace expired → deactivated`);
+      changed = true;
+    }
+  });
+  if (changed) saveRegistrations();
+}, 10 * 60 * 1000);
+
+// Super-admin key — set BW_ADMIN_KEY env var in Replit Secrets to secure the endpoints
+const ADMIN_KEY = process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026';
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
 // Booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
@@ -680,6 +719,216 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     res.end();
+    return;
+  }
+
+  // ── BookaWaka Admin API (for super-admin Replit) ─────────────────────────
+  // All endpoints require header:  X-Admin-Key: <BW_ADMIN_KEY>
+  //
+  // GET  /admin/registrations               → list all registration requests
+  // GET  /admin/registrations/:id           → single request detail
+  // POST /admin/registrations/:id/approve   → approve → starts 10-day trial
+  // POST /admin/registrations/:id/reject    → reject with optional reason
+  // POST /admin/registrations/:id/activate  → move from grace to active (paid)
+  // POST /admin/registrations/:id/deactivate → manually deactivate
+  // GET  /admin/accounts                    → list all approved accounts (status, trial dates, etc.)
+  if (urlPath.startsWith('/admin/')) {
+    const adminKey = req.headers['x-admin-key'] || '';
+    if (adminKey !== ADMIN_KEY) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorised — invalid admin key' }));
+      return;
+    }
+
+    // GET /admin/registrations
+    if (urlPath === '/admin/registrations' && req.method === 'GET') {
+      const filter = new URL('http://x' + req.url).searchParams.get('status');
+      const list = filter ? registrationStore.filter(r => r.status === filter) : registrationStore;
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(list));
+      return;
+    }
+
+    // GET /admin/accounts  (approved / trial / active / grace / deactivated)
+    if (urlPath === '/admin/accounts' && req.method === 'GET') {
+      const accounts = registrationStore.filter(r =>
+        ['approved','trial','active','grace','deactivated'].includes(r.status)
+      ).map(r => ({
+        id: r.id, companyId: r.companyId, company: r.company, name: r.name,
+        email: r.email, phone: r.phone, country: r.country, area: r.area,
+        fleetSize: r.fleetSize, status: r.status,
+        approvedAt: r.approvedAt, trialStart: r.trialStart, trialEnd: r.trialEnd,
+        graceEnd: r.graceEnd,
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(accounts));
+      return;
+    }
+
+    // Single-registration actions — parse /admin/registrations/:id[/action]
+    const regMatch = urlPath.match(/^\/admin\/registrations\/([^/]+)(\/\w+)?$/);
+    if (regMatch) {
+      const regId  = regMatch[1];
+      const action = (regMatch[2] || '').replace('/', '');
+      const reg    = registrationStore.find(r => r.id === regId);
+
+      if (!reg) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Registration ${regId} not found` }));
+        return;
+      }
+
+      // GET /admin/registrations/:id
+      if (!action && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(reg));
+        return;
+      }
+
+      // POST /admin/registrations/:id/approve
+      if (action === 'approve' && req.method === 'POST') {
+        if (!['pending','rejected'].includes(reg.status)) {
+          jsonReply(res, { error: `Cannot approve a registration with status "${reg.status}"` });
+          return;
+        }
+        const now = Date.now();
+        const companyId = String(now).slice(-4) + String(Math.floor(Math.random() * 90) + 10);
+        reg.status     = 'trial';
+        reg.companyId  = companyId;
+        reg.approvedAt = now;
+        reg.trialStart = now;
+        reg.trialEnd   = now + 10 * 24 * 60 * 60 * 1000;
+        reg.graceEnd   = null;
+        saveRegistrations();
+        console.log(`[admin] approved registration ${regId} → companyId=${companyId}, trial until ${new Date(reg.trialEnd).toISOString()}`);
+        jsonReply(res, { ok: true, companyId, trialEnd: reg.trialEnd, message: `Approved. 10-day trial starts now.` });
+        return;
+      }
+
+      // POST /admin/registrations/:id/reject
+      if (action === 'reject' && req.method === 'POST') {
+        const _rb = await readBody(req);
+        let rb = {};
+        try { rb = JSON.parse(_rb); } catch(e) {}
+        reg.status         = 'rejected';
+        reg.rejectedAt     = Date.now();
+        reg.rejectedReason = rb.reason || '';
+        saveRegistrations();
+        console.log(`[admin] rejected registration ${regId}`);
+        jsonReply(res, { ok: true, message: 'Registration rejected.' });
+        return;
+      }
+
+      // POST /admin/registrations/:id/activate  (mark as paid / fully active)
+      if (action === 'activate' && req.method === 'POST') {
+        reg.status   = 'active';
+        reg.graceEnd = null;
+        saveRegistrations();
+        console.log(`[admin] activated account ${regId} (${reg.email})`);
+        jsonReply(res, { ok: true, message: 'Account activated.' });
+        return;
+      }
+
+      // POST /admin/registrations/:id/deactivate
+      if (action === 'deactivate' && req.method === 'POST') {
+        reg.status = 'deactivated';
+        saveRegistrations();
+        console.log(`[admin] deactivated account ${regId} (${reg.email})`);
+        jsonReply(res, { ok: true, message: 'Account deactivated.' });
+        return;
+      }
+    }
+
+    // Unknown admin route
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unknown admin endpoint' }));
+    return;
+  }
+
+  // POST /DispatcherLogin.aspx/AccountRequest — public signup / registration
+  if (urlPath === '/DispatcherLogin.aspx/AccountRequest' && req.method === 'POST') {
+    const rawBody = await readBody(req);
+    let reqBody = {};
+    try { reqBody = JSON.parse(rawBody); } catch (e) {}
+    const reqCompany = (reqBody.company        || '').trim();
+    const reqName    = (reqBody.name           || '').trim();
+    const reqEmail   = (reqBody.email          || '').trim().toLowerCase();
+    const reqPhone   = (reqBody.phone          || '').trim();
+    const reqPass    = (reqBody.password       || '').trim();
+    const reqBizNum  = (reqBody.businessNumber || '').trim();
+    const reqFleet   = (reqBody.fleetSize      || '').trim();
+    const reqArea    = (reqBody.area           || '').trim();
+    const reqCountry = (reqBody.country        || 'NZ').trim();
+
+    if (!reqCompany || !reqName || !reqEmail) {
+      jsonReply(res, { error: 'Company name, your name and email are all required.' });
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(reqEmail)) {
+      jsonReply(res, { error: 'Please provide a valid email address.' });
+      return;
+    }
+    if (registrationStore.some(r => r.email === reqEmail && r.status !== 'rejected')) {
+      jsonReply(res, { error: 'An account request with this email already exists. Our team will be in touch.' });
+      return;
+    }
+
+    const newReg = {
+      id:             'REG-' + Date.now(),
+      status:         'pending',
+      submittedAt:    Date.now(),
+      company:        reqCompany,
+      name:           reqName,
+      email:          reqEmail,
+      phone:          reqPhone,
+      passwordHash:   reqPass,
+      businessNumber: reqBizNum,
+      fleetSize:      reqFleet,
+      area:           reqArea,
+      country:        reqCountry,
+      companyId:      null,
+      approvedAt:     null,
+      trialStart:     null,
+      trialEnd:       null,
+      graceEnd:       null,
+      rejectedAt:     null,
+      rejectedReason: null,
+    };
+    registrationStore.push(newReg);
+    saveRegistrations();
+    console.log(`200: POST ${urlPath} -> new registration [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
+    jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
+    return;
+  }
+
+  // GET /api/account-status?email=...&companyId=...
+  // Used by dispatch console, admin/owner panel, and driver app to check access
+  if (urlPath === '/api/account-status' && req.method === 'GET') {
+    const qs        = new URL('http://x' + req.url).searchParams;
+    const qEmail    = (qs.get('email')     || '').toLowerCase();
+    const qCompany  = (qs.get('companyId') || '');
+    const reg = registrationStore.find(r =>
+      (qEmail    && r.email     === qEmail)    ||
+      (qCompany  && r.companyId === qCompany)
+    );
+    if (!reg) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ found: false, status: null }));
+      return;
+    }
+    const now = Date.now();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      found:      true,
+      status:     reg.status,
+      companyId:  reg.companyId,
+      company:    reg.company,
+      trialEnd:   reg.trialEnd,
+      graceEnd:   reg.graceEnd,
+      daysLeft:   reg.trialEnd ? Math.max(0, Math.ceil((reg.trialEnd - now) / 86400000)) : null,
+      hoursLeft:  reg.graceEnd ? Math.max(0, Math.ceil((reg.graceEnd - now) / 3600000))  : null,
+      canAccess:  ['trial','active','grace'].includes(reg.status),
+    }));
     return;
   }
 
@@ -3315,17 +3564,58 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ── Account / access request (Stripe-ready) ─────────────────────────────
+    // ── Account / access request ─────────────────────────────────────────────
     if (urlPath.includes('/DispatcherLogin.aspx/AccountRequest')) {
       let reqBody = {};
       try { reqBody = JSON.parse(body); } catch (e) {}
-      const reqName    = reqBody.name    || param('name')    || '';
-      const reqEmail   = reqBody.email   || param('email')   || '';
-      const reqPhone   = reqBody.phone   || param('phone')   || '';
-      const reqCompany = reqBody.company || param('company') || '';
-      const reqRole    = reqBody.role    || param('role')    || 'Dispatcher';
-      console.log(`200: POST ${urlPath} -> access request from "${reqEmail}" (${reqName})`);
-      jsonReply(res, { d: 'Request received. Our team will contact you within 1 business day.', stripe_ready: true });
+      const reqCompany = (reqBody.company        || '').trim();
+      const reqName    = (reqBody.name           || '').trim();
+      const reqEmail   = (reqBody.email          || '').trim().toLowerCase();
+      const reqPhone   = (reqBody.phone          || '').trim();
+      const reqPass    = (reqBody.password       || '').trim();
+      const reqBizNum  = (reqBody.businessNumber || '').trim();
+      const reqFleet   = (reqBody.fleetSize      || '').trim();
+      const reqArea    = (reqBody.area           || '').trim();
+      const reqCountry = (reqBody.country        || 'NZ').trim();
+
+      if (!reqCompany || !reqName || !reqEmail) {
+        jsonReply(res, { error: 'Company name, your name and email are all required.' });
+        return;
+      }
+      if (!/\S+@\S+\.\S+/.test(reqEmail)) {
+        jsonReply(res, { error: 'Please provide a valid email address.' });
+        return;
+      }
+      if (registrationStore.some(r => r.email === reqEmail && r.status !== 'rejected')) {
+        jsonReply(res, { error: 'An account request with this email already exists. Our team will be in touch.' });
+        return;
+      }
+
+      const newReg = {
+        id:             'REG-' + Date.now(),
+        status:         'pending',
+        submittedAt:    Date.now(),
+        company:        reqCompany,
+        name:           reqName,
+        email:          reqEmail,
+        phone:          reqPhone,
+        passwordHash:   reqPass,
+        businessNumber: reqBizNum,
+        fleetSize:      reqFleet,
+        area:           reqArea,
+        country:        reqCountry,
+        companyId:      null,
+        approvedAt:     null,
+        trialStart:     null,
+        trialEnd:       null,
+        graceEnd:       null,
+        rejectedAt:     null,
+        rejectedReason: null,
+      };
+      registrationStore.push(newReg);
+      saveRegistrations();
+      console.log(`200: POST ${urlPath} -> new registration request [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
+      jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
       return;
     }
 

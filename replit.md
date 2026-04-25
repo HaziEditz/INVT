@@ -4,6 +4,65 @@
 
 A web-based Taxi Dispatch System for "BookaWaka" (taxitime.co.nz). Provides a real-time dispatch console for managing taxi bookings, vehicles, and drivers — styled as a professional Uber/Bolt-style dashboard.
 
+## Account / Registration System
+
+New companies sign up via a **"Request an Account"** modal on the login page. They do not get immediate access — all signups queue as `pending` until approved by a super admin.
+
+### Account Status Lifecycle
+```
+pending → (admin approves) → trial (10 days) → grace (24 hrs, payment required) → deactivated
+                           ↘ (admin rejects) → rejected
+       trial/grace → (admin activates / payment confirmed) → active
+       any status  → (admin deactivates) → deactivated
+```
+
+### Data Stored Per Registration
+- `id`, `status`, `submittedAt`
+- `company`, `name`, `email`, `phone`, `passwordHash`
+- `businessNumber`, `fleetSize`, `area`, `country`
+- `companyId` (set on approval), `approvedAt`, `trialStart`, `trialEnd`, `graceEnd`
+
+Stored at: `.data/registrationRequests.json`
+
+### Admin API (for Super Admin Replit)
+All admin endpoints require header: `X-Admin-Key: <BW_ADMIN_KEY>`  
+Default key (override with env var `BW_ADMIN_KEY`): `bookawaka-admin-2026`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/admin/registrations` | List all requests (optional `?status=pending`) |
+| GET | `/admin/registrations/:id` | Single request detail |
+| POST | `/admin/registrations/:id/approve` | Approve → starts 10-day trial |
+| POST | `/admin/registrations/:id/reject` | Reject (optional JSON body `{reason:"..."}`) |
+| POST | `/admin/registrations/:id/activate` | Mark as paid / fully active |
+| POST | `/admin/registrations/:id/deactivate` | Manual deactivation |
+| GET | `/admin/accounts` | List all approved/active/trial/grace/deactivated accounts |
+
+### Account Status API (for all Repls)
+Public endpoint — no auth required:  
+`GET /api/account-status?email=<email>` or `?companyId=<id>`
+
+Response:
+```json
+{
+  "found": true,
+  "status": "trial",
+  "companyId": "926535",
+  "company": "Test Taxis",
+  "trialEnd": 1777982449265,
+  "graceEnd": null,
+  "daysLeft": 10,
+  "hoursLeft": null,
+  "canAccess": true
+}
+```
+`canAccess: true` when status is `trial`, `active`, or `grace`.
+
+### Automated Status Transitions
+A timer runs every 10 minutes:
+- `trial` → `grace` when `trialEnd` passes (sets `graceEnd = trialEnd + 24h`)
+- `grace` → `deactivated` when `graceEnd` passes
+
 ## Tech Stack
 
 - **Frontend:** HTML5, CSS3, Bootstrap 4.1.3, jQuery 3.5.1, AngularJS 1.6.9

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "REG-1777118438459",
+    "status": "trial",
+    "submittedAt": 1777118438459,
+    "company": "Test Taxis",
+    "name": "Joe Bloggs",
+    "email": "joe@test.co.nz",
+    "phone": "",
+    "passwordHash": "secret123",
+    "businessNumber": "9876543",
+    "fleetSize": "8",
+    "area": "Dunedin",
+    "country": "NZ",
+    "companyId": "926535",
+    "approvedAt": 1777118449265,
+    "trialStart": 1777118449265,
+    "trialEnd": 1777982449265,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null
+  }
+]

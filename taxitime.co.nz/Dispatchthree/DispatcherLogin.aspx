@@ -419,28 +419,63 @@
 
   <!-- ── Sign Up Modal ── -->
   <div id="signupModal" onclick="if(event.target===this)closeSignup()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;overflow-y:auto;">
-    <div style="background:#fff;border-radius:14px;padding:32px 36px;width:460px;max-width:94vw;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.3);margin:auto;">
+    <div style="background:#fff;border-radius:14px;padding:32px 36px;width:500px;max-width:94vw;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.3);margin:auto;">
       <button onclick="closeSignup()" style="position:absolute;top:14px;right:18px;background:none;border:none;font-size:22px;cursor:pointer;color:#9ca3af;">&times;</button>
-      <h3 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#111;">Create Your Account</h3>
-      <p style="font-size:13px;color:#6b7280;margin:0 0 22px;">Your company gets its own isolated dispatch console, drivers, and company ID.</p>
+      <h3 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#111;">Request an Account</h3>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 22px;">Fill in your details below. Our team will review your request and be in touch within 1 business day. You'll receive a <strong>10-day free trial</strong> once approved.</p>
 
-      <div id="suSuccess" style="display:none;text-align:center;padding:24px 0;">
-        <div style="font-size:40px;margin-bottom:10px;">&#127881;</div>
-        <div style="font-size:16px;font-weight:700;color:#111;margin-bottom:6px;">Account created!</div>
-        <div style="font-size:13px;color:#6b7280;margin-bottom:18px;">Your Company ID is:</div>
-        <div id="suNewId" style="font-size:48px;font-weight:900;color:#1a2535;letter-spacing:4px;margin-bottom:8px;"></div>
-        <div style="font-size:12px;color:#aaa;margin-bottom:20px;">Save this — share it with your drivers so they connect to your fleet.</div>
-        <button onclick="closeSignup()" style="padding:10px 28px;background:#f5be1e;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">Go to Console</button>
+      <div id="suSuccess" style="display:none;text-align:center;padding:28px 0;">
+        <div style="font-size:42px;margin-bottom:12px;">&#9989;</div>
+        <div style="font-size:17px;font-weight:700;color:#111;margin-bottom:8px;">Request submitted!</div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:6px;">We'll review your application and contact you at</div>
+        <div id="suSubmittedEmail" style="font-size:14px;font-weight:600;color:#1a2535;margin-bottom:16px;"></div>
+        <div style="font-size:12px;color:#9ca3af;">Once approved you'll get a 10-day free trial to explore the full platform.</div>
       </div>
 
       <form id="suForm" onsubmit="submitSignup();return false;" autocomplete="on">
         <div id="suError" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;color:#dc2626;font-size:13px;margin-bottom:16px;"></div>
 
-        <div style="display:flex;flex-direction:column;gap:13px;">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+
+          <div style="font-size:11px;font-weight:700;color:#9ca3af;letter-spacing:.06em;text-transform:uppercase;padding-bottom:2px;border-bottom:1px solid #f3f4f6;">Company Details</div>
+
           <div>
             <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Company / Fleet Name *</label>
             <input id="suCompany" type="text" placeholder="e.g. Invercargill Taxis Ltd" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
           </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Business Number <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
+              <input id="suBizNum" type="text" placeholder="e.g. 1234567" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Fleet Size <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
+              <input id="suFleet" type="number" min="1" placeholder="e.g. 12" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Area / Region <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
+              <input id="suArea" type="text" placeholder="e.g. Invercargill" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Country <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
+              <select id="suCountry" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;background:#fff;">
+                <option value="">Select…</option>
+                <option value="NZ" selected>New Zealand</option>
+                <option value="AU">Australia</option>
+                <option value="GB">United Kingdom</option>
+                <option value="US">United States</option>
+                <option value="CA">Canada</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="font-size:11px;font-weight:700;color:#9ca3af;letter-spacing:.06em;text-transform:uppercase;padding-bottom:2px;border-bottom:1px solid #f3f4f6;margin-top:4px;">Your Details</div>
+
           <div>
             <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Your Full Name *</label>
             <input id="suName" type="text" placeholder="e.g. Jane Smith" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
@@ -450,7 +485,7 @@
             <input id="suEmail" type="email" placeholder="jane@yourfleet.co.nz" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
           </div>
           <div>
-            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Phone Number</label>
+            <label style="display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Phone Number <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
             <input id="suPhone" type="tel" placeholder="e.g. 021 555 0000" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:7px;font-family:inherit;font-size:13px;">
           </div>
           <div>
@@ -464,7 +499,7 @@
         </div>
 
         <button id="suBtn" type="submit" style="margin-top:20px;width:100%;padding:12px;background:#f5be1e;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;color:#1a1d21;">
-          Create Account
+          Submit Request
         </button>
         <p style="text-align:center;font-size:12px;color:#9ca3af;margin:12px 0 0;">Already have an account? Just sign in above.</p>
       </form>
@@ -489,6 +524,10 @@
       var phone    = document.getElementById('suPhone').value.trim();
       var pass     = document.getElementById('suPass').value;
       var passConf = document.getElementById('suPassConfirm').value;
+      var bizNum   = document.getElementById('suBizNum').value.trim();
+      var fleet    = document.getElementById('suFleet').value.trim();
+      var area     = document.getElementById('suArea').value.trim();
+      var country  = document.getElementById('suCountry').value;
 
       document.getElementById('suError').style.display = 'none';
 
@@ -500,58 +539,37 @@
 
       var btn = document.getElementById('suBtn');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Creating account…';
+      btn.innerHTML = '<span class="spinner"></span>Submitting…';
 
-      firebase.auth().createUserWithEmailAndPassword(email, pass)
-        .then(function(result) {
-          var user = result.user;
-
-          // Generate a unique 6-digit company ID (timestamp + random suffix)
-          var companyId = String(Date.now()).slice(-4) + String(Math.floor(Math.random() * 90) + 10);
-
-          // Store company record AND user→company mapping in Firebase DB
-          var db = firebase.database();
-          var writes = {};
-          writes['companies/' + companyId] = {
-            companyId:   companyId,
-            companyName: company,
-            ownerName:   name,
-            ownerEmail:  email,
-            phone:       phone || '',
-            createdAt:   Date.now()
-          };
-          writes['users/' + user.uid] = { companyId: companyId, name: name };
-          return db.ref().update(writes).then(function() {
-            // Update Firebase display name
-            return user.updateProfile({ displayName: name });
-          }).then(function() {
-            // Set session and redirect
-            localStorage.setItem('TT_Name',    name);
-            localStorage.setItem('TT_DId',     user.uid.slice(0, 8));
-            localStorage.setItem('TT_Country', 'NZ');
-            localStorage.setItem('TT_CId',     companyId);
-            localStorage.setItem('Country',    'NZ');
-
-            // Show success screen with the new company ID
-            btn.disabled = false;
-            btn.innerHTML = 'Create Account';
-            document.getElementById('suForm').style.display = 'none';
-            document.getElementById('suNewId').textContent = companyId;
-            document.getElementById('suSuccess').style.display = 'block';
-
-            // Auto-redirect to console after 4 seconds
-            setTimeout(function() { window.location.href = 'Default.aspx'; }, 4000);
-          });
+      fetch('/DispatcherLogin.aspx/AccountRequest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company:        company,
+          name:           name,
+          email:          email,
+          phone:          phone,
+          password:       pass,
+          businessNumber: bizNum,
+          fleetSize:      fleet,
+          area:           area,
+          country:        country || 'NZ'
         })
-        .catch(function(error) {
-          btn.disabled = false;
-          btn.innerHTML = 'Create Account';
-          var msg = 'Sign-up failed. Please try again.';
-          if (error.code === 'auth/email-already-in-use') msg = 'That email is already registered. Try signing in instead.';
-          else if (error.code === 'auth/invalid-email')   msg = 'Please enter a valid email address.';
-          else if (error.code === 'auth/weak-password')   msg = 'Password is too weak. Use at least 6 characters.';
-          showSuError(msg);
-        });
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerHTML = 'Submit Request';
+        if (data && data.error) { showSuError(data.error); return; }
+        document.getElementById('suForm').style.display = 'none';
+        document.getElementById('suSubmittedEmail').textContent = email;
+        document.getElementById('suSuccess').style.display = 'block';
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = 'Submit Request';
+        showSuError('Could not submit your request. Please check your connection and try again.');
+      });
     }
 
     function showSuError(msg) {
