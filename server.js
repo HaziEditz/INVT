@@ -259,7 +259,10 @@ const CLOSED_JOB_STORE_FILE = path.join(DATA_DIR, 'closedjobstore.json');
 let _savedClosedJobStore = [];
 try {
   if (fs.existsSync(CLOSED_JOB_STORE_FILE)) {
-    _savedClosedJobStore = JSON.parse(fs.readFileSync(CLOSED_JOB_STORE_FILE, 'utf8')) || [];
+    const _rawClosed = JSON.parse(fs.readFileSync(CLOSED_JOB_STORE_FILE, 'utf8')) || [];
+    _savedClosedJobStore = _rawClosed.filter(j => j.companyId);
+    const _droppedClosed = _rawClosed.length - _savedClosedJobStore.length;
+    if (_droppedClosed > 0) console.log(`[persist] dropped ${_droppedClosed} untagged closed jobs (no companyId — pre-isolation data)`);
     console.log(`[persist] loaded ${_savedClosedJobStore.length} closed jobs from disk`);
   }
 } catch(e) { console.log('[persist] closedjobstore load error:', e.message); }
@@ -306,7 +309,10 @@ function fmtDT(dt) {
 let _savedJobStore = [];
 try {
   if (fs.existsSync(JOB_STORE_FILE)) {
-    _savedJobStore = JSON.parse(fs.readFileSync(JOB_STORE_FILE, 'utf8')) || [];
+    const _rawJobs = JSON.parse(fs.readFileSync(JOB_STORE_FILE, 'utf8')) || [];
+    _savedJobStore = _rawJobs.filter(j => j.companyId);
+    const _droppedJobs = _rawJobs.length - _savedJobStore.length;
+    if (_droppedJobs > 0) console.log(`[persist] dropped ${_droppedJobs} untagged jobs (no companyId — pre-isolation data)`);
     console.log(`[persist] loaded ${_savedJobStore.length} jobs from disk`);
   }
 } catch(e) { console.log('[persist] jobstore load error:', e.message); }
@@ -397,7 +403,10 @@ const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 let _savedSuspendedDrivers = [];
 try {
   if (fs.existsSync(SUSPENDED_DRIVERS_FILE)) {
-    _savedSuspendedDrivers = JSON.parse(fs.readFileSync(SUSPENDED_DRIVERS_FILE, 'utf8')) || [];
+    const _rawSusp = JSON.parse(fs.readFileSync(SUSPENDED_DRIVERS_FILE, 'utf8')) || [];
+    _savedSuspendedDrivers = _rawSusp.filter(d => d.companyId);
+    const _droppedSusp = _rawSusp.length - _savedSuspendedDrivers.length;
+    if (_droppedSusp > 0) console.log(`[persist] dropped ${_droppedSusp} untagged suspended drivers (no companyId — pre-isolation data)`);
     console.log(`[persist] loaded ${_savedSuspendedDrivers.length} suspended driver(s) from disk`);
   }
 } catch(e) { console.log('[persist] suspended_drivers load error:', e.message); }
@@ -1327,25 +1336,30 @@ const server = http.createServer(async (req, res) => {
       || (dataArr.find(p => (p.name||'').toLowerCase() === 'companyid') || {}).value
       || null;
 
+    // Log session company for every DataSelector call so we can verify isolation in console
+    console.log(`[isolation] ${req.method} ${urlPath} action=${action} sessionCompanyId=${sessionCompanyId || 'NONE (no valid BW_SID cookie)'}`);
+
     // Helper: return only the jobs that belong to the requesting company.
+    // STRICT — records with no companyId are NEVER returned to any authenticated caller.
+    // If there is no session, return an empty array so unauthenticated callers get nothing.
     function companyJobs(store) {
-      if (!sessionCompanyId) return store; // no session → return all (backward-compat fallback)
-      return store.filter(j => !j.companyId || j.companyId === sessionCompanyId);
+      if (!sessionCompanyId) return [];
+      return store.filter(j => j.companyId === sessionCompanyId);
     }
     // Helper: return only drivers belonging to this company.
     function companyDrivers(store) {
-      if (!sessionCompanyId) return store;
-      return store.filter(d => !d.companyId || d.companyId === sessionCompanyId);
+      if (!sessionCompanyId) return [];
+      return store.filter(d => d.companyId === sessionCompanyId);
     }
     // Helper: return only suspended-driver records for this company.
     function companySuspended(store) {
-      if (!sessionCompanyId) return store;
-      return store.filter(d => !d.companyId || d.companyId === sessionCompanyId);
+      if (!sessionCompanyId) return [];
+      return store.filter(d => d.companyId === sessionCompanyId);
     }
     // Helper: return only messages belonging to this company.
     function companyMessages(store) {
-      if (!sessionCompanyId) return store;
-      return store.filter(m => !m.companyId || m.companyId === sessionCompanyId);
+      if (!sessionCompanyId) return [];
+      return store.filter(m => m.companyId === sessionCompanyId);
     }
 
     // Helper: find a param value by name (case-insensitive, trims trailing spaces)
@@ -2183,10 +2197,12 @@ const server = http.createServer(async (req, res) => {
           const _logoutStatuses = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
           if (_logoutStatuses.indexOf(newStatus) !== -1) {
             const _beforeLen = ZONE_DRIVERS.length;
-            const _kept = ZONE_DRIVERS.filter(d =>
-              String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
-              (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber))
-            );
+            const _kept = ZONE_DRIVERS.filter(d => {
+              const sameCompany = !sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId;
+              if (!sameCompany) return true; // different company — don't touch
+              return String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
+                (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber));
+            });
             ZONE_DRIVERS.length = 0;
             _kept.forEach(d => ZONE_DRIVERS.push(d));
             console.log(`200: POST ${urlPath} [action=[DriverStatusChanged]] -> driver ${driverId} logged out (removed ${_beforeLen - ZONE_DRIVERS.length} from ZONE_DRIVERS)`);
@@ -3528,10 +3544,13 @@ const server = http.createServer(async (req, res) => {
           const _logoutStatusesDS = ['Offline', 'offline', 'LoggedOut', 'loggedout', 'logoff'];
           if (_logoutStatusesDS.indexOf(newStatus) !== -1) {
             const _beforeLenDS = ZONE_DRIVERS.length;
-            const _keptDS = ZONE_DRIVERS.filter(d =>
-              String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
-              (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber))
-            );
+            const _keptDS = ZONE_DRIVERS.filter(d => {
+              // Only remove entries belonging to this company (by companyId match or if no company set on either side)
+              const sameCompany = !sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId;
+              if (!sameCompany) return true; // keep — different company
+              return String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
+                (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber));
+            });
             ZONE_DRIVERS.length = 0;
             _keptDS.forEach(d => ZONE_DRIVERS.push(d));
             console.log(`200: POST ${urlPath} [action=[DriverStatusChanged]] -> driver ${driverId} logged out (DS path, removed ${_beforeLenDS - ZONE_DRIVERS.length} from ZONE_DRIVERS)`);
