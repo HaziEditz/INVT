@@ -10499,6 +10499,8 @@ $(document).ready(function() {
             $("#PickupZoneId").text("");
             // Guard: if zone data hasn't loaded yet or has no zones, allow all addresses.
             if (!ZonesArea || !ZonesArea["dt1"] || ZonesArea["dt1"].length === 0) {
+                // No zone data — set placeholder "0" so booking validation doesn't block
+                $("#PickupZoneId").text("0");
                 return true;
             }
             if (ZonesArea["dt1"].length != [] || ZonesArea["dt2"].length != []) {
@@ -10549,14 +10551,18 @@ $(document).ready(function() {
 
                 }
 
-                if (resultColor == false) {
-                      
+                if (resultColor === false) {
+                    // Address is explicitly outside all zone polygons — clear pickup
                     $('#pac-input').val('');
                     $('#LocalPickLat').val(0);
                     $('#LocalPickLng').val(0);
-                 
                     return false;
                 } else{
+                    // resultColor is true (in zone) or undefined (geometry library threw/unavailable)
+                    // Ensure PickupZoneId is set so booking validation doesn't block
+                    if ($("#PickupZoneId").text() === "" && ZonesArea["dt1"] && ZonesArea["dt1"].length > 0) {
+                        $("#PickupZoneId").text(ZonesArea["dt1"][0].ZoneId);
+                    }
                     return true;
                 }
             }
