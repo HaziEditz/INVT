@@ -1,32 +1,31 @@
 /* ============================================================
-   BOOKAWAKA — Dispatch Console Theme
-   Professional dark UI — loaded last for full override
+   BOOKAWAKA — Dispatch Console  |  Professional Dark Theme
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-/* ── Theme variables (overridden by customizer via :root) ─── */
+/* ── CSS Custom Properties ────────────────────────────────── */
 :root {
-  --bw-accent:     #f5be1e;
-  --bw-accent-dim: rgba(245,190,30,0.12);
+  --bw-accent:        #f5be1e;
+  --bw-accent-dim:    rgba(245,190,30,0.11);
   --bw-accent-border: rgba(245,190,30,0.28);
-  --bw-bg:         #0d0f14;
-  --bw-bg1:        #111420;
-  --bw-bg2:        #161a26;
-  --bw-bg3:        #1c2133;
-  --bw-border:     rgba(255,255,255,0.07);
-  --bw-border2:    rgba(255,255,255,0.12);
-  --bw-text1:      #e8ecf0;
-  --bw-text2:      #8b95a6;
-  --bw-text3:      #4a5568;
-  --bw-green:      #22c55e;
-  --bw-blue:       #3b82f6;
-  --bw-red:        #ef4444;
-  --bw-amber:      #f59e0b;
-  --bw-radius:     8px;
+  --bw-bg:   #0d0f14;
+  --bw-bg1:  #111420;
+  --bw-bg2:  #161a26;
+  --bw-bg3:  #1d2135;
+  --bw-border:  rgba(255,255,255,0.06);
+  --bw-border2: rgba(255,255,255,0.10);
+  --bw-text1: #edf0f4;
+  --bw-text2: #8b96a8;
+  --bw-text3: #3e4a5c;
+  --bw-green: #22c55e;
+  --bw-blue:  #3b82f6;
+  --bw-red:   #ef4444;
+  --bw-amber: #f59e0b;
+  --bw-radius: 8px;
 }
 
-/* ── Base ──────────────────────────────────────────────────── */
+/* ── Base ────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body {
@@ -34,198 +33,233 @@ html, body {
   background: var(--bw-bg) !important;
   color: var(--bw-text1) !important;
   font-size: 13px !important;
+  -webkit-font-smoothing: antialiased !important;
 }
 
-/* ── Page background — clean solid, no orbs ────────────────── */
-.page, .page-main, .app-content.main-content {
+/* ── Page / Layout root ──────────────────────────────────── */
+.page, .page-main, .app-content.main-content, div[ng-controller] {
   background: var(--bw-bg) !important;
-  position: relative !important;
-  z-index: 1 !important;
 }
 
-/* ── Top Header Bar ─────────────────────────────────────────── */
-.app-header1.header,
-.app-header1 {
+/* ============================================================
+   HEADER
+   ============================================================ */
+.app-header1.header, .app-header1 {
   background: var(--bw-bg1) !important;
   border-bottom: 1px solid var(--bw-border2) !important;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04) !important;
-  padding: 0 16px !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03), 0 2px 12px rgba(0,0,0,0.3) !important;
+  padding: 0 14px !important;
   min-height: 52px !important;
+  display: flex !important;
   align-items: center !important;
   position: fixed !important;
   top: 0; left: 0; right: 0 !important;
-  z-index: 1000 !important;
+  z-index: 1030 !important;
 }
 
-/* Accent strip along top of header */
+/* Top accent line */
 .app-header1.header::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 2px;
-  background: var(--bw-accent);
-  opacity: 0.7;
-}
-
-.app-header1 img.header-brand-img {
-  height: 34px !important;
-  width: auto !important;
-  margin-right: 12px !important;
-}
-
-.app-header1 p.label.label-success {
-  background: var(--bw-accent-dim) !important;
-  color: var(--bw-accent) !important;
-  border: 1px solid var(--bw-accent-border) !important;
-  border-radius: 5px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  padding: 4px 10px !important;
-  height: auto !important;
+  background: linear-gradient(90deg, var(--bw-accent) 0%, rgba(245,190,30,0.3) 100%);
+  opacity: 0.75;
 }
 
 .app-content.main-content { padding-top: 52px !important; }
 
-/* ── Top Nav ────────────────────────────────────────────────── */
-.topnav {
-  background: transparent !important;
-  overflow: visible !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 1px !important;
+/* Brand logo in header */
+.app-header1 img.header-brand-img {
+  height: 32px !important;
+  width: auto !important;
+  margin: 0 10px 0 0 !important;
+  vertical-align: middle !important;
 }
 
-.topnav a {
-  color: var(--bw-text2) !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  padding: 6px 10px !important;
-  border-radius: 5px !important;
-  text-decoration: none !important;
-  transition: background 0.15s, color 0.15s !important;
-  white-space: nowrap !important;
-}
-
-.topnav a:hover {
-  background: rgba(255,255,255,0.07) !important;
-  color: var(--bw-text1) !important;
-}
-
-.topnav a.active {
-  color: var(--bw-accent) !important;
+/* Company name / online badge */
+.app-header1 p.label.label-success {
   background: var(--bw-accent-dim) !important;
+  color: var(--bw-accent) !important;
+  border: 1px solid var(--bw-accent-border) !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  padding: 3px 9px !important;
+  height: auto !important;
+  letter-spacing: 0.3px !important;
 }
+
+/* Bell icon */
+.app-header1 .fa-bell {
+  color: var(--bw-text2) !important;
+  font-size: 15px !important;
+  transition: color 0.15s !important;
+}
+.app-header1 .fa-bell:hover { color: var(--bw-text1) !important; }
 
 /* Create Job button */
 .app-header1 .btn-danger {
   background: var(--bw-red) !important;
-  border-color: var(--bw-red) !important;
+  border: none !important;
   color: #fff !important;
   font-weight: 700 !important;
-  font-size: 12px !important;
-  padding: 6px 14px !important;
+  font-size: 11px !important;
+  padding: 6px 12px !important;
   border-radius: 6px !important;
-  transition: opacity 0.15s !important;
-  margin-right: 8px !important;
+  letter-spacing: 0.2px !important;
+  transition: filter 0.15s !important;
+  margin: 0 6px !important;
 }
-.app-header1 .btn-danger:hover { opacity: 0.85 !important; }
+.app-header1 .btn-danger:hover { filter: brightness(1.1) !important; }
 
-/* Bell */
-.app-header1 .fa-bell { color: var(--bw-text2) !important; font-size: 16px !important; }
-.app-header1 .fa-bell:hover { color: var(--bw-text1) !important; }
-
-/* Online/Offline dots */
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; vertical-align: middle; }
-.onlinez  { background: var(--bw-green) !important; }
+/* Status dots */
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
+.onlinez  { background: var(--bw-green) !important; box-shadow: 0 0 4px var(--bw-green) !important; }
 .offlinez { background: var(--bw-red)   !important; }
 
-/* ── Vehicle Stats Sidebar ──────────────────────────────────── */
+/* ============================================================
+   TOP NAV (inside header)
+   ============================================================ */
+.topnav {
+  display: flex !important;
+  align-items: center !important;
+  gap: 1px !important;
+  background: transparent !important;
+  overflow: visible !important;
+}
+.topnav a {
+  color: var(--bw-text2) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 5px 9px !important;
+  border-radius: 5px !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+  transition: background 0.12s, color 0.12s !important;
+}
+.topnav a:hover {
+  background: rgba(255,255,255,0.06) !important;
+  color: var(--bw-text1) !important;
+}
+.topnav a.active {
+  color: var(--bw-accent) !important;
+  background: var(--bw-accent-dim) !important;
+  font-weight: 600 !important;
+}
+
+/* ============================================================
+   VEHICLE STATS SIDEBAR
+   ============================================================ */
 .container-stats-top {
   background: var(--bw-bg1) !important;
   border-right: 1px solid var(--bw-border2) !important;
-  padding: 12px 6px !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  min-width: 54px !important;
-  width: 54px !important;
+  padding: 12px 4px !important;
+  min-width: 52px !important;
+  width: 52px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
 }
-
-.container-stats-top ul.list-inline { margin: 0 0 4px 0 !important; padding: 0 !important; }
+.container-stats-top ul.list-inline { margin: 0 0 3px !important; padding: 0 !important; }
 .container-stats-top ul.list-inline li {
   display: block !important;
-  padding: 2px !important;
+  padding: 3px 2px !important;
   text-align: center !important;
-  line-height: 1.4 !important;
+  line-height: 1.3 !important;
 }
-
-#FreeVehicles    { color: var(--bw-green) !important; }
-#PickingVehicles { color: var(--bw-blue)  !important; }
-#BusyVehicles    { color: var(--bw-amber) !important; }
-#AwayVehicles    { color: var(--bw-red)   !important; }
-.AllVehicles     { color: var(--bw-text1) !important; }
+#FreeVehicles    { color: var(--bw-green) !important; font-size: 14px !important; font-weight: 800 !important; }
+#PickingVehicles { color: var(--bw-blue)  !important; font-size: 14px !important; font-weight: 800 !important; }
+#BusyVehicles    { color: var(--bw-amber) !important; font-size: 14px !important; font-weight: 800 !important; }
+#AwayVehicles    { color: var(--bw-red)   !important; font-size: 14px !important; font-weight: 800 !important; }
+.AllVehicles     { color: var(--bw-text1) !important; font-size: 14px !important; font-weight: 800 !important; }
 
 .container-stats-top .form-control#zoomlabel {
   background: var(--bw-bg2) !important;
   border: 1px solid var(--bw-border2) !important;
   color: var(--bw-text1) !important;
-  height: 26px !important; padding: 2px 4px !important;
-  font-size: 11px !important; border-radius: 4px !important; width: 46px !important;
+  height: 24px !important;
+  padding: 1px 3px !important;
+  font-size: 10px !important;
+  border-radius: 4px !important;
+  width: 44px !important;
 }
 
-/* Stats bottom bar */
+/* Stats bottom strip */
 .container-stats-bottom ul.list-inline {
-  background: rgba(13,15,20,0.9) !important;
+  background: rgba(13,15,20,0.92) !important;
   border: 1px solid var(--bw-border2) !important;
-  border-radius: 6px !important;
-  padding: 4px 10px !important;
-  font-size: 11px !important; font-weight: 700 !important;
+  border-radius: 7px !important;
+  padding: 3px 10px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  backdrop-filter: blur(6px) !important;
 }
 .container-stats-bottom ul.list-inline li { color: var(--bw-text2) !important; padding: 2px 5px !important; }
 
-/* ── Map / Cards ────────────────────────────────────────────── */
-.card {
+/* ============================================================
+   MAP
+   ============================================================ */
+#map, #map-canvas {
+  min-height: 340px !important;
+  width: 100% !important;
+  display: block !important;
+}
+
+/* ============================================================
+   CARD / PANEL SHELL
+   ============================================================ */
+.card, div.panel {
   background: var(--bw-bg1) !important;
   border: 1px solid var(--bw-border2) !important;
   border-radius: var(--bw-radius) !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35) !important;
 }
-
 .card-body { background: transparent !important; padding: 0 !important; }
-
-#map {
-  min-height: 360px !important;
-  width: 100% !important;
-  display: block !important;
-  border-radius: 0 0 var(--bw-radius) 0 !important;
+.card-header, .panel-heading {
+  background: var(--bw-bg2) !important;
+  border-bottom: 1px solid var(--bw-border) !important;
+  padding: 10px 14px !important;
+  color: var(--bw-text1) !important;
 }
 
-.map-header, div.col-md-11.col-lg-11 > .card,
-div.col-md-11 > .card, div.col-lg-11 > .card { min-height: 380px !important; }
-.col-md-11.col-lg-11 > .card { border-radius: 0 var(--bw-radius) var(--bw-radius) 0 !important; }
-
-/* ── Job Panel Tabs ─────────────────────────────────────────── */
+/* ============================================================
+   JOB PANEL TABS
+   ============================================================ */
 ul.nav.panel-tabs {
   background: var(--bw-bg2) !important;
   border-bottom: 1px solid var(--bw-border2) !important;
-  margin: 0 !important; padding: 0 8px !important;
-  display: flex !important; gap: 0 !important;
+  margin: 0 !important;
+  padding: 0 6px !important;
+  display: flex !important;
+  gap: 0 !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
 }
-
+ul.nav.panel-tabs::-webkit-scrollbar { display: none !important; }
 ul.nav.panel-tabs li {
-  padding: 0 !important; margin: 0 !important;
-  width: auto !important; background: transparent !important; border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: auto !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  flex-shrink: 0 !important;
 }
-
 ul.nav.panel-tabs li a {
   color: var(--bw-text2) !important;
-  font-size: 12px !important; font-weight: 500 !important;
-  padding: 9px 11px !important;
-  border-radius: 0 !important; border: none !important; background: transparent !important;
-  display: block !important;
-  border-bottom: 2px solid transparent !important; margin-bottom: -1px !important;
-  transition: color 0.15s !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  padding: 9px 10px !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  border-bottom: 2px solid transparent !important;
+  margin-bottom: -1px !important;
+  transition: color 0.12s !important;
+  white-space: nowrap !important;
 }
-
 ul.nav.panel-tabs li.active a,
 ul.nav.panel-tabs li a.active,
 ul.nav.panel-tabs a.active.show {
@@ -234,401 +268,493 @@ ul.nav.panel-tabs a.active.show {
   background: transparent !important;
   font-weight: 600 !important;
 }
-
-ul.nav.panel-tabs li a:hover { color: var(--bw-text1) !important; }
-
-ul.nav.panel-tabs li a span {
-  font-size: 10px !important; margin-left: 4px !important;
+ul.nav.panel-tabs li a:hover:not(.active) {
+  color: var(--bw-text1) !important;
+  background: rgba(255,255,255,0.04) !important;
+}
+ul.nav.panel-tabs li a span.badge,
+ul.nav.panel-tabs li a span[class=""] {
   background: rgba(255,255,255,0.08) !important;
-  color: var(--bw-text3) !important;
-  border-radius: 10px !important; padding: 1px 5px !important;
+  color: var(--bw-text2) !important;
+  border-radius: 20px !important;
+  padding: 1px 6px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  min-width: 18px !important;
+  text-align: center !important;
 }
 
-/* Job list scroll area */
-.card-body[style*="overflow: scroll"],
-.card-body[style*="overflow:scroll"] {
+/* Job list scroll areas */
+.card-body[style*="overflow"],
+.job-list-scroll {
   background: var(--bw-bg) !important;
-  padding: 8px !important;
+  padding: 6px !important;
   scrollbar-width: thin !important;
-  scrollbar-color: rgba(255,255,255,0.1) transparent !important;
+  scrollbar-color: rgba(255,255,255,0.08) transparent !important;
 }
 
-/* ── Job Cards ─────────────────────────────────────────────── */
+/* ============================================================
+   JOB CARDS  (the heart of the dispatch console)
+   ============================================================ */
 .bottomspave,
 div#singlediv {
   background: var(--bw-bg1) !important;
   border: 1px solid var(--bw-border2) !important;
-  border-left: 3px solid var(--bw-border2) !important;
-  border-radius: var(--bw-radius) !important;
+  border-left: 3px solid rgba(59,130,246,0.4) !important;
+  border-radius: calc(var(--bw-radius) - 1px) !important;
+  margin-bottom: 5px !important;
+  padding: 8px 9px !important;
+  position: relative !important;
+  transition: border-left-color 0.2s, background 0.15s, box-shadow 0.15s !important;
   box-shadow: none !important;
-  margin-bottom: 6px !important;
-  padding: 9px !important;
-  transition: border-color 0.15s, background 0.15s !important;
 }
-
-.bottomspave:hover {
+.bottomspave:hover,
+div#singlediv:hover {
   background: var(--bw-bg2) !important;
-  border-color: var(--bw-border2) !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
 }
 
-.bottomspave *, div#singlediv * { color: var(--bw-text1) !important; }
+/* Job card text */
+.bottomspave *, div#singlediv * {
+  color: var(--bw-text1) !important;
+}
 
-/* Urgency states */
-.alertred {
+/* Alert / urgency states */
+.alertred,
+.bottomspave.alertred {
   border-left-color: var(--bw-red) !important;
-  background: rgba(239,68,68,0.05) !important;
+  background: rgba(239,68,68,0.04) !important;
 }
-
-.button-glow { animation: dispatch-alert 900ms infinite !important; }
-
-@keyframes dispatch-alert {
+.button-glow,
+.bottomspave.button-glow {
+  animation: bw-card-pulse 1s ease-in-out infinite !important;
+}
+@keyframes bw-card-pulse {
   0%,100% {
-    background: rgba(239,68,68,0.07) !important;
-    box-shadow: 0 0 0 1px rgba(239,68,68,0.3);
-    border-left-color: var(--bw-red) !important;
+    border-left-color: var(--bw-red);
+    background: rgba(239,68,68,0.05);
+    box-shadow: 0 0 0 0 rgba(239,68,68,0.15);
   }
   50% {
-    background: rgba(239,68,68,0.18) !important;
-    box-shadow: 0 0 0 2px rgba(239,68,68,0.5);
+    border-left-color: var(--bw-red);
+    background: rgba(239,68,68,0.12);
+    box-shadow: 0 0 0 3px rgba(239,68,68,0.08);
   }
 }
 
-/* ── Labels / Badges ────────────────────────────────────────── */
+/* Unassigned = blue accent | Assigned = green | Active = amber */
+.bottomspave[class*="unassign"] { border-left-color: rgba(59,130,246,0.5) !important; }
+.bottomspave[class*="assign"]:not([class*="unassign"]) { border-left-color: rgba(34,197,94,0.5) !important; }
+
+/* ============================================================
+   LABELS / BADGES / PILLS
+   ============================================================ */
 .label {
-  display: inline-flex !important; align-items: center !important; gap: 3px !important;
-  padding: 2px 7px !important; border-radius: 4px !important;
-  font-size: 11px !important; font-weight: 600 !important;
-  line-height: 1.5 !important; margin: 2px !important; border: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  padding: 2px 7px !important;
+  border-radius: 5px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1.5 !important;
+  margin: 2px 2px 2px 0 !important;
+  border: none !important;
   white-space: nowrap !important;
+  letter-spacing: 0.1px !important;
 }
 
 .label-primary  { background: rgba(59,130,246,0.14)  !important; color: #93c5fd !important; }
 .label-success  { background: rgba(34,197,94,0.12)   !important; color: #86efac !important; }
 .label-danger   { background: rgba(239,68,68,0.12)   !important; color: #fca5a5 !important; }
 .label-warning  { background: rgba(245,158,11,0.12)  !important; color: #fcd34d !important; }
+.label-info     { background: rgba(14,165,233,0.12)  !important; color: #7dd3fc !important; }
 label.label.label-success { background: rgba(34,197,94,0.12) !important; color: #86efac !important; font-weight: 600 !important; }
 span.label { color: inherit !important; }
 .label:empty { display: none !important; }
 
-/* Action pill buttons */
-span.label.label-pill.label-success,
-.label.label-pill.label-success span {
-  background: rgba(34,197,94,0.12) !important; color: #86efac !important;
+/* Pill action buttons (clickable) */
+span.label.label-pill.label-success {
+  background: rgba(34,197,94,0.10) !important;
+  color: #86efac !important;
   border: 1px solid rgba(34,197,94,0.22) !important;
-  cursor: pointer !important; padding: 3px 8px !important;
-  border-radius: 4px !important; transition: all 0.15s !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
 }
-span.label.label-pill.label-success:hover { background: var(--bw-green) !important; color: #fff !important; border-color: var(--bw-green) !important; }
+span.label.label-pill.label-success:hover {
+  background: var(--bw-green) !important;
+  color: #052e16 !important;
+  border-color: var(--bw-green) !important;
+}
 
-span.label.label-pill.label-danger,
-.label.label-pill.label-danger {
-  background: rgba(239,68,68,0.12) !important; color: #fca5a5 !important;
+span.label.label-pill.label-danger {
+  background: rgba(239,68,68,0.10) !important;
+  color: #fca5a5 !important;
   border: 1px solid rgba(239,68,68,0.22) !important;
-  cursor: pointer !important; padding: 3px 8px !important;
-  border-radius: 4px !important; transition: all 0.15s !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
 }
-span.label.label-pill.label-danger:hover { background: var(--bw-red) !important; color: #fff !important; border-color: var(--bw-red) !important; }
+span.label.label-pill.label-danger:hover {
+  background: var(--bw-red) !important;
+  color: #fff !important;
+  border-color: var(--bw-red) !important;
+}
 
 span.label.label-pill.label-warning {
-  background: rgba(245,158,11,0.12) !important; color: #fcd34d !important;
+  background: rgba(245,158,11,0.10) !important;
+  color: #fcd34d !important;
   border: 1px solid rgba(245,158,11,0.22) !important;
-  cursor: pointer !important; padding: 3px 8px !important;
-  border-radius: 4px !important; transition: all 0.15s !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
 }
-span.label.label-pill.label-warning:hover { background: var(--bw-amber) !important; color: #fff !important; }
+span.label.label-pill.label-warning:hover {
+  background: var(--bw-amber) !important;
+  color: #431a00 !important;
+  border-color: var(--bw-amber) !important;
+}
 
 span.label.label-pill.label-primary {
-  background: rgba(59,130,246,0.12) !important; color: #93c5fd !important;
-  border: 1px solid rgba(59,130,246,0.22) !important;
-  padding: 3px 8px !important; border-radius: 4px !important;
+  background: rgba(59,130,246,0.10) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(59,130,246,0.20) !important;
 }
 
-/* Driver/vehicle selector in job cards */
-.form-control.UnAssignJobsList2,
+/* Inline job dispatch pills with bg style set via ng-style — override for readability */
+span.label.label-pill[style*="background: #27ae60"],
+span.label.label-pill[style*="background:#27ae60"] {
+  background: rgba(34,197,94,0.14)  !important;
+  color: #86efac !important;
+}
+span.label.label-pill[style*="background: #e67e22"],
+span.label.label-pill[style*="background:#e67e22"] {
+  background: rgba(245,158,11,0.14) !important;
+  color: #fcd34d !important;
+}
+span.label.label-pill[style*="background: #2980b9"],
+span.label.label-pill[style*="background:#2980b9"] {
+  background: rgba(59,130,246,0.14) !important;
+  color: #93c5fd !important;
+}
+span.label.label-pill[style*="background: #dc2626"],
+span.label.label-pill[style*="background:#dc2626"] {
+  background: rgba(239,68,68,0.14) !important;
+  color: #fca5a5 !important;
+}
+span.label.label-pill[style*="background: #6d28d9"],
+span.label.label-pill[style*="background:#6d28d9"] {
+  background: rgba(109,40,217,0.14) !important;
+  color: #c4b5fd !important;
+}
+span.label.label-pill[style*="background: #c0392b"],
+span.label.label-pill[style*="background:#c0392b"],
+span.label.label-pill[style*="background: #8e44ad"],
+span.label.label-pill[style*="background:#8e44ad"] {
+  background: rgba(239,68,68,0.14) !important;
+  color: #fca5a5 !important;
+}
+
+/* Driver/vehicle selects inside job cards */
 select.form-control[id^="sa"],
 select.form-control[id^="sp"],
 select.form-control[id^="spx"],
 select.form-control[id^="sxq"],
-select.form-control[id^="sax"] {
-  height: 27px !important; padding: 3px 7px !important;
-  font-size: 11px !important; border-radius: 5px !important;
+select.form-control[id^="sax"],
+.form-control.UnAssignJobsList2 {
+  height: 26px !important;
+  padding: 2px 6px !important;
+  font-size: 11px !important;
+  border-radius: 5px !important;
   border: 1px solid var(--bw-border2) !important;
-  background: var(--bw-bg2) !important; color: var(--bw-text1) !important;
-  width: 140px !important; display: inline-block !important;
+  background: var(--bw-bg3) !important;
+  color: var(--bw-text1) !important;
+  width: 145px !important;
+  display: inline-block !important;
 }
 
-/* ── Form Controls ──────────────────────────────────────────── */
+/* ============================================================
+   FORM CONTROLS
+   ============================================================ */
 .form-control {
   background: var(--bw-bg2) !important;
   border: 1px solid var(--bw-border2) !important;
   border-radius: 6px !important;
   color: var(--bw-text1) !important;
   font-size: 13px !important;
-  height: 34px !important; padding: 4px 10px !important;
+  height: 34px !important;
+  padding: 4px 10px !important;
   transition: border-color 0.15s, box-shadow 0.15s !important;
   font-family: inherit !important;
 }
 .form-control:focus {
   border-color: var(--bw-accent-border) !important;
-  box-shadow: 0 0 0 2px var(--bw-accent-dim) !important;
+  box-shadow: 0 0 0 3px var(--bw-accent-dim) !important;
   outline: none !important;
 }
 .form-control::placeholder { color: var(--bw-text3) !important; }
-input.form-control { height: 34px !important; }
+input.form-control  { height: 34px !important; }
+textarea.form-control { height: auto !important; }
 select.form-control option { background: var(--bw-bg2) !important; color: var(--bw-text1) !important; }
 
-#map-header input[type="search"],
-input[placeholder="search"] {
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn {
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  padding: 6px 14px !important;
+  transition: filter 0.15s, opacity 0.15s !important;
+  font-family: inherit !important;
+  letter-spacing: 0.1px !important;
+}
+.btn-success { background: var(--bw-green) !important; border-color: var(--bw-green) !important; color: #fff !important; }
+.btn-success:hover { filter: brightness(1.08) !important; }
+.btn-warning { background: var(--bw-amber) !important; border-color: var(--bw-amber) !important; color: #fff !important; }
+.btn-warning:hover { filter: brightness(1.08) !important; }
+.btn-primary { background: var(--bw-blue)  !important; border-color: var(--bw-blue)  !important; color: #fff !important; }
+.btn-primary:hover { filter: brightness(1.1) !important; }
+.btn-danger  { background: var(--bw-red)   !important; border-color: var(--bw-red)   !important; color: #fff !important; }
+.btn-danger:hover  { filter: brightness(1.1) !important; }
+.btn-default {
   background: var(--bw-bg2) !important;
   border: 1px solid var(--bw-border2) !important;
   color: var(--bw-text1) !important;
-  border-radius: 6px !important;
-  padding: 5px 10px !important; font-size: 12px !important;
 }
-
-/* ── Buttons ────────────────────────────────────────────────── */
-.btn {
-  border-radius: 6px !important; font-weight: 600 !important;
-  font-size: 12px !important; padding: 6px 14px !important;
-  transition: opacity 0.15s, background 0.15s !important;
-  font-family: inherit !important;
-}
-.btn-success { background: var(--bw-green) !important; border-color: var(--bw-green) !important; color: #fff !important; }
-.btn-success:hover { opacity: 0.85 !important; }
-.btn-warning { background: var(--bw-amber) !important; border-color: var(--bw-amber) !important; color: #fff !important; }
-.btn-warning:hover { opacity: 0.85 !important; }
-.btn-primary { background: var(--bw-blue) !important; border-color: var(--bw-blue) !important; color: #fff !important; }
-.btn-primary:hover { opacity: 0.85 !important; }
-.btn-danger  { background: var(--bw-red) !important; border-color: var(--bw-red) !important; color: #fff !important; }
-.btn-default { background: var(--bw-bg2) !important; border: 1px solid var(--bw-border2) !important; color: var(--bw-text1) !important; }
 .btn-default:hover { background: var(--bw-bg3) !important; }
 
-/* ── Card Headers / Panel Headings ─────────────────────────── */
-.card-header, .panel-heading {
-  background: var(--bw-bg2) !important;
-  border-bottom: 1px solid var(--bw-border) !important;
-  padding: 10px 14px !important; color: var(--bw-text1) !important;
-}
-div.card, div.panel {
-  background: var(--bw-bg1) !important;
-  border: 1px solid var(--bw-border2) !important;
-}
-
-/* ── Tables ─────────────────────────────────────────────────── */
-td, th { border: 1px solid var(--bw-border) !important; color: var(--bw-text1) !important; }
-table th { background: var(--bw-bg2) !important; color: var(--bw-text1) !important; font-weight: 700 !important; }
-
-table#example {
-  background: var(--bw-bg1) !important;
-  border-radius: var(--bw-radius) !important; overflow: hidden !important;
-}
-table#example th {
-  background: var(--bw-bg2) !important; color: var(--bw-text1) !important;
-  font-weight: 700 !important; font-size: 12px !important;
-  border: none !important; padding: 10px 12px !important;
-}
-table#example td {
+/* ============================================================
+   TABLES
+   ============================================================ */
+table { border-collapse: collapse !important; }
+td, th {
   border: 1px solid var(--bw-border) !important;
-  padding: 8px 12px !important; font-size: 12px !important;
-  color: var(--bw-text2) !important; background: transparent !important;
+  color: var(--bw-text1) !important;
+  background: transparent !important;
 }
-table#example tr:hover td { background: rgba(255,255,255,0.03) !important; }
+table th {
+  background: var(--bw-bg2) !important;
+  font-weight: 700 !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.2px !important;
+  text-transform: uppercase !important;
+}
 
+table#example,
+table.dataTable {
+  background: var(--bw-bg1) !important;
+  border-radius: var(--bw-radius) !important;
+  overflow: hidden !important;
+  width: 100% !important;
+}
+table#example th,
 table.dataTable thead th {
-  background: var(--bw-bg2) !important; color: var(--bw-text1) !important;
-  border: none !important; font-size: 12px !important; padding: 10px 12px !important;
+  background: var(--bw-bg2) !important;
+  color: var(--bw-text2) !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  border: none !important;
+  border-bottom: 1px solid var(--bw-border2) !important;
+  padding: 10px 12px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
 }
-table.dataTable tbody tr:hover { background: rgba(255,255,255,0.03) !important; }
-table.dataTable tbody td { background: transparent !important; color: var(--bw-text2) !important; }
-
-.dataTables_filter input, .dataTables_length select {
-  background: var(--bw-bg2) !important; border: 1px solid var(--bw-border2) !important;
-  color: var(--bw-text1) !important; border-radius: 5px !important;
+table#example td,
+table.dataTable tbody td {
+  border: none !important;
+  border-bottom: 1px solid var(--bw-border) !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  color: var(--bw-text2) !important;
+  vertical-align: middle !important;
 }
-.dataTables_info, .dataTables_filter label, .dataTables_length label { color: var(--bw-text2) !important; }
+table#example tr:last-child td,
+table.dataTable tbody tr:last-child td { border-bottom: none !important; }
+table#example tr:hover td,
+table.dataTable tbody tr:hover td {
+  background: rgba(255,255,255,0.025) !important;
+  color: var(--bw-text1) !important;
+}
 
+/* DataTables chrome */
+.dataTables_filter input,
+.dataTables_length select {
+  background: var(--bw-bg2) !important;
+  border: 1px solid var(--bw-border2) !important;
+  color: var(--bw-text1) !important;
+  border-radius: 5px !important;
+}
+.dataTables_info,
+.dataTables_filter label,
+.dataTables_length label { color: var(--bw-text2) !important; font-size: 12px !important; }
 .dataTables_wrapper .dataTables_paginate .paginate_button {
-  border-radius: 5px !important; color: var(--bw-text2) !important;
+  border-radius: 5px !important;
+  color: var(--bw-text2) !important;
+  border: 1px solid transparent !important;
+  padding: 4px 9px !important;
 }
-.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+.dataTables_wrapper .dataTables_paginate .paginate_button.current,
+.dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
   background: var(--bw-accent-dim) !important;
   color: var(--bw-accent) !important;
-  border: 1px solid var(--bw-accent-border) !important;
+  border-color: var(--bw-accent-border) !important;
 }
-
-a#tbleClosedJobs_previous, a#tbleClosedJobs_next {
-  color: var(--bw-accent) !important; font-weight: 600 !important;
+.dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+  background: rgba(255,255,255,0.06) !important;
+  color: var(--bw-text1) !important;
 }
 td.dataTables_empty {
-  color: var(--bw-text3) !important; font-style: italic !important;
-  text-align: center !important; padding: 24px !important; background: transparent !important;
+  color: var(--bw-text3) !important;
+  font-style: italic !important;
+  text-align: center !important;
+  padding: 28px !important;
+  background: transparent !important;
+}
+a#tbleClosedJobs_previous, a#tbleClosedJobs_next {
+  color: var(--bw-accent) !important;
+  font-weight: 700 !important;
 }
 
-/* ── Modals ─────────────────────────────────────────────────── */
-.modal-backdrop { background: rgba(0,0,0,0.65) !important; }
+/* ============================================================
+   MODALS
+   ============================================================ */
+.modal-backdrop { background: rgba(0,0,0,0.7) !important; }
 
 .modal-content {
   background: var(--bw-bg1) !important;
   border: 1px solid var(--bw-border2) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.65), 0 0 0 1px var(--bw-border2) !important;
   overflow: hidden !important;
 }
 
 .modal-header {
   background: var(--bw-bg2) !important;
   border-bottom: 1px solid var(--bw-border2) !important;
-  padding: 13px 18px !important;
+  padding: 14px 18px !important;
+  position: relative !important;
 }
-
 .modal-header h4, .modal-header h5 {
   color: var(--bw-text1) !important;
-  font-weight: 700 !important; font-size: 14px !important;
-  margin: 0 !important; padding-right: 32px !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  margin: 0 !important;
+  padding-right: 36px !important;
+  line-height: 1.4 !important;
 }
 
 .modal-header .close, .modal-header button.close {
-  position: absolute !important; top: 50% !important; right: 14px !important;
+  position: absolute !important;
+  top: 50% !important;
+  right: 14px !important;
   transform: translateY(-50%) !important;
-  width: 26px !important; height: 26px !important;
-  display: flex !important; align-items: center !important; justify-content: center !important;
-  color: var(--bw-text2) !important; opacity: 1 !important;
-  font-size: 18px !important; font-weight: 400 !important; line-height: 1 !important;
-  text-shadow: none !important; background: rgba(255,255,255,0.06) !important;
-  border: none !important; border-radius: 5px !important; padding: 0 !important;
-  cursor: pointer !important; transition: background 0.15s, color 0.15s !important;
-  float: none !important; margin: 0 !important; z-index: 10 !important;
+  width: 28px !important;
+  height: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 6px !important;
+  color: var(--bw-text2) !important;
+  font-size: 18px !important;
+  font-weight: 300 !important;
+  line-height: 1 !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+  transition: background 0.12s, color 0.12s !important;
+  float: none !important;
+  margin: 0 !important;
 }
-.modal-header .close:hover, .modal-header button.close:hover {
-  background: rgba(255,255,255,0.12) !important;
-  color: var(--bw-text1) !important; transform: translateY(-50%) !important;
+.modal-header .close:hover,
+.modal-header button.close:hover {
+  background: rgba(255,255,255,0.13) !important;
+  color: var(--bw-text1) !important;
+  transform: translateY(-50%) !important;
 }
 
 .modal-body {
   background: var(--bw-bg1) !important;
-  padding: 18px !important; color: var(--bw-text1) !important;
+  padding: 18px !important;
+  color: var(--bw-text1) !important;
 }
 .modal-body[style*="background: #e5e5e5"],
 .modal-body[style*="background:#e5e5e5"] { background: var(--bw-bg1) !important; }
 
 .modal-footer {
   background: var(--bw-bg2) !important;
-  border-top: 1px solid var(--bw-border) !important;
-  padding: 11px 18px !important;
+  border-top: 1px solid var(--bw-border2) !important;
+  padding: 12px 18px !important;
+  gap: 8px !important;
+  display: flex !important;
+  justify-content: flex-end !important;
 }
 
-#largeModal .modal-content { border-radius: 12px !important; }
-#largeModal .modal-body { padding: 14px !important; background: var(--bw-bg1) !important; }
-
-/* ── Modal Tabs ─────────────────────────────────────────────── */
+/* ── Modal nav tabs ── */
 ul.nav.nav-tabs {
   background: var(--bw-bg2) !important;
   border-bottom: 1px solid var(--bw-border2) !important;
-  padding: 0 12px !important; margin-bottom: 14px !important;
+  padding: 0 12px !important;
+  margin-bottom: 16px !important;
 }
-ul.nav.nav-tabs li { background: transparent !important; border-radius: 0 !important; margin: 0 !important; padding: 0 !important; }
+ul.nav.nav-tabs li { background: transparent !important; border: none !important; margin: 0 !important; }
 ul.nav.nav-tabs li a {
-  color: var(--bw-text2) !important; font-size: 13px !important; font-weight: 500 !important;
-  padding: 9px 13px !important; border-radius: 0 !important; border: none !important;
-  background: transparent !important; display: block !important;
-  border-bottom: 2px solid transparent !important; margin-bottom: -1px !important; transition: color 0.15s !important;
+  color: var(--bw-text2) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  padding: 9px 14px !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  margin-bottom: -1px !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  display: block !important;
+  transition: color 0.12s !important;
 }
-ul.nav.nav-tabs li.active a, ul.nav.nav-tabs li a.active {
-  color: var(--bw-accent) !important; border-bottom-color: var(--bw-accent) !important; background: transparent !important;
+ul.nav.nav-tabs li.active a,
+ul.nav.nav-tabs li a.active,
+a.active.show {
+  color: var(--bw-accent) !important;
+  border-bottom-color: var(--bw-accent) !important;
+  background: transparent !important;
+  font-weight: 600 !important;
 }
-ul.nav.nav-tabs li a:hover { color: var(--bw-text1) !important; background: rgba(255,255,255,0.04) !important; }
-a.active.show { color: var(--bw-accent) !important; background: transparent !important; }
+ul.nav.nav-tabs li a:hover { color: var(--bw-text1) !important; }
 
-/* ── Accordion ──────────────────────────────────────────────── */
-.demo-accordion { list-style: none !important; padding: 0 !important; margin: 0 !important; }
-.demo-accordion li > div:first-child h4 {
-  background: var(--bw-bg3) !important; color: var(--bw-text1) !important;
-  font-size: 13px !important; font-weight: 700 !important;
-  padding: 10px 14px !important; border-radius: 6px !important;
-  cursor: pointer !important; margin-bottom: 10px !important;
-  border: 1px solid var(--bw-border) !important;
-}
-.accordionjs .acc_section .acc_head {
-  background: var(--bw-bg3) !important; color: var(--bw-text1) !important;
-  border-radius: 6px !important; padding: 10px 14px !important;
-  font-weight: 700 !important; border: 1px solid var(--bw-border) !important;
-}
-
-/* ── Notification Dropdown ──────────────────────────────────── */
-.dropdown-menu#alertshow {
-  background: var(--bw-bg1) !important;
-  border: 1px solid var(--bw-border2) !important;
-  border-radius: 10px !important;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.55) !important;
-  padding: 6px 0 !important; width: 340px !important;
-}
-#alertshow .tt-notif-header {
-  background: var(--bw-bg2) !important;
-  border-bottom: 1px solid var(--bw-border) !important;
-  color: var(--bw-text1) !important; padding: 10px 14px !important;
-}
-
-/* Alert badge */
-#total_notification.button-glow2 {
-  background: var(--bw-red) !important; color: #fff !important;
-  border-radius: 10px !important; padding: 2px 6px !important;
-  font-size: 10px !important; font-weight: 700 !important;
-  animation: badge-pulse 2s infinite !important;
-}
-@keyframes badge-pulse {
-  0%,100% { opacity: 1; }
-  50%      { opacity: 0.7; }
-}
-
-/* ── Chat panel ─────────────────────────────────────────────── */
-.friend-list li { border-radius: 6px !important; transition: background 0.15s !important; }
-.friend-list li:hover { background: rgba(255,255,255,0.05) !important; }
-
-/* ── Filter Jobs Modal ──────────────────────────────────────── */
-#Filter-jobs .modal-body { background: var(--bw-bg1) !important; }
-#Filter-jobs [style*="background:#f4f5f7"],
-#Filter-jobs [style*="background: #f4f5f7"] {
-  background: var(--bw-bg2) !important;
-  border-bottom: 1px solid var(--bw-border) !important;
-}
-#Filter-jobs input[type="text"] {
-  background: var(--bw-bg3) !important;
-  border: 1px solid var(--bw-border2) !important;
-  color: var(--bw-text1) !important; border-radius: 7px !important;
-}
-
-/* ── Driver Vehicle Modal ───────────────────────────────────── */
-.drv-modal-body { background: var(--bw-bg1) !important; }
+/* ============================================================
+   DRIVER / VEHICLE MODAL
+   ============================================================ */
+.drv-modal-body  { background: var(--bw-bg1) !important; }
 .drv-header-name { color: var(--bw-text1) !important; }
-.drv-badge-callsign { background: var(--bw-accent) !important; color: #1a1100 !important; }
+.drv-badge-callsign { background: var(--bw-accent) !important; color: #1a1100 !important; font-weight: 800 !important; }
 .drv-badge-status { background: rgba(255,255,255,0.08) !important; color: var(--bw-text2) !important; }
 
 .drv-info-card {
-  background: var(--bw-bg2) !important; border: 1px solid var(--bw-border) !important;
-  box-shadow: none !important; border-radius: 8px !important;
+  background: var(--bw-bg2) !important;
+  border: 1px solid var(--bw-border) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
 }
 .drv-info-card.clickable:hover {
   border-color: var(--bw-accent-border) !important;
   background: var(--bw-bg3) !important;
 }
 .drv-ic-label { color: var(--bw-text3) !important; }
-.drv-ic-value { color: var(--bw-text1) !important; }
+.drv-ic-value { color: var(--bw-text1) !important; font-weight: 600 !important; }
 
-.drv-btn-danger  { background: rgba(239,68,68,0.12)  !important; color: #fca5a5 !important; }
-.drv-btn-warning { background: rgba(245,158,11,0.12) !important; color: #fcd34d !important; }
-.drv-btn-primary { background: var(--bw-accent-dim)  !important; color: var(--bw-accent) !important; }
-.drv-btn-locate  { background: rgba(59,130,246,0.12) !important; color: #93c5fd !important; }
-.drv-action-btn:hover { opacity: 0.8 !important; }
-
-.drv-queue-group label { color: var(--bw-text3) !important; }
-.drv-queue-group select {
-  background: var(--bw-bg2) !important; border: 1px solid var(--bw-border2) !important;
-  color: var(--bw-text1) !important; border-radius: 6px !important;
-}
+.drv-btn-danger  { background: rgba(239,68,68,0.10)  !important; color: #fca5a5 !important; border: 1px solid rgba(239,68,68,0.2) !important; }
+.drv-btn-warning { background: rgba(245,158,11,0.10) !important; color: #fcd34d !important; border: 1px solid rgba(245,158,11,0.2) !important; }
+.drv-btn-primary { background: var(--bw-accent-dim)  !important; color: var(--bw-accent) !important; border: 1px solid var(--bw-accent-border) !important; }
+.drv-btn-locate  { background: rgba(59,130,246,0.10) !important; color: #93c5fd !important; border: 1px solid rgba(59,130,246,0.2) !important; }
+.drv-action-btn { transition: filter 0.12s !important; }
+.drv-action-btn:hover { filter: brightness(1.2) !important; }
 
 .drv-job-card {
-  background: var(--bw-bg2) !important; border: 1px solid var(--bw-border) !important;
-  border-radius: 8px !important; border-left: 3px solid var(--bw-border2) !important;
+  background: var(--bw-bg2) !important;
+  border: 1px solid var(--bw-border) !important;
+  border-left: 3px solid var(--bw-border2) !important;
+  border-radius: 8px !important;
   box-shadow: none !important;
 }
 .drv-job-card.status-assigned  { border-left-color: var(--bw-blue)  !important; }
@@ -639,79 +765,212 @@ a.active.show { color: var(--bw-accent) !important; background: transparent !imp
 
 .drv-job-time  { color: var(--bw-text3) !important; }
 .drv-job-addr  { color: var(--bw-text2) !important; }
-.drv-job-empty { color: var(--bw-text3) !important; }
+.drv-job-empty { color: var(--bw-text3) !important; font-style: italic !important; }
+.drv-job-meta  { border-top: 1px solid var(--bw-border) !important; }
 .drv-job-meta-item { color: var(--bw-text3) !important; }
-.drv-job-meta { border-top: 1px solid var(--bw-border) !important; }
 
-.status-pill-assigned  { background: rgba(59,130,246,0.14)  !important; color: #93c5fd !important; }
-.status-pill-active    { background: rgba(34,197,94,0.14)   !important; color: #86efac !important; }
-.status-pill-offered   { background: rgba(245,158,11,0.14)  !important; color: #fcd34d !important; }
-.status-pill-completed { background: rgba(255,255,255,0.06) !important; color: var(--bw-text2) !important; }
-.status-pill-unreached { background: rgba(239,68,68,0.14)   !important; color: #fca5a5 !important; }
-.status-pill-default   { background: rgba(255,255,255,0.06) !important; color: var(--bw-text2) !important; }
+.status-pill-assigned  { background: rgba(59,130,246,0.13) !important; color: #93c5fd !important; }
+.status-pill-active    { background: rgba(34,197,94,0.13)  !important; color: #86efac !important; }
+.status-pill-offered   { background: rgba(245,158,11,0.13) !important; color: #fcd34d !important; }
+.status-pill-completed { background: rgba(255,255,255,0.06)!important; color: var(--bw-text2) !important; }
+.status-pill-unreached { background: rgba(239,68,68,0.13)  !important; color: #fca5a5 !important; }
+.status-pill-default   { background: rgba(255,255,255,0.06)!important; color: var(--bw-text2) !important; }
 
 .drv-msg-bar {
-  background: var(--bw-bg2) !important; border: 1px solid var(--bw-border) !important;
-  border-radius: 8px !important; box-shadow: none !important;
+  background: var(--bw-bg2) !important;
+  border: 1px solid var(--bw-border) !important;
+  border-radius: 8px !important;
 }
 .drv-msg-bar i { color: var(--bw-accent) !important; }
 .drv-msg-bar input { color: var(--bw-text1) !important; background: transparent !important; }
 .drv-msg-bar input::placeholder { color: var(--bw-text3) !important; }
-.drv-msg-send { background: var(--bw-accent) !important; color: #1a1100 !important; font-weight: 700 !important; }
-.drv-msg-send:hover { opacity: 0.88 !important; }
+.drv-msg-send {
+  background: var(--bw-accent) !important;
+  color: #1a1100 !important;
+  font-weight: 700 !important;
+  border: none !important;
+}
+.drv-msg-send:hover { filter: brightness(1.08) !important; }
 
-#VehicleImage { border-radius: 8px !important; border: 1px solid var(--bw-border2) !important; }
-
-/* ── Toastr ─────────────────────────────────────────────────── */
-#toast-container > div {
-  border-radius: 8px !important;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important;
-  opacity: 0.97 !important;
+#VehicleImage {
+  border-radius: 9px !important;
+  border: 1px solid var(--bw-border2) !important;
 }
 
-/* ── Pagination ─────────────────────────────────────────────── */
-a#previousDrivers, a#nextDrivers, .pagination > li > a {
-  color: var(--bw-accent) !important; font-weight: 600 !important;
+/* ============================================================
+   NOTIFICATIONS DROPDOWN
+   ============================================================ */
+.dropdown-menu#alertshow {
+  background: var(--bw-bg1) !important;
+  border: 1px solid var(--bw-border2) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6) !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  width: 340px !important;
 }
-.pagination > li > a:hover { background: var(--bw-accent-dim) !important; border-color: var(--bw-accent-border) !important; }
-
-/* ── Avatar ─────────────────────────────────────────────────── */
-img.img-circle { border-radius: 50% !important; border: 2px solid var(--bw-border2) !important; }
-
-/* ── Modal body tables ──────────────────────────────────────── */
-.modal-body table td, .modal-body table th {
-  font-size: 12px !important; padding: 7px 10px !important;
-  color: var(--bw-text1) !important; border-color: var(--bw-border) !important;
+#alertshow .tt-notif-header {
+  background: var(--bw-bg2) !important;
+  border-bottom: 1px solid var(--bw-border) !important;
+  color: var(--bw-text1) !important;
+  padding: 11px 14px !important;
+  font-weight: 700 !important;
 }
-.modal-body table th { background: var(--bw-bg2) !important; }
 
-/* ── SweetAlert2 ────────────────────────────────────────────── */
+#total_notification.button-glow2 {
+  background: var(--bw-red) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  padding: 1px 6px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  animation: badge-fade 2.4s infinite !important;
+}
+@keyframes badge-fade {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.65; }
+}
+
+/* ============================================================
+   ACCORDIONS
+   ============================================================ */
+.accordionjs .acc_section .acc_head,
+.demo-accordion li > div:first-child h4 {
+  background: var(--bw-bg2) !important;
+  color: var(--bw-text1) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  padding: 10px 14px !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  border: 1px solid var(--bw-border2) !important;
+  margin-bottom: 8px !important;
+}
+
+/* ============================================================
+   SWEETALERT 2
+   ============================================================ */
 .swal2-popup {
   background: var(--bw-bg1) !important;
   border: 1px solid var(--bw-border2) !important;
-  border-radius: 12px !important; color: var(--bw-text1) !important;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.6) !important;
+  border-radius: 14px !important;
+  color: var(--bw-text1) !important;
+  box-shadow: 0 28px 80px rgba(0,0,0,0.65) !important;
 }
-.swal2-title { color: var(--bw-text1) !important; }
+.swal2-title { color: var(--bw-text1) !important; font-size: 18px !important; }
 .swal2-content { color: var(--bw-text2) !important; }
-.swal2-confirm { background: var(--bw-accent) !important; color: #1a1100 !important; border-radius: 7px !important; }
-.swal2-cancel { background: var(--bw-bg2) !important; border: 1px solid var(--bw-border2) !important; color: var(--bw-text1) !important; border-radius: 7px !important; }
+.swal2-confirm {
+  background: var(--bw-accent) !important;
+  color: #1a1100 !important;
+  border-radius: 7px !important;
+  font-weight: 700 !important;
+}
+.swal2-cancel {
+  background: var(--bw-bg3) !important;
+  border: 1px solid var(--bw-border2) !important;
+  color: var(--bw-text1) !important;
+  border-radius: 7px !important;
+}
 
-/* ── Misc ───────────────────────────────────────────────────── */
+/* ============================================================
+   FILTER JOBS MODAL
+   ============================================================ */
+#Filter-jobs .modal-body { background: var(--bw-bg1) !important; }
+#Filter-jobs [style*="background:#f4f5f7"],
+#Filter-jobs [style*="background: #f4f5f7"] {
+  background: var(--bw-bg2) !important;
+  border-bottom: 1px solid var(--bw-border) !important;
+}
+#Filter-jobs input[type="text"] {
+  background: var(--bw-bg3) !important;
+  border: 1px solid var(--bw-border2) !important;
+  color: var(--bw-text1) !important;
+  border-radius: 7px !important;
+}
+
+/* ============================================================
+   CHAT / MESSAGING PANEL
+   ============================================================ */
+.friend-list li {
+  border-radius: 6px !important;
+  transition: background 0.12s !important;
+}
+.friend-list li:hover { background: rgba(255,255,255,0.04) !important; }
+
+/* ============================================================
+   TOASTR NOTIFICATIONS
+   ============================================================ */
+#toast-container > div {
+  border-radius: 9px !important;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5) !important;
+  opacity: 0.97 !important;
+  font-family: inherit !important;
+}
+
+/* ============================================================
+   PAGINATION
+   ============================================================ */
+.pagination > li > a {
+  background: var(--bw-bg2) !important;
+  border-color: var(--bw-border2) !important;
+  color: var(--bw-text2) !important;
+  transition: all 0.12s !important;
+}
+.pagination > li > a:hover {
+  background: var(--bw-bg3) !important;
+  color: var(--bw-text1) !important;
+}
+.pagination > li.active > a {
+  background: var(--bw-accent-dim) !important;
+  border-color: var(--bw-accent-border) !important;
+  color: var(--bw-accent) !important;
+  font-weight: 700 !important;
+}
+a#previousDrivers, a#nextDrivers {
+  color: var(--bw-accent) !important;
+  font-weight: 700 !important;
+}
+
+/* ============================================================
+   MISC / UTILITIES
+   ============================================================ */
+img.img-circle {
+  border-radius: 50% !important;
+  border: 2px solid var(--bw-border2) !important;
+}
+
 .nopad { padding: 0 !important; margin: 0 !important; }
-.mLabel { color: #fff !important; font-weight: bold !important; text-align: center !important; padding: 2px 6px !important; border-radius: 3px !important; }
-#map-header, .map-header { position: relative !important; }
-#acc .col-lg-4, #acc .col-lg-6, #acc .col-lg-12 { margin-bottom: 4px !important; }
-#acc input[type="submit"] { border-radius: 6px !important; }
 
-/* ── Scrollbars ─────────────────────────────────────────────── */
+.mLabel {
+  color: #fff !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  padding: 2px 5px !important;
+  border-radius: 3px !important;
+}
+
+/* Map label */
+#map-header, .map-header { position: relative !important; }
+
+/* Inline style background overrides on modal body */
+.modal-body > div[style*="background"],
+.modal-body > table { background: transparent !important; }
+
+/* Checkboxes / radios */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--bw-accent) !important; }
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
 
-/* ── Responsive ─────────────────────────────────────────────── */
-@media (max-width: 768px) {
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
   .topnav { flex-wrap: wrap !important; }
-  .app-header1 .container-fluid { flex-wrap: wrap !important; }
+  .app-header1 { flex-wrap: wrap !important; min-height: auto !important; }
 }
