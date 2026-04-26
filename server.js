@@ -241,12 +241,14 @@ function newJobId() {
 let nextMsgId = 100;
 const messageStore = [];
 
-function buildDriverChatList() {
-  return ZONE_DRIVERS.map(d => {
+function buildDriverChatList(cid) {
+  const drivers = cid ? ZONE_DRIVERS.filter(d => !d.companyId || d.companyId === cid) : ZONE_DRIVERS;
+  const msgs    = cid ? messageStore.filter(m => !m.companyId || m.companyId === cid)  : messageStore;
+  return drivers.map(d => {
     const did = String(d.driverid || d.VehicleId || '');
-    const unread = messageStore.filter(m => String(m.SenderId) === did && !m.IsRead).length;
+    const unread = msgs.filter(m => String(m.SenderId) === did && !m.IsRead).length;
     const dn = d.drivername || '';
-  return { Id: d.driverid || d.VehicleId, UserFName: dn.split(' ')[0], UserLName: dn.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
+    return { Id: d.driverid || d.VehicleId, UserFName: dn.split(' ')[0], UserLName: dn.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
   });
 }
 
@@ -469,6 +471,7 @@ setInterval(function() {
         drivername: s.drivername, vehiclenumber: s.vehiclenumber,
         vehicletype: s.vehicletype, zonename: s.zonename,
         vehiclestatus: 'Away', zonequeue: maxQ + 1, queueWaitSince: Date.now(),
+        companyId: s.companyId || '',
       });
       console.log(`[AutoExpire] Driver ${s.driverId}/${s.vehicleId} suspension expired — restored to Away`);
       saveSuspendedDrivers();
@@ -1329,6 +1332,21 @@ const server = http.createServer(async (req, res) => {
       if (!sessionCompanyId) return store; // no session → return all (backward-compat fallback)
       return store.filter(j => !j.companyId || j.companyId === sessionCompanyId);
     }
+    // Helper: return only drivers belonging to this company.
+    function companyDrivers(store) {
+      if (!sessionCompanyId) return store;
+      return store.filter(d => !d.companyId || d.companyId === sessionCompanyId);
+    }
+    // Helper: return only suspended-driver records for this company.
+    function companySuspended(store) {
+      if (!sessionCompanyId) return store;
+      return store.filter(d => !d.companyId || d.companyId === sessionCompanyId);
+    }
+    // Helper: return only messages belonging to this company.
+    function companyMessages(store) {
+      if (!sessionCompanyId) return store;
+      return store.filter(m => !m.companyId || m.companyId === sessionCompanyId);
+    }
 
     // Helper: find a param value by name (case-insensitive, trims trailing spaces)
     function param(name) {
@@ -1802,7 +1820,7 @@ const server = http.createServer(async (req, res) => {
             const zdSend = ZONE_DRIVERS.find(d => String(d.driverid) === senderId || String(d.VehicleId) === senderId);
             senderName = (zdSend && zdSend.drivername) || ('Driver ' + senderId);
           }
-          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: receiverId, SenderName: senderName, Message: message, Date: datePart, Time: timePart, IsRead: true };
+          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: receiverId, SenderName: senderName, Message: message, Date: datePart, Time: timePart, IsRead: true, companyId: sessionCompanyId || '' };
           messageStore.push(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message from ${senderName} to driver #${receiverId}`);
         }
@@ -1817,7 +1835,7 @@ const server = http.createServer(async (req, res) => {
         const timePart  = dateTime.substring(11) || '';
         const driver    = ZONE_DRIVERS.find(d => String(d.driverid) === senderId || String(d.VehicleId) === senderId) || { drivername: 'Driver ' + senderId };
         if (message.trim()) {
-          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: 'Dispatcher', SenderName: driver.drivername || ('Driver ' + senderId), Message: message, Date: datePart, Time: timePart, IsRead: false };
+          const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: 'Dispatcher', SenderName: driver.drivername || ('Driver ' + senderId), Message: message, Date: datePart, Time: timePart, IsRead: false, companyId: sessionCompanyId || '' };
           messageStore.push(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message stored from driver #${senderId}`);
         }
@@ -1829,10 +1847,11 @@ const server = http.createServer(async (req, res) => {
         const datePart = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
         const timePart = dateTime.substring(11) || '';
         if (message.trim()) {
-          ZONE_DRIVERS.forEach(d => {
-            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Broadcast)', Message: message, Date: datePart, Time: timePart, IsRead: true });
+          const _bcastDrivers = companyDrivers(ZONE_DRIVERS);
+          _bcastDrivers.forEach(d => {
+            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Broadcast)', Message: message, Date: datePart, Time: timePart, IsRead: true, companyId: sessionCompanyId || '' });
           });
-          console.log(`200: POST ${urlPath} [action=${action}] -> broadcast to ${ZONE_DRIVERS.length} drivers`);
+          console.log(`200: POST ${urlPath} [action=${action}] -> broadcast to ${_bcastDrivers.length} drivers`);
         }
         successD(res, 'Broadcast sent successfully');
 
@@ -1843,12 +1862,12 @@ const server = http.createServer(async (req, res) => {
         const dateTime  = param('DateTime') || '';
         const datePart  = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
         const timePart  = dateTime.substring(11) || '';
-        let targets = [...ZONE_DRIVERS];
+        let targets = [...companyDrivers(ZONE_DRIVERS)];
         if (zone) targets = targets.filter(d => d.zonename.toLowerCase().includes(zone));
         if (vtype) targets = targets.filter(d => d.vehicletype.toLowerCase().includes(vtype));
         if (message.trim()) {
           targets.forEach(d => {
-            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Group)', Message: message, Date: datePart, Time: timePart, IsRead: true });
+            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Group)', Message: message, Date: datePart, Time: timePart, IsRead: true, companyId: sessionCompanyId || '' });
           });
           console.log(`200: POST ${urlPath} [action=${action}] -> group message to ${targets.length} drivers`);
         }
@@ -1864,11 +1883,14 @@ const server = http.createServer(async (req, res) => {
       } else if (action === '[KickDriver]') {
         const driverId  = param('DriverId') || '';
         const vehicleId = param('VehicleId') || '';
-        // Remove driver from demo roster so they disappear from the dispatch board
+        // Remove driver from roster — only kick drivers belonging to this company
         const beforeLen = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
-          if (String(ZONE_DRIVERS[i].driverid) === driverId || String(ZONE_DRIVERS[i].VehicleId) === vehicleId) {
-            ZONE_DRIVERS.splice(i, 1);
+          const _kd = ZONE_DRIVERS[i];
+          if (!sessionCompanyId || !_kd.companyId || _kd.companyId === sessionCompanyId) {
+            if (String(_kd.driverid) === driverId || String(_kd.VehicleId) === vehicleId) {
+              ZONE_DRIVERS.splice(i, 1);
+            }
           }
         }
         console.log(`200: POST ${urlPath} [action=[KickDriver]] -> driver ${driverId} kicked (removed ${beforeLen - ZONE_DRIVERS.length} entries)`);
@@ -1878,9 +1900,8 @@ const server = http.createServer(async (req, res) => {
         const driverId  = (param('DriverId')  || '').toString().trim();
         const vehicleId = (param('VehicleId') || '').toString().trim();
         const vehicleIdNum = parseInt(vehicleId) || 0;
-        // Try to find full driver record in ZONE_DRIVERS; fall back to request params if not found
-        // (drivers shown on board from Firebase may not be in ZONE_DRIVERS if no status change was sent)
-        const _suspZd = ZONE_DRIVERS.find(d =>
+        // Try to find full driver record in this company's ZONE_DRIVERS; fall back to request params if not found
+        const _suspZd = companyDrivers(ZONE_DRIVERS).find(d =>
           String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
           (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))
         );
@@ -1898,22 +1919,26 @@ const server = http.createServer(async (req, res) => {
           zonename:      (_suspZd && _suspZd.zonename)      || param('ZoneName')      || '',
           suspendedAt:   new Date().toISOString(),
           suspendedUntil: _suspUntil,
+          companyId:     sessionCompanyId || '',
         });
         saveSuspendedDrivers();
         const beforeLen2 = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
           const d = ZONE_DRIVERS[i];
-          if (String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
-              (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))) {
-            ZONE_DRIVERS.splice(i, 1);
+          if (!sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId) {
+            if (String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
+                (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))) {
+              ZONE_DRIVERS.splice(i, 1);
+            }
           }
         }
         console.log(`200: POST ${urlPath} [action=[DispatcherKickUsers]] -> driver ${driverId}/${vehicleId} suspended (removed ${beforeLen2 - ZONE_DRIVERS.length} entries, suspended list: ${SUSPENDED_DRIVERS.length})`);
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[GetSuspendedDrivers]') {
-        console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${SUSPENDED_DRIVERS.length} suspended driver(s)`);
-        objectD(res, { dt1: SUSPENDED_DRIVERS, dt2: [], dt3: [], dt4: [], dt5: [] });
+        const _mysSuspended = companySuspended(SUSPENDED_DRIVERS);
+        console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${_mysSuspended.length} suspended driver(s) (companyId=${sessionCompanyId})`);
+        objectD(res, { dt1: _mysSuspended, dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[UnsuspendDriver]') {
         const _unsDrvId  = (param('DriverId')  || '').toString().trim();
@@ -2235,6 +2260,7 @@ const server = http.createServer(async (req, res) => {
                 zonequeue:     0,
                 lat:           lat || '',
                 lng:           lng || '',
+                companyId:     sessionCompanyId || '',
               });
               console.log(`  [DriverStatusChanged/DP] driver ${driverId} re-added to ZONE_DRIVERS as ${newStatus} (post-restart recovery)`);
             }
@@ -2439,6 +2465,7 @@ const server = http.createServer(async (req, res) => {
                 lat:           lat || '',
                 lng:           lng || '',
                 queueWaitSince: Date.now(),
+                companyId:     sessionCompanyId || '',
               });
               console.log(`  [DriverStatusChanged/DP] NEW driver ${driverId} (${vehiclenumber}) added to ZONE_DRIVERS q=${_dscQueueNo} zone="${zonename}"`);
             }
@@ -2681,13 +2708,13 @@ const server = http.createServer(async (req, res) => {
 
       // ── Messaging read actions ───────────────────────────────────────────────
       } else if (action === '[RetrieveMessages]') {
-        const chatList = buildDriverChatList();
+        const chatList = buildDriverChatList(sessionCompanyId);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${chatList.length} drivers`);
         arrayD(res, chatList);
 
       } else if (action === '[DispatcherUnReadMessages]') {
         const driverId = (param('Id') || '').toString().trim();
-        const unread = messageStore.filter(m => String(m.SenderId) === driverId && !m.IsRead);
+        const unread = companyMessages(messageStore).filter(m => String(m.SenderId) === driverId && !m.IsRead);
         unread.forEach(m => { m.IsRead = true; });
         const mapped = unread.map(m => ({
           Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
@@ -3072,9 +3099,10 @@ const server = http.createServer(async (req, res) => {
         objectD(res, { dt1: _gqDt1 });
 
       } else if (action === 'VehiclesStatus') {
-        const busyCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Busy').length;
-        const freeCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available').length;
-        const awayCount  = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Away').length;
+        const _myDrivers = companyDrivers(ZONE_DRIVERS);
+        const busyCount  = _myDrivers.filter(d => d.vehiclestatus === 'Busy').length;
+        const freeCount  = _myDrivers.filter(d => d.vehiclestatus === 'Available').length;
+        const awayCount  = _myDrivers.filter(d => d.vehiclestatus === 'Away').length;
         // dt6: list of currently-online driver IDs so the dispatcher can immediately
         // remove drivers who have logged out via the server path but whose Firebase
         // node hasn't been cleaned up yet (screen-off onDisconnect delay).
@@ -3092,8 +3120,8 @@ const server = http.createServer(async (req, res) => {
         //   null              → server has been running > 90 s and confirms NO drivers are online; clear board
         //   []                → server just started (< 90 s warm-up); don't remove anyone yet
         const _onlineIds = _serverAgeMs > 90000
-          ? (ZONE_DRIVERS.length > 0
-              ? ZONE_DRIVERS.map(d => ({
+          ? (_myDrivers.length > 0
+              ? _myDrivers.map(d => ({
                   id:    String(d.driverid  || ''),
                   vid:   String(d.VehicleId || ''),
                   zone:  d.zonename  || '',
@@ -3102,26 +3130,27 @@ const server = http.createServer(async (req, res) => {
               : null)   // confirmed empty — signal client to clear board
           : [];         // warm-up period — don't act yet
         const vehicleStatus = {
-          dt1: [{ All: ZONE_DRIVERS.length }],
+          dt1: [{ All: _myDrivers.length }],
           dt2: [{ Busy: busyCount }],
           dt3: [{ Free: freeCount }],
-          dt4: [{ Picking: ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Picking').length }],
+          dt4: [{ Picking: _myDrivers.filter(d => d.vehiclestatus === 'Picking').length }],
           dt5: [{ Away: awayCount }],
           dt6: _onlineIds,
         };
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${ZONE_DRIVERS.length} vehicles`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_myDrivers.length} vehicles (companyId=${sessionCompanyId})`);
         objectD(res, vehicleStatus);
 
       } else if (action === 'JobsCount') {
         const _TERM = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
-        const closedCount  = [...jobStore, ...closedJobStore].filter(j => _TERM.has(j.BookingStatus)).length;
-        const cancelCount  = [...jobStore, ...closedJobStore].filter(j => j.BookingStatus === 'Cancelled' || j.BookingStatus === 'Cancel').length;
-        const noShowCount  = [...jobStore, ...closedJobStore].filter(j => j.BookingStatus === 'No Show' || j.BookingStatus === 'NoShow').length;
+        const _allMyJobs   = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
+        const closedCount  = _allMyJobs.filter(j => _TERM.has(j.BookingStatus)).length;
+        const cancelCount  = _allMyJobs.filter(j => j.BookingStatus === 'Cancelled' || j.BookingStatus === 'Cancel').length;
+        const noShowCount  = _allMyJobs.filter(j => j.BookingStatus === 'No Show' || j.BookingStatus === 'NoShow').length;
         const jobCounts = {
           dt1: [{ ClosedCount: closedCount }],
           dt2: [{ CancelledCount: cancelCount }],
           dt3: [{ NoShownCount: noShowCount }],
-          dt4: [{ AllCount: jobStore.length }],
+          dt4: [{ AllCount: companyJobs(jobStore).length }],
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> job counts`);
         objectD(res, jobCounts);
@@ -3142,8 +3171,8 @@ const server = http.createServer(async (req, res) => {
         // 'Completed' is our mock convention; 'Dispatched' is the real-backend convention for done rides.
         // Treat both as closed. When status filter is 'dispatched', also include 'completed'.
         const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
-        const liveTerminal = jobStore.filter(j => TERMINAL.has(j.BookingStatus));
-        let jobs = [...closedJobStore, ...liveTerminal];
+        const liveTerminal = companyJobs(jobStore).filter(j => TERMINAL.has(j.BookingStatus));
+        let jobs = [...companyJobs(closedJobStore), ...liveTerminal];
         console.log(`  [ClosedJobs] before filters: ${jobs.length} jobs (${closedJobStore.length} static + ${liveTerminal.length} live)`);
         if (statusFilter && statusFilter !== 'all') {
           jobs = applyStatusFilter(jobs, statusFilter);

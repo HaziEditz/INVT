@@ -67,7 +67,18 @@ Each approved company gets a **unique 6-digit company ID** (collision-proof, che
 3. Call `/api/session/login` to set a signed session cookie
 4. Redirect to `Default.aspx`
 
-**Server-side isolation**: Every DataManager request reads the `BW_SID` cookie to get the company ID. All job reads filter to that company's jobs. All job writes tag new jobs with the company ID.
+**Server-side isolation** — complete as of April 2026. Every DataManager request reads the `BW_SID` cookie to determine `sessionCompanyId`. All stores are filtered using closures:
+
+| Store | Write (tagged with) | Read (filtered with) |
+|-------|---------------------|----------------------|
+| `jobStore` / `closedJobStore` | `companyId: sessionCompanyId` | `companyJobs(store)` |
+| `ZONE_DRIVERS` | `companyId: sessionCompanyId` | `companyDrivers(store)` |
+| `SUSPENDED_DRIVERS` | `companyId: sessionCompanyId` | `companySuspended(store)` |
+| `messageStore` | `companyId: sessionCompanyId` | `companyMessages(store)` |
+
+Actions fully isolated: `VehiclesStatus`, `JobsCount`, `ClosedJobs`, `SearchJobs`, `[RetrieveMessages]`, `[DispatcherUnReadMessages]`, `[GetSuspendedDrivers]`, `[KickDriver]`, `[DispatcherKickUsers]`, `[BroadcastMessage]`, `[GroupMessage]`, `[DriverStatusChanged]` (write + queue calculations).
+
+See `MULTITENANCY_SPEC.md` for the full specification to share with Super Admin, Admin/Owner Panel, and Driver App Repls.
 
 ### Firebase Rules — MUST be deployed after any changes to `database.rules.json`
 The `users` path in Firebase requires these rules (already in `database.rules.json`, needs deploy):
