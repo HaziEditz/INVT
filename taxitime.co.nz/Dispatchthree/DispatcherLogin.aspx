@@ -27,69 +27,14 @@
     html, body {
       height: 100%;
       font-family: 'Inter', -apple-system, sans-serif;
-      background: var(--dark);
+      background: #0d0f14;
       color: var(--text1);
       overflow-x: hidden;
     }
 
-    /* ── Animated background ───────────────────────────────────── */
-    .bg {
-      position: fixed;
-      inset: 0;
-      overflow: hidden;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .orb {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(120px);
-      opacity: 0;
-      animation: orbFloat 20s ease-in-out infinite;
-    }
-
-    .orb-1 {
-      width: 600px; height: 600px;
-      background: radial-gradient(circle, rgba(245,190,30,0.15) 0%, transparent 70%);
-      top: -200px; left: -150px;
-      animation-delay: 0.5s;
-    }
-    .orb-2 {
-      width: 500px; height: 500px;
-      background: radial-gradient(circle, rgba(79,106,255,0.12) 0%, transparent 70%);
-      bottom: -150px; right: -100px;
-      animation-delay: 4s;
-      animation-duration: 25s;
-    }
-    .orb-3 {
-      width: 350px; height: 350px;
-      background: radial-gradient(circle, rgba(245,190,30,0.07) 0%, transparent 70%);
-      top: 40%; left: 55%;
-      animation-delay: 10s;
-      animation-duration: 18s;
-    }
-
-    @keyframes orbFloat {
-      0%   { opacity: 0; transform: translate(0,0) scale(1); }
-      10%  { opacity: 1; }
-      50%  { transform: translate(30px, -40px) scale(1.08); }
-      90%  { opacity: 1; }
-      100% { opacity: 0; transform: translate(-10px, 20px) scale(0.97); }
-    }
-
-    /* Grid overlay */
-    .grid-overlay {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      background-image:
-        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-      background-size: 60px 60px;
-      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 0%, transparent 100%);
-    }
+    /* ── Subtle background texture ─────────────────────────────── */
+    .bg { display: none; }
+    .grid-overlay { display: none; }
 
     /* ── SPLASH SCREEN ─────────────────────────────────────────── */
     #splash {
@@ -100,7 +45,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: var(--dark);
+      background: #0d0f14;
       animation: splashExit 0.7s cubic-bezier(0.4,0,0.2,1) 2.6s forwards;
       pointer-events: none;
     }
@@ -225,10 +170,8 @@
     /* ── Left brand panel ─────────────────────────────────────── */
     .brand-panel {
       flex: 1 1 50%;
-      background: linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-      border-right: 1px solid var(--border);
+      background: #111420;
+      border-right: 1px solid rgba(255,255,255,0.09);
       padding: 52px 48px;
       display: flex;
       flex-direction: column;
@@ -241,17 +184,12 @@
       content: '';
       position: absolute;
       top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(245,190,30,0.4), transparent);
+      height: 2px;
+      background: #f5be1e;
+      opacity: 0.6;
     }
 
-    .brand-glow {
-      position: absolute;
-      top: -80px; left: -80px;
-      width: 300px; height: 300px;
-      background: radial-gradient(circle, rgba(245,190,30,0.12) 0%, transparent 70%);
-      pointer-events: none;
-    }
+    .brand-glow { display: none; }
 
     .brand-logo {
       display: flex;

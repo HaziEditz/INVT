@@ -19175,3 +19175,4 @@ $(document).ready(function() {
 <script src="https://cdn.rawgit.com/googlemaps/v3-utility-library/master/markerwithlabel/src/markerwithlabel.js"></script>
 
   <script src="https://cdn.jsdelivr.net/jquery.validation/1.16.0/jquery.validate.min.js"></script>
+<script src="js/dispatch-customizer.js"></script>
