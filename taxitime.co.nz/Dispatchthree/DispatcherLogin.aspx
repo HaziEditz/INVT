@@ -645,11 +645,6 @@
           console.warn('[auto-login] no companyId found; showing login form.');
           return;
         }
-        localStorage.setItem('TT_Name',    name);
-        localStorage.setItem('TT_DId',     '1051');
-        localStorage.setItem('TT_Country', 'NZ');
-        localStorage.setItem('TT_CId',     cid);
-        localStorage.setItem('Country',    'NZ');
         return fetch('/api/session/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -657,10 +652,17 @@
           credentials: 'include'
         }).then(function(resp) {
           if (resp && resp.ok) {
-            window.location.replace('Default.aspx');
+            return resp.json().then(function(data) {
+              localStorage.setItem('TT_Name',    name);
+              localStorage.setItem('TT_DId',     '1051');
+              localStorage.setItem('TT_Country', 'NZ');
+              localStorage.setItem('TT_CId',     data.companyId || cid);
+              localStorage.setItem('TT_Company', data.company   || '');
+              localStorage.setItem('Country',    'NZ');
+              window.location.replace('Default.aspx');
+            });
           } else {
             console.warn('[auto-login] server rejected companyId ' + cid + '; showing login form.');
-            // Clear bad cached value so it doesn't keep failing
             if (cid === cachedCid) localStorage.removeItem('TT_CId');
           }
         });
@@ -801,12 +803,6 @@
               return;
             }
 
-            localStorage.setItem('TT_Name',    name);
-            localStorage.setItem('TT_DId',     '1051');
-            localStorage.setItem('TT_Country', 'NZ');
-            localStorage.setItem('TT_CId',     cid);
-            localStorage.setItem('Country',    'NZ');
-
             // Establish BW_SID session cookie for server-side dispatch isolation
             return fetch('/api/session/login', {
               method: 'POST',
@@ -815,7 +811,15 @@
               credentials: 'include'
             }).then(function(resp) {
               if (resp && resp.ok) {
-                window.location.href = 'Default.aspx';
+                return resp.json().then(function(data) {
+                  localStorage.setItem('TT_Name',    name);
+                  localStorage.setItem('TT_DId',     '1051');
+                  localStorage.setItem('TT_Country', 'NZ');
+                  localStorage.setItem('TT_CId',     data.companyId || cid);
+                  localStorage.setItem('TT_Company', data.company   || '');
+                  localStorage.setItem('Country',    'NZ');
+                  window.location.href = 'Default.aspx';
+                });
               } else {
                 return resp.json().catch(function() { return {}; }).then(function(body) {
                   resetBtn();

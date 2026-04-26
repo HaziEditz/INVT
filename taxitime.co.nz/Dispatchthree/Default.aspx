@@ -4476,6 +4476,34 @@ $(document).ready(function() {
     }
 
      
+    // ── Session sync: verify company ID from signed server cookie ───────────
+    // The BW_SID cookie is the authoritative source of truth for which company this
+    // browser belongs to. If localStorage has a stale or different value, correct it
+    // and reload once so all Firebase paths use the real company_id.
+    fetch('/api/session/me', { credentials: 'include' })
+      .then(function(r) {
+        if (r.status === 401 || r.status === 403) {
+          // No valid server session — force re-login
+          window.location.replace('DispatcherLogin.aspx');
+          return;
+        }
+        return r.json();
+      })
+      .then(function(me) {
+        if (!me || !me.companyId) return;
+        var localCid = localStorage.getItem('TT_CId') || '';
+        if (localCid !== me.companyId) {
+          // Company ID in localStorage doesn't match the signed server session.
+          // Update it and reload so Firebase paths are built with the real company_id.
+          localStorage.setItem('TT_CId', me.companyId);
+          localStorage.setItem('TT_Company', me.company || '');
+          window.location.reload();
+        }
+        // Also always keep company name in sync
+        if (me.company) localStorage.setItem('TT_Company', me.company);
+      })
+      .catch(function() { /* network error — continue with cached value */ });
+
     // ── Session: read from localStorage (stored by DispatcherLogin.aspx) ──────
     var someSession  = localStorage.getItem('TT_Name')    || '';
     var SomeSession2 = localStorage.getItem('TT_CId')     || '';   // company ID — all online/ paths use this
@@ -4491,10 +4519,18 @@ $(document).ready(function() {
     localStorage.setItem("Country", someSession3);
     $("#lblName1").text(someSession);
     $("#lblName2").text(someSession);
-    $("#lblCompanyId").text(SomeSession2);
-    $("#tt-modal-id").text(SomeSession2);
+    // Company ID labels — always reflect the real company_id from the server session
+    var _displayCid = localStorage.getItem('TT_CId') || SomeSession2;
+    $("#lblCompanyId").text(_displayCid);
+    $("#tt-modal-id").text(_displayCid);
     $("#tt-modal-dispatcher").text("Dispatcher: " + someSession);
-    // Company name populated later by server response; also mirror to modal
+    // Pre-populate company name from cache (fast path); server response will override it
+    var _cachedCompanyName = localStorage.getItem('TT_Company') || '';
+    if (_cachedCompanyName) {
+        $("#CompanyName").text(_cachedCompanyName);
+        $("#tt-modal-company").text(_cachedCompanyName);
+    }
+    // Keep modal company name in sync as server response updates #CompanyName
     var _cNameObserver = setInterval(function() {
         var cn = $("#CompanyName").text();
         if (cn) { $("#tt-modal-company").text(cn); clearInterval(_cNameObserver); }
@@ -4502,7 +4538,7 @@ $(document).ready(function() {
 
     // ── Logout: clear all session data and return to login page ─────────────
     function Logout() {
-        ['TT_Name', 'TT_DId', 'TT_Country', 'TT_CId', 'Country'].forEach(function(k) {
+        ['TT_Name', 'TT_DId', 'TT_Country', 'TT_CId', 'TT_Company', 'Country'].forEach(function(k) {
             localStorage.removeItem(k);
         });
         // Sign out of Firebase so the anonymous token is discarded

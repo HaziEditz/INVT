@@ -1194,8 +1194,35 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': 'application/json',
       'Set-Cookie': `BW_SID=${token}; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
     });
-    res.end(JSON.stringify({ ok: true, companyId }));
-    console.log(`[session] login: companyId=${companyId} uid=${uid}`);
+    res.end(JSON.stringify({ ok: true, companyId, company: reg.company, status: reg.status }));
+    console.log(`[session] login: companyId=${companyId} company="${reg.company}" uid=${uid}`);
+    return;
+  }
+
+  // GET /api/session/me — returns the authenticated company ID from the BW_SID cookie.
+  // Called by Default.aspx on page load to verify/correct any stale localStorage value.
+  if (urlPath === '/api/session/me' && req.method === 'GET') {
+    const cid = getSessionCompanyId(req);
+    if (!cid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No valid session' }));
+      return;
+    }
+    const ACTIVE_STATUSES = ['active', 'trial', 'grace'];
+    const reg = registrationStore.find(r => r.companyId === cid);
+    if (!reg) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Company not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok:        true,
+      companyId: reg.companyId,
+      company:   reg.company,
+      status:    reg.status,
+      isActive:  ACTIVE_STATUSES.includes(reg.status),
+    }));
     return;
   }
 
