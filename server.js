@@ -1199,6 +1199,33 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/session/company-by-email?email=<email>
+  // Used by the login page when Firebase DB doesn't have the companyId (e.g. DB write failed at approval).
+  // Returns the companyId for an active/trial company matched by owner email.
+  if (urlPath === '/api/session/company-by-email' && req.method === 'GET') {
+    const qs    = new URL('http://x' + req.url).searchParams;
+    const email = (qs.get('email') || '').toLowerCase().trim();
+    if (!email) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'email is required' }));
+      return;
+    }
+    const ACTIVE_STATUSES = ['active', 'trial', 'grace'];
+    const reg = registrationStore.find(r =>
+      r.email && r.email.toLowerCase() === email &&
+      r.companyId &&
+      ACTIVE_STATUSES.includes(r.status)
+    );
+    if (!reg) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No active account found for this email' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, companyId: reg.companyId, company: reg.company, status: reg.status }));
+    return;
+  }
+
   // GET /api/account-status?email=...&companyId=...
   // Used by dispatch console, admin/owner panel, and driver app to check access
   if (urlPath === '/api/account-status' && req.method === 'GET') {

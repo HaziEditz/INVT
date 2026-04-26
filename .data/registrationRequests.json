@@ -215,5 +215,27 @@
     "graceEnd": null,
     "rejectedAt": null,
     "rejectedReason": null
+  },
+  {
+    "id": "REG-1777178779258",
+    "status": "active",
+    "submittedAt": 1777178779258,
+    "company": "TestTaxis",
+    "name": "Duaa Abdullah",
+    "email": "gballzdirect@gmail.com",
+    "phone": "",
+    "passwordHash": "123456",
+    "businessNumber": "1234567",
+    "fleetSize": "12",
+    "area": "Invercargill",
+    "country": "NZ",
+    "companyId": "131040",
+    "ownerUid": "zqpljoORZVS0lN1qBf8xbvG6pdZ2",
+    "approvedAt": 1777178812939,
+    "trialStart": 1777178812939,
+    "trialEnd": 1778042812939,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null
   }
 ]

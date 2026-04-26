@@ -402,6 +402,22 @@
         />
       </div>
 
+      <div class="form-group">
+        <label for="inputCompanyId" style="display:flex;align-items:center;gap:6px;">
+          Company ID
+          <span style="font-weight:400;color:#9ca3af;font-size:11px;">(optional — from your approval email)</span>
+        </label>
+        <input
+          type="text"
+          id="inputCompanyId"
+          name="companyId"
+          placeholder="e.g. 417942"
+          autocomplete="off"
+          maxlength="10"
+          style="letter-spacing:2px;"
+        />
+      </div>
+
       <button type="submit" class="btn-login" id="btnLogin">Sign in</button>
     </form>
 
@@ -596,42 +612,61 @@
     // ── If Firebase says user is already signed in, go straight to console ──
     firebase.auth().onAuthStateChanged(function(user) {
       if (!user) return; // not signed in — show the login form
-      var name = user.displayName || user.email.split('@')[0];
-      // Try to fetch companyId from Firebase DB; fall back to localStorage cache if
-      // the DB read fails (e.g. rules not yet deployed, or network issue).
+      var name      = user.displayName || user.email.split('@')[0];
+      var userEmail = user.email || '';
       var cachedCid = localStorage.getItem('TT_CId') || '';
-      firebase.database().ref('users/' + user.uid + '/companyId').once('value')
-        .then(function(snap) { return snap.val() || cachedCid; },
-              function()      { return cachedCid; }) // permission-denied → use cache
-        .then(function(cid) {
-          if (!cid) {
-            // No companyId available at all — cannot auto-login, show the form
-            console.warn('[auto-login] no companyId available; showing login form.');
-            return;
-          }
-          localStorage.setItem('TT_Name',    name);
-          localStorage.setItem('TT_DId',     '1051');
-          localStorage.setItem('TT_Country', 'NZ');
-          localStorage.setItem('TT_CId',     cid);
-          localStorage.setItem('Country',    'NZ');
-          // Establish server-side session cookie
-          return fetch('/api/session/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ companyId: cid, uid: user.uid }),
-            credentials: 'include'
-          }).then(function(resp) {
-            if (resp && resp.ok) {
-              window.location.replace('Default.aspx');
-            } else {
-              // companyId not in server store yet — stay on login form, user can re-enter credentials
-              console.warn('[auto-login] server rejected companyId ' + cid + '; showing login form.');
-            }
-          });
+
+      // Three-step fallback: Firebase DB → server email lookup → cached value
+      var cidPromise = firebase.database().ref('users/' + user.uid + '/companyId').once('value')
+        .then(function(snap) {
+          var fbCid = snap.val();
+          if (fbCid) return fbCid;
+          // Step 2: Firebase DB has nothing — try the server
+          return fetch('/api/session/company-by-email?email=' + encodeURIComponent(userEmail))
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+              if (data && data.companyId) return data.companyId;
+              return cachedCid || null;
+            })
+            .catch(function() { return cachedCid || null; });
         })
-        .catch(function(err) {
-          console.warn('[auto-login] unexpected error; showing login form.', err);
+        .catch(function() {
+          // Firebase DB read failed — try server lookup
+          return fetch('/api/session/company-by-email?email=' + encodeURIComponent(userEmail))
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+              return (data && data.companyId) ? data.companyId : (cachedCid || null);
+            })
+            .catch(function() { return cachedCid || null; });
         });
+
+      cidPromise.then(function(cid) {
+        if (!cid) {
+          console.warn('[auto-login] no companyId found; showing login form.');
+          return;
+        }
+        localStorage.setItem('TT_Name',    name);
+        localStorage.setItem('TT_DId',     '1051');
+        localStorage.setItem('TT_Country', 'NZ');
+        localStorage.setItem('TT_CId',     cid);
+        localStorage.setItem('Country',    'NZ');
+        return fetch('/api/session/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyId: cid, uid: user.uid }),
+          credentials: 'include'
+        }).then(function(resp) {
+          if (resp && resp.ok) {
+            window.location.replace('Default.aspx');
+          } else {
+            console.warn('[auto-login] server rejected companyId ' + cid + '; showing login form.');
+            // Clear bad cached value so it doesn't keep failing
+            if (cid === cachedCid) localStorage.removeItem('TT_CId');
+          }
+        });
+      }).catch(function(err) {
+        console.warn('[auto-login] unexpected error; showing login form.', err);
+      });
     });
 
     // ── Mock-server login fallback (used when Firebase auth is unavailable) ──
@@ -684,17 +719,20 @@
 
     // ── Login form submission ────────────────────────────────────────────────
     document.getElementById('loginForm').addEventListener('submit', function() {
-      var emailEl    = document.getElementById('inputEmail');
-      var passwordEl = document.getElementById('inputPassword');
-      var btnEl      = document.getElementById('btnLogin');
-      var errorBox   = document.getElementById('errorBox');
+      var emailEl     = document.getElementById('inputEmail');
+      var passwordEl  = document.getElementById('inputPassword');
+      var companyIdEl = document.getElementById('inputCompanyId');
+      var btnEl       = document.getElementById('btnLogin');
+      var errorBox    = document.getElementById('errorBox');
 
-      var email    = emailEl.value.trim();
-      var password = passwordEl.value.trim();
+      var email     = emailEl.value.trim();
+      var password  = passwordEl.value.trim();
+      var manualCid = (companyIdEl.value || '').replace(/\s/g, '');
 
       errorBox.style.display = 'none';
       emailEl.classList.remove('error');
       passwordEl.classList.remove('error');
+      companyIdEl.classList.remove('error');
 
       if (!email) {
         emailEl.classList.add('error');
@@ -712,6 +750,37 @@
       btnEl.disabled = true;
       btnEl.innerHTML = '<span class="spinner"></span>Signing in...';
 
+      // Resolve company ID using a three-step fallback chain:
+      //  1. Manual Company ID field (typed by user)
+      //  2. Firebase DB (users/{uid}/companyId)
+      //  3. Server lookup by email (/api/session/company-by-email)
+      function resolveCompanyId(uid) {
+        // Step 1: manual input wins immediately
+        if (manualCid) return Promise.resolve(manualCid);
+
+        // Step 2: Firebase DB lookup
+        return firebase.database().ref('users/' + uid + '/companyId').once('value')
+          .then(function(snap) {
+            var fbCid = snap.val();
+            if (fbCid) return fbCid;
+
+            // Step 3: server lookup by email (handles cases where Firebase DB write failed at approval)
+            return fetch('/api/session/company-by-email?email=' + encodeURIComponent(email))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .then(function(data) {
+                if (data && data.companyId) return data.companyId;
+                return null; // still not found
+              });
+          })
+          .catch(function() {
+            // Firebase DB unavailable — try server lookup directly
+            return fetch('/api/session/company-by-email?email=' + encodeURIComponent(email))
+              .then(function(r) { return r.ok ? r.json() : null; })
+              .then(function(data) { return data && data.companyId ? data.companyId : null; })
+              .catch(function() { return null; });
+          });
+      }
+
       // 10-second timeout so the button never hangs forever
       var authTimeout = setTimeout(function() {
         _mockLogin(email, 'auth/timeout');
@@ -722,27 +791,22 @@
           clearTimeout(authTimeout);
           var user = result.user;
           var name = user.displayName || email.split('@')[0];
-          // Look up this user's company ID from Firebase
-          return firebase.database().ref('users/' + user.uid + '/companyId').once('value').then(function(snap) {
-            var cid = snap.val() || '1216';
+
+          return resolveCompanyId(user.uid).then(function(cid) {
+            if (!cid) {
+              resetBtn();
+              showError('Your account was found but your Company ID could not be resolved. Please enter your Company ID in the field above and try again.');
+              companyIdEl.classList.add('error');
+              companyIdEl.focus();
+              return;
+            }
+
             localStorage.setItem('TT_Name',    name);
             localStorage.setItem('TT_DId',     '1051');
             localStorage.setItem('TT_Country', 'NZ');
             localStorage.setItem('TT_CId',     cid);
             localStorage.setItem('Country',    'NZ');
 
-            // Also authenticate with the production backend so that the ASP.NET
-            // session cookie is set in the browser.
-            fetch('/DataManager/Data.aspx/LoginSelector', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                data: [
-                  { name: 'Username', value: email },
-                  { name: 'Password', value: password }
-                ]
-              })
-            }).catch(function() {});
             // Establish BW_SID session cookie for server-side dispatch isolation
             return fetch('/api/session/login', {
               method: 'POST',
@@ -753,8 +817,16 @@
               if (resp && resp.ok) {
                 window.location.href = 'Default.aspx';
               } else {
-                resetBtn();
-                showError('Session could not be established. Please try again.');
+                return resp.json().catch(function() { return {}; }).then(function(body) {
+                  resetBtn();
+                  if (body && body.error === 'Unknown company') {
+                    showError('The Company ID "' + cid + '" is not recognised. Please check your Company ID and try again.');
+                    companyIdEl.classList.add('error');
+                    companyIdEl.focus();
+                  } else {
+                    showError('Session could not be established. Please try again.');
+                  }
+                });
               }
             }).catch(function() {
               resetBtn();
@@ -772,7 +844,6 @@
             resetBtn();
             showError('Incorrect email or password. Please try again.');
           } else {
-            // Any other error (too-many-requests, network, etc.) — try mock fallback
             _mockLogin(email, error.code);
           }
         });
