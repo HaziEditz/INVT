@@ -974,3 +974,296 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--bw-accent) !im
   .topnav { flex-wrap: wrap !important; }
   .app-header1 { flex-wrap: wrap !important; min-height: auto !important; }
 }
+
+/* ============================================================
+   LIGHT MODE  (activated by data-bw-mode="light" on <html>)
+   ============================================================ */
+html[data-bw-mode="light"] body,
+html[data-bw-mode="light"] html {
+  background: #f0f2f5 !important;
+  color: #14181f !important;
+}
+
+/* Accent strip on header stays visible */
+html[data-bw-mode="light"] .app-header1.header::before {
+  opacity: 0.5;
+}
+
+/* Labels / badges — light mode needs darker text */
+html[data-bw-mode="light"] .label-primary  { background: rgba(37,99,235,0.10) !important; color: #1d4ed8 !important; }
+html[data-bw-mode="light"] .label-success  { background: rgba(22,163,74,0.10) !important; color: #15803d !important; }
+html[data-bw-mode="light"] .label-danger   { background: rgba(220,38,38,0.10) !important; color: #b91c1c !important; }
+html[data-bw-mode="light"] .label-warning  { background: rgba(217,119,6,0.10) !important; color: #b45309 !important; }
+
+html[data-bw-mode="light"] span.label.label-pill.label-success { background: rgba(22,163,74,0.10) !important; color: #15803d !important; border: 1px solid rgba(22,163,74,0.25) !important; }
+html[data-bw-mode="light"] span.label.label-pill.label-success:hover { background: #16a34a !important; color: #fff !important; }
+html[data-bw-mode="light"] span.label.label-pill.label-danger  { background: rgba(220,38,38,0.10) !important; color: #b91c1c !important; border: 1px solid rgba(220,38,38,0.25) !important; }
+html[data-bw-mode="light"] span.label.label-pill.label-danger:hover { background: #dc2626 !important; color: #fff !important; }
+html[data-bw-mode="light"] span.label.label-pill.label-warning { background: rgba(217,119,6,0.10) !important; color: #b45309 !important; border: 1px solid rgba(217,119,6,0.25) !important; }
+html[data-bw-mode="light"] span.label.label-pill.label-warning:hover { background: #d97706 !important; color: #fff !important; }
+html[data-bw-mode="light"] span.label.label-pill.label-primary { background: rgba(37,99,235,0.10) !important; color: #1d4ed8 !important; border: 1px solid rgba(37,99,235,0.20) !important; }
+
+/* ng-style inline background overrides — light mode */
+html[data-bw-mode="light"] span.label.label-pill[style*="background: #27ae60"],
+html[data-bw-mode="light"] span.label.label-pill[style*="background:#27ae60"] { background: rgba(22,163,74,0.12) !important; color: #15803d !important; }
+html[data-bw-mode="light"] span.label.label-pill[style*="background: #e67e22"],
+html[data-bw-mode="light"] span.label.label-pill[style*="background:#e67e22"] { background: rgba(217,119,6,0.12) !important; color: #b45309 !important; }
+html[data-bw-mode="light"] span.label.label-pill[style*="background: #2980b9"],
+html[data-bw-mode="light"] span.label.label-pill[style*="background:#2980b9"] { background: rgba(37,99,235,0.12) !important; color: #1d4ed8 !important; }
+html[data-bw-mode="light"] span.label.label-pill[style*="background: #dc2626"],
+html[data-bw-mode="light"] span.label.label-pill[style*="background:#dc2626"] { background: rgba(220,38,38,0.12) !important; color: #b91c1c !important; }
+html[data-bw-mode="light"] span.label.label-pill[style*="background: #6d28d9"],
+html[data-bw-mode="light"] span.label.label-pill[style*="background:#6d28d9"] { background: rgba(109,40,217,0.12) !important; color: #6d28d9 !important; }
+
+/* Job card border tones for light mode */
+html[data-bw-mode="light"] .bottomspave,
+html[data-bw-mode="light"] div#singlediv {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+}
+html[data-bw-mode="light"] .bottomspave:hover {
+  box-shadow: 0 3px 12px rgba(0,0,0,0.12) !important;
+}
+
+/* SweetAlert in light mode */
+html[data-bw-mode="light"] .swal2-popup {
+  background: #ffffff !important;
+  border: 1px solid rgba(0,0,0,0.1) !important;
+  color: #14181f !important;
+}
+html[data-bw-mode="light"] .swal2-title { color: #14181f !important; }
+html[data-bw-mode="light"] .swal2-content { color: #4a5568 !important; }
+
+/* Notification dropdown */
+html[data-bw-mode="light"] .dropdown-menu#alertshow {
+  box-shadow: 0 10px 40px rgba(0,0,0,0.15) !important;
+}
+
+/* Scrollbar in light mode */
+html[data-bw-mode="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.12) !important;
+}
+html[data-bw-mode="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.22) !important;
+}
+
+/* ============================================================
+   CREATE JOB MODAL  (#largeModal) — design fixes
+   ============================================================ */
+
+/* Fix broken hardcoded width/margin on the modal content */
+#largeModal .modal-content {
+  margin-left: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Modal body padding */
+#largeModal .modal-body {
+  padding: 20px !important;
+}
+
+/* Accordion wrappers */
+#largeModal ul.demo-accordion.accordionjs {
+  list-style: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+#largeModal ul.demo-accordion.accordionjs li {
+  margin-bottom: 8px !important;
+}
+#largeModal .accordionjs .acc_section .acc_head {
+  background: var(--bw-bg2) !important;
+  color: var(--bw-text1) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  padding: 11px 15px !important;
+  border-radius: var(--bw-radius) !important;
+  border: 1px solid var(--bw-border2) !important;
+  cursor: pointer !important;
+  margin: 0 !important;
+  letter-spacing: -0.1px !important;
+}
+#largeModal .accordionjs .acc_section.acc_active .acc_head {
+  border-color: var(--bw-accent-border) !important;
+  color: var(--bw-accent) !important;
+  border-radius: var(--bw-radius) var(--bw-radius) 0 0 !important;
+}
+#largeModal .accordionjs .acc_section .acc_content {
+  background: var(--bw-bg1) !important;
+  border: 1px solid var(--bw-border2) !important;
+  border-top: none !important;
+  border-radius: 0 0 var(--bw-radius) var(--bw-radius) !important;
+  padding: 16px !important;
+}
+
+/* Form-field labels inside the create job form
+   These incorrectly use label.label.label-success (green pills) — make them look like real labels */
+#largeModal label.label,
+#largeModal label.label.label-success,
+#largeModal label.label.label-primary,
+#largeModal label.label.label-danger {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  color: var(--bw-text2) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.8px !important;
+  padding: 10px 0 4px !important;
+  margin: 0 !important;
+  display: block !important;
+  white-space: normal !important;
+}
+
+/* But keep the small pill labels that are truly badges (spans, not block labels) */
+#largeModal span.label.label-success,
+#largeModal span.label.label-primary,
+#largeModal span.label.label-danger,
+#largeModal span.label.label-warning {
+  display: inline-flex !important;
+  padding: 2px 7px !important;
+}
+
+/* Date/time picker section (later booking) — hardcoded light colours */
+#largeModal [style*="background:#f8f9fa"],
+#largeModal [style*="background: #f8f9fa"] {
+  background: var(--bw-bg2) !important;
+  border-color: var(--bw-border2) !important;
+}
+#largeModal [style*="color:#495057"],
+#largeModal [style*="color: #495057"] { color: var(--bw-text2) !important; }
+#largeModal [style*="color:#333"],
+#largeModal [style*="color: #333"]    { color: var(--bw-text1) !important; }
+#largeModal [style*="border:1px solid #dee2e6"],
+#largeModal [style*="border: 1px solid #dee2e6"],
+#largeModal [style*="border:1px solid #ced4da"],
+#largeModal [style*="border: 1px solid #ced4da"] {
+  border-color: var(--bw-border2) !important;
+}
+
+/* Date inputs within the time picker */
+#largeModal input[type="date"],
+#largeModal #laterDate {
+  background: var(--bw-bg3) !important;
+  border: 1px solid var(--bw-border2) !important;
+  color: var(--bw-text1) !important;
+  border-radius: 5px !important;
+  height: 30px !important;
+  padding: 2px 8px !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+}
+#largeModal input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7) !important;
+  cursor: pointer !important;
+}
+
+/* Dispatch-before / hours / minutes selects */
+#largeModal #ddlLaterHrs,
+#largeModal #ddlLaterMins,
+#largeModal #assign_notice {
+  background: var(--bw-bg3) !important;
+  border: 1px solid var(--bw-border2) !important;
+  color: var(--bw-text1) !important;
+  height: 30px !important;
+  padding: 2px 6px !important;
+  font-size: 12px !important;
+  border-radius: 5px !important;
+}
+
+/* Search autocomplete dropdown */
+#largeModal #searchdatas {
+  background: var(--bw-bg1) !important;
+  border: 1px solid var(--bw-border2) !important;
+  border-top: none !important;
+  border-radius: 0 0 var(--bw-radius) var(--bw-radius) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important;
+  color: var(--bw-text1) !important;
+  z-index: 10 !important;
+  padding: 4px 0 !important;
+}
+#largeModal #searchdatas h5 {
+  color: var(--bw-text1) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  padding: 8px 14px !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  border-bottom: 1px solid var(--bw-border) !important;
+  transition: background 0.12s !important;
+}
+#largeModal #searchdatas h5:hover {
+  background: var(--bw-accent-dim) !important;
+}
+#largeModal #searchdatas h5:last-child { border-bottom: none !important; }
+
+/* Estimated details info span */
+#largeModal span.label.label-primary#timesuggested,
+#largeModal span.label.label-primary[id="timesuggested"] {
+  color: var(--bw-text2) !important;
+  background: transparent !important;
+  border: none !important;
+  font-size: 11px !important;
+  display: block !important;
+  padding: 4px 0 !important;
+}
+
+/* Estimate info block */
+#largeModal span.label-primary:has(> span:first-child) {
+  background: var(--bw-bg2) !important;
+  border: 1px solid var(--bw-border) !important;
+  border-radius: 6px !important;
+  display: block !important;
+  padding: 8px 10px !important;
+  margin-top: 6px !important;
+  color: var(--bw-text2) !important;
+  font-size: 11px !important;
+}
+
+/* Now / Later radio group */
+#largeModal label.label.label-primary input[type="radio"],
+#largeModal input[type="radio"],
+#largeModal input[type="checkbox"] {
+  accent-color: var(--bw-accent) !important;
+  width: 14px !important;
+  height: 14px !important;
+  cursor: pointer !important;
+}
+
+/* Input group (multi-stop) */
+#largeModal .input-group-addon {
+  background: var(--bw-bg2) !important;
+  border: 1px solid var(--bw-border2) !important;
+  color: var(--bw-text2) !important;
+  border-radius: var(--bw-radius) 0 0 var(--bw-radius) !important;
+}
+#largeModal .input-group .form-control {
+  border-radius: 0 var(--bw-radius) var(--bw-radius) 0 !important;
+}
+
+/* Assign/vehicle dropdowns in form */
+#largeModal .form-control,
+#largeModal select.form-control {
+  margin-bottom: 4px !important;
+}
+
+/* Section rows spacing */
+#largeModal .col-sm-4, #largeModal .col-sm-6,
+#largeModal .col-md-4, #largeModal .col-md-8 {
+  padding-bottom: 4px !important;
+}
+
+/* Light mode overrides for Create Job modal */
+html[data-bw-mode="light"] #largeModal label.label,
+html[data-bw-mode="light"] #largeModal label.label.label-success,
+html[data-bw-mode="light"] #largeModal label.label.label-primary {
+  color: #4a5568 !important;
+}
+html[data-bw-mode="light"] #largeModal #searchdatas h5 { color: #14181f !important; }
+html[data-bw-mode="light"] #largeModal input[type="date"] {
+  filter: none !important;
+}
+html[data-bw-mode="light"] #largeModal input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none !important;
+}
