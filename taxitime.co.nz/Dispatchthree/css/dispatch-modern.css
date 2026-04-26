@@ -968,6 +968,48 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--bw-accent) !im
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
 
 /* ============================================================
+   GOOGLE MAPS PLACES AUTOCOMPLETE
+   Must sit above Bootstrap modal (z-index 1050) and modal
+   backdrop (z-index 1040) so suggestions are always visible.
+   ============================================================ */
+.pac-container {
+  z-index: 9999 !important;
+  background: var(--bw-bg1) !important;
+  border: 1px solid var(--bw-border2) !important;
+  border-top: none !important;
+  border-radius: 0 0 var(--bw-radius) var(--bw-radius) !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.45) !important;
+  font-family: Inter,-apple-system,sans-serif !important;
+}
+.pac-item {
+  background: var(--bw-bg1) !important;
+  border-top: 1px solid var(--bw-border) !important;
+  padding: 8px 12px !important;
+  color: var(--bw-text2) !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+}
+.pac-item:hover, .pac-item-selected {
+  background: var(--bw-accent-dim) !important;
+  color: var(--bw-text1) !important;
+}
+.pac-item-query {
+  color: var(--bw-text1) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+.pac-matched { color: var(--bw-accent) !important; font-weight: 700 !important; }
+.pac-icon { display: none !important; }
+html[data-bw-mode="light"] .pac-container {
+  background: #ffffff !important;
+  border-color: rgba(0,0,0,0.1) !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+}
+html[data-bw-mode="light"] .pac-item { background: #fff !important; color: #4a5568 !important; border-top-color: rgba(0,0,0,0.06) !important; }
+html[data-bw-mode="light"] .pac-item:hover, html[data-bw-mode="light"] .pac-item-selected { background: rgba(245,190,30,0.08) !important; color: #14181f !important; }
+html[data-bw-mode="light"] .pac-item-query { color: #14181f !important; }
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 900px) {

@@ -2478,6 +2478,109 @@ $(document).ready(function() {
 </script>
 <body ng-app="myApp" ng-cloak  ng-controller="myCtrl" id="myangular">
 
+<!-- ══════════════════════════════════════════════════════════════
+     POST-LOGIN LOADING SPLASH
+     Shows for ~2.8 s then fades out. Company name is filled in
+     by _bwSplashSetCompany() which the DispatcherSettings handler
+     calls once the settings AJAX resolves.
+═══════════════════════════════════════════════════════════════════ -->
+<div id="bw-splash" aria-hidden="true">
+  <div id="bw-splash-inner">
+    <div id="bw-splash-icon">🚕</div>
+    <div id="bw-splash-name">BookaWaka</div>
+    <div id="bw-splash-sub">Dispatch Console</div>
+    <div id="bw-splash-track"><div id="bw-splash-bar"></div></div>
+    <div id="bw-splash-status">Loading&hellip;</div>
+  </div>
+</div>
+
+<style>
+#bw-splash {
+  position: fixed; inset: 0; z-index: 999999;
+  background: #0d0f14;
+  display: flex; align-items: center; justify-content: center;
+  font-family: Inter,-apple-system,BlinkMacSystemFont,sans-serif;
+  transition: opacity .65s ease, visibility .65s ease;
+}
+#bw-splash.bw-splash-out {
+  opacity: 0; visibility: hidden; pointer-events: none;
+}
+#bw-splash-inner { text-align: center; user-select: none; }
+#bw-splash-icon {
+  font-size: 52px; line-height: 1;
+  background: linear-gradient(135deg,#f5be1e,#e8a000);
+  border-radius: 20px; width: 80px; height: 80px;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 20px;
+  box-shadow: 0 0 0 12px rgba(245,190,30,0.08), 0 0 40px rgba(245,190,30,0.25);
+  animation: bw-pulse 2.2s ease-in-out infinite;
+}
+@keyframes bw-pulse {
+  0%,100% { box-shadow: 0 0 0 12px rgba(245,190,30,0.08), 0 0 40px rgba(245,190,30,0.25); }
+  50%      { box-shadow: 0 0 0 18px rgba(245,190,30,0.04), 0 0 60px rgba(245,190,30,0.40); }
+}
+#bw-splash-name {
+  font-size: 32px; font-weight: 800; color: #edf0f4;
+  letter-spacing: -.5px; line-height: 1.1;
+}
+#bw-splash-sub {
+  font-size: 11px; color: #3e4a5c; letter-spacing: 2px;
+  text-transform: uppercase; margin-top: 5px;
+}
+#bw-splash-track {
+  margin: 28px auto 0; width: 200px; height: 2px;
+  background: rgba(255,255,255,0.06); border-radius: 2px;
+  overflow: hidden; position: relative;
+}
+#bw-splash-bar {
+  position: absolute; top: 0; left: -70%; width: 70%; height: 100%;
+  background: linear-gradient(90deg, transparent, #f5be1e, transparent);
+  border-radius: 2px;
+  animation: bw-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes bw-shimmer { 0% { left:-70%; } 100% { left:105%; } }
+#bw-splash-status {
+  margin-top: 14px; font-size: 11px; color: #3e4a5c;
+  letter-spacing: .5px;
+}
+</style>
+
+<script>
+(function(){
+  var _el    = document.getElementById('bw-splash');
+  var _nm    = document.getElementById('bw-splash-name');
+  var _st    = document.getElementById('bw-splash-status');
+  var _gone  = false;
+
+  function _hide(){
+    if (_gone) return;
+    _gone = true;
+    if (_el) {
+      _el.classList.add('bw-splash-out');
+      setTimeout(function(){ if (_el && _el.parentNode) _el.parentNode.removeChild(_el); }, 700);
+    }
+  }
+
+  /* Auto-dismiss after 3 s regardless */
+  var _autoTimer = setTimeout(_hide, 3000);
+
+  /* Angular controller calls this once settings are loaded */
+  window._bwSplashSetCompany = function(name) {
+    if (_nm && name) _nm.textContent = name;
+  };
+  window._bwSplashReady = function(status) {
+    if (_st && status) _st.textContent = status;
+    clearTimeout(_autoTimer);
+    setTimeout(_hide, 600);
+  };
+  window._bwSplashHide = function() {
+    clearTimeout(_autoTimer);
+    _hide();
+  };
+})();
+</script>
+<!-- ══ end splash ═════════════════════════════════════════════════ -->
+
     <div class="page" style="background:#f0f2f5;">
         <div class="page-main" style="background:#f0f2f5;">
             <!-- header area -->
@@ -14458,7 +14561,11 @@ $(document).ready(function() {
             
                 if ($res["dt1"].length != []) {
 
-                    $('#CompanyName').text($res["dt1"][0].CompanyName);
+                    var _cname = $res["dt1"][0].CompanyName || 'BookaWaka';
+                    $('#CompanyName').text(_cname);
+                    // Update splash with real company name, then dismiss it
+                    if (window._bwSplashSetCompany) window._bwSplashSetCompany(_cname);
+                    if (window._bwSplashReady)      window._bwSplashReady('Ready');
                     $("#DirectBookingIsAllowed").text($res["dt1"][0].DirectBookingIsAllowed); 
                     $("#AllowDirectAssignment").text($res["dt1"][0].JobAllowedToAssignToaDriver);
                     $("#AutoDispatch").text($res["dt1"][0].AutoDispatch);
