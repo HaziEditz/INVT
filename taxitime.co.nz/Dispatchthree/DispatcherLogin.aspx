@@ -1186,12 +1186,16 @@
               } else {
                 return resp.json().catch(function() { return {}; }).then(function(body) {
                   resetBtn();
-                  if (body && body.error === 'Unknown company') {
+                  var errMsg = (body && body.error) ? body.error : '';
+                  var inactiveStatuses = ['deactivated', 'deleted', 'pending', 'rejected'];
+                  if (body && inactiveStatuses.includes(body.status)) {
+                    showError(errMsg || 'This account is not currently active. Please contact BookaWaka support.');
+                  } else if (body && body.error === 'Unknown company') {
                     showError('The Company ID "' + cid + '" is not recognised. Please check your Company ID and try again.');
                     companyIdEl.classList.add('error');
                     companyIdEl.focus();
                   } else {
-                    showError('Session could not be established. Please try again.');
+                    showError(errMsg || 'Session could not be established. Please try again.');
                   }
                 });
               }
@@ -1233,6 +1237,17 @@
         document.getElementById('loginForm').dispatchEvent(new Event('submit'));
       }
     });
+
+    // Show a message if the server redirected here because the account is not active
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var reason = params.get('reason');
+      if (reason === 'account_inactive') {
+        showError('This account has been deactivated or deleted. Please contact BookaWaka support.');
+        // Clean the URL so the message doesn't persist on refresh
+        history.replaceState(null, '', window.location.pathname);
+      }
+    })();
   </script>
 </body>
 </html>

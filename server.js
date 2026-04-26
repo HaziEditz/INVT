@@ -851,6 +851,19 @@ const server = http.createServer(async (req, res) => {
       res.end();
       return;
     }
+    // Also check the company's current status — deactivated/deleted companies must not load the console
+    const _gateReg = registrationStore.find(r => r.companyId === companyId);
+    const _gateAllowed = ['trial', 'active', 'grace'];
+    if (!_gateReg || !_gateAllowed.includes(_gateReg.status)) {
+      console.log(`[gate] Default.aspx blocked: companyId=${companyId} status=${_gateReg ? _gateReg.status : 'not found'}`);
+      // Expire the cookie so the browser won't re-use it
+      res.writeHead(302, {
+        Location: '/DispatcherLogin.aspx?reason=account_inactive',
+        'Set-Cookie': 'BW_SID=; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=0',
+      });
+      res.end();
+      return;
+    }
   }
 
   if (SILENT_OK_PATTERNS.some(p => urlPath.startsWith(p))) {
@@ -1189,6 +1202,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Block login for any company that is not currently active
+    const LOGIN_ALLOWED_STATUSES = ['trial', 'active', 'grace'];
+    if (!LOGIN_ALLOWED_STATUSES.includes(reg.status)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      const msg = reg.status === 'deactivated' || reg.status === 'deleted'
+        ? 'This account has been deactivated. Please contact BookaWaka support.'
+        : reg.status === 'pending'
+          ? 'This account is awaiting approval.'
+          : reg.status === 'rejected'
+            ? 'This account application was not approved.'
+            : 'Account access is not available.';
+      res.end(JSON.stringify({ error: msg, status: reg.status }));
+      console.log(`[session] login BLOCKED: companyId=${companyId} status=${reg.status}`);
+      return;
+    }
+
     const token = createSessionToken(companyId);
     res.writeHead(200, {
       'Content-Type': 'application/json',
@@ -1215,13 +1244,20 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'Company not found' }));
       return;
     }
+    // If company has been deactivated/deleted since the cookie was issued, block them
+    if (!ACTIVE_STATUSES.includes(reg.status)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Account is not active', status: reg.status }));
+      console.log(`[session/me] blocked: companyId=${cid} status=${reg.status}`);
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ok:        true,
       companyId: reg.companyId,
       company:   reg.company,
       status:    reg.status,
-      isActive:  ACTIVE_STATUSES.includes(reg.status),
+      isActive:  true,
     }));
     return;
   }
