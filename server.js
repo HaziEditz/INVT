@@ -886,8 +886,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Key',
     });
     res.end();
     return;
@@ -1045,6 +1045,27 @@ const server = http.createServer(async (req, res) => {
         }
         console.log(`[admin] deactivated account ${regId} (${reg.email})`);
         jsonReply(res, { ok: true, message: 'Account deactivated.' });
+        return;
+      }
+
+      // DELETE /admin/registrations/:id  ─OR─  POST /admin/registrations/:id/delete
+      // Permanently removes the company from the store so they can never log in again.
+      // Also revokes Firebase adminAccess so the owner can't reach other Repls.
+      const isDelete = (req.method === 'DELETE' && !action) || (action === 'delete' && req.method === 'POST');
+      if (isDelete) {
+        const idx = registrationStore.findIndex(r => r.id === regId);
+        if (idx !== -1) registrationStore.splice(idx, 1);
+        saveRegistrations();
+        // Revoke Firebase access asynchronously
+        if (reg.ownerUid && reg.companyId && reg.passwordHash) {
+          firebaseSignIn(reg.email, reg.passwordHash)
+            .then(({ idToken }) => firebaseDbDelete(`adminAccess/${reg.companyId}/${reg.ownerUid}`, idToken))
+            .then(() => console.log(`[admin] Firebase: revoked adminAccess/${reg.companyId}/${reg.ownerUid}`))
+            .catch(e => console.log(`[admin] Firebase revoke warning (delete) for ${reg.email}: ${e.message}`));
+        }
+        console.log(`[admin] DELETED account ${regId} companyId=${reg.companyId || '?'} (${reg.email})`);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: true, message: 'Account permanently deleted.' }));
         return;
       }
 
