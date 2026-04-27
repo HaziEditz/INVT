@@ -4003,14 +4003,22 @@ const server = http.createServer(async (req, res) => {
       }
 
       // ── Fallback: mock session (Firebase-only users or real backend down) ─
-      console.log(`200: POST ${urlPath} [LoginSelector] -> mock session for "${username}"`);
+      // Look up the real companyId from the registration store by email so that
+      // tenants who exist only in our store (no real backend record) can log in.
+      const ALLOWED_LOGIN = ['trial', 'active', 'grace'];
+      const mockReg = registrationStore.find(r =>
+        r.email && r.email.toLowerCase() === username.toLowerCase() &&
+        r.companyId && ALLOWED_LOGIN.includes(r.status)
+      );
+      const mockCid = mockReg ? Number(mockReg.companyId) : 1216;
+      console.log(`200: POST ${urlPath} [LoginSelector] -> mock session for "${username}" companyId=${mockCid}`);
       arrayD(res, [{
         Id: 1051,
-        UserFName: username.split('@')[0] || 'Dispatcher',
-        UserLName: '',
+        UserFName: (mockReg && mockReg.name) ? mockReg.name.split(' ')[0] : username.split('@')[0] || 'Dispatcher',
+        UserLName:  (mockReg && mockReg.name) ? (mockReg.name.split(' ')[1] || '') : '',
         UserEmail: username,
-        CompanyId: 1216,
-        Country: 'NZ',
+        CompanyId: mockCid,
+        Country: (mockReg && mockReg.country) || 'NZ',
         Role: 'Dispatcher',
         UserStatus: 'Active',
       }]);
