@@ -40,5 +40,27 @@
     "companyId": "131040",
     "CancelledBy": "Dispatcher",
     "JobCompleteTime": "2026-04-26 18:11:14"
+  },
+  {
+    "Id": 27042026001,
+    "BookingStatus": "Completed",
+    "DriverId": "D001",
+    "VehicleId": "TAXI001",
+    "VehicleNo": "TAXI001",
+    "Name": "Street Pickup",
+    "PhoneNo": "",
+    "PickAddress": "Hail - -46.39624, 168.35142",
+    "DropAddress": "",
+    "PickLatLng": "-46.396244744984465,168.35142138410754",
+    "DropLatLng": "",
+    "BookingDateTime": "2026-04-27 23:08:35.",
+    "JobCompleteTime": "2026-04-27 23:08:46.",
+    "BookingSource": "Hail",
+    "booking_type": "Hail",
+    "JobMins": 0,
+    "UserFName": "Hasnat",
+    "UserLName": "",
+    "Route": "",
+    "bookingidx": 27042026001
   }
 ]

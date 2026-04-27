@@ -1,7 +1,7 @@
 [
   {
-    "Id": 5,
-    "TariffName": "tarrif 1",
+    "Id": 1,
+    "TariffName": "Tarrif 1",
     "StartPrice": 5,
     "DistanceRate": 4.6,
     "WaitingRate": 1,
@@ -9,11 +9,11 @@
     "CurrencyName": "NZD"
   },
   {
-    "Id": 6,
+    "Id": 2,
     "TariffName": "Total Mobility",
     "StartPrice": 15,
     "DistanceRate": 6.5,
-    "WaitingRate": 2,
+    "WaitingRate": 0,
     "MinimumFare": 0,
     "CurrencyName": "NZD"
   }
