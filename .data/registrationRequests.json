@@ -130,7 +130,7 @@
   },
   {
     "id": "REG-1777122293876",
-    "status": "pending",
+    "status": "rejected",
     "submittedAt": 1777122293876,
     "company": "Test Co Ltd",
     "name": "Bob Test",
@@ -147,8 +147,8 @@
     "trialStart": null,
     "trialEnd": null,
     "graceEnd": null,
-    "rejectedAt": null,
-    "rejectedReason": null
+    "rejectedAt": 1777206356916,
+    "rejectedReason": "Service area not covered"
   },
   {
     "id": "REG-1777122411766",
@@ -233,5 +233,27 @@
     "graceEnd": null,
     "ownerUid": "",
     "passwordHash": ""
+  },
+  {
+    "id": "REG-1777205800091",
+    "status": "trial",
+    "submittedAt": 1777205800091,
+    "company": "Invercargill Taxis Southland LTD",
+    "name": "Safinah Mohammed",
+    "email": "safinhmohammed@hotmail.com",
+    "phone": "021304322",
+    "passwordHash": "safinah123",
+    "businessNumber": "",
+    "fleetSize": "10",
+    "area": "Invercargill",
+    "country": "NZ",
+    "companyId": "374161",
+    "ownerUid": null,
+    "approvedAt": 1777206139243,
+    "trialStart": 1777206139243,
+    "trialEnd": 1778070139243,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null
   }
 ]
