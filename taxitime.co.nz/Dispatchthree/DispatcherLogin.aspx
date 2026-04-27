@@ -989,6 +989,22 @@
     };
     firebase.initializeApp(firebaseConfig);
 
+    // ── Firebase adminAccess gate ─────────────────────────────────────────────
+    // Checks adminAccess/{companyId}/{uid} in Firebase.
+    // Returns a promise:
+    //   true  → node exists (company is authorised in Firebase)
+    //   false → node is explicitly absent (super admin removed this company)
+    //   null  → Firebase unreachable / permission error (don't block — fall
+    //           through to the server store check)
+    function _bwCheckFirebaseAccess(companyId, uid) {
+      if (!companyId || !uid) return Promise.resolve(null);
+      return firebase.database()
+        .ref('adminAccess/' + companyId + '/' + uid)
+        .once('value')
+        .then(function(snap) { return snap.exists() ? true : false; })
+        .catch(function() { return null; });
+    }
+
     // ── Auto-login if Firebase already has a session ─────────────────────────
     firebase.auth().onAuthStateChanged(function(user) {
       if (!user) return;
@@ -1022,12 +1038,21 @@
           console.warn('[auto-login] no companyId found; showing login form.');
           return;
         }
-        return fetch('/api/session/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ companyId: cid, uid: user.uid }),
-          credentials: 'include'
-        }).then(function(resp) {
+        // Check Firebase adminAccess — if super admin removed this company,
+        // the node won't exist and we block immediately (returns false).
+        // null means Firebase was unreachable — fall through to server check.
+        return _bwCheckFirebaseAccess(cid, user.uid).then(function(fbOk) {
+          if (fbOk === false) {
+            console.warn('[auto-login] adminAccess not found in Firebase for companyId=' + cid);
+            localStorage.removeItem('TT_CId');
+            return; // stays on login page; no error shown (silently blocked)
+          }
+          return fetch('/api/session/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ companyId: cid, uid: user.uid }),
+            credentials: 'include'
+          }).then(function(resp) {
           if (resp && resp.ok) {
             return resp.json().then(function(data) {
               localStorage.setItem('TT_Name',    name);
@@ -1043,6 +1068,7 @@
             if (cid === cachedCid) localStorage.removeItem('TT_CId');
           }
         });
+        }); // end _bwCheckFirebaseAccess.then
       }).catch(function(err) {
         console.warn('[auto-login] unexpected error; showing login form.', err);
       });
@@ -1167,6 +1193,14 @@
               companyIdEl.focus();
               return;
             }
+            // Check Firebase adminAccess before issuing the session.
+            // false = super admin explicitly removed this company from Firebase.
+            return _bwCheckFirebaseAccess(cid, user.uid).then(function(fbOk) {
+              if (fbOk === false) {
+                resetBtn();
+                showError('This account has been removed. Please contact BookaWaka support.');
+                return;
+              }
             return fetch('/api/session/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1203,7 +1237,8 @@
               resetBtn();
               showError('Session setup failed. Please check your connection and try again.');
             });
-          });
+            }); // end _bwCheckFirebaseAccess.then
+          }); // end resolveCompanyId.then
         })
         .catch(function(error) {
           clearTimeout(authTimeout);
