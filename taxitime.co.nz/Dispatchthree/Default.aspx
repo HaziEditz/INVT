@@ -459,6 +459,7 @@
 
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
+                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
@@ -851,6 +852,7 @@
 
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
+                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="Dispatched Time" class="glyphicon glyphicon-info-sign"></i>
@@ -1539,6 +1541,53 @@
                             <div style="font-size:10px; font-weight:700; color:#b8960a; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:4px;">Ride Notes</div>
                             <div id="jdp-notes" style="font-size:13px; color:#444;"></div>
                         </div>
+                        <!-- Total Mobility Details panel -->
+                        <div id="jdp-tm-wrap" style="display:none; margin-bottom:14px; border-radius:8px; overflow:hidden; border:1px solid #c9a227;">
+                            <div onclick="$('#jdp-tm-body').slideToggle(200);" style="background:#1a1a2e; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                                <span style="font-size:11px; font-weight:700; color:#dfba5f; text-transform:uppercase; letter-spacing:0.7px;">
+                                    <span style="background:#dfba5f; color:#1a1a2e; font-size:10px; font-weight:800; padding:2px 8px; border-radius:4px; margin-right:8px;">TM</span>Total Mobility Details
+                                </span>
+                                <i class="fa fa-chevron-down" style="color:#dfba5f; font-size:11px;"></i>
+                            </div>
+                            <div id="jdp-tm-body" style="background:#fff; padding:16px;">
+                                <!-- Claim status -->
+                                <div id="jdp-tm-status-wrap" style="display:none; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #f0f0f0;">
+                                    <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Claim Status</div>
+                                    <span id="jdp-tm-status" style="font-size:12px; font-weight:700; color:#fff; padding:4px 14px; border-radius:20px; text-transform:capitalize; display:inline-block;"></span>
+                                </div>
+                                <!-- Field grid -->
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">TM Card No</div>
+                                        <div id="jdp-tm-voucher" style="font-size:13px; color:#222; font-weight:600; font-family:monospace;"></div>
+                                    </div>
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">Cardholder</div>
+                                        <div id="jdp-tm-name" style="font-size:13px; color:#222; font-weight:600;"></div>
+                                    </div>
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">Card Expiry</div>
+                                        <div id="jdp-tm-expiry" style="font-size:13px; color:#222; font-weight:600;"></div>
+                                    </div>
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">Hoist Required</div>
+                                        <div id="jdp-tm-hoist" style="font-size:13px; color:#222; font-weight:600;"></div>
+                                    </div>
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">Council Pays</div>
+                                        <div id="jdp-tm-subsidy" style="font-size:14px; color:#27ae60; font-weight:700;"></div>
+                                    </div>
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">Passenger Pays</div>
+                                        <div id="jdp-tm-passenger-pays" style="font-size:14px; color:#222; font-weight:700;"></div>
+                                    </div>
+                                    <div class="jdp-tm-field">
+                                        <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:3px;">Passenger Payment</div>
+                                        <div id="jdp-tm-pay-method" style="font-size:13px; color:#222; font-weight:600; text-transform:capitalize;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <!-- Not found state -->
                     <div id="jdp-notfound" style="display:none; text-align:center; padding:48px 0; color:#aaa;">
@@ -1559,6 +1608,22 @@
     <style>
         #job-detail-popup.modal { z-index: 1060 !important; }
         #job-detail-popup .modal-backdrop { z-index: 1059 !important; }
+        /* ── Total Mobility badge (job cards) ── */
+        .bw-tm-badge {
+            display: inline-block;
+            background: #dfba5f;
+            color: #1a1a2e;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin: 2px;
+            vertical-align: middle;
+            letter-spacing: 0.5px;
+            line-height: 1.4;
+        }
+        /* ── TM Details panel (job detail popup) ── */
+        #jdp-tm-wrap .jdp-tm-field { display: none; }
     </style>
 
      <div id="updateapproval" class="modal fade" role="dialog">
@@ -3170,6 +3235,7 @@ $(document).ready(function() {
 
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
+                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
@@ -3337,6 +3403,7 @@ $(document).ready(function() {
 
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
+                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
@@ -3789,6 +3856,7 @@ $(document).ready(function() {
 
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
+                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="Dispatched Time" class="glyphicon glyphicon-info-sign"></i>
@@ -19039,7 +19107,7 @@ $(document).ready(function() {
                 $('#jdp-loading').show();
                 $('#jdp-content').hide();
                 $('#jdp-notfound').hide();
-                $('#jdp-timeline-wrap,#jdp-fare-wrap,#jdp-map-wrap,#jdp-notes-wrap').hide();
+                $('#jdp-timeline-wrap,#jdp-fare-wrap,#jdp-map-wrap,#jdp-notes-wrap,#jdp-tm-wrap').hide();
                 $('#jdp-duration-accept-wrap,#jdp-duration-ride-wrap,#jdp-duration-total-wrap').hide();
                 $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
                 $('#jdp-timeline').empty();
@@ -19117,6 +19185,71 @@ $(document).ready(function() {
                         } catch(e) {}
                         $('#jdp-loading').hide();
                         $('#jdp-content').show();
+
+                        // ── Total Mobility details ────────────────────────────────
+                        (function _loadTmDetails() {
+                            var _cid    = localStorage.getItem('TT_CId') || '';
+                            var _jobKey = String(j.Id || jobId);
+                            var _isTm   = (j.PaymentType === 'total_mobility' || j.paymentType === 'total_mobility');
+
+                            // Reset field visibility
+                            $('#jdp-tm-wrap .jdp-tm-field').hide();
+                            $('#jdp-tm-status-wrap').hide();
+
+                            function _fillTmFields(d, status) {
+                                var shown = false;
+                                var fields = [
+                                    { elId: 'jdp-tm-voucher',       val: d.tmVoucherNo },
+                                    { elId: 'jdp-tm-name',          val: d.tmPassengerName },
+                                    { elId: 'jdp-tm-expiry',        val: d.tmCardExpiry },
+                                    { elId: 'jdp-tm-subsidy',       val: d.tmSubsidy     != null ? '$' + d.tmSubsidy     : null },
+                                    { elId: 'jdp-tm-passenger-pays', val: d.tmPassengerPays != null ? '$' + d.tmPassengerPays : null },
+                                    { elId: 'jdp-tm-pay-method',    val: d.tmPaymentMethod }
+                                ];
+                                fields.forEach(function(f) {
+                                    if (f.val != null && f.val !== '') {
+                                        $('#' + f.elId).text(f.val);
+                                        $('#' + f.elId).closest('.jdp-tm-field').show();
+                                        shown = true;
+                                    }
+                                });
+                                if (d.tmHoistRequired) {
+                                    var hTxt = 'Yes' + (d.tmHoistCount ? ' (' + d.tmHoistCount + ' lift' + (d.tmHoistCount > 1 ? 's' : '') + ')' : '');
+                                    $('#jdp-tm-hoist').text(hTxt);
+                                    $('#jdp-tm-hoist').closest('.jdp-tm-field').show();
+                                    shown = true;
+                                }
+                                if (status) {
+                                    var sCols = { pending: '#e67e22', company_approved: '#2980b9', submitted: '#8e44ad', approved: '#27ae60', paid: '#1e8449' };
+                                    var sCol = sCols[status] || '#888';
+                                    $('#jdp-tm-status').text(status.replace(/_/g, ' ')).css('background', sCol);
+                                    $('#jdp-tm-status-wrap').show();
+                                    shown = true;
+                                }
+                                if (shown || _isTm) { $('#jdp-tm-wrap').show(); }
+                            }
+
+                            if (_isTm) { _fillTmFields(j, null); }
+
+                            if (typeof db !== 'undefined' && _cid) {
+                                Promise.all([
+                                    db.ref('completedJobs/' + _cid + '/' + _jobKey).once('value'),
+                                    db.ref('tmTripStatus/'  + _cid + '/' + _jobKey).once('value')
+                                ]).then(function(snaps) {
+                                    var fbJob    = snaps[0].exists() ? snaps[0].val() : null;
+                                    var fbStatus = snaps[1].exists() ? (typeof snaps[1].val() === 'object' ? snaps[1].val().status : snaps[1].val()) : null;
+                                    if (fbJob && (fbJob.paymentType === 'total_mobility' || fbJob.PaymentType === 'total_mobility' || fbStatus)) {
+                                        _fillTmFields(fbJob, fbStatus);
+                                    } else if (fbStatus) {
+                                        _fillTmFields({}, fbStatus);
+                                    }
+                                }).catch(function(e) {
+                                    console.warn('[ShowJobPopup] TM Firebase fetch error:', e);
+                                });
+                            }
+                        })();
+                        // ─────────────────────────────────────────────────────────
+
                     } catch(e) {
                         console.warn('[ShowJobPopup] parse error:', e);
                         $('#jdp-loading').hide();
