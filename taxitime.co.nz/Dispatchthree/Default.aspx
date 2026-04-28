@@ -2649,6 +2649,37 @@ $(document).ready(function() {
 </script>
 <!-- ══ end splash ═════════════════════════════════════════════════ -->
 
+<!-- ══ Firebase offline / reconnecting banner ═══════════════════════ -->
+<div id="bw-offline-banner" style="
+  display:none; position:fixed; top:0; left:0; right:0; z-index:99998;
+  background:#d32f2f; color:#fff; font-size:12px; font-weight:600;
+  text-align:center; padding:7px 16px; letter-spacing:0.3px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);">
+  <span id="bw-offline-msg">⚠ Firebase connection lost — real-time updates paused. Reconnecting…</span>
+</div>
+
+<!-- ══ Passenger app booking notification badge (injected into header) ═══ -->
+<div id="bw-booking-alert" style="
+  display:none; position:fixed; bottom:24px; right:24px; z-index:9999;
+  background:#1a2535; color:#f5c518; border-radius:12px;
+  padding:14px 20px; box-shadow:0 4px 20px rgba(0,0,0,.35);
+  font-size:13px; font-weight:600; cursor:pointer; max-width:300px;"
+  onclick="document.getElementById('bw-booking-alert').style.display='none'">
+  <span id="bw-booking-alert-msg">📱 New passenger booking received!</span>
+  <div style="font-size:10px; color:rgba(255,193,7,.7); margin-top:4px;">Click to dismiss · Check Unassigned Jobs</div>
+</div>
+
+<!-- ══ Driver registration pending notice ════════════════════════════ -->
+<div id="bw-driver-reg-notice" style="
+  display:none; position:fixed; bottom:24px; left:24px; z-index:9999;
+  background:#1a2535; color:#4caf50; border-radius:12px;
+  padding:14px 20px; box-shadow:0 4px 20px rgba(0,0,0,.35);
+  font-size:13px; font-weight:600; cursor:pointer; max-width:280px;"
+  onclick="document.getElementById('bw-driver-reg-notice').style.display='none'">
+  <span id="bw-driver-reg-msg">🚗 New driver registration pending!</span>
+  <div style="font-size:10px; color:rgba(76,175,80,.7); margin-top:4px;">Click to dismiss · Check with Owner Panel</div>
+</div>
+
     <div class="page" style="background:#f0f2f5;">
         <div class="page-main" style="background:#f0f2f5;">
             <!-- header area -->
@@ -4803,6 +4834,204 @@ $(document).ready(function() {
     var ref = DbRef.ref("online/" + SomeSession2 + "");
     var ref44 = DbRef.ref("Emergency/" + SomeSession2 + "");
 
+    // ══════════════════════════════════════════════════════════════════════
+    // BW PLATFORM FEATURES — added for full multi-tenant integration
+    // ══════════════════════════════════════════════════════════════════════
+
+    // ── 1. Firebase connectivity detection ────────────────────────────────
+    // Shows a red banner when Firebase drops and hides it when reconnected.
+    (function() {
+        var _bwWasConnected = true;
+        DbRef.ref('.info/connected').on('value', function(snap) {
+            var connected = snap.val() === true;
+            var banner = document.getElementById('bw-offline-banner');
+            if (!banner) return;
+            if (!connected && _bwWasConnected) {
+                // Just went offline
+                banner.style.display = 'block';
+                document.getElementById('bw-offline-msg').textContent =
+                    '⚠ Firebase connection lost — real-time updates paused. Reconnecting…';
+            } else if (connected && !_bwWasConnected) {
+                // Reconnected
+                document.getElementById('bw-offline-msg').textContent =
+                    '✓ Connection restored — real-time updates resumed.';
+                banner.style.background = '#2e7d32';
+                setTimeout(function() {
+                    banner.style.display = 'none';
+                    banner.style.background = '#d32f2f';
+                }, 3000);
+            }
+            _bwWasConnected = connected;
+        });
+    })();
+
+    // ── 2. Firebase auth token refresh ────────────────────────────────────
+    // Firebase v9 auto-refreshes tokens, but we force a refresh every 45 min
+    // so the dispatcher never silently loses their Firebase connection mid-shift.
+    (function() {
+        function _bwRefreshToken() {
+            var u = firebase.auth().currentUser;
+            if (u) {
+                u.getIdToken(true).catch(function(e) {
+                    console.warn('[bw-auth] token refresh failed:', e.code);
+                });
+            }
+        }
+        setInterval(_bwRefreshToken, 45 * 60 * 1000); // every 45 minutes
+    })();
+
+    // ── 3. Mid-session account revocation check ───────────────────────────
+    // Polls the server every 5 minutes to verify the account is still active.
+    // If the super admin deactivates a company, the dispatcher is logged out
+    // at the next poll rather than staying active indefinitely.
+    (function() {
+        function _bwCheckAccountStatus() {
+            fetch('/api/session/me', { credentials: 'include' })
+                .then(function(r) { return r.json().catch(function() { return {}; }); })
+                .then(function(data) {
+                    if (!data || data.error || data.status === 'deactivated' || data.status === 'deleted') {
+                        console.warn('[bw-session] account no longer active — redirecting to login');
+                        window.location.href = 'DispatcherLogin.aspx?reason=account_inactive';
+                    }
+                })
+                .catch(function() { /* network blip — ignore, try again next poll */ });
+        }
+        // First check after 5 min, then every 5 min
+        setTimeout(function() {
+            _bwCheckAccountStatus();
+            setInterval(_bwCheckAccountStatus, 5 * 60 * 1000);
+        }, 5 * 60 * 1000);
+    })();
+
+    // ── 4. Dispatch session heartbeat ─────────────────────────────────────
+    // Writes a heartbeat to Firebase every 60 seconds so the super admin
+    // can see which companies have active dispatch sessions right now.
+    // Path: activeDispatchers/{companyId}/{sessionKey}
+    (function() {
+        if (!SomeSession2) return;
+        var _bwSessionKey = 'ds_' + Date.now();
+        var _bwHbRef = DbRef.ref('activeDispatchers/' + SomeSession2 + '/' + _bwSessionKey);
+        var _bwDispName = localStorage.getItem('TT_Name') || 'Dispatcher';
+        function _bwWriteHeartbeat() {
+            _bwHbRef.set({
+                dispatcher: _bwDispName,
+                companyId:  SomeSession2,
+                lastSeen:   firebase.database.ServerValue.TIMESTAMP,
+                sessionKey: _bwSessionKey
+            }).catch(function() { /* non-critical — ignore */ });
+        }
+        _bwWriteHeartbeat(); // immediate
+        setInterval(_bwWriteHeartbeat, 60 * 1000); // every 60 seconds
+        // Clean up heartbeat on page unload
+        window.addEventListener('beforeunload', function() {
+            _bwHbRef.remove().catch(function() {});
+        });
+    })();
+
+    // ── 5. Company settings + feature flags from Firebase ─────────────────
+    // Owner panel writes to companySettings/{companyId} — we read it here
+    // and expose window._bwFeatures for use anywhere in the console.
+    // Also syncs: company name, logo URL, opening hours.
+    (function() {
+        if (!SomeSession2) return;
+        DbRef.ref('companySettings/' + SomeSession2).on('value', function(snap) {
+            var s = snap.val();
+            if (!s) return;
+            // Feature flags — defaults to false if not set
+            window._bwFeatures = {
+                tmEnabled:       !!(s.features && s.features.tmEnabled),
+                autoDispatch:    !!(s.features && s.features.autoDispatch),
+                zoneQueue:       !!(s.features && s.features.zoneQueue),
+                directAssign:    !!(s.features && s.features.directAssign),
+                cardBooking:     !!(s.features && s.features.cardBooking),
+            };
+            console.log('[bw-settings] feature flags loaded:', JSON.stringify(window._bwFeatures));
+            // Company name (override chip if owner panel set one)
+            if (s.companyName) {
+                var el = document.getElementById('CompanyName');
+                if (el) el.textContent = s.companyName;
+                localStorage.setItem('TT_Company', s.companyName);
+            }
+            // Company logo
+            if (s.logoUrl) {
+                var logo = document.querySelector('.header-brand-img');
+                if (logo) logo.src = s.logoUrl;
+            }
+        }, function(e) {
+            console.warn('[bw-settings] could not read companySettings:', e.code);
+        });
+    })();
+
+    // ── 6. Passenger app booking listener ─────────────────────────────────
+    // Listens to Firebase bookings/{companyId} for new bookings arriving from
+    // the passenger app. Shows a toast notification so dispatchers are alerted
+    // immediately without waiting for the next SQL poll.
+    // The owner/driver app writes: bookings/{companyId}/{bookingId} = { ... }
+    (function() {
+        if (!SomeSession2) return;
+        var _bwBookingRef = DbRef.ref('bookings/' + SomeSession2);
+        var _bwInitialized = false;
+        var _bwSeenBookings = {};
+        _bwBookingRef.on('child_added', function(snap) {
+            if (!_bwInitialized) return; // skip pre-existing bookings on first load
+            var b = snap.val();
+            if (!b || _bwSeenBookings[snap.key]) return;
+            _bwSeenBookings[snap.key] = true;
+            var passenger = b.passengerName || b.name || 'Passenger';
+            var pickup    = b.pickup || b.pickupAddress || b.from || '';
+            var msg = '📱 New booking from ' + passenger +
+                      (pickup ? ' — ' + pickup : '') + '!';
+            var alertEl = document.getElementById('bw-booking-alert');
+            var msgEl   = document.getElementById('bw-booking-alert-msg');
+            if (alertEl && msgEl) {
+                msgEl.textContent = msg;
+                alertEl.style.display = 'block';
+                // Auto-dismiss after 15 seconds
+                setTimeout(function() { alertEl.style.display = 'none'; }, 15000);
+            }
+            console.log('[bw-bookings] new passenger booking received:', snap.key, b);
+            // Play the existing booking sound if available
+            try { if (typeof playSound === 'function') playSound('newjob'); } catch(e) {}
+        }, function(e) {
+            console.warn('[bw-bookings] listener error:', e.code);
+        });
+        // Mark initialization complete after first read
+        _bwBookingRef.once('value', function() { _bwInitialized = true; });
+    })();
+
+    // ── 7. Driver self-registration listener ──────────────────────────────
+    // Listens to Firebase driverRegistrations/{companyId} for new drivers
+    // who registered via the driver app. Shows a notification so the dispatcher
+    // can inform the company owner to approve/reject in the Owner Panel.
+    (function() {
+        if (!SomeSession2) return;
+        var _bwDrvRegRef = DbRef.ref('driverRegistrations/' + SomeSession2);
+        var _bwDrvInit = false;
+        var _bwSeenDrivers = {};
+        _bwDrvRegRef.on('child_added', function(snap) {
+            if (!_bwDrvInit) return;
+            var d = snap.val();
+            if (!d || _bwSeenDrivers[snap.key]) return;
+            _bwSeenDrivers[snap.key] = true;
+            var driverName = d.name || d.driverName || 'New driver';
+            var notice = document.getElementById('bw-driver-reg-notice');
+            var noticeMsg = document.getElementById('bw-driver-reg-msg');
+            if (notice && noticeMsg) {
+                noticeMsg.textContent = '🚗 ' + driverName + ' wants to register as a driver!';
+                notice.style.display = 'block';
+                setTimeout(function() { notice.style.display = 'none'; }, 20000);
+            }
+            console.log('[bw-drivers] new driver registration:', snap.key, d);
+        }, function(e) {
+            console.warn('[bw-drivers] listener error:', e.code);
+        });
+        _bwDrvRegRef.once('value', function() { _bwDrvInit = true; });
+    })();
+
+    // ══════════════════════════════════════════════════════════════════════
+    // END BW PLATFORM FEATURES
+    // ══════════════════════════════════════════════════════════════════════
+
     firebase.auth().onAuthStateChanged(function(user) {
         if (user) {
             ref44.on("value", function (snapshot) {
@@ -6725,6 +6954,26 @@ $(document).ready(function() {
                 source:      _src,
                 u_id:        _u
             });
+            // ── ETA push to passenger app ──────────────────────────────────
+            // Writes ride status to Firebase so the passenger app can track
+            // their booking in real time without polling the SQL backend.
+            // Path: rideStatus/{companyId}/{bookingId}
+            try {
+                if (SomeSession2 && bookingId) {
+                    var _etaRef = firebase.database().ref('rideStatus/' + SomeSession2 + '/' + bookingId);
+                    _etaRef.set({
+                        status:      status || 'Offered',
+                        driverId:    driverId  || '',
+                        vehicleId:   vehicleId || '',
+                        companyId:   SomeSession2,
+                        bookingId:   bookingId,
+                        pickup:      job.PickAddress  || job.PickLocation  || '',
+                        dropoff:     job.DropAddress  || job.DropLocation  || '',
+                        vehicleType: job.VehicleType  || '',
+                        updatedAt:   firebase.database.ServerValue.TIMESTAMP
+                    }).catch(function() { /* non-critical */ });
+                }
+            } catch(e) { /* non-critical */ }
         }
         try {
             var _sc = angular.element(document.getElementById('myangular')).scope();
