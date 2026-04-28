@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260428" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
