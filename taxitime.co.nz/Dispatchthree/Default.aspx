@@ -4907,22 +4907,40 @@ $(document).ready(function() {
     // Writes a heartbeat to Firebase every 60 seconds so the super admin
     // can see which companies have active dispatch sessions right now.
     // Path: activeDispatchers/{companyId}/{sessionKey}
+    // Fields match the cross-Repl spec: email, uid, heartbeat, ip, ua
     (function() {
         if (!SomeSession2) return;
         var _bwSessionKey = 'ds_' + Date.now();
-        var _bwHbRef = DbRef.ref('activeDispatchers/' + SomeSession2 + '/' + _bwSessionKey);
-        var _bwDispName = localStorage.getItem('TT_Name') || 'Dispatcher';
+        var _bwHbRef     = DbRef.ref('activeDispatchers/' + SomeSession2 + '/' + _bwSessionKey);
+        var _bwHbEmail   = localStorage.getItem('TT_Email') || localStorage.getItem('TT_Name') || '';
+        var _bwHbUa      = navigator.userAgent || '';
+        var _bwHbIp      = 'pending';
+
+        // Fetch server-side IP + authoritative email once — server sees the real IP
+        fetch('/api/session/me', { credentials: 'include' })
+            .then(function(r) { return r.json().catch(function() { return {}; }); })
+            .then(function(d) {
+                if (d && d.ip)    _bwHbIp    = d.ip;
+                if (d && d.email) _bwHbEmail = d.email; // prefer server-side email
+            })
+            .catch(function() {});
+
         function _bwWriteHeartbeat() {
+            var _uid = '';
+            try { var _cu = firebase.auth().currentUser; if (_cu) _uid = _cu.uid; } catch(e) {}
             _bwHbRef.set({
-                dispatcher: _bwDispName,
+                email:      _bwHbEmail,
+                uid:        _uid,
                 companyId:  SomeSession2,
-                lastSeen:   firebase.database.ServerValue.TIMESTAMP,
+                heartbeat:  firebase.database.ServerValue.TIMESTAMP,
+                ip:         _bwHbIp,
+                ua:         _bwHbUa,
                 sessionKey: _bwSessionKey
             }).catch(function() { /* non-critical — ignore */ });
         }
         _bwWriteHeartbeat(); // immediate
         setInterval(_bwWriteHeartbeat, 60 * 1000); // every 60 seconds
-        // Clean up heartbeat on page unload
+        // Remove heartbeat cleanly on tab/browser close
         window.addEventListener('beforeunload', function() {
             _bwHbRef.remove().catch(function() {});
         });

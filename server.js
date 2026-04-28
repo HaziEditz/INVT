@@ -1281,6 +1281,9 @@ const server = http.createServer(async (req, res) => {
       console.log(`[session/me] blocked: companyId=${cid} status=${reg.status}`);
       return;
     }
+    const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+                  || req.socket?.remoteAddress
+                  || 'unknown';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ok:        true,
@@ -1288,6 +1291,8 @@ const server = http.createServer(async (req, res) => {
       company:   reg.company,
       status:    reg.status,
       isActive:  true,
+      email:     reg.email || reg.ownerEmail || '',
+      ip:        clientIp,
     }));
     return;
   }
