@@ -63,7 +63,10 @@
     <link href="css/dispatch-modern.css?v=20260428" rel="stylesheet" />
 </head>
 <!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/4.12.1/firebase.js"></script>
+<!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
     <script src="https://my-firebase-project.web.app/geofire-5.0.1.min.js"></script>
 <style type="text/css">
     a#tbleClosedJobs_previous {
