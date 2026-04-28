@@ -2656,21 +2656,22 @@ $(document).ready(function() {
                             <img src="images/logo3.png" class="header-brand-img" alt="BookaWaka">
                              </a>
                            <button id="btnCreateJob" class="btn btn-danger" data-toggle="modal" ng-click="showfirst();"  >Create Job</button>
-                        <p class="label label-success  "  style="padding: 10px;
-    margin: 4px; position: absolute; left: 202px;   height: 31px;  color: black;">
-                           Dispatcher: <label id="lblName1" ></label> ,
-                            Company: <label id="CompanyName" ngclick="testemailing()"></label>
-                             <span class="dot"></span>
-                           </p>
+                        <!-- Tenant info chips: Company ID · Company Name · Dispatcher -->
+                        <div class="bw-tenant-info">
+                            <span class="bw-chip bw-chip--id"
+                                  onclick="document.getElementById('tt-company-modal').style.display='flex'"
+                                  title="Click to copy your Company ID">
+                                <i class="fa fa-hashtag" style="font-size:9px; margin-right:4px;"></i><span id="lblCompanyId">—</span>
+                            </span>
+                            <span class="bw-chip bw-chip--company">
+                                <i class="fa fa-building-o" style="font-size:10px; margin-right:5px;"></i><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
+                            </span>
+                            <span class="bw-chip bw-chip--dispatcher">
+                                <i class="fa fa-user-circle-o" style="font-size:10px; margin-right:5px;"></i><label id="lblName1" style="margin:0;"></label>
+                            </span>
+                        </div>
 
-                        <!-- Company ID badge — click to open details modal -->
-                        <button onclick="document.getElementById('tt-company-modal').style.display='flex'"
-                                style="position:absolute;left:202px;top:38px;background:#1a2535;color:#f5c518;border:none;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.5px;z-index:999;"
-                                title="View company details">
-                            Company ID: <span id="lblCompanyId">—</span> &#9432;
-                        </button>
-
-                        <!-- Company details modal -->
+                        <!-- Company details modal (copy ID) -->
                         <div id="tt-company-modal"
                              onclick="if(event.target===this)this.style.display='none'"
                              style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;align-items:center;justify-content:center;">

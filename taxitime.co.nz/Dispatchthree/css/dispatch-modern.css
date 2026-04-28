@@ -113,6 +113,50 @@ html, body {
 }
 .app-header1 .btn-danger:hover { filter: brightness(1.1) !important; }
 
+/* ── Tenant info chips (header bar) ── */
+.bw-tenant-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  flex-wrap: nowrap;
+}
+.bw-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+.bw-chip label { font-size: 11px; font-weight: inherit; color: inherit; }
+.bw-chip--id {
+  background: var(--bw-accent);
+  color: var(--bw-bg1);
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  border: none;
+}
+.bw-chip--id:hover { opacity: 0.82; }
+.bw-chip--company {
+  background: var(--bw-accent-dim);
+  color: var(--bw-accent);
+  font-weight: 600;
+  border: 1px solid var(--bw-accent-border);
+}
+.bw-chip--dispatcher {
+  background: var(--bw-bg2);
+  color: var(--bw-text2);
+  font-weight: 500;
+  border: 1px solid var(--bw-border2);
+}
+@media (max-width: 640px) {
+  .bw-chip--company, .bw-chip--dispatcher { display: none; }
+}
+
 /* Status dots */
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
 .onlinez  { background: var(--bw-green) !important; box-shadow: 0 0 4px var(--bw-green) !important; }
