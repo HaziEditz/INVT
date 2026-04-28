@@ -14547,12 +14547,21 @@ $(document).ready(function() {
                 // Firebase tariffZones listener — overrides dt4 when owner panel publishes tariffs
                 if (!$scope._tariffZoneListenerActive) {
                     $scope._tariffZoneListenerActive = true;
-                    firebase.database().ref('tariffZones').on('value', function(snapshot) {
+                    // Scope to the current company so we never load another tenant's tariffs
+                    var _tzCid = localStorage.getItem('TT_CId') || SomeSession4 || '';
+                    var _tzRef = _tzCid ? firebase.database().ref('tariffZones/' + _tzCid)
+                                        : firebase.database().ref('tariffZones');
+                    _tzRef.on('value', function(snapshot) {
                         console.log('[tariffZones] snapshot exists:', snapshot.exists(), 'numChildren:', snapshot.numChildren());
                         var list = [];
                         var gridData = [];
                         snapshot.forEach(function(child) {
                             var t = child.val();
+                            // Skip entries that explicitly belong to a different company
+                            if (t && t.companyId && _tzCid && String(t.companyId) !== String(_tzCid)) {
+                                console.warn('[tariffZones] skipping entry for company', t.companyId, '(session:', _tzCid, ')');
+                                return;
+                            }
                             console.log('[tariffZones] child key:', child.key, 'val:', JSON.stringify(t));
                             if (t) {
                                 var id = t.Id !== undefined ? t.Id : (t.id !== undefined ? t.id : child.key);
