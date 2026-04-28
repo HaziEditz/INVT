@@ -132,15 +132,26 @@ html, body {
   transition: opacity 0.15s;
 }
 .bw-chip label { font-size: 11px; font-weight: inherit; color: inherit; }
+/* Small uppercase label prefix inside each chip */
+.bw-chip-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  opacity: 0.6;
+  margin-right: 5px;
+  white-space: nowrap;
+}
 .bw-chip--id {
   background: var(--bw-accent);
   color: var(--bw-bg1);
-  font-weight: 800;
-  letter-spacing: 1.5px;
+  font-weight: 700;
   cursor: pointer;
   border: none;
+  letter-spacing: 0.5px;
 }
 .bw-chip--id:hover { opacity: 0.82; }
+.bw-chip--id .bw-chip-label { color: var(--bw-bg1); }
 .bw-chip--company {
   background: var(--bw-accent-dim);
   color: var(--bw-accent);
@@ -152,6 +163,21 @@ html, body {
   color: var(--bw-text2);
   font-weight: 500;
   border: 1px solid var(--bw-border2);
+}
+/* Platform "Operated by bookawaka.com" chip */
+.bw-chip--platform {
+  background: transparent;
+  color: rgba(255,255,255,0.35);
+  font-size: 10px;
+  font-weight: 400;
+  font-style: italic;
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 4px 9px;
+  letter-spacing: 0.3px;
+}
+.bw-chip--platform strong { color: rgba(255,255,255,0.55); font-weight: 600; font-style: normal; }
+@media (max-width: 900px) {
+  .bw-chip--platform { display: none; }
 }
 @media (max-width: 640px) {
   .bw-chip--company, .bw-chip--dispatcher { display: none; }

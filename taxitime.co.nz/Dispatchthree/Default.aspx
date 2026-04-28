@@ -2656,18 +2656,21 @@ $(document).ready(function() {
                             <img src="images/logo3.png" class="header-brand-img" alt="BookaWaka">
                              </a>
                            <button id="btnCreateJob" class="btn btn-danger" data-toggle="modal" ng-click="showfirst();"  >Create Job</button>
-                        <!-- Tenant info chips: Company ID · Company Name · Dispatcher -->
+                        <!-- Tenant info bar: Company ID · Company Name · Dispatcher · Platform -->
                         <div class="bw-tenant-info">
                             <span class="bw-chip bw-chip--id"
                                   onclick="document.getElementById('tt-company-modal').style.display='flex'"
                                   title="Click to copy your Company ID">
-                                <i class="fa fa-hashtag" style="font-size:9px; margin-right:4px;"></i><span id="lblCompanyId">—</span>
+                                <span class="bw-chip-label">Company ID</span><span id="lblCompanyId">—</span>
                             </span>
                             <span class="bw-chip bw-chip--company">
-                                <i class="fa fa-building-o" style="font-size:10px; margin-right:5px;"></i><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
+                                <span class="bw-chip-label">Company</span><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
                             </span>
                             <span class="bw-chip bw-chip--dispatcher">
-                                <i class="fa fa-user-circle-o" style="font-size:10px; margin-right:5px;"></i><label id="lblName1" style="margin:0;"></label>
+                                <span class="bw-chip-label">Dispatcher</span><label id="lblName1" style="margin:0;"></label>
+                            </span>
+                            <span class="bw-chip bw-chip--platform">
+                                <i class="fa fa-globe" style="font-size:9px; margin-right:5px; opacity:0.7;"></i>Operated by <strong style="margin-left:3px;">bookawaka.com</strong>
                             </span>
                         </div>
 
