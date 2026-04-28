@@ -1,0 +1,159 @@
+{
+  "rules": {
+    "Passengerjobs": {
+      "$uid": {
+        ".validate": "$uid!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "chat": {
+      "$driverid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "notification": {
+      "$driverid": {
+        ".validate": "$driverid!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "online": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$companyid": {
+        "$vehicleid": {
+          "$uid": {
+            ".write": "$uid === auth.uid"
+          }
+        }
+      }
+    },
+    "jobs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "links": {
+      ".read": "auth != null",
+      ".write": false
+    },
+    "tariffZones": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "tariffs": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "zones": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "drivers": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "vehicles": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "pendingjobs": {
+      "$companyId": {
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "allbookings": {
+      "$companyId": {
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "completedJobs": {
+      "$companyId": {
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "suspended": {
+      "$companyId": {
+        "$vehicleId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "driverMsg": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "notifications": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "lastshifttime": {
+      "$driverid": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "joback": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "companies": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "locationConfig": {
+      ".read": true,
+      ".write": true
+    },
+    "chat_history": {
+      "$chatId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "jobDetails": {
+      "$bookingId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "ratings": {
+      "$companyId": {
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+    "adminAccess": {
+      "$companyId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": false
+        }
+      }
+    }
+  }
+}

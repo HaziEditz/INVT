@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "gT5H_6cPYiSkaIpgPptiR"
+uri = "file://firebase-rules-merged.json"
+type = "unspecified"
+title = "Firebase Security Rules — full merged version"
