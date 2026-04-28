@@ -4117,11 +4117,32 @@ $(document).ready(function() {
 
                                      
  
+                                        <!-- ── Service filter buttons — narrows driver list by service type ── -->
+                                        <div style="margin-bottom:6px; display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
+                                            <span style="font-size:10px; color:#666; font-weight:600; margin-right:2px;">FILTER:</span>
+                                            <button ng-click="setBwSvcFilter('all')"
+                                                style="font-size:10px; padding:2px 8px; border-radius:4px; border:1px solid #aaa; cursor:pointer;"
+                                                ng-style="{background: _bwSvcFilter==='all' ? '#1a2535' : '#f5f5f5', color: _bwSvcFilter==='all' ? '#fff' : '#333'}">All</button>
+                                            <button ng-click="setBwSvcFilter('taxi')"
+                                                style="font-size:10px; padding:2px 8px; border-radius:4px; border:1px solid #aaa; cursor:pointer;"
+                                                ng-style="{background: _bwSvcFilter==='taxi' ? '#1565c0' : '#f5f5f5', color: _bwSvcFilter==='taxi' ? '#fff' : '#333'}">Taxi</button>
+                                            <button ng-click="setBwSvcFilter('food')"
+                                                style="font-size:10px; padding:2px 8px; border-radius:4px; border:1px solid #aaa; cursor:pointer;"
+                                                ng-style="{background: _bwSvcFilter==='food' ? '#2e7d32' : '#f5f5f5', color: _bwSvcFilter==='food' ? '#fff' : '#333'}">Food</button>
+                                            <button ng-click="setBwSvcFilter('freight')"
+                                                style="font-size:10px; padding:2px 8px; border-radius:4px; border:1px solid #aaa; cursor:pointer;"
+                                                ng-style="{background: _bwSvcFilter==='freight' ? '#e65100' : '#f5f5f5', color: _bwSvcFilter==='freight' ? '#fff' : '#333'}">Freight</button>
+                                            <button ng-click="setBwSvcFilter('tm')"
+                                                style="font-size:10px; padding:2px 8px; border-radius:4px; border:1px solid #aaa; cursor:pointer;"
+                                                ng-style="{background: _bwSvcFilter==='tm' ? '#6a1b9a' : '#f5f5f5', color: _bwSvcFilter==='tm' ? '#fff' : '#333'}">TM</button>
+                                        </div>
+
                                         <table id="example" style="width:100%;" >
                                             <thead>
                                                 <tr>
                                                     <th class="wd-15p">Zone/Cabs </th>
                                                     <th class="wd-15p">Driver</th>
+                                                    <th class="wd-10p">Services</th>
                                                     <th class="wd-15p">status</th>
                                                     <th class="wd-15p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
@@ -4131,7 +4152,7 @@ $(document).ready(function() {
 
                                                 </tr>
                                             </thead>
-                                               <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
+                                               <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                          {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}}
                                                       <i class='fa fa-circle'  ' style='float:right; color:{{timercheck(driverz.time ,driverz)}}' aria-hidden='true'>
@@ -4141,6 +4162,10 @@ $(document).ready(function() {
                                                     </div>
                                                    </td>
                                                 <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                                <td style="white-space:nowrap;">
+                                                    <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
+                                                        ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
                                                    
@@ -4196,6 +4221,7 @@ $(document).ready(function() {
                                                 <tr>
                                                     <th class="wd-15p">Zone/Cabs</th>
                                                     <th class="wd-15p">Driver</th>
+                                                    <th class="wd-10p">Services</th>
                                                     <th class="wd-15p">status</th>
                                                     <th class="wd-15p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
@@ -4206,7 +4232,7 @@ $(document).ready(function() {
                                                 </tr>
                                             </thead>
 
-                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Picking'"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
+                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Picking' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                        {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}} 
                                                       <i class='fa fa-circle' id='online{{driverz.Id}}' style='float:right; ' aria-hidden='true'>
@@ -4216,6 +4242,10 @@ $(document).ready(function() {
                                                     </div>
                                                    </td>
                                                 <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                                <td style="white-space:nowrap;">
+                                                    <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
+                                                        ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
                                                    
@@ -4267,6 +4297,7 @@ $(document).ready(function() {
                                                 <tr>
                                                     <th class="wd-15p">Zone/Cabs</th>
                                                     <th class="wd-15p">Driver</th>
+                                                    <th class="wd-10p">Services</th>
                                                     <th class="wd-15p">status</th>
                                                     <th class="wd-15p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
@@ -4278,7 +4309,7 @@ $(document).ready(function() {
                                             </thead>
 
                                             
-                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Busy'"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
+                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Busy' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                         {{driverz.zonename}}/{{driverz.vehiclenumber}} /{{driverz.vehicletype}}
                                                       <i class='fa fa-circle' id='online{{driverz.Id}}' style='float:right; ' aria-hidden='true'>
@@ -4288,6 +4319,10 @@ $(document).ready(function() {
                                                     </div>
                                                    </td>
                                                 <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                                <td style="white-space:nowrap;">
+                                                    <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
+                                                        ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
                                                    
@@ -4339,6 +4374,7 @@ $(document).ready(function() {
                                                 <tr>
                                                     <th class="wd-15p">Zone/Cabs</th>
                                                     <th class="wd-15p">Driver</th>
+                                                    <th class="wd-10p">Services</th>
                                                     <th class="wd-15p">status</th>
                                                     <th class="wd-15p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
@@ -4349,7 +4385,7 @@ $(document).ready(function() {
                                                 </tr>
                                             </thead>
 
-                                               <tr ng-repeat="driverz in driverdatarealx  "  ng-if="driverz.vehiclestatus == 'Away'"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
+                                               <tr ng-repeat="driverz in driverdatarealx  "  ng-if="driverz.vehiclestatus == 'Away' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                       {{driverz.zonename}}/{{driverz.vehiclenumber}} /{{driverz.vehicletype}}
                                                       <i class='fa fa-circle' id='online{{driverz.Id}}' style='float:right; ' aria-hidden='true'>
@@ -4359,6 +4395,10 @@ $(document).ready(function() {
                                                     </div>
                                                    </td>
                                                 <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                                <td style="white-space:nowrap;">
+                                                    <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
+                                                        ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
                                                    
@@ -15464,6 +15504,36 @@ $(document).ready(function() {
                     return window._bwCanDriverDoService(id, svc);
                 }
                 return true; // feature not yet loaded — show all (fail-open)
+            };
+
+            // ── Driver list service filter (panel-level) ──────────────────────
+            // _bwSvcFilter: 'all' | 'taxi' | 'food' | 'freight' | 'tm'
+            // Default 'all' — dispatcher can narrow to a specific service type using
+            // the filter buttons above the driver table.
+            $scope._bwSvcFilter = 'all';
+            $scope.setBwSvcFilter = function(svc) {
+                $scope._bwSvcFilter = svc;
+            };
+
+            // Used in ng-if of all 4 driver table rows to apply the active filter
+            $scope.checkDriverSvcFilter = function(driverId) {
+                if ($scope._bwSvcFilter === 'all') return true;
+                return $scope.checkDriverSvc(String(driverId || ''), $scope._bwSvcFilter);
+            };
+
+            // Returns an array of service badge labels for a driver's card
+            // e.g. ['Taxi', 'Food'] — used in driver row tooltips/badges
+            $scope.getDriverSvcBadges = function(driverId) {
+                var id = String(driverId || '');
+                if (window._bwFetchDriverServices) window._bwFetchDriverServices(id);
+                var svcs = window._bwDriverServices && window._bwDriverServices[id];
+                if (!svcs) return ['Taxi']; // default until fetch completes
+                var out = [];
+                if (svcs.taxi)    out.push('Taxi');
+                if (svcs.food)    out.push('Food');
+                if (svcs.freight) out.push('Freight');
+                if (svcs.tm)      out.push('TM');
+                return out.length ? out : ['Taxi'];
             };
 
             //delievery
