@@ -4840,10 +4840,18 @@ $(document).ready(function() {
 
     // ── 1. Firebase connectivity detection ────────────────────────────────
     // Shows a red banner when Firebase drops and hides it when reconnected.
+    // NOTE: Firebase fires false → true on first load (connection establishing).
+    //       _bwWasConnected starts as null so we skip the first callback entirely
+    //       and only react to genuine drops/restores after the first stable connection.
     (function() {
-        var _bwWasConnected = true;
+        var _bwWasConnected = null; // null = first fire, ignore it
         DbRef.ref('.info/connected').on('value', function(snap) {
             var connected = snap.val() === true;
+            if (_bwWasConnected === null) {
+                // First callback — just record the current state, don't show any banner
+                _bwWasConnected = connected;
+                return;
+            }
             var banner = document.getElementById('bw-offline-banner');
             if (!banner) return;
             if (!connected && _bwWasConnected) {
@@ -4852,7 +4860,7 @@ $(document).ready(function() {
                 document.getElementById('bw-offline-msg').textContent =
                     '⚠ Firebase connection lost — real-time updates paused. Reconnecting…';
             } else if (connected && !_bwWasConnected) {
-                // Reconnected
+                // Reconnected after a drop
                 document.getElementById('bw-offline-msg').textContent =
                     '✓ Connection restored — real-time updates resumed.';
                 banner.style.background = '#2e7d32';
@@ -4912,6 +4920,10 @@ $(document).ready(function() {
         if (!SomeSession2) return;
         var _bwSessionKey = 'ds_' + Date.now();
         var _bwHbRef     = DbRef.ref('activeDispatchers/' + SomeSession2 + '/' + _bwSessionKey);
+        // onDisconnect ensures Firebase removes the heartbeat server-side even if
+        // the browser crashes, loses power, or the tab is force-killed (beforeunload
+        // does not fire in those cases).
+        _bwHbRef.onDisconnect().remove().catch(function() {});
         var _bwHbEmail   = localStorage.getItem('TT_Email') || localStorage.getItem('TT_Name') || '';
         var _bwHbUa      = navigator.userAgent || '';
         var _bwHbIp      = 'pending';
@@ -4965,10 +4977,12 @@ $(document).ready(function() {
             };
             console.log('[bw-settings] feature flags loaded:', JSON.stringify(window._bwFeatures));
             // Company name (override chip if owner panel set one)
-            if (s.companyName) {
+            // Accepts both 'name' (per spec) and 'companyName' (legacy)
+            var _bwCname = s.name || s.companyName || '';
+            if (_bwCname) {
                 var el = document.getElementById('CompanyName');
-                if (el) el.textContent = s.companyName;
-                localStorage.setItem('TT_Company', s.companyName);
+                if (el) el.textContent = _bwCname;
+                localStorage.setItem('TT_Company', _bwCname);
             }
             // Company logo
             if (s.logoUrl) {
