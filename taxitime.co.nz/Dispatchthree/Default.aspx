@@ -67,7 +67,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-    <script src="https://my-firebase-project.web.app/geofire-5.0.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/geofire@5.0.1/dist/geofire.min.js"></script>
 <style type="text/css">
     a#tbleClosedJobs_previous {
         color: red;
@@ -8307,7 +8307,7 @@ $(document).ready(function() {
 
          //}
        
-         var someSession = localStorage.getItem('TT_Name') || 'safinah mohammed';
+         var someSession = localStorage.getItem('TT_Name') || '';
 
          function FnFindMyVehicle() {
              // Get the vehicle ID of the currently-open driver panel.
@@ -14554,7 +14554,7 @@ $(document).ready(function() {
                 if (!$scope._tariffZoneListenerActive) {
                     $scope._tariffZoneListenerActive = true;
                     // Scope to the current company so we never load another tenant's tariffs
-                    var _tzCid = localStorage.getItem('TT_CId') || SomeSession4 || '';
+                    var _tzCid = localStorage.getItem('TT_CId') || someSession4 || '';
                     var _tzRef = _tzCid ? firebase.database().ref('tariffZones/' + _tzCid)
                                         : firebase.database().ref('tariffZones');
                     _tzRef.on('value', function(snapshot) {
