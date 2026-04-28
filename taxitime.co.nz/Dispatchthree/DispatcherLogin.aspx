@@ -1162,29 +1162,76 @@
 
       function resolveCompanyId(uid) {
         if (manualCid) return Promise.resolve(manualCid);
+        // Chain: Firebase DB → server uid lookup → server email lookup
+        // Each step is a fallback in case the previous one has no data.
         return firebase.database().ref('users/' + uid + '/companyId').once('value')
           .then(function(snap) {
             var fbCid = snap.val();
-            if (fbCid) return fbCid;
-            return fetch('/api/session/company-by-email?email=' + encodeURIComponent(email))
+            if (fbCid) return String(fbCid);
+            // Firebase DB has no companyId for this uid — try the server's uid-based lookup
+            // (reliable once the user has ever logged in and the uid was synced to the store)
+            return fetch('/api/session/company-by-uid?uid=' + encodeURIComponent(uid))
               .then(function(r) { return r.ok ? r.json() : null; })
-              .then(function(data) { return (data && data.companyId) ? data.companyId : null; });
+              .then(function(data) {
+                if (data && data.companyId) return String(data.companyId);
+                // Last resort: match by email
+                return fetch('/api/session/company-by-email?email=' + encodeURIComponent(email))
+                  .then(function(r) { return r.ok ? r.json() : null; })
+                  .then(function(data) { return (data && data.companyId) ? String(data.companyId) : null; });
+              });
           })
           .catch(function() {
-            return fetch('/api/session/company-by-email?email=' + encodeURIComponent(email))
+            // Firebase unreachable — go straight to server lookups
+            return fetch('/api/session/company-by-uid?uid=' + encodeURIComponent(uid))
               .then(function(r) { return r.ok ? r.json() : null; })
-              .then(function(data) { return data && data.companyId ? data.companyId : null; })
+              .then(function(data) {
+                if (data && data.companyId) return String(data.companyId);
+                return fetch('/api/session/company-by-email?email=' + encodeURIComponent(email))
+                  .then(function(r) { return r.ok ? r.json() : null; })
+                  .then(function(d) { return (d && d.companyId) ? String(d.companyId) : null; })
+                  .catch(function() { return null; });
+              })
               .catch(function() { return null; });
           });
       }
 
+      // Guard flag — ensures only ONE path (Firebase or fallback) ever completes login
+      var _authSettled = false;
+
+      // Soft warning after 8s — lets the user know we're still working, not broken
+      var _slowTimer = setTimeout(function() {
+        if (_authSettled) return;
+        var box = document.getElementById('errorBox');
+        box.textContent = 'Still connecting — please wait a moment…';
+        box.style.display = 'block';
+        box.style.background = '#fff8e1';
+        box.style.color = '#7a5700';
+        box.style.borderColor = '#ffe082';
+      }, 8000);
+
+      // Hard fallback after 25s — only fires if Firebase is genuinely hung
       var authTimeout = setTimeout(function() {
+        if (_authSettled) return;
+        _authSettled = true;
+        var box = document.getElementById('errorBox');
+        box.style.background = '';
+        box.style.color = '';
+        box.style.borderColor = '';
         _mockLogin(email, 'auth/timeout');
-      }, 10000);
+      }, 25000);
 
       firebase.auth().signInWithEmailAndPassword(email, password)
         .then(function(result) {
+          if (_authSettled) return; // timeout already fired — don't double-complete
+          _authSettled = true;
+          clearTimeout(_slowTimer);
           clearTimeout(authTimeout);
+          // Hide the "still connecting" soft warning if it appeared
+          var box = document.getElementById('errorBox');
+          box.style.display = 'none';
+          box.style.background = '';
+          box.style.color = '';
+          box.style.borderColor = '';
           var user = result.user;
           var name = user.displayName || email.split('@')[0];
 
@@ -1244,7 +1291,14 @@
           }); // end resolveCompanyId.then
         })
         .catch(function(error) {
+          if (_authSettled) return; // hard timeout already fired — don't conflict
+          _authSettled = true;
+          clearTimeout(_slowTimer);
           clearTimeout(authTimeout);
+          var box = document.getElementById('errorBox');
+          box.style.background = '';
+          box.style.color = '';
+          box.style.borderColor = '';
           var wrongCreds = (error.code === 'auth/user-not-found' ||
                             error.code === 'auth/wrong-password'  ||
                             error.code === 'auth/invalid-credential' ||

@@ -1,0 +1,30 @@
+What's Missing or Broken ❌
+Owner Panel gaps
+Missing	Effect
+Company settings sync (hours, name, logo)	Dispatch always uses SQL defaults, ignores owner panel settings
+Driver/vehicle list not synced from owner panel	Drivers must be added directly in SQL — owner panel changes don't reflect in dispatch
+Feature flags per company	No Firebase node for "TM enabled", "auto-dispatch on", etc. — it's hardcoded
+Driver App gaps
+Missing	Effect
+New driver self-registration flow	A new driver using the app can't appear in dispatch until manually added
+Driver document/licence verification	No check integrated before drivers go live
+Driver earnings visible in dispatch	Dispatch has no earnings/payment panel
+Passenger App gaps
+Missing	Effect
+Real-time booking listener from passenger app	If a passenger books via the app, dispatch has no Firebase listener for it — relies entirely on SQL polling
+ETA/tracking push to passenger	Dispatch doesn't push ETA back to passenger app
+Passenger in-app payment confirmation	No payment status visible in dispatch
+Shareable ride tracking link	No URL generated for passengers to track their driver
+Super Admin gaps
+Missing	Effect
+Mid-session account revocation	If super admin deactivates a company, dispatchers already logged in stay active until they refresh
+Dispatch session visibility	Super admin can't see which companies have active dispatch sessions right now
+Per-company feature flags in Firebase	Super admin can't toggle features (TM, auto-dispatch) per company from the admin panel
+Firebase / General gaps
+Missing	Effect
+Firebase Security Rules not fully scoped	Some paths return PERMISSION_DENIED — rules need updating to match the {companyId} scoped paths
+Auth token refresh	Firebase tokens expire after 8 hours — no handling means a dispatcher could silently lose Firebase connection mid-shift
+Firebase offline handling	If Firebase drops, no graceful degradation or reconnect notice shown
+Server / Backend gaps
+Missing	Effect
+Real backend API not connected	Messages, alarms fall back to mock data — these should hit a live SQL server

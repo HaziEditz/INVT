@@ -1239,6 +1239,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Sync: if a Firebase uid was supplied, write it back to the registration record.
+    // This keeps Firebase auth (uid) and the local store (email→companyId) in sync —
+    // next login can look up by uid directly, not just by email.
+    if (uid && reg.ownerUid !== uid) {
+      reg.ownerUid = uid;
+      persistRegistrations();
+      console.log(`[session] synced ownerUid=${uid} → companyId=${companyId}`);
+    }
+
     const token = createSessionToken(companyId);
     res.writeHead(200, {
       'Content-Type': 'application/json',
@@ -1280,6 +1289,33 @@ const server = http.createServer(async (req, res) => {
       status:    reg.status,
       isActive:  true,
     }));
+    return;
+  }
+
+  // GET /api/session/company-by-uid?uid=<firebaseUid>
+  // Used by the login page as a reliable uid-based lookup after a successful Firebase auth.
+  // Works because /api/session/login syncs the ownerUid field back to the registration record.
+  if (urlPath === '/api/session/company-by-uid' && req.method === 'GET') {
+    const qs  = new URL('http://x' + req.url).searchParams;
+    const uid = (qs.get('uid') || '').trim();
+    if (!uid) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'uid is required' }));
+      return;
+    }
+    const ACTIVE_STATUSES = ['active', 'trial', 'grace'];
+    const reg = registrationStore.find(r =>
+      r.ownerUid && r.ownerUid === uid &&
+      r.companyId &&
+      ACTIVE_STATUSES.includes(r.status)
+    );
+    if (!reg) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No active account found for this uid' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, companyId: reg.companyId, company: reg.company, status: reg.status }));
     return;
   }
 
