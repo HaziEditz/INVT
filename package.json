@@ -1,0 +1,16 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000I\u0000N\u0000V\u0000T\u0000\r\u0000 \u0000#\u0000 \u0000I\u0000N\u0000V\u0000T\u0000\r\u0000 \u0000#\u0000 \u0000I\u0000N\u0000V\u0000T\u0000\r\u0000 \u0000#\u0000 \u0000I\u0000N\u0000V\u0000T\u0000\r\u0000 \u0000#\u0000 \u0000I\u0000N\u0000V\u0000T\u0000\r\u0000 \u0000",
+  "main": "loadtest.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "stripe": "^22.1.0"
+  }
+}

@@ -14,6 +14,15 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const Stripe = require('stripe');
+
+// Stripe initialised lazily so missing key only errors on first charge attempt
+function getStripe() {
+  const sk = process.env.STRIPE_SECRET_KEY || '';
+  if (!sk) throw new Error('STRIPE_SECRET_KEY not configured');
+  return Stripe(sk);
+}
+const STRIPE_PK = process.env.STRIPE_PUBLISHABLE_KEY || '';
 
 const PORT = 5000;
 const HOST = '0.0.0.0';
@@ -629,7 +638,7 @@ function buildJobListResponse(jobs) {
     dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned' && !isOrphaned(j)).length }],
     dt3: [{ ActiveCount: allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
     dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
-    dt5: [{ PublicKey: '' }],
+    dt5: [{ PublicKey: STRIPE_PK }],
   };
 }
 
@@ -642,7 +651,7 @@ function buildDeliveryResponse(jobs) {
     dt2: [{ AssignedCount: 0 }],
     dt3: [{ ActiveCount: 0 }],
     dt4: [{ deUnAssignedCount: dt1.length }],
-    dt5: [{ PublicKey: '' }],
+    dt5: [{ PublicKey: STRIPE_PK }],
   };
 }
 
@@ -662,7 +671,7 @@ function buildAssignedResponse(jobs) {
     dt2: [{ AssignedCount: dt1.length }],
     dt3: [{ ActiveCount: activeCount }],
     dt4: [{ UnAssignedCount: jobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One').length }],
-    dt5: [{ PublicKey: '' }],
+    dt5: [{ PublicKey: STRIPE_PK }],
   };
 }
 
@@ -1123,6 +1132,47 @@ const server = http.createServer(async (req, res) => {
     // Unknown admin route
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unknown admin endpoint' }));
+    return;
+  }
+
+  // POST …/Default.aspx/DispatchChargeing — Stripe charge via token (Stripe.js v2)
+  // Called by StripeTokenCreation.js after card tokenisation succeeds in the browser.
+  // Expects JSON body: { Token: "tok_xxx", Amout: "25" }  (note original typo "Amout")
+  if (urlPath.includes('/Default.aspx/DispatchChargeing') && req.method === 'POST') {
+    try {
+      const rawBody = await readBody(req);
+      let body = {};
+      try { body = JSON.parse(rawBody); } catch (e) {}
+      const token  = (body.Token  || '').trim();
+      const amtStr = (body.Amout  || body.Amount || '0').toString().trim();
+      const amountDollars = parseFloat(amtStr) || 0;
+      if (!token) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ d: 'error: no token provided' }));
+        return;
+      }
+      if (amountDollars <= 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ d: 'error: invalid amount' }));
+        return;
+      }
+      const stripe = getStripe();
+      const amountCents = Math.round(amountDollars * 100);
+      const charge = await stripe.charges.create({
+        amount:   amountCents,
+        currency: 'nzd',
+        source:   token,
+        description: 'BookaWaka taxi fare',
+      });
+      console.log(`[Stripe] charge ${charge.id} ${charge.status} $${amountDollars} NZD`);
+      const status = charge.status === 'succeeded' ? 'succeeded' : charge.status;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ d: status }));
+    } catch (err) {
+      console.log('[Stripe] charge error:', err.message);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ d: 'error: ' + err.message }));
+    }
     return;
   }
 
@@ -1608,6 +1658,8 @@ const server = http.createServer(async (req, res) => {
       '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
       '[TariffSync]',
       '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]', '[PromoteQueuedToAssigned]',
+      // Payments
+      '[InsertPassengerBalance]', '[GetPassengerBalance]',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -2765,6 +2817,19 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${_cjBookingId}, driver ${_cjDriverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _cjDriverId }]);
 
+      } else if (action === '[InsertPassengerBalance]') {
+        // Records a successful Stripe payment against the passenger's phone number.
+        const _pbPhone  = (param('PhoneNo') || param('phoneno') || '').toString().trim();
+        const _pbAmount = parseFloat(param('Amount') || param('amount') || '0') || 0;
+        const _pbEntry  = { phone: _pbPhone, amount: _pbAmount, paidAt: nowNZ(), method: 'Stripe' };
+        console.log(`200: POST ${urlPath} [action=${action}] -> recorded payment $${_pbAmount} for ${_pbPhone}`);
+        objectD(res, { dt1: [_pbEntry], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[GetPassengerBalance]') {
+        const _gbPhone = (param('PhoneNo') || param('phoneno') || '').toString().trim();
+        console.log(`200: POST ${urlPath} [action=${action}] -> balance lookup for ${_gbPhone}`);
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
         successD(res, 'Operation Successfully Performed');
@@ -3098,7 +3163,7 @@ const server = http.createServer(async (req, res) => {
           dt2: [{ AssignedCount: 0 }],
           dt3: [{ ActiveCount: 0 }],
           dt4: [{ UnAssignedCount: jobStore.length }],
-          dt5: [{ PublicKey: '' }],
+          dt5: [{ PublicKey: STRIPE_PK }],
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${jobId}`);
         objectD(res, resp);
@@ -3221,7 +3286,7 @@ const server = http.createServer(async (req, res) => {
             { Id: 4, VehicleName: 'Wheelchair' },
           ],
           dt4: TARIFF_STORE,
-          dt5: [{ PublicKey: '' }],
+          dt5: [{ PublicKey: STRIPE_PK }],
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> dispatcher settings`);
         objectD(res, settings);
