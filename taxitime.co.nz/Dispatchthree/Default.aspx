@@ -481,9 +481,8 @@
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
-                                                                  <!-- ── Recall badge (shown when driver recalled the job back to queue) ── -->
-                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; RECALLED</span>
-                                                                  <div ng-if="value.RecallStatus === 'Recalled' && value.RecallReason" style="font-size:10px; color:#c0392b; font-weight:600; margin-top:3px; margin-bottom:2px; padding-left:2px;"><i class="fa fa-info-circle"></i> {{value.RecallReason}}</div>
+                                                                  <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
+                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail )}}
@@ -3319,9 +3318,8 @@ $(document).ready(function() {
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
-                                                                  <!-- ── Recall badge ── -->
-                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; RECALLED</span>
-                                                                  <div ng-if="value.RecallStatus === 'Recalled' && value.RecallReason" style="font-size:10px; color:#c0392b; font-weight:600; margin-top:3px; margin-bottom:2px; padding-left:2px;"><i class="fa fa-info-circle"></i> {{value.RecallReason}}</div>
+                                                                  <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
+                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3490,9 +3488,8 @@ $(document).ready(function() {
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
-                                                                  <!-- ── Recall badge ── -->
-                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; RECALLED</span>
-                                                                  <div ng-if="value.RecallStatus === 'Recalled' && value.RecallReason" style="font-size:10px; color:#c0392b; font-weight:600; margin-top:3px; margin-bottom:2px; padding-left:2px;"><i class="fa fa-info-circle"></i> {{value.RecallReason}}</div>
+                                                                  <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
+                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3624,9 +3621,8 @@ $(document).ready(function() {
                                                     <div ng-repeat="(key, value) in unassignedjob_list | filter:{RecallStatus:'Recalled'}" style="margin-bottom:12px; border-left:4px solid #c0392b; padding:8px 10px; background:#fff8f8; border-radius:4px;">
                                                         <div style="font-weight:700; font-size:13px;">
                                                             <span class="label label-pill label-primary"><i class="glyphicon glyphicon-tag"></i> #{{value.Id}}</span>
-                                                            &nbsp;<span style="color:#c0392b; font-weight:700;">&#9888; RECALLED</span>
+                                                            &nbsp;<span class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                         </div>
-                                                        <div ng-if="value.RecallReason" style="font-size:11px; color:#c0392b; margin-top:4px; font-weight:600;"><i class="fa fa-info-circle"></i> Reason: {{value.RecallReason}}</div>
                                                         <div style="font-size:11px; color:#555; margin-top:4px;">
                                                             <i class="fa fa-map-marker"></i> {{value.PickAddress}} &rarr; {{value.DropAddress}}
                                                         </div>
@@ -14659,7 +14655,11 @@ $(document).ready(function() {
             }
             else if ( VehicleStatus == 'Picking' ){
                 return "#0000f57a";
-            }else if(VehicleStatus == 'manualreject'){
+            }
+            else if ( VehicleStatus == 'Arrived' ){
+                return "#00bcd4"; // teal — driver at pickup, waiting
+            }
+            else if(VehicleStatus == 'manualreject'){
                 return "lightgreen";
             }
              
