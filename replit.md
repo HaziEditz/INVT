@@ -632,3 +632,39 @@ Driver app should:
 - **Symptom**: When a Busy driver accepted a pre-queue silent offer (job showed correctly in Assigned tab as "Queued for D001"), as soon as they finished their current trip and became Available, "all the data changed" — the job disappeared from the Assigned tab, pickup/dropoff info cleared, and the driver was sent a second popup offer asking them to accept the same job again.
 - **Root cause** (`Default.aspx` `changedata(Busy→Available)`): When the driver went Available, the code called `[RecallQueuedJob]` which set `BookingStatus=Pending` and cleared `DriverId=null`, then immediately called `acknowledgemethodx()` to re-send a full popup offer and wait for a second acceptance. This was designed as a "re-offer" flow, but it was wrong — the driver had **already** accepted the job. The recall to Pending caused the Assigned tab to flicker (job briefly visible with no driver), and the second popup required the driver to accept the same job twice.
 - **Fix** (`server.js` + `Default.aspx`): Added a new `[PromoteQueuedToAssigned]` server endpoint (`DataProcessor`) that atomically sets `BookingStatus = 'Assigned'` while keeping `DriverId` intact (no clear, no Pending transition). Updated `changedata(Busy→Available)` to call `[PromoteQueuedToAssigned]` instead of `[RecallQueuedJob]` + `acknowledgemethodx`. Result: when a Busy driver finishes their hail, the already-accepted job is auto-assigned directly — no data reset, no flicker, no second popup. A race-condition guard returns `{ alreadyStatus }` if the job was recalled/cancelled by the dispatcher between the server-side state check and the promotion call.
+
+## BW Platform Feature Log
+
+### Feature 8 — Multi-service filtering + driver service badges (FEATURE)
+- **Driver list filter bar**: Five tab-buttons (`All / Taxi / Food / Freight / TM`) appended to every driver-panel header. Angular `$scope.setBwSvcFilter(svc)` sets `$scope.bwSvcFilter`; `$scope.checkDriverSvcFilter(driverId)` gates each `ng-repeat` row.
+- **Service badges in all 4 driver panels**: `$scope.getDriverSvcBadges(driverId)` returns coloured chips (`Taxi` blue, `Food` green, `Freight` orange, `TM` purple) from the `_bwDriverServices` cache. Service data is fetched lazily from `drivers/{uid}/allowedServices` via `_bwFetchDriverServices` (called on first badge render or on driver come-online). Company-level module guard (`superClients/{cid}/modules`) gates whether a service type is shown at all.
+- **`_bwCanDriverDoService(driverId, serviceType)`**: Two-layer check — (1) company module enabled, (2) driver `allowedServices` contains the service. Used as a hard guard when the dispatcher manually sends a job to a driver (`sendJobToDriver` path ~line 7260). Returns `true` for taxi by default if service data not yet fetched (fail-open for taxi, fail-closed for non-taxi).
+- **`showcolor()` extended**: Added `'Arrived'` → teal (`#009688`).
+- **Firebase paths used**: `drivers/{uid}/allowedServices` (object `{taxi:true, food:true, ...}`), `superClients/{cid}/modules` (object `{taxi:true, food:false, ...}`).
+
+### Feature — Pending Driver Approvals in Owner Panel (FEATURE)
+- **Location**: Owner Panel → "Approval Details" tab (`#approvaldetails`).
+- **Firebase listener**: On tab open, a `once('value')` reads `drivers/{cid}` and filters records where `approved === false` (missing `approved` field treated as approved, protecting legacy drivers). Results populate `$scope.pendingDrivers`.
+- **Approve action**: `$scope.approveDriver(uid)` writes `drivers/{uid}/approved: true` then optimistically removes the driver from the pending list. Displays a toastr on success/failure.
+- **Badge**: Red count badge on the tab header when `pendingDrivers.length > 0`.
+
+### Feature — Recall reason display in Unassigned jobs (FEATURE)
+- **Recall badge**: `⚠ Recalled — [reason]` shown inline on any UA job card where `value.RecallStatus === 'Recalled'`. Reason text comes from `value.RecallReason`. Visible in the Unassigned list, the Offer list, and the dedicated `#tabRecalled` filter tab.
+- **`#tabRecalled` filter tab**: Added as an extra tab in the jobs tab bar. Clicking it sets `bwJobTab = 'recalled'` and the UA `ng-repeat` shows only jobs with `RecallStatus === 'Recalled'`.
+
+### Feature — Passenger recall push notification (FEATURE)
+- **`window._bwNotifyPassengerRecall(jobId)`**: Browser-side function (no server endpoint needed). On recall detection it:
+  1. Reads `bookings/{cid}/{bookingId}` (falls back to `allbookings/{cid}/{bookingId}`) to obtain `deviceUid`.
+  2. Writes `RecallStatus: "Recalled"` to `rideStatus/{cid}/{bookingId}` — triggers the foreground banner in the passenger app.
+  3. Writes `recallNotification: true` to `Passengerjobs/{deviceUid}` — flags the job for the passenger's device.
+  4. POSTs to `https://exp.host/--/api/v2/push/send` with `deviceUid` used directly as the Expo push token — no server-side FCM admin SDK required (Expo's CORS policy allows browser-side push).
+- Called at both recall detection points in `Default.aspx` (lines ~8648 and ~10244).
+- **`deviceUid`** on the booking record is the Expo push token — no mapping table needed.
+
+### Feature 9 — Shared driver identification (FEATURE)
+- **Firebase data model**: A driver is "shared" when `drivers/{uid}/companyId !== SomeSession2` AND `drivers/{uid}/sharedWith` contains `SomeSession2`. `sharedWith` may be a JS array or a Firebase integer-keyed object (`{0:'cid', 1:'cid'}`); both forms handled.
+- **`window._bwSharedDrivers[uid]`** cache: `{ isShared: bool, homeCompanyId: string|null }`. Sentinel `null` blocks duplicate reads while a fetch is in flight. On Firebase error the sentinel is cleared so the next render can retry.
+- **`window._bwFetchDriverSharedStatus(uid)`**: Reads `drivers/{uid}` once. After resolving, triggers an Angular `$digest` so the SHARED badge appears immediately without requiring user interaction.
+- **Eager hook in `cars_Ref.on('child_added')`**: After `adddrivernew(dval)` adds the driver row, `_bwFetchDriverSharedStatus(PlayerId || driverid)` is called so the fetch is in-flight before the first render cycle.
+- **Angular `$scope.isSharedDriver(driverId)` + `$scope.getDriverHomeCompany(driverId)`**: Template-facing helpers. `isSharedDriver` also lazily triggers a fetch on first call (belt-and-suspenders with the eager hook).
+- **SHARED badge in all 4 driver panels** (Available, Hired, Away, Offline): Purple `#7b1fa2` pill labelled `SHARED` sits next to the service badges. `title` attribute shows "Shared from {homeCompanyId}" on hover. Hidden for home-company drivers (zero wasted reads once the cache resolves to `isShared: false`).
