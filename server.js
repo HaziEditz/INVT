@@ -1244,7 +1244,7 @@ const server = http.createServer(async (req, res) => {
     // next login can look up by uid directly, not just by email.
     if (uid && reg.ownerUid !== uid) {
       reg.ownerUid = uid;
-      persistRegistrations();
+      saveRegistrations();
       console.log(`[session] synced ownerUid=${uid} → companyId=${companyId}`);
     }
 
@@ -1394,9 +1394,40 @@ const server = http.createServer(async (req, res) => {
     const qs   = new URL('http://x' + req.url).searchParams;
     const nD   = Math.min(parseInt(qs.get('drivers') || '10'), 500);
     const nJ   = Math.min(parseInt(qs.get('jobs')    || '20'), 2000);
+    // Optional companyId tag for isolation-aware tests.
+    // If ?cid=X is supplied (or defaults to 'bwtest'), all seeded data is tagged
+    // with that companyId and a synthetic active registration is guaranteed to exist.
+    const ltCid = (qs.get('cid') || 'bwtest').trim();
+    // Ensure a registration entry exists for this test company so /api/session/login works.
+    const existsReg = registrationStore.find(r => r.companyId === ltCid);
+    if (!existsReg) {
+      registrationStore.push({
+        id: 'loadtest-reg-' + ltCid,
+        companyId: ltCid,
+        company:   'LoadTest Company',
+        name:      'Test User',
+        email:     `loadtest+${ltCid}@bwtest.internal`,
+        status:    'active',
+        submittedAt: new Date().toISOString(),
+        approvedAt:  new Date().toISOString(),
+        _isLoadTest: true,
+      });
+    } else if (existsReg.status !== 'active' && existsReg.status !== 'trial') {
+      existsReg.status = 'active'; // restore if a previous test deactivated it
+    }
     const zones = ['Central','North','South','East','West'];
     LT_DRIVER_IDS.clear();
     LT_JOB_IDS.clear();
+    // Clear any stale jobs from previous seed runs for this company (prevents ID collision on server restart)
+    const _staleCount = jobStore.filter(j => j.companyId === ltCid && j._isLoadTest).length;
+    if (_staleCount > 0) {
+      const _before = jobStore.length;
+      for (let _i = jobStore.length - 1; _i >= 0; _i--) {
+        if (jobStore[_i].companyId === ltCid && jobStore[_i]._isLoadTest) jobStore.splice(_i, 1);
+      }
+      console.log(`[loadtest/seed] cleared ${_staleCount} stale ${ltCid} jobs before re-seed`);
+      saveJobStore();
+    }
     // Inject fake drivers
     for (let i = 0; i < nD; i++) {
       const did = 9000 + i;
@@ -1415,6 +1446,7 @@ const server = http.createServer(async (req, res) => {
         queueWaitSince: Date.now(),
         lat:           -46.40 + (Math.random() * 0.1),
         lng:           168.35 + (Math.random() * 0.1),
+        companyId:     ltCid,
         _isLoadTest:   true,
       });
     }
@@ -1436,12 +1468,13 @@ const server = http.createServer(async (req, res) => {
         DriverId: 0, VehicleId: 0, VehicleNo: '',
         Passengers: 1, Bags: 0,
         returnReason: '',
+        companyId:  ltCid,
         _isLoadTest: true,
       });
     }
-    console.log(`[loadtest] seeded ${nD} drivers, ${nJ} jobs`);
+    console.log(`[loadtest] seeded ${nD} drivers, ${nJ} jobs (companyId=${ltCid})`);
     res.writeHead(200, JSON_HEADERS);
-    res.end(JSON.stringify({ ok: true, drivers: nD, jobs: nJ,
+    res.end(JSON.stringify({ ok: true, drivers: nD, jobs: nJ, companyId: ltCid,
       driverIds: [...LT_DRIVER_IDS], jobIds: [...LT_JOB_IDS] }));
     return;
   }
@@ -1484,7 +1517,10 @@ const server = http.createServer(async (req, res) => {
 
     // Company ID for this request — read from the signed session cookie set by /api/session/login.
     // Falls back to a param in the data array (for driver-app / legacy callers that include it).
-    const sessionCompanyId = getSessionCompanyId(req)
+    // Dev-only: X-BW-Test-Company header overrides session (used by bwtest.js integration tests).
+    const _testCidHeader = process.env.NODE_ENV !== 'production' ? (req.headers['x-bw-test-company'] || '') : '';
+    const sessionCompanyId = _testCidHeader
+      || getSessionCompanyId(req)
       || (dataArr.find(p => (p.name||'').toLowerCase() === 'companyid') || {}).value
       || null;
 
@@ -2177,6 +2213,23 @@ const server = http.createServer(async (req, res) => {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId}`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
+          }
+          // Per-driver double-offer guard: block if this driver already has a DIFFERENT job in Offered state
+          // that was set very recently (within 1 second — concurrent race window only).
+          if (newStatus === 'Offered' && incomingDriverId) {
+            const _offerWindow = 1000; // ms — only block truly concurrent duplicate offers
+            const _now = Date.now();
+            const _existingOffer = jobStore.find(j =>
+              j.BookingStatus === 'Offered' &&
+              String(j.DriverId) === String(incomingDriverId) &&
+              j.Id !== bookingId &&
+              j.offeredAt && (_now - j.offeredAt) < _offerWindow
+            );
+            if (_existingOffer) {
+              console.log(`  [changeriddestatusforoffer/DP] BLOCKED per-driver double-offer: driver ${incomingDriverId} already has job #${_existingOffer.Id} Offered (${_now - _existingOffer.offeredAt}ms ago), blocking job #${bookingId}`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
+              return;
+            }
           }
           const isAccepted = currentStatus === 'Assigned' || currentStatus === 'Active' || currentStatus === 'Picking';
           const isDowngrade = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
@@ -3252,6 +3305,7 @@ const server = http.createServer(async (req, res) => {
         const _gqJobs = jobStore.filter(j => j.BookingStatus === 'Queued');
         const _gqDt1  = _gqJobs.map(j => ({
           Id:              j.Id,
+          BookingId:       j.Id,
           DriverId:        j.DriverId   || '',
           PickAddress:     j.PickAddress  || j.PickLocation  || '',
           DropAddress:     j.DropAddress  || j.DropLocation  || '',
@@ -3987,6 +4041,48 @@ const server = http.createServer(async (req, res) => {
         }));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${dt2.length} messages for driver #${driverId}`);
         objectD(res, { dt1, dt2 });
+
+      } else if (action === '[SearchJobByName]') {
+        const searchName = (param('Id') || '').toLowerCase();
+        const allJobs = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
+        let results = searchName ? allJobs.filter(j => (j.Name || '').toLowerCase().includes(searchName)) : allJobs;
+        results = applyStatusFilter(results, param('JobStatus'));
+        results = sortByRecent(results.map(enrichSearchResult));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results.length} results`);
+        arrayD(res, results);
+
+      } else if (action === '[SearchById]') {
+        const searchId2 = parseInt(param('Id') || param('id') || '0') || 0;
+        const allJobs2 = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
+        let results2 = searchId2 > 0 ? allJobs2.filter(j => j.Id === searchId2) : allJobs2;
+        results2 = applyStatusFilter(results2, param('JobStatus'));
+        results2 = sortByRecent(results2.map(enrichSearchResult));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results2.length} results`);
+        arrayD(res, results2);
+
+      } else if (action === '[SearchByPhoneNo]') {
+        const searchPhone = (param('Id') || '').toLowerCase();
+        const allJobs3 = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
+        let results3 = searchPhone ? allJobs3.filter(j => (j.PhoneNo || j.Phone || '').toLowerCase().includes(searchPhone)) : allJobs3;
+        results3 = applyStatusFilter(results3, param('JobStatus'));
+        results3 = sortByRecent(results3.map(enrichSearchResult));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results3.length} results`);
+        arrayD(res, results3);
+
+      } else if (action === '[SearchByDate]' || action === '[SearchByDateFrom]' || action === '[SearchByDateRange]') {
+        const dateFrom = (param('DateFrom') || param('dateFrom') || param('Id') || '').trim();
+        const dateTo   = (param('DateTo')   || param('dateTo')   || '').trim();
+        const allJobs4 = [...companyJobs(jobStore), ...companyJobs(closedJobStore)];
+        let results4 = allJobs4.filter(j => {
+          const jd = (j.BookingDateTime || '').slice(0, 10);
+          if (dateFrom && dateTo) return jd >= dateFrom && jd <= dateTo;
+          if (dateFrom) return jd >= dateFrom;
+          return true;
+        });
+        results4 = applyStatusFilter(results4, param('JobStatus'));
+        results4 = sortByRecent(results4.map(enrichSearchResult));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${results4.length} results`);
+        arrayD(res, results4);
 
       } else {
         // Default: return live job list from in-memory store
