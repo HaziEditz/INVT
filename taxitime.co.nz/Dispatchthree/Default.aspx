@@ -5199,26 +5199,79 @@ $(document).ready(function() {
     window._bwNotifyPassengerRecall = function(jobId) {
         if (!SomeSession2 || !jobId) return;
         var _jId = String(jobId);
-        DbRef.ref('allbookings/' + SomeSession2 + '/' + _jId).once('value', function(snap) {
+        var _recallMsg = "Your driver had to return your booking to queue due to an emergency. You'll be allocated a new driver as soon as possible.";
+        var _now = new Date().toISOString();
+
+        DbRef.ref('bookings/' + SomeSession2 + '/' + _jId).once('value', function(snap) {
             var booking = snap && snap.val();
-            if (!booking) return;
-            var deviceUid = booking.deviceUid || booking.DeviceUid || booking.deviceuid || booking.DeviceUID;
-            if (!deviceUid) {
-                console.warn('[BW] recall notify: no deviceUid on booking #' + _jId);
+            if (!booking) {
+                // Fallback: also try allbookings path in case this company uses it
+                DbRef.ref('allbookings/' + SomeSession2 + '/' + _jId).once('value', function(snap2) {
+                    var b2 = snap2 && snap2.val();
+                    if (b2) _doNotify(b2);
+                    else console.warn('[BW] recall notify: booking #' + _jId + ' not found');
+                });
                 return;
             }
+            _doNotify(booking);
+        });
+
+        function _doNotify(booking) {
+            var deviceUid = booking.deviceUid || booking.DeviceUid || booking.deviceuid || booking.DeviceUID;
+
+            // ── 1. Write RecallStatus to rideStatus — fires the in-app foreground banner ──
+            DbRef.ref('rideStatus/' + SomeSession2 + '/' + _jId).update({
+                RecallStatus: 'Recalled',
+                recalledAt:   _now,
+                message:      _recallMsg
+            }).then(function() {
+                console.log('[BW] rideStatus/Recalled written — job #' + _jId);
+            }).catch(function(e) {
+                console.warn('[BW] rideStatus write failed:', e);
+            });
+
+            if (!deviceUid) {
+                console.warn('[BW] recall notify: no deviceUid on booking #' + _jId + ' — push skipped');
+                return;
+            }
+
+            // ── 2. Write to Passengerjobs/{deviceUid} — background / data notification ──
             firebase.database().ref('Passengerjobs/' + deviceUid).update({
                 recallNotification: {
-                    message:   "Your driver had to return your booking to queue due to an emergency. You'll be allocated a new driver as soon as possible.",
+                    message:   _recallMsg,
                     bookingId: _jId,
-                    timestamp: new Date().toISOString()
+                    timestamp: _now
                 }
-            }).then(function() {
-                console.log('[BW] Passenger recall notification written — job #' + _jId + ' device ' + deviceUid);
             }).catch(function(e) {
-                console.warn('[BW] Failed to write passenger recall notification:', e);
+                console.warn('[BW] Passengerjobs write failed:', e);
             });
-        });
+
+            // ── 3. Expo push notification — deviceUid is the Expo push token ──
+            // Only fire if it looks like a valid Expo token (ExponentPushToken[...] or exp format)
+            var _isExpoToken = /^ExponentPushToken\[.+\]$/.test(deviceUid) ||
+                               /^ExpoPushToken\[.+\]$/.test(deviceUid);
+            if (!_isExpoToken) {
+                console.log('[BW] deviceUid does not look like an Expo token — Expo push skipped:', deviceUid);
+                return;
+            }
+            fetch('https://exp.host/--/api/v2/push/send', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    to:       deviceUid,
+                    title:    'Booking Update',
+                    body:     _recallMsg,
+                    data:     { bookingId: _jId, type: 'recall' },
+                    sound:    'default',
+                    priority: 'high'
+                })
+            }).then(function(r) { return r.json(); })
+              .then(function(result) {
+                  console.log('[BW] Expo push sent — job #' + _jId, result);
+              }).catch(function(e) {
+                  console.warn('[BW] Expo push failed:', e);
+              });
+        }
     };
 
     // ── 8. Two-layer service filtering ────────────────────────────────────
