@@ -4217,6 +4217,9 @@ $(document).ready(function() {
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                    <span ng-if="isSharedDriver(driverz.PlayerId || driverz.driverid)"
+                                                        style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
+                                                        title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
@@ -4297,6 +4300,9 @@ $(document).ready(function() {
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                    <span ng-if="isSharedDriver(driverz.PlayerId || driverz.driverid)"
+                                                        style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
+                                                        title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
@@ -4374,6 +4380,9 @@ $(document).ready(function() {
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                    <span ng-if="isSharedDriver(driverz.PlayerId || driverz.driverid)"
+                                                        style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
+                                                        title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
@@ -4450,6 +4459,9 @@ $(document).ready(function() {
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
+                                                    <span ng-if="isSharedDriver(driverz.PlayerId || driverz.driverid)"
+                                                        style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
+                                                        title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
                                                 <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
                                                     <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
@@ -5336,6 +5348,50 @@ $(document).ready(function() {
                 return svc === 'taxi';
             }
             return !!svcs[svc]; // explicit boolean stored by _bwFetchDriverServices
+        };
+    })();
+
+    // ── 9. Shared driver detection ─────────────────────────────────────────
+    // Reads drivers/{uid}.companyId and drivers/{uid}.sharedWith once per driver.
+    // A driver is "shared" into this company when their companyId !== SomeSession2
+    // AND sharedWith contains SomeSession2 (array or Firebase object of cids).
+    // Cache: window._bwSharedDrivers[uid] = { isShared: bool, homeCompanyId: string|null }
+    // Called lazily on first badge render and eagerly when drivers go online.
+    (function() {
+        window._bwSharedDrivers = {};
+
+        window._bwFetchDriverSharedStatus = function(uid) {
+            var key = String(uid || '');
+            if (!key || window._bwSharedDrivers[key] !== undefined) return;
+            window._bwSharedDrivers[key] = null; // sentinel: fetch in progress
+            DbRef.ref('drivers/' + key).once('value', function(snap) {
+                var d = snap && snap.val();
+                if (!d) {
+                    window._bwSharedDrivers[key] = { isShared: false, homeCompanyId: null };
+                    return;
+                }
+                var homeCid    = d.companyId || null;
+                var sharedWith = d.sharedWith; // array or Firebase obj {0:'cid1',1:'cid2'}
+                var isShared   = false;
+                if (homeCid && homeCid !== SomeSession2) {
+                    if (Array.isArray(sharedWith)) {
+                        isShared = sharedWith.indexOf(SomeSession2) !== -1;
+                    } else if (sharedWith && typeof sharedWith === 'object') {
+                        // Firebase arrays may arrive as {0:'cid', 1:'cid', ...}
+                        isShared = Object.keys(sharedWith).some(function(k) {
+                            return sharedWith[k] === SomeSession2;
+                        });
+                    }
+                }
+                window._bwSharedDrivers[key] = { isShared: isShared, homeCompanyId: homeCid };
+                // Trigger Angular digest so badge renders without waiting for next interaction
+                try {
+                    var _ssSc = angular.element(document.getElementById('myangular')).scope();
+                    if (_ssSc && !_ssSc.$$phase) _ssSc.$digest();
+                } catch(e) {}
+            }).catch(function() {
+                delete window._bwSharedDrivers[key]; // reset so next call can retry
+            });
         };
     })();
 
@@ -6464,6 +6520,12 @@ $(document).ready(function() {
                 }, 1500);
             }
         })(driverData);
+        // Eagerly fetch shared-driver status so the SHARED badge renders
+        // as soon as the driver row appears, rather than waiting for a hover/render.
+        if (typeof window._bwFetchDriverSharedStatus === 'function') {
+            var _sharedKey = String(driverData.PlayerId || driverData.driverid || '');
+            if (_sharedKey) window._bwFetchDriverSharedStatus(_sharedKey);
+        }
     });
 
     // this event will be triggered on location change of any car...
@@ -15738,6 +15800,27 @@ $(document).ready(function() {
                     });
                 // Optimistic UI removal
                 $scope.pendingDrivers = $scope.pendingDrivers.filter(function(d) { return d.uid !== uid; });
+            };
+
+            // ── Shared driver badge helpers ────────────────────────────────────
+            // isSharedDriver — true when driver.companyId ≠ this company AND
+            // driver.sharedWith contains SomeSession2.
+            // Lazily triggers the Firebase fetch on first call; returns false until data arrives.
+            $scope.isSharedDriver = function(driverId) {
+                var uid = String(driverId || '');
+                if (!uid) return false;
+                if (typeof window._bwFetchDriverSharedStatus === 'function') {
+                    window._bwFetchDriverSharedStatus(uid);
+                }
+                var s = window._bwSharedDrivers && window._bwSharedDrivers[uid];
+                return !!(s && s.isShared === true);
+            };
+
+            // Returns the home company ID for tooltip display on shared-driver badge.
+            $scope.getDriverHomeCompany = function(driverId) {
+                var uid = String(driverId || '');
+                var s = window._bwSharedDrivers && window._bwSharedDrivers[uid];
+                return (s && s.homeCompanyId) ? s.homeCompanyId : '';
             };
 
             //delievery
