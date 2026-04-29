@@ -378,7 +378,7 @@ function saveClosedJobStore() {
   });
 }
 
-// Live drivers come exclusively from Firebase (online/1216).
+// Live drivers come from Firebase (driverdatarealx/{companyId} or online/{companyId}).
 // This array is kept as an empty structure so dependent code paths don't crash.
 const ZONE_DRIVERS = [];
 
@@ -4212,7 +4212,7 @@ const server = http.createServer(async (req, res) => {
         r.email && r.email.toLowerCase() === username.toLowerCase() &&
         r.companyId && ALLOWED_LOGIN.includes(r.status)
       );
-      const mockCid = mockReg ? Number(mockReg.companyId) : 1216;
+      const mockCid = mockReg ? Number(mockReg.companyId) : 0;
       console.log(`200: POST ${urlPath} [LoginSelector] -> mock session for "${username}" companyId=${mockCid}`);
       arrayD(res, [{
         Id: 1051,
