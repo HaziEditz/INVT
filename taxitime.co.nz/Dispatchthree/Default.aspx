@@ -481,6 +481,9 @@
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                                  <!-- ── Recall badge (shown when driver recalled the job back to queue) ── -->
+                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; RECALLED</span>
+                                                                  <div ng-if="value.RecallStatus === 'Recalled' && value.RecallReason" style="font-size:10px; color:#c0392b; font-weight:600; margin-top:3px; margin-bottom:2px; padding-left:2px;"><i class="fa fa-info-circle"></i> {{value.RecallReason}}</div>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail )}}
@@ -1931,6 +1934,29 @@
                                     
                                </div>
                                <div id="approvaldetails" class="tab-pane fade">
+
+                                   <!-- ── Pending Driver Approvals ── -->
+                                   <div style="margin-bottom:18px;">
+                                       <div style="font-size:14px; font-weight:700; color:#c0392b; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+                                           <i class="fa fa-user-plus"></i> Pending Driver Approvals
+                                           <span style="font-size:11px; background:#c0392b; color:#fff; border-radius:10px; padding:1px 7px; font-weight:700;">{{pendingDrivers.length}}</span>
+                                       </div>
+                                       <div ng-if="pendingDrivers.length === 0" style="color:#888; font-size:13px; padding:10px 0;">
+                                           <i class="fa fa-check-circle" style="color:#27ae60;"></i> No pending driver approvals.
+                                       </div>
+                                       <div ng-repeat="drv in pendingDrivers" style="display:flex; align-items:center; justify-content:space-between; background:#fff8e1; border:1px solid #f0c040; border-radius:6px; padding:10px 14px; margin-bottom:8px;">
+                                           <div style="flex:1;">
+                                               <div style="font-weight:700; font-size:13px; color:#333;">{{drv.name || drv.driverName || drv.uid}}</div>
+                                               <div style="font-size:11px; color:#666; margin-top:2px;">{{drv.email}} &nbsp;&bull;&nbsp; {{drv.phone || drv.PhoneNo || 'No phone'}}</div>
+                                               <div style="font-size:10px; color:#aaa; margin-top:2px;">UID: {{drv.uid}}</div>
+                                           </div>
+                                           <button class="btn btn-success btn-sm" ng-click="approveDriver(drv.uid)" style="margin-left:14px; font-weight:700; font-size:12px; white-space:nowrap;">
+                                               <i class="fa fa-check"></i> Approve
+                                           </button>
+                                       </div>
+                                   </div>
+
+                                   <!-- ── Existing approval table ── -->
                                    <button class="btn btn-success" onclick="refresshapprove()">Refresh</button>
                                 <table id="approvaltable" class="table table-striped table-bordered dt-responsive nowrap" style="border-collapse: collapse; border-spacing: 0; width: 100%;" width="100%" width="100%"></table>
 
@@ -3217,6 +3243,7 @@ $(document).ready(function() {
                                             <ul class="nav panel-tabs">
                                                 <li class="" ng-click="getjobs(0)"><a href="#tab5" class="active show" data-toggle="tab">U-A<span>({{UnAssignedCount}})</span></a></li>
                                                <li class="" ng-click="getjobs(0)"><a href="#tab9" class=" " data-toggle="tab">Offer<span>({{UnAssignedCountoffer}})</span></a></li>
+                                               <li class="" ng-click="getjobs(0)"><a href="#tabRecalled" class=" " data-toggle="tab" style="color:#c0392b; font-weight:700;" title="Jobs recalled by drivers due to emergency">&#9888; Recalled<span style="margin-left:2px;">({{(unassignedjob_list | filter:{RecallStatus:'Recalled'}).length}})</span></a></li>
 
                                                  <li ng-click="AssignedJobs(0)"><a ng-click="AssignedJobs()" href="#tab6" data-toggle="tab" class="">Assign<span ng-click="AssignedJobs()">({{AssignedCount}})</span></a></li>
                                                 <li><a ng-click="ActiveJobsdata(0)" href="#tab7" data-toggle="tab" class="">Active <span>({{ActiveCount}})</span></a></li>
@@ -3292,6 +3319,9 @@ $(document).ready(function() {
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                                  <!-- ── Recall badge ── -->
+                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; RECALLED</span>
+                                                                  <div ng-if="value.RecallStatus === 'Recalled' && value.RecallReason" style="font-size:10px; color:#c0392b; font-weight:600; margin-top:3px; margin-bottom:2px; padding-left:2px;"><i class="fa fa-info-circle"></i> {{value.RecallReason}}</div>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3460,6 +3490,9 @@ $(document).ready(function() {
                                                                   <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
                                                                   <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                                  <!-- ── Recall badge ── -->
+                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; RECALLED</span>
+                                                                  <div ng-if="value.RecallStatus === 'Recalled' && value.RecallReason" style="font-size:10px; color:#c0392b; font-weight:600; margin-top:3px; margin-bottom:2px; padding-left:2px;"><i class="fa fa-info-circle"></i> {{value.RecallReason}}</div>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3583,6 +3616,29 @@ $(document).ready(function() {
                                                     <!-- enddiv -->
                                                 </div>
 
+                                                <!-- ── Recalled jobs tab — shows only jobs where RecallStatus === "Recalled" ── -->
+                                                <div class="tab-pane" id="tabRecalled">
+                                                    <div style="background:#fff3f3; border:1px solid #e88; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:12px; color:#922;">
+                                                        <i class="fa fa-exclamation-triangle"></i> These jobs were recalled by drivers due to an emergency. Re-assign them as soon as possible.
+                                                    </div>
+                                                    <div ng-repeat="(key, value) in unassignedjob_list | filter:{RecallStatus:'Recalled'}" style="margin-bottom:12px; border-left:4px solid #c0392b; padding:8px 10px; background:#fff8f8; border-radius:4px;">
+                                                        <div style="font-weight:700; font-size:13px;">
+                                                            <span class="label label-pill label-primary"><i class="glyphicon glyphicon-tag"></i> #{{value.Id}}</span>
+                                                            &nbsp;<span style="color:#c0392b; font-weight:700;">&#9888; RECALLED</span>
+                                                        </div>
+                                                        <div ng-if="value.RecallReason" style="font-size:11px; color:#c0392b; margin-top:4px; font-weight:600;"><i class="fa fa-info-circle"></i> Reason: {{value.RecallReason}}</div>
+                                                        <div style="font-size:11px; color:#555; margin-top:4px;">
+                                                            <i class="fa fa-map-marker"></i> {{value.PickAddress}} &rarr; {{value.DropAddress}}
+                                                        </div>
+                                                        <div style="font-size:11px; color:#888; margin-top:2px;">
+                                                            <i class="fa fa-clock-o"></i> {{datecreate(value.Pickingtime, value.DispatchTimebefore)}} &nbsp; | &nbsp; <i class="fa fa-phone"></i> {{value.PhoneNo}}
+                                                        </div>
+                                                        <div ng-if="value.RecalledAt" style="font-size:10px; color:#aaa; margin-top:2px;">Recalled at: {{value.RecalledAt}}</div>
+                                                    </div>
+                                                    <div ng-if="(unassignedjob_list | filter:{RecallStatus:'Recalled'}).length === 0" style="color:#888; font-size:13px; padding:16px; text-align:center;">
+                                                        <i class="fa fa-check-circle" style="color:#27ae60;"></i> No recalled jobs — all clear.
+                                                    </div>
+                                                </div>
 
                                                 <div class="tab-pane" id="tab6">
                                                     
@@ -5099,6 +5155,75 @@ $(document).ready(function() {
         });
         _bwDrvRegRef.once('value', function() { _bwDrvInit = true; });
     })();
+
+    // ── Pending Driver Approvals listener ─────────────────────────────────
+    // Reads drivers/{companyId} once per session — updates $scope.pendingDrivers
+    // with any driver whose approved field is explicitly false.
+    // Missing approved field = legacy driver = treated as approved (skip).
+    (function _bwPendingDriversListener() {
+        if (!SomeSession2) return;
+        function _sync() {
+            DbRef.ref('drivers/' + SomeSession2).on('value', function(snap) {
+                var list = [];
+                if (snap && snap.val()) {
+                    snap.forEach(function(child) {
+                        var d = child.val();
+                        if (d && d.approved === false) {
+                            var entry = {};
+                            entry.uid       = child.key;
+                            entry.name      = d.name || d.driverName || d.drivername || '';
+                            entry.email     = d.email || '';
+                            entry.phone     = d.phone || d.PhoneNo || d.phoneno || '';
+                            list.push(entry);
+                        }
+                    });
+                }
+                var _pdSc = angular.element(document.getElementById('myangular')).scope();
+                if (_pdSc) {
+                    _pdSc.pendingDrivers = list;
+                    if (!_pdSc.$$phase) _pdSc.$digest();
+                }
+            }, function(e) {
+                console.warn('[bw-pending-drivers] listener error:', e && e.code);
+            });
+        }
+        // Defer until Angular controller is ready
+        var _pdWait = setInterval(function() {
+            if (angular.element(document.getElementById('myangular')).scope()) {
+                clearInterval(_pdWait);
+                _sync();
+            }
+        }, 400);
+    })();
+
+    // ── Passenger recall notification helper ──────────────────────────────
+    // Called whenever a driver recall is detected. Reads the booking's deviceUid
+    // and writes a recallNotification node to Passengerjobs/{deviceUid} so the
+    // passenger app can surface an in-app alert.
+    window._bwNotifyPassengerRecall = function(jobId) {
+        if (!SomeSession2 || !jobId) return;
+        var _jId = String(jobId);
+        DbRef.ref('allbookings/' + SomeSession2 + '/' + _jId).once('value', function(snap) {
+            var booking = snap && snap.val();
+            if (!booking) return;
+            var deviceUid = booking.deviceUid || booking.DeviceUid || booking.deviceuid || booking.DeviceUID;
+            if (!deviceUid) {
+                console.warn('[BW] recall notify: no deviceUid on booking #' + _jId);
+                return;
+            }
+            firebase.database().ref('Passengerjobs/' + deviceUid).update({
+                recallNotification: {
+                    message:   "Your driver had to return your booking to queue due to an emergency. You'll be allocated a new driver as soon as possible.",
+                    bookingId: _jId,
+                    timestamp: new Date().toISOString()
+                }
+            }).then(function() {
+                console.log('[BW] Passenger recall notification written — job #' + _jId + ' device ' + deviceUid);
+            }).catch(function(e) {
+                console.warn('[BW] Failed to write passenger recall notification:', e);
+            });
+        });
+    };
 
     // ── 8. Two-layer service filtering ────────────────────────────────────
     // Layer 1 — Company modules: superClients/{companyId}/modules
@@ -8516,6 +8641,10 @@ $(document).ready(function() {
                                               'Driver ' + _dcCLabel + ' recalled job #' + _dcCJob + ' — returned to unassigned queue.',
                                               'Job Recalled by Driver'
                                           );
+                                          // Notify the passenger that their booking is back in queue
+                                          if (typeof window._bwNotifyPassengerRecall === 'function') {
+                                              window._bwNotifyPassengerRecall(_dcCJob);
+                                          }
                                           // Clear tried-driver record so smartAutoDispatch re-offers immediately.
                                           if (typeof _triedDriversForJob !== 'undefined' && _dcCJob) {
                                               delete _triedDriversForJob[_dcCJob];
@@ -10108,6 +10237,10 @@ $(document).ready(function() {
                                                 'Driver ' + _dcLabel + ' recalled job #' + _dcJob + ' — returned to unassigned queue.',
                                                 'Job Recalled by Driver'
                                             );
+                                            // Notify the passenger that their booking is back in queue
+                                            if (typeof window._bwNotifyPassengerRecall === 'function') {
+                                                window._bwNotifyPassengerRecall(_dcJob);
+                                            }
                                             // Immediately commit driver Available status so smartAutoDispatch
                                             // sees the Available driver when it runs 700ms from now.
                                             // (The normal deferred commit happens after this block, but
@@ -15534,6 +15667,24 @@ $(document).ready(function() {
                 if (svcs.freight) out.push('Freight');
                 if (svcs.tm)      out.push('TM');
                 return out.length ? out : ['Taxi'];
+            };
+
+            // ── Pending Driver Approvals (Owner Panel) ────────────────────────
+            // Populated by the _bwPendingDriversListener IIFE below.
+            $scope.pendingDrivers = [];
+
+            // One-tap approve: sets drivers/{cid}/{uid}/approved = true in Firebase.
+            // The driver app listens to this field and auto-redirects on approval.
+            $scope.approveDriver = function(uid) {
+                if (!uid || typeof SomeSession2 === 'undefined' || !SomeSession2) return;
+                DbRef.ref('drivers/' + SomeSession2 + '/' + uid).update({ approved: true })
+                    .then(function() {
+                        toastr['success']('Driver approved — they will be redirected automatically.', 'Driver Approved');
+                    }).catch(function(err) {
+                        toastr['error']('Failed to approve driver: ' + (err.message || err), 'Error');
+                    });
+                // Optimistic UI removal
+                $scope.pendingDrivers = $scope.pendingDrivers.filter(function(d) { return d.uid !== uid; });
             };
 
             //delievery
