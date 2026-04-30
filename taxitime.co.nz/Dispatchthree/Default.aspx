@@ -542,6 +542,9 @@
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
+                                                                <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
+                                                                    <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
+                                                                </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     <span ng-if="value.Acc_job_id ">ACC</span>
@@ -3470,6 +3473,9 @@ $(document).ready(function() {
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
+                                                                <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
+                                                                    <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
+                                                                </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     <span ng-if="value.Acc_job_id ">ACC</span>
@@ -3640,6 +3646,9 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
+                                                                </span>
+                                                                <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
+                                                                    <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -5563,18 +5572,34 @@ $(document).ready(function() {
                 var _onlineIds = $res["dt6"];
                 var _sc6 = angular.element(document.getElementById('myangular')).scope();
                 if (_onlineIds === null) {
-                    // Last driver signed out — server confirmed board should be empty
+                    // Server confirmed ZONE_DRIVERS is empty.
+                    // Only clear Available (idle) drivers — NOT Busy/Assigned/Picking drivers
+                    // who are mid-trip.  After a server restart, active drivers won't have
+                    // re-registered yet but are still genuinely working jobs.
                     if (_sc6 && _sc6.driverdatarealx && _sc6.driverdatarealx.length > 0) {
-                        console.log('[VehiclesStatus] server confirmed 0 drivers — clearing board');
-                        _sc6.driverdatarealx.forEach(function(d) {
-                            if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
-                                markers[d.vehiclenumber].setMap(null);
-                            }
+                        var _activeStatuses = { Busy: 1, Assigned: 1, Picking: 1 };
+                        var _toRemoveFromBoard = _sc6.driverdatarealx.filter(function(d) {
+                            // Keep drivers who are mid-trip or have a pre-queue offer active
+                            if (_activeStatuses[d.vehiclestatus]) return false;
+                            if (window._driverQueueMap && window._driverQueueMap[String(d.driverid)]) return false;
+                            return true; // Available / Away / unknown → safe to clear
                         });
-                        _sc6.driverdatarealx = [];
-                        _sc6.driverlist = [];
-                        if (typeof _sc6.zonetablez === 'function') _sc6.zonetablez();
-                        if (!_sc6.$$phase) _sc6.$digest();
+                        if (_toRemoveFromBoard.length > 0) {
+                            _toRemoveFromBoard.forEach(function(d) {
+                                if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
+                                    markers[d.vehiclenumber].setMap(null);
+                                }
+                            });
+                            var _removeSet = new Set(_toRemoveFromBoard.map(function(d) { return d.driverid; }));
+                            _sc6.driverdatarealx = _sc6.driverdatarealx.filter(function(d) {
+                                return !_removeSet.has(d.driverid);
+                            });
+                            _sc6.driverlist = _sc6.driverdatarealx;
+                            console.log('[VehiclesStatus] server confirmed 0 drivers — cleared ' + _toRemoveFromBoard.length +
+                                ' idle driver(s); kept ' + _sc6.driverdatarealx.length + ' active/pre-queue driver(s)');
+                            if (typeof _sc6.zonetablez === 'function') _sc6.zonetablez();
+                            if (!_sc6.$$phase) _sc6.$digest();
+                        }
                     }
                 } else if (_onlineIds && _onlineIds.length > 0) {
                     if (_sc6 && _sc6.driverdatarealx && _sc6.driverdatarealx.length > 0) {
@@ -8272,8 +8297,10 @@ $(document).ready(function() {
         var _wbRef    = firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv);
         var _wbJobRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicle + '/' + _wbDrv);
         var _wbDone   = false;
+        var _wbTimer  = null; // 5-minute safety timeout
 
         function _wbCleanup() {
+            if (_wbTimer) { clearTimeout(_wbTimer); _wbTimer = null; }
             _wbRef.off('value', _wbListener);
             _wbJobRef.off('value', _wbJobsListener);
             firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv).remove();
@@ -8319,6 +8346,7 @@ $(document).ready(function() {
         window._busyWatcherCleanupMap[_wbBook] = function _wbExternalCancel() {
             if (_wbDone) return;
             _wbDone = true;
+            if (_wbTimer) { clearTimeout(_wbTimer); _wbTimer = null; }
             _wbRef.off('value', _wbListener);
             _wbJobRef.off('value', _wbJobsListener);
             // Note: intentionally NOT calling joback.remove() here so acknowledgemethodx
@@ -8326,7 +8354,16 @@ $(document).ready(function() {
             delete window._busyWatcherCleanupMap[_wbBook];
         };
 
-        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (no timeout, no Away)');
+        // Safety timeout: if driver never responds in 5 minutes, release all locks
+        // so smartAutoDispatch can re-offer to the next available driver.
+        _wbTimer = setTimeout(function() {
+            if (_wbDone) return;
+            console.warn('[_watchBusyDriverAcceptance] 5-min timeout for job #' + bookid +
+                ' driver ' + driverid + ' — releasing to re-dispatch');
+            _wbReject();
+        }, 5 * 60 * 1000);
+
+        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (5-min timeout)');
     }
 
     async function acknowledgemethodx(vehicle , driverid,bookid,status){
@@ -15772,6 +15809,18 @@ $(document).ready(function() {
                 });
 
                 $scope.unassignedjob_list = $scope.jobsdata['dt1'];
+
+                // Annotate jobs that have an active silent pre-queue offer pending
+                // so the card shows "Offered (Busy) → D001" instead of plain Pending.
+                if (window._driverQueueMap) {
+                    var _pqByJob = {};
+                    Object.keys(window._driverQueueMap).forEach(function(dId) {
+                        _pqByJob[String(window._driverQueueMap[dId])] = dId;
+                    });
+                    $scope.unassignedjob_list.forEach(function(job) {
+                        job._preQueueDriver = _pqByJob[String(job.Id)] || null;
+                    });
+                }
 
                 // Recompute JobMins client-side using the browser's local clock
                 // so countdowns are correct regardless of server timezone

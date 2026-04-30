@@ -1,1 +1,29 @@
-[]
+[
+  {
+    "id": "REG-1777546306859",
+    "status": "trial",
+    "submittedAt": 1777546306859,
+    "company": "Invercargill Taxis Southland",
+    "name": "Safinah Mohammed",
+    "email": "safinahmohammed@hotmail.com",
+    "phone": "021304322",
+    "passwordHash": "123456",
+    "businessNumber": "123456",
+    "fleetSize": "10",
+    "area": "Invercargill",
+    "country": "NZ",
+    "serviceType": "all",
+    "plan": "free_trial",
+    "planLabel": "Free Trial",
+    "planPrice": 0,
+    "trialDays": 14,
+    "companyId": "620611",
+    "ownerUid": "gvqhOrU7zVglwcoJSUFiBQiAspE2",
+    "approvedAt": 1777546307043,
+    "trialStart": 1777546307043,
+    "trialEnd": 1778755907043,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null
+  }
+]
