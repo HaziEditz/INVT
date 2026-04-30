@@ -13,8 +13,8 @@
     "Pickingtime": "2026-04-30 23:45:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": 0,
-    "DriverId": 0,
+    "VehicleId": "D001",
+    "DriverId": "D001",
     "DispatcherName": "invtaxis",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -32,14 +32,16 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Pending",
+    "BookingStatus": "Offered",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "2.3 km",
     "EstimatedTime": "4 mins",
     "TarriffType": "Automatic",
     "companyId": "620611",
     "returnReason": "Recovered (orphaned Assigned)",
-    "AcceptedAt": "2026-05-01 03:21:13"
+    "AcceptedAt": "2026-05-01 03:21:13",
+    "OfferedAt": "2026-05-01 04:15:00",
+    "offeredAt": 1777565700757
   },
   {
     "Id": 1052026001,
@@ -55,8 +57,8 @@
     "Pickingtime": "2026-05-01 00:49:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": "D001",
-    "DriverId": "D001",
+    "VehicleId": 0,
+    "DriverId": -2,
     "DispatcherName": "620611",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -74,7 +76,7 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "EstimatedDistance": "0",
     "EstimatedTime": "0",
@@ -85,6 +87,7 @@
     "AcceptedAt": "2026-05-01 03:18:20",
     "UserFName": "abdullahgulnz",
     "UserLName": "",
-    "ActiveAt": "2026-05-01 03:20:04"
+    "ActiveAt": "2026-05-01 03:20:04",
+    "returnReason": "Recalled by Driver"
   }
 ]
