@@ -3537,10 +3537,11 @@ const server = http.createServer(async (req, res) => {
         const _onlineIds = _serverAgeMs > 90000
           ? (_myDrivers.length > 0
               ? _myDrivers.map(d => ({
-                  id:    String(d.driverid  || ''),
-                  vid:   String(d.VehicleId || ''),
-                  zone:  d.zonename  || '',
-                  zoneq: d.zonequeue || 0,
+                  id:     String(d.driverid  || ''),
+                  vid:    String(d.VehicleId || ''),
+                  zone:   d.zonename  || '',
+                  zoneq:  d.zonequeue || 0,
+                  status: d.vehiclestatus || 'Available',
                 }))
               : null)   // confirmed empty — signal client to clear board
           : [];         // warm-up period — don't act yet

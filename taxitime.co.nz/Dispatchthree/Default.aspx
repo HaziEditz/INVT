@@ -5620,11 +5620,34 @@ $(document).ready(function() {
                                     markers[d.vehiclenumber].setMap(null);
                                 }
                                 _changed = true;
-                            } else if (_match && _match.zone && !d.zonename) {
+                            } else if (_match) {
                                 // Backfill zone from server when driver has no zone (e.g. no GPS)
-                                d.zonename = _match.zone;
-                                if (_match.zoneq && !d.zonequeue) d.zonequeue = _match.zoneq;
-                                _changed = true;
+                                if (_match.zone && !d.zonename) {
+                                    d.zonename = _match.zone;
+                                    if (_match.zoneq && !d.zonequeue) d.zonequeue = _match.zoneq;
+                                    _changed = true;
+                                }
+                                // Sync vehiclestatus from server (ground truth).
+                                // Firebase and the suppress-Away logic can cause the board to
+                                // show the wrong status. The server's ZONE_DRIVERS is authoritative
+                                // and reconciles any drift every 30 s via VehiclesStatus polling.
+                                if (_match.status && d.vehiclestatus !== _match.status) {
+                                    var _dt6OldStatus = d.vehiclestatus;
+                                    d.vehiclestatus = _match.status;
+                                    _changed = true;
+                                    // Update map marker icon color to match the new status
+                                    var _dt6Colors = { Available: '#00e600', Away: '#ffaf1a', Busy: '#ff3333', Picking: '#3333ff', Assigned: '#3333ff' };
+                                    var _dt6OldColor = _dt6Colors[_dt6OldStatus] || '#80ff80';
+                                    var _dt6NewColor = _dt6Colors[_match.status]  || '#80ff80';
+                                    if (_dt6OldColor !== _dt6NewColor &&
+                                        typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber] &&
+                                        typeof icon    !== 'undefined' && icon[d.vehiclenumber] && icon[d.vehiclenumber].url) {
+                                        icon[d.vehiclenumber].url = icon[d.vehiclenumber].url
+                                            .split(encodeURIComponent(_dt6OldColor))
+                                            .join(encodeURIComponent(_dt6NewColor));
+                                        markers[d.vehiclenumber].setIcon(icon[d.vehiclenumber]);
+                                    }
+                                }
                             }
                             return _found;
                         });
@@ -6108,15 +6131,18 @@ $(document).ready(function() {
         //    }
          var colorselected = '#80ff80';
         var ImageUrl;
-        // Prefer the Angular scope's vehiclestatus over Firebase's.
-        // The driver app often writes vehiclestatus:'Available' once on login and never
-        // updates Firebase when the status changes — the Angular scope (driverdatarealx)
-        // is the authoritative source for the current status.
-        var _addCarScope = angular.element(document.getElementById('myangular')).scope();
-        var _addCarEntry = _addCarScope ? _addCarScope.getcurrentchild(data) : null;
-        var _addCarStatus = (_addCarEntry && _addCarEntry !== '' && _addCarEntry.vehiclestatus)
-                            ? _addCarEntry.vehiclestatus
-                            : data.vehiclestatus;
+        // Color source strategy (same as child_changed handler):
+        // If Firebase carries a non-Available status the driver app explicitly set it — trust it.
+        // If Firebase has 'Available' (often stale from login), use the scope's vehiclestatus
+        // which is kept accurate by tallo + the VehiclesStatus dt6 server sync.
+        var _addCarFbStatus = data.vehiclestatus;
+        var _addCarScope    = angular.element(document.getElementById('myangular')).scope();
+        var _addCarEntry    = _addCarScope ? _addCarScope.getcurrentchild(data) : null;
+        var _addCarScopeStatus = (_addCarEntry && _addCarEntry !== '' && _addCarEntry.vehiclestatus)
+                                 ? _addCarEntry.vehiclestatus : null;
+        var _addCarStatus = (_addCarFbStatus && _addCarFbStatus !== 'Available')
+                            ? _addCarFbStatus
+                            : (_addCarScopeStatus || _addCarFbStatus);
         if (_addCarStatus == 'Available') {
             colorselected = '#00e600';  
             ImageUrl = 'img/green.png';
@@ -6720,12 +6746,16 @@ $(document).ready(function() {
             
             var colorselected = '#80ff80';
             var ImageUrl;
-            // Prefer the Angular scope's vehiclestatus (datax) over the Firebase value.
-            // The driver app often writes vehiclestatus:'Available' to Firebase on login and
-            // never updates it when going Away — the scope's driverdatarealx has the truth.
-            // datax is already set to childsnapshot.val() when the driver isn't in scope yet,
-            // so this fallback is safe for both the found and not-found cases.
-            var _chgStatus = (datax && datax.vehiclestatus) ? datax.vehiclestatus : childsnapshot.val().vehiclestatus;
+            // Color source strategy:
+            // 1. If Firebase carries a non-Available status (Away/Busy/Picking/Assigned),
+            //    the driver app explicitly set it — trust it immediately.
+            // 2. If Firebase has 'Available' (often a stale value written once at login),
+            //    prefer the scope's vehiclestatus — kept correct by tallo + dt6 server sync.
+            var _fbChgStatus    = childsnapshot.val().vehiclestatus;
+            var _scopeChgStatus = (datax && datax.vehiclestatus) ? datax.vehiclestatus : null;
+            var _chgStatus = (_fbChgStatus && _fbChgStatus !== 'Available')
+                             ? _fbChgStatus
+                             : (_scopeChgStatus || _fbChgStatus);
             if (_chgStatus == 'Available') {
                 colorselected = '#00e600';  
                 ImageUrl = 'img/green.png';
@@ -10688,51 +10718,17 @@ $(document).ready(function() {
                                 if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                             }
                         } else {
-                            // Away / other statuses not sent to server.
-                            // IMPORTANT: ignore 'Away' arriving from Firebase here.
-                            // The driver app sends Away when it goes to the background (phone
-                            // switches apps / screen dims). We never want that to set the driver
-                            // Away on the dispatch board — only the dispatcher can do that.
-                            // Dispatcher-initiated Away is written directly to driverdatarealx
-                            // by the reject/timeout code paths, NOT via tallo, so suppressing
-                            // it here has no effect on legitimate dispatcher actions.
-                            if (datacom.vehiclestatus !== 'Away') {
-                                $scope.driverdatarealx[incs] =  datacom;
-                                $scope.driverlist =  $scope.driverdatarealx;
-                                $scope.zonetablez();
-                                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
-                            } else if (_savedOldStatus !== 'Away') {
-                                // Driver app sent Away (backgrounded), but driver's real
-                                // status on the dispatch board is still _savedOldStatus.
-                                // Write the real status back to Firebase so the driver app
-                                // stays in sync — driver never sees a spurious Away.
-                                // Only do this when the driver was NOT already Away (i.e.
-                                // dispatcher hadn't set Away first), to avoid overwriting a
-                                // legitimate dispatcher-set Away.
-                                try {
-                                    var _vid = datacom.VehicleId || datacom.driverid || '';
-                                    var _did = datacom.driverid  || '';
-                                    if (_vid && SomeSession2) {
-                                        firebase.database().ref("online/" + SomeSession2 + "/" + _vid).update({ vehiclestatus: _savedOldStatus });
-                                        if (_did) {
-                                            firebase.database().ref("jobs/" + SomeSession2 + "/" + _vid + "/" + _did).update({ vehiclestatus: _savedOldStatus });
-                                        }
-                                    }
-                                } catch(e) {}
-                                // Even though we suppress the Away status, still update the driver's
-                                // GPS position (and direction) from the Away heartbeat so the map
-                                // reflects where the driver was when their phone went to background.
-                                if (datacom.lat && datacom.lng) {
-                                    $scope.driverdatarealx[incs].lat = datacom.lat;
-                                    $scope.driverdatarealx[incs].lng = datacom.lng;
-                                }
-                                if (datacom.Direction !== undefined) {
-                                    $scope.driverdatarealx[incs].Direction = datacom.Direction;
-                                }
-                                if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) {
-                                    $scope.$digest();
-                                }
-                            }
+                            // Away (and any other status not handled above).
+                            // Accept the status change and update the board immediately.
+                            // The server is the ground truth — it receives DriverStatusChanged
+                            // directly from the driver app and corrects any drift via the
+                            // VehiclesStatus dt6 sync every 30 s.  We no longer suppress
+                            // Firebase Away here because that caused the board to stay green
+                            // on the second (and subsequent) Away transitions.
+                            $scope.driverdatarealx[incs] = datacom;
+                            $scope.driverlist = $scope.driverdatarealx;
+                            $scope.zonetablez();
+                            if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                         }
                     }
                     if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
