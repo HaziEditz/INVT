@@ -1,0 +1,50 @@
+Dispatch Web — Most critical updates needed
+1. Must write activeDispatchers/{cid}/{sessionId} on login (for SA-Sessions to work)
+
+activeDispatchers/{cid}/{sessionId}/
+  email:      "dispatcher@company.com"
+  uid:        "firebaseAuthUid"
+  companyId:  "cid"
+  loginTime:  1234567890000   ← timestamp ms at login — used for revocation check
+  heartbeat:  1234567890000   ← update every 2–3 min while open
+  ip:         "203.x.x.x"
+  ua:         "Mozilla/5.0..."
+  sessionKey: "unique-key"
+
+On logout, delete the node entirely: activeDispatchers/{cid}/{sessionId} → DELETE
+
+2. Must listen for session revocation (already in replit.md but needs confirming it's implemented)
+
+// On login, store loginTime in localStorage
+localStorage.setItem('loginTime', Date.now());
+// Listen on:
+superClients/{cid}/sessionRevoke
+// If sessionRevoke > loginTime → force sign-out immediately
+
+3. Must write driverEarnings/taxi/{cid}/{driverId} on every completed trip — currently MISSING
+
+SA-TaxiDriverPay reads these fields. If Dispatch never writes them, the Driver Pay tab in SA-MasterReport shows $0 for all taxi drivers:
+
+driverEarnings/taxi/{cid}/{driverId}/
+  totalEarned:   1250.00   ← increment with each completed trip's driver cut
+  pendingAmount: 325.00    ← increment; SA resets to 0 on payout
+  tripCount:     47        ← increment by 1 per trip
+  lastPaidAt:    null      ← SA writes this on payout — Dispatch should NOT touch it
+  driverName:    "John Smith"
+  updatedAt:     1234567890000
+
+4. completedJobs/{cid}/{tripId} — all fields must be present
+
+SA-MasterReport depends on these exact fields:
+
+completedJobs/{cid}/{tripId}/
+  fare:          18.50      ← required — total fare amount
+  paymentType:   "cash"     ← "cash" | "card" | "account" | "total_mobility"
+  completedAt:   1234...    ← timestamp ms — used for all date filtering
+  driverId:      "uid"      ← optional but useful
+  ── TM trips only (paymentType === "total_mobility") ──
+  tmSubsidy:        12.00   ← council subsidy portion
+  tmSubsidyHoist:   2.50    ← hoist/wheelchair addon (0 if none)
+  tmPassengerPays:  6.50    ← what the passenger pays out of pocket
+  totalCouncilPays: 14.50   ← tmSubsidy + tmSubsidyHoist combined
+  councilId:        "AKL"   ← council identifier
