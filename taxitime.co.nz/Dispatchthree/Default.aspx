@@ -8354,16 +8354,16 @@ $(document).ready(function() {
             delete window._busyWatcherCleanupMap[_wbBook];
         };
 
-        // Safety timeout: if driver never responds in 5 minutes, release all locks
+        // Safety timeout: if driver never responds in 30 seconds, release all locks
         // so smartAutoDispatch can re-offer to the next available driver.
         _wbTimer = setTimeout(function() {
             if (_wbDone) return;
-            console.warn('[_watchBusyDriverAcceptance] 5-min timeout for job #' + bookid +
+            console.warn('[_watchBusyDriverAcceptance] 30s timeout for job #' + bookid +
                 ' driver ' + driverid + ' — releasing to re-dispatch');
             _wbReject();
-        }, 5 * 60 * 1000);
+        }, 30 * 1000);
 
-        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (5-min timeout)');
+        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (30s timeout)');
     }
 
     async function acknowledgemethodx(vehicle , driverid,bookid,status){
