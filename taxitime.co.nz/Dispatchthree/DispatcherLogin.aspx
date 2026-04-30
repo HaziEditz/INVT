@@ -1485,13 +1485,31 @@
       }
     });
 
-    // Show a message if the server redirected here because the account is not active
+    // Handle URL params on load
     (function() {
       var params = new URLSearchParams(window.location.search);
       var reason = params.get('reason');
+      var signup = params.get('signup');
+      var plan   = params.get('plan');
+
+      // Auto-open signup modal — triggered by ?signup=1 (e.g. from the marketing website)
+      if (signup === '1') {
+        openSignup();
+        // Pre-select a plan if specified — e.g. ?signup=1&plan=pro
+        if (plan && document.querySelector('.plan-card[data-plan="' + plan + '"]')) {
+          selectPlan(plan);
+        }
+      }
+
+      // Errors / notices from server redirects
       if (reason === 'account_inactive') {
         showError('This account has been deactivated or deleted. Please contact BookaWaka support.');
-        // Clean the URL so the message doesn't persist on refresh
+      } else if (reason === 'session_revoked') {
+        showError('Your session was ended by an administrator. Please sign in again.');
+      }
+
+      // Clean the URL so messages don't persist on refresh
+      if (reason || signup) {
         history.replaceState(null, '', window.location.pathname);
       }
     })();
