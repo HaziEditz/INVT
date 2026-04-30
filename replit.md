@@ -6,23 +6,50 @@ A web-based Taxi Dispatch System for "BookaWaka" (taxitime.co.nz). Provides a re
 
 ## Account / Registration System
 
-New companies sign up via a **"Request an Account"** modal on the login page. They do not get immediate access — all signups queue as `pending` until approved by a super admin.
+New companies sign up via the **"Join as an Operator"** modal on the login page (or from any marketing website "Join" button — both use the same endpoint). Operators choose a **service type** and a **plan** at signup.
+
+### Service Types
+- `taxi` — Taxi / Transport
+- `restaurant` — Restaurant / Food Delivery
+- `freight` — Freight / Courier
+- `all` — All Services
+
+### Plans
+| Plan | Price | Trial | Auto-approve? |
+|---|---|---|---|
+| `free_trial` | Free | 14 days | ✅ Yes — live immediately |
+| `starter` | $99/mo | None | ❌ No — super admin approves after payment |
+| `pro` | $199/mo | None | ❌ No — super admin approves after payment |
+
+Plan config (source of truth) is in the `PLAN_CONFIG` object in the `AccountRequest` handler (~line 1202 server.js). Change prices/durations there once — applies everywhere.
 
 ### Account Status Lifecycle
 ```
-pending → (admin approves) → trial (10 days) → grace (24 hrs, payment required) → deactivated
-                           ↘ (admin rejects) → rejected
-       trial/grace → (admin activates / payment confirmed) → active
-       any status  → (admin deactivates) → deactivated
+Free Trial path:
+  signup → AUTO-APPROVED immediately → trial (14 days) → grace (24 hrs) → deactivated
+
+Paid plan path:
+  signup → pending → (super admin approves after payment) → active
+                   ↘ (super admin rejects) → rejected
+
+Any status → (super admin activates) → active
+Any status → (super admin deactivates) → deactivated
 ```
 
 ### Data Stored Per Registration
 - `id`, `status`, `submittedAt`
 - `company`, `name`, `email`, `phone`, `passwordHash`
 - `businessNumber`, `fleetSize`, `area`, `country`
-- `companyId` (set on approval), `approvedAt`, `trialStart`, `trialEnd`, `graceEnd`
+- `serviceType` (taxi / restaurant / freight / all)
+- `plan` (free_trial / starter / pro), `planLabel`, `planPrice`, `trialDays`
+- `companyId` (set on approval), `ownerUid`, `approvedAt`, `trialStart`, `trialEnd`, `graceEnd`
 
 Stored at: `.data/registrationRequests.json`
+
+### Trial Banner & Locked Screen (Default.aspx)
+- Trial banner appears in dispatch console when ≤ 5 days left (green) or in grace period (amber)
+- Full locked screen overlay shown when account is deactivated or grace expires
+- Checks `/api/account-status` on load (3s delay) and every 5 minutes
 
 ### Admin API (for Super Admin Replit)
 All admin endpoints require header: `X-Admin-Key: <BW_ADMIN_KEY>`  

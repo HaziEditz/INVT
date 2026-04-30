@@ -542,6 +542,61 @@
       text-align: center;
     }
 
+    /* ── Service Type & Plan Selector Cards ──────────────────── */
+    .type-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .type-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      padding: 10px 8px;
+      background: var(--input);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 9px;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s;
+      font-size: 12px;
+      color: var(--text2);
+      font-weight: 500;
+      text-align: center;
+      user-select: none;
+    }
+    .type-card:hover { border-color: rgba(255,255,255,0.2); background: var(--inputH); }
+    .type-card.selected { border-color: var(--gold); background: var(--gold10); color: var(--text1); }
+    .type-card .type-icon { font-size: 20px; }
+
+    .plan-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .plan-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 12px 6px 10px;
+      background: var(--input);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 9px;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s;
+      text-align: center;
+      user-select: none;
+    }
+    .plan-card:hover { border-color: rgba(255,255,255,0.2); background: var(--inputH); }
+    .plan-card.selected { border-color: var(--gold); background: var(--gold10); }
+    .plan-card.selected .plan-name { color: var(--gold); }
+    .plan-name { font-size: 12px; font-weight: 700; color: var(--text1); }
+    .plan-price { font-size: 11px; color: var(--text2); }
+    .plan-tag { font-size: 10px; background: var(--gold20); color: var(--gold); border-radius: 4px; padding: 1px 5px; font-weight: 600; }
+
     /* ── Sign Up Modal ────────────────────────────────────────── */
     #signupModal {
       display: none;
@@ -834,20 +889,52 @@
   <div id="signupModal" onclick="if(event.target===this)closeSignup()">
     <div class="modal-box">
       <button class="modal-close" onclick="closeSignup()">&times;</button>
-      <h3>Request an Account</h3>
-      <p>Fill in your details below. Our team will review and be in touch within 1 business day. You'll receive a <strong style="color:var(--text1)">10-day free trial</strong> once approved.</p>
+      <h3>Join as an Operator</h3>
+      <p>Set up your account in minutes. Choose your service type and plan below.</p>
 
-      <div id="suSuccess" style="display:none;text-align:center;padding:32px 0;">
-        <div style="font-size:48px;margin-bottom:14px;">&#9989;</div>
-        <div style="font-size:17px;font-weight:700;color:var(--text1);margin-bottom:8px;">Request submitted!</div>
+      <!-- Success: Free Trial (auto-approved, logged in immediately) -->
+      <div id="suSuccessTrial" style="display:none;text-align:center;padding:32px 0;">
+        <div style="font-size:48px;margin-bottom:14px;">🎉</div>
+        <div style="font-size:17px;font-weight:700;color:var(--text1);margin-bottom:8px;">You're live — trial started!</div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">Log in now with your email and password. Your Company ID is:</div>
+        <div id="suTrialCompanyId" style="font-size:22px;font-weight:800;color:var(--gold);letter-spacing:2px;margin:10px 0;"></div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:20px;">Copy this — you'll need it to log in.</div>
+        <button class="btn-submit" style="max-width:200px;margin:0 auto;" onclick="closeSignup()">Got it, go to login</button>
+      </div>
+
+      <!-- Success: Paid plan (pending review) -->
+      <div id="suSuccessPending" style="display:none;text-align:center;padding:32px 0;">
+        <div style="font-size:48px;margin-bottom:14px;">✅</div>
+        <div style="font-size:17px;font-weight:700;color:var(--text1);margin-bottom:8px;">Application received!</div>
         <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">We'll review your application and contact you at</div>
         <div id="suSubmittedEmail" style="font-size:14px;font-weight:600;color:var(--gold);margin-bottom:16px;"></div>
-        <div style="font-size:12px;color:var(--text3);">Once approved you'll get a 10-day free trial to explore the full platform.</div>
+        <div style="font-size:12px;color:var(--text3);">Our team will be in touch within 1 business day to arrange your account setup.</div>
       </div>
 
       <form id="suForm" onsubmit="submitSignup();return false;" autocomplete="on">
         <div id="suError"></div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+
+          <!-- Service Type -->
+          <div>
+            <div class="su-section">What type of service do you operate?</div>
+            <div class="type-grid" style="margin-top:10px;">
+              <div class="type-card selected" data-type="taxi" onclick="selectType('taxi')">
+                <span class="type-icon">🚕</span>Taxi / Transport
+              </div>
+              <div class="type-card" data-type="restaurant" onclick="selectType('restaurant')">
+                <span class="type-icon">🍔</span>Restaurant / Food Delivery
+              </div>
+              <div class="type-card" data-type="freight" onclick="selectType('freight')">
+                <span class="type-icon">📦</span>Freight / Courier
+              </div>
+              <div class="type-card" data-type="all" onclick="selectType('all')">
+                <span class="type-icon">🔄</span>All Services
+              </div>
+            </div>
+          </div>
+
+          <!-- Company Details -->
           <div class="su-section">Company Details</div>
           <div>
             <label class="su-label">Company / Fleet Name *</label>
@@ -859,13 +946,13 @@
               <input id="suBizNum" class="su-input" type="text" placeholder="e.g. 1234567" />
             </div>
             <div>
-              <label class="su-label">Fleet Size <span style="font-weight:400;color:var(--text3)">(opt.)</span></label>
+              <label class="su-label">Vehicle / Fleet Size <span style="font-weight:400;color:var(--text3)">(opt.)</span></label>
               <input id="suFleet" class="su-input" type="number" min="1" placeholder="e.g. 12" />
             </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div>
-              <label class="su-label">Region <span style="font-weight:400;color:var(--text3)">(opt.)</span></label>
+              <label class="su-label">Operating Region <span style="font-weight:400;color:var(--text3)">(opt.)</span></label>
               <input id="suArea" class="su-input" type="text" placeholder="e.g. Invercargill" />
             </div>
             <div>
@@ -881,7 +968,9 @@
               </select>
             </div>
           </div>
-          <div class="su-section" style="margin-top:4px;">Your Details</div>
+
+          <!-- Your Details -->
+          <div class="su-section" style="margin-top:2px;">Your Details</div>
           <div>
             <label class="su-label">Your Full Name *</label>
             <input id="suName" class="su-input" type="text" placeholder="e.g. Jane Smith" />
@@ -902,18 +991,77 @@
             <label class="su-label">Confirm Password *</label>
             <input id="suPassConfirm" class="su-input" type="password" placeholder="Repeat your password" />
           </div>
+
+          <!-- Plan Selection -->
+          <div>
+            <div class="su-section" style="margin-bottom:10px;">Choose a Plan</div>
+            <div class="plan-grid">
+              <div class="plan-card selected" data-plan="free_trial" onclick="selectPlan('free_trial')">
+                <div class="plan-name">Free Trial</div>
+                <div class="plan-price">14 days free</div>
+                <div class="plan-tag">No card</div>
+              </div>
+              <div class="plan-card" data-plan="starter" onclick="selectPlan('starter')">
+                <div class="plan-name">Starter</div>
+                <div class="plan-price">$99/mo</div>
+                <div class="plan-tag">Up to 20</div>
+              </div>
+              <div class="plan-card" data-plan="pro" onclick="selectPlan('pro')">
+                <div class="plan-name">Pro</div>
+                <div class="plan-price">$199/mo</div>
+                <div class="plan-tag">Unlimited</div>
+              </div>
+            </div>
+            <div id="suPlanNote" style="font-size:11px;color:var(--text3);margin-top:8px;text-align:center;">
+              Free trial starts immediately — no card needed. Upgrade anytime.
+            </div>
+          </div>
+
         </div>
-        <button id="suBtn" class="btn-submit" type="submit">Submit Request</button>
+        <button id="suBtn" class="btn-submit" type="submit">Start Free Trial</button>
         <p style="text-align:center;font-size:12px;color:var(--text3);margin:12px 0 0;">Already have an account? Just sign in above.</p>
       </form>
     </div>
   </div>
 
   <script>
+    var _suServiceType = 'taxi';
+    var _suPlan        = 'free_trial';
+
+    var _planNotes = {
+      free_trial: 'Free trial starts immediately — no card needed. Upgrade anytime.',
+      starter:    'Starter plan: up to 20 drivers. Our team will contact you to arrange payment.',
+      pro:        'Pro plan: unlimited drivers. Our team will contact you to arrange payment.',
+    };
+    var _planBtnLabels = {
+      free_trial: 'Start Free Trial',
+      starter:    'Apply for Starter',
+      pro:        'Apply for Pro',
+    };
+
+    function selectType(type) {
+      _suServiceType = type;
+      document.querySelectorAll('.type-card').forEach(function(c) {
+        c.classList.toggle('selected', c.dataset.type === type);
+      });
+    }
+
+    function selectPlan(plan) {
+      _suPlan = plan;
+      document.querySelectorAll('.plan-card').forEach(function(c) {
+        c.classList.toggle('selected', c.dataset.plan === plan);
+      });
+      var note = document.getElementById('suPlanNote');
+      if (note) note.textContent = _planNotes[plan] || '';
+      var btn = document.getElementById('suBtn');
+      if (btn && !btn.disabled) btn.textContent = _planBtnLabels[plan] || 'Submit';
+    }
+
     function openSignup() {
       document.getElementById('signupModal').style.display = 'flex';
       document.getElementById('suError').style.display = 'none';
-      document.getElementById('suSuccess').style.display = 'none';
+      document.getElementById('suSuccessTrial').style.display = 'none';
+      document.getElementById('suSuccessPending').style.display = 'none';
       document.getElementById('suForm').style.display = 'block';
     }
     function closeSignup() {
@@ -950,21 +1098,28 @@
         body: JSON.stringify({
           company: company, name: name, email: email, phone: phone,
           password: pass, businessNumber: bizNum, fleetSize: fleet,
-          area: area, country: country || 'NZ'
+          area: area, country: country || 'NZ',
+          serviceType: _suServiceType,
+          plan: _suPlan
         })
       })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         btn.disabled = false;
-        btn.innerHTML = 'Submit Request';
+        btn.textContent = _planBtnLabels[_suPlan] || 'Submit';
         if (data && data.error) { showSuError(data.error); return; }
         document.getElementById('suForm').style.display = 'none';
-        document.getElementById('suSubmittedEmail').textContent = email;
-        document.getElementById('suSuccess').style.display = 'block';
+        if (data.autoApproved && data.companyId) {
+          document.getElementById('suTrialCompanyId').textContent = data.companyId;
+          document.getElementById('suSuccessTrial').style.display = 'block';
+        } else {
+          document.getElementById('suSubmittedEmail').textContent = email;
+          document.getElementById('suSuccessPending').style.display = 'block';
+        }
       })
       .catch(function() {
         btn.disabled = false;
-        btn.innerHTML = 'Submit Request';
+        btn.textContent = _planBtnLabels[_suPlan] || 'Submit';
         showSuError('Could not submit your request. Please check your connection and try again.');
       });
     }

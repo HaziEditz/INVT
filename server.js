@@ -62,6 +62,8 @@ if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }
 
 // ─── Registration / account request store ────────────────────────────────────
 // status: pending | approved | rejected | trial | active | grace | deactivated
+// plan:   free_trial | starter | pro
+// serviceType: taxi | restaurant | freight | all
 let registrationStore = [];
 try {
   if (fs.existsSync(REGISTRATIONS_FILE)) {
@@ -931,14 +933,19 @@ const server = http.createServer(async (req, res) => {
 
     // GET /admin/accounts  (approved / trial / active / grace / deactivated)
     if (urlPath === '/admin/accounts' && req.method === 'GET') {
+      const now = Date.now();
       const accounts = registrationStore.filter(r =>
         ['approved','trial','active','grace','deactivated'].includes(r.status)
       ).map(r => ({
         id: r.id, companyId: r.companyId, company: r.company, name: r.name,
         email: r.email, phone: r.phone, country: r.country, area: r.area,
         fleetSize: r.fleetSize, status: r.status,
+        serviceType: r.serviceType || 'taxi',
+        plan: r.plan || 'free_trial', planLabel: r.planLabel || 'Free Trial',
+        planPrice: r.planPrice || 0, trialDays: r.trialDays || 0,
         approvedAt: r.approvedAt, trialStart: r.trialStart, trialEnd: r.trialEnd,
         graceEnd: r.graceEnd,
+        daysLeft: r.trialEnd ? Math.max(0, Math.ceil((r.trialEnd - now) / 86400000)) : null,
       }));
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(accounts));
@@ -1000,18 +1007,20 @@ const server = http.createServer(async (req, res) => {
           console.log(`[admin] Firebase provisioning warning for ${reg.email}: ${e.message}`);
         }
 
+        const trialDays = reg.trialDays || 14;
         reg.status     = 'trial';
         reg.companyId  = companyId;
         reg.ownerUid   = ownerUid;
         reg.approvedAt = now;
         reg.trialStart = now;
-        reg.trialEnd   = now + 10 * 24 * 60 * 60 * 1000;
+        reg.trialEnd   = trialDays > 0 ? now + trialDays * 24 * 60 * 60 * 1000 : null;
         reg.graceEnd   = null;
         saveRegistrations();
-        console.log(`[admin] approved registration ${regId} → companyId=${companyId}, uid=${ownerUid}, trial until ${new Date(reg.trialEnd).toISOString()}`);
+        console.log(`[admin] approved registration ${regId} → companyId=${companyId}, uid=${ownerUid}, plan=${reg.plan || 'free_trial'}, trial until ${reg.trialEnd ? new Date(reg.trialEnd).toISOString() : 'n/a'}`);
         jsonReply(res, {
           ok: true, companyId, ownerUid, trialEnd: reg.trialEnd,
-          message: 'Approved. 10-day trial starts now.',
+          plan: reg.plan, planLabel: reg.planLabel,
+          message: `Approved. ${trialDays > 0 ? trialDays + '-day trial starts now.' : 'Account is active.'}`,
           fbWarning: fbError || undefined,
         });
         return;
@@ -1181,15 +1190,25 @@ const server = http.createServer(async (req, res) => {
     const rawBody = await readBody(req);
     let reqBody = {};
     try { reqBody = JSON.parse(rawBody); } catch (e) {}
-    const reqCompany = (reqBody.company        || '').trim();
-    const reqName    = (reqBody.name           || '').trim();
-    const reqEmail   = (reqBody.email          || '').trim().toLowerCase();
-    const reqPhone   = (reqBody.phone          || '').trim();
-    const reqPass    = (reqBody.password       || '').trim();
-    const reqBizNum  = (reqBody.businessNumber || '').trim();
-    const reqFleet   = (reqBody.fleetSize      || '').trim();
-    const reqArea    = (reqBody.area           || '').trim();
-    const reqCountry = (reqBody.country        || 'NZ').trim();
+    const reqCompany     = (reqBody.company        || '').trim();
+    const reqName        = (reqBody.name           || '').trim();
+    const reqEmail       = (reqBody.email          || '').trim().toLowerCase();
+    const reqPhone       = (reqBody.phone          || '').trim();
+    const reqPass        = (reqBody.password       || '').trim();
+    const reqBizNum      = (reqBody.businessNumber || '').trim();
+    const reqFleet       = (reqBody.fleetSize      || '').trim();
+    const reqArea        = (reqBody.area           || '').trim();
+    const reqCountry     = (reqBody.country        || 'NZ').trim();
+    const reqServiceType = (reqBody.serviceType    || 'taxi').trim();
+    const reqPlan        = (reqBody.plan           || 'free_trial').trim();
+
+    // Plan config — source of truth for trial lengths and pricing
+    const PLAN_CONFIG = {
+      free_trial: { label: 'Free Trial',  trialDays: 14, priceMonthly: 0,   autoApprove: true  },
+      starter:    { label: 'Starter',     trialDays: 0,  priceMonthly: 99,  autoApprove: false },
+      pro:        { label: 'Pro',         trialDays: 0,  priceMonthly: 199, autoApprove: false },
+    };
+    const VALID_SERVICE_TYPES = ['taxi', 'restaurant', 'freight', 'all'];
 
     if (!reqCompany || !reqName || !reqEmail) {
       jsonReply(res, { error: 'Company name, your name and email are all required.' });
@@ -1199,11 +1218,20 @@ const server = http.createServer(async (req, res) => {
       jsonReply(res, { error: 'Please provide a valid email address.' });
       return;
     }
+    if (!PLAN_CONFIG[reqPlan]) {
+      jsonReply(res, { error: 'Invalid plan selected.' });
+      return;
+    }
+    if (!VALID_SERVICE_TYPES.includes(reqServiceType)) {
+      jsonReply(res, { error: 'Invalid service type selected.' });
+      return;
+    }
     if (registrationStore.some(r => r.email === reqEmail && r.status !== 'rejected')) {
       jsonReply(res, { error: 'An account request with this email already exists. Our team will be in touch.' });
       return;
     }
 
+    const planCfg = PLAN_CONFIG[reqPlan];
     const newReg = {
       id:             'REG-' + Date.now(),
       status:         'pending',
@@ -1217,8 +1245,13 @@ const server = http.createServer(async (req, res) => {
       fleetSize:      reqFleet,
       area:           reqArea,
       country:        reqCountry,
+      serviceType:    reqServiceType,
+      plan:           reqPlan,
+      planLabel:      planCfg.label,
+      planPrice:      planCfg.priceMonthly,
+      trialDays:      planCfg.trialDays,
       companyId:      null,
-      ownerUid:       null,  // set below after Firebase Auth creation
+      ownerUid:       null,
       approvedAt:     null,
       trialStart:     null,
       trialEnd:       null,
@@ -1228,10 +1261,10 @@ const server = http.createServer(async (req, res) => {
     };
     registrationStore.push(newReg);
     saveRegistrations();
-    console.log(`200: POST ${urlPath} -> new registration [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
+    console.log(`200: POST ${urlPath} -> new registration [${newReg.id}] plan=${reqPlan} serviceType=${reqServiceType} from "${reqEmail}" (${reqCompany})`);
 
-    // Create Firebase Auth account immediately so the UID is already known when the
-    // super admin approves. Best-effort — registration succeeds even if Firebase fails.
+    // Create Firebase Auth account immediately so the UID is ready for approval.
+    // Best-effort — registration succeeds even if Firebase fails.
     try {
       const { uid } = await firebaseCreateUser(reqEmail, reqPass);
       newReg.ownerUid = uid;
@@ -1241,7 +1274,59 @@ const server = http.createServer(async (req, res) => {
       console.log(`[registration] Firebase Auth creation note for ${reqEmail}: ${fbRegErr.message}`);
     }
 
-    jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
+    // ── Free Trial: auto-approve immediately ────────────────────────────────
+    if (planCfg.autoApprove) {
+      const now = Date.now();
+      const companyId = generateCompanyId();
+      let ownerUid = newReg.ownerUid || null;
+      let fbError  = null;
+      try {
+        let idToken;
+        if (ownerUid) {
+          ({ idToken } = await firebaseSignIn(reqEmail, reqPass));
+        } else {
+          const created = await firebaseCreateUser(reqEmail, reqPass);
+          ownerUid = created.uid;
+          idToken  = created.idToken;
+        }
+        await firebaseDbSet(`adminAccess/${companyId}/${ownerUid}`, true, idToken);
+        await firebaseDbSet(`users/${ownerUid}/companyId`,   companyId,      idToken);
+        await firebaseDbSet(`users/${ownerUid}/companyName`, reqCompany || '', idToken);
+        console.log(`[registration] Free trial auto-approved: uid=${ownerUid} companyId=${companyId}`);
+      } catch(e) {
+        fbError = e.message;
+        console.log(`[registration] Firebase provisioning warning for free trial ${reqEmail}: ${e.message}`);
+      }
+
+      newReg.status     = 'trial';
+      newReg.companyId  = companyId;
+      newReg.ownerUid   = ownerUid;
+      newReg.approvedAt = now;
+      newReg.trialStart = now;
+      newReg.trialEnd   = now + planCfg.trialDays * 24 * 60 * 60 * 1000;
+      newReg.graceEnd   = null;
+      saveRegistrations();
+      console.log(`[registration] Free trial live: ${reqEmail} companyId=${companyId} trialEnd=${new Date(newReg.trialEnd).toISOString()}`);
+
+      jsonReply(res, {
+        ok:          true,
+        autoApproved: true,
+        companyId:   companyId,
+        trialEnd:    newReg.trialEnd,
+        trialDays:   planCfg.trialDays,
+        message:     `Your free trial is live! Log in now with your email and password. Your company ID is ${companyId}.`,
+        fbWarning:   fbError || undefined,
+      });
+      return;
+    }
+
+    // ── Paid plan: stays pending, super admin reviews ───────────────────────
+    jsonReply(res, {
+      ok:      true,
+      pending: true,
+      plan:    reqPlan,
+      message: 'Request received. Our team will review your application and be in touch within 1 business day.',
+    });
     return;
   }
 
@@ -4234,71 +4319,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ── Account / access request ─────────────────────────────────────────────
+    // ── Account / access request — handled earlier in file (line ~1184).
+    // This block is a fallback in case routing reaches here via the DS path.
     if (urlPath.includes('/DispatcherLogin.aspx/AccountRequest')) {
-      let reqBody = {};
-      try { reqBody = JSON.parse(body); } catch (e) {}
-      const reqCompany = (reqBody.company        || '').trim();
-      const reqName    = (reqBody.name           || '').trim();
-      const reqEmail   = (reqBody.email          || '').trim().toLowerCase();
-      const reqPhone   = (reqBody.phone          || '').trim();
-      const reqPass    = (reqBody.password       || '').trim();
-      const reqBizNum  = (reqBody.businessNumber || '').trim();
-      const reqFleet   = (reqBody.fleetSize      || '').trim();
-      const reqArea    = (reqBody.area           || '').trim();
-      const reqCountry = (reqBody.country        || 'NZ').trim();
-
-      if (!reqCompany || !reqName || !reqEmail) {
-        jsonReply(res, { error: 'Company name, your name and email are all required.' });
-        return;
-      }
-      if (!/\S+@\S+\.\S+/.test(reqEmail)) {
-        jsonReply(res, { error: 'Please provide a valid email address.' });
-        return;
-      }
-      if (registrationStore.some(r => r.email === reqEmail && r.status !== 'rejected')) {
-        jsonReply(res, { error: 'An account request with this email already exists. Our team will be in touch.' });
-        return;
-      }
-
-      const newReg = {
-        id:             'REG-' + Date.now(),
-        status:         'pending',
-        submittedAt:    Date.now(),
-        company:        reqCompany,
-        name:           reqName,
-        email:          reqEmail,
-        phone:          reqPhone,
-        passwordHash:   reqPass,
-        businessNumber: reqBizNum,
-        fleetSize:      reqFleet,
-        area:           reqArea,
-        country:        reqCountry,
-        companyId:      null,
-        ownerUid:       null,  // set below after Firebase Auth creation
-        approvedAt:     null,
-        trialStart:     null,
-        trialEnd:       null,
-        graceEnd:       null,
-        rejectedAt:     null,
-        rejectedReason: null,
-      };
-      registrationStore.push(newReg);
-      saveRegistrations();
-      console.log(`200: POST ${urlPath} -> new registration request [${newReg.id}] from "${reqEmail}" (${reqCompany})`);
-
-      // Create Firebase Auth account immediately so the UID is already known when the
-      // super admin approves. Best-effort — registration succeeds even if Firebase fails.
-      try {
-        const { uid } = await firebaseCreateUser(reqEmail, reqPass);
-        newReg.ownerUid = uid;
-        saveRegistrations();
-        console.log(`[registration] Firebase Auth created for ${reqEmail}: uid=${uid}`);
-      } catch(fbRegErr) {
-        console.log(`[registration] Firebase Auth creation note for ${reqEmail}: ${fbRegErr.message}`);
-      }
-
-      jsonReply(res, { ok: true, message: 'Request received. Our team will review and contact you within 1 business day.' });
+      jsonReply(res, { error: 'Please use the signup form on the login page.' });
       return;
     }
 
