@@ -1,0 +1,43 @@
+What Needs to Be Built
+#	Item	Where
+1	Plan selector cards on signup form (Free Trial / Starter / Pro)	DispatcherLogin.aspx
+2	plan, trialDays, planPrice stored on registration	server.js
+3	Free Trial → auto-approve logic	server.js
+4	Super admin accounts list shows plan + status	server.js /admin/accounts
+5	Trial countdown banner in dispatch console	Default.aspx
+6	Locked screen when trial expires	Default.aspx
+Ready to build? I can do all 6 items in one go. Want me to start, or do you want to confirm the plan names, prices, and trial length first?
+
+not yet to build i just need to confrom on this ite these creat acount and on web dev to jon as oprater will work the same when people click on it and those 2 palce main ascess contraol from Super admin .in future if we to any change to this 2 function from there will cahnge automatecly like adding feature or other etc .dont built yet ?
+
+1 hour ago
+
+Confirming shared signup flow architecture
+Yes — confirmed. Here's exactly how it works architecturally:
+
+Both entry points — same backend, single source of truth
+
+Marketing website                  Dispatch login page
+"Join as Operator" button    +     "Create Account" button
+          │                                  │
+          └──────────────┬───────────────────┘
+                         │
+                         ▼
+              POST /DispatcherLogin.aspx/AccountRequest
+                    (one single endpoint)
+                         │
+                         ▼
+                  registrationStore
+                  (one single database)
+                         │
+                         ▼
+                 Super Admin controls ALL:
+                 • See every signup from both places
+                 • Approve / reject / activate / deactivate
+                 • Plans, trial lengths, access — all set here
+
+So when you later change anything — add a new plan, change trial length, add a new required field, add a feature flag — you change it once on the server and both the website button and the dispatch login button automatically reflect it. Neither page has its own separate logic.
+
+The marketing website's button just points to the same form/endpoint that already exists. It is purely a visual entry point — all the real logic lives in one place on the server, owned by the Super Admin.
+
+That is the correct architecture and it's already set up that way. When you're ready to build, just say the word.
