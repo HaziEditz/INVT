@@ -8414,12 +8414,13 @@ $(document).ready(function() {
                     }
                 }
             } catch(e) {}
-            var _drvrActuallyBusy = _busyGuardDrv && _busyGuardDrv.vehiclestatus === 'Busy';
+            var _preQueueValidStatuses = { Busy: 1, Assigned: 1, Picking: 1 };
+            var _drvrActuallyBusy = _busyGuardDrv && !!_preQueueValidStatuses[_busyGuardDrv.vehiclestatus];
             if (!_drvrActuallyBusy) {
-                // Driver is Available/not found — stale map entry.
+                // Driver is Available/Away/not found — stale map entry.
                 // Clear it so the normal offer path below runs with popup.
                 var _guardStatus = _busyGuardDrv ? _busyGuardDrv.vehiclestatus : '(not in driver list)';
-                console.log('[acknowledgemethodx] pre-queue guard: driver ' + driverid + ' status=' + _guardStatus + ' — not Busy, clearing stale driverQueueMap entry, offering normally with popup');
+                console.log('[acknowledgemethodx] pre-queue guard: driver ' + driverid + ' status=' + _guardStatus + ' — not Busy/Assigned/Picking, clearing stale driverQueueMap entry, offering normally with popup');
                 delete window._driverQueueMap[String(driverid)];
                 // Fall through to normal offer path
             } else {
@@ -14043,8 +14044,12 @@ $(document).ready(function() {
                         // Exclude drivers that already have an outstanding offer for another job.
                         return dv.vehiclestatus === 'Available' && !_activeOfferDrivers[_dvId];
                     });
+                    // Pre-queue fallback targets Busy, Assigned, and Picking drivers —
+                    // any driver who already has a job but can still be shown pending jobs
+                    // silently in their Offer tab so nothing sits idle waiting.
+                    var _preQueueStatuses = { Busy: 1, Assigned: 1, Picking: 1 };
                     var _busyOnly      = _allDrivers.filter(function(dv) {
-                        return dv.vehiclestatus === 'Busy' && !window._driverQueueMap[String(dv.driverid)];
+                        return !!_preQueueStatuses[dv.vehiclestatus] && !window._driverQueueMap[String(dv.driverid)];
                     });
                     // allAvailable starts as Available-only; Busy drivers are appended per-job below.
                     var allAvailable = _availableOnly.slice();
