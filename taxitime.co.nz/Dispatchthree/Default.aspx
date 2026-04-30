@@ -5132,6 +5132,9 @@ $(document).ready(function() {
             })
             .catch(function() {});
 
+        var _bwLoginTime = Date.now();
+        localStorage.setItem('bw_loginTime', String(_bwLoginTime));
+
         function _bwWriteHeartbeat() {
             var _uid = '';
             try { var _cu = firebase.auth().currentUser; if (_cu) _uid = _cu.uid; } catch(e) {}
@@ -5139,6 +5142,7 @@ $(document).ready(function() {
                 email:      _bwHbEmail,
                 uid:        _uid,
                 companyId:  SomeSession2,
+                loginTime:  _bwLoginTime,
                 heartbeat:  firebase.database.ServerValue.TIMESTAMP,
                 ip:         _bwHbIp,
                 ua:         _bwHbUa,
@@ -5150,6 +5154,29 @@ $(document).ready(function() {
         // Remove heartbeat cleanly on tab/browser close
         window.addEventListener('beforeunload', function() {
             _bwHbRef.remove().catch(function() {});
+        });
+    })();
+
+    // ── 4b. Session revocation listener ────────────────────────────────────
+    // Super Admin writes superClients/{cid}/sessionRevoke = timestamp to
+    // force-sign-out all dispatchers for that company currently online.
+    // If sessionRevoke > loginTime for this session, sign out immediately.
+    (function() {
+        if (!SomeSession2) return;
+        var _bwRevokeLt = parseInt(localStorage.getItem('bw_loginTime') || '0') || 0;
+        DbRef.ref('superClients/' + SomeSession2 + '/sessionRevoke').on('value', function(snap) {
+            var _revokeTs = snap.val();
+            if (!_revokeTs || typeof _revokeTs !== 'number') return;
+            if (_revokeTs > _bwRevokeLt) {
+                console.warn('[bw-session] session revoked by super admin — signing out');
+                try { firebase.auth().signOut(); } catch(e) {}
+                localStorage.removeItem('TT_Name');
+                localStorage.removeItem('TT_CId');
+                localStorage.removeItem('TT_Email');
+                localStorage.removeItem('TT_Country');
+                localStorage.removeItem('bw_loginTime');
+                window.location.replace('DispatcherLogin.aspx?reason=session_revoked');
+            }
         });
     })();
 
@@ -10504,6 +10531,56 @@ $(document).ready(function() {
                                                 if (typeof _scDCC.getjobs         === 'function') _scDCC.getjobs();
                                             }
                                             // No _sadTrigger — job is terminal, no re-dispatch needed.
+                                        }
+                                        // ── Write completedJobs + driverEarnings to Firebase ──────
+                                        // Triggered when the server confirms a genuine trip completion
+                                        // (driver went Available after Active). SA-MasterReport and
+                                        // SA-TaxiDriverPay both depend on these Firebase nodes.
+                                        if (_r && _r.completedJob && _newSt === 'Available' && SomeSession2) {
+                                            var _cj = _r.completedJob;
+                                            var _cjCid = SomeSession2;
+                                            var _cjTripId = String(_cj.tripId || '');
+                                            var _cjDrvId  = String(_cj.driverId || _capDid || '');
+                                            var _db = firebase.database();
+
+                                            // 1. Write completedJobs/{cid}/{tripId}
+                                            if (_cjTripId) {
+                                                var _cjNode = {
+                                                    fare:        _cj.fare || 0,
+                                                    paymentType: _cj.paymentType || 'cash',
+                                                    completedAt: _cj.completedAt || Date.now(),
+                                                    driverId:    _cjDrvId,
+                                                    pickup:      _cj.pickup || '',
+                                                    dropoff:     _cj.dropoff || '',
+                                                };
+                                                // TM fields — only include if present
+                                                if (_cj.paymentType === 'total_mobility') {
+                                                    if (_cj.tmSubsidy        != null) _cjNode.tmSubsidy        = _cj.tmSubsidy;
+                                                    if (_cj.tmSubsidyHoist   != null) _cjNode.tmSubsidyHoist   = _cj.tmSubsidyHoist;
+                                                    if (_cj.tmPassengerPays  != null) _cjNode.tmPassengerPays  = _cj.tmPassengerPays;
+                                                    if (_cj.totalCouncilPays != null) _cjNode.totalCouncilPays = _cj.totalCouncilPays;
+                                                    if (_cj.councilId)                _cjNode.councilId        = _cj.councilId;
+                                                }
+                                                _db.ref('completedJobs/' + _cjCid + '/' + _cjTripId).set(_cjNode)
+                                                    .catch(function() {});
+                                            }
+
+                                            // 2. Update driverEarnings/taxi/{cid}/{driverId}
+                                            if (_cjDrvId) {
+                                                var _deRef = _db.ref('driverEarnings/taxi/' + _cjCid + '/' + _cjDrvId);
+                                                _deRef.once('value').then(function(snap) {
+                                                    var _ex = snap.val() || {};
+                                                    var _fare = Number(_cj.fare) || 0;
+                                                    _deRef.set({
+                                                        driverName:    _cj.driverName || _ex.driverName || '',
+                                                        totalEarned:   (_ex.totalEarned   || 0) + _fare,
+                                                        pendingAmount: (_ex.pendingAmount  || 0) + _fare,
+                                                        tripCount:     (_ex.tripCount      || 0) + 1,
+                                                        lastPaidAt:    _ex.lastPaidAt || null,
+                                                        updatedAt:     Date.now(),
+                                                    });
+                                                }).catch(function() {});
+                                            }
                                         }
                                     } catch(e) {}
                                     // Server approved — now commit the driver data to the screen.

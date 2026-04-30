@@ -2663,6 +2663,7 @@ const server = http.createServer(async (req, res) => {
           // Activating all non-terminal jobs at once causes mass-completion when the
           // driver later goes Available, which is the "accidental cancel" bug.
           let activatedOne = false;
+          let _dscCompletedJob = null; // populated when a job is genuinely Completed
           // Pre-compute: if driver has an Active job AND an Assigned job simultaneously,
           // Available = trip completion (not a driver cancel of the Assigned job).
           // This protects a dispatcher-assigned job when driver completes a Hail/street pickup.
@@ -2712,12 +2713,31 @@ const server = http.createServer(async (req, res) => {
                 // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = nowNZ() + '.';
+                job.completedAtMs  = Date.now();
                 _stampDriverName(job);
                 const _cIdx = jobStore.indexOf(job);
                 if (_cIdx !== -1) jobStore.splice(_cIdx, 1);
                 closedJobStore.push(job);
                 saveJobStore();
                 saveClosedJobStore();
+                // Capture for Firebase write by the client
+                _dscCompletedJob = {
+                  tripId:      String(job.Id),
+                  driverId:    String(driverId),
+                  driverName:  drivername || (job.UserFName ? ((job.UserFName || '') + ' ' + (job.UserLName || '')).trim() : ''),
+                  vehicleNo:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
+                  fare:        job.Fare != null ? Number(job.Fare) : (job.TotalFare != null ? Number(job.TotalFare) : 0),
+                  paymentType: (job.PaymentType || job.paymentType || 'cash').toLowerCase(),
+                  completedAt: job.completedAtMs,
+                  pickup:      job.PickAddress || '',
+                  dropoff:     job.DropAddress || '',
+                  bookingRef:  String(job.Id),
+                  tmSubsidy:        job.tmSubsidy        != null ? Number(job.tmSubsidy)        : null,
+                  tmSubsidyHoist:   job.tmSubsidyHoist   != null ? Number(job.tmSubsidyHoist)   : null,
+                  tmPassengerPays:  job.tmPassengerPays  != null ? Number(job.tmPassengerPays)  : null,
+                  totalCouncilPays: job.totalCouncilPays != null ? Number(job.totalCouncilPays) : null,
+                  councilId:        job.councilId || null,
+                };
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailable) {
@@ -2831,7 +2851,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null, driverRecalled: _dscDriverRecalled || null, zoneOnly: zoneOnly || false });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null, driverRecalled: _dscDriverRecalled || null, zoneOnly: zoneOnly || false, completedJob: _dscCompletedJob || null });
 
       } else if (action === '[QuickSetNoOne]') {
         // Quick dispatcher action: mark job as "No One" from card dropdown.
