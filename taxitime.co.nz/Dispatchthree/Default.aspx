@@ -8354,16 +8354,29 @@ $(document).ready(function() {
             delete window._busyWatcherCleanupMap[_wbBook];
         };
 
-        // Safety timeout: if driver never responds in 15 seconds, release all locks
-        // so smartAutoDispatch can re-offer to the next available driver.
-        _wbTimer = setTimeout(function() {
+        // Safety timeout: after 15s check whether any Available driver exists.
+        // • If yes  → release locks so smartAutoDispatch re-offers to that driver.
+        // • If no   → keep the offer alive for this busy driver and re-check in 15s,
+        //             so the busy driver still sees the pending job in their Offer tab.
+        function _wbCheckAndRetry() {
             if (_wbDone) return;
-            console.warn('[_watchBusyDriverAcceptance] 15s timeout for job #' + bookid +
-                ' driver ' + driverid + ' — releasing to re-dispatch');
-            _wbReject();
-        }, 15 * 1000);
+            var hasAvailable = !!(window._driverDataRealx && window._driverDataRealx.some(function(d) {
+                return d.vehiclestatus === 'Available' &&
+                       !window._driverQueueMap[String(d.driverid)];
+            }));
+            if (hasAvailable) {
+                console.warn('[_watchBusyDriverAcceptance] 15s — available driver found, releasing job #' +
+                    bookid + ' from driver ' + driverid);
+                _wbReject();
+            } else {
+                console.log('[_watchBusyDriverAcceptance] 15s — no available drivers, keeping offer for driver ' +
+                    driverid + ' on job #' + bookid + ', retrying in 15s');
+                _wbTimer = setTimeout(_wbCheckAndRetry, 15 * 1000);
+            }
+        }
+        _wbTimer = setTimeout(_wbCheckAndRetry, 15 * 1000);
 
-        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (15s timeout)');
+        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (15s retry loop, releases only when Available driver exists)');
     }
 
     async function acknowledgemethodx(vehicle , driverid,bookid,status){
@@ -9990,6 +10003,7 @@ $(document).ready(function() {
         $scope.jobinfo = [];
         refreshdriver = 1 ;   
         $scope.driverdatarealx = [];
+        window._driverDataRealx = $scope.driverdatarealx; // global ref for _watchBusyDriverAcceptance
 
         $scope.timercheck = function(time , id){
             var date1 = new Date(time ); 
