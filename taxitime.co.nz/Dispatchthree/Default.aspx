@@ -8304,6 +8304,8 @@ $(document).ready(function() {
             _wbRef.off('value', _wbListener);
             _wbJobRef.off('value', _wbJobsListener);
             firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv).remove();
+            // Unregister so smartAutoDispatch can retry after this watcher ends.
+            if (window._activeBusyWatcherJobs) delete window._activeBusyWatcherJobs[_wbBook];
         }
         function _wbAccept() {
             if (_wbDone) return; _wbDone = true;
@@ -8353,6 +8355,11 @@ $(document).ready(function() {
             // can set up its own resolveAfter2Secondsx listener on the same path cleanly.
             delete window._busyWatcherCleanupMap[_wbBook];
         };
+
+        // Register this job as having an active busy watcher so smartAutoDispatch
+        // does not repeatedly re-offer it every cycle while this watcher is running.
+        if (!window._activeBusyWatcherJobs) window._activeBusyWatcherJobs = {};
+        window._activeBusyWatcherJobs[_wbBook] = _wbDrv;
 
         // Safety timeout: after 15s check whether any Available driver exists.
         // • If yes  → release locks so smartAutoDispatch re-offers to that driver.
@@ -14104,6 +14111,12 @@ $(document).ready(function() {
                                 continue;
                             }
                             // No Available drivers at all — try Busy drivers as silent fallback.
+                            // Skip if a _watchBusyDriverAcceptance watcher is already running for this
+                            // job — re-offering would spam the driver app and cause the dispatch board
+                            // to flicker every cycle. The watcher handles its own 15s retry loop.
+                            if (window._activeBusyWatcherJobs && window._activeBusyWatcherJobs[String(jobId)]) {
+                                continue;
+                            }
                             // Busy drivers are offered silently (no notification popup). The offer appears
                             // in their Offer tab only. If they accept while Busy, job goes to Queued status
                             // and pops up again when they become Available.
