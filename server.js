@@ -2592,6 +2592,28 @@ const server = http.createServer(async (req, res) => {
             }
           }
           // Step 3: New job received — clear lock regardless.
+          // Away status re-registration: if driver sends Away but isn't in ZONE_DRIVERS
+          // (e.g. after a server restart), add them so VehiclesStatus includes them.
+          // Without this, VehiclesStatus returns null → client clears Away drivers from
+          // the board every 30 s → Firebase re-adds them → constant flicker.
+          if (newStatus === 'Away' && !zdSync) {
+            const _savedZnAw = getSavedZone(driverId);
+            ZONE_DRIVERS.push({
+              driverid:      driverId,
+              VehicleId:     vehiclenumber || driverId,
+              drivername:    drivername    || driverId,
+              vehiclenumber: vehiclenumber || driverId,
+              vehicletype:   (param('vehicletype') || '').toString().trim() || '',
+              zonename:      zonename || (_savedZnAw && _savedZnAw.zonename) || '',
+              zoneid:        (_savedZnAw && _savedZnAw.zoneid) || '',
+              vehiclestatus: 'Away',
+              zonequeue:     0,
+              lat:           lat || '',
+              lng:           lng || '',
+              companyId:     sessionCompanyId || '',
+            });
+            console.log(`  [DriverStatusChanged/DP] driver ${driverId} re-added to ZONE_DRIVERS as Away (post-restart recovery)`);
+          }
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
             clearAwayLock(driverId);
             if (zdSync) {
@@ -3970,6 +3992,27 @@ const server = http.createServer(async (req, res) => {
               objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], awayLocked: true });
               return;
             }
+          }
+          // Away status re-registration (DS path): same fix as DP path — if driver
+          // sends Away but isn't in ZONE_DRIVERS (e.g. post-restart), add them so
+          // VehiclesStatus includes them and the 30-second board-clear doesn't flicker.
+          if (newStatus === 'Away' && !zdSyncDS) {
+            const _savedZnAwDS = getSavedZone(driverId);
+            ZONE_DRIVERS.push({
+              driverid:      driverId,
+              VehicleId:     vehiclenumber || driverId,
+              drivername:    drivername    || driverId,
+              vehiclenumber: vehiclenumber || driverId,
+              vehicletype:   (param('vehicletype') || '').toString().trim() || '',
+              zonename:      zonenameDS || (_savedZnAwDS && _savedZnAwDS.zonename) || '',
+              zoneid:        (_savedZnAwDS && _savedZnAwDS.zoneid) || '',
+              vehiclestatus: 'Away',
+              zonequeue:     0,
+              lat:           lat || '',
+              lng:           lng || '',
+              companyId:     sessionCompanyId || '',
+            });
+            console.log(`  [DriverStatusChanged/DS] driver ${driverId} re-added to ZONE_DRIVERS as Away (post-restart recovery)`);
           }
           // Step 3: New job received — clear lock regardless.
           if (newStatus === 'Busy' || newStatus === 'Assigned' || newStatus === 'Picking') {
