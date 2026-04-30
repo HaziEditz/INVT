@@ -6108,17 +6108,26 @@ $(document).ready(function() {
         //    }
          var colorselected = '#80ff80';
         var ImageUrl;
-        if (data.vehiclestatus == 'Available') {
+        // Prefer the Angular scope's vehiclestatus over Firebase's.
+        // The driver app often writes vehiclestatus:'Available' once on login and never
+        // updates Firebase when the status changes — the Angular scope (driverdatarealx)
+        // is the authoritative source for the current status.
+        var _addCarScope = angular.element(document.getElementById('myangular')).scope();
+        var _addCarEntry = _addCarScope ? _addCarScope.getcurrentchild(data) : null;
+        var _addCarStatus = (_addCarEntry && _addCarEntry !== '' && _addCarEntry.vehiclestatus)
+                            ? _addCarEntry.vehiclestatus
+                            : data.vehiclestatus;
+        if (_addCarStatus == 'Available') {
             colorselected = '#00e600';  
             ImageUrl = 'img/green.png';
         }
-        else if (data.vehiclestatus == 'Picking') {
+        else if (_addCarStatus == 'Picking') {
             colorselected = '#3333ff';
             ImageUrl = 'img/blue.png';
-        } else if (data.vehiclestatus == 'Away') {
+        } else if (_addCarStatus == 'Away') {
             colorselected = '#ffaf1a';
             ImageUrl = 'img/yellow.png';
-        } else if (data.vehiclestatus == 'Busy') {
+        } else if (_addCarStatus == 'Busy') {
             colorselected = '#ff3333';
             ImageUrl = 'img/red.png';  
         }
@@ -6711,20 +6720,26 @@ $(document).ready(function() {
             
             var colorselected = '#80ff80';
             var ImageUrl;
-            if (childsnapshot.val().vehiclestatus == 'Available') {
+            // Prefer the Angular scope's vehiclestatus (datax) over the Firebase value.
+            // The driver app often writes vehiclestatus:'Available' to Firebase on login and
+            // never updates it when going Away — the scope's driverdatarealx has the truth.
+            // datax is already set to childsnapshot.val() when the driver isn't in scope yet,
+            // so this fallback is safe for both the found and not-found cases.
+            var _chgStatus = (datax && datax.vehiclestatus) ? datax.vehiclestatus : childsnapshot.val().vehiclestatus;
+            if (_chgStatus == 'Available') {
                 colorselected = '#00e600';  
                 ImageUrl = 'img/green.png';
             }
-            else if (childsnapshot.val().vehiclestatus == 'Picking') {
+            else if (_chgStatus == 'Picking') {
                 colorselected = '#3333ff';
                 ImageUrl = 'img/blue.png';
-            } else if (childsnapshot.val().vehiclestatus == 'Assigned') {
+            } else if (_chgStatus == 'Assigned') {
                 colorselected = '#3333ff';
                 ImageUrl = 'img/blue.png';
-            } else if (childsnapshot.val().vehiclestatus == 'Away') {
+            } else if (_chgStatus == 'Away') {
                 colorselected = '#ffaf1a';
                 ImageUrl = 'img/yellow.png';
-            } else if (childsnapshot.val().vehiclestatus == 'Busy') {
+            } else if (_chgStatus == 'Busy') {
                 colorselected = '#ff3333';
                 ImageUrl = 'img/red.png';  
             }

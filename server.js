@@ -2300,6 +2300,7 @@ const server = http.createServer(async (req, res) => {
             vehiclestatus: 'Away',
             zonequeue:     maxQ + 1,
             queueWaitSince: Date.now(),
+            companyId:     restored.companyId || sessionCompanyId || '',
           });
         }
         console.log(`200: POST ${urlPath} [action=[UnsuspendDriver]] -> ${restored ? 'restored ' + _unsDrvId : 'not found ' + _unsDrvId}`);
@@ -4038,6 +4039,7 @@ const server = http.createServer(async (req, res) => {
                 zonequeue:     0,
                 lat:           lat || '',
                 lng:           lng || '',
+                companyId:     sessionCompanyId || '',
               });
               console.log(`  [DriverStatusChanged/DS] driver ${driverId} re-added to ZONE_DRIVERS as ${newStatus} (post-restart recovery)`);
             }
@@ -4222,6 +4224,7 @@ const server = http.createServer(async (req, res) => {
                 lat:           lat || '',
                 lng:           lng || '',
                 queueWaitSince: Date.now(),
+                companyId:     sessionCompanyId || '',
               });
               if (_useZoneDS) saveZoneAssignment(driverId, _useZoneDS, _useZoneIdDS);
               console.log(`  [DriverStatusChanged/DS] NEW driver ${driverId} (${vehiclenumber}) added to ZONE_DRIVERS q=${_dssQueueNo} zone="${_useZoneDS}"`);
