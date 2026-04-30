@@ -10571,12 +10571,17 @@ $(document).ready(function() {
                                                 _deRef.once('value').then(function(snap) {
                                                     var _ex = snap.val() || {};
                                                     var _fare = Number(_cj.fare) || 0;
-                                                    _deRef.set({
+                                                    // Preserve lastPaidAt exactly as stored — do not coerce via ||
+                                                    // (a stored value of 0 is falsy but still valid)
+                                                    var _lpa = (_ex.hasOwnProperty && _ex.hasOwnProperty('lastPaidAt'))
+                                                                 ? _ex.lastPaidAt
+                                                                 : (_ex.lastPaidAt !== undefined ? _ex.lastPaidAt : null);
+                                                    return _deRef.set({
                                                         driverName:    _cj.driverName || _ex.driverName || '',
                                                         totalEarned:   (_ex.totalEarned   || 0) + _fare,
                                                         pendingAmount: (_ex.pendingAmount  || 0) + _fare,
                                                         tripCount:     (_ex.tripCount      || 0) + 1,
-                                                        lastPaidAt:    _ex.lastPaidAt || null,
+                                                        lastPaidAt:    _lpa,
                                                         updatedAt:     Date.now(),
                                                     });
                                                 }).catch(function() {});
