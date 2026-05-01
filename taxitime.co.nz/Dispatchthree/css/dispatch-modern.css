@@ -366,7 +366,8 @@ ul.nav.panel-tabs li a span[class=""] {
 .card-body[style*="overflow"],
 .job-list-scroll {
   background: var(--bw-bg) !important;
-  padding: 6px !important;
+  /* 30px left/right so that absolutely-positioned card icons at left:-25px / right:-25px stay visible */
+  padding: 6px 30px !important;
   scrollbar-width: thin !important;
   scrollbar-color: rgba(255,255,255,0.08) transparent !important;
 }
@@ -382,6 +383,7 @@ div#singlediv {
   border-radius: calc(var(--bw-radius) - 1px) !important;
   padding: 8px 9px !important;
   position: relative !important;
+  overflow: visible !important;
   transition: border-left-color 0.2s, filter 0.15s, box-shadow 0.15s !important;
   /* subtle bottom separator instead of a full box border */
   box-shadow: 0 1px 0 rgba(0,0,0,0.09) !important;
@@ -1158,13 +1160,33 @@ html[data-bw-mode="light"] span.label.label-pill[style*="background:#dc2626"] { 
 html[data-bw-mode="light"] span.label.label-pill[style*="background: #6d28d9"],
 html[data-bw-mode="light"] span.label.label-pill[style*="background:#6d28d9"] { background: rgba(109,40,217,0.12) !important; color: #6d28d9 !important; }
 
-/* Job card border tones for light mode */
+/* Job card tones for light mode */
 html[data-bw-mode="light"] .bottomspave,
 html[data-bw-mode="light"] div#singlediv {
   box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
 }
 html[data-bw-mode="light"] .bottomspave:hover {
   box-shadow: 0 3px 12px rgba(0,0,0,0.12) !important;
+}
+/* Card text must be dark in light mode (cards now have coloured light backgrounds) */
+html[data-bw-mode="light"] .bottomspave *,
+html[data-bw-mode="light"] div#singlediv * {
+  color: #14181f !important;
+}
+/* Driver select in light mode */
+html[data-bw-mode="light"] select.form-control[id^="sa"],
+html[data-bw-mode="light"] select.form-control[id^="sp"],
+html[data-bw-mode="light"] select.form-control[id^="spx"],
+html[data-bw-mode="light"] select.form-control[id^="sxq"],
+html[data-bw-mode="light"] select.form-control[id^="sax"] {
+  background: rgba(255,255,255,0.85) !important;
+  color: #14181f !important;
+  border: 1px solid rgba(0,0,0,0.20) !important;
+}
+/* Job list scroll area background in light mode */
+html[data-bw-mode="light"] .card-body[style*="overflow"],
+html[data-bw-mode="light"] .job-list-scroll {
+  background: #f0f2f5 !important;
 }
 
 /* SweetAlert in light mode */
