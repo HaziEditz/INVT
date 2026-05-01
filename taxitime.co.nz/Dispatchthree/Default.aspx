@@ -3955,8 +3955,8 @@ $(document).ready(function() {
                                                                     <span class="label label-pill mt-2" style="background:#27ae60;color:#fff;cursor:pointer;" ng-click="forceCompleteJob(avalue.Id, avalue.DriverId)" title="Mark as completed (use for offline trips that didn't auto-sync)">
                                                                         <i class="fa fa-check-circle"></i> Force Complete
                                                                     </span>
-                                                                    <span ng-if="driverIsOffline(avalue.DriverId)" style="display:inline-block;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:4px;" title="Driver is offline — last seen: {{driverLastSeenAgo(avalue.DriverId)}}">
-                                                                        <i class="fa fa-wifi"></i> OFFLINE {{driverLastSeenAgo(avalue.DriverId)}}
+                                                                    <span ng-if="driverIsOffline(avalue.DriverId, avalue.VehicleId)" style="display:inline-block;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:4px;" title="Driver is offline — last seen: {{driverLastSeenAgo(avalue.DriverId, avalue.VehicleId)}}">
+                                                                        <i class="fa fa-wifi"></i> OFFLINE {{driverLastSeenAgo(avalue.DriverId, avalue.VehicleId)}}
                                                                     </span>
 
                                                                     
@@ -4402,7 +4402,7 @@ $(document).ready(function() {
                                                <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                          {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}}
-                                                         <span ng-if="driverIsOffline(driverz.driverid)" title="Last seen: {{driverLastSeenAgo(driverz.driverid)}}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;">OFFLINE</span>
+                                                         <span ng-if="driverIsOffline(driverz.driverid, driverz.VehicleId)" title="Last seen: {{driverLastSeenAgo(driverz.driverid, driverz.VehicleId)}}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;">OFFLINE</span>
                                                       <i class='fa fa-circle'  ' style='float:right; color:{{timercheck(driverz.time ,driverz)}}' aria-hidden='true'>
 
                                                       </i>
@@ -7287,24 +7287,57 @@ $(document).ready(function() {
         }, 30000); // 30 s — covers screen-off reconnects (10-30s); dt6 poll handles sign-outs within its own 30-s cycle
     });
     // ── Firebase presence listener ─────────────────────────────────────────
-    // Driver app writes onDisconnect() to /presence/{cid}/{driverId}
-    // so the dispatcher can see OFFLINE status in real time.
+    // Driver app writes to: online/{companyId}/{vehicleId}/current
+    //   { online: bool, lastSeen: Unix-ms }
+    // onDisconnect() writes online:false + lastSeen:serverTimestamp automatically.
+    // Node is removed entirely on clean logout → treat absent node as logged out (no badge).
     if (SomeSession2) {
-        var _presRef = DbRef.ref('presence/' + SomeSession2);
+        var _presRef = DbRef.ref('online/' + SomeSession2);
+
         function _applyPresence(snap) {
-            var _drvId = String(snap.key || '');
-            var _pd    = snap.val() || {};
-            var _sc    = angular.element(document.getElementById('myangular')).scope();
+            var _vehicleId = String(snap.key || '');
+            var _raw       = snap.val() || {};
+            // Value is nested under /current: { online: bool, lastSeen: ts }
+            var _pd = _raw.current || _raw;
+            var _sc = angular.element(document.getElementById('myangular')).scope();
             if (!_sc) return;
             if (!_sc.driverPresence) _sc.driverPresence = {};
-            _sc.driverPresence[_drvId] = {
+
+            var _entry = {
                 online:   _pd.online !== false,
                 lastSeen: _pd.lastSeen || Date.now()
             };
+
+            // Store by vehicleId so HTML lookups using VehicleId work directly
+            _sc.driverPresence[_vehicleId] = _entry;
+
+            // Also store by driverId so existing lookups using driverid still work
+            var _drv = (_sc.driverdatarealx || []).find(function(d) {
+                return String(d.VehicleId) === _vehicleId || String(d.vehiclenumber) === _vehicleId;
+            });
+            if (_drv && _drv.driverid) {
+                _sc.driverPresence[String(_drv.driverid)] = _entry;
+            }
+
             if (!_sc.$$phase) _sc.$digest();
         }
+
+        function _removePresence(snap) {
+            // Driver logged out cleanly — remove presence entry so no badge shows
+            var _vehicleId = String(snap.key || '');
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (!_sc || !_sc.driverPresence) return;
+            delete _sc.driverPresence[_vehicleId];
+            var _drv = (_sc.driverdatarealx || []).find(function(d) {
+                return String(d.VehicleId) === _vehicleId;
+            });
+            if (_drv && _drv.driverid) delete _sc.driverPresence[String(_drv.driverid)];
+            if (!_sc.$$phase) _sc.$digest();
+        }
+
         _presRef.on('child_added',   _applyPresence);
         _presRef.on('child_changed', _applyPresence);
+        _presRef.on('child_removed', _removePresence);
     }
 
     // ── Firebase driver event log listener ─────────────────────────────────
@@ -10245,20 +10278,37 @@ $(document).ready(function() {
         $scope.driverdatarealx = [];
         window._driverDataRealx = $scope.driverdatarealx; // global ref for _watchBusyDriverAcceptance
 
-        // ── Driver presence map (populated by Firebase /presence/{cid}/{drvId}) ──
-        // { online: bool, lastSeen: timestamp_ms }
+        // ── Driver presence map ─────────────────────────────────────────────
+        // Keyed by vehicleId AND driverId (both written on presence update).
+        // Source: Firebase online/{companyId}/{vehicleId}/current → { online, lastSeen }
         $scope.driverPresence = {};
 
-        $scope.driverIsOffline = function(driverId) {
-            if (!driverId) return false;
-            var _p = $scope.driverPresence[String(driverId)];
+        // _presLookup: find presence entry by driverId OR vehicleId.
+        // The presence map is keyed by both (written at connection time), so either key resolves.
+        // Pass vehicleId as second arg for a faster direct hit when driverId doesn't match.
+        function _presLookup(driverId, vehicleId) {
+            var _p = $scope.driverPresence[String(driverId || '')] ||
+                     $scope.driverPresence[String(vehicleId || '')];
+            if (!_p) {
+                // Last resort: scan driverdatarealx to find the vehicleId for this driverId
+                var _drv = ($scope.driverdatarealx || []).find(function(d) {
+                    return String(d.driverid) === String(driverId);
+                });
+                if (_drv) _p = $scope.driverPresence[String(_drv.VehicleId || '')];
+            }
+            return _p || null;
+        }
+
+        $scope.driverIsOffline = function(driverId, vehicleId) {
+            if (!driverId && !vehicleId) return false;
+            var _p = _presLookup(driverId, vehicleId);
             if (!_p) return false;
             return _p.online === false;
         };
 
-        $scope.driverLastSeenAgo = function(driverId) {
-            if (!driverId) return '';
-            var _p = $scope.driverPresence[String(driverId)];
+        $scope.driverLastSeenAgo = function(driverId, vehicleId) {
+            if (!driverId && !vehicleId) return '';
+            var _p = _presLookup(driverId, vehicleId);
             if (!_p || !_p.lastSeen) return '';
             var _diffMs = Date.now() - _p.lastSeen;
             var _diffMin = Math.floor(_diffMs / 60000);
