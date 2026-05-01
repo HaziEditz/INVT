@@ -376,20 +376,20 @@ ul.nav.panel-tabs li a span[class=""] {
    ============================================================ */
 .bottomspave,
 div#singlediv {
-  background: var(--bw-bg1) !important;
+  /* background intentionally NOT set here — ng-style on each card provides the colour */
   border: 1px solid var(--bw-border2) !important;
   border-left: 3px solid rgba(59,130,246,0.4) !important;
   border-radius: calc(var(--bw-radius) - 1px) !important;
   margin-bottom: 5px !important;
   padding: 8px 9px !important;
   position: relative !important;
-  transition: border-left-color 0.2s, background 0.15s, box-shadow 0.15s !important;
+  transition: border-left-color 0.2s, filter 0.15s, box-shadow 0.15s !important;
   box-shadow: none !important;
 }
 .bottomspave:hover,
 div#singlediv:hover {
-  background: var(--bw-bg2) !important;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
+  filter: brightness(0.93) !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.18) !important;
 }
 
 /* Job card text */
