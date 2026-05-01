@@ -4709,9 +4709,11 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span ng-if="value1.vehiclestatus == 'Picking'" style="background: #0000f57a; padding: 3px; color: black;   font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
                                                                 </span>
+                                                                <span ng-if="value1.vehiclestatus == 'Assigned'" style="background: #3333ff; padding: 3px; color: #fff; font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
+                                                                </span>
                                                                 <span ng-if="value1.vehiclestatus == 'Clearing'" style="background: lightgreen; padding: 3px; color: black;   font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
                                                                 </span>
-                                                                <span ng-if="value1.vehiclestatus !== 'Available' && value1.vehiclestatus !== 'Away' && value1.vehiclestatus !== 'Busy' && value1.vehiclestatus !== 'Picking' && value1.vehiclestatus !== 'Clearing'" style="background: #999; padding: 3px; color: #fff; font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
+                                                                <span ng-if="value1.vehiclestatus !== 'Available' && value1.vehiclestatus !== 'Away' && value1.vehiclestatus !== 'Busy' && value1.vehiclestatus !== 'Picking' && value1.vehiclestatus !== 'Assigned' && value1.vehiclestatus !== 'Clearing'" style="background: #999; padding: 3px; color: #fff; font-weight: 600;">{{value1.vehiclenumber }}/{{value1.vehicletype }}
                                                                 </span>
                                                             </div>
 
@@ -6147,7 +6149,7 @@ $(document).ready(function() {
             colorselected = '#00e600';  
             ImageUrl = 'img/green.png';
         }
-        else if (_addCarStatus == 'Picking') {
+        else if (_addCarStatus == 'Picking' || _addCarStatus == 'Assigned') {
             colorselected = '#3333ff';
             ImageUrl = 'img/blue.png';
         } else if (_addCarStatus == 'Away') {
@@ -15016,16 +15018,15 @@ $(document).ready(function() {
             else if ( VehicleStatus  == 'Busy' ){
                 return "#fb0404";
             }
-            else if ( VehicleStatus == 'Picking' ){
-                return "#0000f57a";
+            else if ( VehicleStatus == 'Picking' || VehicleStatus == 'Assigned' ){
+                return "#3333ff";
             }
             else if ( VehicleStatus == 'Arrived' ){
-                return "#00bcd4"; // teal — driver at pickup, waiting
+                return "#00bcd4";
             }
             else if(VehicleStatus == 'manualreject'){
                 return "lightgreen";
             }
-             
         }
         
      
