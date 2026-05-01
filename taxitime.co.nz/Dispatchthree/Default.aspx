@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260501g" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260501h" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -17781,14 +17781,14 @@ $(document).ready(function() {
                 return $scope.getCardStyle(BookingDateTime, DispatchTimebefore).background || '#fff';
             };
             $scope.getCardStyle = function (BookingDateTime, DispatchTimebefore) {
-                // ASAP jobs: soft pink-red so dispatcher sees urgency immediately
-                var ASAP_BG   = 'rgba(239, 68, 68, 0.14)';
+                // ASAP jobs: light red at 0.30 opacity — clearly urgent
+                var ASAP_BG   = 'rgba(239, 68, 68, 0.30)';
                 var ASAP_BAR  = '4px solid #ef4444';
-                // Pre-book (window not yet open): clearly blue — calm, future booking
-                var BOOK_BG   = 'rgba(59, 130, 246, 0.14)';
+                // Pre-book (window not yet open): solid visible blue — calm, future booking
+                var BOOK_BG   = '#dbeafe';
                 var BOOK_BAR  = '4px solid #3b82f6';
                 // Pre-book dispatch window NOW open: same red family as ASAP but stronger
-                var OPEN_BG   = 'rgba(239, 68, 68, 0.26)';
+                var OPEN_BG   = 'rgba(239, 68, 68, 0.42)';
                 var OPEN_BAR  = '4px solid #dc2626';
 
                 if (!BookingDateTime) {
