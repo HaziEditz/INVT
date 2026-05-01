@@ -2049,10 +2049,16 @@ const server = http.createServer(async (req, res) => {
       createdVia:         '/api/job/create',
     };
 
-    jobStore.push(_cjJob);
-    saveJobStore();
+    // For "dispatch" source, InsertBookingv4 is called immediately after with the full
+    // form data — it will create the actual job entry using ExternalJobId.
+    // Only push to jobStore for non-dispatch sources (hail, passenger, web, etc.)
+    // where the caller passes complete data and there is no follow-up InsertBookingv4.
+    if (_cjSource !== 'dispatch') {
+      jobStore.push(_cjJob);
+      saveJobStore();
+    }
 
-    console.log(`200: POST /api/job/create -> job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);
+    console.log(`200: POST /api/job/create -> reserved job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ ok: true, jobId: _cjIdStr, createdAt: _cjCreated }));
     return;
