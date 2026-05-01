@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260501f" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260501g" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -17781,34 +17781,37 @@ $(document).ready(function() {
                 return $scope.getCardStyle(BookingDateTime, DispatchTimebefore).background || '#fff';
             };
             $scope.getCardStyle = function (BookingDateTime, DispatchTimebefore) {
-                var RED_BG    = 'rgba(220, 38, 38, 0.10)';
-                var RED_ALERT = 'rgba(220, 38, 38, 0.28)';
-                var BLUE_BG   = 'rgba(37, 99, 235, 0.08)';
-                var RED_BAR   = '4px solid #dc2626';
-                var BLUE_BAR  = '4px solid #2563eb';
-                var NONE_BAR  = '4px solid transparent';
+                // ASAP jobs: soft pink-red so dispatcher sees urgency immediately
+                var ASAP_BG   = 'rgba(239, 68, 68, 0.14)';
+                var ASAP_BAR  = '4px solid #ef4444';
+                // Pre-book (window not yet open): clearly blue — calm, future booking
+                var BOOK_BG   = 'rgba(59, 130, 246, 0.14)';
+                var BOOK_BAR  = '4px solid #3b82f6';
+                // Pre-book dispatch window NOW open: same red family as ASAP but stronger
+                var OPEN_BG   = 'rgba(239, 68, 68, 0.26)';
+                var OPEN_BAR  = '4px solid #dc2626';
 
                 if (!BookingDateTime) {
-                    return { background: RED_BG, 'border-left': RED_BAR };
+                    return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
                 var clean = BookingDateTime.replace(/\.$/, '').trim();
                 var bdt = new Date(clean);
                 if (isNaN(bdt.getTime())) {
-                    return { background: RED_BG, 'border-left': RED_BAR };
+                    return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
                 var db = parseInt(DispatchTimebefore) || 0;
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
 
                 if (db === 0) {
-                    // ASAP job — always red accent
-                    return { background: RED_BG, 'border-left': RED_BAR };
+                    // ASAP job — always light red
+                    return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
                 if (minsUntil <= db) {
-                    // Dispatch window open — stronger red tint (also flashes via alerting)
-                    return { background: RED_ALERT, 'border-left': RED_BAR };
+                    // Pre-book: dispatch window now open — clearly red (action needed)
+                    return { background: OPEN_BG, 'border-left': OPEN_BAR };
                 }
-                // Future pre-booking — blue accent
-                return { background: BLUE_BG, 'border-left': BLUE_BAR };
+                // Pre-book: window not yet open — clearly blue (scheduled / future)
+                return { background: BOOK_BG, 'border-left': BOOK_BAR };
             };
             $scope.JobMinstime = 0;
             $scope.EditJobunassignedng =   function (ele,JobMins) {

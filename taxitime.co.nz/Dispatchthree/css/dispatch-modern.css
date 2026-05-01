@@ -409,14 +409,14 @@ div#singlediv:hover {
 }
 @keyframes bw-card-pulse {
   0%,100% {
-    border-left-color: var(--bw-red);
-    background: rgba(239,68,68,0.05);
-    box-shadow: 0 0 0 0 rgba(239,68,68,0.15);
+    border-left-color: #dc2626;
+    background: rgba(239,68,68,0.20);
+    box-shadow: 0 0 0 0 rgba(239,68,68,0.20);
   }
   50% {
-    border-left-color: var(--bw-red);
-    background: rgba(239,68,68,0.12);
-    box-shadow: 0 0 0 3px rgba(239,68,68,0.08);
+    border-left-color: #ef4444;
+    background: rgba(239,68,68,0.34);
+    box-shadow: 0 0 0 4px rgba(239,68,68,0.10);
   }
 }
 
