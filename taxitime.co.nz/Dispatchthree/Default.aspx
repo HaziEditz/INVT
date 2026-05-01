@@ -114,26 +114,39 @@
     }
 
     ul.nav.nav-tabs li {
-        padding: 5px;
-        background: #81d58d;
-        margin: 1px;
+        padding: 3px 4px;
+        background: #2c3e50;
+        margin: 2px;
+        border-radius: 5px;
+    }
+
+    ul.nav.nav-tabs li a {
+        color: #e0e6ed;
+        font-weight: 600;
+        font-size: 12.5px;
+        letter-spacing: 0.3px;
+    }
+
+    ul.nav.nav-tabs li a:hover {
+        color: #fff;
+        background: transparent;
+    }
+
+    ul.nav.nav-tabs li a.active,
+    ul.nav.nav-tabs li a.active.show {
+        color: #fff !important;
+        background: #1a73e8 !important;
         border-radius: 4px;
     }
 
-        ul.nav.nav-tabs li a {
-            color: black;
-            font-weight: 500;
-        }
-
-
     .label {
-        background: #2d54e038 !important;
-        font-weight: bold;
+        background: rgba(44,62,80,0.12) !important;
+        font-weight: 700;
+        font-size: 12px;
     }
 
     span.label {
-        font-weight: bold !important;
-        color: black !important;
+        font-weight: 700 !important;
     }
 
     @keyframes glowing {
@@ -153,7 +166,7 @@
     .page-main {
         -ms-flex: 1 1 auto;
         flex: 1 1 auto;
-        background: #b0e6e6a1;
+        background: #edf2f7;
     }
 
     td {
@@ -165,7 +178,7 @@
     }
 
     .card-body {
-        background: #efecec73;
+        background: #ffffff;
     }
 
     .button-glow {
@@ -303,15 +316,20 @@
         width: 100%;
         margin-top: 1px;
         padding: 0.375rem 0.75rem;
-        font-size: 0.9375rem;
-        line-height: 1.6;
-        color: #605e7e;
-        height: 39px;
-        background-color: #a0a59f4f;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #1a202c;
+        height: 36px;
+        background-color: #fff;
         background-clip: padding-box;
-        border: 1px solid #b2b6c1;
-        border-radius: 3px;
+        border: 1px solid #9aa5b4;
+        border-radius: 4px;
         transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+    .form-control:focus {
+        border-color: #1a73e8;
+        box-shadow: 0 0 0 2px rgba(26,115,232,0.18);
+        outline: none;
     }
 
     .nopad {
@@ -320,7 +338,41 @@
     }
 
     body {
-        color: black;
+        color: #1a202c;
+        font-size: 13px;
+    }
+
+    /* ── Global readability improvements ─────────────────────────────────── */
+    /* Raise all the 11px label text to a minimum readable size */
+    .label, span.label, .label-pill {
+        font-size: 12px !important;
+        padding: 2px 7px !important;
+        border-radius: 4px !important;
+        line-height: 1.5 !important;
+    }
+    /* Job card address / name text */
+    .bottomspave p, .bottomspave span:not(.label):not(.label-pill) {
+        font-size: 13px;
+        color: #1a202c;
+    }
+    /* Card headers */
+    .card-header {
+        background: #2c3e50;
+        color: #fff;
+        font-weight: 600;
+        font-size: 13px;
+        padding: 8px 12px;
+    }
+    /* Table cells in driver zone table */
+    td, th {
+        font-size: 12px;
+        color: #1a202c;
+    }
+    /* Select dropdowns */
+    select.form-control, select {
+        font-size: 13px !important;
+        color: #1a202c !important;
+        background-color: #fff !important;
     }
 
     select.custom-select.custom-select-sm.form-control.form-control-sm {
@@ -356,8 +408,8 @@
     }*/
 
     a.active.show {
-        color: white !important;
-        background: #2727d696;
+        color: #fff !important;
+        background: #1a73e8 !important;
     }
 
     .topnav {
@@ -3347,14 +3399,51 @@ $(document).ready(function() {
                                      
                                 </div>
                                 <style>
-                                    ul.nav.panel-tabs li {
-                                        padding: 12px;
-                                        margin: -20px;
+                                    ul.nav.panel-tabs {
+                                        display: flex;
+                                        flex-wrap: wrap;
+                                        gap: 4px;
+                                        padding: 6px 4px;
+                                        background: #1a1a2e;
+                                        border-radius: 6px;
+                                        margin-bottom: 6px;
                                     }
-
+                                    ul.nav.panel-tabs li {
+                                        padding: 0;
+                                        margin: 0;
+                                        flex: 1;
+                                        min-width: 48px;
+                                        text-align: center;
+                                    }
+                                    ul.nav.panel-tabs li a {
+                                        display: block;
+                                        padding: 6px 8px;
+                                        border-radius: 5px;
+                                        color: #b0bec5;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        letter-spacing: 0.4px;
+                                        text-decoration: none;
+                                        transition: background 0.15s, color 0.15s;
+                                        white-space: nowrap;
+                                    }
+                                    ul.nav.panel-tabs li a:hover {
+                                        background: #263238;
+                                        color: #fff;
+                                    }
+                                    ul.nav.panel-tabs li a.active,
+                                    ul.nav.panel-tabs li a.active.show {
+                                        background: #1a73e8 !important;
+                                        color: #fff !important;
+                                    }
+                                    ul.nav.panel-tabs li a span {
+                                        font-size: 11px;
+                                        opacity: 0.85;
+                                        margin-left: 2px;
+                                    }
                                     .bottomspave {
-                                        margin-bottom: 13px;
-                                        border-radius: 1px;
+                                        margin-bottom: 10px;
+                                        border-radius: 4px;
                                     }
                                 </style>
                                 <div class="card-body" style="overflow: scroll;">
