@@ -248,19 +248,20 @@ function newJobId() {
   return parseInt(today + String(_idSeqCounter).padStart(3, '0'));
 }
 
-// Central job ID format: {companyId}{YY}{MM}{DD}{seq}
-// e.g. company 611, 1 May 2026, job 1 → 6112605011
+// Central job ID format: {last3OfCompanyId}{YY}{MM}{DD}{seq}
+// e.g. company 620611 → prefix "611"; 1 May 2026, job 1 → "6112605011" (10 digits)
 // Sequence is per-company per-day, resets at midnight, no zero-padding.
 const _companyJobSeq = {}; // key: "611-260501" → count
 function newCompanyJobId(companyId) {
+  const prefix = String(companyId).slice(-3); // last 3 digits
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  const seqKey = `${companyId}-${yy}${mm}${dd}`;
+  const seqKey = `${prefix}-${yy}${mm}${dd}`;
   _companyJobSeq[seqKey] = (_companyJobSeq[seqKey] || 0) + 1;
   const seq = _companyJobSeq[seqKey];
-  return `${companyId}${yy}${mm}${dd}${seq}`; // string — safe as JS number too
+  return `${prefix}${yy}${mm}${dd}${seq}`; // string — always treat as string, not number
 }
 
 // Valid booking sources accepted by POST /api/job/create
