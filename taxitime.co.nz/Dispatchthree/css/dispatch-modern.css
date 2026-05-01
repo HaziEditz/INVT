@@ -113,105 +113,83 @@ html, body {
 }
 .app-header1 .btn-danger:hover { filter: brightness(1.1) !important; }
 
-/* ── Header inner row: keep logo + Create Job + info bar all centred ── */
-.app-header1 .container-fluid { padding: 0 !important; width: 100% !important; }
-.app-header1 .container-fluid .d-flex {
-  align-items: center !important;
-  flex-wrap: nowrap !important;
-  width: 100% !important;
-  gap: 0 !important;
-}
+/* ── Inner header row: vertically centre logo + button + chips ── */
+.app-header1 > .container-fluid { padding: 0 !important; }
+.app-header1 > .container-fluid > .d-flex { align-items: center !important; }
 
-/* ── Tenant info bar ────────────────────────────────────────────────────
-   Single blue pill containing all four session fields.
-   ─────────────────────────────────────────────────────────────────────── */
+/* ── Tenant info chips (header bar) ── */
 .bw-tenant-info {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  gap: 6px;
   margin-left: 10px;
-  background: #1e3a5f;
-  border: 1px solid #2d6aad;
-  border-radius: 7px;
-  overflow: hidden;
-  flex-shrink: 1;
-  min-width: 0;
+  flex-wrap: nowrap;
 }
-.bw-tenant-info .bw-chip-divider { display: none; }
-
-/* Each chip = one section of the blue bar */
 .bw-chip {
   display: inline-flex;
   align-items: center;
-  padding: 5px 12px;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 20px;
   white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  color: #bfdbfe;
   line-height: 1;
-  border-right: 1px solid rgba(45,106,173,0.6);
-  border-radius: 0 !important;
-  background: transparent !important;
-  min-width: 0;
+  transition: opacity 0.15s;
 }
-.bw-chip:last-child { border-right: none; }
-.bw-chip label { font-size: 12px; font-weight: inherit; color: inherit; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-
-/* Tiny UPPERCASE label prefix */
+.bw-chip label { font-size: 11px; font-weight: inherit; color: inherit; margin: 0; }
 .bw-chip-label {
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: #60a5fa;
-  margin-right: 6px;
+  opacity: 0.65;
+  margin-right: 5px;
   white-space: nowrap;
-  flex-shrink: 0;
 }
-
-/* Company ID — bright solid blue badge */
+/* Company ID — gold solid */
 .bw-chip--id {
-  background: #2563eb !important;
-  color: #ffffff !important;
+  background: var(--bw-accent);
+  color: var(--bw-bg1);
   font-weight: 700;
   cursor: pointer;
-  border-right: 1px solid rgba(37,99,235,0.5) !important;
-  letter-spacing: 0.3px;
+  border: none;
+  letter-spacing: 0.5px;
 }
-.bw-chip--id:hover { filter: brightness(1.12); }
-.bw-chip--id .bw-chip-label { color: rgba(255,255,255,0.65); }
-
-/* Company name — lighter blue */
-.bw-chip--company { color: #93c5fd !important; }
-.bw-chip--company .bw-chip-label { color: #60a5fa; }
-
-/* Dispatcher — near-white blue */
-.bw-chip--dispatcher { color: #e0eeff !important; }
-.bw-chip--dispatcher .bw-chip-label { color: #60a5fa; }
-
-/* "change" link */
+.bw-chip--id:hover { opacity: 0.85; }
+.bw-chip--id .bw-chip-label { color: var(--bw-bg1); opacity: 0.6; }
+/* Company name — visible gold tint */
+.bw-chip--company {
+  background: rgba(245,190,30,0.15);
+  color: #fcd34d;
+  font-weight: 600;
+  border: 1px solid rgba(245,190,30,0.45);
+}
+/* Dispatcher — clearly readable white */
+.bw-chip--dispatcher {
+  background: rgba(255,255,255,0.09);
+  color: #e2e8f0;
+  font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+/* "change" link inside dispatcher */
 #bwChangeNameBtn {
-  color: #60a5fa !important;
+  color: rgba(255,255,255,0.4) !important;
   font-size: 9px !important;
-  margin-left: 6px !important;
-  text-decoration: none !important;
-  opacity: 0.7;
+  margin-left: 5px !important;
 }
-#bwChangeNameBtn:hover { opacity: 1; }
-
-/* Platform chip — muted */
+/* Platform chip */
 .bw-chip--platform {
-  color: #60a5fa !important;
-  font-size: 10px !important;
-  font-weight: 400 !important;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  font-size: 10px;
+  font-weight: 400;
   font-style: italic;
-  background: transparent !important;
-  border-right: none !important;
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 4px 9px;
 }
-.bw-chip--platform strong { color: #93c5fd !important; font-weight: 600; font-style: normal; }
-
-@media (max-width: 1200px) { .bw-chip--platform { display: none !important; } }
-@media (max-width: 900px)  { .bw-chip--company  { display: none !important; } }
-@media (max-width: 700px)  { .bw-chip--dispatcher { display: none !important; } }
+.bw-chip--platform strong { color: rgba(255,255,255,0.65); font-weight: 600; font-style: normal; }
+.bw-chip-divider { display: none; }
+@media (max-width: 1100px) { .bw-chip--platform { display: none; } }
+@media (max-width: 760px)  { .bw-chip--company, .bw-chip--dispatcher { display: none; } }
 
 /* Status dots */
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
