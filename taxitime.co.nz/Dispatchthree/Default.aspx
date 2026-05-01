@@ -2959,7 +2959,7 @@ $(document).ready(function() {
                         <!-- Large Modal -->
                         <div id="largeModal" class="modal fade"   >
                             <div class="modal-dialog modal-lg"  >
-                                <div class="modal-content " id="largeModalcontet" style="margin-top: 0; margin-left: -242px; width: 606px;">
+                                <div class="modal-content " id="largeModalcontet" style="margin-top: 0; margin-left: -200px; width: 550px;">
 
                                     <div class="modal-body pd-20">
 
@@ -2969,7 +2969,7 @@ $(document).ready(function() {
                                          <!-- Section 1 -->
                                             <li class="acc_active" id="firss">
                                                 <div>
-                                                    <h4>Pick And Drop off Address</h4>
+                                                    <span style="font-size:13px; font-weight:700; color:#333; letter-spacing:0.3px;"><i class="fa fa-map-marker" style="color:#dfba5f; margin-right:5px;"></i>Pick &amp; Drop off Address</span>
                                                 </div>
                                                 <div class="col-sm-12 col-md-12 col-xl-12" id="firss1">
                                                     <div class="row">
@@ -2980,10 +2980,10 @@ $(document).ready(function() {
                                                             <input id="LocalDropLng" hidden type="text" value="0" ng-model="LocalDropLng" >
                                                         
                                                         <div class="col-sm-6">
-                                                            <label class="label label-success">Pick up</label>
+                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; display:block;"><i class="fa fa-map-marker" style="color:#2ecc71; margin-right:3px;"></i>Pick up</label>
                                                             <div class="col-sm-12 row" >
                                                                 <input type="text" name="" class="form-control" id="pac-input" ng-model="pickupaddress" placeholder="Search Pick Up Location">
-                                                              <button class="label label-success" ng-show="showstopshow" ng-click="createnewstop()">New Stop</button>
+                                                              <button type="button" ng-show="showstopshow" ng-click="createnewstop()" style="font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid #2ecc71; background:#f0fff4; color:#27ae60; cursor:pointer; margin-top:3px; line-height:1.4;"><i class="fa fa-plus"></i> Stop</button>
                                                             </div>
 
                                                               <div id="newstopdiv" ng-show="stoplstshow">
@@ -2999,26 +2999,32 @@ $(document).ready(function() {
                                                                 </div>
                                                           
                                                             </div>
-                                                            <button class="label label-danger" ng-click="btnReverse()">Reverse</button>
-                                                            <label class="label label-primary">Cornor</label>
-                                                            <input type="checkbox" name="corner"    ng-model="cornershow"   > 
-                                                            <label class="label label-primary">Urgent </label>
-                                                            <input type="checkbox" name="Urgent" ng-model="urgentdata"  > 
-                                                            <input type="text" class="form-control" placeholder="Corner"  ng-show="cornershow" ng-model="cornerdata" />
-                                                            <span class="label label-primary">
-                                                                <span>Details Estimated:</span>
-                                                                <span>Time: {{Time}}</br> Distance: {{distance}}</span>
-                                                                <span>Cost:{{currencyprice}}</span> 
-                                                                <span>{{currency}}</span>
-                                                                 </span>
-                                                            <label class="label label-primary">  
-                                                                <label>now</label>
-                                                                <input type="radio"  id="nowcheck" name="time" ng-checked="bookingtime_select == 0" ng-value="0" ng-model="bookingtime_select">
-                                                                <label>later</label>
-                                                                <input type="radio" id="latecheck" name="time" ng-value="1"  ng-checked="bookingtime_select == 1"  ng-model="bookingtime_select" ng-change="initLaterTime()">
-                                                            
-                                                            </label>
-                                                            </br>
+                                                            <!-- Controls row: Reverse | Corner | Urgent -->
+                                                            <div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">
+                                                                <button type="button" ng-click="btnReverse()" style="font-size:11px; padding:3px 9px; border-radius:4px; border:1px solid #ccc; background:#f5f5f5; color:#555; cursor:pointer; line-height:1.4;"><i class="fa fa-exchange"></i> Reverse</button>
+                                                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; margin:0; cursor:pointer; color:#555; font-weight:500; white-space:nowrap;">
+                                                                    <input type="checkbox" name="corner" ng-model="cornershow" style="margin:0;"> Corner
+                                                                </label>
+                                                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; margin:0; cursor:pointer; color:#c0392b; font-weight:600; white-space:nowrap;">
+                                                                    <input type="checkbox" name="Urgent" ng-model="urgentdata" style="margin:0;"> Urgent
+                                                                </label>
+                                                            </div>
+                                                            <input type="text" class="form-control" style="margin-top:4px; font-size:12px; height:28px;" placeholder="Corner detail" ng-show="cornershow" ng-model="cornerdata" />
+                                                            <!-- Estimated details — subtle inline line -->
+                                                            <div ng-show="Time" style="margin-top:5px; font-size:11px; color:#666; background:#f4f4f4; border-radius:4px; padding:3px 8px; display:flex; gap:8px; flex-wrap:wrap;">
+                                                                <span><i class="fa fa-clock-o"></i> {{Time}}</span>
+                                                                <span><i class="fa fa-road"></i> {{distance}}</span>
+                                                                <span ng-show="currencyprice"><i class="fa fa-dollar"></i> {{currencyprice}} {{currency}}</span>
+                                                            </div>
+                                                            <!-- Now / Later pill toggle -->
+                                                            <div style="display:flex; margin-top:8px; border:1px solid #ced4da; border-radius:5px; overflow:hidden; width:fit-content;">
+                                                                <label ng-style="{background: bookingtime_select==0 ? '#dfba5f' : '#fff', color: bookingtime_select==0 ? '#333' : '#888', fontWeight: bookingtime_select==0 ? '700' : '400'}" style="margin:0; font-size:12px; padding:4px 16px; cursor:pointer; border-right:1px solid #ced4da; transition:background 0.15s;">
+                                                                    <input type="radio" id="nowcheck" name="time" ng-checked="bookingtime_select == 0" ng-value="0" ng-model="bookingtime_select" style="display:none;"> Now
+                                                                </label>
+                                                                <label ng-style="{background: bookingtime_select==1 ? '#dfba5f' : '#fff', color: bookingtime_select==1 ? '#333' : '#888', fontWeight: bookingtime_select==1 ? '700' : '400'}" style="margin:0; font-size:12px; padding:4px 16px; cursor:pointer; transition:background 0.15s;">
+                                                                    <input type="radio" id="latecheck" name="time" ng-value="1" ng-checked="bookingtime_select == 1" ng-model="bookingtime_select" ng-change="initLaterTime()" style="display:none;"> Later
+                                                                </label>
+                                                            </div>
                                                              
                                                             <div ng-show="bookingtime_select == 1" style="margin-top:8px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:8px 10px;">
                                                                 <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
@@ -3095,28 +3101,21 @@ $(document).ready(function() {
                                                             }
                                                         </script>
                                                         <div class="col-sm-6">
-                                                            <label class="label label-success">Drop off</label>
-                                                            <input type="text" name="slng" class="form-control" ng-model="dropupaddress"
-                                                                  
-                                                                
-                                                                  id="pac-inputx" placeholder="Search Drop off Location">
+                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; display:block;"><i class="fa fa-flag-checkered" style="color:#e74c3c; margin-right:3px;"></i>Drop off</label>
+                                                            <input type="text" name="slng" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search Drop off Location">
 
-                                                            <label class="label label-success">Info: </label>
-                                                            <input type="text" name="info" ng-model="rideinfo" class="form-control" placeholder="Enter Job Related Info">
-                                                            <label class="label label-success">Tariff: </label>
-                                                           
-                                                              <select class="form-control" ng-change="unitChanged()" ng-model="selectedtarrif" id="ddlTariff">
-                                                                    <option ng-value='0'>Automatic</option>
-                                                                    <option ng-value='-1'  >Custom</option> 
-                                                                    <option  ng-repeat="item in tarriflist" ng-value="item.Id">{{item.TariffName}}</option>
-                                                            </select>   
-                                                            <input type="number"  class="form-control"  ng-show="customeshow" ng-model="CustomeRate"/>
-                                                                
+                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:2px; display:block;">Info</label>
+                                                            <input type="text" name="info" ng-model="rideinfo" class="form-control" placeholder="Job notes / instructions">
+                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:2px; display:block;">Tariff</label>
+                                                            <select class="form-control" style="height:28px; font-size:12px; padding:2px 4px;" ng-change="unitChanged()" ng-model="selectedtarrif" id="ddlTariff">
+                                                                <option ng-value='0'>Automatic</option>
+                                                                <option ng-value='-1'>Custom</option>
+                                                                <option ng-repeat="item in tarriflist" ng-value="item.Id">{{item.TariffName}}</option>
+                                                            </select>
+                                                            <input type="number" class="form-control" style="margin-top:4px; font-size:12px; height:28px;" ng-show="customeshow" ng-model="CustomeRate" placeholder="Custom rate"/>
 
                                                             <div>
-                                                               <span class="label label-primary" id="timesuggested" ng-show="bookingtime_select == 1" style="color:#c0392b; font-size:11px; font-weight:600; background:transparent; border:none;">
-
-                                                                </span>
+                                                               <span id="timesuggested" ng-show="bookingtime_select == 1" style="display:block; margin-top:6px; font-size:11px; color:#7b1fa2; font-weight:600;"></span>
 
                                                             </div>
                                                         </div>
