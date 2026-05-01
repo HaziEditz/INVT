@@ -234,7 +234,7 @@ async function firebaseDbDelete(path, idToken) {
 }
 
 // ─── In-memory job store ──────────────────────────────────────────────────────
-// Booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
+// Legacy booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
 let _idSeqDate = '';
 let _idSeqCounter = 0;
 function newJobId() {
@@ -247,6 +247,24 @@ function newJobId() {
   _idSeqCounter++;
   return parseInt(today + String(_idSeqCounter).padStart(3, '0'));
 }
+
+// Central job ID format: {companyId}{YY}{MM}{DD}{seq}
+// e.g. company 611, 1 May 2026, job 1 → 6112605011
+// Sequence is per-company per-day, resets at midnight, no zero-padding.
+const _companyJobSeq = {}; // key: "611-260501" → count
+function newCompanyJobId(companyId) {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const seqKey = `${companyId}-${yy}${mm}${dd}`;
+  _companyJobSeq[seqKey] = (_companyJobSeq[seqKey] || 0) + 1;
+  const seq = _companyJobSeq[seqKey];
+  return `${companyId}${yy}${mm}${dd}${seq}`; // string — safe as JS number too
+}
+
+// Valid booking sources accepted by POST /api/job/create
+const BOOKING_SOURCES = new Set(['dispatch', 'hail', 'passenger', 'web', 'food', 'freight']);
 
 // ─── In-memory message store ──────────────────────────────────────────────────
 let nextMsgId = 100;
@@ -1904,6 +1922,83 @@ const server = http.createServer(async (req, res) => {
       fare: _sotJob.TotalFare || 0,
       message: 'Offline trip synced successfully.'
     }));
+    return;
+  }
+
+  // ── POST /api/job/create — central job creation for all apps ───────────────
+  // Creates a Pending job in jobStore and returns the canonical job ID.
+  // No auth key required — companyId is the tenant identifier.
+  // CORS pre-flight OPTIONS is handled globally at the top of the request handler.
+  if (urlPath === '/api/job/create' && req.method === 'POST') {
+    const _cjBody = await readBody(req);
+    let _cjData = {};
+    try { _cjData = JSON.parse(_cjBody); } catch(e) {}
+
+    const _cjCid     = ((_cjData.companyId) || '').toString().trim();
+    const _cjSource  = ((_cjData.source)    || 'dispatch').toString().toLowerCase().trim();
+    const _cjPax     = _cjData.passenger || {};
+    const _cjPick    = _cjData.pickup    || {};
+    const _cjDrop    = _cjData.dropoff   || {};
+    const _cjTariff  = ((_cjData.tariffId) || '').toString().trim();
+    const _cjNotes   = ((_cjData.notes)    || '').toString().trim();
+    const _cjPickDT  = ((_cjData.pickupTime) || '').toString().trim(); // optional scheduled pickup
+
+    // Validate
+    if (!_cjCid) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'companyId is required' }));
+      return;
+    }
+    if (!BOOKING_SOURCES.has(_cjSource)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: `source must be one of: ${[...BOOKING_SOURCES].join(' | ')}` }));
+      return;
+    }
+
+    const _cjIdStr   = newCompanyJobId(_cjCid);
+    const _cjIdNum   = Number(_cjIdStr); // safe: fits in JS float exactly
+    const _cjCreated = Date.now();
+    const _cjNow     = new Date().toISOString();
+
+    const _cjJob = {
+      Id:                 _cjIdNum,
+      companyId:          _cjCid,
+      BookingStatus:      'Pending',
+      BookingSource:      _cjSource,
+      source:             _cjSource,
+      Name:               ((_cjPax.name)   || '').toString().trim(),
+      PhoneNo:            ((_cjPax.phone)  || '').toString().trim(),
+      PickAddress:        ((_cjPick.address) || '').toString().trim(),
+      PickLatLng:         `${_cjPick.lat || 0},${_cjPick.lng || 0}`,
+      DropAddress:        ((_cjDrop.address) || '').toString().trim(),
+      DropLatLng:         `${_cjDrop.lat || 0},${_cjDrop.lng || 0}`,
+      TariffId:           _cjTariff,
+      Notes:              _cjNotes,
+      BookingDateTime:    _cjNow,
+      Pickingtime:        _cjPickDT || _cjNow,
+      DriverId:           0,
+      VehicleId:          0,
+      Passengers:         parseInt(_cjData.passengers || '1') || 1,
+      Bags:               parseInt(_cjData.bags       || '0') || 0,
+      WheelChairs:        parseInt(_cjData.wheelchairs || '0') || 0,
+      DispatchTimebefore: '0',
+      VehiclesReguired:   1,
+      EstimatedDistance:  ((_cjData.distance) || '0').toString(),
+      EstimatedTime:      ((_cjData.duration) || '0').toString(),
+      AccountId:          '',
+      VehicleNo:          null,
+      CallSign:           null,
+      webstatus:          '0',
+      createdAt:          _cjCreated,
+      createdVia:         '/api/job/create',
+    };
+
+    jobStore.push(_cjJob);
+    saveJobStore();
+
+    console.log(`200: POST /api/job/create -> job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ ok: true, jobId: _cjIdStr, createdAt: _cjCreated }));
     return;
   }
 
