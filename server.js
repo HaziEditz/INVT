@@ -261,7 +261,7 @@ function newCompanyJobId(companyId) {
   const seqKey = `${prefix}-${yy}${mm}${dd}`;
   _companyJobSeq[seqKey] = (_companyJobSeq[seqKey] || 0) + 1;
   const seq = _companyJobSeq[seqKey];
-  return `${prefix}${yy}${mm}${dd}${seq}`; // string — always treat as string, not number
+  return parseInt(`${prefix}${yy}${mm}${dd}${seq}`, 10); // always a number so j.Id === parseInt(...) comparisons work
 }
 
 // Valid booking sources accepted by POST /api/job/create
@@ -367,6 +367,61 @@ const jobStore = _savedJobStore;
     return mx;
   }, 0);
   if (maxSeq > 0) { _idSeqDate = prefix; _idSeqCounter = maxSeq; }
+})();
+
+// Sync _companyJobSeq from saved jobs so new IDs don't collide after restart.
+// New ID format: {last3OfCompanyId}{YY}{MM}{DD}{seq} — e.g. 6112605011
+(function syncCompanyJobSeq() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const datePart = `${yy}${mm}${dd}`; // e.g. "260501"
+  jobStore.forEach(j => {
+    const idStr = String(j.Id || '');
+    // Must be exactly 9+ chars and contain today's datePart at positions 3-8
+    if (idStr.length >= 9 && idStr.slice(3, 9) === datePart) {
+      const prefix = idStr.slice(0, 3);
+      const seq = parseInt(idStr.slice(9), 10);
+      const key = `${prefix}-${datePart}`;
+      if (!isNaN(seq) && seq > (_companyJobSeq[key] || 0)) {
+        _companyJobSeq[key] = seq;
+      }
+    }
+  });
+})();
+
+// Self-heal: remove duplicate job IDs (keep the most-recent duplicate by index).
+(function healDuplicateIds() {
+  const seen = new Map();
+  const toRemove = [];
+  jobStore.forEach((j, i) => {
+    const key = String(j.Id);
+    if (seen.has(key)) toRemove.push(seen.get(key)); // keep last occurrence
+    seen.set(key, i);
+  });
+  if (toRemove.length > 0) {
+    toRemove.sort((a, b) => b - a).forEach(i => jobStore.splice(i, 1));
+    try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) {}
+    console.log(`[self-heal] removed ${toRemove.length} duplicate job(s) from store`);
+  }
+})();
+
+// Self-heal: coerce any string Id fields to numbers.
+// Job IDs like "6112605021" were stored as strings in an earlier version; all lookup
+// code uses parseInt so the comparison always failed. Convert once on load.
+(function healStringIds() {
+  let fixed = 0;
+  jobStore.forEach(j => {
+    if (typeof j.Id === 'string') {
+      const n = parseInt(j.Id, 10);
+      if (!isNaN(n)) { j.Id = n; fixed++; }
+    }
+  });
+  if (fixed > 0) {
+    try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) {}
+    console.log(`[self-heal] coerced ${fixed} job Id(s) from string → number`);
+  }
 })();
 
 // Self-heal: any job that is Assigned but has no driver (DriverId=0) got orphaned.
@@ -2220,7 +2275,7 @@ const server = http.createServer(async (req, res) => {
     // ── /DataSelectorRide — booking write operations ────────────────────────
     if (urlPath.includes('/DataSelectorRide')) {
       if (action === 'InsertBookingv4') {
-        const newId = param('ExternalJobId') || newCompanyJobId(sessionCompanyId || '000');
+        const newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
@@ -2340,7 +2395,7 @@ const server = http.createServer(async (req, res) => {
     // ── /DataProcessor — all write operations ──────────────────────────────
     if (urlPath.includes('/DataProcessor')) {
       if (action === 'InsertBookingv4' || action === '[AddBookingConsole]') {
-        const newId = param('ExternalJobId') || newCompanyJobId(sessionCompanyId || '000');
+        const newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
