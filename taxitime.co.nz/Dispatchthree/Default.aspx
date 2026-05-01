@@ -15867,8 +15867,8 @@ $(document).ready(function() {
             
                 if ($res["dt1"].length != []) {
 
-                    var _cname = $res["dt1"][0].CompanyName || 'BookaWaka';
-                    $('#CompanyName').text(_cname);
+                    var _cname = $res["dt1"][0].CompanyName || localStorage.getItem('TT_Company') || '';
+                    if (_cname) $('#CompanyName').text(_cname);
                     // Update splash with real company name, then dismiss it
                     if (window._bwSplashSetCompany) window._bwSplashSetCompany(_cname);
                     if (window._bwSplashReady)      window._bwSplashReady('Ready');
