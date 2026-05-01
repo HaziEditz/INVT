@@ -2872,7 +2872,7 @@ $(document).ready(function() {
                                 <span class="bw-chip-label">Company</span><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
                             </span>
                             <span class="bw-chip bw-chip--dispatcher">
-                                <span class="bw-chip-label">Dispatcher</span><label id="lblName1" style="margin:0;"></label>
+                                <span class="bw-chip-label">Dispatcher</span><label id="lblName1" style="margin:0;"></label><span id="bwChangeNameBtn" title="Change dispatcher name" onclick="(function(){var n=prompt('Enter your dispatcher name:',localStorage.getItem('TT_Name')||'');if(n&&n.trim()){n=n.trim();localStorage.setItem('TT_Name',n);document.getElementById('lblName1').textContent=n;var l2=document.getElementById('lblName2');if(l2)l2.textContent=n;var m=document.getElementById('tt-modal-dispatcher');if(m)m.textContent='Dispatcher: '+n;}})()" style="cursor:pointer;margin-left:5px;font-size:9px;color:#aaa;font-weight:400;letter-spacing:0.3px;text-decoration:underline;user-select:none;">change</span>
                             </span>
                             <span class="bw-chip bw-chip--platform">
                                 <i class="fa fa-globe" style="font-size:9px; margin-right:5px; opacity:0.7;"></i>Operated by <strong style="margin-left:3px;">bookawaka.com</strong>
@@ -5012,18 +5012,6 @@ $(document).ready(function() {
         }
         // Always keep company name in sync
         if (me.company) localStorage.setItem('TT_Company', me.company);
-        // Fix a stored dispatcher name that is purely numeric (e.g. the company ID
-        // was accidentally stored as TT_Name during an older login session).
-        if (me.ownerName && me.ownerName.trim()) {
-          var _storedName = localStorage.getItem('TT_Name') || '';
-          if (!_storedName || /^\d+$/.test(_storedName.trim())) {
-            localStorage.setItem('TT_Name', me.ownerName.trim());
-            // Update the live display labels without reloading
-            $("#lblName1").text(me.ownerName.trim());
-            $("#lblName2").text(me.ownerName.trim());
-            $("#tt-modal-dispatcher").text("Dispatcher: " + me.ownerName.trim());
-          }
-        }
       })
       .catch(function() { /* network error — continue with cached value */ });
 

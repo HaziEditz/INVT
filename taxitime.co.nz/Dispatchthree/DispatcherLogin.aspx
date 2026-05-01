@@ -822,6 +822,21 @@
 
         <form id="loginForm" onsubmit="return false;">
           <div class="form-group">
+            <label for="inputDispatcherName">Your name</label>
+            <div class="input-wrap">
+              <input
+                type="text"
+                id="inputDispatcherName"
+                name="dispatcherName"
+                placeholder="e.g. Abdullhagul"
+                autocomplete="name"
+                required
+                maxlength="60"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
             <label for="inputEmail">Email address</label>
             <div class="input-wrap">
               <input
@@ -1163,11 +1178,27 @@
         .catch(function() { return null; });
     }
 
+    // ── Pre-populate name field from localStorage if a name was saved before ──
+    (function() {
+      var _saved = localStorage.getItem('TT_Name') || '';
+      if (_saved && !/^\d+$/.test(_saved.trim())) {
+        var _nameEl = document.getElementById('inputDispatcherName');
+        if (_nameEl) _nameEl.value = _saved;
+      }
+    })();
+
     // ── Auto-login if Firebase already has a session ─────────────────────────
     firebase.auth().onAuthStateChanged(function(user) {
       if (!user) return;
-      var name      = user.displayName || user.email.split('@')[0];
       var userEmail = user.email || '';
+      // Use the name stored from a previous form login if it's a proper name.
+      // Never derive the name from the email or Firebase profile on auto-login —
+      // the dispatcher must explicitly type their name at least once via the form.
+      var _cachedName = (localStorage.getItem('TT_Name') || '').trim();
+      var _hasValidName = _cachedName && !/^\d+$/.test(_cachedName);
+      // If no valid name stored, show the form so the dispatcher can enter their name.
+      if (!_hasValidName) return;
+      var name = _cachedName;
       var cachedCid = localStorage.getItem('TT_CId') || '';
 
       var cidPromise = firebase.database().ref('users/' + user.uid + '/companyId').once('value')
@@ -1235,7 +1266,7 @@
     });
 
     // ── Mock-server login fallback ───────────────────────────────────────────
-    function _mockLogin(email, firebaseErrorCode) {
+    function _mockLogin(email, firebaseErrorCode, nameOverride) {
       fetch('/DataManager/Data.aspx/LoginSelector', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1247,7 +1278,7 @@
         try { arr = typeof data.d === 'string' ? JSON.parse(data.d) : data.d; } catch(e) { arr = null; }
         if (Array.isArray(arr) && arr.length > 0 && arr[0].CompanyId) {
           var u    = arr[0];
-          var name = ((u.UserFName || '') + ' ' + (u.UserLName || '')).trim() || email.split('@')[0];
+          var name = nameOverride || ((u.UserFName || '') + ' ' + (u.UserLName || '')).trim() || email.split('@')[0];
           var cid  = String(u.CompanyId || '');
           fetch('/api/session/login', {
             method: 'POST',
@@ -1287,21 +1318,30 @@
 
     // ── Login form submission ─────────────────────────────────────────────────
     document.getElementById('loginForm').addEventListener('submit', function() {
+      var nameEl      = document.getElementById('inputDispatcherName');
       var emailEl     = document.getElementById('inputEmail');
       var passwordEl  = document.getElementById('inputPassword');
       var companyIdEl = document.getElementById('inputCompanyId');
       var btnEl       = document.getElementById('btnLogin');
       var errorBox    = document.getElementById('errorBox');
 
+      var dispatcherName = (nameEl ? nameEl.value.trim() : '');
       var email     = emailEl.value.trim();
       var password  = passwordEl.value.trim();
       var manualCid = (companyIdEl.value || '').replace(/\s/g, '');
 
       errorBox.style.display = 'none';
+      if (nameEl) nameEl.classList.remove('error');
       emailEl.classList.remove('error');
       passwordEl.classList.remove('error');
       companyIdEl.classList.remove('error');
 
+      if (!dispatcherName) {
+        if (nameEl) nameEl.classList.add('error');
+        showError('Please enter your name so jobs show who dispatched them.');
+        if (nameEl) nameEl.focus();
+        return;
+      }
       if (!email) {
         emailEl.classList.add('error');
         showError('Please enter your email address.');
@@ -1375,7 +1415,7 @@
         box.style.background = '';
         box.style.color = '';
         box.style.borderColor = '';
-        _mockLogin(email, 'auth/timeout');
+        _mockLogin(email, 'auth/timeout', dispatcherName);
       }, 25000);
 
       firebase.auth().signInWithEmailAndPassword(email, password)
@@ -1391,7 +1431,8 @@
           box.style.color = '';
           box.style.borderColor = '';
           var user = result.user;
-          var name = user.displayName || email.split('@')[0];
+          // Always use what the dispatcher typed — never derive from Firebase email
+          var name = dispatcherName || user.displayName || email.split('@')[0];
 
           return resolveCompanyId(user.uid).then(function(cid) {
             if (!cid) {
@@ -1466,7 +1507,7 @@
             resetBtn();
             showError('Incorrect email or password. Please try again.');
           } else {
-            _mockLogin(email, error.code);
+            _mockLogin(email, error.code, dispatcherName);
           }
         });
     });
