@@ -1388,7 +1388,7 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': 'application/json',
       'Set-Cookie': `BW_SID=${token}; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
     });
-    res.end(JSON.stringify({ ok: true, companyId, company: reg.company, status: reg.status }));
+    res.end(JSON.stringify({ ok: true, companyId, company: reg.company, status: reg.status, ownerName: reg.name || '' }));
     console.log(`[session] login: companyId=${companyId} company="${reg.company}" uid=${uid}`);
     return;
   }
@@ -1427,6 +1427,7 @@ const server = http.createServer(async (req, res) => {
       status:    reg.status,
       isActive:  true,
       email:     reg.email || reg.ownerEmail || '',
+      ownerName: reg.name || '',
       ip:        clientIp,
     }));
     return;

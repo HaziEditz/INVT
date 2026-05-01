@@ -1213,7 +1213,9 @@
           }).then(function(resp) {
           if (resp && resp.ok) {
             return resp.json().then(function(data) {
-              localStorage.setItem('TT_Name',    name);
+              // Prefer the server-stored owner name over Firebase display name / email prefix
+              var _dispName = (data.ownerName && data.ownerName.trim()) ? data.ownerName.trim() : name;
+              localStorage.setItem('TT_Name',    _dispName);
               localStorage.setItem('TT_DId',     '1051');
               localStorage.setItem('TT_Country', 'NZ');
               localStorage.setItem('TT_CId',     data.companyId || cid);
@@ -1255,7 +1257,8 @@
           }).then(function(resp) {
             if (resp && resp.ok) {
               return resp.json().then(function(d) {
-                localStorage.setItem('TT_Name',    name);
+                var _dispName = (d.ownerName && d.ownerName.trim()) ? d.ownerName.trim() : name;
+                localStorage.setItem('TT_Name',    _dispName);
                 localStorage.setItem('TT_DId',     String(u.Id || '1051'));
                 localStorage.setItem('TT_Country', u.Country || 'NZ');
                 localStorage.setItem('TT_CId',     d.companyId || cid);
@@ -1414,7 +1417,8 @@
             }).then(function(resp) {
               if (resp && resp.ok) {
                 return resp.json().then(function(data) {
-                  localStorage.setItem('TT_Name',    name);
+                  var _dispName = (data.ownerName && data.ownerName.trim()) ? data.ownerName.trim() : name;
+                  localStorage.setItem('TT_Name',    _dispName);
                   localStorage.setItem('TT_DId',     '1051');
                   localStorage.setItem('TT_Country', 'NZ');
                   localStorage.setItem('TT_CId',     data.companyId || cid);

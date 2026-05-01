@@ -5010,8 +5010,20 @@ $(document).ready(function() {
           localStorage.setItem('TT_Company', me.company || '');
           window.location.reload();
         }
-        // Also always keep company name in sync
+        // Always keep company name in sync
         if (me.company) localStorage.setItem('TT_Company', me.company);
+        // Fix a stored dispatcher name that is purely numeric (e.g. the company ID
+        // was accidentally stored as TT_Name during an older login session).
+        if (me.ownerName && me.ownerName.trim()) {
+          var _storedName = localStorage.getItem('TT_Name') || '';
+          if (!_storedName || /^\d+$/.test(_storedName.trim())) {
+            localStorage.setItem('TT_Name', me.ownerName.trim());
+            // Update the live display labels without reloading
+            $("#lblName1").text(me.ownerName.trim());
+            $("#lblName2").text(me.ownerName.trim());
+            $("#tt-modal-dispatcher").text("Dispatcher: " + me.ownerName.trim());
+          }
+        }
       })
       .catch(function() { /* network error — continue with cached value */ });
 
