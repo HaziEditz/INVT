@@ -407,6 +407,34 @@ const LT_JOB_IDS    = new Set();
 const AWAY_LOCKED = {};
 const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
 
+// Tracks drivers whose Away was silently ignored because they had an Assigned job
+// (usually from Firebase onDisconnect firing on an app crash).
+// When they later send Available we know it is a reconnect, NOT a deliberate cancel.
+// Each entry: { ts: <epoch ms> }  — auto-expires after 15 minutes.
+const DRIVER_RECONNECT_PENDING = {};
+const DRIVER_RECONNECT_TTL_MS  = 15 * 60 * 1000;
+function markDriverReconnectPending(driverId) {
+  DRIVER_RECONNECT_PENDING[String(driverId)] = { ts: Date.now() };
+}
+function consumeDriverReconnectPending(driverId) {
+  const key = String(driverId);
+  const entry = DRIVER_RECONNECT_PENDING[key];
+  if (!entry) return false;
+  if (Date.now() - entry.ts > DRIVER_RECONNECT_TTL_MS) {
+    delete DRIVER_RECONNECT_PENDING[key];
+    return false; // expired
+  }
+  delete DRIVER_RECONNECT_PENDING[key];
+  return true;
+}
+function isDriverReconnectPending(driverId) {
+  const key = String(driverId);
+  const entry = DRIVER_RECONNECT_PENDING[key];
+  if (!entry) return false;
+  if (Date.now() - entry.ts > DRIVER_RECONNECT_TTL_MS) { delete DRIVER_RECONNECT_PENDING[key]; return false; }
+  return true;
+}
+
 // Suspended drivers — removed from live board but restorable by the dispatcher.
 // Each entry: { driverId, vehicleId, drivername, vehiclenumber, vehicletype, zonename, suspendedAt, suspendedUntil }
 // suspendedUntil: ISO string — when null/undefined the suspension is indefinite.
@@ -1879,6 +1907,58 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /api/driver/myjob — driver app startup recovery ────────────────────
+  // Called by the driver app on launch to check if they have an active/assigned job
+  // waiting from before a crash.  Returns the job details if found, or { found: false }.
+  // Auth: X-Admin-Key header or ?adminKey= query param.
+  if (urlPath === '/api/driver/myjob' && req.method === 'GET') {
+    const _dmjQs = new URL('http://x' + req.url).searchParams;
+    const _dmjKey = (req.headers['x-admin-key'] || _dmjQs.get('adminKey') || '').toString().trim();
+    if (_dmjKey !== ADMIN_KEY) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorised' }));
+      return;
+    }
+    const _dmjDriverId  = (_dmjQs.get('driverId') || _dmjQs.get('driverid') || '').toString().trim();
+    const _dmjVehicleId = (_dmjQs.get('vehicleId') || _dmjQs.get('vehicleid') || '').toString().trim();
+    const _dmjCompanyId = (_dmjQs.get('companyId') || _dmjQs.get('companyid') || '').toString().trim();
+    if (!_dmjDriverId && !_dmjVehicleId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'driverId or vehicleId is required' }));
+      return;
+    }
+    const ACTIVE_ST = new Set(['Offered','Assigned','Active','Picking','Arrived']);
+    const _dmjJob = jobStore.find(j => {
+      const companyMatch = !_dmjCompanyId || String(j.companyId || j.CompanyId || '') === _dmjCompanyId;
+      const driverMatch  = (String(j.DriverId) === _dmjDriverId || String(j.VehicleId) === _dmjDriverId ||
+                            String(j.DriverId) === _dmjVehicleId || String(j.VehicleId) === _dmjVehicleId);
+      return companyMatch && driverMatch && ACTIVE_ST.has(j.BookingStatus);
+    });
+    if (_dmjJob) {
+      // Driver has a live job — clear any stale reconnect flag so it doesn't interfere
+      consumeDriverReconnectPending(_dmjDriverId || _dmjVehicleId);
+      console.log(`200: GET /api/driver/myjob — driver ${_dmjDriverId||_dmjVehicleId} has job #${_dmjJob.Id} (${_dmjJob.BookingStatus})`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        found:        true,
+        jobId:        _dmjJob.Id,
+        status:       _dmjJob.BookingStatus,
+        pickAddress:  _dmjJob.PickAddress  || '',
+        dropAddress:  _dmjJob.DropAddress  || '',
+        passengerName: _dmjJob.Name || _dmjJob.passengername || '',
+        bookingDateTime: _dmjJob.BookingDateTime || '',
+        passengers:   _dmjJob.Passengers || 1,
+        fare:         _dmjJob.Fare || _dmjJob.TotalFare || 0,
+        paymentType:  _dmjJob.PaymentType || _dmjJob.paymentType || 'cash',
+      }));
+    } else {
+      console.log(`200: GET /api/driver/myjob — driver ${_dmjDriverId||_dmjVehicleId} has no active job`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ found: false }));
+    }
+    return;
+  }
+
   // ── DataManager POST routing ────────────────────────────────────────────────
   if (req.method === 'POST' && urlPath.includes('/DataManager/')) {
     const body = await readBody(req);
@@ -2751,9 +2831,10 @@ const server = http.createServer(async (req, res) => {
           return String(j.DriverId) === driverId || String(j.VehicleId) === driverId ||
                  (vid && (String(j.VehicleNo) === vid || String(j.VehicleId) === vid || String(j.DriverId) === vid));
         }
-        let _dscQueueNo = null;      // new queue number to return to client for Firebase write
+        let _dscQueueNo = null;         // new queue number to return to client for Firebase write
         let _dscDriverCancelled = null; // set when driver cancels an accepted/assigned job
         let _dscDriverRecalled  = null; // set when driver recalls (job returned to Pending)
+        let _dscReconnectJob    = null; // set when crash-reconnect is detected — job kept Assigned
         if (driverId && newStatus) {
           // ── Suspension gate ───────────────────────────────────────────────────
           const _suspCheck = SUSPENDED_DRIVERS.find(s =>
@@ -2805,7 +2886,11 @@ const server = http.createServer(async (req, res) => {
               matchesDriver(j) && (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Picking' || j.BookingStatus === 'Active')
             );
             if (_staleAwayCheck) {
-              console.log(`  [DriverStatusChanged/DP] driver ${driverId} Away IGNORED — driver has an active/assigned job (stale Fix-#106 ack)`);
+              // Away from a crash/onDisconnect while driver still has an Assigned job.
+              // Record this so when they reconnect and send Available we know NOT to
+              // treat it as a deliberate cancel and wipe the job.
+              markDriverReconnectPending(driverId);
+              console.log(`  [DriverStatusChanged/DP] driver ${driverId} Away IGNORED — driver has an active/assigned job (crash-reconnect pending flagged)`);
               objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], staleAway: true });
               return;
             }
@@ -3017,9 +3102,28 @@ const server = http.createServer(async (req, res) => {
                   // Treating this as a recall would incorrectly cancel an active assignment,
                   // so we skip recall/cancel detection entirely.
                   console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (${prev}) zone-only update — skipping recall detection`);
+                } else if (consumeDriverReconnectPending(driverId)) {
+                  // Driver's Away was previously ignored (crash/onDisconnect pattern).
+                  // Their Available now is a reconnect, NOT a deliberate cancel.
+                  // Keep the job Assigned so it shows up when the driver app restarts.
+                  const _zdRecon = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+                  if (_zdRecon) {
+                    // Mark the driver as Picking so dispatchers can see they have a live job.
+                    _zdRecon.vehiclestatus = 'Picking';
+                  }
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (${prev}) PROTECTED — driver ${driverId} reconnected after crash (reconnect-pending flag consumed)`);
+                  // Return the job details in the response so the driver app can restore the screen.
+                  _dscReconnectJob = {
+                    jobId:       job.Id,
+                    status:      job.BookingStatus,
+                    pickAddress: job.PickAddress  || '',
+                    dropAddress: job.DropAddress  || '',
+                    passengerName: job.Name || job.passengername || '',
+                    driverId,
+                  };
                 } else {
-                  // Driver went Available while still Assigned/Picking (no other Active job).
-                  // This happens when the driver recalls/cancels via the app (status flip, no joback).
+                  // Driver went Available while still Assigned/Picking (no other Active job)
+                  // and no crash-reconnect flag set → treat as deliberate driver recall/cancel.
                   const _zdRec = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
                   if (_zdRec) {
                     _dscQueueNo = calcRestoredQueue(driverId, _zdRec.zonename || '');
@@ -3111,7 +3215,7 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null, driverRecalled: _dscDriverRecalled || null, zoneOnly: zoneOnly || false, completedJob: _dscCompletedJob || null });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null, driverRecalled: _dscDriverRecalled || null, zoneOnly: zoneOnly || false, completedJob: _dscCompletedJob || null, reconnectJob: _dscReconnectJob || null });
 
       } else if (action === '[QuickSetNoOne]') {
         // Quick dispatcher action: mark job as "No One" from card dropdown.
