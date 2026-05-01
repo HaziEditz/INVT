@@ -2220,7 +2220,7 @@ const server = http.createServer(async (req, res) => {
     // ── /DataSelectorRide — booking write operations ────────────────────────
     if (urlPath.includes('/DataSelectorRide')) {
       if (action === 'InsertBookingv4') {
-        const newId = newJobId();
+        const newId = newCompanyJobId(sessionCompanyId || '000');
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
@@ -2340,7 +2340,7 @@ const server = http.createServer(async (req, res) => {
     // ── /DataProcessor — all write operations ──────────────────────────────
     if (urlPath.includes('/DataProcessor')) {
       if (action === 'InsertBookingv4' || action === '[AddBookingConsole]') {
-        const newId = newJobId();
+        const newId = newCompanyJobId(sessionCompanyId || '000');
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
@@ -3071,7 +3071,7 @@ const server = http.createServer(async (req, res) => {
               ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
             if (!hasLive) {
-              const hailId = newJobId();
+              const hailId = newCompanyJobId(sessionCompanyId || '000');
               const now = nowNZ() + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               // Resolve driver name — prefer param, fall back to ZONE_DRIVERS
@@ -4538,7 +4538,7 @@ const server = http.createServer(async (req, res) => {
               ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
             if (!hasLive) {
-              const hailId = newJobId();
+              const hailId = newCompanyJobId(sessionCompanyId || '000');
               const now = nowNZ() + '.';
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
               // Resolve driver name — prefer param, fall back to ZONE_DRIVERS
