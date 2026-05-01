@@ -2868,14 +2868,17 @@ $(document).ready(function() {
                                   title="Click to copy your Company ID">
                                 <span class="bw-chip-label">Company ID</span><span id="lblCompanyId">—</span>
                             </span>
+                            <span class="bw-chip-divider"></span>
                             <span class="bw-chip bw-chip--company">
                                 <span class="bw-chip-label">Company</span><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
                             </span>
+                            <span class="bw-chip-divider"></span>
                             <span class="bw-chip bw-chip--dispatcher">
-                                <span class="bw-chip-label">Dispatcher</span><label id="lblName1" style="margin:0;"></label><span id="bwChangeNameBtn" title="Change dispatcher name" onclick="(function(){var n=prompt('Enter your dispatcher name:',localStorage.getItem('TT_Name')||'');if(n&&n.trim()){n=n.trim();localStorage.setItem('TT_Name',n);document.getElementById('lblName1').textContent=n;var l2=document.getElementById('lblName2');if(l2)l2.textContent=n;var m=document.getElementById('tt-modal-dispatcher');if(m)m.textContent='Dispatcher: '+n;}})()" style="cursor:pointer;margin-left:5px;font-size:9px;color:#aaa;font-weight:400;letter-spacing:0.3px;text-decoration:underline;user-select:none;">change</span>
+                                <span class="bw-chip-label">Dispatcher</span><label id="lblName1" style="margin:0;"></label><span id="bwChangeNameBtn" title="Change dispatcher name" onclick="(function(){var n=prompt('Enter your dispatcher name:',localStorage.getItem('TT_Name')||'');if(n&&n.trim()){n=n.trim();localStorage.setItem('TT_Name',n);document.getElementById('lblName1').textContent=n;var l2=document.getElementById('lblName2');if(l2)l2.textContent=n;var m=document.getElementById('tt-modal-dispatcher');if(m)m.textContent='Dispatcher: '+n;}})()" style="cursor:pointer;margin-left:6px;font-size:9px;color:rgba(255,255,255,0.35);font-weight:500;letter-spacing:0.3px;text-decoration:underline;user-select:none;">change</span>
                             </span>
+                            <span class="bw-chip-divider"></span>
                             <span class="bw-chip bw-chip--platform">
-                                <i class="fa fa-globe" style="font-size:9px; margin-right:5px; opacity:0.7;"></i>Operated by <strong style="margin-left:3px;">bookawaka.com</strong>
+                                <i class="fa fa-globe" style="font-size:9px; margin-right:5px; opacity:0.6;"></i>Operated by <strong style="margin-left:3px;">bookawaka.com</strong>
                             </span>
                         </div>
 
