@@ -936,19 +936,101 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const accounts = registrationStore.filter(r =>
         ['approved','trial','active','grace','deactivated'].includes(r.status)
-      ).map(r => ({
-        id: r.id, companyId: r.companyId, company: r.company, name: r.name,
-        email: r.email, phone: r.phone, country: r.country, area: r.area,
-        fleetSize: r.fleetSize, status: r.status,
-        serviceType: r.serviceType || 'taxi',
-        plan: r.plan || 'free_trial', planLabel: r.planLabel || 'Free Trial',
-        planPrice: r.planPrice || 0, trialDays: r.trialDays || 0,
-        approvedAt: r.approvedAt, trialStart: r.trialStart, trialEnd: r.trialEnd,
-        graceEnd: r.graceEnd,
-        daysLeft: r.trialEnd ? Math.max(0, Math.ceil((r.trialEnd - now) / 86400000)) : null,
-      }));
+      ).map(r => {
+        const cid         = r.companyId;
+        const activeJobs  = jobStore.filter(j => j.companyId === cid);
+        const closedJobs  = closedJobStore.filter(j => j.companyId === cid);
+        const forceDone   = closedJobs.filter(j => (j.CompletedBy || '').includes('force complete'));
+        const offlineDone = closedJobs.filter(j => (j.CompletedBy || '').includes('offline'));
+        const allClosed   = closedJobs.sort((a,b) => (b.CompletedAt || b.ClosedAt || 0) - (a.CompletedAt || a.ClosedAt || 0));
+        const lastJob     = allClosed[0];
+        return {
+          id: r.id, companyId: cid, company: r.company, name: r.name,
+          email: r.email, phone: r.phone, country: r.country, area: r.area,
+          fleetSize: r.fleetSize, status: r.status,
+          serviceType: r.serviceType || 'taxi',
+          plan: r.plan || 'free_trial', planLabel: r.planLabel || 'Free Trial',
+          planPrice: r.planPrice || 0, trialDays: r.trialDays || 0,
+          approvedAt: r.approvedAt, trialStart: r.trialStart, trialEnd: r.trialEnd,
+          graceEnd: r.graceEnd,
+          daysLeft: r.trialEnd ? Math.max(0, Math.ceil((r.trialEnd - now) / 86400000)) : null,
+          // ── Job stats (new) ───────────────────────────────────────────────
+          stats: {
+            activeJobs:       activeJobs.length,
+            closedJobs:       closedJobs.length,
+            forceCompleted:   forceDone.length,
+            offlineSynced:    offlineDone.length,
+            lastJobAt:        lastJob ? (lastJob.CompletedAt || lastJob.ClosedAt || null) : null,
+            lastJobId:        lastJob ? lastJob.Id : null,
+          }
+        };
+      });
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(accounts));
+      return;
+    }
+
+    // GET /admin/jobs/:companyId — full job history visible to super admin
+    // Returns active + closed jobs for the company with dispatcher name, CompletedBy flag,
+    // and highlights for force-complete and offline-synced trips.
+    const _adminJobsMatch = urlPath.match(/^\/admin\/jobs\/([^/]+)$/);
+    if (_adminJobsMatch && req.method === 'GET') {
+      const _ajCid    = _adminJobsMatch[1];
+      const _qs       = new URL('http://x' + req.url).searchParams;
+      const _limit    = Math.min(parseInt(_qs.get('limit') || '200', 10), 500);
+      const _status   = (_qs.get('status') || '').toLowerCase(); // 'active','closed','force','offline'
+      const _since    = parseInt(_qs.get('since') || '0', 10);   // Unix ms — filter by ClosedAt/CompletedAt
+
+      let _active = jobStore.filter(j => j.companyId === _ajCid)
+        .map(j => ({ ...j, _jobGroup: 'active' }));
+      let _closed = closedJobStore.filter(j => j.companyId === _ajCid)
+        .map(j => {
+          const _cb = (j.CompletedBy || '').toLowerCase();
+          return {
+            ...j,
+            _jobGroup:       _cb.includes('force complete') ? 'force_complete'
+                           : _cb.includes('offline')        ? 'offline_sync'
+                           : 'closed',
+          };
+        });
+
+      if (_since > 0) {
+        _active = _active.filter(j => (j.CreatedAt || 0) >= _since);
+        _closed = _closed.filter(j => (j.CompletedAt || j.ClosedAt || 0) >= _since);
+      }
+
+      let _all = [..._active, ..._closed];
+      if (_status === 'active')   _all = _active;
+      if (_status === 'closed')   _all = _closed;
+      if (_status === 'force')    _all = _closed.filter(j => j._jobGroup === 'force_complete');
+      if (_status === 'offline')  _all = _closed.filter(j => j._jobGroup === 'offline_sync');
+
+      // Sort newest first, cap at limit
+      _all.sort((a, b) => (b.CompletedAt || b.ClosedAt || b.CreatedAt || 0)
+                         - (a.CompletedAt || a.ClosedAt || a.CreatedAt || 0));
+      _all = _all.slice(0, _limit);
+
+      // Return a concise summary per job — keep it readable for the admin
+      const _summary = _all.map(j => ({
+        id:            j.Id,
+        status:        j.BookingStatus,
+        group:         j._jobGroup,
+        passenger:     ((j.UserFName || '') + ' ' + (j.UserLName || '')).trim() || j.Name || '',
+        phone:         j.PhoneNo || '',
+        pickup:        j.PickAddress || '',
+        drop:          j.DropAddress || '',
+        fare:          j.TotalFare   || j.Fare || 0,
+        payment:       j.PaymentMethod || j.PaymentType || '',
+        dispatcher:    j.DispatcherName || '',
+        driver:        j.UserFName || j.drivername || '',
+        completedBy:   j.CompletedBy || '',
+        notes:         j.DispatchNotes || j.Notes || '',
+        createdAt:     j.CreatedAt  || j.BookingDateTime || null,
+        completedAt:   j.CompletedAt || j.ClosedAt || null,
+      }));
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ companyId: _ajCid, total: _summary.length, jobs: _summary }));
       return;
     }
 
