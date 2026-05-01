@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260501k" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260501m" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -501,7 +501,7 @@
 
                                                                  <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -900,7 +900,7 @@
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
                                                                 </div>
@@ -3471,7 +3471,7 @@ $(document).ready(function() {
 
                                                                  <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -3515,16 +3515,7 @@ $(document).ready(function() {
  
                                                                 </div>
                                                                 
-                                                                <div id="spxa{{value.Id}}" style="position: absolute; right:  0px; top:7px;  z-index:1;">
-                                                                 <select  id="spx{{value.Id}}" class="form-control"      onclick="showwxx()" onchange="quickCardChange(this)" style="width: 100px; height:30px; font-size:14px;">
-                                                                    <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0"  data-doo="0" data-is-noone="true">No One </option>
-                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx' , value.Id,'0')" data-zoneq="0"  data-doo="0">Select Driver</option>
-
-                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid, 'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)"  ng-selected="drivi.driverid ==  checkvalue('spx' , value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}"  data-doo="{{drivi.VehicleId}}"> {{drivi.vehiclenumber}}/{{drivi.vehicletype}}  </option>
-                                                                </select>
- 
-                                                                 
-                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
 
@@ -3563,6 +3554,13 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
+                                                                </span>
+                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 4px;">
+                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" onchange="quickCardChange(this)" style="height:26px; font-size:11px; padding:1px 4px;">
+                                                                    <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
+                                                                    <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
+                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
+                                                                  </select>
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
@@ -3644,7 +3642,7 @@ $(document).ready(function() {
 
                                                                  <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
@@ -3688,17 +3686,7 @@ $(document).ready(function() {
  
                                                                 </div>
                                                                 
-                                                                <div id="spxa{{value.Id}}" style="position: absolute; right:  0px;">
-                                                                 <select id="spx{{value.Id}}" class="form-control"      onclick="showwxx()" onchange="quickCardChange(this)" style="width: 100px; height:30px; font-size:14px;">
-                                                                    <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0"  data-doo="0" data-is-noone="true">No One </option>
-                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx' , value.Id,'0')" data-zoneq="0"  data-doo="0" >Select Driver</option>
-                                                                      
-                                                                    <option ng-repeat="drivia in driverdatarealx  " ng-show="checkofferjob(drivia.driverid) && checkDriverSvc(drivia.driverid, 'taxi')"  ng-if="drivia.vehiclestatus == 'Available'  && true == checkjobvehile(value.VehicleType, drivia.vehicletype)" ng-selected="drivia.driverid ==  checkvalue('spx' , value.Id,'0')" value="{{drivia.driverid}}" data-zoneq="{{drivia.zonequeue}}"  data-doo="{{drivia.VehicleId}}">  {{drivia.vehiclenumber}}/{{drivia.vehicletype}}  </option>
-                                                                </select>
-
-
-                                                                
-                                                                </div><span class=" label label-pill label-success mt-2" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
 
@@ -3737,6 +3725,13 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
+                                                                </span>
+                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 4px;">
+                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" onchange="quickCardChange(this)" style="height:26px; font-size:11px; padding:1px 4px;">
+                                                                    <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
+                                                                    <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
+                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
+                                                                  </select>
                                                                 </span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
@@ -4131,7 +4126,7 @@ $(document).ready(function() {
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
                                                                 </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
                                                                     <span class="label label-pill label-danger mt-2">V.Job</span>
                                                                 </div>
@@ -17441,14 +17436,19 @@ $(document).ready(function() {
                     if (noOneFlash) return 'button-glow-amber';
                     return '';
                 }
-                if (db <= 0 || !BookingDateTime) return '';
+                // ASAP jobs always need a driver → flash red card immediately
+                if (db <= 0) {
+                    $scope.playAudio();
+                    return 'button-glow';
+                }
+                if (!BookingDateTime) return '';
                 var clean = BookingDateTime.replace(/\.$/, '').trim();
                 var bdt = new Date(clean);
                 if (isNaN(bdt.getTime())) return '';
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
-                // Fire when within dispatch window (e.g. 10 min before pickup) up to 60 min overdue
-                if (minsUntil <= db && minsUntil >= -60) {
-                    $scope.playAudio();
+                // Flash as soon as dispatch window opens; keep flashing until job is sent (no cutoff)
+                if (minsUntil <= db) {
+                    if (minsUntil >= -60) $scope.playAudio(); // audio only for first 60 min
                     return 'button-glow';
                 }
                 return '';
@@ -17781,14 +17781,12 @@ $(document).ready(function() {
                 return $scope.getCardStyle(BookingDateTime, DispatchTimebefore).background || '#fff';
             };
             $scope.getCardStyle = function (BookingDateTime, DispatchTimebefore) {
-                // ASAP jobs: light red at 0.30 opacity — clearly urgent
-                var ASAP_BG   = 'rgba(239, 68, 68, 0.30)';
+                // Solid light colours so dark text is always readable
+                var ASAP_BG   = '#fecaca'; // light red — ASAP or overdue pre-book
                 var ASAP_BAR  = '4px solid #ef4444';
-                // Pre-book (window not yet open): solid visible blue — calm, future booking
-                var BOOK_BG   = '#dbeafe';
+                var BOOK_BG   = '#dbeafe'; // light blue — future pre-book (calm/scheduled)
                 var BOOK_BAR  = '4px solid #3b82f6';
-                // Pre-book dispatch window NOW open: same red family as ASAP but stronger
-                var OPEN_BG   = 'rgba(239, 68, 68, 0.42)';
+                var OPEN_BG   = '#fca5a5'; // medium-light red — dispatch window just opened
                 var OPEN_BAR  = '4px solid #dc2626';
 
                 if (!BookingDateTime) {
@@ -17803,14 +17801,15 @@ $(document).ready(function() {
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
 
                 if (db === 0) {
-                    // ASAP job — always light red
+                    // ASAP job — light red
                     return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
                 if (minsUntil <= db) {
-                    // Pre-book: dispatch window now open — clearly red (action needed)
+                    // Dispatch window open — if pickup has PASSED, treat as full ASAP
+                    if (minsUntil < 0) return { background: ASAP_BG, 'border-left': ASAP_BAR };
                     return { background: OPEN_BG, 'border-left': OPEN_BAR };
                 }
-                // Pre-book: window not yet open — clearly blue (scheduled / future)
+                // Future pre-book — blue
                 return { background: BOOK_BG, 'border-left': BOOK_BAR };
             };
             $scope.JobMinstime = 0;

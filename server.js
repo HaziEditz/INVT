@@ -3909,22 +3909,38 @@ const server = http.createServer(async (req, res) => {
           }
           return true;
         });
-        // Priority order: (1) ASAP jobs first, (2) pre-book jobs sorted by when their
-        // dispatch window opened (earlier = higher urgency).
+        // Priority order:
+        //   1. ASAP jobs (DispatchTimebefore=0) AND overdue pre-books (pickup time has passed)
+        //   2. Future pre-books sorted by how soon their dispatch window opens
+        // Once a pre-book's pickup time passes it is treated identically to an ASAP job.
+        const _nowMs = Date.now();
+        function _isEffectivelyASAP(j) {
+          const db = parseInt(j.DispatchTimebefore || '0') || 0;
+          if (db === 0) return true;
+          const ref = (j.Pickingtime || j.BookingDateTime || '').replace(/\.$/, '').trim();
+          if (!ref) return true;
+          const pickupMs = new Date(ref).getTime();
+          return !isNaN(pickupMs) && _nowMs > pickupMs; // pickup passed → treat as ASAP
+        }
         autoJobs.sort((a, b) => {
+          const aASAP = _isEffectivelyASAP(a);
+          const bASAP = _isEffectivelyASAP(b);
+          if (aASAP && !bASAP) return -1;
+          if (!aASAP && bASAP) return 1;
           const da = parseInt(a.DispatchTimebefore || '0') || 0;
           const db2 = parseInt(b.DispatchTimebefore || '0') || 0;
-          if (da === 0 && db2 > 0) return -1; // ASAP before pre-book
-          if (db2 === 0 && da > 0) return 1;
-          if (da > 0 && db2 > 0) {
-            // Both pre-book — sort by dispatch-window-open time (earliest first)
-            const refA = (a.Pickingtime || a.BookingDateTime || '').replace(/\.$/, '').trim();
-            const refB = (b.Pickingtime || b.BookingDateTime || '').replace(/\.$/, '').trim();
-            const winA = refA ? new Date(refA).getTime() - da * 60000 : Infinity;
-            const winB = refB ? new Date(refB).getTime() - db2 * 60000 : Infinity;
-            return winA - winB;
+          const refA = (a.Pickingtime || a.BookingDateTime || '').replace(/\.$/, '').trim();
+          const refB = (b.Pickingtime || b.BookingDateTime || '').replace(/\.$/, '').trim();
+          if (aASAP && bASAP) {
+            // Both effectively ASAP — sort by pickup time ascending (most overdue first)
+            const tA = refA ? new Date(refA).getTime() : _nowMs;
+            const tB = refB ? new Date(refB).getTime() : _nowMs;
+            return tA - tB;
           }
-          return 0;
+          // Both future pre-books — sort by dispatch window open time (earliest first)
+          const winA = refA ? new Date(refA).getTime() - da * 60000 : Infinity;
+          const winB = refB ? new Date(refB).getTime() - db2 * 60000 : Infinity;
+          return winA - winB;
         });
         const dt1 = autoJobs.map(j => ({
           Id: j.Id,

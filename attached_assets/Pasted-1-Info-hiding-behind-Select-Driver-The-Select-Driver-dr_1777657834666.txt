@@ -1,0 +1,23 @@
+1. Info hiding behind Select Driver
+The "Select Driver" dropdown is position: absolute; right: 0 inside the card, so it floats over the card text to the right. I'd fix it by adding right padding (about 155px) to the card content row so text wraps before reaching the dropdown area.
+
+2. Card text colour
+At the moment card text uses var(--bw-text1) which is near-white in dark mode. Since the card backgrounds are now light colours (blue, pink), all card text should just be a fixed dark colour (#1a1a1a) so it's always readable regardless of mode — not just in light mode.
+
+3. "Pickup" tab
+I'd need to check the tab HTML to answer precisely — can you tell me which tab panel you mean? Is it a tab in the main dispatch column or somewhere else in the console?
+
+4. The ▶ 03:33 arrow
+That's the dispatch-window countdown — it shows how long until the pre-booked job's dispatch window opens (i.e. when auto-dispatch will fire). If it's negative or red it means the window has already opened / is overdue. The arrow icon (fa-send) was intentional to indicate "dispatch at this time". If this is confusing, I can relabel it — e.g. "Dispatch in 03:33" or "Window opens 03:33".
+
+5 & 6. Later time wrong / no time showing
+The card currently shows datecreate(Pickingtime, DispatchTimebefore) which calculates a label. For pre-booked jobs the actual pickup time the dispatcher entered (e.g. "Pick up at 4:30 PM") may not be displayed clearly as a clock time. I'd add a plain readable timestamp showing the booked pickup time.
+
+7. Pending + Broadcast / 99 min overdue / ASAP first
+
+Pending = job is waiting, no driver assigned yet
+Broadcast = job has been sent to all available drivers (auto-dispatch fired) but none accepted yet
+99 min overdue = the dispatch window opened 99 minutes ago and it's still unassigned — that's the red urgency indicator
+ASAP first when driver logs in = yes, that's intentional. The auto-dispatch queue sorts ASAP jobs before pre-booked jobs so a newly logged-in driver gets urgent work first. This is correct behaviour.
+8. Smaller "Any Vehicle" tab and "Pre-booked" tab
+These are tab labels in the booking/dispatch UI. I'd reduce their font size and padding so they're less prominent and take up less space.
