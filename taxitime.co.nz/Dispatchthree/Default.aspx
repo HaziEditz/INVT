@@ -3863,6 +3863,12 @@ $(document).ready(function() {
                                                                     <span class="label label-pill mt-2" style="background:#e67e22;color:#fff;cursor:pointer;" ng-click="clearStuckJob(avalue.Id, avalue.DriverId)" title="Force job back to Unassigned queue">
                                                                         <i class="fa fa-undo"></i> Unassign
                                                                     </span>
+                                                                    <span class="label label-pill mt-2" style="background:#27ae60;color:#fff;cursor:pointer;" ng-click="forceCompleteJob(avalue.Id, avalue.DriverId)" title="Mark as completed (use for offline trips that didn't auto-sync)">
+                                                                        <i class="fa fa-check-circle"></i> Force Complete
+                                                                    </span>
+                                                                    <span ng-if="driverIsOffline(avalue.DriverId)" style="display:inline-block;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:4px;" title="Driver is offline — last seen: {{driverLastSeenAgo(avalue.DriverId)}}">
+                                                                        <i class="fa fa-wifi"></i> OFFLINE {{driverLastSeenAgo(avalue.DriverId)}}
+                                                                    </span>
 
                                                                     
                                                                 </div>
@@ -4307,6 +4313,7 @@ $(document).ready(function() {
                                                <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                          {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}}
+                                                         <span ng-if="driverIsOffline(driverz.driverid)" title="Last seen: {{driverLastSeenAgo(driverz.driverid)}}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;">OFFLINE</span>
                                                       <i class='fa fa-circle'  ' style='float:right; color:{{timercheck(driverz.time ,driverz)}}' aria-hidden='true'>
 
                                                       </i>
@@ -6706,6 +6713,11 @@ $(document).ready(function() {
             var _sharedKey = String(driverData.PlayerId || driverData.driverid || '');
             if (_sharedKey) window._bwFetchDriverSharedStatus(_sharedKey);
         }
+        // Attach the event log listener so offline status flushes are processed in order
+        if (typeof window._attachDriverEventLog === 'function') {
+            var _evDrvId = String(driverData.driverid || driverData.PlayerId || '');
+            if (_evDrvId) window._attachDriverEventLog(_evDrvId);
+        }
     });
 
     // this event will be triggered on location change of any car...
@@ -7185,6 +7197,91 @@ $(document).ready(function() {
             else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
         }, 30000); // 30 s — covers screen-off reconnects (10-30s); dt6 poll handles sign-outs within its own 30-s cycle
     });
+    // ── Firebase presence listener ─────────────────────────────────────────
+    // Driver app writes onDisconnect() to /presence/{cid}/{driverId}
+    // so the dispatcher can see OFFLINE status in real time.
+    if (SomeSession2) {
+        var _presRef = DbRef.ref('presence/' + SomeSession2);
+        function _applyPresence(snap) {
+            var _drvId = String(snap.key || '');
+            var _pd    = snap.val() || {};
+            var _sc    = angular.element(document.getElementById('myangular')).scope();
+            if (!_sc) return;
+            if (!_sc.driverPresence) _sc.driverPresence = {};
+            _sc.driverPresence[_drvId] = {
+                online:   _pd.online !== false,
+                lastSeen: _pd.lastSeen || Date.now()
+            };
+            if (!_sc.$$phase) _sc.$digest();
+        }
+        _presRef.on('child_added',   _applyPresence);
+        _presRef.on('child_changed', _applyPresence);
+    }
+
+    // ── Firebase driver event log listener ─────────────────────────────────
+    // Driver app uses push() to write status events to:
+    //   /driverEvents/{cid}/{driverId}/-key: {status, timestamp, jobId}
+    // push() keys are chronological so events always arrive in order,
+    // even after an offline reconnect when the queued writes flush.
+    var _evLogListeners = {}; // track attached driverIds
+    window._attachDriverEventLog = function(driverId) {
+        var _drvStr = String(driverId || '');
+        if (!_drvStr || _evLogListeners[_drvStr] || !SomeSession2) return;
+        _evLogListeners[_drvStr] = true;
+        var _evRef = DbRef.ref('driverEvents/' + SomeSession2 + '/' + _drvStr);
+        _evRef.orderByKey().limitToLast(30).on('child_added', function(evSnap) {
+            var _ev       = evSnap.val() || {};
+            var _evStatus = String(_ev.status || _ev.vehiclestatus || '');
+            var _evTs     = _ev.timestamp ? new Date(_ev.timestamp).getTime() : 0;
+            if (!_evStatus) return;
+            // Skip events older than 2 hours (history replay on page load)
+            if (_evTs > 0 && (Date.now() - _evTs) > 7200000) return;
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            if (!_sc || !_sc.driverdatarealx) return;
+            var _drvEntry = null, _drvIdx = -1;
+            for (var _i = 0; _i < _sc.driverdatarealx.length; _i++) {
+                var _d = _sc.driverdatarealx[_i];
+                if (String(_d.driverid) === _drvStr || String(_d.VehicleId) === _drvStr) {
+                    _drvEntry = _d; _drvIdx = _i; break;
+                }
+            }
+            if (!_drvEntry || _drvEntry.vehiclestatus === _evStatus) return;
+            // Apply the status change to scope immediately
+            _sc.driverdatarealx[_drvIdx] = Object.assign({}, _drvEntry, { vehiclestatus: _evStatus });
+            _sc.driverlist = _sc.driverdatarealx;
+            if (typeof _sc.zonetablez === 'function') _sc.zonetablez();
+            if (!_sc.$$phase) _sc.$digest();
+            // Tell the server about the status change (send as DriverStatusChanged)
+            jQuery.ajax({
+                type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                data: JSON.stringify({ data: [
+                    { name: 'driverid',      Value: _drvStr },
+                    { name: 'newstatus',     Value: _evStatus },
+                    { name: 'vehiclenumber', Value: String(_drvEntry.vehiclenumber || '') },
+                    { name: 'drivername',    Value: String(_drvEntry.drivername   || '') },
+                    { name: 'lat',           Value: String(_drvEntry.lat || '') },
+                    { name: 'lng',           Value: String(_drvEntry.lng || '') },
+                    { name: 'zonename',      Value: String(_drvEntry.zonename  || '') },
+                    { name: 'zonequeue',     Value: String(_drvEntry.zonequeue || '0') }
+                ], action: '[DriverStatusChanged]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                success: function(_r) {
+                    try {
+                        var _rd = (_r && _r.d) ? JSON.parse(_r.d) : null;
+                        if (_rd && _rd.completedJob) {
+                            var _csc = angular.element(document.getElementById('myangular')).scope();
+                            if (_csc) {
+                                if (typeof _csc.AssignedJobs  === 'function') _csc.AssignedJobs();
+                                if (typeof _csc.ActiveJobsdata === 'function') _csc.ActiveJobsdata();
+                                if (typeof _csc.getjobs       === 'function') _csc.getjobs();
+                            }
+                        }
+                    } catch(e) {}
+                }
+            });
+        });
+    };
+
     } // end if (user)
     }); // end onAuthStateChanged
      $("#MoveToFront").click(function () {
@@ -10059,6 +10156,28 @@ $(document).ready(function() {
         $scope.driverdatarealx = [];
         window._driverDataRealx = $scope.driverdatarealx; // global ref for _watchBusyDriverAcceptance
 
+        // ── Driver presence map (populated by Firebase /presence/{cid}/{drvId}) ──
+        // { online: bool, lastSeen: timestamp_ms }
+        $scope.driverPresence = {};
+
+        $scope.driverIsOffline = function(driverId) {
+            if (!driverId) return false;
+            var _p = $scope.driverPresence[String(driverId)];
+            if (!_p) return false;
+            return _p.online === false;
+        };
+
+        $scope.driverLastSeenAgo = function(driverId) {
+            if (!driverId) return '';
+            var _p = $scope.driverPresence[String(driverId)];
+            if (!_p || !_p.lastSeen) return '';
+            var _diffMs = Date.now() - _p.lastSeen;
+            var _diffMin = Math.floor(_diffMs / 60000);
+            if (_diffMin < 1)  return 'just now';
+            if (_diffMin < 60) return _diffMin + 'm ago';
+            return Math.floor(_diffMin / 60) + 'h ' + (_diffMin % 60) + 'm ago';
+        };
+
         $scope.timercheck = function(time , id){
             var date1 = new Date(time ); 
             var date2 = new Date(); 
@@ -11707,6 +11826,52 @@ $(document).ready(function() {
                     toastr['success']('Job #' + jobId + ' returned to Unassigned queue', 'Done');
                 },
                 error: function() { toastr['error']('Could not unassign job #' + jobId, 'Error'); }
+            });
+        };
+
+        $scope.forceCompleteJob = function(jobId, driverId) {
+            var _fcFare    = (prompt('Enter fare amount collected (leave blank if unknown):', '') || '').trim();
+            var _fcPayment = (prompt('Payment method (Cash / Card / Account):', 'Cash') || 'Cash').trim();
+            var _fcNotes   = (prompt('Notes (reason / reference):', 'Offline trip — manual completion') || '').trim();
+            if (!confirm('Mark job #' + jobId + ' as COMPLETED?\nFare: ' + (_fcFare || 'not recorded') + '  Payment: ' + _fcPayment)) return;
+            jQuery.ajax({
+                type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
+                data: JSON.stringify({ data: [
+                    { name: 'bookingid',    Value: jobId },
+                    { name: 'fare',         Value: _fcFare || '0' },
+                    { name: 'paymentMethod',Value: _fcPayment },
+                    { name: 'notes',        Value: _fcNotes }
+                ], action: '[ForceCompleteJob]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                success: function(resp) {
+                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                    if (_sc) {
+                        // Remove from assignedjob_list
+                        for (var _fi = 0; _fi < (_sc.assignedjob_list || []).length; _fi++) {
+                            if (String(_sc.assignedjob_list[_fi].Id) === String(jobId)) {
+                                _sc.assignedjob_list.splice(_fi, 1);
+                                break;
+                            }
+                        }
+                        // Update driver status to Available in scope
+                        if (driverId && String(driverId) !== '0') {
+                            for (var _di = 0; _di < (_sc.driverdatarealx || []).length; _di++) {
+                                var _dd = _sc.driverdatarealx[_di];
+                                if (String(_dd.driverid) === String(driverId) || String(_dd.VehicleId) === String(driverId)) {
+                                    _sc.driverdatarealx[_di] = Object.assign({}, _dd, { vehiclestatus: 'Available' });
+                                    break;
+                                }
+                            }
+                        }
+                        _sc.driverlist = _sc.driverdatarealx;
+                        if (typeof _sc.zonetablez   === 'function') _sc.zonetablez();
+                        if (typeof _sc.AssignedJobs === 'function') _sc.AssignedJobs();
+                        if (typeof _sc.ActiveJobsdata=== 'function') _sc.ActiveJobsdata();
+                        if (!_sc.$$phase) _sc.$digest();
+                    }
+                    toastr['success']('Job #' + jobId + ' marked Completed', 'Done');
+                },
+                error: function() { toastr['error']('Could not force-complete job #' + jobId, 'Error'); }
             });
         };
 

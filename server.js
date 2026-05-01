@@ -1642,6 +1642,160 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── POST /api/syncOfflineTrip — driver app uploads offline trip data ────────
+  // Called by the driver app when it reconnects after completing a job offline.
+  // Accepts a full event journal + trip summary, runs all status transitions in
+  // order, saves fare/payment/time fields, and marks the job Completed.
+  // Auth: X-Admin-Key header OR body.adminKey field (driver app uses the latter).
+  if (urlPath === '/api/syncOfflineTrip' && req.method === 'POST') {
+    const _sotBody = await readBody(req);
+    let _sotData = {};
+    try { _sotData = JSON.parse(_sotBody); } catch(e) {}
+    const _sotKey    = (req.headers['x-admin-key'] || _sotData.adminKey || '').toString().trim();
+    const _sotJobId  = parseInt(_sotData.jobId) || 0;
+    const _sotCid    = (_sotData.companyId || '').toString().trim();
+    const _sotDrvId  = (_sotData.driverId  || '').toString().trim();
+    const _sotVehId  = (_sotData.vehicleId || '').toString().trim();
+    const _sotEvents = Array.isArray(_sotData.events) ? _sotData.events : [];
+    const _sotSummary= _sotData.tripSummary || {};
+
+    // Auth check
+    if (_sotKey !== ADMIN_KEY) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorised — invalid adminKey' }));
+      return;
+    }
+    if (!_sotJobId || !_sotCid || !_sotDrvId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'jobId, companyId and driverId are required' }));
+      return;
+    }
+
+    // Find the job — it might be in active jobStore (still Assigned/Active)
+    // or already in closedJobStore (driver app re-sending a previously synced trip)
+    let _sotJob = jobStore.find(j =>
+      j.Id === _sotJobId &&
+      (String(j.companyId || j.CompanyId || '') === _sotCid || _sotCid === 'test')
+    );
+    const _sotAlreadyClosed = !_sotJob &&
+      closedJobStore.find(j => j.Id === _sotJobId);
+
+    if (_sotAlreadyClosed) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, jobId: _sotJobId, status: 'AlreadyClosed',
+        message: 'Job was already completed — no changes made.' }));
+      return;
+    }
+    if (!_sotJob) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Job not found: ' + _sotJobId }));
+      return;
+    }
+
+    // Process events in chronological order to drive status transitions
+    const _sotSorted = _sotEvents.slice().sort((a, b) =>
+      new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+    let _sotPickupTime = null, _sotDropoffTime = null;
+    for (const _ev of _sotSorted) {
+      const _evType = (_ev.type || _ev.eventType || '').toString();
+      const _evTs   = _ev.timestamp || null;
+      if (_evType === 'Accepted'  && _sotJob.BookingStatus === 'Pending')   _sotJob.BookingStatus = 'Assigned';
+      if (_evType === 'EnRoute'   && _sotJob.BookingStatus === 'Pending')   _sotJob.BookingStatus = 'Assigned';
+      if (_evType === 'Arrived'   && !_sotJob.ArrivedAt)    _sotJob.ArrivedAt    = _evTs;
+      if (_evType === 'PickedUp'  || _evType === 'MeterOn') {
+        if (!_sotPickupTime) _sotPickupTime = _evTs;
+        if (!_sotJob.PickingAt) _sotJob.PickingAt = _evTs;
+        if (_sotJob.BookingStatus === 'Assigned' || _sotJob.BookingStatus === 'Offered' || _sotJob.BookingStatus === 'Pending')
+          _sotJob.BookingStatus = 'Active';
+        if (!_sotJob.ActiveAt) _sotJob.ActiveAt = _evTs;
+      }
+      if (_evType === 'MeterOff'  && !_sotDropoffTime)  _sotDropoffTime  = _evTs;
+      if (_evType === 'Completed' || _evType === 'Done') {
+        if (!_sotDropoffTime) _sotDropoffTime = _evTs;
+        _sotJob.BookingStatus  = 'Completed';
+        _sotJob.JobCompleteTime= (_evTs || nowNZ()) + '.';
+        _sotJob.newcompelete   = _sotJob.JobCompleteTime;
+      }
+      if (_evType === 'Cancelled' || _evType === 'Cancel') {
+        _sotJob.BookingStatus  = 'Cancelled';
+        _sotJob.CancelledBy    = 'Driver';
+        _sotJob.JobCompleteTime= (_evTs || nowNZ()) + '.';
+      }
+    }
+
+    // If events didn't include a Completed event but summary says Completed
+    if (_sotSummary.status === 'Completed' && _sotJob.BookingStatus !== 'Completed') {
+      _sotJob.BookingStatus   = 'Completed';
+      _sotJob.JobCompleteTime = (_sotSummary.dropoffTime || nowNZ()) + '.';
+      _sotJob.newcompelete    = _sotJob.JobCompleteTime;
+    }
+
+    // Write trip summary data into the job record
+    if (_sotSummary.pickupTime)    _sotJob.PickingAt        = _sotSummary.pickupTime;
+    if (_sotSummary.dropoffTime)   _sotJob.JobCompleteTime  = _sotSummary.dropoffTime + '.';
+    if (_sotSummary.duration_mins) _sotJob.JobDuration      = _sotSummary.duration_mins;
+    if (_sotSummary.distance_km)   _sotJob.JobDistance      = _sotSummary.distance_km;
+    if (_sotSummary.route_polyline)_sotJob.RoutePolyline    = _sotSummary.route_polyline;
+    if (_sotSummary.fare) {
+      const _f = _sotSummary.fare;
+      _sotJob.FareBase        = _f.base       || 0;
+      _sotJob.FareDistance    = _f.distanceCharge || 0;
+      _sotJob.FareTime        = _f.timeCharge || 0;
+      _sotJob.FareExtras      = _f.extras     || 0;
+      _sotJob.TotalFare       = _f.total      || 0;
+      _sotJob.FareCurrency    = _f.currency   || 'NZD';
+      _sotJob.Fare            = _f.total      || 0;
+    }
+    if (_sotSummary.payment) {
+      const _p = _sotSummary.payment;
+      _sotJob.Recieve_payment = _p.method     || '';
+      _sotJob.PaymentReceived = _p.received   || 0;
+      _sotJob.PaymentChange   = _p.change     || 0;
+      _sotJob.ReceiptNo       = _p.receiptNo  || '';
+      if (_p.cardLast4)       _sotJob.CardLast4 = _p.cardLast4;
+    }
+    _sotJob.driverId         = _sotJob.driverId      || _sotDrvId;
+    _sotJob.VehicleId        = _sotJob.VehicleId     || _sotVehId;
+    _sotJob.OfflineSynced    = true;
+    _sotJob.OfflineSyncedAt  = nowNZ();
+    _sotJob.CompletedBy      = _sotJob.CompletedBy || 'Driver (offline)';
+
+    // Move to closedJobStore if terminal, otherwise leave in jobStore
+    const _sotTerminal = ['Completed','Cancelled'].includes(_sotJob.BookingStatus);
+    if (_sotTerminal) {
+      const _sotIdx = jobStore.indexOf(_sotJob);
+      if (_sotIdx !== -1) jobStore.splice(_sotIdx, 1);
+      closedJobStore.push(_sotJob);
+      saveJobStore();
+      saveClosedJobStore();
+      // Release the driver in ZONE_DRIVERS
+      const _sotZd = ZONE_DRIVERS.find(d =>
+        String(d.driverid) === _sotDrvId || String(d.VehicleId) === _sotDrvId ||
+        String(d.driverid) === _sotVehId || String(d.VehicleId) === _sotVehId);
+      if (_sotZd) {
+        const _sotQ = calcRestoredQueue(_sotDrvId, _sotZd.zonename || '');
+        _sotZd.vehiclestatus  = 'Available';
+        _sotZd.zonequeue      = _sotQ;
+        _sotZd.queueWaitSince = Date.now();
+        _sotZd.jobpickup = ''; _sotZd.jobdropoff = ''; _sotZd.JobphoneNo = '';
+      }
+      clearAwayLock(_sotDrvId);
+      clearDriverHomeState(_sotDrvId);
+    } else {
+      saveJobStore();
+    }
+
+    console.log(`[syncOfflineTrip] job #${_sotJobId} → ${_sotJob.BookingStatus} (${_sotSorted.length} events, fare=${_sotJob.TotalFare || 0})`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      success: true, jobId: _sotJobId, status: _sotJob.BookingStatus,
+      fare: _sotJob.TotalFare || 0,
+      message: 'Offline trip synced successfully.'
+    }));
+    return;
+  }
+
   // ── DataManager POST routing ────────────────────────────────────────────────
   if (req.method === 'POST' && urlPath.includes('/DataManager/')) {
     const body = await readBody(req);
@@ -2957,6 +3111,53 @@ const server = http.createServer(async (req, res) => {
         const _gbPhone = (param('PhoneNo') || param('phoneno') || '').toString().trim();
         console.log(`200: POST ${urlPath} [action=${action}] -> balance lookup for ${_gbPhone}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === '[ForceCompleteJob]') {
+        // Dispatcher manually marks a stuck Assigned/Active job as Completed.
+        // Used when the driver completed a trip offline and data didn't sync automatically.
+        const _fcJobId    = parseInt(param('bookingid') || param('BookingId')) || 0;
+        const _fcNotes    = (param('notes') || '').toString().trim();
+        const _fcFare     = parseFloat(param('fare') || '0') || 0;
+        const _fcPayment  = (param('paymentMethod') || 'Cash').toString().trim();
+        const _fcIdx      = jobStore.findIndex(j => j.Id === _fcJobId);
+        if (_fcIdx === -1) {
+          objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], error: 'Job not found' });
+        } else {
+          const _fcJob = jobStore[_fcIdx];
+          const _fcDrvId = String(_fcJob.DriverId || '0');
+          // Transition through Active if still Assigned (so completion is clean)
+          if (_fcJob.BookingStatus === 'Assigned' || _fcJob.BookingStatus === 'Picking') {
+            _fcJob.BookingStatus = 'Active';
+            if (!_fcJob.ActiveAt) _fcJob.ActiveAt = nowNZ();
+          }
+          _fcJob.BookingStatus   = 'Completed';
+          _fcJob.JobCompleteTime = nowNZ() + '.';
+          _fcJob.newcompelete    = _fcJob.JobCompleteTime;
+          _fcJob.CompletedBy     = 'Dispatcher (force complete)';
+          _fcJob.DispatcherNotes = _fcNotes || 'Manually completed — offline trip recovery';
+          if (_fcFare > 0)      _fcJob.TotalFare = _fcFare;
+          if (_fcFare > 0)      _fcJob.Fare      = _fcFare;
+          if (_fcPayment)       _fcJob.Recieve_payment = _fcPayment;
+          // Release the driver
+          const _fcZd = ZONE_DRIVERS.find(d =>
+            String(d.driverid) === _fcDrvId || String(d.VehicleId) === _fcDrvId);
+          if (_fcZd && _fcDrvId !== '0') {
+            const _fcQ = calcRestoredQueue(_fcDrvId, _fcZd.zonename || '');
+            _fcZd.vehiclestatus  = 'Available';
+            _fcZd.zonequeue      = _fcQ;
+            _fcZd.queueWaitSince = Date.now();
+            _fcZd.jobpickup = ''; _fcZd.jobdropoff = ''; _fcZd.JobphoneNo = '';
+            clearAwayLock(_fcDrvId);
+            clearDriverHomeState(_fcDrvId);
+            console.log(`  [ForceCompleteJob] driver ${_fcDrvId} → Available q=${_fcQ}`);
+          }
+          jobStore.splice(_fcIdx, 1);
+          closedJobStore.push(_fcJob);
+          saveJobStore();
+          saveClosedJobStore();
+          console.log(`200: POST ${urlPath} [action=${action}] -> job #${_fcJobId} force-completed by dispatcher`);
+          objectD(res, { dt1: [{ Result: 'Job force-completed', jobId: _fcJobId }], dt2: [], dt3: [], dt4: [], dt5: [] });
+        }
 
       } else {
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
