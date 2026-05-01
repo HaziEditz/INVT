@@ -12910,18 +12910,17 @@ $(document).ready(function() {
                      {"name" : "quenumber" , "Value" : quenumber},
                     {"name": "Recieve_payment" , "Value" : $scope.AmmountAddedvaluesend },
                     { "name": "PromoId", "Value": '' }];
-                        var proc = 'InsertBookingv4';
-                        $http({
-
-                            method: "POST",
-
-                            url: "DataManager/Data.aspx/DataSelectorRide",
-
-                            data: {
-                                data: param,
-                                action: proc
+                        $http.post('/api/job/create', { source: 'dispatch', companyId: SomeSession2 })
+                        .then(function(preRes) {
+                            if (preRes.data && preRes.data.jobId) {
+                                param = param.filter(function(p){ return p.name !== 'ExternalJobId'; });
+                                param.push({ "name": "ExternalJobId", "Value": String(preRes.data.jobId) });
                             }
-
+                            return $http({
+                                method: "POST",
+                                url: "DataManager/Data.aspx/DataSelectorRide",
+                                data: { data: param, action: 'InsertBookingv4' }
+                            });
                         }).then(function mySuccess(result) {
                        
                             if (result.data.d == "Session is experied, please login again") {
@@ -12950,18 +12949,17 @@ $(document).ready(function() {
                 else
                 {
                     for ($R = 0; $R < $scope.selectedcar ; $R++) {
-                        var proc = 'InsertBookingv4';
-                        $http({
-
-                            method: "POST",
-
-                            url: "DataManager/Data.aspx/DataSelectorRide",
-
-                            data: {
-                                data: param,
-                                action: proc
+                        $http.post('/api/job/create', { source: 'dispatch', companyId: SomeSession2 })
+                        .then(function(preRes) {
+                            if (preRes.data && preRes.data.jobId) {
+                                param = param.filter(function(p){ return p.name !== 'ExternalJobId'; });
+                                param.push({ "name": "ExternalJobId", "Value": String(preRes.data.jobId) });
                             }
-
+                            return $http({
+                                method: "POST",
+                                url: "DataManager/Data.aspx/DataSelectorRide",
+                                data: { data: param, action: 'InsertBookingv4' }
+                            });
                         }).then(function mySuccess(result) {
                        
                             if (result.data.d == "Session is experied, please login again") {

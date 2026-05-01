@@ -2220,7 +2220,7 @@ const server = http.createServer(async (req, res) => {
     // ── /DataSelectorRide — booking write operations ────────────────────────
     if (urlPath.includes('/DataSelectorRide')) {
       if (action === 'InsertBookingv4') {
-        const newId = newCompanyJobId(sessionCompanyId || '000');
+        const newId = param('ExternalJobId') || newCompanyJobId(sessionCompanyId || '000');
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
@@ -2340,7 +2340,7 @@ const server = http.createServer(async (req, res) => {
     // ── /DataProcessor — all write operations ──────────────────────────────
     if (urlPath.includes('/DataProcessor')) {
       if (action === 'InsertBookingv4' || action === '[AddBookingConsole]') {
-        const newId = newCompanyJobId(sessionCompanyId || '000');
+        const newId = param('ExternalJobId') || newCompanyJobId(sessionCompanyId || '000');
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
