@@ -4024,30 +4024,39 @@ const server = http.createServer(async (req, res) => {
         const _qDriverId  = (param('driverid') || '').toString().trim();
         const _qJob = jobStore.find(j => String(j.Id) === String(_qBookingId));
         if (!_qJob) { objectD(res, { ok: false, msg: 'job not found' }); }
-        else if (_qJob.BookingStatus !== 'Offered' && _qJob.BookingStatus !== 'Pending') {
+        else if (_qJob.BookingStatus !== 'Offered' && _qJob.BookingStatus !== 'Pending' && _qJob.BookingStatus !== 'No One') {
           objectD(res, { ok: false, msg: `cannot queue job with status ${_qJob.BookingStatus}` });
         } else {
+          // Remember the pre-queue status so [RecallQueuedJob] can restore to the right state.
+          // e.g. 'No One' jobs should return to 'No One', not 'Pending'.
+          _qJob._origStatus  = _qJob.BookingStatus;
           _qJob.BookingStatus = 'Queued';
-          _qJob.DriverId = _qDriverId;
-          _qJob.queuedAt = Date.now();
+          _qJob.DriverId     = _qDriverId;
+          _qJob.queuedAt     = Date.now();
           saveJobStore();
-          console.log(`[QueueJob] job #${_qBookingId} → Queued for driver ${_qDriverId}`);
-          objectD(res, { ok: true });
+          console.log(`[QueueJob] job #${_qBookingId} (was ${_qJob._origStatus}) → Queued for driver ${_qDriverId}`);
+          objectD(res, { ok: true, origStatus: _qJob._origStatus });
         }
 
       } else if (action === '[RecallQueuedJob]') {
         const _rqBookingId = param('bookingid');
+        const _rqDriverId  = (param('driverid') || '').toString().trim(); // driver who recalled
         const _rqJob = jobStore.find(j => String(j.Id) === String(_rqBookingId));
         if (!_rqJob) { objectD(res, { ok: false, msg: 'job not found' }); }
         else {
           const _prevSt = _rqJob.BookingStatus;
-          _rqJob.BookingStatus = 'Pending';
-          _rqJob.DriverId  = null;
-          _rqJob.VehicleId = null;
-          _rqJob.queuedAt  = null;
+          // Restore to the original pre-queue status (Pending or No One), not always Pending.
+          const _restoreSt = _rqJob._origStatus || 'Pending';
+          _rqJob.BookingStatus = _restoreSt;
+          // Use -2 sentinel (same as driver-recalled Assigned jobs) so UI shows recall badge.
+          _rqJob.DriverId      = -2;
+          _rqJob.VehicleId     = 0;
+          _rqJob.queuedAt      = null;
+          _rqJob.returnReason  = _rqDriverId ? `Recalled by ${_rqDriverId}` : 'Recalled by Driver';
+          delete _rqJob._origStatus;
           saveJobStore();
-          console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → Pending`);
-          objectD(res, { ok: true });
+          console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → ${_restoreSt} (driver ${_rqDriverId || '?'} recalled)`);
+          objectD(res, { ok: true, restoredStatus: _restoreSt });
         }
 
       } else if (action === '[PromoteQueuedToAssigned]') {

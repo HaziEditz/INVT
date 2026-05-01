@@ -7953,17 +7953,23 @@ $(document).ready(function() {
                             delete window._queuedJobWatchers[_qwBookId];
                             _qwRef.remove();
                             delete window._driverQueueMap[_qwDrv];
-                            // Return job to Unassigned on the server.
+                            // Return job to its original status (Pending or No One) on the server.
                             jQuery.ajax({
                                 type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
-                                data: JSON.stringify({ data: [{ name: 'bookingid', Value: _qwBookId }], action: '[RecallQueuedJob]' }),
+                                data: JSON.stringify({ data: [
+                                    { name: 'bookingid', Value: _qwBookId },
+                                    { name: 'driverid',  Value: _qwDrv }
+                                ], action: '[RecallQueuedJob]' }),
                                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
-                                success: function() {
-                                    toastr['warning']('Driver ' + _qwDrv + ' recalled job #' + _qwBookId + ' — returned to Unassigned', 'Queue Recalled');
+                                success: function(rrResp) {
+                                    var rrD = {}; try { rrD = JSON.parse(rrResp.d || '{}'); } catch(e) {}
+                                    var _restoredSt = rrD.restoredStatus || 'Unassigned';
+                                    toastr['warning']('Driver ' + _qwDrv + ' released job #' + _qwBookId + ' → back to ' + _restoredSt, 'Job Released');
                                     var _rwsc = angular.element(document.getElementById('myangular')).scope();
                                     if (_rwsc) {
-                                        if (typeof _rwsc.getjobs      === 'function') _rwsc.getjobs();
+                                        if (typeof _rwsc.getjobs       === 'function') _rwsc.getjobs();
                                         if (typeof _rwsc.AssignedJobs  === 'function') _rwsc.AssignedJobs();
+                                        if (typeof _rwsc.getQueuedJobs === 'function') _rwsc.getQueuedJobs();
                                     }
                                 }
                             });
@@ -10461,59 +10467,52 @@ $(document).ready(function() {
                                         }
                                     }
                                     if (_myQJob) {
-                                        // Driver already accepted this job while Busy and it is now Queued.
-                                        // They have just gone Available — send an immediate full popup so
-                                        // they see the job right away (not buried in their Offer tab).
-                                        // We do NOT call [RecallQueuedJob] first (that was the old bug:
-                                        // it cleared DriverId, causing the Assigned tab to flash/reset and
-                                        // forcing the driver to accept twice).  Instead we cancel the
-                                        // queued-recall watcher (it was watching for driver-side recall;
-                                        // we are now handing control back to acknowledgemethodx), clear
-                                        // the _driverQueueMap entry so acknowledgemethodx takes the normal
-                                        // Available path, then call acknowledgemethodx directly.
-                                        // acknowledgemethodx → [changeriddestatusforoffer] Queued→Offered
-                                        // (DriverId stays, no data reset) → popup → driver accepts →
-                                        // convertstatus(Assigned).  If driver rejects/times out →
-                                        // convertstatus(Unreached) → Pending → Unassigned.
-
-                                        // Cancel queued-recall watcher so it doesn't double-fire.
+                                        // Driver finished their trip and has a queued job.
+                                        // AUTO-ASSIGN directly — no second popup, no second tap needed.
                                         var _qwKey = String(_myQJob.Id);
+
+                                        // Cancel the queued-recall watcher first (it was watching for
+                                        // driver-side release; we are now auto-assigning).
                                         if (window._queuedJobWatchers && window._queuedJobWatchers[_qwKey]) {
                                             var _qwEntry = window._queuedJobWatchers[_qwKey];
                                             _qwEntry.ref.off('value', _qwEntry.listener);
                                             delete window._queuedJobWatchers[_qwKey];
                                             console.log('[changedata Busy→Available] cancelled queued-recall watcher for job #' + _qwKey);
                                         }
-
-                                        // Clear map BEFORE acknowledgemethodx so it takes the normal path.
+                                        // Kill the old busy-watcher dedup lock.
+                                        if (window._busyWatcherCleanupMap && window._busyWatcherCleanupMap[_qwKey]) {
+                                            window._busyWatcherCleanupMap[_qwKey]();
+                                        }
+                                        if (typeof _activeOfferIds !== 'undefined')    delete _activeOfferIds[_qwKey];
+                                        if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverId)];
                                         delete window._driverQueueMap[String(driverId)];
 
-                                        // Resolve vehicle ID for this driver (same lookup as stale path).
-                                        var _cdVeh2 = String(driverId);
-                                        var _cdsc2  = angular.element(document.getElementById('myangular')).scope();
-                                        if (_cdsc2 && _cdsc2.driverdatarealx) {
-                                            for (var _cdi2 = 0; _cdi2 < _cdsc2.driverdatarealx.length; _cdi2++) {
-                                                var _cdd2 = _cdsc2.driverdatarealx[_cdi2];
-                                                if (String(_cdd2.driverid) === String(driverId)) {
-                                                    _cdVeh2 = _cdd2.VehicleId || _cdd2.vehiclenumber || String(driverId);
-                                                    break;
+                                        toastr['success'](driverId + ' finished trip — auto-assigning queued job #' + _myQJob.Id, 'Auto-Assigned');
+                                        console.log('[changedata Busy→Available] auto-assigning queued job #' + _myQJob.Id + ' to driver ' + driverId);
+
+                                        // Call [PromoteQueuedToAssigned] — moves Queued → Assigned server-side.
+                                        jQuery.ajax({
+                                            type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
+                                            data: JSON.stringify({ data: [
+                                                { name: 'bookingid', Value: _myQJob.Id },
+                                                { name: 'driverid',  Value: String(driverId) }
+                                            ], action: '[PromoteQueuedToAssigned]' }),
+                                            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                                            success: function(pqaResp) {
+                                                try {
+                                                    var pqaD = JSON.parse(pqaResp.d || '{}');
+                                                    if (pqaD && pqaD.ok === false && pqaD.alreadyStatus) {
+                                                        console.warn('[PromoteQueuedToAssigned] job already ' + pqaD.alreadyStatus + ' — skipping');
+                                                    }
+                                                } catch(e) {}
+                                                var _pasc = angular.element(document.getElementById('myangular')).scope();
+                                                if (_pasc) {
+                                                    if (typeof _pasc.getjobs       === 'function') _pasc.getjobs();
+                                                    if (typeof _pasc.AssignedJobs  === 'function') _pasc.AssignedJobs();
+                                                    if (typeof _pasc.getQueuedJobs === 'function') _pasc.getQueuedJobs();
                                                 }
                                             }
-                                        }
-                                        toastr['info'](driverId + ' finished trip — sending popup for queued job #' + _myQJob.Id, 'Queue Ready');
-                                        console.log('[changedata Busy→Available] queued job #' + _myQJob.Id + ' → sending popup to driver ' + driverId + ' (vehicle ' + _cdVeh2 + ')');
-                                        // Kill the old _watchBusyDriverAcceptance watcher (dedup lock + Firebase
-                                        // listener) before calling acknowledgemethodx so it doesn't double-fire
-                                        // when acknowledgemethodx writes to the same joback path.
-                                        var _qJobKey = String(_myQJob.Id);
-                                        if (window._busyWatcherCleanupMap && window._busyWatcherCleanupMap[_qJobKey]) {
-                                            window._busyWatcherCleanupMap[_qJobKey]();
-                                        }
-                                        // Dedup lock was cleared by _wbAccept() when driver accepted,
-                                        // but defensively clear it here too in case of a race.
-                                        if (typeof _activeOfferIds !== 'undefined') delete _activeOfferIds[_qJobKey];
-                                        if (typeof _activeOfferDrivers !== 'undefined') delete _activeOfferDrivers[String(driverId)];
-                                        acknowledgemethodx(_cdVeh2, String(driverId), _myQJob.Id, 'Pending');
+                                        });
                                     } else {
                                         // No queued job on the server — driver went Available without accepting
                                         // the silent pre-queue offer.  Clear the stale _driverQueueMap entry
@@ -18397,17 +18396,32 @@ $(document).ready(function() {
                 };
 
                 $scope.recallQueuedJob = function(jobId) {
-                    if (!confirm('Recall queued job #' + jobId + ' back to Unassigned queue?')) return;
+                    if (!confirm('Release queued job #' + jobId + ' back to dispatch?')) return;
+                    // Find the driver currently holding this queued job so we can pass their ID
+                    // to [RecallQueuedJob] — the server uses it for the "Recalled by X" badge.
+                    var _rqDriverId = '';
+                    if ($scope.queuedJobs) {
+                        for (var _rqi = 0; _rqi < $scope.queuedJobs.length; _rqi++) {
+                            if (String($scope.queuedJobs[_rqi].Id) === String(jobId)) {
+                                _rqDriverId = String($scope.queuedJobs[_rqi].DriverId || '');
+                                break;
+                            }
+                        }
+                    }
                     $http({
                         method: 'POST',
                         url: 'DataManager/Data.aspx/DataProcessor',
-                        data: { data: [{ name: 'bookingid', Value: jobId }], action: '[RecallQueuedJob]' }
+                        data: { data: [
+                            { name: 'bookingid', Value: jobId },
+                            { name: 'driverid',  Value: _rqDriverId }
+                        ], action: '[RecallQueuedJob]' }
                     }).then(function(response) {
                         try {
                             var d = JSON.parse(response.data.d || '{}');
-                            if (d && d.recalled) {
-                                toastr['success']('Job #' + jobId + ' recalled to Unassigned queue.', 'Queue Recall');
-                                delete window._driverQueueMap[String(d.driverId || '')];
+                            if (d && d.ok) {
+                                var _st = d.restoredStatus || 'dispatch';
+                                toastr['success']('Job #' + jobId + ' released back to ' + _st + '.', 'Job Released');
+                                if (_rqDriverId) delete window._driverQueueMap[_rqDriverId];
                                 $scope.getQueuedJobs();
                                 $scope.getjobs();
                             }
