@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260501e" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260501f" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -485,7 +485,7 @@
                 <div class="modal-body" style="padding:0;">
                     <div class="row" style="margin:0;">
                         <div class="col-lg-12 col-md-12 col-sm-12" style="padding:0 12px; height:460px; overflow-y:auto;">
-                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
+                    <div id="Divox{{value.Id}}"  ng-if="value.BookingStatus!='Offered'"  ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list  | filter : test" >
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -884,7 +884,7 @@
 
                                                         </div>
                                                     </div>
-                    <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs | filter : test">
+                    <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs | filter : test">
                                                            
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -3456,7 +3456,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -3629,7 +3629,7 @@ $(document).ready(function() {
                                                 </div>
                                                 <div class="tab-pane vowali " id="tab9">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key ,  value) in  oferunassignedjob_list">
                                                          
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -4116,7 +4116,7 @@ $(document).ready(function() {
                                                     
                                                 </div>
                                                 <div class="tab-pane " id="tab8">
-                                                          <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs">
+                                                          <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key ,  value) in  deliveryjobs">
                                                            
                                                         <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
                                                             <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
@@ -4989,7 +4989,47 @@ $(document).ready(function() {
         }
     }
 
-     
+    // ── Dispatch suggestion: auto-fill "Dispatch before" for Later bookings ──
+    // Called when the dispatcher selects a pickup location via autocomplete.
+    // Calculates road-distance estimate from the dispatcher's current position to
+    // the pickup, then suggests a dispatch-before value and updates the span/select.
+    function updateDispatchSuggestion(pickLat, pickLng) {
+        try {
+            var sc = angular.element(document.getElementById('myangular')).scope();
+            if (!sc || sc.bookingtime_select != 1) return; // Only active in "Later" mode
+            var dLat = dispatcher_lat, dLng = dispatcher_lng;
+            if (!pickLat || !pickLng || pickLat == 0 || pickLng == 0) {
+                $('#timesuggested').text('');
+                return;
+            }
+            var dist = distance(dLat, dLng, pickLat, pickLng, 'K');
+            if (isNaN(dist) || dist < 0) { $('#timesuggested').text(''); return; }
+            // Rough estimate: 3 min per km (accounts for urban driving ~20 km/h average)
+            var suggestMin = Math.max(5, Math.ceil(dist * 3));
+            // Available options in the "Dispatch before" select
+            var opts = [0, 5, 10, 15, 20, 30, 45, 60, 75, 90, 120];
+            var nearest = opts.reduce(function(p, c) {
+                return Math.abs(c - suggestMin) < Math.abs(p - suggestMin) ? c : p;
+            });
+            $('#timesuggested').html(
+                '<i class="fa fa-location-arrow"></i> ' +
+                dist.toFixed(1) + ' km from dispatcher &nbsp;&middot;&nbsp; ' +
+                'Suggest <b>' + suggestMin + ' min</b> dispatch lead time'
+            );
+            // Auto-set the select only if user hasn't overridden it (still at 0/default)
+            var sel = document.getElementById('assign_notice');
+            if (sel && (sel.value === '0' || sel.value === '')) {
+                sel.value = String(nearest);
+                if (sc) {
+                    sc.assign_notice = String(nearest);
+                    if (!sc.$$phase) { try { sc.$digest(); } catch(e) {} }
+                }
+            }
+        } catch(e) {
+            console.warn('[updateDispatchSuggestion]', e);
+        }
+    }
+
     // ── Session sync: verify company ID from signed server cookie ───────────
     // The BW_SID cookie is the authoritative source of truth for which company this
     // browser belongs to. If localStorage has a stale or different value, correct it
@@ -6048,6 +6088,7 @@ $(document).ready(function() {
            
             $('#LocalPickLat').val( place.geometry.location.lat());
             $('#LocalPickLng').val( place.geometry.location.lng());
+            updateDispatchSuggestion(place.geometry.location.lat(), place.geometry.location.lng());
             
             angular.element(document.getElementById('myangular')).scope().setvalue(3);
             console.log($('#LocalDropLat').val());
@@ -14409,10 +14450,20 @@ $(document).ready(function() {
                         // already claimed for another job in this same cycle.
                         var triedIds = _triedDriversForJob[String(jobId)] || [];
 
+                        // Vehicle-type filter: only send to drivers whose vehicle type matches.
+                        // An empty or "Not Specified" job type means any driver qualifies.
+                        var _reqType = (job.VehicleType || '').toLowerCase().trim();
+                        var _typeOk = !_reqType || _reqType === 'not specified';
+
                         // First try Available drivers only.
                         var availableDrivers = _availableOnly.filter(function(dv) {
                             var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
-                            return triedIds.indexOf(dvId) === -1 && !_claimedThisCycle[dvId];
+                            if (triedIds.indexOf(dvId) !== -1 || _claimedThisCycle[dvId]) return false;
+                            if (!_typeOk) {
+                                var dvt = (dv.vehicletype || '').toLowerCase().trim();
+                                if (dvt && dvt !== 'not specified' && dvt !== _reqType) return false;
+                            }
+                            return true;
                         });
 
                         if (!availableDrivers.length) {
@@ -14440,7 +14491,12 @@ $(document).ready(function() {
                             // and pops up again when they become Available.
                             var busyFallback = _busyOnly.filter(function(dv) {
                                 var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
-                                return triedIds.indexOf(dvId) === -1 && !_claimedThisCycle[dvId];
+                                if (triedIds.indexOf(dvId) !== -1 || _claimedThisCycle[dvId]) return false;
+                                if (!_typeOk) {
+                                    var dvt2 = (dv.vehicletype || '').toLowerCase().trim();
+                                    if (dvt2 && dvt2 !== 'not specified' && dvt2 !== _reqType) return false;
+                                }
+                                return true;
                             });
                             if (!busyFallback.length) {
                                 // All Busy drivers tried too — reset the Busy tried list and wait.
@@ -17367,8 +17423,25 @@ $(document).ready(function() {
                     return Math.abs(jobMins) + ' Min Overdue';
                 }
             }
-            $scope.alerting = function (DispatchTimebefore, BookingDateTime) {
+            $scope.alerting = function (DispatchTimebefore, BookingDateTime, BookingStatus) {
                 var db = parseInt(DispatchTimebefore) || 0;
+                var isNoOne = BookingStatus === 'No One';
+                // "No One" jobs pulse amber to remind dispatcher to retry
+                if (isNoOne) {
+                    var noOneFlash = false;
+                    if (db <= 0) {
+                        // ASAP No One → always flash amber
+                        noOneFlash = true;
+                    } else if (BookingDateTime) {
+                        var _c2 = BookingDateTime.replace(/\.$/, '').trim();
+                        var _b2 = new Date(_c2);
+                        if (!isNaN(_b2.getTime()) && Math.round((_b2 - new Date()) / 60000) <= db) {
+                            noOneFlash = true;
+                        }
+                    }
+                    if (noOneFlash) return 'button-glow-amber';
+                    return '';
+                }
                 if (db <= 0 || !BookingDateTime) return '';
                 var clean = BookingDateTime.replace(/\.$/, '').trim();
                 var bdt = new Date(clean);

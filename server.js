@@ -3909,6 +3909,23 @@ const server = http.createServer(async (req, res) => {
           }
           return true;
         });
+        // Priority order: (1) ASAP jobs first, (2) pre-book jobs sorted by when their
+        // dispatch window opened (earlier = higher urgency).
+        autoJobs.sort((a, b) => {
+          const da = parseInt(a.DispatchTimebefore || '0') || 0;
+          const db2 = parseInt(b.DispatchTimebefore || '0') || 0;
+          if (da === 0 && db2 > 0) return -1; // ASAP before pre-book
+          if (db2 === 0 && da > 0) return 1;
+          if (da > 0 && db2 > 0) {
+            // Both pre-book — sort by dispatch-window-open time (earliest first)
+            const refA = (a.Pickingtime || a.BookingDateTime || '').replace(/\.$/, '').trim();
+            const refB = (b.Pickingtime || b.BookingDateTime || '').replace(/\.$/, '').trim();
+            const winA = refA ? new Date(refA).getTime() - da * 60000 : Infinity;
+            const winB = refB ? new Date(refB).getTime() - db2 * 60000 : Infinity;
+            return winA - winB;
+          }
+          return 0;
+        });
         const dt1 = autoJobs.map(j => ({
           Id: j.Id,
           ZoneId: j.ZoneId || 1,
@@ -3916,7 +3933,7 @@ const server = http.createServer(async (req, res) => {
           Passengers: j.PassengersNo || 1,
           PickLatLng: j.PickLatLng || '0,0',
         }));
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${dt1.length} pending job(s) for auto-dispatch`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${dt1.length} pending job(s) for auto-dispatch (sorted by priority)`);
         objectD(res, { dt1, dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === 'ZoneCoordinates') {
