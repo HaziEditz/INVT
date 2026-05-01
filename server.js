@@ -3675,9 +3675,11 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[DispatcherSettings]') {
         // Return company settings, vehicle types (dt3), tariff list (dt4).
+        const _dsReg = registrationStore.find(r => r.companyId === sessionCompanyId);
+        const _dsCompanyName = (_dsReg && _dsReg.company) ? _dsReg.company : (sessionCompanyId || '');
         const settings = {
           dt1: [{
-            CompanyName: 'BookaWaka',
+            CompanyName: _dsCompanyName,
             DirectBookingIsAllowed: '1',
             JobAllowedToAssignToaDriver: '1',
             AutoDispatch: '0',
@@ -3700,7 +3702,7 @@ const server = http.createServer(async (req, res) => {
           dt4: TARIFF_STORE,
           dt5: [{ PublicKey: STRIPE_PK }],
         };
-        console.log(`200: POST ${urlPath} [action=${action}] -> dispatcher settings`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> dispatcher settings (CompanyName="${_dsCompanyName}")`);
         objectD(res, settings);
 
       } else if (action === '[TariffSync]') {
