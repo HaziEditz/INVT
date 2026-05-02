@@ -19547,7 +19547,9 @@ $(document).ready(function() {
         _doApply(function() {
             if (isNoOne || val === -1) {
                 scope.quickSetNoOne(jobId);
-            } else if (val > 0) {
+            } else {
+                // val === 0 (unassign/release) and val > 0 (specific driver) both forwarded
+                // to AssignPendingJobFromJobList which handles the val==0 branch internally.
                 var lists = [scope.unassignedjob_list || [], scope.oferunassignedjob_list || []];
                 var job = null;
                 for (var i = 0; i < lists.length && !job; i++) {
@@ -19580,7 +19582,9 @@ $(document).ready(function() {
         _doApply(function() {
             if (isNoOne || val === -1) {
                 scope.quickSetNoOne(bookingId);
-            } else if (val > 0) {
+            } else {
+                // val === 0 (unassign/release) and val > 0 (specific driver) both forwarded;
+                // the assignment functions handle the val==0 branch internally.
                 if (assignType === 'assigned') {
                     scope.AssignJobFromJobList2(bookingId, vehicleId, driverId, uId, prefix);
                 } else {
