@@ -2657,6 +2657,15 @@ $(document).ready(function() {
   <div style="margin-top:20px;font-size:12px;color:#475569;">Or call your BookaWaka account manager</div>
 </div>
 
+<!-- ── Update Required Overlay ────────────────────────────────────────── -->
+<div id="bw-update-screen" style="display:none;position:fixed;inset:0;z-index:999995;background:rgba(7,9,14,0.97);backdrop-filter:blur(10px);flex-direction:column;align-items:center;justify-content:center;font-family:'Inter',-apple-system,sans-serif;color:#fff;text-align:center;padding:40px;">
+  <div style="font-size:56px;margin-bottom:20px;">⚡</div>
+  <div style="font-size:24px;font-weight:800;margin-bottom:10px;">Update Required</div>
+  <div id="bw-update-msg" style="font-size:15px;color:#94a3b8;max-width:420px;line-height:1.7;margin-bottom:28px;">A newer version of the BookaWaka Dispatch Console is required. Please reload the page to get the latest version.</div>
+  <button onclick="window.location.reload(true);" style="display:inline-block;padding:13px 34px;background:#3b82f6;color:#fff;font-weight:700;font-size:15px;border-radius:10px;border:none;cursor:pointer;">Reload Now</button>
+  <div id="bw-update-version-info" style="margin-top:20px;font-size:12px;color:#475569;"></div>
+</div>
+
 <style>
 /* Trial banner colours */
 #bw-trial-banner[data-state="trial"]  { background:#1a2e12; color:#86efac; border-bottom:1px solid #166534; }
@@ -5094,6 +5103,9 @@ $(document).ready(function() {
       })
       .catch(function() { /* network error — continue with cached value */ });
 
+    // ── Dispatch app version — bumped with each release ───────────────────────
+    var DISPATCH_APP_VERSION = '1.0.0';
+
     // ── Session: read from localStorage (stored by DispatcherLogin.aspx) ──────
     var someSession  = localStorage.getItem('TT_Name')    || '';
     var SomeSession2 = localStorage.getItem('TT_CId')     || '';   // company ID — all online/ paths use this
@@ -5399,6 +5411,44 @@ $(document).ready(function() {
             }
         }, function(e) {
             console.warn('[bw-settings] could not read companySettings:', e.code);
+        });
+    })();
+
+    // ── 5b. Minimum version gate ───────────────────────────────────────────
+    // Reads bwConfig/appSettings/dispatchAppMinVersion from Firebase once.
+    // If the running version is below the minimum, shows a blocking overlay
+    // that forces the dispatcher to reload and get the latest build.
+    (function() {
+        function _bwSemverLt(a, b) {
+            // Returns true if semver string a < b  (e.g. "1.0.0" < "1.1.0")
+            var pa = (a || '0').split('.').map(Number);
+            var pb = (b || '0').split('.').map(Number);
+            for (var i = 0; i < 3; i++) {
+                var na = pa[i] || 0, nb = pb[i] || 0;
+                if (na < nb) return true;
+                if (na > nb) return false;
+            }
+            return false; // equal
+        }
+
+        DbRef.ref('bwConfig/appSettings').once('value', function(snap) {
+            var settings = snap.val();
+            if (!settings) return;
+            var minVer = (settings.dispatchAppMinVersion || '').toString().trim();
+            if (!minVer) return;
+            if (_bwSemverLt(DISPATCH_APP_VERSION, minVer)) {
+                var overlay  = document.getElementById('bw-update-screen');
+                var verInfo  = document.getElementById('bw-update-version-info');
+                if (overlay) {
+                    overlay.style.display = 'flex';
+                    if (verInfo) verInfo.textContent = 'Your version: ' + DISPATCH_APP_VERSION + '  ·  Required: ' + minVer;
+                }
+                console.warn('[bw-version] update required — running ' + DISPATCH_APP_VERSION + ', minimum is ' + minVer);
+            } else {
+                console.log('[bw-version] version OK — ' + DISPATCH_APP_VERSION + ' >= ' + minVer);
+            }
+        }, function(e) {
+            console.warn('[bw-version] could not read bwConfig/appSettings:', e.code || e.message);
         });
     })();
 
