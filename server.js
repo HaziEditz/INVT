@@ -5074,6 +5074,31 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// Independent stale-offer watchdog — runs every 90 s regardless of whether
+// AutoDispatchVehiclesallride is being polled (e.g. tab closed mid-offer).
+// If a job has been stuck in Offered for > 2 minutes, the 27-s browser timer
+// that was tracking it died (page refresh / tab close).  Reset to Pending so
+// the next auto-dispatch cycle or dispatcher action can re-offer it.
+setInterval(() => {
+  const STALE_MS = 2 * 60 * 1000;
+  const now = Date.now();
+  let changed = false;
+  jobStore.forEach(j => {
+    if (j.BookingStatus !== 'Offered') return;
+    const age = j.offeredAt ? (now - j.offeredAt) : STALE_MS + 1;
+    if (age > STALE_MS) {
+      console.log(`[stale-offer watchdog] job #${j.Id} stuck as Offered for ${Math.round(age/1000)}s (driver ${j.DriverId}) — resetting to Pending`);
+      j.BookingStatus = 'Pending';
+      j.offeredAt     = null;
+      j.DriverId      = 0;
+      j.VehicleId     = 0;
+      j.returnReason  = 'Offer expired (dispatcher reconnected)';
+      changed = true;
+    }
+  });
+  if (changed) saveJobStore();
+}, 90 * 1000);
+
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is in use. Freeing port and retrying...`);

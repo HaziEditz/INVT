@@ -7900,6 +7900,60 @@ $(document).ready(function() {
     // Cleared when the driver accepts (job becomes Assigned normally).
     window._driverQueueMap = window._driverQueueMap || {};
 
+    // ── Boot-time orphan cleanup ──────────────────────────────────────────────────
+    // If the dispatcher's tab was closed/refreshed during a live 27-s offer window,
+    // the browser timer died without removing the Firebase entries it wrote:
+    //   joback/{jobId}/{driverId}  — driver app still has the offer on screen
+    //   /notification/{driverId}  — push badge still showing
+    //   jobs/{cid}/{vehId}/{drvId} — acceptance listener path
+    // We persist offer metadata to localStorage so we can find and clean these up
+    // when the page reloads.
+    //
+    // acknowledgemethodx() writes here; the 27-s timeout removes the entry once it
+    // runs its own cleanup.  _cleanupOrphanedFirebase() handles the case where the
+    // timeout never ran (tab closed mid-offer).
+    function _cleanupOrphanedFirebase() {
+        try {
+            var _ifo = JSON.parse(localStorage.getItem('_bwInFlightOffers') || '{}');
+            var _keys = Object.keys(_ifo);
+            if (_keys.length === 0) return;
+            console.log('[_cleanupOrphanedFirebase] checking ' + _keys.length + ' in-flight offer(s) from previous session');
+            _keys.forEach(function(jobId) {
+                var entry = _ifo[jobId];
+                jQuery.ajax({
+                    type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                    data: JSON.stringify({ data: [{ name: 'bookingid', Value: jobId }], action: 'checkriddestatusforoffer' }),
+                    dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                    success: function(res) {
+                        try {
+                            var d = JSON.parse(res.d || '{}');
+                            var job = d && d.dt1 && d.dt1.length > 0 ? d.dt1[0] : null;
+                            if (!job || job.BookingStatus !== 'Offered') {
+                                // Job is no longer Offered — server already reset it (stale-offer watchdog).
+                                // Clean up the orphaned Firebase paths the driver app is still holding.
+                                try {
+                                    if (typeof firebase !== 'undefined') {
+                                        firebase.database().ref('joback/' + jobId + '/' + entry.driverId).remove();
+                                        firebase.database().ref('/notification/' + entry.driverId).remove();
+                                        firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId).remove();
+                                        console.log('[_cleanupOrphanedFirebase] removed Firebase orphan: job #' + jobId + ' driver ' + entry.driverId + ' (status was ' + (job ? job.BookingStatus : 'not found') + ')');
+                                    }
+                                } catch(e) {}
+                                var _ifo2 = JSON.parse(localStorage.getItem('_bwInFlightOffers') || '{}');
+                                delete _ifo2[String(jobId)];
+                                localStorage.setItem('_bwInFlightOffers', JSON.stringify(_ifo2));
+                            } else {
+                                // Still Offered — job is live (quick reload), leave it alone.
+                                console.log('[_cleanupOrphanedFirebase] job #' + jobId + ' still Offered — keeping entry');
+                            }
+                        } catch(e) {}
+                    },
+                    error: function() {}
+                });
+            });
+        } catch(e) {}
+    }
+
     function _resolveAcceptance(bookingId, driverId, _mustQueue) {
         // _mustQueue=true means this call came from _wbAccept (silent busy-offer path).
         // In that case we ALWAYS queue — never re-check live driverdatarealx, because the
@@ -8264,6 +8318,8 @@ $(document).ready(function() {
                     _jobsRef.off("value", _jobsListener);
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                    // Offer resolved — remove from localStorage so boot-time orphan cleanup skips it.
+                    try { var _ifoT = JSON.parse(localStorage.getItem('_bwInFlightOffers') || '{}'); delete _ifoT[String(id)]; localStorage.setItem('_bwInFlightOffers', JSON.stringify(_ifoT)); } catch(e) {}
                     // Normal timeout: remove notification, set Away, mark Unreached.
                     // Write Away to BOTH Firebase paths:
                     //   jobs/ → driver app reads this for its own status display
@@ -8529,6 +8585,8 @@ $(document).ready(function() {
                     refaz.off("value", listener);
                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                     firebase.database().ref().child("/notification/" + _fbd).remove();
+                    // Offer resolved — remove from localStorage so boot-time orphan cleanup skips it.
+                    try { var _ifoT2 = JSON.parse(localStorage.getItem('_bwInFlightOffers') || '{}'); delete _ifoT2[String(id)]; localStorage.setItem('_bwInFlightOffers', JSON.stringify(_ifoT2)); } catch(e) {}
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     var _fbsc2 = angular.element(document.getElementById('myangular')).scope();
                     if (_fbsc2 && _fbsc2.driverdatarealx) {
@@ -8882,6 +8940,13 @@ $(document).ready(function() {
         }
         var _fbDrvId = driverid;
         console.log('[acknowledgemethodx] driverid:', driverid, 'job:', bookid);
+        // Record this in-flight offer to localStorage so the boot-time orphan cleanup
+        // can find and remove the Firebase paths if the tab closes before the 27-s timer fires.
+        try {
+            var _ifoW = JSON.parse(localStorage.getItem('_bwInFlightOffers') || '{}');
+            _ifoW[String(bookid)] = { driverId: String(driverid), vehicleId: String(vehicle), ts: Date.now() };
+            localStorage.setItem('_bwInFlightOffers', JSON.stringify(_ifoW));
+        } catch(e) {}
         // Pre-seed joback so resolveAfter2Secondsx doesn't fire "Driver offline" immediately.
         try {
             firebase.database().ref("joback/"+bookid+"/"+_fbDrvId).set({'jobstatus':'Offer','status':'Sent'})
@@ -16148,7 +16213,16 @@ $(document).ready(function() {
         };
 
         $scope.getjobs = function (ok='') {
-          
+            // Boot-time orphan cleanup: runs once on first getjobs call.
+            // Finds any in-flight offers that were interrupted by a tab close/refresh
+            // and removes their orphaned Firebase entries.
+            if (!window._bwOrphanCleanupDone) {
+                window._bwOrphanCleanupDone = true;
+                setTimeout(function() {
+                    if (typeof _cleanupOrphanedFirebase === 'function') _cleanupOrphanedFirebase();
+                }, 2500); // 2.5 s delay — lets Firebase finish initialising before we touch its paths
+            }
+
             var now = new Date();
 
             var day = ("0" + now.getDate()).slice(-2);
