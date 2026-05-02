@@ -382,12 +382,6 @@ try {
 
 const jobStore = _savedJobStore;
 
-// ─── Scheduled job store ──────────────────────────────────────────────────────
-// Holds future bookings from the passenger app (BookingStatus='Scheduled').
-// Separate from jobStore so they never enter auto-dispatch until their time window.
-// _scheduledTimers maps _fbKey → setTimeout handle for auto-dispatch at -10 min.
-const scheduledJobStore = [];
-const _scheduledTimers  = {};
 
 // Sync the daily sequence counter so new IDs don't collide with saved ones.
 // Existing IDs in the new DDMMYYYY+seq format start with today's date prefix.
@@ -495,9 +489,8 @@ function saveClosedJobStore() {
 }
 
 // ─── Firebase pendingjobs polling ────────────────────────────────────────────
-// Polls pendingjobs/{companyId} every 60 s for passenger-app scheduled bookings.
-// Ingests new Scheduled jobs, removes Cancelled ones, fires auto-dispatch timers.
-const _scheduledPollCompanies = new Set();
+// Polls pendingjobs/{companyId} for passenger-app bookings (Waiting/Cancelled).
+// Scheduled bookings now ingest directly as Pending — no separate holding store.
 
 // Normalise a Firebase passenger-app job object to server internal field names.
 // Firebase uses PickupAddress/PickupLat/PickupLng and DropoffAddress/DropoffLat/DropoffLng
@@ -534,117 +527,6 @@ function _normFbJob(job) {
   };
 }
 
-async function _ingestScheduledJob(companyId, jobId, job) {
-  const fbk = `${companyId}:${jobId}`;
-  if (scheduledJobStore.find(j => j._fbKey === fbk)) return; // already known
-  if (closedJobStore.find(j => j._fbKey === fbk)) return;    // already cancelled/completed — never re-add
-  if (jobStore.find(j => j._fbKey === fbk)) return;          // already in live queue
-  const scheduledForMs = parseInt(job.ScheduledFor || job.scheduledFor || 0);
-  if (!scheduledForMs || scheduledForMs <= Date.now()) return; // already past
-  const n = _normFbJob(job);
-  const sj = {
-    _fbKey:        fbk,
-    Id:            jobId,
-    companyId:     String(companyId),
-    BookingStatus: 'Scheduled',
-    BookingSource: 'passenger',
-    Name:          n.name,
-    PhoneNo:       n.phone,
-    PickAddress:   n.pickAddress,
-    PickLatLng:    n.pickLatLng,
-    DropAddress:   n.dropAddress,
-    DropLatLng:    n.dropLatLng,
-    VehicleType:   n.vehicleType,
-    PaymentMethod: n.paymentMethod,
-    EstimatedFare: n.estimatedFare,
-    ScheduledFor:  scheduledForMs,
-    scheduledFor:  scheduledForMs,
-    ScheduledAt:   n.scheduledAt  || new Date(scheduledForMs).toISOString(),
-    BookingDateTime: n.createdAt  || new Date().toISOString(),
-    Notes:         n.notes,
-    Passengers:    n.passengers,
-    DriverId: 0, VehicleId: 0,
-    _addedAt: Date.now(),
-  };
-  scheduledJobStore.push(sj);
-  console.log(`[scheduled] new job ${fbk} due ${sj.ScheduledAt}`);
-  // Auto-dispatch timer: 10 min before ScheduledFor → move to regular jobStore
-  const delay = Math.max(scheduledForMs - 10 * 60 * 1000 - Date.now(), 0);
-  _scheduledTimers[fbk] = setTimeout(() => {
-    const idx = scheduledJobStore.findIndex(j => j._fbKey === fbk);
-    if (idx === -1) return;
-    const entry = scheduledJobStore.splice(idx, 1)[0];
-    delete _scheduledTimers[fbk];
-    jobStore.push({ ...entry, BookingStatus: 'Pending', BookingDateTime: new Date().toISOString(), DriverId: 0, VehicleId: 0 });
-    saveJobStore();
-    console.log(`[scheduled] auto-dispatched ${fbk} (10-min window reached)`);
-  }, delay);
-}
-
-async function pollFirebasePendingJobs(companyId) {
-  try {
-    const token = await getFirebaseServerToken();
-    if (!token) { console.log('[scheduled] no Firebase token — poll skipped'); return; }
-    const r = await fbRequest(
-      `${FB_DB_URL}/pendingjobs/${companyId}.json?auth=${token}`, 'GET', null
-    );
-    if (r.status !== 200 || !r.body || typeof r.body !== 'object') return;
-    for (const [jobId, job] of Object.entries(r.body)) {
-      if (!job || typeof job !== 'object') continue;
-      const fbk  = `${companyId}:${jobId}`;
-      const stat = job.Status || job.status || '';
-      if (stat === 'Cancelled') {
-        const idx = scheduledJobStore.findIndex(j => j._fbKey === fbk);
-        if (idx !== -1) {
-          clearTimeout(_scheduledTimers[fbk]);
-          delete _scheduledTimers[fbk];
-          scheduledJobStore.splice(idx, 1);
-          console.log(`[scheduled] cancelled ${fbk} removed`);
-        }
-        continue;
-      }
-      if (stat === 'Scheduled') await _ingestScheduledJob(companyId, jobId, job);
-      if (stat === 'Waiting') {
-        // Book-now job from passenger app → add to regular jobStore if new
-        // Also skip if already cancelled/completed (in closedJobStore) to prevent re-appearance after dispatcher cancels it
-        const _alreadyClosed = closedJobStore.find(j => j._fbKey === fbk);
-        if (!jobStore.find(j => String(j.Id) === String(jobId) || j._fbKey === fbk) && !_alreadyClosed) {
-          const n = _normFbJob(job);
-          const newJob = {
-            _fbKey:          fbk,
-            Id:              newCompanyJobId(companyId),
-            companyId:       String(companyId),
-            BookingStatus:   'Pending',
-            BookingSource:   'passenger',
-            Name:            n.name,
-            PhoneNo:         n.phone,
-            PickAddress:     n.pickAddress,
-            PickLatLng:      n.pickLatLng,
-            DropAddress:     n.dropAddress,
-            DropLatLng:      n.dropLatLng,
-            VehicleType:     n.vehicleType,
-            PaymentMethod:   n.paymentMethod,
-            EstimatedFare:   n.estimatedFare,
-            BookingDateTime: n.createdAt || new Date().toISOString(),
-            Notes:           n.notes,
-            Passengers:      n.passengers,
-            DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
-          };
-          jobStore.push(newJob);
-          saveJobStore();
-          console.log(`[scheduled] Waiting job ${fbk} added to pending queue — ${n.name || 'unknown'} from ${n.pickAddress}`);
-        }
-      }
-    }
-  } catch (e) {
-    console.log(`[scheduled] poll error companyId=${companyId}: ${e.message}`);
-  }
-}
-
-// Run poll loop every 60 s for all companies that have ever called [GetScheduledJobs]
-setInterval(() => {
-  for (const cid of _scheduledPollCompanies) pollFirebasePendingJobs(cid);
-}, 60 * 1000);
 
 // Live drivers come from Firebase (driverdatarealx/{companyId} or online/{companyId}).
 // This array is kept as an empty structure so dependent code paths don't crash.
@@ -5076,43 +4958,11 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> ${_cJobs.length} jobs (${resp.dt4[0].UnAssignedCount} unassigned) companyId=${sessionCompanyId}`);
         objectD(res, resp);
 
-      } else if (action === '[GetScheduledJobs]') {
-        // Register company for ongoing Firebase poll, then return current scheduled list
-        _scheduledPollCompanies.add(String(sessionCompanyId));
-        // Kick an immediate poll (async, non-blocking)
-        pollFirebasePendingJobs(sessionCompanyId);
-        const _sjList = scheduledJobStore
-          .filter(j => j.companyId === String(sessionCompanyId))
-          .sort((a, b) => (a.ScheduledFor || 0) - (b.ScheduledFor || 0));
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${_sjList.length} scheduled jobs`);
-        objectD(res, { dt1: _sjList, count: _sjList.length });
-
-      } else if (action === '[AssignScheduledJob]') {
-        // Early manual dispatch — move job from scheduledJobStore into pending queue
-        const _asjFbKey = (param('fbKey') || '').toString().trim();
-        const _asjJobId = (param('jobId') || '').toString().trim();
-        const _asjIdx   = scheduledJobStore.findIndex(j =>
-          (_asjFbKey && j._fbKey === _asjFbKey) ||
-          (_asjJobId && String(j.Id) === _asjJobId && j.companyId === String(sessionCompanyId))
-        );
-        if (_asjIdx === -1) {
-          objectD(res, { ok: false, error: 'Scheduled job not found' });
-        } else {
-          const _asjEntry = scheduledJobStore.splice(_asjIdx, 1)[0];
-          clearTimeout(_scheduledTimers[_asjEntry._fbKey]);
-          delete _scheduledTimers[_asjEntry._fbKey];
-          const _asjPending = { ..._asjEntry, BookingStatus: 'Pending', BookingDateTime: new Date().toISOString(), DriverId: 0, VehicleId: 0 };
-          jobStore.push(_asjPending);
-          saveJobStore();
-          console.log(`[scheduled] manual early dispatch ${_asjEntry._fbKey}`);
-          objectD(res, { ok: true, jobId: _asjPending.Id });
-        }
-
       } else if (action === '[IngestPassengerJob]') {
         // Client-side Firebase listener detected a new passenger booking and relays it here.
-        // Handles Scheduled (→ scheduledJobStore + auto-dispatch timer),
-        //         Waiting  (→ regular jobStore as Pending), and
-        //         Cancelled (→ remove from scheduledJobStore).
+        // Handles Scheduled (→ regular jobStore as Pending with ScheduledFor field),
+        //         Waiting   (→ regular jobStore as Pending), and
+        //         Cancelled (→ remove from jobStore if still pending).
         let _ipjJob = {};
         try { _ipjJob = JSON.parse(param('job') || '{}'); } catch(e) {}
         const _ipjStatus = (_ipjJob.Status || _ipjJob.status || '').toString().trim();
@@ -5120,9 +4970,35 @@ const server = http.createServer(async (req, res) => {
         const _ipjJobId  = (_ipjJob._jobId || (_ipjFbKey.includes(':') ? _ipjFbKey.split(':').slice(1).join(':') : _ipjFbKey)).toString();
 
         if (_ipjStatus === 'Scheduled') {
-          const already = scheduledJobStore.find(j => j._fbKey === _ipjFbKey && j.companyId === String(sessionCompanyId));
-          if (!already) await _ingestScheduledJob(sessionCompanyId, _ipjJobId, _ipjJob);
-          objectD(res, { ok: true, action: 'scheduled' });
+          // Scheduled bookings land directly in the Unassigned queue as Pending.
+          // ScheduledFor is preserved so the 📅 Sched badge shows on the job card.
+          const already = jobStore.find(j => j._fbKey === _ipjFbKey);
+          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey);
+          if (!already && !alreadyClosed) {
+            const _sCid = String(sessionCompanyId);
+            const _sn = _normFbJob(_ipjJob);
+            const _sMs = parseInt(_ipjJob.ScheduledFor || _ipjJob.scheduledFor || 0) || null;
+            jobStore.push({
+              _fbKey: _ipjFbKey, Id: newCompanyJobId(_sCid), companyId: _sCid,
+              BookingStatus: 'Pending', BookingSource: 'passenger',
+              Name:          _sn.name,
+              PhoneNo:       _sn.phone,
+              PickAddress:   _sn.pickAddress,
+              PickLatLng:    _sn.pickLatLng,
+              DropAddress:   _sn.dropAddress,
+              DropLatLng:    _sn.dropLatLng,
+              VehicleType:   _sn.vehicleType,
+              PaymentMethod: _sn.paymentMethod,
+              EstimatedFare: _sn.estimatedFare,
+              BookingDateTime: _sn.createdAt || new Date().toISOString(),
+              ScheduledFor:  _sMs,
+              Notes: _sn.notes, Passengers: _sn.passengers,
+              DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
+            });
+            saveJobStore();
+            console.log(`[passenger] Scheduled job ${_ipjFbKey} ingested as Pending — ${_sn.name} from ${_sn.pickAddress}`);
+          }
+          objectD(res, { ok: true, action: 'pending' });
 
         } else if (_ipjStatus === 'Waiting') {
           const already = jobStore.find(j => j._fbKey === _ipjFbKey);
@@ -5152,12 +5028,12 @@ const server = http.createServer(async (req, res) => {
           objectD(res, { ok: true, action: 'pending' });
 
         } else if (_ipjStatus === 'Cancelled') {
-          const _cIdx = scheduledJobStore.findIndex(j => j._fbKey === _ipjFbKey);
+          // Remove from jobStore if still pending (passenger cancelled before dispatch)
+          const _cIdx = jobStore.findIndex(j => j._fbKey === _ipjFbKey);
           if (_cIdx !== -1) {
-            clearTimeout(_scheduledTimers[_ipjFbKey]);
-            delete _scheduledTimers[_ipjFbKey];
-            scheduledJobStore.splice(_cIdx, 1);
-            console.log(`[passenger] Cancelled job ${_ipjFbKey} removed`);
+            jobStore.splice(_cIdx, 1);
+            saveJobStore();
+            console.log(`[passenger] Cancelled job ${_ipjFbKey} removed from queue`);
           }
           objectD(res, { ok: true, action: 'cancelled' });
 

@@ -535,6 +535,8 @@
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
                                                                   <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
+                                                                  <!-- ── Sched badge: pre-booked scheduled ride ── -->
+                                                                  <span ng-if="value.ScheduledFor" class="label label-pill mt-2" style="background:#1565c0; color:#fff; font-weight:700; letter-spacing:0.3px;">&#128197; Sched</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail )}}
@@ -3392,8 +3394,6 @@ $(document).ready(function() {
                                             <ul class="nav panel-tabs">
                                                 <li class="" ng-click="getjobs(0)"><a href="#tab5" class="active show" data-toggle="tab">U-A<span>({{UnAssignedCount}})</span></a></li>
                                                <li class="" ng-click="getjobs(0)"><a href="#tab9" class=" " data-toggle="tab">Offer<span>({{UnAssignedCountoffer}})</span></a></li>
-                                               <li class="" ng-click="getjobs(0)"><a href="#tabRecalled" class=" " data-toggle="tab" style="color:#c0392b; font-weight:700;" title="Jobs recalled by drivers due to emergency">&#9888; Recalled<span style="margin-left:2px;">({{(unassignedjob_list | filter:{RecallStatus:'Recalled'}).length}})</span></a></li>
-                                               <li class="" ng-click="getScheduledJobs()"><a href="#tabScheduled" class=" " data-toggle="tab" style="color:#1565c0; font-weight:700;" title="Future scheduled bookings from passenger app"><i class="fa fa-calendar"></i> Sched<span style="margin-left:2px;">({{scheduledjob_list.length}})</span></a></li>
 
                                                  <li ng-click="AssignedJobs(0)"><a ng-click="AssignedJobs()" href="#tab6" data-toggle="tab" class="">Assign<span ng-click="AssignedJobs()">({{AssignedCount}})</span></a></li>
                                                 <li><a ng-click="ActiveJobsdata(0)" href="#tab7" data-toggle="tab" class="">Active <span>({{ActiveCount}})</span></a></li>
@@ -3508,6 +3508,8 @@ $(document).ready(function() {
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
                                                                   <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
+                                                                  <!-- ── Sched badge: pre-booked scheduled ride ── -->
+                                                                  <span ng-if="value.ScheduledFor" class="label label-pill mt-2" style="background:#1565c0; color:#fff; font-weight:700; letter-spacing:0.3px;">&#128197; Sched</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3679,6 +3681,8 @@ $(document).ready(function() {
                                                                   <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                                   <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
                                                                   <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
+                                                                  <!-- ── Sched badge: pre-booked scheduled ride ── -->
+                                                                  <span ng-if="value.ScheduledFor" class="label label-pill mt-2" style="background:#1565c0; color:#fff; font-weight:700; letter-spacing:0.3px;">&#128197; Sched</span>
                                                                   
                                                                 <div ng-if="value.useremail != null">
                                                                     {{checkconter(value.Id , value.Id ,value.useremail ) }}
@@ -3800,70 +3804,6 @@ $(document).ready(function() {
                                                     </div>
 
                                                     <!-- enddiv -->
-                                                </div>
-
-                                                <!-- ── Recalled jobs tab — shows only jobs where RecallStatus === "Recalled" ── -->
-                                                <div class="tab-pane" id="tabRecalled">
-                                                    <div style="background:#fff3f3; border:1px solid #e88; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:12px; color:#922;">
-                                                        <i class="fa fa-exclamation-triangle"></i> These jobs were recalled by drivers due to an emergency. Re-assign them as soon as possible.
-                                                    </div>
-                                                    <div ng-repeat="(key, value) in unassignedjob_list | filter:{RecallStatus:'Recalled'}" style="margin-bottom:12px; border-left:4px solid #c0392b; padding:8px 10px; background:#fff8f8; border-radius:4px;">
-                                                        <div style="font-weight:700; font-size:13px;">
-                                                            <span class="label label-pill label-primary"><i class="glyphicon glyphicon-tag"></i> #{{value.Id}}</span>
-                                                            &nbsp;<span class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
-                                                        </div>
-                                                        <div style="font-size:11px; color:#555; margin-top:4px;">
-                                                            <i class="fa fa-map-marker"></i> {{value.PickAddress}} &rarr; {{value.DropAddress}}
-                                                        </div>
-                                                        <div style="font-size:11px; color:#888; margin-top:2px;">
-                                                            <i class="fa fa-clock-o"></i> {{datecreate(value.Pickingtime, value.DispatchTimebefore)}} &nbsp; | &nbsp; <i class="fa fa-phone"></i> {{value.PhoneNo}}
-                                                        </div>
-                                                        <div ng-if="value.RecalledAt" style="font-size:10px; color:#aaa; margin-top:2px;">Recalled at: {{value.RecalledAt}}</div>
-                                                    </div>
-                                                    <div ng-if="(unassignedjob_list | filter:{RecallStatus:'Recalled'}).length === 0" style="color:#888; font-size:13px; padding:16px; text-align:center;">
-                                                        <i class="fa fa-check-circle" style="color:#27ae60;"></i> No recalled jobs — all clear.
-                                                    </div>
-                                                </div>
-
-                                                <div class="tab-pane" id="tabScheduled">
-                                                    <div ng-repeat="(key, value) in scheduledjob_list" style="margin-bottom:12px; border-left:4px solid #1565c0; padding:8px 10px; background:#f3f8ff; border-radius:4px; position:relative;">
-                                                        <div>
-                                                            <span class="label label-pill mt-2" style="background:#1565c0;color:#fff;">
-                                                                <i class="fa fa-calendar"></i> #{{value.Id}}</span>
-                                                            <span class="label label-pill mt-2" style="background:#0288d1;color:#fff;">
-                                                                <i class="fa fa-clock-o"></i> {{scheduledForDisplay(value.ScheduledFor)}}</span>
-                                                            <span class="label label-pill mt-2" style="background:#b71c1c;color:#fff;" ng-if="scheduledCountdownMs(value.ScheduledFor) < 1800000">
-                                                                <i class="fa fa-exclamation-triangle"></i> {{scheduledCountdown(value.ScheduledFor)}}</span>
-                                                            <span class="label label-pill mt-2" style="background:#37474f;color:#fff;" ng-if="scheduledCountdownMs(value.ScheduledFor) >= 1800000">
-                                                                <i class="fa fa-hourglass-half"></i> {{scheduledCountdown(value.ScheduledFor)}}</span>
-                                                        </div>
-                                                        <div style="margin-top:4px;">
-                                                            <span class="label label-pill mt-2" style="background:#e8f5e9;color:#1b5e20;max-width:95%;overflow:hidden;white-space:nowrap;display:inline-block;">
-                                                                <i class="fa fa-circle" style="color:green;"></i> {{value.PickAddress || 'Pickup TBA'}}</span>
-                                                        </div>
-                                                        <div ng-if="value.DropAddress" style="margin-top:2px;">
-                                                            <span class="label label-pill mt-2" style="background:#fce4ec;color:#880e4f;max-width:95%;overflow:hidden;white-space:nowrap;display:inline-block;">
-                                                                <i class="fa fa-circle" style="color:#c0392b;"></i> {{value.DropAddress}}</span>
-                                                        </div>
-                                                        <div style="margin-top:4px;">
-                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#333;" ng-if="value.Name">
-                                                                <i class="fa fa-user"></i> {{value.Name}}</span>
-                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#333;" ng-if="value.PhoneNo">
-                                                                <i class="fa fa-phone"></i> {{value.PhoneNo}}</span>
-                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#333;" ng-if="value.Passengers">
-                                                                <i class="fa fa-users"></i> {{value.Passengers}} pax</span>
-                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#555;" ng-if="value.Notes">
-                                                                <i class="fa fa-sticky-note-o"></i> {{value.Notes}}</span>
-                                                        </div>
-                                                        <div style="margin-top:6px;">
-                                                            <span class="label label-pill label-success mt-2 bw-send-pulse" style="cursor:pointer;padding:5px 12px;" ng-click="assignScheduledJobNow(value)">
-                                                                <i class="fa fa-car"></i> Dispatch Now</span>
-                                                            <span style="font-size:10px;color:#888;margin-left:8px;">Auto-dispatches 10 min before pickup</span>
-                                                        </div>
-                                                    </div>
-                                                    <div ng-if="scheduledjob_list.length === 0" style="color:#888;font-size:13px;padding:16px;text-align:center;">
-                                                        <i class="fa fa-calendar-o" style="color:#1565c0;"></i> No scheduled bookings — all clear.
-                                                    </div>
                                                 </div>
 
                                                 <div class="tab-pane" id="tab6">
@@ -5554,46 +5494,20 @@ $(document).ready(function() {
             var sc2 = angular.element(document.getElementById('myangular')).scope();
 
             if (status === 'Scheduled') {
+                // Scheduled bookings now go straight into the Unassigned queue
+                // (same flow as Waiting/book-now). The 📅 Sched badge on the job card
+                // indicates source. No separate holding area — dispatcher sees it immediately.
                 var scheduledMs = parseInt(b.ScheduledFor || b.scheduledFor || 0);
                 var timeStr = scheduledMs ? new Date(scheduledMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
                 _pjAlert('📅 Scheduled booking from ' + (b.passengerName || b.name || 'Passenger') + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
-
-                if (sc2 && sc2.scheduledjob_list) {
-                    var exists = sc2.scheduledjob_list.some(function(j) { return j._fbKey === fbKey; });
-                    if (!exists) {
-                        var _pLat = b.PickupLat  || b.pickupLat  || 0;
-                        var _pLng = b.PickupLng  || b.pickupLng  || 0;
-                        var _dLat = b.DropoffLat || b.dropoffLat || 0;
-                        var _dLng = b.DropoffLng || b.dropoffLng || 0;
-                        sc2.scheduledjob_list.push({
-                            _fbKey: fbKey, Id: k,
-                            BookingStatus: 'Scheduled', BookingSource: 'passenger',
-                            Name:        b.PassengerName  || b.passengerName  || b.name || '',
-                            PhoneNo:     b.PhoneNo        || b.phoneNo        || b.phone || '',
-                            PickAddress: b.PickupAddress  || b.pickupAddress  || b.PickAddress  || '',
-                            PickLatLng:  b.pickLatLng || b.PickLatLng || (_pLat && _pLng ? _pLat + ',' + _pLng : '0,0'),
-                            DropAddress: b.DropoffAddress || b.dropoffAddress || b.DropAddress  || '',
-                            DropLatLng:  b.dropLatLng || b.DropLatLng || (_dLat && _dLng ? _dLat + ',' + _dLng : '0,0'),
-                            VehicleType:   b.VehicleType   || b.vehicleType   || '',
-                            PaymentMethod: b.PaymentMethod || b.paymentMethod || 'cash',
-                            EstimatedFare: parseFloat(b.EstimatedFare || b.estimatedFare || 0),
-                            ScheduledFor:    scheduledMs,
-                            scheduledFor:    scheduledMs,
-                            ScheduledAt:     b.ScheduledAt || (scheduledMs ? new Date(scheduledMs).toISOString() : ''),
-                            BookingDateTime: b.createdAt  || b.CreatedAt || new Date().toISOString(),
-                            Notes:      b.notes || b.Notes || '',
-                            Passengers: parseInt(b.passengers || b.Passengers || '1') || 1,
-                            DriverId: 0, VehicleId: 0
-                        });
-                        sc2.scheduledjob_list.sort(function(a, b) { return (a.ScheduledFor||0) - (b.ScheduledFor||0); });
-                        if (!sc2.$$phase) { try { sc2.$digest(); } catch(e) {} }
-                    }
-                }
+                b.ScheduledFor = scheduledMs || null;
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
                     contentType:'application/json; charset=utf-8', dataType:'json',
                     data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify(b) }], action:'[IngestPassengerJob]' })
+                }).done(function() {
+                    if (sc2 && typeof sc2.getjobs === 'function') sc2.getjobs();
                 });
-                console.log('[pendingjobs] Scheduled booking received:', k, b);
+                console.log('[pendingjobs] Scheduled booking ingested as Pending:', k, b);
 
             } else if (status === 'Waiting') {
                 _pjAlert('📱 New booking from ' + (b.passengerName || b.name || 'Passenger') + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
@@ -16441,81 +16355,8 @@ $(document).ready(function() {
         }, 10000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
-        $scope.scheduledjob_list  = [];
         $scope.openCards = {};
         $scope.toggleCard = function(id) { $scope.openCards[id] = !$scope.openCards[id]; };
-
-        // ── Scheduled jobs ────────────────────────────────────────────────────
-        $scope.getScheduledJobs = function() {
-            $http({
-                method: 'POST',
-                url: 'DataManager/Data.aspx/DataSelector',
-                data: { data: [], action: '[GetScheduledJobs]' }
-            }).then(function(response) {
-                var resp = JSON.parse(response.data.d);
-                $scope.scheduledjob_list = resp.dt1 || [];
-                if (!$scope.$$phase) { try { $scope.$digest(); } catch(e) {} }
-            }, function() {});
-        };
-
-        $scope.scheduledForDisplay = function(ms) {
-            if (!ms) return '—';
-            var d = new Date(parseInt(ms));
-            if (isNaN(d.getTime())) return '—';
-            var dd = ('0' + d.getDate()).slice(-2);
-            var mo = ('0' + (d.getMonth() + 1)).slice(-2);
-            var hh = ('0' + d.getHours()).slice(-2);
-            var mn = ('0' + d.getMinutes()).slice(-2);
-            return dd + '/' + mo + ' ' + hh + ':' + mn;
-        };
-
-        $scope.scheduledCountdownMs = function(ms) {
-            if (!ms) return 0;
-            return Math.max(0, parseInt(ms) - Date.now());
-        };
-
-        $scope.scheduledCountdown = function(ms) {
-            var rem = $scope.scheduledCountdownMs(ms);
-            if (rem <= 0) return 'Now!';
-            var totalMins = Math.floor(rem / 60000);
-            var hrs  = Math.floor(totalMins / 60);
-            var mins = totalMins % 60;
-            if (hrs > 0) return hrs + 'h ' + mins + 'm';
-            return mins + 'm';
-        };
-
-        $scope.assignScheduledJobNow = function(job) {
-            if (!confirm('Move this scheduled job into the pending queue now?')) return;
-            $http({
-                method: 'POST',
-                url: 'DataManager/Data.aspx/DataSelector',
-                data: { data: [
-                    { name: 'fbKey', Value: String(job._fbKey || '') },
-                    { name: 'jobId', Value: String(job.Id    || '') }
-                ], action: '[AssignScheduledJob]' }
-            }).then(function(response) {
-                var resp = JSON.parse(response.data.d);
-                if (resp.ok) {
-                    $scope.scheduledjob_list = $scope.scheduledjob_list.filter(function(j) {
-                        return String(j.Id) !== String(job.Id);
-                    });
-                    if (typeof $scope.getjobs === 'function') { $scope.getjobs(); }
-                    if (!$scope.$$phase) { try { $scope.$digest(); } catch(e) {} }
-                } else {
-                    alert('Could not dispatch: ' + (resp.error || 'unknown error'));
-                }
-            }, function() { alert('Network error — please retry.'); });
-        };
-
-        // Refresh scheduled list every 60 s; tick countdowns every 30 s
-        setInterval(function() { $scope.getScheduledJobs(); }, 60000);
-        setInterval(function() {
-            if ($scope.scheduledjob_list.length > 0 && !$scope.$$phase) {
-                try { $scope.$digest(); } catch(e) {}
-            }
-        }, 30000);
-        $scope.getScheduledJobs();
-        // ── end Scheduled jobs ────────────────────────────────────────────────
 
         $scope.ClosedJobsdata = function() {
             if ($('#closed-jobs').hasClass('in') || $('#closed-jobs').is(':visible')) {
