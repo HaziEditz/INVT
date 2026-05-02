@@ -537,6 +537,8 @@ function _normFbJob(job) {
 async function _ingestScheduledJob(companyId, jobId, job) {
   const fbk = `${companyId}:${jobId}`;
   if (scheduledJobStore.find(j => j._fbKey === fbk)) return; // already known
+  if (closedJobStore.find(j => j._fbKey === fbk)) return;    // already cancelled/completed — never re-add
+  if (jobStore.find(j => j._fbKey === fbk)) return;          // already in live queue
   const scheduledForMs = parseInt(job.ScheduledFor || job.scheduledFor || 0);
   if (!scheduledForMs || scheduledForMs <= Date.now()) return; // already past
   const n = _normFbJob(job);
@@ -604,7 +606,9 @@ async function pollFirebasePendingJobs(companyId) {
       if (stat === 'Scheduled') await _ingestScheduledJob(companyId, jobId, job);
       if (stat === 'Waiting') {
         // Book-now job from passenger app → add to regular jobStore if new
-        if (!jobStore.find(j => String(j.Id) === String(jobId) || j._fbKey === fbk)) {
+        // Also skip if already cancelled/completed (in closedJobStore) to prevent re-appearance after dispatcher cancels it
+        const _alreadyClosed = closedJobStore.find(j => j._fbKey === fbk);
+        if (!jobStore.find(j => String(j.Id) === String(jobId) || j._fbKey === fbk) && !_alreadyClosed) {
           const n = _normFbJob(job);
           const newJob = {
             _fbKey:          fbk,
@@ -5122,7 +5126,8 @@ const server = http.createServer(async (req, res) => {
 
         } else if (_ipjStatus === 'Waiting') {
           const already = jobStore.find(j => j._fbKey === _ipjFbKey);
-          if (!already) {
+          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey);
+          if (!already && !alreadyClosed) {
             const _wCid = String(sessionCompanyId);
             const _wn = _normFbJob(_ipjJob);
             jobStore.push({
