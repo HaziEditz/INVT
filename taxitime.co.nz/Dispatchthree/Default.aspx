@@ -1204,10 +1204,10 @@
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned11( value.BookingStatus)}}" ng-click="AssignPendingJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sa' )" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'))" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned1( value.BookingStatus)}}" ng-click="AssignJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sa')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'))" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
@@ -4458,10 +4458,10 @@ $(document).ready(function() {
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned11( value.BookingStatus)}}" ng-click="AssignPendingJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sax' )" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'))" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned1( value.BookingStatus)}}" ng-click="AssignJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sax' )" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'))" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
