@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260501m" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260501n" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -2857,28 +2857,21 @@ $(document).ready(function() {
             <div class="app-header1 header py-1 d-flex">
                 <div class="container-fluid">
                     <div class="d-flex">
-                            <a  href="#">
-                            <img src="images/logo3.png" class="header-brand-img" alt="BookaWaka">
-                             </a>
-                           <button id="btnCreateJob" class="btn btn-danger" data-toggle="modal" ng-click="showfirst();"  >Create Job</button>
-                        <!-- Tenant info bar: Company ID · Company Name · Dispatcher · Platform -->
+                        <!-- Tenant info bar: Create Job · Company ID · Company Name · Dispatcher -->
                         <div class="bw-tenant-info">
+                            <button id="btnCreateJob" class="bw-create-job-btn" data-toggle="modal" ng-click="showfirst();">
+                                <i class="fa fa-plus"></i> Create Job
+                            </button>
                             <span class="bw-chip bw-chip--id"
                                   onclick="document.getElementById('tt-company-modal').style.display='flex'"
                                   title="Click to copy your Company ID">
                                 <span class="bw-chip-label">Company ID</span><span id="lblCompanyId">—</span>
                             </span>
-                            <span class="bw-chip-divider"></span>
                             <span class="bw-chip bw-chip--company">
-                                <span class="bw-chip-label">Company</span><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
+                                <i class="fa fa-building" style="font-size:9px;opacity:0.5;margin-right:4px;"></i><label id="CompanyName" ngclick="testemailing()" style="margin:0; cursor:default;"></label>
                             </span>
-                            <span class="bw-chip-divider"></span>
                             <span class="bw-chip bw-chip--dispatcher">
-                                <span class="bw-chip-label">Dispatcher</span><label id="lblName1" style="margin:0;"></label><span id="bwChangeNameBtn" title="Change dispatcher name" onclick="(function(){var n=prompt('Enter your dispatcher name:',localStorage.getItem('TT_Name')||'');if(n&&n.trim()){n=n.trim();localStorage.setItem('TT_Name',n);document.getElementById('lblName1').textContent=n;var l2=document.getElementById('lblName2');if(l2)l2.textContent=n;var m=document.getElementById('tt-modal-dispatcher');if(m)m.textContent='Dispatcher: '+n;}})()" style="cursor:pointer;margin-left:6px;font-size:9px;color:rgba(255,255,255,0.35);font-weight:500;letter-spacing:0.3px;text-decoration:underline;user-select:none;">change</span>
-                            </span>
-                            <span class="bw-chip-divider"></span>
-                            <span class="bw-chip bw-chip--platform">
-                                <i class="fa fa-globe" style="font-size:9px; margin-right:5px; opacity:0.6;"></i>Operated by <strong style="margin-left:3px;">bookawaka.com</strong>
+                                <i class="fa fa-headphones" style="font-size:9px;opacity:0.5;margin-right:4px;"></i><label id="lblName1" style="margin:0;"></label><span id="bwChangeNameBtn" title="Change dispatcher name" onclick="(function(){var n=prompt('Enter your dispatcher name:',localStorage.getItem('TT_Name')||'');if(n&&n.trim()){n=n.trim();localStorage.setItem('TT_Name',n);document.getElementById('lblName1').textContent=n;var l2=document.getElementById('lblName2');if(l2)l2.textContent=n;var m=document.getElementById('tt-modal-dispatcher');if(m)m.textContent='Dispatcher: '+n;}})()" style="cursor:pointer;margin-left:6px;font-size:9px;color:rgba(255,255,255,0.3);font-weight:500;letter-spacing:0.3px;text-decoration:none;user-select:none;">✎</span>
                             </span>
                         </div>
 
@@ -4882,6 +4875,14 @@ $(document).ready(function() {
     <!-- Custom Js-->
     <!--<script src="assets/js/admin-custom.js"></script>--!>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"6855be97295b455e994f24411d610193","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+
+<!-- ── Site footer ─────────────────────────────────────────────────────── -->
+<div class="bw-site-footer">
+    <span class="bw-site-footer__inner">
+        <i class="fa fa-globe" style="margin-right:5px;opacity:0.45;font-size:9px;"></i>
+        Operated by <a href="https://bookawaka.com" target="_blank" rel="noopener">bookawaka.com</a>
+    </span>
+</div>
 </body>
 </html>
 

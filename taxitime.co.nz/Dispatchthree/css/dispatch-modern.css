@@ -44,12 +44,13 @@ html, body {
 /* ============================================================
    HEADER
    ============================================================ */
+/* ── Header bar ─────────────────────────────────────────── */
 .app-header1.header, .app-header1 {
-  background: var(--bw-bg1) !important;
-  border-bottom: 1px solid var(--bw-border2) !important;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.03), 0 2px 12px rgba(0,0,0,0.3) !important;
-  padding: 0 14px !important;
-  min-height: 52px !important;
+  background: linear-gradient(90deg, #0e1220 0%, #131829 60%, #111520 100%) !important;
+  border-bottom: 1px solid rgba(245,190,30,0.12) !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.025), 0 4px 24px rgba(0,0,0,0.45) !important;
+  padding: 0 18px !important;
+  min-height: 54px !important;
   display: flex !important;
   align-items: center !important;
   position: fixed !important;
@@ -57,27 +58,18 @@ html, body {
   z-index: 1030 !important;
 }
 
-/* Top accent line */
+/* Amber accent rule at very top */
 .app-header1.header::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--bw-accent) 0%, rgba(245,190,30,0.3) 100%);
-  opacity: 0.75;
+  height: 3px;
+  background: linear-gradient(90deg, var(--bw-accent) 0%, rgba(245,190,30,0.18) 70%, transparent 100%);
 }
 
-.app-content.main-content { padding-top: 52px !important; }
+.app-content.main-content { padding-top: 54px !important; padding-bottom: 28px !important; }
 
-/* Brand logo in header */
-.app-header1 img.header-brand-img {
-  height: 32px !important;
-  width: auto !important;
-  margin: 0 10px 0 0 !important;
-  vertical-align: middle !important;
-}
-
-/* Company name / online badge */
+/* Online badge */
 .app-header1 p.label.label-success {
   background: var(--bw-accent-dim) !important;
   color: var(--bw-accent) !important;
@@ -98,8 +90,49 @@ html, body {
 }
 .app-header1 .fa-bell:hover { color: var(--bw-text1) !important; }
 
-/* Create Job button */
-.app-header1 .btn-danger {
+/* Inner row alignment */
+.app-header1 > .container-fluid { padding: 0 !important; }
+.app-header1 > .container-fluid > .d-flex { align-items: center !important; }
+
+/* ── Tenant info row ── */
+.bw-tenant-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+/* ── Create Job button ── */
+.bw-create-job-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: var(--bw-accent) !important;
+  color: #0e1220 !important;
+  font-weight: 800 !important;
+  font-size: 12px !important;
+  padding: 7px 16px !important;
+  border-radius: 8px !important;
+  border: none !important;
+  letter-spacing: 0.2px !important;
+  cursor: pointer !important;
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s !important;
+  box-shadow: 0 2px 10px rgba(245,190,30,0.25) !important;
+  white-space: nowrap !important;
+  margin-right: 6px !important;
+  flex-shrink: 0 !important;
+}
+.bw-create-job-btn:hover {
+  background: #ffd23a !important;
+  box-shadow: 0 4px 18px rgba(245,190,30,0.4) !important;
+  transform: translateY(-1px) !important;
+}
+.bw-create-job-btn:active { transform: translateY(0) !important; }
+.bw-create-job-btn .fa { font-size: 10px !important; }
+
+/* Legacy btn-danger fallback (modals etc still use this class) */
+.app-header1 .btn-danger:not(.bw-create-job-btn) {
   background: var(--bw-red) !important;
   border: none !important;
   color: #fff !important;
@@ -107,89 +140,76 @@ html, body {
   font-size: 11px !important;
   padding: 6px 12px !important;
   border-radius: 6px !important;
-  letter-spacing: 0.2px !important;
   transition: filter 0.15s !important;
   margin: 0 6px !important;
 }
-.app-header1 .btn-danger:hover { filter: brightness(1.1) !important; }
 
-/* ── Inner header row: vertically centre logo + button + chips ── */
-.app-header1 > .container-fluid { padding: 0 !important; }
-.app-header1 > .container-fluid > .d-flex { align-items: center !important; }
-
-/* ── Tenant info chips (header bar) ── */
-.bw-tenant-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 10px;
-  flex-wrap: nowrap;
-}
+/* ── Info chips ── */
 .bw-chip {
   display: inline-flex;
   align-items: center;
   font-size: 11px;
-  padding: 5px 10px;
-  border-radius: 20px;
+  padding: 5px 11px;
+  border-radius: 7px;
   white-space: nowrap;
-  line-height: 1;
-  transition: opacity 0.15s;
+  line-height: 1.2;
+  transition: opacity 0.15s, background 0.15s;
 }
 .bw-chip label { font-size: 11px; font-weight: inherit; color: inherit; margin: 0; }
 .bw-chip-label {
-  font-size: 9px;
+  font-size: 8.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
-  opacity: 0.65;
+  letter-spacing: 1px;
+  opacity: 0.5;
   margin-right: 5px;
   white-space: nowrap;
 }
-/* Company ID — gold solid */
+
+/* Company ID — gold solid, clickable */
 .bw-chip--id {
-  background: var(--bw-accent);
-  color: var(--bw-bg1);
+  background: rgba(245,190,30,0.18);
+  color: var(--bw-accent);
   font-weight: 700;
   cursor: pointer;
-  border: none;
+  border: 1px solid rgba(245,190,30,0.35);
   letter-spacing: 0.5px;
+  transition: background 0.15s, border-color 0.15s;
 }
-.bw-chip--id:hover { opacity: 0.85; }
-.bw-chip--id .bw-chip-label { color: var(--bw-bg1); opacity: 0.6; }
-/* Company name — visible gold tint */
+.bw-chip--id:hover {
+  background: rgba(245,190,30,0.28);
+  border-color: rgba(245,190,30,0.6);
+}
+.bw-chip--id .bw-chip-label { color: var(--bw-accent); opacity: 0.55; }
+
+/* Company name — clean white */
 .bw-chip--company {
-  background: rgba(245,190,30,0.15);
-  color: #fcd34d;
-  font-weight: 600;
-  border: 1px solid rgba(245,190,30,0.45);
-}
-/* Dispatcher — clearly readable white */
-.bw-chip--dispatcher {
-  background: rgba(255,255,255,0.09);
-  color: #e2e8f0;
+  background: rgba(255,255,255,0.06);
+  color: #cbd5e1;
   font-weight: 500;
-  border: 1px solid rgba(255,255,255,0.25);
+  border: 1px solid rgba(255,255,255,0.1);
 }
-/* "change" link inside dispatcher */
+
+/* Dispatcher */
+.bw-chip--dispatcher {
+  background: rgba(59,130,246,0.12);
+  color: #93c5fd;
+  font-weight: 500;
+  border: 1px solid rgba(59,130,246,0.22);
+}
 #bwChangeNameBtn {
-  color: rgba(255,255,255,0.4) !important;
-  font-size: 9px !important;
-  margin-left: 5px !important;
+  color: rgba(147,197,253,0.45) !important;
+  font-size: 11px !important;
+  margin-left: 6px !important;
+  transition: color 0.15s;
 }
-/* Platform chip */
-.bw-chip--platform {
-  background: transparent;
-  color: rgba(255,255,255,0.4);
-  font-size: 10px;
-  font-weight: 400;
-  font-style: italic;
-  border: 1px solid rgba(255,255,255,0.15);
-  padding: 4px 9px;
-}
-.bw-chip--platform strong { color: rgba(255,255,255,0.65); font-weight: 600; font-style: normal; }
-.bw-chip-divider { display: none; }
-@media (max-width: 1100px) { .bw-chip--platform { display: none; } }
-@media (max-width: 760px)  { .bw-chip--company, .bw-chip--dispatcher { display: none; } }
+#bwChangeNameBtn:hover { color: rgba(147,197,253,0.9) !important; }
+
+/* Platform chip — removed from header, now lives in footer only */
+.bw-chip--platform { display: none !important; }
+.bw-chip-divider   { display: none; }
+
+@media (max-width: 760px) { .bw-chip--company, .bw-chip--dispatcher { display: none; } }
 
 /* Status dots */
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
@@ -202,27 +222,42 @@ html, body {
 .topnav {
   display: flex !important;
   align-items: center !important;
-  gap: 1px !important;
+  gap: 2px !important;
   background: transparent !important;
   overflow: visible !important;
+  margin-left: auto !important;
 }
 .topnav a {
-  color: var(--bw-text2) !important;
-  font-size: 12px !important;
+  color: rgba(139,150,168,0.85) !important;
+  font-size: 11.5px !important;
   font-weight: 500 !important;
-  padding: 5px 9px !important;
-  border-radius: 5px !important;
+  padding: 5px 10px !important;
+  border-radius: 6px !important;
   text-decoration: none !important;
   white-space: nowrap !important;
   transition: background 0.12s, color 0.12s !important;
+  letter-spacing: 0.1px !important;
 }
 .topnav a:hover {
-  background: rgba(255,255,255,0.06) !important;
+  background: rgba(255,255,255,0.07) !important;
   color: var(--bw-text1) !important;
 }
 .topnav a.active {
   color: var(--bw-accent) !important;
   background: var(--bw-accent-dim) !important;
+  font-weight: 600 !important;
+}
+/* Log Out link — subtle red tint */
+.topnav a[onclick*="Logout"] {
+  color: rgba(239,68,68,0.65) !important;
+}
+.topnav a[onclick*="Logout"]:hover {
+  color: #ef4444 !important;
+  background: rgba(239,68,68,0.08) !important;
+}
+/* Suspended link — always red */
+.topnav a[data-target*="suspended"] {
+  color: rgba(239,68,68,0.8) !important;
   font-weight: 600 !important;
 }
 
@@ -1449,4 +1484,39 @@ html[data-bw-mode="light"] #largeModal input[type="date"] {
 }
 html[data-bw-mode="light"] #largeModal input[type="date"]::-webkit-calendar-picker-indicator {
   filter: none !important;
+}
+
+/* ============================================================
+   SITE FOOTER
+   ============================================================ */
+.bw-site-footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 24px;
+  background: linear-gradient(90deg, #080b12 0%, #0d1018 100%);
+  border-top: 1px solid rgba(245,190,30,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1020;
+  pointer-events: none;
+}
+.bw-site-footer__inner {
+  font-size: 10px;
+  font-weight: 400;
+  color: rgba(255,255,255,0.22);
+  letter-spacing: 0.4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+.bw-site-footer__inner a {
+  color: rgba(245,190,30,0.45);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+.bw-site-footer__inner a:hover {
+  color: rgba(245,190,30,0.85);
 }
