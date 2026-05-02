@@ -5416,8 +5416,9 @@ $(document).ready(function() {
 
     // ── 5b. Minimum version gate ───────────────────────────────────────────
     // Reads bwConfig/appSettings/dispatchAppMinVersion from Firebase once.
-    // If the running version is below the minimum, shows a blocking overlay
-    // that forces the dispatcher to reload and get the latest build.
+    // Must wait for Firebase Auth (rule: auth != null) — wraps the read inside
+    // onAuthStateChanged so it fires only after a user token is available,
+    // whether that user authenticated via email/password or anonymous sign-in.
     (function() {
         function _bwSemverLt(a, b) {
             // Returns true if semver string a < b  (e.g. "1.0.0" < "1.1.0")
@@ -5431,24 +5432,35 @@ $(document).ready(function() {
             return false; // equal
         }
 
-        DbRef.ref('bwConfig/appSettings').once('value', function(snap) {
-            var settings = snap.val();
-            if (!settings) return;
-            var minVer = (settings.dispatchAppMinVersion || '').toString().trim();
-            if (!minVer) return;
-            if (_bwSemverLt(DISPATCH_APP_VERSION, minVer)) {
-                var overlay  = document.getElementById('bw-update-screen');
-                var verInfo  = document.getElementById('bw-update-version-info');
-                if (overlay) {
-                    overlay.style.display = 'flex';
-                    if (verInfo) verInfo.textContent = 'Your version: ' + DISPATCH_APP_VERSION + '  ·  Required: ' + minVer;
+        function _bwCheckVersion() {
+            DbRef.ref('bwConfig/appSettings').once('value', function(snap) {
+                var settings = snap.val();
+                if (!settings) return;
+                var minVer = (settings.dispatchAppMinVersion || '').toString().trim();
+                if (!minVer) return;
+                if (_bwSemverLt(DISPATCH_APP_VERSION, minVer)) {
+                    var overlay = document.getElementById('bw-update-screen');
+                    var verInfo = document.getElementById('bw-update-version-info');
+                    if (overlay) {
+                        overlay.style.display = 'flex';
+                        if (verInfo) verInfo.textContent = 'Your version: ' + DISPATCH_APP_VERSION + '  ·  Required: ' + minVer;
+                    }
+                    console.warn('[bw-version] update required — running ' + DISPATCH_APP_VERSION + ', minimum is ' + minVer);
+                } else {
+                    console.log('[bw-version] version OK — ' + DISPATCH_APP_VERSION + ' >= ' + minVer);
                 }
-                console.warn('[bw-version] update required — running ' + DISPATCH_APP_VERSION + ', minimum is ' + minVer);
-            } else {
-                console.log('[bw-version] version OK — ' + DISPATCH_APP_VERSION + ' >= ' + minVer);
-            }
-        }, function(e) {
-            console.warn('[bw-version] could not read bwConfig/appSettings:', e.code || e.message);
+            }, function(e) {
+                console.warn('[bw-version] could not read bwConfig/appSettings:', e.code || e.message);
+            });
+        }
+
+        // Wait for a confirmed auth user before reading the protected bwConfig node.
+        // onAuthStateChanged fires immediately if a user is already present, or after
+        // anonymous sign-in resolves — whichever comes first. Unsubscribe after one fire.
+        var _bwVerUnsubscribe = firebase.auth().onAuthStateChanged(function(user) {
+            if (!user) return; // still waiting for signInAnonymously to complete
+            _bwVerUnsubscribe(); // unsubscribe — we only need one check
+            _bwCheckVersion();
         });
     })();
 
