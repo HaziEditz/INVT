@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260501n" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260502a" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -10828,6 +10828,12 @@ $(document).ready(function() {
                     function _patchDriver(dc) {
                         var _patched = Object.assign({}, dc);
                         _patched.vehiclestatus = _savedOldStatus;
+                        // Firebase GPS updates rarely include zonename/zonequeue — preserve
+                        // the server-backfilled values so zone queue doesn't flicker blank.
+                        var _stored = $scope.driverdatarealx[incs];
+                        if (!_patched.zonename  && _stored.zonename)  _patched.zonename  = _stored.zonename;
+                        if (!_patched.zoneid    && _stored.zoneid)    _patched.zoneid    = _stored.zoneid;
+                        if (!_patched.zonequeue && _stored.zonequeue) _patched.zonequeue = _stored.zonequeue;
                         $scope.driverdatarealx[incs] = _patched;
                     }
 
@@ -10849,7 +10855,10 @@ $(document).ready(function() {
                         }
                     }
 
-                    if($scope.driverdatarealx[incs].zonename  != datacom.zonename ){
+                    // Only trigger zone re-render when the incoming zone is a real non-empty
+                    // name that differs from stored. Empty Firebase GPS updates (no zonename)
+                    // must not blank out the server-backfilled zone and cause queue flicker.
+                    if(datacom.zonename && $scope.driverdatarealx[incs].zonename  != datacom.zonename ){
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
@@ -10875,7 +10884,10 @@ $(document).ready(function() {
                             });
                         }
                     }
-                    if($scope.driverdatarealx[incs].zonequeue  != datacom.zonequeue ){
+                    // Only trigger zonequeue re-render when incoming value is a real positive
+                    // number — GPS-only Firebase updates send zonequeue=undefined/0, which
+                    // must not overwrite the server-backfilled queue position.
+                    if(datacom.zonequeue && $scope.driverdatarealx[incs].zonequeue  != datacom.zonequeue ){
                         _patchDriver(datacom);
                         $scope.driverlist =  $scope.driverdatarealx;
                         $scope.zonetablez();
