@@ -1197,18 +1197,21 @@
                                                             <div class="row nopad col-sm-9  col-md-9 col-xl-9">
                                                               
 
-                                                                <select id="sa{{value.Id}}" class="form-control UnAssignJobsList2" onchange="quickCardChange(this)" style="width: 160px;">
+                                                                <select id="sa{{value.Id}}" class="form-control UnAssignJobsList2" style="width: 160px;">
                                                                     <option value="0"  >Select Driver</option>
                                                                     <option value="-1"  data-is-noone="true">No One</option>
                                                                     <option ng-repeat="drivi in driverlistx" value="{{drivi.Id}}">  {{drivi.VehicleNo}} {{"/" +  drivi.VehicleName}}  </option>
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned11( value.BookingStatus)}}" ng-click="AssignPendingJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sa' )">
+                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned11( value.BookingStatus)}}" ng-click="AssignPendingJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sa' )" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned1( value.BookingStatus)}}" ng-click="AssignJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sa')">
+                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned1( value.BookingStatus)}}" ng-click="AssignJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sa')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
+                                                                </span>
+                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
+                                                                    <i class="fa fa-map-marker" style="color:#fff;"></i>
                                                                 </span>
                                                                 
                                                                 <span class="label label-pill label-danger mt-2" ng-click="UnAssignedJobsCancelng(value.Id,value.U_id)">
@@ -3812,13 +3815,13 @@ $(document).ready(function() {
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
-                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 4px;">
-                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" onchange="quickCardChange(this)" style="height:26px; font-size:11px; padding:1px 4px;">
+                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 2px;">
+                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" style="height:26px; font-size:11px; padding:1px 4px;">
                                                                     <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
                                                                     <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
-                                                                </span>
+                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" onclick="quickCardChange(document.getElementById('spx{{value.Id}}'))" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
                                                                 </span>
@@ -3985,13 +3988,13 @@ $(document).ready(function() {
                                                                 <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
                                                                     <i class="fa fa-bullhorn"></i> Broadcast
                                                                 </span>
-                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 4px;">
-                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" onchange="quickCardChange(this)" style="height:26px; font-size:11px; padding:1px 4px;">
+                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 2px;">
+                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" style="height:26px; font-size:11px; padding:1px 4px;">
                                                                     <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
                                                                     <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
-                                                                </span>
+                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" onclick="quickCardChange(document.getElementById('spx{{value.Id}}'))" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
                                                                 </span>
@@ -4448,18 +4451,21 @@ $(document).ready(function() {
                                                             <div class="row nopad col-sm-9  col-md-9 col-xl-9">
                                                               
 
-                                                                <select id="sax{{value.Id}}" class="form-control UnAssignJobsList2" onchange="quickCardChange(this)" style="width: 160px;">
+                                                                <select id="sax{{value.Id}}" class="form-control UnAssignJobsList2" style="width: 160px;">
                                                                     <option value="0"  >Select Driver</option>
                                                                     <option value="-1"  data-is-noone="true">No One</option>
                                                                     <option ng-repeat="drivi in driverlistx" value="{{drivi.Id}}">   {{drivi.VehicleNo}} {{"/" +  drivi.VehicleName}}  </option>
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned11( value.BookingStatus)}}" ng-click="AssignPendingJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sax' )">
+                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned11( value.BookingStatus)}}" ng-click="AssignPendingJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sax' )" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned1( value.BookingStatus)}}" ng-click="AssignJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sax' )">
+                                                                <span class=" label label-pill label-success mt-2" style="display: {{asssigned1( value.BookingStatus)}}" ng-click="AssignJobFromJobList2(value.Id,value.VehicleId,value.DriverId,value.U_id ,'sax' )" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
+                                                                </span>
+                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
+                                                                    <i class="fa fa-map-marker" style="color:#fff;"></i>
                                                                 </span>
                                                                 
                                                                 <span class="label label-pill label-danger mt-2" ng-click="UnAssignedJobsCancelng(value.Id,value.U_id)">
@@ -19506,6 +19512,21 @@ $(document).ready(function() {
 
         //setTimeout(function(){ refreshjob = 0 ; }, 15000);
     
+    }
+
+    // Zoom the map to a job's pickup lat/lng (called by card map-pin button).
+    // latLngStr is the job's PickLatLng field in "lat,lng" format.
+    function bwZoomPickup(latLngStr) {
+        if (!latLngStr || String(latLngStr).trim() === '' || latLngStr === '0,0') return;
+        var parts = String(latLngStr).split(',');
+        if (parts.length < 2) return;
+        var lat = parseFloat(parts[0].trim());
+        var lng = parseFloat(parts[1].trim());
+        if (isNaN(lat) || isNaN(lng)) return;
+        try {
+            map.panTo(new google.maps.LatLng(lat, lng));
+            map.setZoom(16);
+        } catch(e) { console.warn('[bwZoomPickup]', e); }
     }
 
     function quickCardChange(selectEl) {
