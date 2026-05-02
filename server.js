@@ -462,6 +462,11 @@ const ZONE_DRIVERS = [];
 // (ZONE_DRIVERS may be incomplete while Firebase re-delivers child_added events).
 const SERVER_START_TIME = Date.now();
 
+// Guard: only send the "confirmed zero" clear-board signal (dt6=null) once at least
+// one driver has connected in THIS server session.  Before that, return dt6=[] so the
+// dispatcher board keeps any Firebase-sourced drivers visible after a server restart.
+let _firstDriverSeenAfterStart = false;
+
 // Load-test tracking sets — track injected test driver/job IDs so /dev/loadtest/clear
 // can remove exactly them without affecting real data.
 const LT_DRIVER_IDS = new Set();
@@ -4111,6 +4116,9 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === 'VehiclesStatus') {
         const _myDrivers = companyDrivers(ZONE_DRIVERS);
+        // Once any driver appears in ZONE_DRIVERS, mark the session as "seen a real driver".
+        // After that point, an empty ZONE_DRIVERS is a genuine "all signed out" state.
+        if (_myDrivers.length > 0) _firstDriverSeenAfterStart = true;
         const busyCount  = _myDrivers.filter(d => d.vehiclestatus === 'Busy').length;
         const freeCount  = _myDrivers.filter(d => d.vehiclestatus === 'Available').length;
         const awayCount  = _myDrivers.filter(d => d.vehiclestatus === 'Away').length;
@@ -4130,7 +4138,11 @@ const server = http.createServer(async (req, res) => {
         //   Array with entries → server knows these drivers are online; remove any not in list
         //   null              → server has been running > 90 s and confirms NO drivers are online; clear board
         //   []                → server just started (< 90 s warm-up); don't remove anyone yet
-        const _onlineIds = _serverAgeMs > 90000
+        // dt6=null (clear board) is only safe once we've seen at least one driver connect
+        // in this server session.  Before that, Firebase-sourced drivers should be left
+        // alone — the server's ZONE_DRIVERS is simply not yet warmed up.
+        const _canClear = _serverAgeMs > 90000 && _firstDriverSeenAfterStart;
+        const _onlineIds = _canClear
           ? (_myDrivers.length > 0
               ? _myDrivers.map(d => ({
                   id:     String(d.driverid  || ''),
@@ -4140,7 +4152,7 @@ const server = http.createServer(async (req, res) => {
                   status: d.vehiclestatus || 'Available',
                 }))
               : null)   // confirmed empty — signal client to clear board
-          : [];         // warm-up period — don't act yet
+          : [];         // warm-up or no driver yet seen — don't clear anything
         const vehicleStatus = {
           dt1: [{ All: _myDrivers.length }],
           dt2: [{ Busy: busyCount }],
