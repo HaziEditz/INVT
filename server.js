@@ -324,8 +324,16 @@ try {
 
 const closedJobStore = _savedClosedJobStore;
 
+// Safely convert a BookingDateTime/JobCompleteTime value to a string suitable
+// for passing to new Date(). Handles ISO strings, numeric timestamps, and nulls.
+function _toDateStr(v) {
+  if (!v && v !== 0) return '';
+  if (typeof v === 'number') return new Date(v).toISOString();
+  return String(v).replace(/\.$/, '').trim();
+}
+
 function calcJobMins(bookingDateTimeStr) {
-  const bdt = new Date(bookingDateTimeStr.replace(/\.$/, '').trim());
+  const bdt = new Date(_toDateStr(bookingDateTimeStr));
   const now = new Date();
   return Math.round((bdt - now) / 60000);
 }
@@ -333,8 +341,8 @@ function calcJobMins(bookingDateTimeStr) {
 // Sort jobs newest-first: prefer JobCompleteTime (for closed jobs), then BookingDateTime.
 function sortByRecent(jobs) {
   return [...jobs].sort((a, b) => {
-    const ta = new Date((a.JobCompleteTime || a.BookingDateTime || '').replace(/\.$/, '').trim()).getTime() || 0;
-    const tb = new Date((b.JobCompleteTime || b.BookingDateTime || '').replace(/\.$/, '').trim()).getTime() || 0;
+    const ta = new Date(_toDateStr(a.JobCompleteTime || a.BookingDateTime || '')).getTime() || 0;
+    const tb = new Date(_toDateStr(b.JobCompleteTime || b.BookingDateTime || '')).getTime() || 0;
     return tb - ta;
   });
 }
@@ -342,7 +350,7 @@ function sortByRecent(jobs) {
 // Add UI-friendly field aliases to a job object so Angular ng-repeat bindings work
 // (template uses BookingDate, BookingTime, PassengerId, TarriffType, bookingidx)
 function enrichSearchResult(j) {
-  const rawDT = (j.BookingDateTime || '').replace(/\.$/, '').trim();
+  const rawDT = _toDateStr(j.BookingDateTime || '');
   const [datePart = '', timePart = ''] = rawDT.split(' ');
   return {
     ...j,
@@ -4137,7 +4145,7 @@ const server = http.createServer(async (req, res) => {
         function _isEffectivelyASAP(j) {
           const db = parseInt(j.DispatchTimebefore || '0') || 0;
           if (db === 0) return true;
-          const ref = (j.Pickingtime || j.BookingDateTime || '').replace(/\.$/, '').trim();
+          const ref = _toDateStr(j.Pickingtime || j.BookingDateTime || '');
           if (!ref) return true;
           const pickupMs = new Date(ref).getTime();
           return !isNaN(pickupMs) && _nowMs > pickupMs; // pickup passed → treat as ASAP
@@ -4149,8 +4157,8 @@ const server = http.createServer(async (req, res) => {
           if (!aASAP && bASAP) return 1;
           const da = parseInt(a.DispatchTimebefore || '0') || 0;
           const db2 = parseInt(b.DispatchTimebefore || '0') || 0;
-          const refA = (a.Pickingtime || a.BookingDateTime || '').replace(/\.$/, '').trim();
-          const refB = (b.Pickingtime || b.BookingDateTime || '').replace(/\.$/, '').trim();
+          const refA = _toDateStr(a.Pickingtime || a.BookingDateTime || '');
+          const refB = _toDateStr(b.Pickingtime || b.BookingDateTime || '');
           if (aASAP && bASAP) {
             // Both effectively ASAP — sort by pickup time ascending (most overdue first)
             const tA = refA ? new Date(refA).getTime() : _nowMs;
@@ -4412,14 +4420,14 @@ const server = http.createServer(async (req, res) => {
         }
         if (fromDate) {
           jobs = jobs.filter(j => {
-            const ds = (j.JobCompleteTime || j.BookingDateTime || '').replace(/\.$/, '').trim();
+            const ds = _toDateStr(j.JobCompleteTime || j.BookingDateTime || '');
             return ds.substring(0, 10) >= fromDate;
           });
           console.log(`  [ClosedJobs] after fromDate '${fromDate}': ${jobs.length} jobs`);
         }
         if (toDate) {
           jobs = jobs.filter(j => {
-            const ds = (j.JobCompleteTime || j.BookingDateTime || '').replace(/\.$/, '').trim();
+            const ds = _toDateStr(j.JobCompleteTime || j.BookingDateTime || '');
             return ds.substring(0, 10) <= toDate;
           });
           console.log(`  [ClosedJobs] after toDate '${toDate}': ${jobs.length} jobs`);
@@ -4584,7 +4592,7 @@ const server = http.createServer(async (req, res) => {
           const _job = eligible[0];
           const _dispBefore = parseInt(_job.DispatchTimebefore || '0') || 0;
           if (_dispBefore > 0 && _job.BookingDateTime) {
-            const _bMs = new Date(_job.BookingDateTime.replace(/\.$/, '').trim()).getTime();
+            const _bMs = new Date(_toDateStr(_job.BookingDateTime)).getTime();
             if (!isNaN(_bMs) && Date.now() < _bMs - _dispBefore * 60 * 1000) {
               eligible = []; // window not yet open — block auto-dispatch
               console.log(`  [${action}] Job #${bookingId} withheld: dispatch window opens in ${Math.round((_bMs - _dispBefore*60000 - Date.now())/60000)} min`);

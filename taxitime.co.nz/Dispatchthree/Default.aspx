@@ -16591,7 +16591,7 @@ $(document).ready(function() {
                 // so countdowns are correct regardless of server timezone
                 var _clientNow = new Date();
                 angular.forEach($scope.unassignedjob_list, function(job) {
-                    var bdt = new Date(job.BookingDateTime.replace(/\.$/, '').trim());
+                    var bdt = new Date(_bwToDateStr(job.BookingDateTime));
                     job.JobMins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
                 });
 
@@ -16599,7 +16599,7 @@ $(document).ready(function() {
                 $scope.unassignedjob_list.sort(function(a, b) {
                     function urgencyScore(job) {
                         var db   = parseInt(job.DispatchTimebefore) || 0;
-                        var bdt  = new Date((job.BookingDateTime || '').replace(/\.$/, '').trim());
+                        var bdt  = new Date(_bwToDateStr(job.BookingDateTime));
                         var mins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
                         // ASAP (db=0) OR dispatch window already open → urgent tier
                         // subtract 99999 so they all rank above any future pre-booking,
@@ -17745,11 +17745,19 @@ $(document).ready(function() {
                 if (db === 0) return 'ASAP';
                 return 'Pre-Booked';
             }
+            // Safely convert a BookingDateTime value to a string for new Date().
+            // Handles ISO strings, numeric Unix-ms timestamps, and nulls.
+            function _bwToDateStr(v) {
+                if (!v && v !== 0) return '';
+                if (typeof v === 'number') return new Date(v).toISOString();
+                return String(v).replace(/\.$/, '').trim();
+            }
+
             // Returns "Send at H:MM AM/PM" for pre-booked jobs (pickup minus dispatchBefore mins)
             $scope.dispatchAtLabel = function (BookingDateTime, DispatchTimebefore) {
                 var db = parseInt(DispatchTimebefore) || 0;
                 if (db <= 0 || !BookingDateTime) return '';
-                var bdt = new Date(BookingDateTime.replace(/\.$/, '').trim());
+                var bdt = new Date(_bwToDateStr(BookingDateTime));
                 if (isNaN(bdt.getTime())) return '';
                 var dispAt = new Date(bdt.getTime() - db * 60000);
                 var h = dispAt.getHours(), mi = dispAt.getMinutes();
@@ -17759,7 +17767,7 @@ $(document).ready(function() {
             $scope.dispatchWindowOpen = function (DispatchTimebefore, BookingDateTime) {
                 var db = parseInt(DispatchTimebefore) || 0;
                 if (db <= 0 || !BookingDateTime) return false;
-                var bdt = new Date(BookingDateTime.replace(/\.$/, '').trim());
+                var bdt = new Date(_bwToDateStr(BookingDateTime));
                 if (isNaN(bdt.getTime())) return false;
                 return Math.round((bdt - new Date()) / 60000) <= db;
             };
@@ -17798,7 +17806,7 @@ $(document).ready(function() {
                         // ASAP No One → always flash amber
                         noOneFlash = true;
                     } else if (BookingDateTime) {
-                        var _c2 = BookingDateTime.replace(/\.$/, '').trim();
+                        var _c2 = _bwToDateStr(BookingDateTime);
                         var _b2 = new Date(_c2);
                         if (!isNaN(_b2.getTime()) && Math.round((_b2 - new Date()) / 60000) <= db) {
                             noOneFlash = true;
@@ -17813,7 +17821,7 @@ $(document).ready(function() {
                     return 'button-glow';
                 }
                 if (!BookingDateTime) return '';
-                var clean = BookingDateTime.replace(/\.$/, '').trim();
+                var clean = _bwToDateStr(BookingDateTime);
                 var bdt = new Date(clean);
                 if (isNaN(bdt.getTime())) return '';
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
@@ -17839,7 +17847,7 @@ $(document).ready(function() {
             };
             $scope.asssigned = function (DispatchTimebefore, BookingDateTime) {
             
-                BookingDateTime =    BookingDateTime.slice(0, -1);
+                BookingDateTime = _bwToDateStr(BookingDateTime);
                 if (DispatchTimebefore > 0) {
 
                     if ($scope.CurrentDateTime >= BookingDateTime) {
@@ -18113,7 +18121,7 @@ $(document).ready(function() {
 
 
             $scope.latealert = function (DispatchTimebefore, BookingDateTime) {
-                BookingDateTime =    BookingDateTime.slice(0, -1);
+                BookingDateTime = _bwToDateStr(BookingDateTime);
                 if (DispatchTimebefore > 0) {
                     if ($scope.CurrentDateTime >= BookingDateTime) {
                 
@@ -18132,7 +18140,7 @@ $(document).ready(function() {
 
             }
             $scope.getTheValue2 = function (BookingDateTime) {
-                var clean = BookingDateTime.replace(/\.$/, '').trim();
+                var clean = _bwToDateStr(BookingDateTime);
                 var bdt = new Date(clean);
                 if (isNaN(bdt.getTime())) return "rgba(145, 208, 232, 0.39)";
                 var minsUntil = Math.round((bdt - new Date()) / 60000);
@@ -18163,7 +18171,7 @@ $(document).ready(function() {
                 if (!BookingDateTime) {
                     return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
-                var clean = BookingDateTime.replace(/\.$/, '').trim();
+                var clean = _bwToDateStr(BookingDateTime);
                 var bdt = new Date(clean);
                 if (isNaN(bdt.getTime())) {
                     return { background: ASAP_BG, 'border-left': ASAP_BAR };
