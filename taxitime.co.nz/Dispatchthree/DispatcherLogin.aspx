@@ -7,6 +7,31 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <style>
+    /* ── Site footer ── */
+    .bw-login-footer {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 24px;
+      background: linear-gradient(90deg, #080b12 0%, #0d1018 100%);
+      border-top: 1px solid rgba(245,190,30,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      font-size: 10px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.22);
+      letter-spacing: 0.4px;
+    }
+    .bw-login-footer a {
+      color: rgba(245,190,30,0.45);
+      text-decoration: none;
+      font-weight: 500;
+      margin-left: 3px;
+      transition: color 0.15s;
+    }
+    .bw-login-footer a:hover { color: rgba(245,190,30,0.85); }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -1555,5 +1580,11 @@
       }
     })();
   </script>
+
+<!-- ── Site footer ── -->
+<div class="bw-login-footer">
+    <i class="fa fa-globe" style="margin-right:5px;opacity:0.4;font-size:9px;"></i>
+    Operated by <a href="https://bookawaka.com" target="_blank" rel="noopener">bookawaka.com</a>
+</div>
 </body>
 </html>
