@@ -1204,10 +1204,10 @@
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'),'pending')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sa{{value.Id}}','pending',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'),'assigned')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sa{{value.Id}}','assigned',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
@@ -4458,10 +4458,10 @@ $(document).ready(function() {
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'),'pending')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sax{{value.Id}}','pending',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'),'assigned')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sax{{value.Id}}','assigned',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
@@ -19529,57 +19529,62 @@ $(document).ready(function() {
         } catch(e) { console.warn('[bwZoomPickup]', e); }
     }
 
-    // assignType: optional string — 'pending' (default, AssignPendingJobFromJobList2)
-    //             or 'assigned' (AssignJobFromJobList2, for already-assigned job cards).
-    // No One (-1) always routes to quickSetNoOne regardless of assignType.
-    function quickCardChange(selectEl, assignType) {
+    function quickCardChange(selectEl) {
         var selectedOption = selectEl.options[selectEl.selectedIndex];
         var isNoOne = selectedOption.getAttribute('data-is-noone') === 'true';
         var val = parseInt(selectEl.value);
         var selectId = selectEl.id;
 
         var prefix = '', jobId = 0;
-        if (selectId.indexOf('spx') === 0)      { prefix = 'spx'; jobId = parseInt(selectId.slice(3)); }
-        else if (selectId.indexOf('sax') === 0) { prefix = 'sax'; jobId = parseInt(selectId.slice(3)); }
-        else if (selectId.indexOf('sa')  === 0) { prefix = 'sa';  jobId = parseInt(selectId.slice(2)); }
+        if (selectId.indexOf('spx') === 0) { prefix = 'spx'; jobId = parseInt(selectId.slice(3)); }
         else return;
         if (!jobId || isNaN(jobId)) return;
 
         var scope = angular.element(document.querySelector('[ng-controller]')).scope();
         if (!scope) return;
 
-        // Guard against "apply already in progress" if called during an existing digest cycle
         var _doApply = function(fn) { if (!scope.$$phase) { scope.$apply(fn); } else { fn(); } };
         _doApply(function() {
             if (isNoOne || val === -1) {
                 scope.quickSetNoOne(jobId);
             } else if (val > 0) {
-                if (prefix === 'spx') {
-                    var lists = [scope.unassignedjob_list || [], scope.oferunassignedjob_list || []];
-                    var job = null;
-                    for (var i = 0; i < lists.length && !job; i++) {
-                        for (var j = 0; j < lists[i].length; j++) {
-                            if (lists[i][j].Id === jobId) { job = lists[i][j]; break; }
-                        }
+                var lists = [scope.unassignedjob_list || [], scope.oferunassignedjob_list || []];
+                var job = null;
+                for (var i = 0; i < lists.length && !job; i++) {
+                    for (var j = 0; j < lists[i].length; j++) {
+                        if (lists[i][j].Id === jobId) { job = lists[i][j]; break; }
                     }
-                    if (job) { scope.AssignPendingJobFromJobList(job.Id, job.VehicleId, job.DriverId, job.U_id, job.BookingStatus, 'spx'); }
-                } else if (assignType === 'assigned') {
-                    // Already-assigned job card: use AssignJobFromJobList2 to preserve
-                    // the cancel-and-reassign flow (FnCancelRide + different SP params).
-                    var ala = scope.assignedjob_list || [];
-                    var aja = null;
-                    for (var m = 0; m < ala.length; m++) {
-                        if (ala[m].Id === jobId) { aja = ala[m]; break; }
-                    }
-                    if (aja) { scope.AssignJobFromJobList2(aja.Id, aja.VehicleId, aja.DriverId, aja.U_id, prefix); }
+                }
+                if (job) { scope.AssignPendingJobFromJobList(job.Id, job.VehicleId, job.DriverId, job.U_id, job.BookingStatus, 'spx'); }
+            }
+        });
+    }
+
+    // Confirm handler for sa/sax delivery-job cards.
+    // Receives row values directly from the Angular template so no list-lookup is needed.
+    // assignType 'pending' -> AssignPendingJobFromJobList2 (Pending/Offered cards)
+    // assignType 'assigned' -> AssignJobFromJobList2 (already-Assigned cards)
+    // No One (-1) always calls quickSetNoOne.
+    function bwConfirmCard(selectId, assignType, bookingId, vehicleId, driverId, uId) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+        var selectedOption = sel.options[sel.selectedIndex];
+        var isNoOne = selectedOption ? selectedOption.getAttribute('data-is-noone') === 'true' : false;
+        var val = parseInt(sel.value);
+        var prefix = selectId.indexOf('sax') === 0 ? 'sax' : 'sa';
+
+        var scope = angular.element(document.querySelector('[ng-controller]')).scope();
+        if (!scope) return;
+
+        var _doApply = function(fn) { if (!scope.$$phase) { scope.$apply(fn); } else { fn(); } };
+        _doApply(function() {
+            if (isNoOne || val === -1) {
+                scope.quickSetNoOne(bookingId);
+            } else if (val > 0) {
+                if (assignType === 'assigned') {
+                    scope.AssignJobFromJobList2(bookingId, vehicleId, driverId, uId, prefix);
                 } else {
-                    // Pending/default path: AssignPendingJobFromJobList2
-                    var al = scope.assignedjob_list || [];
-                    var aj = null;
-                    for (var k = 0; k < al.length; k++) {
-                        if (al[k].Id === jobId) { aj = al[k]; break; }
-                    }
-                    if (aj) { scope.AssignPendingJobFromJobList2(aj.Id, aj.VehicleId, aj.DriverId, aj.U_id, prefix); }
+                    scope.AssignPendingJobFromJobList2(bookingId, vehicleId, driverId, uId, prefix);
                 }
             }
         });
