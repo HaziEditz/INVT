@@ -1204,10 +1204,10 @@
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'))" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'),'pending')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'))" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sa{{value.Id}}'),'assigned')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
@@ -4458,10 +4458,10 @@ $(document).ready(function() {
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'))" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'),'pending')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'))" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="quickCardChange(document.getElementById('sax{{value.Id}}'),'assigned')" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
                                                                 <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
@@ -19529,7 +19529,10 @@ $(document).ready(function() {
         } catch(e) { console.warn('[bwZoomPickup]', e); }
     }
 
-    function quickCardChange(selectEl) {
+    // assignType: optional string — 'pending' (default, AssignPendingJobFromJobList2)
+    //             or 'assigned' (AssignJobFromJobList2, for already-assigned job cards).
+    // No One (-1) always routes to quickSetNoOne regardless of assignType.
+    function quickCardChange(selectEl, assignType) {
         var selectedOption = selectEl.options[selectEl.selectedIndex];
         var isNoOne = selectedOption.getAttribute('data-is-noone') === 'true';
         var val = parseInt(selectEl.value);
@@ -19560,7 +19563,17 @@ $(document).ready(function() {
                         }
                     }
                     if (job) { scope.AssignPendingJobFromJobList(job.Id, job.VehicleId, job.DriverId, job.U_id, job.BookingStatus, 'spx'); }
+                } else if (assignType === 'assigned') {
+                    // Already-assigned job card: use AssignJobFromJobList2 to preserve
+                    // the cancel-and-reassign flow (FnCancelRide + different SP params).
+                    var ala = scope.assignedjob_list || [];
+                    var aja = null;
+                    for (var m = 0; m < ala.length; m++) {
+                        if (ala[m].Id === jobId) { aja = ala[m]; break; }
+                    }
+                    if (aja) { scope.AssignJobFromJobList2(aja.Id, aja.VehicleId, aja.DriverId, aja.U_id, prefix); }
                 } else {
+                    // Pending/default path: AssignPendingJobFromJobList2
                     var al = scope.assignedjob_list || [];
                     var aj = null;
                     for (var k = 0; k < al.length; k++) {
