@@ -7900,13 +7900,14 @@ $(document).ready(function() {
     // Cleared when the driver accepts (job becomes Assigned normally).
     window._driverQueueMap = window._driverQueueMap || {};
 
-    function _resolveAcceptance(bookingId, driverId) {
-        // Check if the accepting driver is currently Busy (on a Hail/active trip).
-        // If Busy: queue the job (hold it for them) — it will popup again when they go Available.
-        // If Available: assign normally.
+    function _resolveAcceptance(bookingId, driverId, _mustQueue) {
+        // _mustQueue=true means this call came from _wbAccept (silent busy-offer path).
+        // In that case we ALWAYS queue — never re-check live driverdatarealx, because the
+        // driver's trip-end Firebase event may have already flipped their status to Available
+        // by the time this function runs (race condition).
         var _rasc = angular.element(document.getElementById('myangular')).scope();
-        var _driverIsBusy = false;
-        if (_rasc && _rasc.driverdatarealx) {
+        var _driverIsBusy = (_mustQueue === true);
+        if (!_driverIsBusy && _rasc && _rasc.driverdatarealx) {
             for (var _ri = 0; _ri < _rasc.driverdatarealx.length; _ri++) {
                 var _rd = _rasc.driverdatarealx[_ri];
                 if (String(_rd.driverid) === String(driverId) || String(_rd.VehicleId) === String(driverId)) {
@@ -7916,7 +7917,7 @@ $(document).ready(function() {
             }
         }
         if (_driverIsBusy) {
-            // Driver accepted while Busy — queue the job so it pops up again when Available.
+            // Driver accepted while Busy — queue the job so it auto-assigns when trip finishes.
             jQuery.ajax({
                 type: 'POST', url: 'DataManager/Data.aspx/DataProcessor',
                 data: JSON.stringify({ data: [
@@ -7924,7 +7925,23 @@ $(document).ready(function() {
                     { name: 'driverid',  Value: driverId  }
                 ], action: '[QueueJob]' }),
                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
-                success: function() {
+                success: function(resp) {
+                    // Check server response — [QueueJob] can return ok:false if the job was
+                    // already changed to Assigned by the race-condition Available path.
+                    // If rejected, fall back to convertstatus(Assigned) immediately.
+                    try {
+                        var _qr = resp && resp.d ? JSON.parse(resp.d) : null;
+                        if (_qr && _qr.ok === false) {
+                            console.warn('[_resolveAcceptance] [QueueJob] rejected (status=' + (_qr.msg || '?') + ') — falling back to convertstatus(Assigned)');
+                            convertstatus(bookingId, 'Assigned', driverId, '');
+                            delete window._driverQueueMap[String(driverId)];
+                            if (_rasc) {
+                                if (typeof _rasc.getjobs      === 'function') _rasc.getjobs();
+                                if (typeof _rasc.AssignedJobs === 'function') _rasc.AssignedJobs();
+                            }
+                            return;
+                        }
+                    } catch(e) {}
                     console.log('[_resolveAcceptance] Busy driver ' + driverId + ' queued job #' + bookingId);
                     toastr['info'](driverId + ' accepted — job queued until they finish current trip', 'Pre-Queued');
                     if (_rasc) {
@@ -8624,7 +8641,7 @@ $(document).ready(function() {
             if (window._busyWatcherCleanupMap) delete window._busyWatcherCleanupMap[_wbBook];
             delete _activeOfferIds[bookid];
             toastr['success'](driverid + ' accepted pre-queue job #' + bookid + ' — queuing until trip done', 'Pre-Queue');
-            _resolveAcceptance(bookid, driverid);
+            _resolveAcceptance(bookid, driverid, true); // mustQueue=true — always queue, never re-check live status
         }
         function _wbReject() {
             if (_wbDone) return; _wbDone = true;
@@ -10545,8 +10562,40 @@ $(document).ready(function() {
                                                     }
                                                 }
                                             }
-                                            toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
-                                            acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                            // Before re-offering with popup, check if the job was already
+                                            // auto-assigned via the _resolveAcceptance Available path (race fix).
+                                            // If Assigned to this driver, skip the popup entirely.
+                                            jQuery.ajax({
+                                                type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                                                data: JSON.stringify({ data: [{ name: 'bookingid', Value: _stalePQJob }], action: 'checkriddestatusforoffer' }),
+                                                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                                                success: function(ckResp) {
+                                                    try {
+                                                        var ckD = JSON.parse(ckResp.d || '{}');
+                                                        var ckJob = (ckD && ckD.dt1 && ckD.dt1.length > 0) ? ckD.dt1[0] : null;
+                                                        if (ckJob && ckJob.BookingStatus === 'Assigned' && String(ckJob.DriverId) === String(driverId)) {
+                                                            console.log('[changedata Busy→Available] job #' + _stalePQJob + ' already Assigned to ' + driverId + ' — skipping popup, refreshing UI');
+                                                            toastr['success'](driverId + ' finished trip — job #' + _stalePQJob + ' auto-assigned', 'Auto-Assigned');
+                                                            var _askSc = angular.element(document.getElementById('myangular')).scope();
+                                                            if (_askSc) {
+                                                                if (typeof _askSc.getjobs      === 'function') _askSc.getjobs();
+                                                                if (typeof _askSc.AssignedJobs === 'function') _askSc.AssignedJobs();
+                                                                if (typeof _askSc.getQueuedJobs === 'function') _askSc.getQueuedJobs();
+                                                            }
+                                                        } else {
+                                                            toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
+                                                            acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                        }
+                                                    } catch(e) {
+                                                        toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
+                                                        acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                    }
+                                                },
+                                                error: function() {
+                                                    toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
+                                                    acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                }
+                                            });
                                         }
                                     }
                                 } catch(e) { console.warn('[changedata Busy→Available] queued job check error:', e); }

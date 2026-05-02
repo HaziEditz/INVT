@@ -2856,6 +2856,13 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
+          // Protect Queued jobs — only [RecallQueuedJob] or [PromoteQueuedToAssigned] may change them.
+          // acknowledgemethodx (stale popup path) must never overwrite Queued → Offered.
+          if (currentStatus === 'Queued') {
+            console.log(`  [changeriddestatusforoffer/DP] BLOCKED: job #${bookingId} is Queued — only RecallQueuedJob/PromoteQueuedToAssigned may change it (attempted: ${newStatus})`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
+            return;
+          }
           // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
           // This is a driver-initiated cancel, not a pre-acceptance rejection and not a timeout.
           // Move to closed jobs as Cancelled and notify dispatcher.
@@ -4395,6 +4402,12 @@ const server = http.createServer(async (req, res) => {
           const hasNoDriver2 = !job.DriverId || job.DriverId === 0;
           if (isAccepted2 && isDowngrade2 && (!isExplicitReject2 || isTimeoutReason2) && !hasNoDriver2) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED downgrade: job #${bookingId} is ${currentStatus2}, refusing to set ${newStatus} (reason: "${returnReason}")`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
+            return;
+          }
+          // Protect Queued jobs — only [RecallQueuedJob] or [PromoteQueuedToAssigned] may change them.
+          if (currentStatus2 === 'Queued') {
+            console.log(`  [changeriddestatusforoffer/DS] BLOCKED: job #${bookingId} is Queued — only RecallQueuedJob/PromoteQueuedToAssigned may change it (attempted: ${newStatus})`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
