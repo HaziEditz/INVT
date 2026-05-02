@@ -3775,9 +3775,7 @@ $(document).ready(function() {
  
                                                                 </div>
                                                                 
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
-                                                                    <i style="color: black" class="fa fa-paper-plane"></i>
-                                                                </span>
+
 
                                                                 
                                                              </div>
@@ -3948,9 +3946,7 @@ $(document).ready(function() {
  
                                                                 </div>
                                                                 
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="position: absolute; top:0px; right: -25px; display: {{asssigned(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime)}}" ng-click="AssignPendingJobFromJobList(value.Id,value.VehicleId,value.DriverId,value.U_id,value.BookingStatus,'spx')">
-                                                                    <i style="color: black" class="fa fa-paper-plane"></i>
-                                                                </span>
+
 
                                                                 
                                                              </div>
