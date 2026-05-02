@@ -5756,11 +5756,17 @@ $(document).ready(function() {
                                 }
                                 _changed = true;
                             } else if (_match) {
-                                // Backfill zone from server when driver has no zone (e.g. no GPS)
-                                if (_match.zone && !d.zonename) {
-                                    d.zonename = _match.zone;
-                                    if (_match.zoneq && !d.zonequeue) d.zonequeue = _match.zoneq;
-                                    _changed = true;
+                                // Always sync zone from server — server ZONE_DRIVERS is authoritative.
+                                // Drop the !d.zonename guard so stale/wrong zone names get corrected.
+                                if (_match.zone) {
+                                    if (d.zonename !== _match.zone) {
+                                        d.zonename = _match.zone;
+                                        _changed = true;
+                                    }
+                                    if (_match.zoneq && d.zonequeue !== _match.zoneq) {
+                                        d.zonequeue = _match.zoneq;
+                                        _changed = true;
+                                    }
                                 }
                                 // Sync vehiclestatus from server (ground truth).
                                 // Firebase and the suppress-Away logic can cause the board to
@@ -11191,7 +11197,10 @@ $(document).ready(function() {
                         }
                     }
                 }
-                zn = zn || a.zoneid || 'Zone';
+                // If zone is still unknown after all lookups, skip this driver —
+                // don't group under a blank key or a raw ID. They will appear once
+                // VehiclesStatus backfills their zone from the server.
+                if (!zn) return;
                 grouped[zn] = grouped[zn] || [];
                 a.zonename = zn;
                 grouped[zn].push(a);
