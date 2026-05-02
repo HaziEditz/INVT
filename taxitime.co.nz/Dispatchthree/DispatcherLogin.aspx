@@ -231,12 +231,26 @@
       gap: 4px;
     }
 
-    .brand-logo-img {
-      height: 32px;
-      width: auto;
-      background: rgba(255,255,255,0.95);
-      border-radius: 8px;
-      padding: 5px 10px;
+    .bw-wordmark {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .bw-wordmark-icon {
+      width: 36px; height: 36px;
+      background: #1a7d96;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .bw-wordmark-icon svg {
+      width: 18px; height: 18px;
+    }
+    .bw-wordmark-text {
+      font-size: 20px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.5px;
     }
 
     .brand-logo .logo-sub {
@@ -795,8 +809,16 @@
         <div class="brand-glow"></div>
 
         <div class="brand-logo">
-          <img src="assets/img/bookawaka-logo.png" alt="BookaWaka" class="brand-logo-img" />
-          <div class="logo-sub" style="margin-top:6px;">Dispatch Platform</div>
+          <div class="bw-wordmark">
+            <div class="bw-wordmark-icon">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22 2L11 13" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <span class="bw-wordmark-text">BookaWaka</span>
+          </div>
+          <div class="logo-sub" style="margin-top:8px;">Dispatch Platform</div>
         </div>
 
         <div class="brand-main">
