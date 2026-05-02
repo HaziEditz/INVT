@@ -1204,13 +1204,13 @@
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sa{{value.Id}}','pending',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" ng-click="bwConfirmCard('sa','pending',value.Id,value.VehicleId,value.DriverId,value.U_id)" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sa{{value.Id}}','assigned',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" ng-click="bwConfirmCard('sa','assigned',value.Id,value.VehicleId,value.DriverId,value.U_id)" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
+                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup">
                                                                     <i class="fa fa-map-marker" style="color:#fff;"></i>
                                                                 </span>
                                                                 
@@ -3821,7 +3821,7 @@ $(document).ready(function() {
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
                                                                     <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
-                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" onclick="quickCardChange(document.getElementById('spx{{value.Id}}'))" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
+                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
                                                                 </span>
@@ -3994,7 +3994,7 @@ $(document).ready(function() {
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
                                                                     <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
-                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" onclick="quickCardChange(document.getElementById('spx{{value.Id}}'))" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
+                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
                                                                 </span>
@@ -4458,13 +4458,13 @@ $(document).ready(function() {
                                                                 </select>
 
                                                              
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sax{{value.Id}}','pending',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" ng-click="bwConfirmCard('sax','pending',value.Id,value.VehicleId,value.DriverId,value.U_id)" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" onclick="bwConfirmCard('sax{{value.Id}}','assigned',{{value.Id}},{{value.VehicleId}},{{value.DriverId}},'{{value.U_id}}')" title="Confirm driver selection">
+                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" ng-click="bwConfirmCard('sax','assigned',value.Id,value.VehicleId,value.DriverId,value.U_id)" title="Confirm driver selection">
                                                                     <i style="color: black" class="fa fa-paper-plane"></i>
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" onclick="bwZoomPickup('{{value.PickLatLng}}')" title="Zoom map to pickup">
+                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup">
                                                                     <i class="fa fa-map-marker" style="color:#fff;"></i>
                                                                 </span>
                                                                 
@@ -17032,6 +17032,14 @@ $(document).ready(function() {
 
             } 
             //end deliv
+
+            // Scope wrappers for card confirm/zoom buttons — needed because AngularJS 1.6
+            // throws $compile:nodomevents if onclick is used inside ng-repeat templates.
+            $scope.bwZoomPickup = function(latLng) { bwZoomPickup(latLng); };
+            $scope.bwConfirmSpx = function(jobId) { quickCardChange(document.getElementById('spx' + jobId)); };
+            $scope.bwConfirmCard = function(prefix, assignType, bookingId, vehicleId, driverId, uId) {
+                bwConfirmCard(prefix + bookingId, assignType, bookingId, vehicleId, driverId, uId);
+            };
 
             $scope.quickSetNoOne = function(jobId) {
                 // Release the per-job offer lock so a new offer can start.
