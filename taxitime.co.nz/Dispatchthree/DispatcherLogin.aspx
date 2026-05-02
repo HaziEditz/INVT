@@ -11,26 +11,26 @@
     .bw-login-footer {
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      height: 24px;
-      background: linear-gradient(90deg, #080b12 0%, #0d1018 100%);
-      border-top: 1px solid rgba(245,190,30,0.08);
+      height: 26px;
+      background: rgba(10,12,18,0.96);
+      border-top: 1px solid rgba(245,190,30,0.12);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 200;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 400;
-      color: rgba(255,255,255,0.22);
-      letter-spacing: 0.4px;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 0.3px;
     }
     .bw-login-footer a {
-      color: rgba(245,190,30,0.45);
+      color: rgba(245,190,30,0.85);
       text-decoration: none;
-      font-weight: 500;
-      margin-left: 3px;
+      font-weight: 600;
+      margin-left: 4px;
       transition: color 0.15s;
     }
-    .bw-login-footer a:hover { color: rgba(245,190,30,0.85); }
+    .bw-login-footer a:hover { color: #f5be1e; }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -94,20 +94,29 @@
     }
 
     .splash-icon {
-      width: 88px; height: 88px;
-      background: var(--gold);
-      border-radius: 26px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 44px;
-      box-shadow: 0 0 60px rgba(245,190,30,0.4), 0 20px 40px rgba(0,0,0,0.5);
+      animation: splashIconPulse 2s ease-in-out 1.2s infinite alternate;
+    }
+
+    .splash-logo-img {
+      height: 40px;
+      width: auto;
+      display: block;
+    }
+
+    .splash-icon {
+      background: rgba(255,255,255,0.96);
+      border-radius: 14px;
+      padding: 12px 20px;
+      box-shadow: 0 0 60px rgba(245,190,30,0.3), 0 8px 32px rgba(0,0,0,0.5);
       animation: splashIconPulse 2s ease-in-out 1.2s infinite alternate;
     }
 
     @keyframes splashIconPulse {
-      from { box-shadow: 0 0 60px rgba(245,190,30,0.4), 0 20px 40px rgba(0,0,0,0.5); }
-      to   { box-shadow: 0 0 90px rgba(245,190,30,0.6), 0 20px 40px rgba(0,0,0,0.5); }
+      from { box-shadow: 0 0 40px rgba(245,190,30,0.25), 0 8px 32px rgba(0,0,0,0.5); }
+      to   { box-shadow: 0 0 70px rgba(245,190,30,0.5), 0 8px 32px rgba(0,0,0,0.5); }
     }
 
     .splash-brand {
@@ -218,25 +227,16 @@
 
     .brand-logo {
       display: flex;
-      align-items: center;
-      gap: 12px;
+      flex-direction: column;
+      gap: 4px;
     }
 
-    .brand-logo .logo-icon {
-      width: 42px; height: 42px;
-      background: var(--gold);
-      border-radius: 11px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 21px;
-      flex-shrink: 0;
-      box-shadow: 0 0 20px rgba(245,190,30,0.3);
-    }
-
-    .brand-logo .logo-text {
-      font-size: 18px;
-      font-weight: 800;
-      color: var(--text1);
-      letter-spacing: -0.4px;
+    .brand-logo-img {
+      height: 32px;
+      width: auto;
+      background: rgba(255,255,255,0.95);
+      border-radius: 8px;
+      padding: 5px 10px;
     }
 
     .brand-logo .logo-sub {
@@ -777,8 +777,9 @@
   <!-- ── Splash Screen ── -->
   <div id="splash">
     <div class="splash-logo-wrap">
-      <div class="splash-icon">🚕</div>
-      <div class="splash-brand">BookaWaka</div>
+      <div class="splash-icon">
+        <img src="assets/img/bookawaka-logo.png" alt="BookaWaka" class="splash-logo-img" />
+      </div>
       <div class="splash-sub">Dispatcher Console</div>
     </div>
     <div class="splash-powered">Dispatch platform — <span>Powered by BookaWaka</span></div>
@@ -794,11 +795,8 @@
         <div class="brand-glow"></div>
 
         <div class="brand-logo">
-          <div class="logo-icon">🚕</div>
-          <div>
-            <div class="logo-text">BookaWaka</div>
-            <div class="logo-sub">Dispatch Platform</div>
-          </div>
+          <img src="assets/img/bookawaka-logo.png" alt="BookaWaka" class="brand-logo-img" />
+          <div class="logo-sub" style="margin-top:6px;">Dispatch Platform</div>
         </div>
 
         <div class="brand-main">
