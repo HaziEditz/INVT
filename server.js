@@ -349,6 +349,13 @@ try {
 
 const jobStore = _savedJobStore;
 
+// ─── Scheduled job store ──────────────────────────────────────────────────────
+// Holds future bookings from the passenger app (BookingStatus='Scheduled').
+// Separate from jobStore so they never enter auto-dispatch until their time window.
+// _scheduledTimers maps _fbKey → setTimeout handle for auto-dispatch at -10 min.
+const scheduledJobStore = [];
+const _scheduledTimers  = {};
+
 // Sync the daily sequence counter so new IDs don't collide with saved ones.
 // Existing IDs in the new DDMMYYYY+seq format start with today's date prefix.
 (function syncIdSequence() {
@@ -453,6 +460,111 @@ function saveClosedJobStore() {
     if (err) console.log('[persist] closedjobstore save error:', err.message);
   });
 }
+
+// ─── Firebase pendingjobs polling ────────────────────────────────────────────
+// Polls pendingjobs/{companyId} every 60 s for passenger-app scheduled bookings.
+// Ingests new Scheduled jobs, removes Cancelled ones, fires auto-dispatch timers.
+const _scheduledPollCompanies = new Set();
+
+async function _ingestScheduledJob(companyId, jobId, job) {
+  const fbk = `${companyId}:${jobId}`;
+  if (scheduledJobStore.find(j => j._fbKey === fbk)) return; // already known
+  const scheduledForMs = parseInt(job.ScheduledFor || job.scheduledFor || 0);
+  if (!scheduledForMs || scheduledForMs <= Date.now()) return; // already past
+  const sj = {
+    _fbKey:        fbk,
+    Id:            jobId,
+    companyId:     String(companyId),
+    BookingStatus: 'Scheduled',
+    BookingSource: 'passenger',
+    Name:          job.passengerName || job.name || '',
+    PhoneNo:       job.phoneNo || job.phone || '',
+    PickAddress:   job.pickupAddress || job.PickAddress || '',
+    PickLatLng:    job.pickLatLng   || job.PickLatLng  || '0,0',
+    DropAddress:   job.dropAddress  || job.DropAddress || '',
+    DropLatLng:    job.dropLatLng   || job.DropLatLng  || '0,0',
+    ScheduledFor:  scheduledForMs,
+    scheduledFor:  scheduledForMs,
+    ScheduledAt:   job.ScheduledAt  || new Date(scheduledForMs).toISOString(),
+    BookingDateTime: job.createdAt  || new Date().toISOString(),
+    Notes:         job.notes || '',
+    Passengers:    parseInt(job.passengers || '1') || 1,
+    DriverId: 0, VehicleId: 0,
+    _addedAt: Date.now(),
+  };
+  scheduledJobStore.push(sj);
+  console.log(`[scheduled] new job ${fbk} due ${sj.ScheduledAt}`);
+  // Auto-dispatch timer: 10 min before ScheduledFor → move to regular jobStore
+  const delay = Math.max(scheduledForMs - 10 * 60 * 1000 - Date.now(), 0);
+  _scheduledTimers[fbk] = setTimeout(() => {
+    const idx = scheduledJobStore.findIndex(j => j._fbKey === fbk);
+    if (idx === -1) return;
+    const entry = scheduledJobStore.splice(idx, 1)[0];
+    delete _scheduledTimers[fbk];
+    jobStore.push({ ...entry, BookingStatus: 'Pending', BookingDateTime: new Date().toISOString(), DriverId: 0, VehicleId: 0 });
+    saveJobStore();
+    console.log(`[scheduled] auto-dispatched ${fbk} (10-min window reached)`);
+  }, delay);
+}
+
+async function pollFirebasePendingJobs(companyId) {
+  try {
+    const token = process.env.BW_FIREBASE_SECRET || '';
+    if (!token) return; // no admin token → skip poll (auth would fail)
+    const r = await fbRequest(
+      `${FB_DB_URL}/pendingjobs/${companyId}.json?auth=${token}`, 'GET', null
+    );
+    if (r.status !== 200 || !r.body || typeof r.body !== 'object') return;
+    for (const [jobId, job] of Object.entries(r.body)) {
+      if (!job || typeof job !== 'object') continue;
+      const fbk  = `${companyId}:${jobId}`;
+      const stat = job.Status || job.status || '';
+      if (stat === 'Cancelled') {
+        const idx = scheduledJobStore.findIndex(j => j._fbKey === fbk);
+        if (idx !== -1) {
+          clearTimeout(_scheduledTimers[fbk]);
+          delete _scheduledTimers[fbk];
+          scheduledJobStore.splice(idx, 1);
+          console.log(`[scheduled] cancelled ${fbk} removed`);
+        }
+        continue;
+      }
+      if (stat === 'Scheduled') await _ingestScheduledJob(companyId, jobId, job);
+      if (stat === 'Waiting') {
+        // Book-now job from passenger app → add to regular jobStore if new
+        if (!jobStore.find(j => String(j.Id) === String(jobId) || j._fbKey === fbk)) {
+          const newJob = {
+            _fbKey:          fbk,
+            Id:              newCompanyJobId(companyId),
+            companyId:       String(companyId),
+            BookingStatus:   'Pending',
+            BookingSource:   'passenger',
+            Name:            job.passengerName || job.name || '',
+            PhoneNo:         job.phoneNo || job.phone || '',
+            PickAddress:     job.pickupAddress || job.PickAddress || '',
+            PickLatLng:      job.pickLatLng   || job.PickLatLng  || '0,0',
+            DropAddress:     job.dropAddress  || job.DropAddress || '',
+            DropLatLng:      job.dropLatLng   || job.DropLatLng  || '0,0',
+            BookingDateTime: new Date().toISOString(),
+            Notes:           job.notes || '',
+            Passengers:      parseInt(job.passengers || '1') || 1,
+            DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
+          };
+          jobStore.push(newJob);
+          saveJobStore();
+          console.log(`[scheduled] Waiting job ${fbk} added to pending queue`);
+        }
+      }
+    }
+  } catch (e) {
+    console.log(`[scheduled] poll error companyId=${companyId}: ${e.message}`);
+  }
+}
+
+// Run poll loop every 60 s for all companies that have ever called [GetScheduledJobs]
+setInterval(() => {
+  for (const cid of _scheduledPollCompanies) pollFirebasePendingJobs(cid);
+}, 60 * 1000);
 
 // Live drivers come from Firebase (driverdatarealx/{companyId} or online/{companyId}).
 // This array is kept as an empty structure so dependent code paths don't crash.
@@ -4855,6 +4967,38 @@ const server = http.createServer(async (req, res) => {
         const resp = buildJobListResponse(_cJobs);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${_cJobs.length} jobs (${resp.dt4[0].UnAssignedCount} unassigned) companyId=${sessionCompanyId}`);
         objectD(res, resp);
+
+      } else if (action === '[GetScheduledJobs]') {
+        // Register company for ongoing Firebase poll, then return current scheduled list
+        _scheduledPollCompanies.add(String(sessionCompanyId));
+        // Kick an immediate poll (async, non-blocking)
+        pollFirebasePendingJobs(sessionCompanyId);
+        const _sjList = scheduledJobStore
+          .filter(j => j.companyId === String(sessionCompanyId))
+          .sort((a, b) => (a.ScheduledFor || 0) - (b.ScheduledFor || 0));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_sjList.length} scheduled jobs`);
+        objectD(res, { dt1: _sjList, count: _sjList.length });
+
+      } else if (action === '[AssignScheduledJob]') {
+        // Early manual dispatch — move job from scheduledJobStore into pending queue
+        const _asjFbKey = (param('fbKey') || '').toString().trim();
+        const _asjJobId = (param('jobId') || '').toString().trim();
+        const _asjIdx   = scheduledJobStore.findIndex(j =>
+          (_asjFbKey && j._fbKey === _asjFbKey) ||
+          (_asjJobId && String(j.Id) === _asjJobId && j.companyId === String(sessionCompanyId))
+        );
+        if (_asjIdx === -1) {
+          objectD(res, { ok: false, error: 'Scheduled job not found' });
+        } else {
+          const _asjEntry = scheduledJobStore.splice(_asjIdx, 1)[0];
+          clearTimeout(_scheduledTimers[_asjEntry._fbKey]);
+          delete _scheduledTimers[_asjEntry._fbKey];
+          const _asjPending = { ..._asjEntry, BookingStatus: 'Pending', BookingDateTime: new Date().toISOString(), DriverId: 0, VehicleId: 0 };
+          jobStore.push(_asjPending);
+          saveJobStore();
+          console.log(`[scheduled] manual early dispatch ${_asjEntry._fbKey}`);
+          objectD(res, { ok: true, jobId: _asjPending.Id });
+        }
 
       } else if (action === '[deviUnAssignedJobsv2]') {
         const resp = buildDeliveryResponse(companyJobs(jobStore));

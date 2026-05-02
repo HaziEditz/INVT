@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260502a" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260502b" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -3384,6 +3384,7 @@ $(document).ready(function() {
                                                 <li class="" ng-click="getjobs(0)"><a href="#tab5" class="active show" data-toggle="tab">U-A<span>({{UnAssignedCount}})</span></a></li>
                                                <li class="" ng-click="getjobs(0)"><a href="#tab9" class=" " data-toggle="tab">Offer<span>({{UnAssignedCountoffer}})</span></a></li>
                                                <li class="" ng-click="getjobs(0)"><a href="#tabRecalled" class=" " data-toggle="tab" style="color:#c0392b; font-weight:700;" title="Jobs recalled by drivers due to emergency">&#9888; Recalled<span style="margin-left:2px;">({{(unassignedjob_list | filter:{RecallStatus:'Recalled'}).length}})</span></a></li>
+                                               <li class="" ng-click="getScheduledJobs()"><a href="#tabScheduled" class=" " data-toggle="tab" style="color:#1565c0; font-weight:700;" title="Future scheduled bookings from passenger app"><i class="fa fa-calendar"></i> Sched<span style="margin-left:2px;">({{scheduledjob_list.length}})</span></a></li>
 
                                                  <li ng-click="AssignedJobs(0)"><a ng-click="AssignedJobs()" href="#tab6" data-toggle="tab" class="">Assign<span ng-click="AssignedJobs()">({{AssignedCount}})</span></a></li>
                                                 <li><a ng-click="ActiveJobsdata(0)" href="#tab7" data-toggle="tab" class="">Active <span>({{ActiveCount}})</span></a></li>
@@ -3812,6 +3813,47 @@ $(document).ready(function() {
                                                     </div>
                                                     <div ng-if="(unassignedjob_list | filter:{RecallStatus:'Recalled'}).length === 0" style="color:#888; font-size:13px; padding:16px; text-align:center;">
                                                         <i class="fa fa-check-circle" style="color:#27ae60;"></i> No recalled jobs — all clear.
+                                                    </div>
+                                                </div>
+
+                                                <div class="tab-pane" id="tabScheduled">
+                                                    <div ng-repeat="(key, value) in scheduledjob_list" style="margin-bottom:12px; border-left:4px solid #1565c0; padding:8px 10px; background:#f3f8ff; border-radius:4px; position:relative;">
+                                                        <div>
+                                                            <span class="label label-pill mt-2" style="background:#1565c0;color:#fff;">
+                                                                <i class="fa fa-calendar"></i> #{{value.Id}}</span>
+                                                            <span class="label label-pill mt-2" style="background:#0288d1;color:#fff;">
+                                                                <i class="fa fa-clock-o"></i> {{scheduledForDisplay(value.ScheduledFor)}}</span>
+                                                            <span class="label label-pill mt-2" style="background:#b71c1c;color:#fff;" ng-if="scheduledCountdownMs(value.ScheduledFor) < 1800000">
+                                                                <i class="fa fa-exclamation-triangle"></i> {{scheduledCountdown(value.ScheduledFor)}}</span>
+                                                            <span class="label label-pill mt-2" style="background:#37474f;color:#fff;" ng-if="scheduledCountdownMs(value.ScheduledFor) >= 1800000">
+                                                                <i class="fa fa-hourglass-half"></i> {{scheduledCountdown(value.ScheduledFor)}}</span>
+                                                        </div>
+                                                        <div style="margin-top:4px;">
+                                                            <span class="label label-pill mt-2" style="background:#e8f5e9;color:#1b5e20;max-width:95%;overflow:hidden;white-space:nowrap;display:inline-block;">
+                                                                <i class="fa fa-circle" style="color:green;"></i> {{value.PickAddress || 'Pickup TBA'}}</span>
+                                                        </div>
+                                                        <div ng-if="value.DropAddress" style="margin-top:2px;">
+                                                            <span class="label label-pill mt-2" style="background:#fce4ec;color:#880e4f;max-width:95%;overflow:hidden;white-space:nowrap;display:inline-block;">
+                                                                <i class="fa fa-circle" style="color:#c0392b;"></i> {{value.DropAddress}}</span>
+                                                        </div>
+                                                        <div style="margin-top:4px;">
+                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#333;" ng-if="value.Name">
+                                                                <i class="fa fa-user"></i> {{value.Name}}</span>
+                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#333;" ng-if="value.PhoneNo">
+                                                                <i class="fa fa-phone"></i> {{value.PhoneNo}}</span>
+                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#333;" ng-if="value.Passengers">
+                                                                <i class="fa fa-users"></i> {{value.Passengers}} pax</span>
+                                                            <span class="label label-pill mt-2" style="background:#f5f5f5;color:#555;" ng-if="value.Notes">
+                                                                <i class="fa fa-sticky-note-o"></i> {{value.Notes}}</span>
+                                                        </div>
+                                                        <div style="margin-top:6px;">
+                                                            <span class="label label-pill label-success mt-2 bw-send-pulse" style="cursor:pointer;padding:5px 12px;" ng-click="assignScheduledJobNow(value)">
+                                                                <i class="fa fa-car"></i> Dispatch Now</span>
+                                                            <span style="font-size:10px;color:#888;margin-left:8px;">Auto-dispatches 10 min before pickup</span>
+                                                        </div>
+                                                    </div>
+                                                    <div ng-if="scheduledjob_list.length === 0" style="color:#888;font-size:13px;padding:16px;text-align:center;">
+                                                        <i class="fa fa-calendar-o" style="color:#1565c0;"></i> No scheduled bookings — all clear.
                                                     </div>
                                                 </div>
 
@@ -16225,8 +16267,81 @@ $(document).ready(function() {
         }, 10000);
         $scope.CurrentDateTime = ''
         $scope.unassignedjob_list = [];
+        $scope.scheduledjob_list  = [];
         $scope.openCards = {};
         $scope.toggleCard = function(id) { $scope.openCards[id] = !$scope.openCards[id]; };
+
+        // ── Scheduled jobs ────────────────────────────────────────────────────
+        $scope.getScheduledJobs = function() {
+            $http({
+                method: 'POST',
+                url: 'DataManager/Data.aspx/DataSelector',
+                data: { data: [], action: '[GetScheduledJobs]' }
+            }).then(function(response) {
+                var resp = JSON.parse(response.data.d);
+                $scope.scheduledjob_list = resp.dt1 || [];
+                if (!$scope.$$phase) { try { $scope.$digest(); } catch(e) {} }
+            }, function() {});
+        };
+
+        $scope.scheduledForDisplay = function(ms) {
+            if (!ms) return '—';
+            var d = new Date(parseInt(ms));
+            if (isNaN(d.getTime())) return '—';
+            var dd = ('0' + d.getDate()).slice(-2);
+            var mo = ('0' + (d.getMonth() + 1)).slice(-2);
+            var hh = ('0' + d.getHours()).slice(-2);
+            var mn = ('0' + d.getMinutes()).slice(-2);
+            return dd + '/' + mo + ' ' + hh + ':' + mn;
+        };
+
+        $scope.scheduledCountdownMs = function(ms) {
+            if (!ms) return 0;
+            return Math.max(0, parseInt(ms) - Date.now());
+        };
+
+        $scope.scheduledCountdown = function(ms) {
+            var rem = $scope.scheduledCountdownMs(ms);
+            if (rem <= 0) return 'Now!';
+            var totalMins = Math.floor(rem / 60000);
+            var hrs  = Math.floor(totalMins / 60);
+            var mins = totalMins % 60;
+            if (hrs > 0) return hrs + 'h ' + mins + 'm';
+            return mins + 'm';
+        };
+
+        $scope.assignScheduledJobNow = function(job) {
+            if (!confirm('Move this scheduled job into the pending queue now?')) return;
+            $http({
+                method: 'POST',
+                url: 'DataManager/Data.aspx/DataSelector',
+                data: { data: [
+                    { name: 'fbKey', Value: String(job._fbKey || '') },
+                    { name: 'jobId', Value: String(job.Id    || '') }
+                ], action: '[AssignScheduledJob]' }
+            }).then(function(response) {
+                var resp = JSON.parse(response.data.d);
+                if (resp.ok) {
+                    $scope.scheduledjob_list = $scope.scheduledjob_list.filter(function(j) {
+                        return String(j.Id) !== String(job.Id);
+                    });
+                    if (typeof $scope.getjobs === 'function') { $scope.getjobs(); }
+                    if (!$scope.$$phase) { try { $scope.$digest(); } catch(e) {} }
+                } else {
+                    alert('Could not dispatch: ' + (resp.error || 'unknown error'));
+                }
+            }, function() { alert('Network error — please retry.'); });
+        };
+
+        // Refresh scheduled list every 60 s; tick countdowns every 30 s
+        setInterval(function() { $scope.getScheduledJobs(); }, 60000);
+        setInterval(function() {
+            if ($scope.scheduledjob_list.length > 0 && !$scope.$$phase) {
+                try { $scope.$digest(); } catch(e) {}
+            }
+        }, 30000);
+        $scope.getScheduledJobs();
+        // ── end Scheduled jobs ────────────────────────────────────────────────
 
         $scope.ClosedJobsdata = function() {
             if ($('#closed-jobs').hasClass('in') || $('#closed-jobs').is(':visible')) {
