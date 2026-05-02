@@ -60,7 +60,7 @@
     <!--Font icons-->
     <link href="assets/plugins/iconfonts/plugin.css" rel="stylesheet" />
     <link href="assets/plugins/iconfonts/icons.css" rel="stylesheet" />
-    <link href="css/dispatch-modern.css?v=20260502b" rel="stylesheet" />
+    <link href="css/dispatch-modern.css?v=20260502c" rel="stylesheet" />
 </head>
 <!-- Firebase -->
 <!-- Firebase v9 compat — same API as v4, with all security/perf improvements -->
@@ -5437,6 +5437,111 @@ $(document).ready(function() {
         });
         // Mark initialization complete after first read
         _bwBookingRef.once('value', function() { _bwInitialized = true; });
+    })();
+
+    // ── 6b. Passenger app pendingjobs real-time listener ──────────────────
+    // Listens to Firebase pendingjobs/{companyId} (where the passenger app writes).
+    // Status='Scheduled' → adds to scheduledjob_list immediately + persists on server
+    // Status='Waiting'   → book-now ride, triggers getjobs() to refresh pending tab
+    // Status='Cancelled' → removes from scheduledjob_list
+    // Firebase rules require auth != null (satisfied by anonymous sign-in above).
+    (function() {
+        if (!SomeSession2) return;
+        var _pjRef   = DbRef.ref('pendingjobs/' + SomeSession2);
+        var _pjInit  = false;
+        var _pjSeen  = {};
+
+        function _pjAlert(text, duration) {
+            var alertEl = document.getElementById('bw-booking-alert');
+            var msgEl   = document.getElementById('bw-booking-alert-msg');
+            if (alertEl && msgEl) {
+                msgEl.textContent = text;
+                alertEl.style.display = 'block';
+                setTimeout(function() { alertEl.style.display = 'none'; }, duration || 15000);
+            }
+            try { if (typeof playSound === 'function') playSound('newjob'); } catch(e) {}
+        }
+
+        function _pjIngest(snap, isChange) {
+            var b = snap.val();
+            var k = snap.key;
+            if (!b || typeof b !== 'object') return;
+            var status = (b.Status || b.status || '').toString();
+            var fbKey  = SomeSession2 + ':' + k;
+
+            if (status === 'Cancelled') {
+                var sc = angular.element(document.getElementById('myangular')).scope();
+                if (sc && sc.scheduledjob_list) {
+                    sc.scheduledjob_list = sc.scheduledjob_list.filter(function(j) { return j._fbKey !== fbKey; });
+                    if (!sc.$$phase) { try { sc.$digest(); } catch(e) {} }
+                }
+                jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
+                    contentType:'application/json; charset=utf-8', dataType:'json',
+                    data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify({ Status:'Cancelled', _fbKey: fbKey }) }], action:'[IngestPassengerJob]' })
+                });
+                return;
+            }
+
+            if (!_pjInit && !isChange) return;
+            if (_pjSeen[fbKey] && !isChange) return;
+            _pjSeen[fbKey] = true;
+
+            b._fbKey = fbKey;
+            b._jobId = k;
+
+            var sc2 = angular.element(document.getElementById('myangular')).scope();
+
+            if (status === 'Scheduled') {
+                var scheduledMs = parseInt(b.ScheduledFor || b.scheduledFor || 0);
+                var timeStr = scheduledMs ? new Date(scheduledMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+                _pjAlert('📅 Scheduled booking from ' + (b.passengerName || b.name || 'Passenger') + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
+
+                if (sc2 && sc2.scheduledjob_list) {
+                    var exists = sc2.scheduledjob_list.some(function(j) { return j._fbKey === fbKey; });
+                    if (!exists) {
+                        sc2.scheduledjob_list.push({
+                            _fbKey: fbKey, Id: k,
+                            BookingStatus: 'Scheduled', BookingSource: 'passenger',
+                            Name:        b.passengerName || b.name || '',
+                            PhoneNo:     b.phoneNo || b.phone || '',
+                            PickAddress: b.pickupAddress || b.PickAddress || '',
+                            PickLatLng:  b.pickLatLng   || b.PickLatLng  || '0,0',
+                            DropAddress: b.dropAddress  || b.DropAddress || '',
+                            DropLatLng:  b.dropLatLng   || b.DropLatLng  || '0,0',
+                            ScheduledFor:    scheduledMs,
+                            scheduledFor:    scheduledMs,
+                            ScheduledAt:     b.ScheduledAt || (scheduledMs ? new Date(scheduledMs).toISOString() : ''),
+                            BookingDateTime: b.createdAt  || new Date().toISOString(),
+                            Notes:      b.notes     || '',
+                            Passengers: parseInt(b.passengers || '1') || 1,
+                            DriverId: 0, VehicleId: 0
+                        });
+                        sc2.scheduledjob_list.sort(function(a, b) { return (a.ScheduledFor||0) - (b.ScheduledFor||0); });
+                        if (!sc2.$$phase) { try { sc2.$digest(); } catch(e) {} }
+                    }
+                }
+                jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
+                    contentType:'application/json; charset=utf-8', dataType:'json',
+                    data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify(b) }], action:'[IngestPassengerJob]' })
+                });
+                console.log('[pendingjobs] Scheduled booking received:', k, b);
+
+            } else if (status === 'Waiting') {
+                _pjAlert('📱 New booking from ' + (b.passengerName || b.name || 'Passenger') + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
+                jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
+                    contentType:'application/json; charset=utf-8', dataType:'json',
+                    data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify(b) }], action:'[IngestPassengerJob]' })
+                }).done(function() {
+                    if (sc2 && typeof sc2.getjobs === 'function') sc2.getjobs();
+                });
+                console.log('[pendingjobs] Waiting (book-now) booking received:', k, b);
+            }
+        }
+
+        _pjRef.on('child_added',   function(snap) { _pjIngest(snap, false); },
+                                   function(e) { console.warn('[pendingjobs] listener error:', e.code); });
+        _pjRef.on('child_changed', function(snap) { _pjIngest(snap, true); }, function(e) {});
+        _pjRef.once('value', function() { _pjInit = true; });
     })();
 
     // ── 7. Driver self-registration listener ──────────────────────────────

@@ -157,6 +157,31 @@ function generateCompanyId() {
 const FB_API_KEY  = 'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
 const FB_DB_URL   = 'https://taxilatest.firebaseio.com';
 
+// Server-side Firebase anonymous auth — used for polling pendingjobs when
+// BW_FIREBASE_SECRET is not set. Rules require auth != null; anonymous satisfies this.
+let _fbServerToken    = null;
+let _fbServerTokenExp = 0;
+async function getFirebaseServerToken() {
+  if (process.env.BW_FIREBASE_SECRET) return process.env.BW_FIREBASE_SECRET;
+  if (_fbServerToken && Date.now() < _fbServerTokenExp - 120000) return _fbServerToken;
+  try {
+    const r = await fbRequest(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB_API_KEY}`,
+      'POST', { returnSecureToken: true }
+    );
+    if (r.status === 200 && r.body && r.body.idToken) {
+      _fbServerToken    = r.body.idToken;
+      _fbServerTokenExp = Date.now() + (parseInt(r.body.expiresIn || '3600')) * 1000;
+      console.log('[firebase] server anonymous auth OK (token expires in ' + r.body.expiresIn + 's)');
+      return _fbServerToken;
+    }
+    console.log('[firebase] anonymous auth failed:', r.body);
+  } catch(e) {
+    console.log('[firebase] anonymous auth error:', e.message);
+  }
+  return null;
+}
+
 function fbRequest(url, method, payload) {
   return new Promise((resolve, reject) => {
     const body = payload ? JSON.stringify(payload) : null;
@@ -509,8 +534,8 @@ async function _ingestScheduledJob(companyId, jobId, job) {
 
 async function pollFirebasePendingJobs(companyId) {
   try {
-    const token = process.env.BW_FIREBASE_SECRET || '';
-    if (!token) return; // no admin token → skip poll (auth would fail)
+    const token = await getFirebaseServerToken();
+    if (!token) { console.log('[scheduled] no Firebase token — poll skipped'); return; }
     const r = await fbRequest(
       `${FB_DB_URL}/pendingjobs/${companyId}.json?auth=${token}`, 'GET', null
     );
@@ -1437,6 +1462,34 @@ const server = http.createServer(async (req, res) => {
         jsonReply(res, { ok: !fbError, companyId: reg.companyId, uid, fbError: fbError || undefined });
         return;
       }
+    }
+
+    // POST /admin/deploy-firebase-rules — push database.rules.json to Firebase RTDB
+    // Requires BW_FIREBASE_SECRET to be set.  Call once after adding the secret.
+    if (urlPath === '/admin/deploy-firebase-rules' && req.method === 'POST') {
+      const dbSecret = process.env.BW_FIREBASE_SECRET || '';
+      if (!dbSecret) {
+        jsonReply(res, { ok: false, error: 'BW_FIREBASE_SECRET is not set — add it in Replit Secrets and restart the server, then call this endpoint again.' });
+        return;
+      }
+      try {
+        const fs = require('fs');
+        const rulesJson = fs.readFileSync('./database.rules.json', 'utf8');
+        const dr = await fbRequest(
+          `${FB_DB_URL}/.settings/rules.json?auth=${dbSecret}`,
+          'PUT', JSON.parse(rulesJson)
+        );
+        if (dr.status === 200) {
+          console.log('[firebase] database.rules.json deployed successfully');
+          jsonReply(res, { ok: true, message: 'Firebase rules deployed successfully' });
+        } else {
+          console.log('[firebase] rules deploy failed:', dr.status, JSON.stringify(dr.body));
+          jsonReply(res, { ok: false, error: 'Firebase returned ' + dr.status, detail: dr.body });
+        }
+      } catch(e) {
+        jsonReply(res, { ok: false, error: e.message });
+      }
+      return;
     }
 
     // Unknown admin route
@@ -4998,6 +5051,58 @@ const server = http.createServer(async (req, res) => {
           saveJobStore();
           console.log(`[scheduled] manual early dispatch ${_asjEntry._fbKey}`);
           objectD(res, { ok: true, jobId: _asjPending.Id });
+        }
+
+      } else if (action === '[IngestPassengerJob]') {
+        // Client-side Firebase listener detected a new passenger booking and relays it here.
+        // Handles Scheduled (→ scheduledJobStore + auto-dispatch timer),
+        //         Waiting  (→ regular jobStore as Pending), and
+        //         Cancelled (→ remove from scheduledJobStore).
+        let _ipjJob = {};
+        try { _ipjJob = JSON.parse(param('job') || '{}'); } catch(e) {}
+        const _ipjStatus = (_ipjJob.Status || _ipjJob.status || '').toString().trim();
+        const _ipjFbKey  = (_ipjJob._fbKey || '').toString().trim();
+        const _ipjJobId  = (_ipjJob._jobId || (_ipjFbKey.includes(':') ? _ipjFbKey.split(':').slice(1).join(':') : _ipjFbKey)).toString();
+
+        if (_ipjStatus === 'Scheduled') {
+          const already = scheduledJobStore.find(j => j._fbKey === _ipjFbKey && j.companyId === String(sessionCompanyId));
+          if (!already) await _ingestScheduledJob(sessionCompanyId, _ipjJobId, _ipjJob);
+          objectD(res, { ok: true, action: 'scheduled' });
+
+        } else if (_ipjStatus === 'Waiting') {
+          const already = jobStore.find(j => j._fbKey === _ipjFbKey);
+          if (!already) {
+            const _wCid = String(sessionCompanyId);
+            jobStore.push({
+              _fbKey: _ipjFbKey, Id: newCompanyJobId(_wCid), companyId: _wCid,
+              BookingStatus: 'Pending', BookingSource: 'passenger',
+              Name: _ipjJob.passengerName || _ipjJob.name || '',
+              PhoneNo: _ipjJob.phoneNo || _ipjJob.phone || '',
+              PickAddress: _ipjJob.pickupAddress || _ipjJob.PickAddress || '',
+              PickLatLng:  _ipjJob.pickLatLng   || _ipjJob.PickLatLng  || '0,0',
+              DropAddress: _ipjJob.dropAddress  || _ipjJob.DropAddress || '',
+              DropLatLng:  _ipjJob.dropLatLng   || _ipjJob.DropLatLng  || '0,0',
+              BookingDateTime: new Date().toISOString(), Notes: _ipjJob.notes || '',
+              Passengers: parseInt(_ipjJob.passengers || '1') || 1,
+              DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
+            });
+            saveJobStore();
+            console.log(`[passenger] Waiting job ${_ipjFbKey} ingested from client listener`);
+          }
+          objectD(res, { ok: true, action: 'pending' });
+
+        } else if (_ipjStatus === 'Cancelled') {
+          const _cIdx = scheduledJobStore.findIndex(j => j._fbKey === _ipjFbKey);
+          if (_cIdx !== -1) {
+            clearTimeout(_scheduledTimers[_ipjFbKey]);
+            delete _scheduledTimers[_ipjFbKey];
+            scheduledJobStore.splice(_cIdx, 1);
+            console.log(`[passenger] Cancelled job ${_ipjFbKey} removed`);
+          }
+          objectD(res, { ok: true, action: 'cancelled' });
+
+        } else {
+          objectD(res, { ok: false, error: 'unhandled status: ' + _ipjStatus });
         }
 
       } else if (action === '[deviUnAssignedJobsv2]') {

@@ -198,6 +198,16 @@
     },
     "pendingjobs": {
       "$companyId": {
+        ".read": "auth != null",
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "bookings": {
+      "$companyId": {
+        ".read": "auth != null",
         "$bookingId": {
           ".read": "auth != null",
           ".write": "auth != null"
