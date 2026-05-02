@@ -33,6 +33,7 @@
     <!-- Accordion Css -->
     
      <script src="JsScripts/ChatRoom.js"></script>
+     <script src="JsScripts/BwMessaging.js"></script>
         <script src="JsScripts/StripeTokenCreation.js"></script>
     <script type="text/javascript" src="https://js.stripe.com/v2/"></script>
     
@@ -67,6 +68,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/geofire@5.0.1/dist/geofire.min.js"></script>
 <style type="text/css">
     a#tbleClosedJobs_previous {
