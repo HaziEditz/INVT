@@ -491,29 +491,63 @@ function saveClosedJobStore() {
 // Ingests new Scheduled jobs, removes Cancelled ones, fires auto-dispatch timers.
 const _scheduledPollCompanies = new Set();
 
+// Normalise a Firebase passenger-app job object to server internal field names.
+// Firebase uses PickupAddress/PickupLat/PickupLng and DropoffAddress/DropoffLat/DropoffLng
+// (both CamelCase and camelCase variants).
+function _normFbJob(job) {
+  const pickLat = job.PickupLat  || job.pickupLat  || job.PickLat  || job.pickLat  || 0;
+  const pickLng = job.PickupLng  || job.pickupLng  || job.PickLng  || job.pickLng  || 0;
+  const dropLat = job.DropoffLat || job.dropoffLat || job.DropLat  || job.dropLat  || 0;
+  const dropLng = job.DropoffLng || job.dropoffLng || job.DropLng  || job.dropLng  || 0;
+  return {
+    name:        job.PassengerName  || job.passengerName  || job.name || '',
+    phone:       job.PhoneNo        || job.phoneNo        || job.phone || '',
+    pickAddress: job.PickupAddress  || job.pickupAddress  || job.PickAddress  || job.pickAddress  || '',
+    pickLatLng:  job.pickLatLng || job.PickLatLng
+                   ? (job.pickLatLng || job.PickLatLng)
+                   : (pickLat && pickLng ? `${pickLat},${pickLng}` : '0,0'),
+    dropAddress: job.DropoffAddress || job.dropoffAddress || job.DropAddress  || job.dropAddress  || '',
+    dropLatLng:  job.dropLatLng || job.DropLatLng
+                   ? (job.dropLatLng || job.DropLatLng)
+                   : (dropLat && dropLng ? `${dropLat},${dropLng}` : '0,0'),
+    vehicleType:    job.VehicleType    || job.vehicleType    || '',
+    paymentMethod:  job.PaymentMethod  || job.paymentMethod  || 'cash',
+    estimatedFare:  parseFloat(job.EstimatedFare || job.estimatedFare || 0),
+    notes:       job.notes || job.Notes || '',
+    passengers:  parseInt(job.passengers || job.Passengers || '1') || 1,
+    createdAt:   job.createdAt || job.CreatedAt || '',
+    scheduledFor: parseInt(job.ScheduledFor || job.scheduledFor || 0),
+    scheduledAt:  job.ScheduledAt || '',
+  };
+}
+
 async function _ingestScheduledJob(companyId, jobId, job) {
   const fbk = `${companyId}:${jobId}`;
   if (scheduledJobStore.find(j => j._fbKey === fbk)) return; // already known
   const scheduledForMs = parseInt(job.ScheduledFor || job.scheduledFor || 0);
   if (!scheduledForMs || scheduledForMs <= Date.now()) return; // already past
+  const n = _normFbJob(job);
   const sj = {
     _fbKey:        fbk,
     Id:            jobId,
     companyId:     String(companyId),
     BookingStatus: 'Scheduled',
     BookingSource: 'passenger',
-    Name:          job.passengerName || job.name || '',
-    PhoneNo:       job.phoneNo || job.phone || '',
-    PickAddress:   job.pickupAddress || job.PickAddress || '',
-    PickLatLng:    job.pickLatLng   || job.PickLatLng  || '0,0',
-    DropAddress:   job.dropAddress  || job.DropAddress || '',
-    DropLatLng:    job.dropLatLng   || job.DropLatLng  || '0,0',
+    Name:          n.name,
+    PhoneNo:       n.phone,
+    PickAddress:   n.pickAddress,
+    PickLatLng:    n.pickLatLng,
+    DropAddress:   n.dropAddress,
+    DropLatLng:    n.dropLatLng,
+    VehicleType:   n.vehicleType,
+    PaymentMethod: n.paymentMethod,
+    EstimatedFare: n.estimatedFare,
     ScheduledFor:  scheduledForMs,
     scheduledFor:  scheduledForMs,
-    ScheduledAt:   job.ScheduledAt  || new Date(scheduledForMs).toISOString(),
-    BookingDateTime: job.createdAt  || new Date().toISOString(),
-    Notes:         job.notes || '',
-    Passengers:    parseInt(job.passengers || '1') || 1,
+    ScheduledAt:   n.scheduledAt  || new Date(scheduledForMs).toISOString(),
+    BookingDateTime: n.createdAt  || new Date().toISOString(),
+    Notes:         n.notes,
+    Passengers:    n.passengers,
     DriverId: 0, VehicleId: 0,
     _addedAt: Date.now(),
   };
@@ -558,26 +592,30 @@ async function pollFirebasePendingJobs(companyId) {
       if (stat === 'Waiting') {
         // Book-now job from passenger app → add to regular jobStore if new
         if (!jobStore.find(j => String(j.Id) === String(jobId) || j._fbKey === fbk)) {
+          const n = _normFbJob(job);
           const newJob = {
             _fbKey:          fbk,
             Id:              newCompanyJobId(companyId),
             companyId:       String(companyId),
             BookingStatus:   'Pending',
             BookingSource:   'passenger',
-            Name:            job.passengerName || job.name || '',
-            PhoneNo:         job.phoneNo || job.phone || '',
-            PickAddress:     job.pickupAddress || job.PickAddress || '',
-            PickLatLng:      job.pickLatLng   || job.PickLatLng  || '0,0',
-            DropAddress:     job.dropAddress  || job.DropAddress || '',
-            DropLatLng:      job.dropLatLng   || job.DropLatLng  || '0,0',
-            BookingDateTime: new Date().toISOString(),
-            Notes:           job.notes || '',
-            Passengers:      parseInt(job.passengers || '1') || 1,
+            Name:            n.name,
+            PhoneNo:         n.phone,
+            PickAddress:     n.pickAddress,
+            PickLatLng:      n.pickLatLng,
+            DropAddress:     n.dropAddress,
+            DropLatLng:      n.dropLatLng,
+            VehicleType:     n.vehicleType,
+            PaymentMethod:   n.paymentMethod,
+            EstimatedFare:   n.estimatedFare,
+            BookingDateTime: n.createdAt || new Date().toISOString(),
+            Notes:           n.notes,
+            Passengers:      n.passengers,
             DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
           };
           jobStore.push(newJob);
           saveJobStore();
-          console.log(`[scheduled] Waiting job ${fbk} added to pending queue`);
+          console.log(`[scheduled] Waiting job ${fbk} added to pending queue — ${n.name || 'unknown'} from ${n.pickAddress}`);
         }
       }
     }
@@ -5073,21 +5111,25 @@ const server = http.createServer(async (req, res) => {
           const already = jobStore.find(j => j._fbKey === _ipjFbKey);
           if (!already) {
             const _wCid = String(sessionCompanyId);
+            const _wn = _normFbJob(_ipjJob);
             jobStore.push({
               _fbKey: _ipjFbKey, Id: newCompanyJobId(_wCid), companyId: _wCid,
               BookingStatus: 'Pending', BookingSource: 'passenger',
-              Name: _ipjJob.passengerName || _ipjJob.name || '',
-              PhoneNo: _ipjJob.phoneNo || _ipjJob.phone || '',
-              PickAddress: _ipjJob.pickupAddress || _ipjJob.PickAddress || '',
-              PickLatLng:  _ipjJob.pickLatLng   || _ipjJob.PickLatLng  || '0,0',
-              DropAddress: _ipjJob.dropAddress  || _ipjJob.DropAddress || '',
-              DropLatLng:  _ipjJob.dropLatLng   || _ipjJob.DropLatLng  || '0,0',
-              BookingDateTime: new Date().toISOString(), Notes: _ipjJob.notes || '',
-              Passengers: parseInt(_ipjJob.passengers || '1') || 1,
+              Name:          _wn.name,
+              PhoneNo:       _wn.phone,
+              PickAddress:   _wn.pickAddress,
+              PickLatLng:    _wn.pickLatLng,
+              DropAddress:   _wn.dropAddress,
+              DropLatLng:    _wn.dropLatLng,
+              VehicleType:   _wn.vehicleType,
+              PaymentMethod: _wn.paymentMethod,
+              EstimatedFare: _wn.estimatedFare,
+              BookingDateTime: _wn.createdAt || new Date().toISOString(),
+              Notes: _wn.notes, Passengers: _wn.passengers,
               DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
             });
             saveJobStore();
-            console.log(`[passenger] Waiting job ${_ipjFbKey} ingested from client listener`);
+            console.log(`[passenger] Waiting job ${_ipjFbKey} ingested — ${_wn.name} from ${_wn.pickAddress}`);
           }
           objectD(res, { ok: true, action: 'pending' });
 

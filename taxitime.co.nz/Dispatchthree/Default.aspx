@@ -5499,21 +5499,28 @@ $(document).ready(function() {
                 if (sc2 && sc2.scheduledjob_list) {
                     var exists = sc2.scheduledjob_list.some(function(j) { return j._fbKey === fbKey; });
                     if (!exists) {
+                        var _pLat = b.PickupLat  || b.pickupLat  || 0;
+                        var _pLng = b.PickupLng  || b.pickupLng  || 0;
+                        var _dLat = b.DropoffLat || b.dropoffLat || 0;
+                        var _dLng = b.DropoffLng || b.dropoffLng || 0;
                         sc2.scheduledjob_list.push({
                             _fbKey: fbKey, Id: k,
                             BookingStatus: 'Scheduled', BookingSource: 'passenger',
-                            Name:        b.passengerName || b.name || '',
-                            PhoneNo:     b.phoneNo || b.phone || '',
-                            PickAddress: b.pickupAddress || b.PickAddress || '',
-                            PickLatLng:  b.pickLatLng   || b.PickLatLng  || '0,0',
-                            DropAddress: b.dropAddress  || b.DropAddress || '',
-                            DropLatLng:  b.dropLatLng   || b.DropLatLng  || '0,0',
+                            Name:        b.PassengerName  || b.passengerName  || b.name || '',
+                            PhoneNo:     b.PhoneNo        || b.phoneNo        || b.phone || '',
+                            PickAddress: b.PickupAddress  || b.pickupAddress  || b.PickAddress  || '',
+                            PickLatLng:  b.pickLatLng || b.PickLatLng || (_pLat && _pLng ? _pLat + ',' + _pLng : '0,0'),
+                            DropAddress: b.DropoffAddress || b.dropoffAddress || b.DropAddress  || '',
+                            DropLatLng:  b.dropLatLng || b.DropLatLng || (_dLat && _dLng ? _dLat + ',' + _dLng : '0,0'),
+                            VehicleType:   b.VehicleType   || b.vehicleType   || '',
+                            PaymentMethod: b.PaymentMethod || b.paymentMethod || 'cash',
+                            EstimatedFare: parseFloat(b.EstimatedFare || b.estimatedFare || 0),
                             ScheduledFor:    scheduledMs,
                             scheduledFor:    scheduledMs,
                             ScheduledAt:     b.ScheduledAt || (scheduledMs ? new Date(scheduledMs).toISOString() : ''),
-                            BookingDateTime: b.createdAt  || new Date().toISOString(),
-                            Notes:      b.notes     || '',
-                            Passengers: parseInt(b.passengers || '1') || 1,
+                            BookingDateTime: b.createdAt  || b.CreatedAt || new Date().toISOString(),
+                            Notes:      b.notes || b.Notes || '',
+                            Passengers: parseInt(b.passengers || b.Passengers || '1') || 1,
                             DriverId: 0, VehicleId: 0
                         });
                         sc2.scheduledjob_list.sort(function(a, b) { return (a.ScheduledFor||0) - (b.ScheduledFor||0); });
