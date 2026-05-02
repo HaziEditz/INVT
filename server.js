@@ -4199,20 +4199,31 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[GetQueuedJobs]') {
         const _gqJobs = jobStore.filter(j => j.BookingStatus === 'Queued');
-        const _gqDt1  = _gqJobs.map(j => ({
-          Id:              j.Id,
-          BookingId:       j.Id,
-          DriverId:        j.DriverId   || '',
-          PickAddress:     j.PickAddress  || j.PickLocation  || '',
-          DropAddress:     j.DropAddress  || j.DropLocation  || '',
-          BookingDateTime: j.BookingDateTime || '',
-          UserFName:       j.UserFName   || '',
-          UserLName:       j.UserLName   || '',
-          VehicleType:     j.VehicleType || '',
-          BookingSource:   j.BookingSource || '',
-          PhoneNo:         j.PhoneNo     || '',
-          queuedAt:        j.queuedAt    || 0,
-        }));
+        const _gqAllDrivers = companyDrivers(ZONE_DRIVERS);
+        const _gqDt1  = _gqJobs.map(j => {
+          const _gqDrv = _gqAllDrivers.find(d =>
+            String(d.driverid) === String(j.DriverId) ||
+            String(d.VehicleId) === String(j.DriverId)
+          ) || {};
+          return {
+            Id:              j.Id,
+            BookingId:       j.Id,
+            DriverId:        j.DriverId        || '',
+            drivername:      _gqDrv.drivername || j.DriverId || '',
+            VehicleNo:       _gqDrv.vehiclenumber || '',
+            passengername:   j.passengername   || ((j.UserFName || '') + ' ' + (j.UserLName || '')).trim() || j.Name || '',
+            PickAddress:     j.PickAddress     || j.PickLocation  || '',
+            DropAddress:     j.DropAddress     || j.DropLocation  || '',
+            BookingDateTime: j.BookingDateTime || '',
+            UserFName:       j.UserFName       || '',
+            UserLName:       j.UserLName       || '',
+            VehicleType:     j.VehicleType     || '',
+            BookingSource:   j.BookingSource   || '',
+            PhoneNo:         j.PhoneNo         || '',
+            JobMins:         j.JobMins         || 0,
+            queuedAt:        j.queuedAt        || 0,
+          };
+        });
         console.log(`[GetQueuedJobs] → ${_gqDt1.length} queued job(s)`);
         objectD(res, { dt1: _gqDt1 });
 

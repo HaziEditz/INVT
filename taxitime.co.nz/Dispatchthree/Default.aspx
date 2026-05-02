@@ -4201,29 +4201,37 @@ $(document).ready(function() {
                                                     <!-- QUEUED JOBS (Busy-driver Pre-Queue) -->
                                                     <div ng-if="queuedJobs && queuedJobs.length > 0" style="margin-top:10px;">
                                                         <div class="col-sm-12" style="background:#7b4f0026;border-left:4px solid #e67e22;border-radius:6px;padding:6px 8px;margin-bottom:6px;">
-                                                            <strong style="color:#e67e22;"><i class="fa fa-clock-o"></i> Queued (Busy Driver Pre-Queue)</strong>
+                                                            <strong style="color:#e67e22;"><i class="fa fa-clock-o"></i> Queued — Waiting for Driver to Finish</strong>
+                                                            <span style="font-size:10px;color:#aaa;margin-left:6px;">Driver finishes current trip → auto-assigns</span>
                                                         </div>
                                                         <div ng-repeat="(qk, qv) in queuedJobs" class="nopad col-sm-12 col-md-12 col-xl-12"
-                                                             style="background:rgba(230,126,34,0.12);border:1px solid #e67e22;border-radius:6px;margin-bottom:8px;">
-                                                            <div class="row nopad col-sm-12" style="padding:4px 0;">
-                                                                <span class="label label-pill mt-2" style="background:#e67e22;color:#fff;">
+                                                             style="background:rgba(230,126,34,0.10);border:1px solid #e67e22;border-radius:6px;margin-bottom:10px;">
+                                                            <!-- Row 1: ID + time + passenger + phone + driver -->
+                                                            <div class="row nopad col-sm-12" style="padding:5px 4px 2px 4px;">
+                                                                <span class="label label-pill mt-2" style="background:#e67e22;color:#fff;font-weight:700;">
                                                                     <i class="glyphicon glyphicon-tag"></i> #{{qv.Id}}</span>
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i class="fa fa-clock-o"></i> {{qv.BookingDateTime}}</span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="fa fa-user"></i> {{qv.passengername || qv.Name}}</span>
-                                                                <span class="label label-pill label-primary mt-2">
+                                                                <span class="label label-pill label-primary mt-2" ng-if="qv.passengername">
+                                                                    <i class="fa fa-user"></i> {{qv.passengername}}</span>
+                                                                <span class="label label-pill label-primary mt-2" ng-if="qv.PhoneNo">
                                                                     <i class="fa fa-phone"></i> {{qv.PhoneNo}}</span>
-                                                                <span class="label label-pill label-warning mt-2">
-                                                                    <i class="fa fa-car"></i> {{qv.drivername}} {{qv.VehicleNo}} <em style="opacity:.8;">(Busy)</em></span>
-                                                                <span class="label label-pill label-info mt-2">
-                                                                    <i class="fa fa-circle" style="color:#e67e22;"></i> Queued</span>
+                                                                <span class="label label-pill mt-2" style="background:#b45309;color:#fff;">
+                                                                    <i class="fa fa-car"></i> {{qv.drivername || qv.DriverId}} <span ng-if="qv.VehicleNo">({{qv.VehicleNo}})</span> — Busy</span>
                                                             </div>
-                                                            <div class="row nopad col-sm-12" style="padding:2px 0 4px 0;font-size:12px;opacity:.85;">
-                                                                <span class="label label-pill label-primary mt-2" style="max-width:40%;overflow:hidden;white-space:nowrap;">
-                                                                    <i class="fa fa-circle" style="color:green;"></i> {{qv.PickAddress}}</span>
-                                                                <span class="label label-pill label-primary mt-2" style="max-width:35%;overflow:hidden;white-space:nowrap;">
-                                                                    <i class="fa fa-circle" style="color:red;"></i> {{qv.DropAddress}}</span>
+                                                            <!-- Row 2: addresses -->
+                                                            <div class="row nopad col-sm-12" style="padding:2px 4px;font-size:11px;">
+                                                                <span class="label label-pill label-primary mt-2" style="max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                                                    <i class="fa fa-circle" style="color:#22c55e;"></i> {{qv.PickAddress}}</span>
+                                                                <span class="label label-pill label-primary mt-2" style="max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" ng-if="qv.DropAddress">
+                                                                    <i class="fa fa-circle" style="color:#ef4444;"></i> {{qv.DropAddress}}</span>
+                                                            </div>
+                                                            <!-- Row 3: actions -->
+                                                            <div class="row nopad col-sm-12" style="padding:4px 4px 6px 4px;border-top:1px solid rgba(230,126,34,0.25);margin-top:4px;">
+                                                                <span class="label label-pill mt-2" style="background:#1565c0;color:#fff;cursor:pointer;font-weight:600;" ng-click="recallQueuedJob(qv.Id)" title="Release this job back to dispatch — assign to a different driver">
+                                                                    <i class="fa fa-reply"></i> Recall for Next Driver</span>
+                                                                <span class="label label-pill mt-2" style="background:#374151;color:#fff;font-size:10px;opacity:.7;margin-left:4px;">
+                                                                    <i class="fa fa-info-circle"></i> Auto-assigns when driver finishes</span>
                                                             </div>
                                                         </div>
                                                     </div>
