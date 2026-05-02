@@ -4488,61 +4488,60 @@ $(document).ready(function() {
                         
                     <div style="padding: 0px;" class="row col-sm-12 col-md-6 col-lg-6 col-xs-12">
                         <div class="col" style=" padding: 0px;">
-                               <div class="container-stats-top" style="padding: 7px; background: #2d271dbf; color: #cddc39;  z-index: 1;  height: 93%;  font-weight: 600; width: 57px;">
-                                    <ul class="list-inline" style="width: 10px;">
-                                        <li> 
-                                            <select  class="form-control" id="zoomlabel" style="color:red;"  onchange="selectmapzoom(this.value)">
-                                          <option value="1">1</option>
-                                          <option  value="2">2</option>
-                                          <option  value="3">3</option>
-                                          <option  value="4">4</option>
-                                          <option  value="5">5</option>
-                                          <option  value="6">6</option>
-                                          <option  value="7">7</option>
-                                          <option  value="8">8</option>
-                                          <option  value="9">9</option>
-                                          <option  value="10">10</option>
-                                          <option  value="11">11</option>
-                                          <option  value="12">12</option>
-                                          <option  value="13" selected>13</option>
-                                          <option  value="14">14</option>
-                                          <option  value="15">15</option>
-                                          <option  value="16">16</option>
-                                          <option  value="17">17</option>
-                                          <option  value="18">18</option>
-                                          <option  value="19">19</option>
-                                          <option  value="20">20</option>
-                                          <option  value="21">21</option>
-                                          <option  value="22">22</option>
-                                          <option  value="23">23</option>
-                                          <option  value="24">24</option>
-                                         </select>
-                                        </li>
-                                        <li><span onclick="changerefresh()">
-                                            <i class="fa fa-refresh" style="color:red;"></i></span></li>
-                                               </ul>
-                                            <ul class="list-inline">
-                                                <li>All</li>
-                                                <li class=" AllVehicles">0</li>
-                                            </ul>
-                                            <ul class="list-inline">
-                                                <li>Free</li>
-                                                <li class=" text-success" id="FreeVehicles">0</li>
-                                            </ul>
-                                            <ul class="list-inline">
-                                                <li>Picking</li>
-                                                <li class=" text-success" id="PickingVehicles">0</li>
-                                            </ul>
-                                            <ul class="list-inline">
-                                                <li>Busy</li>
-                                                <li class=" text-warning" id="BusyVehicles">0</li>
-                                            </ul>
-                                            <ul class="list-inline">
-                                                <li>Away</li>
-                                                <li class="text-danger" id="AwayVehicles">0</li>
-                                            </ul>
-                     
-                                        </div>
+                               <div class="container-stats-top" style="padding:8px 6px; background:#1a1a2e; color:#fff; z-index:1; height:93%; font-weight:600; width:76px; display:flex; flex-direction:column; gap:6px; box-sizing:border-box;">
+                                    <div style="display:flex; align-items:center; gap:3px;">
+                                        <select class="form-control" id="zoomlabel" onchange="selectmapzoom(this.value)" style="flex:1; height:24px; font-size:11px; padding:0 2px; background:#2d3748; color:#dfba5f; border:1px solid #4a5568; border-radius:4px;">
+                                            <option value="1">1</option>
+                                            <option value="2">2</option>
+                                            <option value="3">3</option>
+                                            <option value="4">4</option>
+                                            <option value="5">5</option>
+                                            <option value="6">6</option>
+                                            <option value="7">7</option>
+                                            <option value="8">8</option>
+                                            <option value="9">9</option>
+                                            <option value="10">10</option>
+                                            <option value="11">11</option>
+                                            <option value="12">12</option>
+                                            <option value="13" selected>13</option>
+                                            <option value="14">14</option>
+                                            <option value="15">15</option>
+                                            <option value="16">16</option>
+                                            <option value="17">17</option>
+                                            <option value="18">18</option>
+                                            <option value="19">19</option>
+                                            <option value="20">20</option>
+                                            <option value="21">21</option>
+                                            <option value="22">22</option>
+                                            <option value="23">23</option>
+                                            <option value="24">24</option>
+                                        </select>
+                                        <span onclick="changerefresh()" style="cursor:pointer; flex-shrink:0;" title="Reset map to home area">
+                                            <i class="fa fa-refresh" style="color:#dfba5f; font-size:13px;"></i>
+                                        </span>
+                                    </div>
+                                    <div style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid #2d3748; padding-bottom:4px;">Vehicles</div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:10px; color:#94a3b8;">All</span>
+                                        <span class="AllVehicles" style="background:#475569; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:10px; color:#4ade80;">Free</span>
+                                        <span id="FreeVehicles" style="background:#16a34a; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:10px; color:#60a5fa;">Pick</span>
+                                        <span id="PickingVehicles" style="background:#1d4ed8; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:10px; color:#fbbf24;">Busy</span>
+                                        <span id="BusyVehicles" style="background:#d97706; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:10px; color:#f87171;">Away</span>
+                                        <span id="AwayVehicles" style="background:#dc2626; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    </div>
+                                </div>
 
                         </div>
                         <div class="col-md-11 col-lg-11" style="padding: 0px;" >
@@ -6413,23 +6412,33 @@ $(document).ready(function() {
             var  aSouth  =   map.getBounds().getSouthWest().lat();   
             var aWest   =   map.getBounds().getSouthWest().lng();  
             if (countxxx == 0) {
+                var _rectKey = 'bw_map_rect_' + (document.getElementById('lblCompanyId') ? (document.getElementById('lblCompanyId').textContent || '') : '');
+                var _initBounds = { north: aNorth, south: aSouth, east: aEast, west: aWest };
+                try {
+                    var _saved = localStorage.getItem(_rectKey);
+                    if (_saved) { var _p = JSON.parse(_saved); if (_p.north) _initBounds = _p; }
+                } catch(e) {}
                 rectangle = new google.maps.Rectangle({
                     strokeColor: "#FF0000",
                     strokeOpacity: 0.8,
                     strokeWeight: 2,
-                    fillColor: "#ff000000",
-                    fillOpacity: 0.35,
-                    map,
-                    bounds: {
-                        north: aNorth ,
-                        south: aSouth,
-                        east: aEast,
-                        west: aWest
-                    },
+                    fillColor: "#FF000000",
+                    fillOpacity: 0,
+                    map: map,
+                    bounds: _initBounds,
                     editable: true
                 });
-            }else{
-            
+                google.maps.event.addListener(rectangle, 'bounds_changed', function() {
+                    try {
+                        var b = rectangle.getBounds();
+                        localStorage.setItem(_rectKey, JSON.stringify({
+                            north: b.getNorthEast().lat(),
+                            east:  b.getNorthEast().lng(),
+                            south: b.getSouthWest().lat(),
+                            west:  b.getSouthWest().lng()
+                        }));
+                    } catch(e) {}
+                });
             }
 
             countxxx = 1;
