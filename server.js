@@ -515,7 +515,12 @@ function _normFbJob(job) {
     estimatedFare:  parseFloat(job.EstimatedFare || job.estimatedFare || 0),
     notes:       job.notes || job.Notes || '',
     passengers:  parseInt(job.passengers || job.Passengers || '1') || 1,
-    createdAt:   job.createdAt || job.CreatedAt || '',
+    createdAt:   (function() {
+      const raw = job.createdAt || job.CreatedAt || '';
+      if (!raw) return '';
+      if (typeof raw === 'number') return new Date(raw).toISOString();
+      return String(raw);
+    })(),
     scheduledFor: parseInt(job.ScheduledFor || job.scheduledFor || 0),
     scheduledAt:  job.ScheduledAt || '',
   };
