@@ -4488,9 +4488,9 @@ $(document).ready(function() {
                         
                     <div style="padding: 0px;" class="row col-sm-12 col-md-6 col-lg-6 col-xs-12">
                         <div class="col" style=" padding: 0px;">
-                               <div class="container-stats-top" style="padding:8px 6px; background:#1a1a2e; color:#fff; z-index:1; height:93%; font-weight:600; width:76px; display:flex; flex-direction:column; gap:6px; box-sizing:border-box;">
-                                    <div style="display:flex; align-items:center; gap:3px;">
-                                        <select class="form-control" id="zoomlabel" onchange="selectmapzoom(this.value)" style="flex:1; height:24px; font-size:11px; padding:0 2px; background:#2d3748; color:#dfba5f; border:1px solid #4a5568; border-radius:4px;">
+                               <div class="container-stats-top" style="padding:8px 5px; background:#111827; z-index:1; height:93%; width:72px; display:flex; flex-direction:column; gap:5px; box-sizing:border-box;">
+                                    <div style="display:flex; align-items:center; gap:3px; margin-bottom:2px;">
+                                        <select class="form-control" id="zoomlabel" onchange="selectmapzoom(this.value)" style="flex:1; height:24px; font-size:11px; padding:0 2px; background:#1f2937; color:#dfba5f; border:1px solid #374151; border-radius:3px;">
                                             <option value="1">1</option>
                                             <option value="2">2</option>
                                             <option value="3">3</option>
@@ -4516,30 +4516,30 @@ $(document).ready(function() {
                                             <option value="23">23</option>
                                             <option value="24">24</option>
                                         </select>
-                                        <span onclick="changerefresh()" style="cursor:pointer; flex-shrink:0;" title="Reset map to home area">
-                                            <i class="fa fa-refresh" style="color:#dfba5f; font-size:13px;"></i>
+                                        <span onclick="changerefresh()" style="cursor:pointer;" title="Snap map back to home area">
+                                            <i class="fa fa-home" style="color:#dfba5f; font-size:14px;"></i>
                                         </span>
                                     </div>
-                                    <div style="font-size:9px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid #2d3748; padding-bottom:4px;">Vehicles</div>
-                                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span style="font-size:10px; color:#94a3b8;">All</span>
-                                        <span class="AllVehicles" style="background:#475569; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    <div style="border-bottom:1px solid #1f2937; margin-bottom:2px;"></div>
+                                    <div style="border-left:3px solid #4b5563; padding:2px 0 2px 5px; display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:9px; color:#9ca3af; font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">All</span>
+                                        <span class="AllVehicles" style="font-size:13px; color:#e5e7eb; font-weight:700;">0</span>
                                     </div>
-                                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span style="font-size:10px; color:#4ade80;">Free</span>
-                                        <span id="FreeVehicles" style="background:#16a34a; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    <div style="border-left:3px solid #22c55e; padding:2px 0 2px 5px; display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:9px; color:#86efac; font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">Free</span>
+                                        <span id="FreeVehicles" style="font-size:13px; color:#4ade80; font-weight:700;">0</span>
                                     </div>
-                                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span style="font-size:10px; color:#60a5fa;">Pick</span>
-                                        <span id="PickingVehicles" style="background:#1d4ed8; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    <div style="border-left:3px solid #3b82f6; padding:2px 0 2px 5px; display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:9px; color:#93c5fd; font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">Pick</span>
+                                        <span id="PickingVehicles" style="font-size:13px; color:#60a5fa; font-weight:700;">0</span>
                                     </div>
-                                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span style="font-size:10px; color:#fbbf24;">Busy</span>
-                                        <span id="BusyVehicles" style="background:#d97706; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    <div style="border-left:3px solid #f59e0b; padding:2px 0 2px 5px; display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:9px; color:#fcd34d; font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">Busy</span>
+                                        <span id="BusyVehicles" style="font-size:13px; color:#fbbf24; font-weight:700;">0</span>
                                     </div>
-                                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                                        <span style="font-size:10px; color:#f87171;">Away</span>
-                                        <span id="AwayVehicles" style="background:#dc2626; color:#fff; border-radius:8px; padding:1px 6px; font-size:11px; font-weight:700; min-width:18px; text-align:center;">0</span>
+                                    <div style="border-left:3px solid #ef4444; padding:2px 0 2px 5px; display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:9px; color:#fca5a5; font-weight:600; text-transform:uppercase; letter-spacing:0.3px;">Away</span>
+                                        <span id="AwayVehicles" style="font-size:13px; color:#f87171; font-weight:700;">0</span>
                                     </div>
                                 </div>
 
@@ -13496,6 +13496,7 @@ $(document).ready(function() {
                                         
                                 if ($res[0].Result == "Booking Information Successfully Submitted") {
                                     toastr["success"]("Job #" + $res[0].BookingId + " created.", "Booking Created!");
+                                    setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 2000);
                                 }
                             }
 
@@ -13537,6 +13538,7 @@ $(document).ready(function() {
                                     console.log($("#ddlVehicleType").val())
                                     
                                     toastr["success"]("Job #" + $res[0].BookingId + " created successfully.", "Booking Created!");
+                                    setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 2000);
 
                                     console.log( $("#ddlVehicleType").val() );
                                     if($res[0].BookingStatus == "No One"){
@@ -17455,7 +17457,6 @@ $(document).ready(function() {
            
           
                 markers[id] = marker;
-                map.setCenter(LatLng);
             }
             $scope.showmakert = function(id, pickup, dropoff){
            
