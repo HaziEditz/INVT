@@ -1492,31 +1492,31 @@ html[data-bw-mode="light"] #largeModal input[type="date"]::-webkit-calendar-pick
 .bw-site-footer {
   position: fixed;
   bottom: 0; left: 0; right: 0;
-  height: 24px;
-  background: linear-gradient(90deg, #080b12 0%, #0d1018 100%);
-  border-top: 1px solid rgba(245,190,30,0.08);
+  height: 26px;
+  background: rgba(10,12,18,0.97);
+  border-top: 1px solid rgba(245,190,30,0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1020;
+  z-index: 1050;
   pointer-events: none;
 }
 .bw-site-footer__inner {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
-  color: rgba(255,255,255,0.22);
-  letter-spacing: 0.4px;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 0.3px;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   pointer-events: auto;
 }
 .bw-site-footer__inner a {
-  color: rgba(245,190,30,0.45);
+  color: rgba(245,190,30,0.85);
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 600;
   transition: color 0.15s;
 }
 .bw-site-footer__inner a:hover {
-  color: rgba(245,190,30,0.85);
+  color: #f5be1e;
 }

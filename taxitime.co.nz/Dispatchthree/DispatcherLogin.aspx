@@ -94,29 +94,23 @@
     }
 
     .splash-icon {
+      width: 88px; height: 88px;
+      background: #1a7d96;
+      border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
+      box-shadow: 0 0 60px rgba(26,125,150,0.5), 0 20px 40px rgba(0,0,0,0.5);
       animation: splashIconPulse 2s ease-in-out 1.2s infinite alternate;
     }
 
-    .splash-logo-img {
-      height: 40px;
-      width: auto;
-      display: block;
-    }
-
-    .splash-icon {
-      background: rgba(255,255,255,0.96);
-      border-radius: 14px;
-      padding: 12px 20px;
-      box-shadow: 0 0 60px rgba(245,190,30,0.3), 0 8px 32px rgba(0,0,0,0.5);
-      animation: splashIconPulse 2s ease-in-out 1.2s infinite alternate;
+    .splash-arrow-svg {
+      width: 40px; height: 40px;
     }
 
     @keyframes splashIconPulse {
-      from { box-shadow: 0 0 40px rgba(245,190,30,0.25), 0 8px 32px rgba(0,0,0,0.5); }
-      to   { box-shadow: 0 0 70px rgba(245,190,30,0.5), 0 8px 32px rgba(0,0,0,0.5); }
+      from { box-shadow: 0 0 40px rgba(26,125,150,0.35), 0 20px 40px rgba(0,0,0,0.5); }
+      to   { box-shadow: 0 0 80px rgba(26,125,150,0.65), 0 20px 40px rgba(0,0,0,0.5); }
     }
 
     .splash-brand {
@@ -792,7 +786,10 @@
   <div id="splash">
     <div class="splash-logo-wrap">
       <div class="splash-icon">
-        <img src="assets/img/bookawaka-logo.png" alt="BookaWaka" class="splash-logo-img" />
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="splash-arrow-svg">
+          <path d="M22 2L11 13" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </div>
       <div class="splash-sub">Dispatcher Console</div>
     </div>

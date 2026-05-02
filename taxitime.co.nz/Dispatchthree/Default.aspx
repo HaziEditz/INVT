@@ -4879,7 +4879,6 @@ $(document).ready(function() {
 <!-- ── Site footer ─────────────────────────────────────────────────────── -->
 <div class="bw-site-footer">
     <span class="bw-site-footer__inner">
-        <i class="fa fa-globe" style="margin-right:5px;opacity:0.45;font-size:9px;"></i>
         Operated by <a href="https://bookawaka.com" target="_blank" rel="noopener">bookawaka.com</a>
     </span>
 </div>
