@@ -11216,11 +11216,12 @@ $(document).ready(function() {
             var finaldata = [];
             var maaa2 = [];
             var finaldata2 = [];
+            var datahead = []; // declared here so keys2 loop can safely reference it
             for (var xx = 0 ; xx < keys.length ; xx++) {
                 var value = keys[xx];
                 var datashows = [];
 
-                var datahead = [];
+                datahead = [];
                 var car = "";
                 var carvalue = [];
                 for (var o = 0; o < grouped[value].length; o++) {
@@ -11250,7 +11251,7 @@ $(document).ready(function() {
                 var carvalue2 = [];
                 for (var o = 0; o < grouped2[value2].length; o++) {
                     var id =  grouped2[value2][o].zoneid;
-                    var indexOfDayx = datahead.indexOf(id);
+                    var indexOfDayx = datahead2.indexOf(id);
                     if (indexOfDayx === -1) {
                         datahead2.push(id)
 
