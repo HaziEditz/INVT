@@ -446,6 +446,210 @@
         padding: 0px !important;
     }
 
+    /* ── BwMessaging panel ─────────────────────────────────────────────── */
+    .bwm-shell {
+        display: flex;
+        height: 420px;
+        overflow: hidden;
+        font-family: inherit;
+    }
+    .bwm-sidebar {
+        width: 150px;
+        min-width: 150px;
+        border-right: 1px solid #e0e0e0;
+        display: flex;
+        flex-direction: column;
+        background: #f8f9fa;
+    }
+    .bwm-sidebar-hdr {
+        padding: 8px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .bwm-refresh-btn {
+        background: none;
+        border: none;
+        color: #888;
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 12px;
+    }
+    .bwm-refresh-btn:hover { color: #3498db; }
+    .bwm-driver-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+        flex: 1;
+    }
+    .bwm-driver-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 10px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background .15s;
+        font-size: 12px;
+    }
+    .bwm-driver-item:hover  { background: #eef4ff; }
+    .bwm-driver-item.bwm-active { background: #dbeafe; border-left: 3px solid #1565c0; }
+    .bwm-d-avatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+        flex-shrink: 0;
+    }
+    .bwm-d-name {
+        font-size: 12px;
+        color: #333;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+    }
+    .bwm-d-badge {
+        background: #e74c3c;
+        color: #fff;
+        border-radius: 10px;
+        font-size: 10px;
+        padding: 1px 5px;
+        display: none;
+    }
+    .bwm-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .bwm-header {
+        padding: 8px 12px;
+        font-weight: 700;
+        font-size: 13px;
+        color: #1565c0;
+        border-bottom: 1px solid #e0e0e0;
+        background: #f0f4ff;
+        flex-shrink: 0;
+    }
+    .bwm-thread {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px 12px;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .bwm-empty {
+        text-align: center;
+        color: #aaa;
+        font-size: 12px;
+        margin: auto;
+        line-height: 1.8;
+    }
+    .bwm-bubble {
+        display: flex;
+        max-width: 80%;
+    }
+    .bwm-bubble.bwm-out { align-self: flex-end; flex-direction: row-reverse; }
+    .bwm-bubble.bwm-in  { align-self: flex-start; }
+    .bwm-bubble-inner {
+        background: #f1f3f4;
+        border-radius: 12px;
+        padding: 7px 11px;
+        font-size: 12px;
+        max-width: 100%;
+    }
+    .bwm-out .bwm-bubble-inner { background: #1565c0; color: #fff; }
+    .bwm-meta {
+        font-size: 10px;
+        color: #888;
+        margin-bottom: 2px;
+    }
+    .bwm-out .bwm-meta { color: #b3d1ff; }
+    .bwm-time { margin-left: 6px; opacity: .75; }
+    .bwm-text { word-break: break-word; line-height: 1.4; }
+    .bwm-bcast-tag {
+        background: rgba(255,255,255,.2);
+        border-radius: 4px;
+        padding: 0 4px;
+        font-size: 10px;
+    }
+    .bwm-media { margin-top: 5px; }
+    .bwm-img   { max-width: 160px; max-height: 160px; border-radius: 8px; display: block; cursor: pointer; }
+    .bwm-video { max-width: 200px; border-radius: 8px; display: block; }
+    .bwm-audio { max-width: 220px; }
+    .bwm-quick-replies {
+        padding: 5px 10px;
+        gap: 5px;
+        flex-wrap: wrap;
+        border-top: 1px solid #eee;
+        background: #fafafa;
+        flex-shrink: 0;
+    }
+    .bwm-qr-btn {
+        background: #e8f0fe;
+        border: 1px solid #c5d8f9;
+        border-radius: 14px;
+        padding: 3px 10px;
+        font-size: 11px;
+        color: #1565c0;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background .15s;
+    }
+    .bwm-qr-btn:hover { background: #c5d8f9; }
+    .bwm-compose-bar {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 7px 10px;
+        border-top: 1px solid #e0e0e0;
+        background: #f8f9fa;
+        flex-shrink: 0;
+    }
+    .bwm-compose-input {
+        flex: 1;
+        border: 1px solid #ddd;
+        border-radius: 18px;
+        padding: 6px 12px;
+        font-size: 12px;
+        outline: none;
+        background: #fff;
+    }
+    .bwm-compose-input:focus { border-color: #1565c0; }
+    .bwm-attach-btn, .bwm-send-btn {
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        flex-shrink: 0;
+        transition: background .15s;
+    }
+    .bwm-attach-btn { background: #eceff1; color: #546e7a; }
+    .bwm-attach-btn:hover { background: #cfd8dc; }
+    .bwm-send-btn { background: #1565c0; color: #fff; }
+    .bwm-send-btn:hover { background: #0d47a1; }
+    .bwm-attach-btn:disabled { opacity: .5; cursor: not-allowed; }
+
     /* ── Settings-gated rules ───────────────────────────────────────────── */
     /* DirectBookingIsAllowed = 0 → hide Create Job button */
     body.setting-no-direct-book #btnCreateJob { display: none !important; }
@@ -2126,6 +2330,9 @@
                             <button class="tt-tab-btn" data-panel="ttDriverChat" onclick="populateDriverChatDropdowns()">
                                 <i class="fa fa-exchange"></i> Driver
                             </button>
+                            <button class="tt-tab-btn" data-panel="ttMessages" onclick="bwMsgActivate()">
+                                <i class="fa fa-envelope-o"></i> Messages
+                            </button>
                         </div>
 
                         <!-- Direct chat -->
@@ -2230,6 +2437,49 @@
                                 <button id="btnD2DMessage" class="tt-send-btn" onclick="DriverToDriverMessage()">
                                     <i class="fa fa-paper-plane"></i> Send Driver to Driver
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- ── Messages panel — Firebase messages/{companyId} ── -->
+                        <div class="tt-tab-panel" id="ttMessages">
+                            <div class="bwm-shell">
+                                <!-- Driver sidebar -->
+                                <div class="bwm-sidebar">
+                                    <div class="bwm-sidebar-hdr">
+                                        <i class="fa fa-users"></i> Drivers
+                                        <button class="bwm-refresh-btn" onclick="bwMsgRefreshDriverList()" title="Refresh list">
+                                            <i class="fa fa-refresh"></i>
+                                        </button>
+                                    </div>
+                                    <ul class="bwm-driver-list" id="bwMsgDriverList">
+                                        <li class="bwm-driver-item bwm-active" data-did="" onclick="bwMsgSelectDriver(null,'All Drivers')">
+                                            <span class="bwm-d-avatar" style="background:#607d8b;">📣</span>
+                                            <span class="bwm-d-name">All Drivers</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <!-- Chat main area -->
+                                <div class="bwm-main">
+                                    <div class="bwm-header" id="bwMsgHeader">💬 All Drivers</div>
+                                    <div class="bwm-thread" id="bwMsgThread">
+                                        <div class="bwm-empty"><i class="fa fa-comments-o"></i><br>Select a driver or send a broadcast</div>
+                                    </div>
+                                    <!-- Quick reply buttons (populated from Firebase quickReplies/{companyId}/dispatcher) -->
+                                    <div class="bwm-quick-replies" id="bwMsgQuickReplies" style="display:none;"></div>
+                                    <!-- Compose bar -->
+                                    <div class="bwm-compose-bar">
+                                        <input type="file" id="bwMsgFileInput" accept="image/*,video/*,audio/*" style="display:none;" onchange="bwMsgFileSelected(this)">
+                                        <button class="bwm-attach-btn" id="bwMsgAttachBtn" onclick="bwMsgAttach()" title="Attach image / video / audio">
+                                            <i class="fa fa-paperclip"></i>
+                                        </button>
+                                        <input type="text" id="bwMsgCompose" class="bwm-compose-input"
+                                               placeholder="Type a message…" autocomplete="off"
+                                               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();bwMsgSend();}">
+                                        <button class="bwm-send-btn" onclick="bwMsgSend()" title="Send">
+                                            <i class="fa fa-paper-plane"></i>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
