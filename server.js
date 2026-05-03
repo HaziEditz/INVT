@@ -2539,6 +2539,17 @@ const server = http.createServer(async (req, res) => {
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
         };
+        // Resolve tariff and custom price from dispatcher form
+        { const _tId = String(param('TarriffId') || '').trim();
+          const _tName = String(param('TarriffName') || '').trim();
+          const _cRate = String(param('CustomeRate') || '').trim();
+          if (_tId === '-1') {
+            newJob.TarriffType = 'Fixed';
+            if (_cRate) { newJob.CustomeRate = _cRate; newJob.RideCost = _cRate; newJob.EstimatedFare = _cRate; }
+          } else if (_tName && _tName !== 'Automatic') {
+            newJob.TarriffType = _tName;
+            newJob.TariffId    = _tId;
+          } }
         jobStore.push(newJob);
         saveJobStore();
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} companyId=${sessionCompanyId}`);
@@ -2664,6 +2675,17 @@ const server = http.createServer(async (req, res) => {
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
         };
+        // Resolve tariff and custom price from dispatcher form
+        { const _tId2 = String(param('TarriffId') || '').trim();
+          const _tName2 = String(param('TarriffName') || '').trim();
+          const _cRate2 = String(param('CustomeRate') || '').trim();
+          if (_tId2 === '-1') {
+            newJob.TarriffType = 'Fixed';
+            if (_cRate2) { newJob.CustomeRate = _cRate2; newJob.RideCost = _cRate2; newJob.EstimatedFare = _cRate2; }
+          } else if (_tName2 && _tName2 !== 'Automatic') {
+            newJob.TarriffType = _tName2;
+            newJob.TariffId    = _tId2;
+          } }
         jobStore.push(newJob);
         saveJobStore();
         console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT}) companyId=${sessionCompanyId}`);
@@ -2705,6 +2727,20 @@ const server = http.createServer(async (req, res) => {
             else if (driverId === -1) job.BookingStatus = 'No One';
             else                     job.BookingStatus = 'Pending';
           }
+          // Tariff and custom price
+          const _uTId   = String(param('TarriffId')   || '').trim();
+          const _uTName = String(param('TarriffName')  || '').trim();
+          const _uCRate = String(param('CustomeRate')  || '').trim();
+          if (_uTId === '-1') {
+            job.TarriffType = 'Fixed';
+            if (_uCRate) { job.CustomeRate = _uCRate; job.RideCost = _uCRate; job.EstimatedFare = _uCRate; }
+          } else if (_uTName && _uTName !== 'Automatic') {
+            job.TarriffType = _uTName;
+            job.TariffId    = _uTId;
+          } else if (_uTId === '0' || _uTName === 'Automatic') {
+            job.TarriffType = 'Automatic';
+          }
+          if (param('Recieve_payment') !== undefined) job.Recieve_payment = String(param('Recieve_payment') || '');
           // Dispatcher explicitly edited this job — always clear any previous offer-attempt reason
           // (e.g. 'No Response', 'Recalled by Driver') so the badge doesn't linger after a re-edit.
           job.returnReason = '';

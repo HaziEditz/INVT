@@ -12984,7 +12984,7 @@ $(document).ready(function() {
             
             {"name":"quenumber" , "value": quenumber},
 
-              {"name":"recieve_ammount" , "value": $scope.AmmountAddedvaluesend}
+              {"name": "Recieve_payment", "Value": $scope.AmmountAddedvaluesend}
             ];
             // Snapshot before async call — clearsection() runs synchronously before .then()
             var _usnap = {
@@ -18860,7 +18860,7 @@ $(document).ready(function() {
 
                    {"name": "quenumber" , "Value" :  quenumber},
                 {"name":"previous" , "value": previous},
-                {"name":"recieve_ammount" , "value": $scope.AmmountAddedvaluesend}
+                {"name": "Recieve_payment", "Value": $scope.AmmountAddedvaluesend}
                 ];
 
                 console.log(param);
