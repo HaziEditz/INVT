@@ -8604,16 +8604,12 @@ $(document).ready(function() {
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
-                        _connRef.once('value', function(csnap) {
-                            if (!csnap.val()) {
-                                toastr["error"]("Network/Coverage Error: Cannot reach driver. Check signal.", 'Network Error!');
-                            } else {
-                                toastr["error"]("Driver app not connected. Job returned to queue.", 'Driver Offline!');
-                            }
-                        });
-                        checkingjobz(vehivle , id, driverid, function(){ settled = true; });
+                        // joback is absent — pre-seed write may have failed (Firebase rules not deployed).
+                        // Do NOT immediately bail: the notification was already sent to the driver's device.
+                        // Let the 27-second timeout below be the sole arbiter of no-response.
+                        // If the driver accepts, their own app writes to joback/jobs and we catch it above.
+                        console.warn('[resolveAfter2Secondsx] joback null for driver ' + driverid + ' job ' + id + ' — offer window open, waiting for driver response or 27s timeout');
                         return;
- 
                     }
                     // Early detection: some driver apps write {jobstatus:'Assigned'} or
                     // {jobstatus:'Reject'} without the expected 'status' key, or keep
@@ -8929,16 +8925,11 @@ $(document).ready(function() {
                     $respp =   snapshot.val();
                     console.log( $respp );
                     if($respp == null  ){
-                        _connRef2.once('value', function(csnap2) {
-                            if (!csnap2.val()) {
-                                toastr["error"]("Network/Coverage Error: Cannot reach driver. Check signal.", 'Network Error!');
-                            } else {
-                                toastr["error"]("Driver app not connected. Job returned to queue.", 'Driver Offline!');
-                            }
-                        });
-                        checkingjob(id, driverid, function(){ settled2 = true; });
+                        // joback is absent — pre-seed write may have failed (Firebase rules not deployed).
+                        // Do NOT immediately bail: the notification was already sent to the driver's device.
+                        // Let the 27-second timeout below be the sole arbiter of no-response.
+                        console.warn('[resolveAfter2Seconds] joback null for driver ' + driverid + ' job ' + id + ' — offer window open, waiting for driver response or 27s timeout');
                         return;
- 
                     }
                     // Early detection: handle acceptance/rejection regardless of 'status' field
                     var _jst2 = ($respp['jobstatus'] || '').toLowerCase();

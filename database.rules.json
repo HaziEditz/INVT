@@ -278,6 +278,29 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid"
       }
+    },
+    "rentalTaxiRequests": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$requestId": {
+        ".validate": "$requestId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "activeDispatchers": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$sessionId": {
+          ".validate": "$sessionId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
     }
   }
 }
