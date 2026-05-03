@@ -104,14 +104,89 @@
     }
 
     div#singlediv {
-        box-shadow:
-            0 1px 0 rgba(255,255,255,0.55) inset,
-            0 3px 0 #b8c2cc,
-            0 5px 12px rgba(0,0,0,0.13);
-        border: 1px solid rgba(0,0,0,0.09);
-        border-radius: 6px;
-        margin-bottom: 5px;
-        transform: translateY(-1px);
+        background: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 2px 10px rgba(0,0,0,0.06);
+        border: 1px solid #e2e8f0;
+        border-left: 4px solid #2563eb;
+        margin-bottom: 8px;
+        overflow: hidden;
+        position: relative;
+        transition: box-shadow 0.18s;
+    }
+    div#singlediv:hover {
+        box-shadow: 0 3px 14px rgba(0,0,0,0.13);
+    }
+    /* ── Card layout classes ── */
+    .bw-card-hd {
+        display: flex; align-items: center; flex-wrap: wrap;
+        gap: 4px; padding: 7px 10px 6px;
+        background: #f8fafc; border-bottom: 1px solid #e8edf4;
+    }
+    .bw-card-route {
+        padding: 7px 12px 6px; position: relative;
+    }
+    .bw-card-route-row {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 12.5px; color: #1a202c; margin-bottom: 3px; min-height: 20px;
+    }
+    .bw-rdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .bw-rdot-pick { background:#16a34a; }
+    .bw-rdot-drop { background:#dc2626; }
+    .bw-raddr {
+        flex:1; font-weight:500; white-space:nowrap;
+        overflow:hidden; text-overflow:ellipsis; max-width:55%;
+    }
+    .bw-rmeta {
+        margin-left:auto; font-size:11.5px; color:#4a5568;
+        white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:5px;
+    }
+    .bw-assign-row {
+        padding:4px 10px; display:flex; align-items:center;
+        flex-wrap:wrap; gap:4px; border-top:1px solid #e8edf4;
+        background:#fff;
+    }
+    .bw-card-ft {
+        display:flex; align-items:center; justify-content:space-between;
+        flex-wrap:wrap; gap:4px; padding:5px 10px 6px;
+        background:#f8fafc; border-top:1px solid #e8edf4;
+    }
+    .bw-card-ft-l, .bw-card-ft-r {
+        display:flex; align-items:center; flex-wrap:wrap; gap:4px;
+    }
+    /* Badges & chips */
+    .bw-jid {
+        display:inline-flex; align-items:center; gap:3px;
+        padding:2px 8px; border-radius:5px; font-size:12px; font-weight:700;
+        background:#1a1a2e; color:#dfba5f; letter-spacing:0.3px; flex-shrink:0;
+    }
+    .bw-b {
+        display:inline-flex; align-items:center; gap:3px;
+        padding:2px 7px; border-radius:4px; font-size:11px;
+        font-weight:600; line-height:1.5; background:#e2e8f0;
+        color:#374151; white-space:nowrap;
+    }
+    .bw-mc {
+        display:inline-flex; align-items:center; gap:3px;
+        padding:2px 6px; border-radius:4px; font-size:11px;
+        font-weight:600; background:#f1f5f9; color:#475569;
+    }
+    .bw-ml {
+        font-size:11px; color:#64748b;
+        display:inline-flex; align-items:center; gap:3px;
+    }
+    .bw-ab {
+        display:inline-flex; align-items:center; justify-content:center;
+        width:26px; height:26px; border-radius:5px; cursor:pointer;
+        font-size:12px; transition:all 0.15s; flex-shrink:0;
+    }
+    .bw-ab-edit { background:#fef3c7; color:#92400e; }
+    .bw-ab-edit:hover { background:#fde68a; }
+    .bw-ab-del  { background:#fce8e8; color:#b91c1c; }
+    .bw-ab-del:hover  { background:#fca5a5; }
+    .bw-spx-sel {
+        height:26px !important; font-size:11px !important;
+        padding:1px 6px !important; border-radius:4px !important; min-width:110px;
     }
 
     a#example_previous {
@@ -157,15 +232,15 @@
     }
 
     @keyframes glowing {
-        0%   { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(220,38,38,0.18); }
-        50%  { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 26px rgba(220,38,38,0.70), 0 0 0 3px rgba(220,38,38,0.22); }
-        100% { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(220,38,38,0.18); }
+        0%   { box-shadow: 0 0 0 2px rgba(220,38,38,0.10), 0 2px 8px rgba(220,38,38,0.18); }
+        50%  { box-shadow: 0 0 0 3px rgba(220,38,38,0.24), 0 4px 18px rgba(220,38,38,0.55); }
+        100% { box-shadow: 0 0 0 2px rgba(220,38,38,0.10), 0 2px 8px rgba(220,38,38,0.18); }
     }
 
     @keyframes glowing-amber {
-        0%   { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(217,119,6,0.18); }
-        50%  { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 26px rgba(217,119,6,0.70), 0 0 0 3px rgba(217,119,6,0.22); }
-        100% { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(217,119,6,0.18); }
+        0%   { box-shadow: 0 0 0 2px rgba(217,119,6,0.10), 0 2px 8px rgba(217,119,6,0.18); }
+        50%  { box-shadow: 0 0 0 3px rgba(217,119,6,0.24), 0 4px 18px rgba(217,119,6,0.55); }
+        100% { box-shadow: 0 0 0 2px rgba(217,119,6,0.10), 0 2px 8px rgba(217,119,6,0.18); }
     }
 
     .page-main {
@@ -186,18 +261,9 @@
         background: #ffffff;
     }
 
-    .button-glow {
-        margin: 0px;
-        animation: glowing 3500ms ease-in-out infinite;
-    }
-
-    .button-glow2 {
-        animation: glowing 3500ms ease-in-out infinite;
-    }
-
-    .button-glow-amber {
-        animation: glowing-amber 3500ms ease-in-out infinite;
-    }
+    .button-glow       { animation: glowing       3500ms ease-in-out infinite; border-left-color: #dc2626 !important; }
+    .button-glow2      { animation: glowing       3500ms ease-in-out infinite; border-left-color: #dc2626 !important; }
+    .button-glow-amber { animation: glowing-amber 3500ms ease-in-out infinite; border-left-color: #d97706 !important; }
 
     /* ── Notification panel ─────────────────────────────────── */
     #alertshow {
@@ -3750,175 +3816,101 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'"   ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key ,  value) in  unassignedjob_list">
-                                                         
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
-                                                            <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
 
-                                                                <span   class="label label-pill label-primary mt-2"><i style="color: black;" class="glyphicon glyphicon-tag"></i>
-
-                                                                    {{value.Id}}
-                                                                </span>
-
-                                                                <span class="label label-pill mt-2" ng-style="{background: value.JobMins <= 0 ? '#27ae60' : value.JobMins <= 30 ? '#e67e22' : '#2980b9', color: '#fff', fontWeight: 'bold'}">
-                                                                    <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
-                                                                </span>
-
-                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
-                                                                </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
-                                                               
-                                                                <div ng-if="value.Passengers > 4" style="padding: 6px;">
-                                                                    <span class="label label-pill label-danger mt-2">V.Job</span>
-                                                                </div>
-                                                                <div ng-if="value.Passengers < 4" style="padding: 6px;">
-                                                                    <span ng-if="value.VehicleType == 'Not Specified'" class="label label-pill label-primary mt-2">Any Vehicle
-                                                                    </span>
-                                                                    <span ng-if="value.VehicleType != 'Not Specified'" class="label label-pill label-primary mt-2">{{value.VehicleType}}
-                                                                    </span>
-
-                                                                </div>
-                                                                <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
-                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
-                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
-                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
-                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
-                                                                    {{value.serviceType | uppercase}}</span>
-
-                                                                <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
-                                                                    <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
-                                                                        {{value.EntitiesDetails}}
-                                                                    </span>
-                                                                </div>
-
-
-                                                                <span ng-if="value.PhoneNo" class="label label-pill label-primary mt-2"><i class="fa fa-phone"></i>
-                                                                    {{value.PhoneNo}}
-                                                                </span>
-                                                                <i ng-if="value.DropLatLng != '0,0'" ng-mouseover="showmakert(value.Id,value.PickLatLng,value.DropLatLng)" ng-mouseleave="markerremove(value.Id,value.PickLatLng,value.DropLatLng)" class="fa fa-compass" style="position: absolute; left:-25px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="value.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(value.Id,value.PickLatLng)" ng-mouseleave="markerremove1(value.Id,value.PickLatLng )" class="fa fa-compass" style="position: absolute; left: -25px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="value.DropLatLng !=  '0,0' && value.Nextstop != 0" ng-mouseover="showmakert3(value.Id,value.PickAddress,value.DropAddress,value.nextstopdata)" ng-mouseleave="markerremove3( )" class="fa fa-compass" style="position: absolute; left: -25px; color: #f5002d; font-size: 27px;"></i>
-                                                                
-                                                                  <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
-                                                                  <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
-                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
-                                                                  <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
-                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
-                                                                  <!-- ── Sched badge: pre-booked scheduled ride ── -->
-                                                                  <span ng-if="value.ScheduledFor" class="label label-pill mt-2" style="background:#1565c0; color:#fff; font-weight:700; letter-spacing:0.3px;">&#128197; Sched</span>
-                                                                  
-                                                                <div ng-if="value.useremail != null">
-                                                                    {{checkconter(value.Id , value.Id ,value.useremail ) }}
-                                                                  <span  ng-show="value.webstatus == 0  "  class="btn btn-success" style="padding: 0px 4px;  font-size: 13px;" ng-click="sendemail(  1  ,  value.useremail  ,  value.Id  ,value.JobMins ,   value.Id )" title="Accept"><i class="fa fa-thumbs-up"></i> </span>
-                                                                    <span ng-show="value.webstatus == 0 " id="close'+$res["dt1"][$i].Id+'" style="padding: 0px 4px;" class="btn btn-warning" ng-click="sendemail(   0  , value.useremail   , value.Id  ,value.JobMins )" title="Reject" > <i class="fa fa-thumbs-down"></i>  </span> 
-                                                                    <img ng-if="value.useremail != ''" style="width:20px;  float: right; padding: 2px; " src="img/alert.gif" style="width:25px;"  /> 
-                                                                    <span ng-show="value.webstatus != 0  "  class="label label-pill label-primary mt-2" >Accepted</span>
- 
-                                                                </div>
-                                                                
-
-
-                                                                
-                                                             </div>
+                                                        <!-- ── HEADER: id · timing · vehicle · status badges ── -->
+                                                        <div class="bw-card-hd">
+                                                            <span class="bw-jid"><i class="fa fa-hashtag"></i>{{value.Id}}</span>
+                                                            <span class="bw-b" ng-style="{background: value.JobMins<=0 ? '#16a34a' : value.JobMins<=30 ? '#d97706' : '#2563eb', color:'#fff'}">
+                                                                <i class="fa fa-clock-o"></i> {{jobTypeLabel(value.JobMins, value.DispatchTimebefore)}}
+                                                            </span>
+                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(value.Pickingtime, value.DispatchTimebefore)}}</span>
+                                                            <span ng-if="value.DispatchTimebefore > 0" class="bw-b bw-dispatch-arrow" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#7c3aed', color:'#fff'}">
+                                                                <i class="fa fa-send"></i> {{dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore)}}
+                                                            </span>
+                                                            <span ng-if="value.Passengers > 4" class="bw-b" style="background:#fce8e8;color:#b91c1c;">V.Job</span>
+                                                            <span ng-if="value.Passengers <= 4 && value.VehicleType && value.VehicleType != 'Not Specified'" class="bw-b" style="background:#dbeafe;color:#1e40af;"><i class="fa fa-car"></i> {{value.VehicleType}}</span>
+                                                            <span ng-if="value.WheelChairs > 0" class="bw-b" style="background:#fce8e8;color:#b91c1c;"><i class="fa fa-wheelchair"></i> Wheelchair</span>
+                                                            <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                            <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="bw-b" ng-style="{background: value.serviceType==='food'?'#16a34a':value.serviceType==='freight'?'#ea580c':'#7c3aed', color:'#fff'}">
+                                                                <i ng-class="{'fa fa-cutlery':value.serviceType==='food','fa fa-truck':value.serviceType==='freight','fa fa-wheelchair':value.serviceType==='tm'}"></i>
+                                                                {{value.serviceType|uppercase}}
+                                                            </span>
+                                                            <span ng-if="value.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
+                                                            <span ng-if="value.ScheduledFor" class="bw-b" style="background:#1d4ed8;color:#fff;"><i class="fa fa-calendar"></i> Sched</span>
+                                                            <span ng-if="value.returnReason" class="bw-b" ng-style="{background: value.returnReason.indexOf('Rejected')>=0?'#c0392b':(value.returnReason.indexOf('Network')>=0?'#8e44ad':'#e67e22'), color:'#fff'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
+                                                            <span ng-if="value.usertype == 1" class="bw-b" style="background:#fce8e8;color:#b91c1c;"><i class="fa fa-user"></i> Senior</span>
+                                                            <span ng-if="value.usertype == 2" class="bw-b" style="background:#fce8e8;color:#b91c1c;"><i class="fa fa-user"></i> Disabled</span>
+                                                            <span ng-if="value.EntitiesDetails" class="bw-b" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;" title="{{value.EntitiesDetails}}"><i class="fa fa-info-circle"></i> {{value.EntitiesDetails}}</span>
+                                                            <span ng-if="value.Nextstop > 0" class="bw-b" style="background:#fce8e8;color:#b91c1c;"><i class="fa fa-map-signs"></i> Multi-Stop</span>
+                                                            <!-- webstatus email -->
+                                                            <span ng-if="value.useremail != null" style="display:inline-flex;align-items:center;gap:3px;">
+                                                                {{checkconter(value.Id, value.Id, value.useremail)}}
+                                                                <span ng-show="value.webstatus == 0" class="bw-b" style="background:#16a34a;color:#fff;cursor:pointer;" ng-click="sendemail(1, value.useremail, value.Id, value.JobMins, value.Id)" title="Accept"><i class="fa fa-thumbs-up"></i></span>
+                                                                <span ng-show="value.webstatus == 0" class="bw-b" style="background:#e67e22;color:#fff;cursor:pointer;" ng-click="sendemail(0, value.useremail, value.Id, value.JobMins)" title="Reject"><i class="fa fa-thumbs-down"></i></span>
+                                                                <img ng-if="value.useremail != ''" style="width:18px;" src="img/alert.gif" />
+                                                                <span ng-show="value.webstatus != 0" class="bw-b" style="background:#2563eb;color:#fff;">Accepted</span>
+                                                            </span>
+                                                            <!-- map compass -->
+                                                            <i ng-if="value.DropLatLng != '0,0'" ng-mouseover="showmakert(value.Id,value.PickLatLng,value.DropLatLng)" ng-mouseleave="markerremove(value.Id,value.PickLatLng,value.DropLatLng)" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
+                                                            <i ng-if="value.DropLatLng == '0,0'" ng-mouseover="showmakert1(value.Id,value.PickLatLng)" ng-mouseleave="markerremove1(value.Id,value.PickLatLng)" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
+                                                            <i ng-if="value.DropLatLng != '0,0' && value.Nextstop != 0" ng-mouseover="showmakert3(value.Id,value.PickAddress,value.DropAddress,value.nextstopdata)" ng-mouseleave="markerremove3()" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
                                                         </div>
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                             >
-                                                           
-                                                            <div class="row nopad col-sm-12 col-md-12 col-xl-12">
-                                                                 <div   style="position:absolute; left : -25px;" class="label label-pill label-primary mt-2"  >
-                                                                    <i class=" fa fa-eye"   aria-hidden="true" style="color:red; font-size:16px;" ng-click="$event.stopPropagation(); showdiv(value.Id)" ></i>
-                                                                </div>
-                                                                <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
-                                                                    <span>
-                                                                        <i class="fa fa-circle" style="color: green;"></i>
-                                                                        {{value.PickAddress}}
-                                                                                                                                
-                                                                    </span>
-                                                                </div>
-                                                                <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
-                                                                    <span>
-                                                                        <i class="fa fa-circle" style="color: red;"></i>
-                                                                        {{value.DropAddress}}
-                                                                                                                                
-                                                                    </span>
-                                                                </div>
 
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i style="color: black" class="fa fa-users "></i>{{value.passengername}}
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
-                                                                    <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
-                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-                                                                                                                         
-                                                                </span>
-                                                                <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-bullhorn"></i> Broadcast
-                                                                </span>
-                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 2px;">
-                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" style="height:26px; font-size:11px; padding:1px 4px;">
-                                                                    <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
-                                                                    <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
-                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
-                                                                  </select>
-                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span>
-                                                                <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
-                                                                    <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                    <span ng-if="value.Acc_job_id ">ACC</span>
-
-                                                                    <span ng-if="value.Account_id ">Account</span>
-
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
-
-                                                                </span>
-                                                                <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
+                                                        <!-- ── ROUTE: pickup / dropoff ── -->
+                                                        <div class="bw-card-route" ng-click="$event.stopPropagation(); showdiv(value.Id)">
+                                                            <div class="bw-card-route-row">
+                                                                <span class="bw-rdot bw-rdot-pick"></span>
+                                                                <span class="bw-raddr">{{value.PickAddress || 'Street / Hail Pickup'}}</span>
+                                                                <span class="bw-rmeta" ng-if="value.passengername"><i class="fa fa-user"></i> {{value.passengername}}</span>
+                                                            </div>
+                                                            <div class="bw-card-route-row" ng-if="value.DropAddress">
+                                                                <span class="bw-rdot bw-rdot-drop"></span>
+                                                                <span class="bw-raddr">{{value.DropAddress}}</span>
+                                                                <span class="bw-rmeta" ng-if="value.PhoneNo"><i class="fa fa-phone"></i> {{value.PhoneNo}}</span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad  col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]" id="datassun{{value.Id}}">
-                                                           <div class="row col-12">
-                                                                <div class="row nopad col-sm-4  col-md-2 col-xl-3">
-                                                                <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
-                                                                    <li>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-users" title="No of Passenger" style="padding: 1px;"></i>
-                                                                            {{value.Passengers}}                                  
-                                                                        </span>
-                                                                    </li>
-                                                                    <span style="padding: 0px 2px;">
-                                                                        <i class="fa fa-shopping-bag" title="No of Bag" style="padding: 1px;"></i>
-                                                                        {{value.Bags}}</span>
-                                                                    <span style="padding: 0px 2px;">
-                                                                        <i class="fa fa-wheelchair" title="No of Wheelchair" style="padding: 1px;"></i>
-                                                                        {{value.WheelChairs}}
-                                                                    </span>
-                            
-                                                                </ul>
-                                                            </div>
-                                                            <div class="row nopad col-sm-9  col-md-9 col-xl-9">
- 
 
-                                                                <span class="label label-pill label-primary mt-2" style="background: {{latealert(value.DispatchTimebefore, value.BookingDateTime )}}"><i style="color: black;" class="fa fa-hourglass-half"></i>
-
-                                                                    {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
+                                                        <!-- ── ASSIGN ROW: status · driver select · send ── -->
+                                                        <div class="bw-assign-row">
+                                                            <span class="bw-b" id="Divoo{{value.Id}}" style="background:#dc2626;color:#fff;font-weight:700;">
+                                                                {{value.BookingStatus}}<span ng-if="value.CallSign"> · {{value.CallSign}}</span><span ng-if="value.VehicleNo"> {{value.VehicleNo}}</span>
+                                                            </span>
+                                                            <span ng-if="value.BookingStatus=='Pending'" class="bw-b" style="background:#7b1fa2;color:#fff;"><i class="fa fa-bullhorn"></i> Broadcast</span>
+                                                            <span ng-if="value._preQueueDriver" class="bw-b" style="background:#e67e22;color:#fff;" title="Silent offer sent to this busy driver"><i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}</span>
+                                                            <span ng-if="value.Acc_job_id" class="bw-mc">ACC</span>
+                                                            <span ng-if="value.Account_id" class="bw-mc">Account</span>
+                                                            <span ng-if="value.Recieve_payment" class="bw-mc">Paid</span>
+                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:4px;">
+                                                                <span id="spxa{{value.Id}}" style="display:inline-flex;align-items:center;">
+                                                                    <select id="spx{{value.Id}}" class="form-control bw-spx-sel" onclick="showwxx()">
+                                                                        <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
+                                                                        <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
+                                                                        <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
+                                                                    </select>
                                                                 </span>
-                                                                 <span class="label label-pill label-warning mt-2" ng-click="EditJobunassignedng(value.Id,value.JobMins)">
-                                                                    <i class="  glyphicon glyphicon-edit "></i>
-                                                                </span>
-                                                                <span class="label label-pill label-danger mt-2" ng-click="UnAssignedJobsCancelng(value.Id,value.U_id)">
-                                                                    <i class="  glyphicon glyphicon-trash "></i>
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="  fa fa-headphones "></i>{{value.DispatcherName}}
-                                                                </span>
-
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="  glyphicon glyphicon-tag "></i>{{value.BookingSource}}
-                                                                </span>
-                                                            </div>
-                                                           </div>
+                                                                <span class="bw-b bw-send-pulse" style="background:#16a34a;color:#fff;cursor:pointer;padding:3px 9px;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane"></i></span>
+                                                            </span>
                                                         </div>
+
+                                                        <!-- ── FOOTER: counts · actions ── -->
+                                                        <div class="bw-card-ft">
+                                                            <div class="bw-card-ft-l">
+                                                                <span class="bw-mc"><i class="fa fa-users"></i> {{value.Passengers}}</span>
+                                                                <span class="bw-mc"><i class="fa fa-shopping-bag"></i> {{value.Bags}}</span>
+                                                                <span class="bw-mc" ng-if="value.WheelChairs > 0"><i class="fa fa-wheelchair"></i> {{value.WheelChairs}}</span>
+                                                                <span class="bw-b" ng-style="{background: latealert(value.DispatchTimebefore, value.BookingDateTime) || '#475569', color:'#fff'}">
+                                                                    <i class="fa fa-hourglass-half"></i> {{checklateornow(value.JobMins, value.DispatchTimebefore)}}
+                                                                </span>
+                                                            </div>
+                                                            <div class="bw-card-ft-r">
+                                                                <span class="bw-ab bw-ab-edit" ng-click="EditJobunassignedng(value.Id, value.JobMins)" title="Edit job"><i class="fa fa-pencil"></i></span>
+                                                                <span class="bw-ab bw-ab-del" ng-click="UnAssignedJobsCancelng(value.Id, value.U_id)" title="Cancel job"><i class="fa fa-times"></i></span>
+                                                                <span class="bw-ml" ng-if="value.DispatcherName"><i class="fa fa-headphones"></i> {{value.DispatcherName}}</span>
+                                                                <span class="bw-ml" ng-if="value.BookingSource"><i class="fa fa-tag"></i> {{value.BookingSource}}</span>
+                                                            </div>
+                                                        </div>
+
                                                     </div>
 
                                                     <!-- enddiv -->
