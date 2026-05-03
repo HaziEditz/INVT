@@ -135,6 +135,15 @@
     div#singlediv.bw-svc-freight .bw-card-hd { background: #fff7ed; border-bottom-color: #fed7aa; }
     div#singlediv.bw-svc-tm                 { border-left-color: #7c3aed; }
     div#singlediv.bw-svc-tm .bw-card-hd    { background: #faf5ff; border-bottom-color: #e9d5ff; }
+    /* ── Urgent job — thick orange stripe + amber header ── */
+    div#singlediv.bw-urgent                 { border-left: 6px solid #f97316 !important; }
+    div#singlediv.bw-urgent .bw-card-hd    { background: #fff7ed; border-bottom-color: #fed7aa; }
+    div#singlediv.bw-urgent .bw-assign-row { background: #fffbf5; }
+    .bw-urgent-badge {
+        background: #f97316; color: #fff; font-size: 10px; font-weight: 700;
+        padding: 1px 6px; border-radius: 4px; letter-spacing: 0.04em;
+        text-transform: uppercase; flex-shrink: 0;
+    }
     /* ── Card layout classes ── */
     .bw-card-hd {
         display: flex; align-items: center; flex-wrap: wrap;
@@ -3835,7 +3844,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm'}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm', 'bw-urgent': value.Urgent==='Yes'}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
 
                                                         <!-- ── HEADER: id · timing · vehicle · status badges ── -->
                                                         <div class="bw-card-hd">
@@ -3855,6 +3864,7 @@ $(document).ready(function() {
                                                                 <i ng-class="{'fa fa-cutlery':value.serviceType==='food','fa fa-truck':value.serviceType==='freight','fa fa-wheelchair':value.serviceType==='tm'}"></i>
                                                                 {{value.serviceType|uppercase}}
                                                             </span>
+                                                            <span ng-if="value.Urgent==='Yes'" class="bw-urgent-badge">&#9889; URGENT</span>
                                                             <span ng-if="value.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                             <span ng-if="value.ScheduledFor" class="bw-b" style="background:#1d4ed8;color:#fff;"><i class="fa fa-calendar"></i> Sched</span>
                                                             <span ng-if="value.returnReason" class="bw-b" ng-style="{background: value.returnReason.indexOf('Rejected')>=0?'#c0392b':(value.returnReason.indexOf('Network')>=0?'#8e44ad':'#e67e22'), color:'#fff'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
