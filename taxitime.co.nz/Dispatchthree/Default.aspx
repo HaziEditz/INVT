@@ -115,6 +115,7 @@
         box-shadow: 0 4px 14px rgba(0,0,0,0.45);
         border: 1px solid rgba(255,255,255,0.12);
         border-left: 4px solid #2563eb;
+        border-bottom: 3px solid #1e293b;
         margin-bottom: 3px;
         overflow: hidden;
         position: relative;
@@ -249,15 +250,15 @@
     }
 
     @keyframes glowing {
-        0%   { box-shadow: 0 0 0 2px rgba(220,38,38,0.10), 0 2px 8px rgba(220,38,38,0.18); }
-        50%  { box-shadow: 0 0 0 3px rgba(220,38,38,0.24), 0 4px 18px rgba(220,38,38,0.55); }
-        100% { box-shadow: 0 0 0 2px rgba(220,38,38,0.10), 0 2px 8px rgba(220,38,38,0.18); }
+        0%   { box-shadow: 0 0 0 1px rgba(220,38,38,0.15), 0 1px 5px rgba(220,38,38,0.20); }
+        50%  { box-shadow: 0 0 0 2px rgba(220,38,38,0.30), 0 2px 7px rgba(220,38,38,0.40); }
+        100% { box-shadow: 0 0 0 1px rgba(220,38,38,0.15), 0 1px 5px rgba(220,38,38,0.20); }
     }
 
     @keyframes glowing-amber {
-        0%   { box-shadow: 0 0 0 2px rgba(217,119,6,0.10), 0 2px 8px rgba(217,119,6,0.18); }
-        50%  { box-shadow: 0 0 0 3px rgba(217,119,6,0.24), 0 4px 18px rgba(217,119,6,0.55); }
-        100% { box-shadow: 0 0 0 2px rgba(217,119,6,0.10), 0 2px 8px rgba(217,119,6,0.18); }
+        0%   { box-shadow: 0 0 0 1px rgba(217,119,6,0.15), 0 1px 5px rgba(217,119,6,0.20); }
+        50%  { box-shadow: 0 0 0 2px rgba(217,119,6,0.30), 0 2px 7px rgba(217,119,6,0.40); }
+        100% { box-shadow: 0 0 0 1px rgba(217,119,6,0.15), 0 1px 5px rgba(217,119,6,0.20); }
     }
 
     .page-main {
