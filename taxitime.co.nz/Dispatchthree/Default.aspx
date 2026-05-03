@@ -109,7 +109,7 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 6px rgba(0,0,0,0.05);
         border: 1px solid #e2e8f0;
         border-left: 4px solid #2563eb;
-        margin-bottom: 5px;
+        margin-bottom: 8px;
         overflow: hidden;
         position: relative;
         transition: box-shadow 0.18s;
@@ -117,6 +117,17 @@
     div#singlediv:hover {
         box-shadow: 0 2px 10px rgba(0,0,0,0.12);
     }
+    /* ── Alternating card tint (odd cards get a very subtle blue wash) ── */
+    div#singlediv.bw-card-alt                { background: #f7f9ff; }
+    div#singlediv.bw-card-alt .bw-card-hd   { background: #eef2ff; border-bottom-color: #dde4f5; }
+    div#singlediv.bw-card-alt .bw-assign-row { background: #f7f9ff; }
+    /* ── Service-type left-border colours ── */
+    div#singlediv.bw-svc-food               { border-left-color: #16a34a; }
+    div#singlediv.bw-svc-food .bw-card-hd  { background: #f0fdf4; border-bottom-color: #bbf7d0; }
+    div#singlediv.bw-svc-freight            { border-left-color: #ea580c; }
+    div#singlediv.bw-svc-freight .bw-card-hd { background: #fff7ed; border-bottom-color: #fed7aa; }
+    div#singlediv.bw-svc-tm                 { border-left-color: #7c3aed; }
+    div#singlediv.bw-svc-tm .bw-card-hd    { background: #faf5ff; border-bottom-color: #e9d5ff; }
     /* ── Card layout classes ── */
     .bw-card-hd {
         display: flex; align-items: center; flex-wrap: wrap;
@@ -3816,7 +3827,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm'}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
 
                                                         <!-- ── HEADER: id · timing · vehicle · status badges ── -->
                                                         <div class="bw-card-hd">
@@ -3862,7 +3873,7 @@ $(document).ready(function() {
                                                             <div class="bw-card-route-row">
                                                                 <span class="bw-rdot bw-rdot-pick"></span>
                                                                 <span class="bw-raddr">{{value.PickAddress || 'Street / Hail Pickup'}}</span>
-                                                                <span class="bw-rmeta" ng-if="value.passengername"><i class="fa fa-user"></i> {{value.passengername}}</span>
+                                                                <span class="bw-rmeta"><i class="fa fa-user"></i> {{value.passengername || '—'}}</span>
                                                             </div>
                                                             <div class="bw-card-route-row" ng-if="value.DropAddress">
                                                                 <span class="bw-rdot bw-rdot-drop"></span>
