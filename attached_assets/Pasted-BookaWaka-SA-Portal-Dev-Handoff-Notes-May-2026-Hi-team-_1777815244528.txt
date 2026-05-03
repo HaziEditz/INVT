@@ -1,0 +1,78 @@
+BookaWaka SA Portal — Dev Handoff Notes (May 2026)
+
+Hi team, here's a summary of what's been added to the SA portal side that affects your work.
+
+BASE URL (dev):
+https://66b82de1-57e2-4879-b628-c3fecfef8d56-00-3hy8skcue81nr.spock.replit.dev
+(will move to a .replit.app domain when we go live)
+
+Firebase project: taxilatest.firebaseio.com
+
+For the Dispatch App dev:
+New: Rental Taxi Requests
+When a customer books a rental car and then uses their discount voucher to book a taxi to the pickup depot, a record is written to:
+
+rentalTaxiRequests/{requestId}
+  customerName, customerPhone
+  pickup (where to pick them up)
+  destination (rental company depot)
+  scheduledAt (timestamp)
+  promoCode, discountPercent
+  status: "pending" → you update this
+  createdAt
+
+The dispatch app needs to read from this path and assign a driver. The SA portal and Owner Portal can see these requests but currently don't dispatch them automatically — that's on your side.
+
+Update status like this:
+
+PATCH rentalTaxiRequests/{requestId}
+  { status: "confirmed" | "completed" | "cancelled" }
+
+For the Passenger App dev:
+New: Rental Promo Code Validation
+After a customer completes a rental booking, they receive a personal promo code for a discounted taxi ride. To validate it on your side, call:
+
+GET /api/rent/validate-promo?code=R2R-XXXXXX
+→ { valid: true/false, discountPercent: 20 }
+
+New: Taxi Booking with Promo
+The /ride page on this server handles the full taxi booking form with promo support. If you're building this natively in the passenger app instead, when submitting a taxi ride with a promo code, write directly to:
+
+rentalTaxiRequests/{requestId} (same structure as above)
+
+Then mark the promo as used:
+
+PATCH rentalPromos/{code} → { status: "used", usedAt: timestamp }
+
+New: Rental Booking Lookup
+Customers can look up their rental booking at /rent/booking using their email + booking reference. No action needed from passenger app unless you want to deep-link into it.
+
+For the Website dev (public bookawaka.co.nz site):
+Company Registration Endpoint:
+
+POST /api/public/register
+Content-Type: application/json
+{
+  companyName, contactName, email, phone,
+  city, country,
+  businessType: "taxi" | "food" | "courier" (comma-separated for multiple),
+  fleetSize, website, message,
+  tradingName (optional), regNo (optional)
+}
+→ { ok: true, ref: "REQ17xxxxxxxxx" }
+
+Submissions are stored in Firebase at onboardRequests/{ref} and appear in the SA portal under Onboarding Requests automatically.
+
+Firebase paths summary (new ones added):
+Path	Written by	Read by
+rentalTaxiRequests/{id}	SA portal /ride form	Dispatch, Owner Portal
+rentalPromos/{code}	SA portal on booking confirm	Passenger App, SA Portal
+rentalBookingIndex/{jobId}	SA portal on booking confirm	SA Portal
+rentalPaymentIntentIndex/{piId}	SA portal on booking confirm	SA Portal (Stripe webhook)
+onboardRequests/{ref}	SA portal /api/public/register	SA Portal Onboarding page
+rentalReservations/{cid}/{rid}	SA portal	Owner Portal, SA Portal
+rentalFleet/{cid}/{vehicleId}	Owner Portal	Public /rent/browse
+rentalPortalAccess/{cid}	SA Portal	Owner Portal login
+Questions? The biggest open item is dispatch picking up rentalTaxiRequests — that's the piece that makes the Ride-to-Rental feature actually work end to end.
+
+Feel free to copy and paste that directly. Want me to adjust anything or add more detail for any specific dev?
