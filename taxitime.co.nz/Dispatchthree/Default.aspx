@@ -21404,47 +21404,77 @@ $(document).ready(function() {
 
 
 
-    /* ── Make create-job form draggable (pure JS, no jQuery UI needed) ── */
+    /* ── Make create-job form draggable — targets .modal-dialog with fixed positioning ── */
     (function() {
-        var _dragging = false, _ox = 0, _oy = 0, _el = null;
+        var _dragging = false, _ox = 0, _oy = 0, _dlg = null;
 
-        $(document).on('shown.bs.modal', '#largeModal', function() {
-            var el = document.getElementById('largeModalcontet');
-            if (!el || el._bwDragBound) return;
-            el._bwDragBound = true;
-            el.style.position = 'relative';
+        function _bindDrag() {
+            var modal   = document.getElementById('largeModal');
+            var dlg     = modal && modal.querySelector('.modal-dialog');
+            var content = document.getElementById('largeModalcontet');
+            if (!dlg || dlg._bwDragBound) return;
+            dlg._bwDragBound = true;
 
-            var handle = el.querySelector('.bw-drag-handle');
+            var handle = content && content.querySelector('.bw-drag-handle');
             if (!handle) return;
+            handle.style.cursor = 'grab';
 
             handle.addEventListener('mousedown', function(e) {
-                _dragging = true;
-                _el = el;
-                var rect = el.getBoundingClientRect();
+                if (e.button !== 0) return;
+                // Capture exact screen coordinates of the dialog
+                var rect = dlg.getBoundingClientRect();
+                // Lock to fixed so it escapes Bootstrap flex/margin centering
+                dlg.style.position = 'fixed';
+                dlg.style.margin   = '0';
+                dlg.style.left     = rect.left + 'px';
+                dlg.style.top      = rect.top  + 'px';
+                dlg.style.width    = rect.width + 'px';
+                dlg.style.maxWidth = 'none';
+                // Cursor offset within dialog
                 _ox = e.clientX - rect.left;
                 _oy = e.clientY - rect.top;
-                el.style.opacity = '0.92';
+                _dragging = true;
+                _dlg = dlg;
+                handle.style.cursor = 'grabbing';
                 e.preventDefault();
             });
+        }
+
+        $(document).on('shown.bs.modal', '#largeModal', _bindDrag);
+
+        // Reset on close so the next open is centred again
+        $(document).on('hidden.bs.modal', '#largeModal', function() {
+            var modal = document.getElementById('largeModal');
+            var dlg   = modal && modal.querySelector('.modal-dialog');
+            if (dlg) {
+                dlg.style.position = '';
+                dlg.style.margin   = '';
+                dlg.style.left     = '';
+                dlg.style.top      = '';
+                dlg.style.width    = '';
+                dlg.style.maxWidth = '';
+                dlg._bwDragBound   = false;
+            }
         });
 
         document.addEventListener('mousemove', function(e) {
-            if (!_dragging || !_el) return;
+            if (!_dragging || !_dlg) return;
             var x = e.clientX - _ox;
             var y = e.clientY - _oy;
-            // Keep inside viewport
-            x = Math.max(0, Math.min(x, window.innerWidth  - _el.offsetWidth));
-            y = Math.max(0, Math.min(y, window.innerHeight - _el.offsetHeight));
-            _el.style.left = x + 'px';
-            _el.style.top  = y + 'px';
-            _el.style.marginLeft = '0';
-            _el.style.marginTop  = '0';
+            // Clamp so dialog stays fully on screen
+            x = Math.max(0, Math.min(x, window.innerWidth  - _dlg.offsetWidth));
+            y = Math.max(0, Math.min(y, window.innerHeight - _dlg.offsetHeight));
+            _dlg.style.left = x + 'px';
+            _dlg.style.top  = y + 'px';
         });
 
         document.addEventListener('mouseup', function() {
-            if (_dragging && _el) _el.style.opacity = '1';
+            if (_dragging && _dlg) {
+                var h = _dlg.querySelector && _dlg.querySelector('.bw-drag-handle');
+                if (h) h.style.cursor = 'grab';
+            }
             _dragging = false;
-            _el = null;
+            _dlg = null;
         });
     }());
 
