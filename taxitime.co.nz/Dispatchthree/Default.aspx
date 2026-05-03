@@ -135,6 +135,15 @@
     div#singlediv.bw-svc-freight .bw-card-hd { background: #fff7ed; border-bottom-color: #fed7aa; }
     div#singlediv.bw-svc-tm                 { border-left-color: #7c3aed; }
     div#singlediv.bw-svc-tm .bw-card-hd    { background: #faf5ff; border-bottom-color: #e9d5ff; }
+    /* ── Create-job modal drag handle ── */
+    .bw-drag-handle {
+        background: #1a1a2e; color: #e0e0e0;
+        padding: 7px 14px; display: flex; align-items: center;
+        justify-content: space-between; cursor: move;
+        border-radius: 8px 8px 0 0; user-select: none;
+        font-size: 12px; font-weight: 600;
+    }
+    .bw-drag-handle:hover { background: #22223b; }
     /* ── Urgent job — thick orange stripe + amber header ── */
     div#singlediv.bw-urgent                 { border-left: 6px solid #f97316 !important; }
     div#singlediv.bw-urgent .bw-card-hd    { background: #fff7ed; border-bottom-color: #fed7aa; }
@@ -3328,6 +3337,12 @@ $(document).ready(function() {
                         <div id="largeModal" class="modal fade"   >
                             <div class="modal-dialog modal-lg"  >
                                 <div class="modal-content " id="largeModalcontet" style="margin-top: 0; margin-left: -200px; width: 550px;">
+
+                                    <!-- ── Drag handle ── -->
+                                    <div class="bw-drag-handle" title="Drag to move">
+                                        <span><i class="fa fa-arrows" style="margin-right:6px; opacity:0.7;"></i>Create Job</span>
+                                        <span style="font-size:10px; opacity:0.5; letter-spacing:0.03em;">drag to reposition</span>
+                                    </div>
 
                                     <div class="modal-body pd-20">
 
@@ -21379,6 +21394,20 @@ $(document).ready(function() {
 
 
 
+
+    /* ── Make create-job form draggable ── */
+    $(document).on('shown.bs.modal','#largeModal', function () {
+        var $content = $('#largeModalcontet');
+        if (!$content.data('ui-draggable')) {
+            $content.draggable({
+                handle: '.bw-drag-handle',
+                containment: 'body',
+                scroll: false,
+                start: function() { $(this).css('opacity', 0.92); },
+                stop:  function() { $(this).css('opacity', 1); }
+            });
+        }
+    });
 
     $(document).on('show.bs.modal','#largeModal', function () {
   
