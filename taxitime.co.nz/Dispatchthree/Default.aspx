@@ -103,25 +103,31 @@
         color: red;
     }
 
+    /* ── Dark panel so cards float as raised tiles ── */
+    .tab-pane#tab5 {
+        background: #0f172a;
+        border-radius: 0 0 8px 8px;
+        padding: 10px 8px 6px;
+    }
     div#singlediv {
         background: #ffffff;
         border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 6px rgba(0,0,0,0.05);
-        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+        border: 1px solid #334155;
         border-left: 4px solid #2563eb;
-        border-bottom: 2px solid #94a3b8;
-        margin-bottom: 14px;
+        border-bottom: 2px solid #1e40af;
+        margin-bottom: 12px;
         overflow: hidden;
         position: relative;
         transition: box-shadow 0.18s;
     }
     div#singlediv:hover {
-        box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.55);
     }
-    /* ── Alternating card tint (odd cards get a very subtle blue wash) ── */
-    div#singlediv.bw-card-alt                { background: #f7f9ff; }
-    div#singlediv.bw-card-alt .bw-card-hd   { background: #eef2ff; border-bottom-color: #dde4f5; }
-    div#singlediv.bw-card-alt .bw-assign-row { background: #f7f9ff; }
+    /* ── Alternating: even=white, odd=very light grey so they differ ── */
+    div#singlediv.bw-card-alt                { background: #f1f5f9; }
+    div#singlediv.bw-card-alt .bw-card-hd   { background: #e2e8f0; border-bottom-color: #cbd5e1; }
+    div#singlediv.bw-card-alt .bw-assign-row { background: #f1f5f9; }
     /* ── Service-type left-border colours ── */
     div#singlediv.bw-svc-food               { border-left-color: #16a34a; }
     div#singlediv.bw-svc-food .bw-card-hd  { background: #f0fdf4; border-bottom-color: #bbf7d0; }
