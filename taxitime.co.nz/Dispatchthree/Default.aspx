@@ -109,7 +109,8 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 6px rgba(0,0,0,0.05);
         border: 1px solid #e2e8f0;
         border-left: 4px solid #2563eb;
-        margin-bottom: 8px;
+        border-bottom: 2px solid #94a3b8;
+        margin-bottom: 14px;
         overflow: hidden;
         position: relative;
         transition: box-shadow 0.18s;
