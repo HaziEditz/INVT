@@ -21395,19 +21395,49 @@ $(document).ready(function() {
 
 
 
-    /* ── Make create-job form draggable ── */
-    $(document).on('shown.bs.modal','#largeModal', function () {
-        var $content = $('#largeModalcontet');
-        if (!$content.data('ui-draggable')) {
-            $content.draggable({
-                handle: '.bw-drag-handle',
-                containment: 'body',
-                scroll: false,
-                start: function() { $(this).css('opacity', 0.92); },
-                stop:  function() { $(this).css('opacity', 1); }
+    /* ── Make create-job form draggable (pure JS, no jQuery UI needed) ── */
+    (function() {
+        var _dragging = false, _ox = 0, _oy = 0, _el = null;
+
+        $(document).on('shown.bs.modal', '#largeModal', function() {
+            var el = document.getElementById('largeModalcontet');
+            if (!el || el._bwDragBound) return;
+            el._bwDragBound = true;
+            el.style.position = 'relative';
+
+            var handle = el.querySelector('.bw-drag-handle');
+            if (!handle) return;
+
+            handle.addEventListener('mousedown', function(e) {
+                _dragging = true;
+                _el = el;
+                var rect = el.getBoundingClientRect();
+                _ox = e.clientX - rect.left;
+                _oy = e.clientY - rect.top;
+                el.style.opacity = '0.92';
+                e.preventDefault();
             });
-        }
-    });
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!_dragging || !_el) return;
+            var x = e.clientX - _ox;
+            var y = e.clientY - _oy;
+            // Keep inside viewport
+            x = Math.max(0, Math.min(x, window.innerWidth  - _el.offsetWidth));
+            y = Math.max(0, Math.min(y, window.innerHeight - _el.offsetHeight));
+            _el.style.left = x + 'px';
+            _el.style.top  = y + 'px';
+            _el.style.marginLeft = '0';
+            _el.style.marginTop  = '0';
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (_dragging && _el) _el.style.opacity = '1';
+            _dragging = false;
+            _el = null;
+        });
+    }());
 
     $(document).on('show.bs.modal','#largeModal', function () {
   
