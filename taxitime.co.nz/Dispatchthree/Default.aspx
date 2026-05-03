@@ -104,9 +104,14 @@
     }
 
     div#singlediv {
-        /* border: 1px solid grey; */
-        box-shadow: 1px 1px 1px 1px #3693c575;
-        margin-bottom: 7px;
+        box-shadow:
+            0 1px 0 rgba(255,255,255,0.55) inset,
+            0 3px 0 #b8c2cc,
+            0 5px 12px rgba(0,0,0,0.13);
+        border: 1px solid rgba(0,0,0,0.09);
+        border-radius: 6px;
+        margin-bottom: 5px;
+        transform: translateY(-1px);
     }
 
     a#example_previous {
@@ -152,17 +157,15 @@
     }
 
     @keyframes glowing {
-        /*0% { box-shadow: 0 0 -10px green; }
-              40% { box-shadow: 0 0 20px blue; }
-              60% { box-shadow: 0 0 20px red; }
-              100% { box-shadow: 0 0 -10px green; }*/
-        10% {
-            box-shadow: 0 0 20px red;
-        }
+        0%   { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(220,38,38,0.18); }
+        50%  { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 26px rgba(220,38,38,0.70), 0 0 0 3px rgba(220,38,38,0.22); }
+        100% { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(220,38,38,0.18); }
+    }
 
-        100% {
-            box-shadow: 0 0 10px blue;
-        }
+    @keyframes glowing-amber {
+        0%   { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(217,119,6,0.18); }
+        50%  { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 26px rgba(217,119,6,0.70), 0 0 0 3px rgba(217,119,6,0.22); }
+        100% { box-shadow: 0 1px 0 rgba(255,255,255,0.55) inset, 0 3px 0 #b8c2cc, 0 5px 18px rgba(217,119,6,0.18); }
     }
 
     .page-main {
@@ -185,11 +188,15 @@
 
     .button-glow {
         margin: 0px;
-        animation: glowing 2000ms infinite;
+        animation: glowing 3500ms ease-in-out infinite;
     }
 
     .button-glow2 {
-        animation: glowing2 2000ms infinite;
+        animation: glowing 3500ms ease-in-out infinite;
+    }
+
+    .button-glow-amber {
+        animation: glowing-amber 3500ms ease-in-out infinite;
     }
 
     /* ── Notification panel ─────────────────────────────────── */

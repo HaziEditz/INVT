@@ -38,7 +38,9 @@
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
     "companyId": "620611",
-    "returnReason": ""
+    "returnReason": "No Response – Not Accepted",
+    "OfferedAt": "2026-05-03 05:54:18",
+    "offeredAt": 1777744597215
   },
   {
     "Id": 6112605036,
@@ -120,27 +122,5 @@
     "EstimatedTime": "0",
     "TarriffType": "Automatic",
     "companyId": "620611"
-  },
-  {
-    "Id": 61126050310,
-    "BookingStatus": "Active",
-    "DriverId": "D001",
-    "VehicleId": "TAXI01",
-    "VehicleNo": "TAXI01",
-    "Name": "Street Pickup",
-    "PhoneNo": "",
-    "PickAddress": "Hail - -46.39623, 168.35136",
-    "DropAddress": "",
-    "PickLatLng": "-46.3962319,168.3513612",
-    "DropLatLng": "",
-    "BookingDateTime": "2026-05-03 05:43:43.",
-    "JobCompleteTime": "",
-    "BookingSource": "Hail",
-    "booking_type": "Hail",
-    "JobMins": 0,
-    "UserFName": "abdullahgulnz",
-    "UserLName": "",
-    "Route": "",
-    "bookingidx": 61126050310
   }
 ]
