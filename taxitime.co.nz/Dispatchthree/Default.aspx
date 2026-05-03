@@ -13305,17 +13305,11 @@ $(document).ready(function() {
                     var dispatchshowtime = 0;
                 }
 
-                if(laterchecking  == 1 && $scope.ddlLaterMins == 00){
-                     
-
-                    Swal.fire(
-                        'Dispatch Time Required',
-                        'Please select a dispatch time before booking.',
-                        'warning'
-                    );
-                    $('#ddlLaterMins').css("color", "red");
-                    return;
-                } 
+                // BUG FIX #114: Removed erroneous guard `$scope.ddlLaterMins == 00`.
+                // Loose equality against the number 0 matched the string '00', so any
+                // pre-booked ride with an exact round-hour time (e.g. 14:00, 15:00)
+                // was silently blocked with "Dispatch Time Required".  The past-date
+                // guard at line ~13268 already rejects genuinely invalid times.
 
 
                 var  BookingUgent = 'no';

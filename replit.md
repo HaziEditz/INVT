@@ -489,6 +489,10 @@ Driver app should:
 
 ### Top-to-bottom code audit — bugs, dead paths, performance (session current)
 
+**AUDIT COMPLETE** — `server.js` (5486 lines) and `Default.aspx` (14797 lines) fully audited top-to-bottom. `DispatcherLogin.aspx` (1607 lines) fully audited — clean. One bug found and fixed (#114 below).
+
+114. **[HIGH] Pre-booked rides at exact hour times silently blocked — `$scope.ddlLaterMins == 00` loose equality** — `bookingride()` had a guard `if(laterchecking == 1 && $scope.ddlLaterMins == 00)` to block a booking when no time had been selected. Loose `==` compared the string `'00'` to the number `0` which JavaScript evaluates as truthy — so any legitimately chosen dispatch time with `:00` minutes (e.g. 14:00, 09:00, 17:00) was blocked with "Dispatch Time Required" and highlighted the minutes dropdown red. Dispatchers could not create a pre-booked ride at any round hour. The past-date guard at the top of the same block (line ~13268) already rejects genuinely invalid/past times, making this check both wrong and redundant. Fixed (Default.aspx ~line 13308): removed the guard entirely; replaced with a comment explaining the removal.
+
 116. **[CRITICAL] Manual dispatch paths used old `acknowledgemethod` (bypassed fix #115)** — Four call sites
      (`AssignJobFromJobList` line ~9264, `AssignJobFromJobList` line ~13358, `AssignJobFromJobList2` line ~13390, edit-booking dispatch line ~14830) called the original `acknowledgemethod()` which chains to the old `resolveAfter2Seconds`. This path lacks: driverid=0 on timeout, `_immediateJobPending`, and all fix-#115 sub-fixes — meaning manually dispatched jobs could get permanently stuck in "Offered". Fixed (Default.aspx): all four callers switched to `acknowledgemethodx(vehicleId, vehicleId, bookId, status)`. The old `acknowledgemethod` function is retained as a fallback but is no longer called by any dispatch path.
 
