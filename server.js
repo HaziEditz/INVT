@@ -258,6 +258,15 @@ async function firebaseDbDelete(path, idToken) {
   return true;
 }
 
+async function firebaseDbPatch(path, value, idToken) {
+  const r = await fbRequest(
+    `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
+    'PATCH', value
+  );
+  if (r.status !== 200) throw new Error(`Firebase DB patch failed: ${JSON.stringify(r.body)}`);
+  return r.body;
+}
+
 // ─── In-memory job store ──────────────────────────────────────────────────────
 // Legacy booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
 let _idSeqDate = '';
@@ -487,6 +496,86 @@ function saveClosedJobStore() {
     if (err) console.log('[persist] closedjobstore save error:', err.message);
   });
 }
+
+// ─── Firebase rentalTaxiRequests polling (Ride-to-Rental) ────────────────────
+// Polls rentalTaxiRequests for status="pending" entries written by the SA Portal
+// when a customer books a rental car and wants a taxi to the pickup depot.
+// On each match: creates a standard Pending job in jobStore (visible in U-A tab),
+// then stamps Firebase with jobId + status="dispatching" to avoid double-ingestion.
+async function pollRentalTaxiRequests() {
+  try {
+    const token = await getFirebaseServerToken();
+    if (!token) return;
+    const r = await fbRequest(
+      `${FB_DB_URL}/rentalTaxiRequests.json?orderBy="status"&equalTo="pending"&auth=${encodeURIComponent(token)}`,
+      'GET', null
+    );
+    if (r.status !== 200 || !r.body || typeof r.body !== 'object') return;
+    for (const [key, data] of Object.entries(r.body)) {
+      // Idempotency: skip if already in live or closed job store
+      if (jobStore.some(j => j.rentalRequestId === key)) continue;
+      if (closedJobStore.some(j => j.rentalRequestId === key)) continue;
+
+      // Normalise scheduledAt to the server's datetime string format
+      let scheduledAt = data.scheduledAt;
+      if (typeof scheduledAt === 'number') {
+        scheduledAt = new Date(scheduledAt).toISOString().replace('T', ' ').substring(0, 16) + '.';
+      } else {
+        scheduledAt = scheduledAt ? String(scheduledAt) : (new Date().toISOString().replace('T', ' ').substring(0, 16) + '.');
+      }
+
+      const promoNote = data.promoCode
+        ? `[Rental] Promo: ${data.promoCode} (${data.discountPercent || 0}% off). `
+        : '[Rental] Ride-to-Rental. ';
+
+      const newId = newJobId();
+      const newJob = {
+        Id: newId,
+        AccountId: '', VehicleNo: null, CallSign: null,
+        useremail: null, usertype: null, webstatus: '0',
+        Name: data.customerName || 'Rental Customer',
+        PhoneNo: data.customerPhone || '',
+        passengername: data.customerName || '',
+        BookingDateTime: scheduledAt,
+        Pickingtime: scheduledAt,
+        Recieve_payment: '', DispatchTimebefore: '0',
+        VehicleId: 0, DriverId: 0,
+        DispatcherName: 'System (Rental)',
+        Nextstop: '0', nextstopdata: '',
+        Passengers: 1,
+        PickLatLng: '0,0', DropLatLng: '0,0',
+        Bags: 0, WheelChairs: 0, VehiclesReguired: 1,
+        Acc_job_id: '', Account_id: '',
+        PickAddress: data.pickup || '',
+        DropAddress: data.destination || '',
+        EntitiesDetails: '', U_id: null,
+        BookingSource: 'Rental',
+        BookingStatus: 'Pending',
+        VehicleType: '', serviceType: 'taxi',
+        Urgent: 'No', CornerAddress: '',
+        Notes: promoNote,
+        DispatchNotes: promoNote,
+        EstimatedDistance: '0', EstimatedTime: '0',
+        TarriffType: 'Automatic',
+        companyId: '',           // no company scope — visible to all dispatchers
+        rentalRequestId: key,    // link back to Firebase for status sync
+        promoCode: data.promoCode || '',
+        discountPercent: data.discountPercent || 0,
+      };
+      jobStore.push(newJob);
+      saveJobStore();
+      console.log(`[rental] ingested rentalTaxiRequests/${key} → job #${newId} pickup="${data.pickup}"`);
+
+      // Stamp Firebase so SA Portal knows it's been picked up and won't re-trigger
+      firebaseDbPatch(`rentalTaxiRequests/${key}`, { jobId: newId, status: 'dispatching' }, token)
+        .catch(e => console.log(`[rental] Firebase stamp failed for ${key}:`, e.message));
+    }
+  } catch(e) {
+    console.log('[rental] polling error:', e.message);
+  }
+}
+setInterval(pollRentalTaxiRequests, 30000);
+pollRentalTaxiRequests(); // run immediately on startup
 
 // ─── Firebase pendingjobs polling ────────────────────────────────────────────
 // Polls pendingjobs/{companyId} for passenger-app bookings (Waiting/Cancelled).
@@ -2644,6 +2733,15 @@ const server = http.createServer(async (req, res) => {
           jobStore.splice(idx, 1);
           saveJobStore();
           saveClosedJobStore();
+          // Sync cancellation back to Firebase for Rental jobs
+          if (job.rentalRequestId) {
+            const _rKey = job.rentalRequestId, _rId = job.Id;
+            getFirebaseServerToken().then(token => {
+              if (token) firebaseDbPatch(`rentalTaxiRequests/${_rKey}`,
+                { status: 'cancelled', cancelledAt: new Date().toISOString(), jobId: _rId }, token
+              ).catch(() => {});
+            });
+          }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId} -> moved to closedJobStore`);
         successD(res, 'Operation Successfully Performed');
@@ -2689,6 +2787,15 @@ const server = http.createServer(async (req, res) => {
             clearDriverHomeState(prevDriverId);
           }
           saveJobStore();
+          // Sync assignment back to Firebase for Rental jobs
+          if (job.rentalRequestId && (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]')) {
+            const _rKey = job.rentalRequestId, _rId = job.Id, _rDrv = driverId;
+            getFirebaseServerToken().then(token => {
+              if (token) firebaseDbPatch(`rentalTaxiRequests/${_rKey}`,
+                { status: 'confirmed', assignedDriverId: _rDrv, assignedAt: new Date().toISOString(), jobId: _rId }, token
+              ).catch(() => {});
+            });
+          }
         }
         // Fire-and-forget: also update the real taxitime.co.nz backend so that
         // [AssignedJobsv2] (which proxies to real backend) reflects this assignment.

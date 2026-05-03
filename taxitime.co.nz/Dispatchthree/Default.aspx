@@ -135,8 +135,10 @@
     div#singlediv.bw-svc-freight .bw-card-hd { background: #fff7ed; border-bottom-color: #fed7aa; }
     div#singlediv.bw-svc-tm                 { border-left-color: #7c3aed; }
     div#singlediv.bw-svc-tm .bw-card-hd    { background: #faf5ff; border-bottom-color: #e9d5ff; }
-    /* ── Rental Requests tab ── */
-    #tab-rental .bw-rental-empty { text-align:center; padding:32px 10px; color:#64748b; }
+    /* ── Rental job cards (BookingSource=Rental) ── */
+    div#singlediv.bw-svc-rental                 { border-left-color: #0891b2; }
+    div#singlediv.bw-svc-rental .bw-card-hd     { background: #ecfeff; border-bottom-color: #a5f3fc; }
+    div#singlediv.bw-svc-rental .bw-assign-row  { background: #f0fdff; }
     /* ── Create-job modal drag handle ── */
     .bw-drag-handle {
         background: #1a1a2e; color: #e0e0e0;
@@ -3801,7 +3803,6 @@ $(document).ready(function() {
                                                  <li ng-click="AssignedJobs(0)"><a ng-click="AssignedJobs()" href="#tab6" data-toggle="tab" class="">Assign<span ng-click="AssignedJobs()">({{AssignedCount}})</span></a></li>
                                                 <li><a ng-click="ActiveJobsdata(0)" href="#tab7" data-toggle="tab" class="">Active <span>({{ActiveCount}})</span></a></li>
                                                <li><a href="#tab8"  ng-click="GetJobsdelivery()" data-toggle="tab" id="deliv" class=" "    >DY<span>({{deliverycount}})</span> </a></li> 
-                                               <li><a href="#tab-rental" data-toggle="tab" class="">Rental<span ng-if="rentalCount > 0" style="background:#7c3aed;">({{rentalCount}})</span></a></li>
                                             </ul>
                                         </div>
                                     </div>
@@ -3862,7 +3863,7 @@ $(document).ready(function() {
                                             <div class="tab-content">
                                                 <div class="tab-pane active show" id="tab5">
                                                     <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm', 'bw-urgent': value.Urgent==='Yes'}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
+                                                    <div id="Divo{{value.Id}}" ng-if="value.BookingStatus!='Offered'" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm', 'bw-urgent': value.Urgent==='Yes', 'bw-svc-rental': value.BookingSource==='Rental'}" id="singlediv" ng-repeat="(key, value) in unassignedjob_list">
 
                                                         <!-- ── HEADER: id · timing · vehicle · status badges ── -->
                                                         <div class="bw-card-hd">
@@ -3883,6 +3884,7 @@ $(document).ready(function() {
                                                                 {{value.serviceType|uppercase}}
                                                             </span>
                                                             <span ng-if="value.Urgent==='Yes'" class="bw-urgent-badge">&#9889; URGENT</span>
+                                                            <span ng-if="value.BookingSource==='Rental'" class="bw-b" style="background:#0891b2;color:#fff;font-size:11px;font-weight:700;"><i class="fa fa-car"></i> Rental</span>
                                                             <span ng-if="value.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                             <span ng-if="value.ScheduledFor" class="bw-b" style="background:#1d4ed8;color:#fff;"><i class="fa fa-calendar"></i> Sched</span>
                                                             <span ng-if="value.returnReason" class="bw-b" ng-style="{background: value.returnReason.indexOf('Rejected')>=0?'#c0392b':(value.returnReason.indexOf('Network')>=0?'#8e44ad':'#e67e22'), color:'#fff'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
@@ -4563,60 +4565,6 @@ $(document).ready(function() {
                                                     </div>
                                                 </div>
 
-                                                <!-- ══ Rental Requests tab (Ride-to-Rental) ══ -->
-                                                <div class="tab-pane" id="tab-rental">
-                                                    <div style="background:#0f172a; padding:6px; min-height:180px; overflow-y:auto; max-height:calc(100vh - 420px);">
-
-                                                        <div ng-if="!rentalRequests || rentalRequests.length === 0" style="text-align:center; padding:32px 10px; color:#64748b;">
-                                                            <i class="fa fa-car" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.35;"></i>
-                                                            <div style="font-size:12px;">No pending rental taxi requests</div>
-                                                        </div>
-
-                                                        <div ng-repeat="r in rentalRequests | orderBy: 'scheduledAt'" style="margin-bottom:3px; border-radius:6px; overflow:hidden; border-left:4px solid #7c3aed;">
-                                                            <!-- Header -->
-                                                            <div style="background:#1e1b4b; padding:5px 10px; display:flex; justify-content:space-between; align-items:center;">
-                                                                <span style="font-size:12px; font-weight:700; color:#a78bfa;">
-                                                                    <i class="fa fa-car" style="margin-right:4px;"></i>{{r.customerName || '—'}}
-                                                                </span>
-                                                                <span ng-if="r.promoCode" style="font-size:10px; background:#312e81; color:#c4b5fd; padding:2px 7px; border-radius:3px; font-weight:600;">
-                                                                    <i class="fa fa-tag" style="margin-right:2px;"></i>{{r.promoCode}} &mdash; {{r.discountPercent}}% off
-                                                                </span>
-                                                            </div>
-                                                            <!-- Route -->
-                                                            <div style="background:#fff; padding:5px 10px 4px;">
-                                                                <div style="font-size:11px; color:#444; margin-bottom:2px;">
-                                                                    <i class="fa fa-map-marker" style="color:#22c55e; width:13px;"></i>
-                                                                    <strong>Pick:</strong> {{r.pickup}}
-                                                                </div>
-                                                                <div style="font-size:11px; color:#444;">
-                                                                    <i class="fa fa-flag-checkered" style="color:#ef4444; width:13px;"></i>
-                                                                    <strong>Drop:</strong> {{r.destination}}
-                                                                </div>
-                                                                <div style="font-size:10px; color:#888; margin-top:3px;">
-                                                                    <i class="fa fa-clock-o"></i> {{r.scheduledAt | date:'dd MMM HH:mm'}}
-                                                                    &nbsp;&middot;&nbsp;<i class="fa fa-phone"></i> {{r.customerPhone}}
-                                                                </div>
-                                                            </div>
-                                                            <!-- Assign row -->
-                                                            <div style="background:#f1f5f9; border-top:1px solid #e2e8f0; padding:5px 10px; display:flex; align-items:center; gap:5px;">
-                                                                <select ng-model="rentalSelected[r._key]" class="form-control" style="height:27px; font-size:11px; flex:1; padding:1px 4px;">
-                                                                    <option value="">— Assign driver —</option>
-                                                                    <option ng-repeat="d in driverdatarealx" ng-if="d.vehiclestatus == 'Available'" value="{{d.driverid}}">{{d.vehiclenumber}} / {{d.vehicletype}}</option>
-                                                                </select>
-                                                                <span class="label label-pill label-success bw-send-pulse" style="cursor:pointer; padding:5px 9px; font-size:11px; white-space:nowrap;"
-                                                                      ng-click="confirmRentalRequest(r._key, rentalSelected[r._key])">
-                                                                    <i class="fa fa-check"></i> Confirm
-                                                                </span>
-                                                                <span class="label label-pill label-danger" style="cursor:pointer; padding:5px 9px; font-size:11px; white-space:nowrap;"
-                                                                      ng-click="cancelRentalRequest(r._key)">
-                                                                    <i class="fa fa-times"></i>
-                                                                </span>
-                                                            </div>
-                                                        </div>
-
-                                                    </div>
-                                                </div>
-                                                <!-- ══ end Rental tab ══ -->
 
                                             </div>
                                         </div>
@@ -5949,71 +5897,6 @@ $(document).ready(function() {
         _bwDrvRegRef.once('value', function() { _bwDrvInit = true; });
     })();
 
-    // ── 8. Rental Taxi Requests listener (Ride-to-Rental) ─────────────────
-    // Reads rentalTaxiRequests (global path, not per-company) from Firebase.
-    // Shows pending requests on the Rental tab so dispatchers can assign a driver.
-    // Updates status to 'confirmed' or 'cancelled' directly on the Firebase node.
-    (function() {
-        var _rentalRef = DbRef.ref('rentalTaxiRequests').orderByChild('status').equalTo('pending');
-
-        _rentalRef.on('value', function(snap) {
-            var list = [];
-            snap.forEach(function(child) {
-                var d  = child.val();
-                d._key = child.key;
-                list.push(d);
-            });
-            var sc = angular.element(document.getElementById('myangular')).scope();
-            if (sc) {
-                sc.$apply(function() {
-                    sc.rentalRequests = list;
-                    sc.rentalCount    = list.length;
-                    if (!sc.rentalSelected) sc.rentalSelected = {};
-                });
-            }
-        }, function(e) {
-            console.warn('[rental] listener error:', e.code);
-        });
-
-        // Expose confirm/cancel on Angular scope once controller is ready
-        var _rentalScopeReady = setInterval(function() {
-            var sc = angular.element(document.getElementById('myangular')).scope();
-            if (!sc) return;
-            clearInterval(_rentalScopeReady);
-
-            sc.rentalRequests = sc.rentalRequests || [];
-            sc.rentalCount    = sc.rentalCount    || 0;
-            sc.rentalSelected = sc.rentalSelected || {};
-
-            sc.confirmRentalRequest = function(reqKey, driverId) {
-                if (!reqKey) return;
-                if (!driverId) { alert('Please select a driver first.'); return; }
-                var drivers = sc.driverdatarealx || [];
-                var driver  = drivers.filter(function(d) { return String(d.driverid) === String(driverId); })[0];
-                DbRef.ref('rentalTaxiRequests/' + reqKey).update({
-                    status:            'confirmed',
-                    assignedDriverId:  driverId,
-                    assignedDriverName: driver ? (driver.drivername || driver.vehiclenumber || '') : '',
-                    assignedAt:        firebase.database.ServerValue.TIMESTAMP,
-                    dispatchedBy:      someSession
-                }).then(function() {
-                    console.log('[rental] confirmed', reqKey, 'driver', driverId);
-                });
-            };
-
-            sc.cancelRentalRequest = function(reqKey) {
-                if (!reqKey) return;
-                if (!confirm('Cancel this rental taxi request?')) return;
-                DbRef.ref('rentalTaxiRequests/' + reqKey).update({
-                    status:      'cancelled',
-                    cancelledAt: firebase.database.ServerValue.TIMESTAMP,
-                    cancelledBy: someSession
-                });
-            };
-
-            sc.$apply();
-        }, 500);
-    })();
 
     // ── Pending Driver Approvals listener ─────────────────────────────────
     // Reads drivers/{companyId} once per session — updates $scope.pendingDrivers
@@ -18191,7 +18074,8 @@ $(document).ready(function() {
                     'Dispatch Console': 'Console', 'Dispatcher Console': 'Console',
                     'Mobile App': 'App', 'Web Booking': 'Web', 'Website': 'Web',
                     'Phone Booking': 'Phone', 'Walk In': 'Walk-in',
-                    'API': 'API', 'Kiosk': 'Kiosk'
+                    'API': 'API', 'Kiosk': 'Kiosk',
+                    'Rental': 'Rental'
                 };
                 return map[src] || (src.length > 9 ? src.substring(0, 8) + '…' : src);
             };
