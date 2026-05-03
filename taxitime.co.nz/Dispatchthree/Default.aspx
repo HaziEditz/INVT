@@ -1615,7 +1615,7 @@
                                     <h6> {{showi.Account_id}}</h6>
                                      </div>
                                     <div class="col-4" ng-if="showi.Recieve_payment">
-                                    <label  class="label label-pill label-danger mt-2 ng-binding">Paid Ammount:</label>
+                                    <label  class="label label-pill label-danger mt-2 ng-binding">Paid Amount:</label>
                                      <h6>{{showi.Recieve_payment}}</h6>
                                      </div>
                                 
@@ -13188,7 +13188,7 @@ $(document).ready(function() {
                      console.log(response);
                      if(response.d == 'Success'){
                               
-                         toastr["success"]("Payment Email is Send Successfully", 'success!');
+                         toastr["success"]("Payment email sent successfully.", "Sent!");
                      }else{
                                
                          toastr["warning"]('Payment Email Not Send Try Again!', 'warning!');
@@ -14675,7 +14675,7 @@ $(document).ready(function() {
                                     console.log("no more sending this job"+id);
                                     for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                        spliszzz = checkdriverlist[loopsz].split("_");  
+                                        spliszzz = ( checkdriverlist[loopsz] || '' ).split("_");  
                                         if (spliszzz.includes(random6) == true) {
                                             checkdriverlist.splice(loopsz , 1);
 
@@ -14723,7 +14723,7 @@ $(document).ready(function() {
                                             majorrandom = false;
                                             for(loops = 0 ; loops < checkdriverlist.length; loops++){
                      
-                                                spliss = checkdriverlist[loops].split("_");     
+                                                spliss = ( checkdriverlist[loops] || '' ).split("_");     
                                       
                                                 if (spliss[0] == random3["dt2"][random4].PlayerId) {
                                                     majorrandom = true;
@@ -14775,7 +14775,7 @@ $(document).ready(function() {
                                                                 localva = "Accept";
                                                                 for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                                    spliszzz = checkdriverlist[loopsz].split("_");      
+                                                                    spliszzz = ( checkdriverlist[loopsz] || '' ).split("_");      
                                                                     if (spliszzz.includes(random6) == true) {
                                                                         checkdriverlist.splice(loopsz , 1);
 
@@ -14794,7 +14794,7 @@ $(document).ready(function() {
                                                                     random4++;
                                                                     for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                                        spliszzz = checkdriverlist[loopsz].split("_");  
+                                                                        spliszzz = ( checkdriverlist[loopsz] || '' ).split("_");  
                                                                         if (spliszzz.includes(driverid) == true) {
                                                                             checkdriverlist.splice(loopsz , 1);
                                                                             console.log("removed dddriver" + driverid);
@@ -14815,7 +14815,7 @@ $(document).ready(function() {
                                                             refaz.remove();
                                                             localva = "Accept";
                                                             for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
-                                                                spliszzz = checkdriverlist[loopsz].split("_");  
+                                                                spliszzz = ( checkdriverlist[loopsz] || '' ).split("_");  
                                                                 if (spliszzz.includes(random6) == true) {
                                                                     checkdriverlist.splice(loopsz , 1);
 
@@ -14832,7 +14832,7 @@ $(document).ready(function() {
                                                                 random4++;
                                                                 for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                                    spliszzz = checkdriverlist[loopsz].split("_");      
+                                                                    spliszzz = ( checkdriverlist[loopsz] || '' ).split("_");      
                                                                     if (spliszzz.includes(driverid) == true) {
                                                                         checkdriverlist.splice(loopsz , 1);
                                                                         console.log("removed dddriver" + driverid);
@@ -15216,7 +15216,7 @@ $(document).ready(function() {
                     }
                     for(var zzz = checkdriverlist.length-1 ; zzz >= 0 ; zzz--){
                      
-                        spliszzz = checkdriverlist[zzz].split("_");     
+                        spliszzz = ( checkdriverlist[zzz] || '' ).split("_");     
                         if (spliszzz.includes(randomautoo) == true) {
                             checkdriverlist.splice(zzz , 1);
 
@@ -15239,7 +15239,7 @@ $(document).ready(function() {
                         random99  = JSON.parse(result.d);
                         for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                            spliszzz = checkdriverlist[ppp].split("_"); 
+                            spliszzz = ( checkdriverlist[ppp] || '' ).split("_"); 
                 
                             if (spliszzz.includes(randomautoo) == true) {
                                 checkdriverlist.splice(ppp , 1);
@@ -15252,7 +15252,7 @@ $(document).ready(function() {
                         if(checkdriverlist.length > 0) { 
                             for(var loops = 0 ; loops < checkdriverlist.length; loops++){
                      
-                                spliss = checkdriverlist[loops].split("_");     
+                                spliss = ( checkdriverlist[loops] || '' ).split("_");     
                     
                             
                                 if (parseInt(spliss[0]) == random77[random110][1]) {
@@ -15309,7 +15309,7 @@ $(document).ready(function() {
                                             }
                                             for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                spliszzz = checkdriverlist[ppp].split("_");     
+                                                spliszzz = ( checkdriverlist[ppp] || '' ).split("_");     
                 
                                                 if (spliszzz.includes(randomautoo) == true) {
                                                     checkdriverlist.splice(ppp , 1);
@@ -15332,7 +15332,7 @@ $(document).ready(function() {
                                                 random110++;
                                                 for(loopsz = checkdriverlist.length-1 ; loopsz >= 0 ; loopsz--){
                      
-                                                    spliszzz = checkdriverlist[loopsz].split("_");      
+                                                    spliszzz = ( checkdriverlist[loopsz] || '' ).split("_");      
                                                     if (spliszzz.includes(driverid) == true) {
                                                         checkdriverlist.splice(loopsz , 1);
                                                         console.log("removed dddriver" + driverid);
@@ -15347,7 +15347,7 @@ $(document).ready(function() {
                                             }
                                             for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                spliszzz = checkdriverlist[ppp].split("_");     
+                                                spliszzz = ( checkdriverlist[ppp] || '' ).split("_");     
                 
                                                 if (spliszzz.includes(randomautoo) == true) {
                                                     checkdriverlist.splice(ppp , 1);
@@ -15374,7 +15374,7 @@ $(document).ready(function() {
                                                 }
                                                 for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                    spliszzz = checkdriverlist[ppp].split("_"); 
+                                                    spliszzz = ( checkdriverlist[ppp] || '' ).split("_"); 
                 
                                                     if (spliszzz.includes(randomautoo) == true) {
                                                         checkdriverlist.splice(ppp , 1);
@@ -15410,7 +15410,7 @@ $(document).ready(function() {
                                             }
                                             for(ppp = checkdriverlist.length-1 ; ppp >= 0 ; ppp--){
                      
-                                                spliszzz = checkdriverlist[ppp].split("_");     
+                                                spliszzz = ( checkdriverlist[ppp] || '' ).split("_");     
                 
                                                 if (spliszzz.includes(randomautoo) == true) {
                                                     checkdriverlist.splice(ppp , 1);
@@ -18326,7 +18326,7 @@ $(document).ready(function() {
                                  console.log(response);
                                  if(response.d == 'Success'){
                               
-                                     toastr["success"](notification+" Email is Send Successfully", 'success!');
+                                     toastr["success"](notification + " email sent successfully.", "Sent!");
                                  }else{
                                
                                      toastr["warning"]('Email Not Send Try Again!', 'warning!');
@@ -18579,8 +18579,8 @@ $(document).ready(function() {
                         }
                         var   currentdriverid = $res["dt1"][0].DriverId;
                         $("#PickupZoneId").text( $res["dt1"][0].ZoneId);
-                        var LatDetails = $res["dt1"][0].PickLatLng.split(',');
-                        var LngDetails = $res["dt1"][0].DropLatLng.split(',');
+                        var LatDetails = ($res["dt1"][0].PickLatLng || '0,0').split(',');
+                        var LngDetails = ($res["dt1"][0].DropLatLng || '0,0').split(',');
                         $scope.LocalPickLat = LatDetails[0];
                         $scope.LocalPickLng = LatDetails[1];  
                         $('#LocalPickLat').val(LatDetails[0]);
@@ -18882,13 +18882,13 @@ $(document).ready(function() {
                             if($scope.selecteddriver == 0 ){
                           
                              
-                                toastr["success"](  "Booking Update", 'success!');   
+                                toastr["success"]("Job updated successfully.", "Booking Updated!");   
                           
                             }else if($scope.selecteddriver == -1){
                               
-                                toastr["success"](  "Booking Update", 'success!');
+                                toastr["success"]("Job updated successfully.", "Booking Updated!");
                             }else if($scope.selecteddriver == -2){
-                                toastr["success"](  "Booking Update", 'success!');
+                                toastr["success"]("Job updated successfully.", "Booking Updated!");
                             }else{
                                 Swal.fire(
                                       'Warning!',
@@ -18900,18 +18900,18 @@ $(document).ready(function() {
                         }else{
                         
                             if ($scope.selecteddriver == 0) {
-                                toastr["success"](  "Booking Update", 'success!');
+                                toastr["success"]("Job updated successfully.", "Booking Updated!");
                          
                             } else if(   $scope.selecteddriver == -1){
-                                toastr["success"](  "Booking Update", 'success!');
+                                toastr["success"]("Job updated successfully.", "Booking Updated!");
                             } else if ($scope.selecteddriver == -2) {
-                                toastr["success"](  "Booking Update", 'success!');
+                                toastr["success"]("Job updated successfully.", "Booking Updated!");
                             } else {
                            
                                 BookingStatusx = "Offered";
                               
                                     sendJobToDriver(getSqlDriverId(DriveId), DriveId, BookingIz, 'Offered');
-                                    toastr["success"](  "Job send to Driver", 'success!');
+                                    toastr["success"]("Job sent to driver.", "Dispatched!");
                                
                               
                             }
@@ -19171,7 +19171,7 @@ $(document).ready(function() {
                                         var ridestatuspre= JSON.parse(response.d);
 
                                         if(ridestatuspre["dt1"].length > 0) {
-                                            toastr["error"]("Taking Job from Driver", 'error!');
+                                            toastr["error"]("Taking job from driver.", "Driver Reassigned");
                                               FnCancelRide(ridestatuspre["dt1"][0].DriverId, BookingId);
                                              //TODO later for chaning que
                                             //FnMoveQueueNo1($res[0].DriverId,quenumber);
@@ -19198,7 +19198,7 @@ $(document).ready(function() {
                                                   }
 
                                               }).then(function mySuccess(response) {
-                                                  toastr["success"]("Job Status Changed",'success!');
+                                                  toastr["success"]("Job status updated.", "Updated!");
                                                   $scope.getjobs();
                                               }, function myError(response) {
                                                   console.log(response);
@@ -19230,7 +19230,7 @@ $(document).ready(function() {
                                                 }
 
                                             }).then(function mySuccess(response) {
-                                                toastr["success"]("Job Status Changed",'success!');
+                                                toastr["success"]("Job status updated.", "Updated!");
                                                 $scope.getjobs();
                                             }, function myError(response) {
                                                 console.log(response);
@@ -19257,7 +19257,7 @@ $(document).ready(function() {
                          
                             console.log($scope.driverlist);
                            
-                            toastr["success"]("Successfully in sending Process",'success!');
+                            toastr["success"]("Dispatching job to drivers.", "Dispatching!");
 
                             var   param = [{ "name": "bookingsID", "value": BookingId }];
                             var   proc = '[checkjobstatus]';
@@ -19275,7 +19275,7 @@ $(document).ready(function() {
                                     success: function (response) {
                                         if (response.d == 'false') {
                        
-                                            toastr["error"](   "This Job Is in Already Offer",'error!');
+                                            toastr["error"]("This job has already been offered.", "Already Offered");
                                            
                                         } else {
                                           
@@ -19349,9 +19349,9 @@ $(document).ready(function() {
                   
                                 $("#PickupZoneId").text( $res["dt1"][0].ZoneId);
                    
-                                var LatDetails = $res["dt1"][0].PickLatLng.split(',');
+                                var LatDetails = ($res["dt1"][0].PickLatLng || '0,0').split(',');
                      
-                                var LngDetails = $res["dt1"][0].DropLatLng.split(',');
+                                var LngDetails = ($res["dt1"][0].DropLatLng || '0,0').split(',');
                                 $scope.LocalPickLat = LatDetails[0];
                                 $scope.LocalPickLng = LatDetails[1];  
                                 $('#LocalPickLat').val(LatDetails[0]);
@@ -19555,7 +19555,7 @@ $(document).ready(function() {
                         $("#Divo" + BookingId + "").remove();
                         refreshjob = 0;
                         console.log(refreshjob);
-                        if (confirm('Do you want to cancel the job? !')) {
+                        if (confirm('Do you want to cancel the job?')) {
               
                             $scope.param = [ { "name": "BookingId", "Value": BookingId }];
                             $scope.proc = "[CancelUnAssignedJobStatusFromJobList]";
@@ -20314,7 +20314,7 @@ $(document).ready(function() {
         
             if (result.d == "Approval successfully Saved") {
                 
-                toastr["success"](    "Client successfully Save" , 'success!');
+                toastr["success"]("Client saved successfully.", "Saved!");
                 document.getElementById('approvalid').value = "";
                 document.getElementById('client_ACCID').value = "" ;
                 document.getElementById('client_Claim').value = "" ;
@@ -20328,7 +20328,7 @@ $(document).ready(function() {
                 getapprovalall();
             }else if(result.d == "Approval successfully update"){
               
-                toastr["success"](  "Client successfully update", 'success!');
+                toastr["success"]("Client updated successfully.", "Updated!");
                 $('#acc').modal('show');
                 $('#updateapproval').modal('hide');
                 getapprovalall();
@@ -20411,7 +20411,7 @@ $(document).ready(function() {
        
             if (result.d == "Approval successfully Saved") {
              
-                toastr["success"](  "Client   successfully Saved", 'success!');
+                toastr["success"]("Client saved successfully.", "Saved!");
 
                 document.getElementById('approvalid').value = "";
                 document.getElementById('client_ACCID').value = "" ;
@@ -20426,7 +20426,7 @@ $(document).ready(function() {
                 getapprovalall();
                 getmanagerlist();
             }else if(result.d == "Approval successfully update"){
-                toastr["success"](  "Client   successfully update", 'success!');
+                toastr["success"]("Client updated successfully.", "Updated!");
                 document.getElementById('approvalid').value = "";
                 document.getElementById('client_ACCID').value = "" ;
                 document.getElementById('client_Claim').value = "" ;
@@ -20493,7 +20493,7 @@ $(document).ready(function() {
                   "Client successfully Saved",
                   'success'
                 )
-                toastr["success"](   "Client successfully Saved", 'success!');
+                toastr["success"]("Client saved successfully.", "Saved!");
                 document.getElementById('client_name').value = "" ;
                 document.getElementById('client_address').value = "" ;
                 document.getElementById('client_phone').value = "" ;
@@ -20536,7 +20536,7 @@ $(document).ready(function() {
        
             if (result.d == "Manager successfully Saved") {
   
-                toastr["success"]("Client not successfully Saved", 'success!');
+                toastr["success"]("Manager saved successfully.", "Saved!");
                 document.getElementById('manager_name').value = "" ;
                 document.getElementById('mananger_po_box').value  = "" ;
                 document.getElementById('manager_branch_code').value = "" ;

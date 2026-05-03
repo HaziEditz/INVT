@@ -660,6 +660,35 @@ Driver app should:
 - **Root cause** (`Default.aspx` `changedata(Busy→Available)`): When the driver went Available, the code called `[RecallQueuedJob]` which set `BookingStatus=Pending` and cleared `DriverId=null`, then immediately called `acknowledgemethodx()` to re-send a full popup offer and wait for a second acceptance. This was designed as a "re-offer" flow, but it was wrong — the driver had **already** accepted the job. The recall to Pending caused the Assigned tab to flicker (job briefly visible with no driver), and the second popup required the driver to accept the same job twice.
 - **Fix** (`server.js` + `Default.aspx`): Added a new `[PromoteQueuedToAssigned]` server endpoint (`DataProcessor`) that atomically sets `BookingStatus = 'Assigned'` while keeping `DriverId` intact (no clear, no Pending transition). Updated `changedata(Busy→Available)` to call `[PromoteQueuedToAssigned]` instead of `[RecallQueuedJob]` + `acknowledgemethodx`. Result: when a Busy driver finishes their hail, the already-accepted job is auto-assigned directly — no data reset, no flicker, no second popup. A race-condition guard returns `{ alreadyStatus }` if the job was recalled/cancelled by the dispatcher between the server-side state check and the promotion call.
 
+## Bug Fix Log
+
+### #110 — PickLatLng/DropLatLng null crash in edit modal (BUG FIX)
+- **Symptom**: Opening any job for editing crashed with Angular exception "Cannot read properties of undefined (reading 'split')". The edit modal became non-functional after the crash, also blocking subsequent create/save operations that shared the same modal.
+- **Root cause**: Two locations in `Default.aspx` (lines ~18585, ~19355) called `$res["dt1"][0].PickLatLng.split(',')` and `.DropLatLng.split(',')` unconditionally. If a job was created without a drop-off (or if LatLng was not yet geocoded), these fields are null/undefined → crash.
+- **Fix**: Guarded with `|| '0,0'` fallback before splitting: `($res["dt1"][0].PickLatLng || '0,0').split(',')`.
+
+### #111 — Auto-dispatch `checkdriverlist` split crash (BUG FIX)
+- **Symptom**: "Cannot read properties of undefined (reading 'split')" error in auto-dispatch loop; zone dispatch silently failed when the driver list array contained undefined/null entries (after splice operations during concurrent dispatch attempts).
+- **Root cause**: 14 locations across `smartAutoDispatch` / `FnZonewiseJobtwo` used `checkdriverlist[idx].split("_")` with no null guard. After a `.splice()` removes an entry, adjacent loop iterations could access stale indices returning undefined.
+- **Fix**: Added `|| ''` guard at all 14 call sites (loopsz×6, loops×2, zzz×1, ppp×5): `(checkdriverlist[idx] || '').split("_")`. An empty guard splits to `['']` which safely fails `.includes(driverId)` checks without crashing.
+
+### #112 — Manager save shows wrong success toast (BUG FIX)
+- **Symptom**: When saving a new manager (Account Management panel), on success the toast showed "Client not successfully Saved" — a `toastr["success"]` with a message containing the word "not". Dispatcher was told the save failed even though it succeeded.
+- **Root cause**: Copy-paste error in `addmanager()` — the success branch (`result.d == "Manager successfully Saved"`) had `toastr["success"]("Client not successfully Saved", 'success!')` instead of a correct message.
+- **Fix**: Changed to `toastr["success"]("Manager saved successfully.", "Saved!")`.
+
+### #113 — UI text quality improvements (POLISH)
+- **"Paid Ammount:"** label → **"Paid Amount:"** (line 1618)
+- **"Do you want to cancel the job? !"** → **"Do you want to cancel the job?"** (removed stray `!` from `UnAssignedJobsCancelng` confirm dialog)
+- **"Booking Update"** (6× generic toasts in `updateride2`) → **"Job updated successfully."** with title "Booking Updated!"
+- **"Job send to Driver"** → **"Job sent to driver."** with title "Dispatched!"
+- **"Client successfully Save"** / **"Client   successfully Saved"** / **"Client   successfully update"** → consistent "Client saved/updated successfully." with "Saved!"/"Updated!" titles
+- **"Payment Email is Send Successfully"** → "Payment email sent successfully." / "Sent!"
+- **"Job Status Changed"** (2×) → "Job status updated." / "Updated!"
+- **"Successfully in sending Process"** → "Dispatching job to drivers." / "Dispatching!"
+- **"Taking Job from Driver"** → "Taking job from driver." / "Driver Reassigned"
+- **"This Job Is in Already Offer"** → "This job has already been offered." / "Already Offered"
+
 ## BW Platform Feature Log
 
 ### Feature 8 — Multi-service filtering + driver service badges (FEATURE)
