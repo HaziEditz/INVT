@@ -105,32 +105,32 @@
 
     div#singlediv {
         background: #ffffff;
-        border-radius: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 2px 10px rgba(0,0,0,0.06);
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 6px rgba(0,0,0,0.05);
         border: 1px solid #e2e8f0;
         border-left: 4px solid #2563eb;
-        margin-bottom: 8px;
+        margin-bottom: 5px;
         overflow: hidden;
         position: relative;
         transition: box-shadow 0.18s;
     }
     div#singlediv:hover {
-        box-shadow: 0 3px 14px rgba(0,0,0,0.13);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.12);
     }
     /* ── Card layout classes ── */
     .bw-card-hd {
         display: flex; align-items: center; flex-wrap: wrap;
-        gap: 4px; padding: 7px 10px 6px;
+        gap: 3px; padding: 4px 8px 3px;
         background: #f8fafc; border-bottom: 1px solid #e8edf4;
     }
     .bw-card-route {
-        padding: 7px 12px 6px; position: relative;
+        padding: 4px 10px 3px; position: relative;
     }
     .bw-card-route-row {
-        display: flex; align-items: center; gap: 7px;
-        font-size: 12.5px; color: #1a202c; margin-bottom: 3px; min-height: 20px;
+        display: flex; align-items: center; gap: 6px;
+        font-size: 12px; color: #1a202c; margin-bottom: 1px; min-height: 18px;
     }
-    .bw-rdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .bw-rdot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
     .bw-rdot-pick { background:#16a34a; }
     .bw-rdot-drop { background:#dc2626; }
     .bw-raddr {
@@ -138,55 +138,55 @@
         overflow:hidden; text-overflow:ellipsis; max-width:55%;
     }
     .bw-rmeta {
-        margin-left:auto; font-size:11.5px; color:#4a5568;
-        white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:5px;
+        margin-left:auto; font-size:11px; color:#4a5568;
+        white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:4px;
     }
     .bw-assign-row {
-        padding:4px 10px; display:flex; align-items:center;
-        flex-wrap:wrap; gap:4px; border-top:1px solid #e8edf4;
+        padding:3px 8px; display:flex; align-items:center;
+        flex-wrap:wrap; gap:3px; border-top:1px solid #e8edf4;
         background:#fff;
     }
     .bw-card-ft {
         display:flex; align-items:center; justify-content:space-between;
-        flex-wrap:wrap; gap:4px; padding:5px 10px 6px;
+        flex-wrap:wrap; gap:3px; padding:3px 8px 4px;
         background:#f8fafc; border-top:1px solid #e8edf4;
     }
     .bw-card-ft-l, .bw-card-ft-r {
-        display:flex; align-items:center; flex-wrap:wrap; gap:4px;
+        display:flex; align-items:center; flex-wrap:wrap; gap:3px;
     }
     /* Badges & chips */
     .bw-jid {
-        display:inline-flex; align-items:center; gap:3px;
-        padding:2px 8px; border-radius:5px; font-size:12px; font-weight:700;
+        display:inline-flex; align-items:center; gap:2px;
+        padding:1px 7px; border-radius:4px; font-size:11px; font-weight:700;
         background:#1a1a2e; color:#dfba5f; letter-spacing:0.3px; flex-shrink:0;
     }
     .bw-b {
-        display:inline-flex; align-items:center; gap:3px;
-        padding:2px 7px; border-radius:4px; font-size:11px;
-        font-weight:600; line-height:1.5; background:#e2e8f0;
+        display:inline-flex; align-items:center; gap:2px;
+        padding:1px 6px; border-radius:3px; font-size:10.5px;
+        font-weight:600; line-height:1.4; background:#e2e8f0;
         color:#374151; white-space:nowrap;
     }
     .bw-mc {
-        display:inline-flex; align-items:center; gap:3px;
-        padding:2px 6px; border-radius:4px; font-size:11px;
+        display:inline-flex; align-items:center; gap:2px;
+        padding:1px 5px; border-radius:3px; font-size:10.5px;
         font-weight:600; background:#f1f5f9; color:#475569;
     }
     .bw-ml {
-        font-size:11px; color:#64748b;
-        display:inline-flex; align-items:center; gap:3px;
+        font-size:10.5px; color:#64748b;
+        display:inline-flex; align-items:center; gap:2px;
     }
     .bw-ab {
         display:inline-flex; align-items:center; justify-content:center;
-        width:26px; height:26px; border-radius:5px; cursor:pointer;
-        font-size:12px; transition:all 0.15s; flex-shrink:0;
+        width:22px; height:22px; border-radius:4px; cursor:pointer;
+        font-size:11px; transition:all 0.15s; flex-shrink:0;
     }
     .bw-ab-edit { background:#fef3c7; color:#92400e; }
     .bw-ab-edit:hover { background:#fde68a; }
     .bw-ab-del  { background:#fce8e8; color:#b91c1c; }
     .bw-ab-del:hover  { background:#fca5a5; }
     .bw-spx-sel {
-        height:26px !important; font-size:11px !important;
-        padding:1px 6px !important; border-radius:4px !important; min-width:110px;
+        height:24px !important; font-size:11px !important;
+        padding:1px 4px !important; border-radius:3px !important; min-width:100px;
     }
 
     a#example_previous {
