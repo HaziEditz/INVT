@@ -3871,17 +3871,23 @@ $(document).ready(function() {
                                                             </div>
                                                         </div>
 
-                                                        <!-- ── ASSIGN ROW: status · driver select · send ── -->
+                                                        <!-- ── ACTION ROW: status · eta · pax · actions · spx ── -->
                                                         <div class="bw-assign-row">
-                                                            <span class="bw-b" id="Divoo{{value.Id}}" style="background:#dc2626;color:#fff;font-weight:700;">
-                                                                {{value.BookingStatus}}<span ng-if="value.CallSign"> · {{value.CallSign}}</span><span ng-if="value.VehicleNo"> {{value.VehicleNo}}</span>
-                                                            </span>
-                                                            <span ng-if="value.BookingStatus=='Pending'" class="bw-b" style="background:#7b1fa2;color:#fff;"><i class="fa fa-bullhorn"></i> Broadcast</span>
-                                                            <span ng-if="value._preQueueDriver" class="bw-b" style="background:#e67e22;color:#fff;" title="Silent offer sent to this busy driver"><i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}</span>
+                                                            <span class="bw-b" id="Divoo{{value.Id}}" style="background:#dc2626;color:#fff;font-weight:700;max-width:80px;overflow:hidden;text-overflow:ellipsis;" title="{{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}">{{value.BookingStatus}}</span>
+                                                            <span class="bw-b" ng-style="{background: latealert(value.DispatchTimebefore, value.BookingDateTime) || '#475569', color:'#fff'}"><i class="fa fa-hourglass-half"></i> {{checklateornow(value.JobMins, value.DispatchTimebefore)}}</span>
+                                                            <span class="bw-mc"><i class="fa fa-users"></i>{{value.Passengers}}</span>
+                                                            <span class="bw-mc" ng-if="value.Bags > 0"><i class="fa fa-shopping-bag"></i>{{value.Bags}}</span>
+                                                            <span class="bw-mc" ng-if="value.WheelChairs > 0"><i class="fa fa-wheelchair"></i>{{value.WheelChairs}}</span>
+                                                            <span ng-if="value.BookingStatus=='Pending'" class="bw-b" style="background:#7b1fa2;color:#fff;"><i class="fa fa-bullhorn"></i> BC</span>
+                                                            <span ng-if="value._preQueueDriver" class="bw-b" style="background:#e67e22;color:#fff;" title="Offered to busy driver: {{value._preQueueDriver}}"><i class="fa fa-clock-o"></i> Busy&#8594;{{value._preQueueDriver}}</span>
                                                             <span ng-if="value.Acc_job_id" class="bw-mc">ACC</span>
-                                                            <span ng-if="value.Account_id" class="bw-mc">Account</span>
+                                                            <span ng-if="value.Account_id" class="bw-mc">Acct</span>
                                                             <span ng-if="value.Recieve_payment" class="bw-mc">Paid</span>
-                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:4px;">
+                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
+                                                                <span class="bw-ml" ng-if="value.DispatcherName" style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{value.DispatcherName}}"><i class="fa fa-headphones"></i> {{value.DispatcherName}}</span>
+                                                                <span class="bw-ml" ng-if="value.BookingSource" title="{{value.BookingSource}}"><i class="fa fa-tag"></i>{{bwSrcShort(value.BookingSource)}}</span>
+                                                                <span class="bw-ab bw-ab-edit" ng-click="EditJobunassignedng(value.Id, value.JobMins)" title="Edit job"><i class="fa fa-pencil"></i></span>
+                                                                <span class="bw-ab bw-ab-del" ng-click="UnAssignedJobsCancelng(value.Id, value.U_id)" title="Cancel job"><i class="fa fa-times"></i></span>
                                                                 <span id="spxa{{value.Id}}" style="display:inline-flex;align-items:center;">
                                                                     <select id="spx{{value.Id}}" class="form-control bw-spx-sel" onclick="showwxx()">
                                                                         <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
@@ -3889,26 +3895,8 @@ $(document).ready(function() {
                                                                         <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                     </select>
                                                                 </span>
-                                                                <span class="bw-b bw-send-pulse" style="background:#16a34a;color:#fff;cursor:pointer;padding:3px 9px;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane"></i></span>
+                                                                <span class="bw-b bw-send-pulse" style="background:#16a34a;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane"></i></span>
                                                             </span>
-                                                        </div>
-
-                                                        <!-- ── FOOTER: counts · actions ── -->
-                                                        <div class="bw-card-ft">
-                                                            <div class="bw-card-ft-l">
-                                                                <span class="bw-mc"><i class="fa fa-users"></i> {{value.Passengers}}</span>
-                                                                <span class="bw-mc"><i class="fa fa-shopping-bag"></i> {{value.Bags}}</span>
-                                                                <span class="bw-mc" ng-if="value.WheelChairs > 0"><i class="fa fa-wheelchair"></i> {{value.WheelChairs}}</span>
-                                                                <span class="bw-b" ng-style="{background: latealert(value.DispatchTimebefore, value.BookingDateTime) || '#475569', color:'#fff'}">
-                                                                    <i class="fa fa-hourglass-half"></i> {{checklateornow(value.JobMins, value.DispatchTimebefore)}}
-                                                                </span>
-                                                            </div>
-                                                            <div class="bw-card-ft-r">
-                                                                <span class="bw-ab bw-ab-edit" ng-click="EditJobunassignedng(value.Id, value.JobMins)" title="Edit job"><i class="fa fa-pencil"></i></span>
-                                                                <span class="bw-ab bw-ab-del" ng-click="UnAssignedJobsCancelng(value.Id, value.U_id)" title="Cancel job"><i class="fa fa-times"></i></span>
-                                                                <span class="bw-ml" ng-if="value.DispatcherName"><i class="fa fa-headphones"></i> {{value.DispatcherName}}</span>
-                                                                <span class="bw-ml" ng-if="value.BookingSource"><i class="fa fa-tag"></i> {{value.BookingSource}}</span>
-                                                            </div>
                                                         </div>
 
                                                     </div>
@@ -18012,27 +18000,32 @@ $(document).ready(function() {
                 var jobMins = parseInt(data1) || 0;
                 var dispatchBefore = parseInt(data2) || 0;
                 if (dispatchBefore === 0) {
-                    // ASAP job — show how long it has been waiting
                     if (jobMins >= 0) return 'Now';
-                    return Math.abs(jobMins) + ' Min waiting';
+                    return Math.abs(jobMins) + 'm wait';
                 }
-                // Pre-booked job — minutes until dispatch window opens
                 var minsToDispatch = jobMins - dispatchBefore;
                 if (minsToDispatch > 0) {
-                    // Dispatch window not yet open — show time until driver should be sent
                     var h = Math.floor(minsToDispatch / 60);
                     var m = minsToDispatch % 60;
-                    if (h >= 48) return 'Dispatch in ' + Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
-                    if (h > 0)   return 'Dispatch in ' + h + 'h ' + (m > 0 ? m + 'm' : '');
-                    return 'Dispatch in ' + minsToDispatch + 'm';
+                    if (h >= 48) return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+                    if (h > 0)   return h + 'h ' + (m > 0 ? m + 'm' : '');
+                    return minsToDispatch + 'm';
                 } else if (jobMins > 0) {
-                    // Window is open and pickup is still ahead — dispatch now
-                    return 'Send Driver Now';
+                    return 'Send Now';
                 } else {
-                    // Pickup time has passed — show how many minutes overdue
-                    return Math.abs(jobMins) + ' Min Overdue';
+                    return Math.abs(jobMins) + 'm late';
                 }
-            }
+            };
+            $scope.bwSrcShort = function (src) {
+                if (!src) return '';
+                var map = {
+                    'Dispatch Console': 'Console', 'Dispatcher Console': 'Console',
+                    'Mobile App': 'App', 'Web Booking': 'Web', 'Website': 'Web',
+                    'Phone Booking': 'Phone', 'Walk In': 'Walk-in',
+                    'API': 'API', 'Kiosk': 'Kiosk'
+                };
+                return map[src] || (src.length > 9 ? src.substring(0, 8) + '…' : src);
+            };
             $scope.alerting = function (DispatchTimebefore, BookingDateTime, BookingStatus) {
                 var db = parseInt(DispatchTimebefore) || 0;
                 var isNoOne = BookingStatus === 'No One';
