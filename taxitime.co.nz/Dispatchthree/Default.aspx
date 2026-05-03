@@ -250,15 +250,15 @@
     }
 
     @keyframes glowing {
-        0%   { box-shadow: 0 0 0 1px rgba(220,38,38,0.15), 0 1px 5px rgba(220,38,38,0.20); }
-        50%  { box-shadow: 0 0 0 2px rgba(220,38,38,0.30), 0 2px 7px rgba(220,38,38,0.40); }
-        100% { box-shadow: 0 0 0 1px rgba(220,38,38,0.15), 0 1px 5px rgba(220,38,38,0.20); }
+        0%   { box-shadow: inset 0 0 0px  0px  rgba(220,38,38,0.0); }
+        50%  { box-shadow: inset 0 0 10px 3px  rgba(220,38,38,0.45); }
+        100% { box-shadow: inset 0 0 0px  0px  rgba(220,38,38,0.0); }
     }
 
     @keyframes glowing-amber {
-        0%   { box-shadow: 0 0 0 1px rgba(217,119,6,0.15), 0 1px 5px rgba(217,119,6,0.20); }
-        50%  { box-shadow: 0 0 0 2px rgba(217,119,6,0.30), 0 2px 7px rgba(217,119,6,0.40); }
-        100% { box-shadow: 0 0 0 1px rgba(217,119,6,0.15), 0 1px 5px rgba(217,119,6,0.20); }
+        0%   { box-shadow: inset 0 0 0px  0px  rgba(217,119,6,0.0); }
+        50%  { box-shadow: inset 0 0 10px 3px  rgba(217,119,6,0.45); }
+        100% { box-shadow: inset 0 0 0px  0px  rgba(217,119,6,0.0); }
     }
 
     .page-main {
