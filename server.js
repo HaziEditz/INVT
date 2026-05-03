@@ -2416,6 +2416,8 @@ const server = http.createServer(async (req, res) => {
         const quenumber = param('quenumber') || 0;
         const dispatcherName = param('DispatcherName') || 'Dispatcher';
         const u_id = param('u_id') || param('U_id') || null;
+        const serviceType = (['taxi','food','freight','tm'].includes((param('serviceType') || '').toLowerCase()))
+          ? param('serviceType').toLowerCase() : 'taxi';
 
         const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
         const newJob = {
@@ -2438,6 +2440,7 @@ const server = http.createServer(async (req, res) => {
           BookingSource: param('Source') || 'Dispatch Console',
           BookingStatus: bookstatus,
           VehicleType: vehicleType,
+          serviceType: serviceType,
           EstimatedDistance: param('Distance') || '0',
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
@@ -2535,6 +2538,8 @@ const server = http.createServer(async (req, res) => {
         const bookingType = param('Bookingtype') || 'Normal Ride';
         const dispatcherName = param('DispatcherName') || 'Dispatcher';
         const u_id = param('u_id') || param('U_id') || null;
+        const serviceType2 = (['taxi','food','freight','tm'].includes((param('serviceType') || '').toLowerCase()))
+          ? param('serviceType').toLowerCase() : 'taxi';
         const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
         const newJob = {
           Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
@@ -2556,6 +2561,7 @@ const server = http.createServer(async (req, res) => {
           BookingSource: param('Source') || 'Dispatch Console',
           BookingStatus: bookstatus,
           VehicleType: vehicleType,
+          serviceType: serviceType2,
           EstimatedDistance: param('Distance') || '0',
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',

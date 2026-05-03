@@ -728,6 +728,10 @@
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
                                                                 <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
+                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
+                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
+                                                                    {{value.serviceType | uppercase}}</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
@@ -1128,6 +1132,10 @@
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
                                                                 <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
+                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
+                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
+                                                                    {{value.serviceType | uppercase}}</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="Dispatched Time" class="glyphicon glyphicon-info-sign"></i>
@@ -3533,6 +3541,28 @@ $(document).ready(function() {
                                                                
                                                             </div>
                                                         </div>
+                                                        <!-- Service Type selector -->
+                                                        <div class="col-sm-12" style="margin:4px 0 6px 0;">
+                                                            <label class="label label-primary" style="margin-bottom:4px;display:block;font-size:11px;"><i class="fa fa-tag"></i> Service Type</label>
+                                                            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                                                <button type="button" ng-click="bwServiceType='taxi'"
+                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #1565c0;cursor:pointer;font-weight:600;"
+                                                                    ng-style="{background:bwServiceType==='taxi'?'#1565c0':'#f0f4ff',color:bwServiceType==='taxi'?'#fff':'#1565c0'}">
+                                                                    <i class="fa fa-taxi"></i> Taxi</button>
+                                                                <button type="button" ng-click="bwServiceType='food'"
+                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2e7d32;cursor:pointer;font-weight:600;"
+                                                                    ng-style="{background:bwServiceType==='food'?'#2e7d32':'#f0fff2',color:bwServiceType==='food'?'#fff':'#2e7d32'}">
+                                                                    <i class="fa fa-cutlery"></i> Food</button>
+                                                                <button type="button" ng-click="bwServiceType='freight'"
+                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #e65100;cursor:pointer;font-weight:600;"
+                                                                    ng-style="{background:bwServiceType==='freight'?'#e65100':'#fff8f0',color:bwServiceType==='freight'?'#fff':'#e65100'}">
+                                                                    <i class="fa fa-truck"></i> Freight</button>
+                                                                <button type="button" ng-click="bwServiceType='tm'"
+                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #6a1b9a;cursor:pointer;font-weight:600;"
+                                                                    ng-style="{background:bwServiceType==='tm'?'#6a1b9a':'#faf0ff',color:bwServiceType==='tm'?'#fff':'#6a1b9a'}">
+                                                                    <i class="fa fa-wheelchair"></i> TM</button>
+                                                            </div>
+                                                        </div>
                                                         <div class="col-sm-12 col-md-12 col-xs-12 col-xl-12">
                                                             <div class="row">
                                                                 <div class="col-sm-12 col-md-6 col-xl-6" style="padding:0px;">
@@ -3750,6 +3780,10 @@ $(document).ready(function() {
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
                                                                 <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
+                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
+                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
+                                                                    {{value.serviceType | uppercase}}</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
@@ -3921,6 +3955,10 @@ $(document).ready(function() {
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
                                                                 <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
+                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
+                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
+                                                                    {{value.serviceType | uppercase}}</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
@@ -4389,6 +4427,10 @@ $(document).ready(function() {
                                                                 </div>
                                                                 <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
                                                                 <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
+                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
+                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
+                                                                    {{value.serviceType | uppercase}}</span>
 
                                                                 <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
                                                                     <span><i style="color: black;" title="Dispatched Time" class="glyphicon glyphicon-info-sign"></i>
@@ -12052,6 +12094,7 @@ $(document).ready(function() {
         $scope.selectedbeg = 0;
         $scope.selectedwheelchair = 0;
         $scope.selectedcar = 1;
+        $scope.bwServiceType = 'taxi';
         $scope.changeperson = function(){
 
             if($scope.selectedwheelchair > 0){
@@ -13313,6 +13356,7 @@ $(document).ready(function() {
             { "name": "DispatchMinutes", "Value": DispatchingTime },
             { "name": "Dispatchbefore", "Value": dispatchshowtime },
             { "name": "Source", "Value": 'Dispatch Console' },
+            { "name": "serviceType", "Value": $scope.bwServiceType || 'taxi' },
             { "name": "Distance", "Value":  $scope.distance },
             { "name": "Time", "Value":  $scope.Time },
             { "name": "EstimatedCost", "Value": $scope.currency },
@@ -13471,6 +13515,7 @@ $(document).ready(function() {
                     { "name": "DispatchMinutes", "Value": DispatchingTime2 },
                     { "name": "Dispatchbefore", "Value": dispatchshowtime3 },
                     { "name": "Source", "Value": 'Dispatch Console' },
+                    { "name": "serviceType", "Value": $scope.bwServiceType || 'taxi' },
                     { "name": "Distance", "Value":  $scope.distance },
                     { "name": "Time", "Value":  $scope.Time },
                     { "name": "EstimatedCost", "Value": $scope.currency },
@@ -15553,7 +15598,7 @@ $(document).ready(function() {
            
             changerefresh();
             refreshjob = 0;
-            
+            $scope.bwServiceType = 'taxi';
             $('#timesuggested').text('');
             $scope.weekselect = 0;
             $scope.dayselect = '';
