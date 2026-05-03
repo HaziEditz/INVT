@@ -103,11 +103,11 @@
         color: red;
     }
 
-    /* ── Dark panel so cards float as raised tiles ── */
+    /* ── Dark panel — thin gap only ── */
     .tab-pane#tab5 {
         background: #0f172a;
-        border-radius: 0 0 8px 8px;
-        padding: 10px 8px 6px;
+        border-radius: 0 0 6px 6px;
+        padding: 3px 3px 3px;
     }
     div#singlediv {
         background: #ffffff;
@@ -115,7 +115,7 @@
         box-shadow: 0 4px 14px rgba(0,0,0,0.45);
         border: 1px solid rgba(255,255,255,0.12);
         border-left: 4px solid #2563eb;
-        margin-bottom: 12px;
+        margin-bottom: 3px;
         overflow: hidden;
         position: relative;
         transition: box-shadow 0.18s;
