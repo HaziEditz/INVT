@@ -767,7 +767,7 @@
                                                                        <select id="sp{{value.Id}}" class="form-control  " onclick="showwxx()" style="width: 100px; height:30px; font-size:14px;">
                                                                     <option value="0"  data-zoneq="0"   >Select Driver</option>
                                                                     <option value="0"  data-zoneq="0"  >No One</option>
-                                                                    <option ng-repeat ="driwq in driverdatarealx  " ng-show="checkofferjob(driwq.driverid) && checkDriverSvc(driwq.driverid, 'taxi')" ng-if="driwq.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, driwq.vehicletype)"  data-zoneq="{{driwq.zonequeue}}"  data-foo="{{driwq.VehicleId}}" ng-value="{{driwq.driverid}}">{{driwq.vehiclenumber }}  {{driwq.vehicletype}} </option>
+                                                                    <option ng-repeat ="driwq in driverdatarealx  " ng-show="checkofferjob(driwq.driverid) && checkDriverSvc(driwq.driverid, (value.serviceType||'taxi'))" ng-if="driwq.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, driwq.vehicletype)"  data-zoneq="{{driwq.zonequeue}}"  data-foo="{{driwq.VehicleId}}" ng-value="{{driwq.driverid}}">{{driwq.vehiclenumber }}  {{driwq.vehicletype}} </option>
 
                                                                     
                                                                 </select>
@@ -964,7 +964,7 @@
                                                                     <select id="sxgg{{avalue.Id}}" class="form-control  JobsListVehicles" style="width: 160px;">
                                                                         <option value="0"  data-zoneq="0"  >Select Driver</option>
                                                                          <option value="0"  data-zoneq="0"  >No One</option>
-                                                                     <option ng-repeat ="dri in driverdatarealx " ng-show="checkofferjob(dri.driverid) && checkDriverSvc(dri.driverid, 'taxi')" ng-if="dri.vehiclestatus == 'Available' && true == checkjobvehile(avalue.VehicleType, dri.vehicletype)"  data-zoneq="{{dri.zonequeue}}"    data-foo="{{dri.VehicleId}}" ng-value="{{dri.driverid}}">{{dri.vehiclenumber }}  {{dri.vehicletype}} </option>
+                                                                     <option ng-repeat ="dri in driverdatarealx " ng-show="checkofferjob(dri.driverid) && checkDriverSvc(dri.driverid, (avalue.serviceType||'taxi'))" ng-if="dri.vehiclestatus == 'Available' && true == checkjobvehile(avalue.VehicleType, dri.vehicletype)"  data-zoneq="{{dri.zonequeue}}"    data-foo="{{dri.VehicleId}}" ng-value="{{dri.driverid}}">{{dri.vehiclenumber }}  {{dri.vehicletype}} </option>
 
                                                                      </select>
 
@@ -3574,7 +3574,7 @@ $(document).ready(function() {
                                                                          
                                                                    <option ng-repeat ="driz in LoginDriverdata" ng-if="!isDriverInRealtime(driz.Id)" data-zoneq="{{driz.zonequeue}}"   data-foo="{{driz.VehicleId}}" ng-value="{{driz.Id}}">  {{driz.UserFName}} / {{driz.VehicleNo }} </option>
 
-                                                                 <option ng-repeat ="driwqq in driverdatarealx" ng-show="checkofferjob(driwqq.driverid) && checkDriverSvc(driwqq.driverid, 'taxi')" ng-if="driwqq.vehiclestatus == 'Available'  &&   true == checkjobvehile1(driwqq.vehicletype )" data-zoneq="{{driwqq.zonequeue}}"   data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber }}  {{driwqq.vehicletype}} </option>
+                                                                 <option ng-repeat ="driwqq in driverdatarealx" ng-show="checkofferjob(driwqq.driverid) && checkDriverSvc(driwqq.driverid, (bwServiceType||'taxi'))" ng-if="driwqq.vehiclestatus == 'Available'  &&   true == checkjobvehile1(driwqq.vehicletype )" data-zoneq="{{driwqq.zonequeue}}"   data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber }}  {{driwqq.vehicletype}} </option>
                                                                 </select> 
                                                                 </div>
                                                                <div class="col-sm-12 col-md-6 col-xl-6" >
@@ -3858,7 +3858,7 @@ $(document).ready(function() {
                                                                   <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" style="height:26px; font-size:11px; padding:1px 4px;">
                                                                     <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
-                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
+                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
                                                                 </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
@@ -4033,7 +4033,7 @@ $(document).ready(function() {
                                                                   <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" style="height:26px; font-size:11px; padding:1px 4px;">
                                                                     <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
-                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,'taxi')" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
+                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
                                                                 </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
@@ -4207,7 +4207,7 @@ $(document).ready(function() {
                                                                     <select id="sxq{{avalue.Id}}" class="form-control JobsListVehicles" style="width: 160px;">
                                                                         <option value="0" data-zoneq="0" >Select Driver</option>
                                                                          <option value="0" data-zoneq="0" >No One</option>
-                                                                       <option ng-repeat="drivi in driverdatarealx  " ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid, 'taxi')" ng-if="drivi.vehiclestatus == 'Available'  && true == checkjobvehile(avalue.VehicleType, drivi.vehicletype)"   value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}"  data-doo="{{drivi.VehicleId}}"> {{drivi.vehiclenumber}}/{{drivi.vehicletype}}  </option>
+                                                                       <option ng-repeat="drivi in driverdatarealx  " ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid, (avalue.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available'  && true == checkjobvehile(avalue.VehicleType, drivi.vehicletype)"   value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}"  data-doo="{{drivi.VehicleId}}"> {{drivi.vehiclenumber}}/{{drivi.vehicletype}}  </option>
 
                                                                          
                                                                     </select>
@@ -8178,7 +8178,9 @@ $(document).ready(function() {
                 jobvehicletype:details.vehicleType|| '',
                 jobinfo:       details.rideinfo   || '',
                 jobFare:       String(details.fare || ''),
-                jobCount:      1
+                jobCount:      1,
+                jobServiceType: details.serviceType   || 'taxi',
+                jobBookingSrc:  details.bookingSource || _src || 'Dispatcher'
             };
             // Driver app listens at /notification/{driverId} (SQL driverid) — use directly.
             var _fbUidNotif = driverId;
@@ -8218,20 +8220,21 @@ $(document).ready(function() {
         var _u   = (uId && uId !== '' && uId !== 'null') ? uId : '';
 
         // ── Two-layer service guard ────────────────────────────────────────
-        // Determine service type from the job: check if it's in the delivery tab
-        // (food) or a regular taxi job. Falls back to 'taxi' if unknown.
+        // Reads serviceType directly from the job record across all scope lists.
         // This is a SAFETY NET — the dropdowns already hide ineligible drivers,
         // but this prevents any race condition or programmatic bypass.
         if (typeof window._bwCanDriverDoService === 'function' && driverId) {
             var _guardSvc = 'taxi'; // default
             try {
                 var _sc_g = angular.element(document.getElementById('myangular')).scope();
-                var _dj   = _sc_g && _sc_g.deliveryjobs;
-                if (_dj && _dj.length) {
-                    for (var _gi = 0; _gi < _dj.length; _gi++) {
-                        if (String(_dj[_gi].Id) === String(bookingId)) {
-                            _guardSvc = 'food'; break;
-                        }
+                var _allJ = [].concat(_sc_g && _sc_g.data1  ? _sc_g.data1  : [])
+                              .concat(_sc_g && _sc_g.data2  ? _sc_g.data2  : [])
+                              .concat(_sc_g && _sc_g.data3  ? _sc_g.data3  : [])
+                              .concat(_sc_g && _sc_g.tstst  ? _sc_g.tstst  : [])
+                              .concat(_sc_g && _sc_g.unassignedjob_list ? _sc_g.unassignedjob_list : []);
+                for (var _gi = 0; _gi < _allJ.length; _gi++) {
+                    if (String(_allJ[_gi].Id) === String(bookingId) && _allJ[_gi].serviceType) {
+                        _guardSvc = _allJ[_gi].serviceType; break;
                     }
                 }
             } catch(e) {}
@@ -8253,17 +8256,19 @@ $(document).ready(function() {
 
         function _doSend(job) {
             writeJobDetailsToFirebase(driverId, vehicleId, bookingId, {
-                pickup:      job.PickAddress     || job.PickLocation    || '',
-                dropoff:     job.DropAddress     || job.DropLocation    || '',
-                phone:       job.PhoneNo         || job.PassengerId     || '',
-                name:        job.Name            || job.UserFName       || '',
-                bags:        job.Bags            || job.BagsNo          || 0,
-                passengers:  job.Passengers      || job.PassengersNo    || 1,
-                vehicleType: job.VehicleType     || '',
-                rideinfo:    job.EntitiesDetails || '',
-                status:      status || 'Offered',
-                source:      _src,
-                u_id:        _u
+                pickup:        job.PickAddress     || job.PickLocation    || '',
+                dropoff:       job.DropAddress     || job.DropLocation    || '',
+                phone:         job.PhoneNo         || job.PassengerId     || '',
+                name:          job.Name            || job.UserFName       || '',
+                bags:          job.Bags            || job.BagsNo          || 0,
+                passengers:    job.Passengers      || job.PassengersNo    || 1,
+                vehicleType:   job.VehicleType     || '',
+                rideinfo:      job.EntitiesDetails || '',
+                status:        status || 'Offered',
+                source:        _src,
+                u_id:          _u,
+                serviceType:   job.serviceType    || 'taxi',
+                bookingSource: job.BookingSource  || job.bookingSource  || _src || 'Dispatcher'
             });
             // ── ETA push to passenger app ──────────────────────────────────
             // Writes ride status to Firebase so the passenger app can track
@@ -15040,6 +15045,7 @@ $(document).ready(function() {
                         var _typeOk = !_reqType || _reqType === 'not specified';
 
                         // First try Available drivers only.
+                        var _jobSvc = (job.serviceType || 'taxi').toLowerCase();
                         var availableDrivers = _availableOnly.filter(function(dv) {
                             var dvId = String(dv.driverid || dv.VehicleId || dv.PlayerId || '');
                             if (triedIds.indexOf(dvId) !== -1 || _claimedThisCycle[dvId]) return false;
@@ -15047,6 +15053,8 @@ $(document).ready(function() {
                                 var dvt = (dv.vehicletype || '').toLowerCase().trim();
                                 if (dvt && dvt !== 'not specified' && dvt !== _reqType) return false;
                             }
+                            if (typeof window._bwCanDriverDoService === 'function' &&
+                                !window._bwCanDriverDoService(dvId, _jobSvc)) return false;
                             return true;
                         });
 
@@ -15080,6 +15088,8 @@ $(document).ready(function() {
                                     var dvt2 = (dv.vehicletype || '').toLowerCase().trim();
                                     if (dvt2 && dvt2 !== 'not specified' && dvt2 !== _reqType) return false;
                                 }
+                                if (typeof window._bwCanDriverDoService === 'function' &&
+                                    !window._bwCanDriverDoService(dvId, _jobSvc)) return false;
                                 return true;
                             });
                             if (!busyFallback.length) {
