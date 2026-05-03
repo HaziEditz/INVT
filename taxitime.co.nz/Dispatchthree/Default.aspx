@@ -16842,18 +16842,18 @@ $(document).ready(function() {
                     job.JobMins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
                 });
 
-                // Sort: ASAP + dispatch-overdue pre-bookings first (oldest first), then future soonest
+                // Sort: Urgent flag always top, then ASAP/overdue, then future soonest
                 $scope.unassignedjob_list.sort(function(a, b) {
                     function urgencyScore(job) {
                         var db   = parseInt(job.DispatchTimebefore) || 0;
                         var bdt  = new Date(_bwToDateStr(job.BookingDateTime));
                         var mins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
+                        // Urgent flag → absolute top tier (subtract 999999)
+                        var urgentBonus = (job.Urgent === 'Yes') ? -999999 : 0;
                         // ASAP (db=0) OR dispatch window already open → urgent tier
-                        // subtract 99999 so they all rank above any future pre-booking,
-                        // and within urgent tier the most overdue (most negative mins) sorts first
-                        if (db === 0 || mins <= db) return mins - 99999;
+                        if (db === 0 || mins <= db) return urgentBonus + mins - 99999;
                         // Future pre-booking: sort by how soon dispatch window opens
-                        return mins - db;
+                        return urgentBonus + mins - db;
                     }
                     return urgencyScore(a) - urgencyScore(b);
                 });
