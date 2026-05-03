@@ -160,8 +160,9 @@
         white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:4px;
     }
     .bw-assign-row {
-        padding:3px 8px; display:flex; align-items:center;
+        padding:3px 8px 4px; display:flex; align-items:center;
         flex-wrap:wrap; gap:3px; border-top:1px solid #e8edf4;
+        border-bottom:3px solid #1e293b;
         background:#fff;
     }
     .bw-card-ft {
