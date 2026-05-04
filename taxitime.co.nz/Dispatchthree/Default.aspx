@@ -3386,6 +3386,37 @@ $(document).ready(function() {
                                                     </div>
                                                     <span class="bw-jlabel" style="margin-top:2px;"><i class="fa fa-flag-checkered" style="color:#e74c3c;margin-right:2px;"></i>Drop off</span>
                                                     <input type="text" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search dropoff location" autocomplete="off">
+
+                                                    <!-- ── Repeat booking – sits below dropoff, fills the gap ── -->
+                                                    <div ng-show="bookingtime_select == 1 && updatex == 0" style="margin-top:8px; background:#f0f4ff; border:1px solid #c5d0e6; border-radius:5px; padding:7px 9px;">
+                                                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1a1a2e;cursor:pointer;margin-bottom:0;">
+                                                            <input name="repeat" type="checkbox" ng-model="showdays" style="margin:0;">
+                                                            <i class="fa fa-repeat" style="color:#5c6bc0;margin-right:2px;"></i> Repeat this booking
+                                                        </label>
+                                                        <div id="DivRepeatList" ng-show="showdays" style="margin-top:6px;">
+                                                            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px;align-items:flex-end;">
+                                                                <div style="flex:1;min-width:110px;">
+                                                                    <span class="bw-jlabel">Until date</span>
+                                                                    <input type="date" id="MultipleDate" ng-model="datetimesecond" class="form-control" style="height:26px;font-size:11px;" />
+                                                                </div>
+                                                                <div>
+                                                                    <span class="bw-jlabel">Weeks</span>
+                                                                    <select name="recur_weeks" ng-model="weekselect" ng-change="changeweekday()" class="form-control" style="width:72px;height:26px;font-size:11px;">
+                                                                        <option ng-value="0">All</option><option ng-value="1">Odd</option><option ng-value="2">Even</option>
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+                                                            <div style="display:flex;flex-wrap:wrap;gap:5px;font-size:11px;">
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="mon" ng-value="0" ng-model="mon" type="checkbox"> Mon</label>
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="tue" ng-value="1" ng-model="tue" type="checkbox"> Tue</label>
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="wed" ng-value="2" ng-model="wed" type="checkbox"> Wed</label>
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="thu" ng-value="3" ng-model="thu" type="checkbox"> Thu</label>
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="fri" ng-value="4" ng-model="fri" type="checkbox"> Fri</label>
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="sat" ng-value="5" ng-model="sat" type="checkbox"> Sat</label>
+                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="sun" ng-value="6" ng-model="sun" type="checkbox"> Sun</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                                 <!-- RIGHT: customer search -->
                                                 <div style="flex:1; position:relative;">
@@ -3600,37 +3631,6 @@ $(document).ready(function() {
                                                         <input type="text" class="form-control" style="flex:1;" ng-readonly="true" value="{{claim_number}}" placeholder="Claim #">
                                                         <input type="text" class="form-control" style="width:50px;" ng-readonly="true" value="{{trip_days_left}}" placeholder="Rem">
                                                     </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- ── Repeat booking (hidden unless Later) ── -->
-                                        <div ng-show="bookingtime_select == 1 && updatex == 0" style="padding:0 12px 6px;">
-                                            <hr class="bw-sec-divider" style="margin-bottom:6px;">
-                                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#555;cursor:pointer;margin-bottom:5px;">
-                                                <input name="repeat" type="checkbox" ng-show="bookingtime_select == 1" ng-model="showdays" style="margin:0;"> Repeat booking
-                                            </label>
-                                            <div id="DivRepeatList" ng-show="showdays" style="background:#f8f9fa;border-radius:5px;padding:7px 10px;">
-                                                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:5px;align-items:flex-end;">
-                                                    <div style="flex:1;min-width:120px;">
-                                                        <span class="bw-jlabel">Until</span>
-                                                        <input type="date" id="MultipleDate" ng-model="datetimesecond" class="form-control" />
-                                                    </div>
-                                                    <div>
-                                                        <span class="bw-jlabel">Weeks</span>
-                                                        <select name="recur_weeks" ng-model="weekselect" ng-change="changeweekday()" class="form-control" style="width:80px;">
-                                                            <option ng-value="0">All</option><option ng-value="1">Odd</option><option ng-value="2">Even</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="mon" ng-value="0" ng-model="mon" type="checkbox"> Mon</label>
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="tue" ng-value="1" ng-model="tue" type="checkbox"> Tue</label>
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="wed" ng-value="2" ng-model="wed" type="checkbox"> Wed</label>
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="thu" ng-value="3" ng-model="thu" type="checkbox"> Thu</label>
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="fri" ng-value="4" ng-model="fri" type="checkbox"> Fri</label>
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="sat" ng-value="5" ng-model="sat" type="checkbox"> Sat</label>
-                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="sun" ng-value="6" ng-model="sun" type="checkbox"> Sun</label>
                                                 </div>
                                             </div>
                                         </div>
