@@ -4,6 +4,35 @@
 
 A web-based Taxi Dispatch System for "BookaWaka" (taxitime.co.nz). Provides a real-time dispatch console for managing taxi bookings, vehicles, and drivers — styled as a professional Uber/Bolt-style dashboard.
 
+---
+
+## Server Architecture — Important for Developers
+
+**This Replit** is the **Dispatcher Console** (frontend + backend). The server entry point here is:
+
+```
+server.js   ← plain JavaScript, root of this repo, run with: node server.js
+```
+
+**The Super Admin Replit** (separate repo) has undergone a TypeScript refactor. If you are working on that codebase:
+
+- `server.ts` (root) is **gone**
+- Entry point is now **`src/app.ts`**
+- Routes are split into 10 files under `src/routes/` — one per feature area:
+  - `jobs`, `passenger`, `towing`, `stripe`, `freight`, `council`, `earnings`, `restaurant`, `rental`, `sa-admin`
+- Shared helpers: `src/firebase.ts`, `src/utils.ts`, `src/sessions.ts`
+- To run: `npx ts-node src/app.ts`
+
+**What has NOT changed on the super admin side:**
+- All API routes work identically — no endpoints changed
+- Firebase, Stripe, Resend — all same config
+- Environment variables/secrets — all same
+- The `.aspx` frontend files are untouched
+
+> **Frontend-only devs** (working on `.aspx` pages in this Dispatcher Console Replit) don't need to know anything about the super admin server refactor — it has no effect here.
+
+---
+
 ## Account / Registration System
 
 New companies sign up via the **"Join as an Operator"** modal on the login page (or from any marketing website "Join" button — both use the same endpoint). Operators choose a **service type** and a **plan** at signup.
