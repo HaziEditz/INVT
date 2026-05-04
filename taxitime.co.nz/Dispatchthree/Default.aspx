@@ -3387,8 +3387,8 @@ $(document).ready(function() {
                                                     <span class="bw-jlabel" style="margin-top:2px;"><i class="fa fa-flag-checkered" style="color:#e74c3c;margin-right:2px;"></i>Drop off</span>
                                                     <input type="text" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search dropoff location" autocomplete="off">
 
-                                                    <!-- ── Repeat booking – sits below dropoff, fills the gap ── -->
-                                                    <div ng-show="bookingtime_select == 1 && updatex == 0" style="margin-top:8px; background:#f0f4ff; border:1px solid #c5d0e6; border-radius:5px; padding:7px 9px;">
+                                                    <!-- ── Repeat booking – always visible below dropoff ── -->
+                                                    <div ng-show="updatex == 0" style="margin-top:8px; background:#f0f4ff; border:1px solid #c5d0e6; border-radius:5px; padding:7px 9px;">
                                                         <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1a1a2e;cursor:pointer;margin-bottom:0;">
                                                             <input name="repeat" type="checkbox" ng-model="showdays" style="margin:0;">
                                                             <i class="fa fa-repeat" style="color:#5c6bc0;margin-right:2px;"></i> Repeat this booking
