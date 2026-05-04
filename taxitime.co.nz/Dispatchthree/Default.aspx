@@ -3384,8 +3384,18 @@ $(document).ready(function() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <span class="bw-jlabel" style="margin-top:2px;"><i class="fa fa-flag-checkered" style="color:#e74c3c;margin-right:2px;"></i>Drop off</span>
+                                                    <!-- Reverse swap button sits between pickup and dropoff -->
+                                                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
+                                                        <span class="bw-jlabel" style="margin:0;"><i class="fa fa-flag-checkered" style="color:#e74c3c;margin-right:2px;"></i>Drop off</span>
+                                                        <button type="button" ng-click="btnReverse()" title="Swap pickup and dropoff" style="font-size:10px;padding:1px 7px;border-radius:4px;border:1px solid #bbb;background:#f5f5f5;color:#555;cursor:pointer;line-height:1.6;margin-left:auto;"><i class="fa fa-exchange"></i> Reverse</button>
+                                                    </div>
                                                     <input type="text" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search dropoff location" autocomplete="off">
+                                                    <!-- Estimation strip — appears after route is calculated -->
+                                                    <div ng-show="Time" style="margin-top:5px;font-size:11px;color:#555;background:#f0f4f8;border-radius:4px;padding:3px 8px;display:flex;gap:10px;flex-wrap:wrap;">
+                                                        <span><i class="fa fa-clock-o" style="color:#aaa;"></i> {{Time}}</span>
+                                                        <span><i class="fa fa-road" style="color:#aaa;"></i> {{distance}}</span>
+                                                        <span ng-show="currencyprice"><i class="fa fa-dollar" style="color:#aaa;"></i> {{currencyprice}} {{currency}}</span>
+                                                    </div>
 
                                                     <!-- ── Repeat booking – always visible below dropoff ── -->
                                                     <div ng-show="updatex == 0" style="margin-top:8px; background:#f0f4ff; border:1px solid #c5d0e6; border-radius:5px; padding:7px 9px;">
@@ -3440,19 +3450,8 @@ $(document).ready(function() {
                                                     <input type="text" class="form-control" style="margin-bottom:4px;" name="passengerphone" ng-model="account_Name" value="{{account_Name}}" placeholder="Passenger name">
                                                     <span class="bw-jlabel">Phone</span>
                                                     <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo" value="{{account_PhoneNo}}" placeholder="Phone number">
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <hr class="bw-sec-divider">
-
-                                        <!-- ── ROW 2: Actions | Now/Later ── -->
-                                        <div class="bw-sec" style="padding-top:7px; padding-bottom:7px;">
-                                            <div class="bw-jrow" style="align-items:flex-start; margin-bottom:0;">
-                                                <!-- LEFT: action buttons + corner detail + estimation -->
-                                                <div style="flex:0 0 58%;">
-                                                    <div class="bw-icon-row">
-                                                        <button type="button" ng-click="btnReverse()" style="font-size:11px;padding:2px 10px;border-radius:4px;border:1px solid #bbb;background:#f5f5f5;color:#555;cursor:pointer;"><i class="fa fa-exchange"></i> Reverse</button>
+                                                    <!-- Corner / Urgent — moved here from old ROW 2 -->
+                                                    <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;">
                                                         <label style="display:flex;align-items:center;gap:3px;font-size:12px;margin:0;cursor:pointer;color:#555;font-weight:500;white-space:nowrap;">
                                                             <input type="checkbox" name="corner" ng-model="cornershow" style="margin:0;"> Corner
                                                         </label>
@@ -3460,15 +3459,9 @@ $(document).ready(function() {
                                                             <input type="checkbox" name="Urgent" ng-model="urgentdata" style="margin:0;"> Urgent
                                                         </label>
                                                     </div>
-                                                    <input type="text" class="form-control" style="margin-bottom:5px;font-size:12px;height:26px;" placeholder="Corner detail" ng-show="cornershow" ng-model="cornerdata" />
-                                                    <div ng-show="Time" style="font-size:11px;color:#555;background:#f0f4f8;border-radius:4px;padding:3px 8px;display:flex;gap:10px;flex-wrap:wrap;">
-                                                        <span><i class="fa fa-clock-o" style="color:#aaa;"></i> {{Time}}</span>
-                                                        <span><i class="fa fa-road" style="color:#aaa;"></i> {{distance}}</span>
-                                                        <span ng-show="currencyprice"><i class="fa fa-dollar" style="color:#aaa;"></i> {{currencyprice}} {{currency}}</span>
-                                                    </div>
-                                                </div>
-                                                <!-- RIGHT: Now/Later -->
-                                                <div style="flex:1;">
+                                                    <input type="text" class="form-control" style="margin-top:4px;font-size:12px;height:26px;" placeholder="Corner detail" ng-show="cornershow" ng-model="cornerdata" />
+                                                    <!-- Booking time — moved here from old ROW 2 -->
+                                                    <div style="margin-top:6px;">
                                                     <span class="bw-jlabel">Booking time</span>
                                                     <div style="display:flex;border:1px solid #ced4da;border-radius:5px;overflow:hidden;width:fit-content;margin-bottom:6px;">
                                                         <label ng-style="{background:bookingtime_select==0?'#dfba5f':'#fff',color:bookingtime_select==0?'#333':'#888',fontWeight:bookingtime_select==0?'700':'400'}" style="margin:0;font-size:12px;padding:4px 18px;cursor:pointer;border-right:1px solid #ced4da;transition:background 0.15s;white-space:nowrap;">
@@ -3514,10 +3507,11 @@ $(document).ready(function() {
                                                             </div>
                                                         </div>
                                                         <span id="timesuggested" style="font-size:11px;color:#7b1fa2;font-weight:600;display:block;margin-top:3px;"></span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
+                                                    </div><!-- /bookingtime_select==1 panel -->
+                                                    </div><!-- /booking-time wrapper -->
+                                                </div><!-- /right column -->
+                                            </div><!-- /bw-jrow -->
+                                        </div><!-- /bw-sec ROW 1 -->
 
                                         <hr class="bw-sec-divider">
 
