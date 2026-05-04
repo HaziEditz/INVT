@@ -3366,11 +3366,11 @@ $(document).ready(function() {
 
                                     <div id="bwJobForm">
 
-                                        <!-- ── ROW 1: Pickup  |  Customer search ── -->
-                                        <div class="bw-sec" style="padding-bottom:0;">
+                                        <!-- ══ SECTION A: Addresses (left) | Customer (right) ══ -->
+                                        <div class="bw-sec" style="padding-bottom:4px;">
                                             <div class="bw-jrow">
                                                 <!-- LEFT: addresses -->
-                                                <div style="flex:0 0 58%;">
+                                                <div style="flex:0 0 57%;">
                                                     <span class="bw-jlabel"><i class="fa fa-map-marker" style="color:#2ecc71;margin-right:2px;"></i>Pick up</span>
                                                     <input type="text" class="form-control" id="pac-input" ng-model="pickupaddress" placeholder="Search pickup location" autocomplete="off" style="margin-bottom:4px;">
                                                     <button type="button" ng-show="showstopshow" ng-click="createnewstop()" style="font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid #2ecc71;background:#f0fff4;color:#27ae60;cursor:pointer;margin-bottom:4px;line-height:1.6;"><i class="fa fa-plus"></i> Add Stop</button>
@@ -3384,56 +3384,23 @@ $(document).ready(function() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <!-- Reverse swap button sits between pickup and dropoff -->
                                                     <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
                                                         <span class="bw-jlabel" style="margin:0;"><i class="fa fa-flag-checkered" style="color:#e74c3c;margin-right:2px;"></i>Drop off</span>
                                                         <button type="button" ng-click="btnReverse()" title="Swap pickup and dropoff" style="font-size:10px;padding:1px 7px;border-radius:4px;border:1px solid #bbb;background:#f5f5f5;color:#555;cursor:pointer;line-height:1.6;margin-left:auto;"><i class="fa fa-exchange"></i> Reverse</button>
                                                     </div>
                                                     <input type="text" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search dropoff location" autocomplete="off">
-                                                    <!-- Estimation strip — appears after route is calculated -->
-                                                    <div ng-show="Time" style="margin-top:5px;font-size:11px;color:#555;background:#f0f4f8;border-radius:4px;padding:3px 8px;display:flex;gap:10px;flex-wrap:wrap;">
+                                                    <div ng-show="Time" style="margin-top:4px;font-size:11px;color:#555;background:#f0f4f8;border-radius:4px;padding:3px 8px;display:flex;gap:10px;flex-wrap:wrap;">
                                                         <span><i class="fa fa-clock-o" style="color:#aaa;"></i> {{Time}}</span>
                                                         <span><i class="fa fa-road" style="color:#aaa;"></i> {{distance}}</span>
                                                         <span ng-show="currencyprice"><i class="fa fa-dollar" style="color:#aaa;"></i> {{currencyprice}} {{currency}}</span>
                                                     </div>
-
-                                                    <!-- ── Repeat booking – always visible below dropoff ── -->
-                                                    <div ng-show="updatex == 0" style="margin-top:8px; background:#f0f4ff; border:1px solid #c5d0e6; border-radius:5px; padding:7px 9px;">
-                                                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1a1a2e;cursor:pointer;margin-bottom:0;">
-                                                            <input name="repeat" type="checkbox" ng-model="showdays" style="margin:0;">
-                                                            <i class="fa fa-repeat" style="color:#5c6bc0;margin-right:2px;"></i> Repeat this booking
-                                                        </label>
-                                                        <div id="DivRepeatList" ng-show="showdays" style="margin-top:6px;">
-                                                            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px;align-items:flex-end;">
-                                                                <div style="flex:1;min-width:110px;">
-                                                                    <span class="bw-jlabel">Until date</span>
-                                                                    <input type="date" id="MultipleDate" ng-model="datetimesecond" class="form-control" style="height:26px;font-size:11px;" />
-                                                                </div>
-                                                                <div>
-                                                                    <span class="bw-jlabel">Weeks</span>
-                                                                    <select name="recur_weeks" ng-model="weekselect" ng-change="changeweekday()" class="form-control" style="width:72px;height:26px;font-size:11px;">
-                                                                        <option ng-value="0">All</option><option ng-value="1">Odd</option><option ng-value="2">Even</option>
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-                                                            <div style="display:flex;flex-wrap:wrap;gap:5px;font-size:11px;">
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="mon" ng-value="0" ng-model="mon" type="checkbox"> Mon</label>
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="tue" ng-value="1" ng-model="tue" type="checkbox"> Tue</label>
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="wed" ng-value="2" ng-model="wed" type="checkbox"> Wed</label>
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="thu" ng-value="3" ng-model="thu" type="checkbox"> Thu</label>
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="fri" ng-value="4" ng-model="fri" type="checkbox"> Fri</label>
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="sat" ng-value="5" ng-model="sat" type="checkbox"> Sat</label>
-                                                                <label style="display:flex;align-items:center;gap:2px;"><input name="sun" ng-value="6" ng-model="sun" type="checkbox"> Sun</label>
-                                                            </div>
-                                                        </div>
-                                                    </div>
                                                 </div>
-                                                <!-- RIGHT: customer search -->
+                                                <!-- RIGHT: customer -->
                                                 <div style="flex:1; position:relative;">
                                                     <span class="bw-jlabel"><i class="fa fa-search" style="margin-right:2px;"></i>Customer Search</span>
                                                     <div style="display:flex;gap:4px;margin-bottom:4px;">
                                                         <input type="Search" id="searchdatasx" class="form-control" autocomplete="off" style="flex:1;" name="searchaap" ng-model="searchtext" ng-keydown="Searchmulti( )" placeholder="ACC / Account / Name">
-                                                        <button class="btn btn-default btn-sm" ng-click="clearseacch()" style="padding:1px 8px;font-size:11px;white-space:nowrap;">✕</button>
+                                                        <button class="btn btn-default btn-sm" ng-click="clearseacch()" style="padding:1px 8px;font-size:11px;white-space:nowrap;">&#10005;</button>
                                                     </div>
                                                     <div id="searchdatas" style="position:absolute;z-index:200;background:#efe3e3;width:100%;color:grey;top:52px;left:0;border-radius:4px;max-height:130px;overflow-y:auto;box-shadow:0 2px 8px rgba(0,0,0,.15);">
                                                         <h5 ng-click="accselect(acc)" id="testingss" style="cursor:pointer;margin:0;padding:4px 8px;font-size:11px;border-bottom:1px solid #ddd;" ng-repeat="acc in acc_record_search">
@@ -3446,12 +3413,30 @@ $(document).ready(function() {
                                                             <label class="label label-success">{{passenger.PhoneNo}}</label> | <label class="label label-success">{{passenger.Name}}</label>
                                                         </h5>
                                                     </div>
-                                                    <span class="bw-jlabel">Name</span>
-                                                    <input type="text" class="form-control" style="margin-bottom:4px;" name="passengerphone" ng-model="account_Name" value="{{account_Name}}" placeholder="Passenger name">
-                                                    <span class="bw-jlabel">Phone</span>
-                                                    <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo" value="{{account_PhoneNo}}" placeholder="Phone number">
-                                                    <!-- Corner / Urgent — moved here from old ROW 2 -->
-                                                    <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap;">
+                                                    <div style="display:flex;gap:6px;">
+                                                        <div style="flex:1;">
+                                                            <span class="bw-jlabel">Name</span>
+                                                            <input type="text" class="form-control" name="passengerphone" ng-model="account_Name" value="{{account_Name}}" placeholder="Passenger name">
+                                                        </div>
+                                                        <div style="flex:1;">
+                                                            <span class="bw-jlabel">Phone</span>
+                                                            <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo" value="{{account_PhoneNo}}" placeholder="Phone number">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <hr class="bw-sec-divider">
+
+                                        <!-- ══ SECTION B: Notes / Options (left) | Booking Time (right) ══ -->
+                                        <div class="bw-sec" style="padding-top:7px;padding-bottom:7px;">
+                                            <div class="bw-jrow" style="align-items:flex-start;margin-bottom:0;">
+                                                <!-- LEFT: notes + corner/urgent -->
+                                                <div style="flex:0 0 57%;">
+                                                    <span class="bw-jlabel">Notes / Instructions</span>
+                                                    <input type="text" class="form-control" ng-model="rideinfo" placeholder="Job notes" style="margin-bottom:5px;">
+                                                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                                                         <label style="display:flex;align-items:center;gap:3px;font-size:12px;margin:0;cursor:pointer;color:#555;font-weight:500;white-space:nowrap;">
                                                             <input type="checkbox" name="corner" ng-model="cornershow" style="margin:0;"> Corner
                                                         </label>
@@ -3460,8 +3445,9 @@ $(document).ready(function() {
                                                         </label>
                                                     </div>
                                                     <input type="text" class="form-control" style="margin-top:4px;font-size:12px;height:26px;" placeholder="Corner detail" ng-show="cornershow" ng-model="cornerdata" />
-                                                    <!-- Booking time — moved here from old ROW 2 -->
-                                                    <div style="margin-top:6px;">
+                                                </div>
+                                                <!-- RIGHT: booking time -->
+                                                <div style="flex:1;">
                                                     <span class="bw-jlabel">Booking time</span>
                                                     <div style="display:flex;border:1px solid #ced4da;border-radius:5px;overflow:hidden;width:fit-content;margin-bottom:6px;">
                                                         <label ng-style="{background:bookingtime_select==0?'#dfba5f':'#fff',color:bookingtime_select==0?'#333':'#888',fontWeight:bookingtime_select==0?'700':'400'}" style="margin:0;font-size:12px;padding:4px 18px;cursor:pointer;border-right:1px solid #ced4da;transition:background 0.15s;white-space:nowrap;">
@@ -3472,14 +3458,14 @@ $(document).ready(function() {
                                                         </label>
                                                     </div>
                                                     <div ng-show="bookingtime_select==1" style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:5px;padding:6px 8px;">
-                                                        <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;">
+                                                        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px;">
                                                             <div style="flex:1;min-width:110px;">
                                                                 <span class="bw-jlabel">Date</span>
                                                                 <input type="date" id="laterDate" class="form-control" style="height:26px;font-size:11px;padding:2px 4px;" />
                                                             </div>
                                                             <div>
                                                                 <span class="bw-jlabel">Time</span>
-                                                                <div style="display:flex;align-items:center;gap:3px;">
+                                                                <div style="display:flex;align-items:center;gap:2px;">
                                                                     <select onchange="checktime_now(this.value)" class="form-control" id="ddlLaterHrs" ng-model="ddlLaterHrs" style="height:26px;font-size:11px;padding:1px 2px;width:50px;">
                                                                         <option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option>
                                                                         <option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option>
@@ -3506,23 +3492,18 @@ $(document).ready(function() {
                                                                 </select>
                                                             </div>
                                                         </div>
-                                                        <span id="timesuggested" style="font-size:11px;color:#7b1fa2;font-weight:600;display:block;margin-top:3px;"></span>
-                                                    </div><!-- /bookingtime_select==1 panel -->
-                                                    </div><!-- /booking-time wrapper -->
-                                                </div><!-- /right column -->
-                                            </div><!-- /bw-jrow -->
-                                        </div><!-- /bw-sec ROW 1 -->
+                                                        <span id="timesuggested" style="font-size:11px;color:#7b1fa2;font-weight:600;display:block;margin-top:2px;"></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
 
                                         <hr class="bw-sec-divider">
 
-                                        <!-- ── ROW 3: Notes | Tariff | Account extras ── -->
-                                        <div class="bw-sec" style="padding-top:7px; padding-bottom:7px;">
-                                            <div class="bw-jrow" style="margin-bottom:0;">
-                                                <div style="flex:2;">
-                                                    <span class="bw-jlabel">Notes / Instructions</span>
-                                                    <input type="text" class="form-control" ng-model="rideinfo" placeholder="Job notes">
-                                                </div>
-                                                <div style="flex:1;">
+                                        <!-- ══ SECTION C: Account / Payment strip ══ -->
+                                        <div class="bw-sec" style="padding-top:6px;padding-bottom:6px;">
+                                            <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+                                                <div style="flex:1;min-width:100px;">
                                                     <span class="bw-jlabel">Tariff</span>
                                                     <select class="form-control" style="padding:2px 4px;" ng-change="unitChanged()" ng-model="selectedtarrif" id="ddlTariff">
                                                         <option ng-value="0">Automatic</option>
@@ -3531,20 +3512,30 @@ $(document).ready(function() {
                                                     </select>
                                                     <input type="number" class="form-control" style="margin-top:2px;font-size:11px;height:24px;" ng-show="customeshow" ng-model="CustomeRate" placeholder="Custom rate" />
                                                 </div>
-                                                <div style="flex:1;">
+                                                <div style="flex:1;min-width:90px;">
                                                     <span class="bw-jlabel">Account ID</span>
-                                                    <input type="text" class="form-control" style="margin-bottom:3px;" name="accountid" value="{{account_AccountId}}">
+                                                    <input type="text" class="form-control" name="accountid" value="{{account_AccountId}}">
+                                                </div>
+                                                <div style="flex:1;min-width:110px;">
                                                     <span class="bw-jlabel">Email</span>
                                                     <input type="text" class="form-control" name="Email" ng-model="account_Email" value="{{}}">
+                                                </div>
+                                                <div style="flex:1;min-width:80px;">
+                                                    <span class="bw-jlabel">Claim #</span>
+                                                    <input type="text" class="form-control" ng-readonly="true" value="{{claim_number}}" placeholder="Claim #">
+                                                </div>
+                                                <div style="flex:0 0 60px;">
+                                                    <span class="bw-jlabel">Remain</span>
+                                                    <input type="text" class="form-control" ng-readonly="true" value="{{trip_days_left}}" placeholder="Rem">
                                                 </div>
                                             </div>
                                         </div>
 
                                         <hr class="bw-sec-divider">
 
-                                        <!-- ── ROW 4: Pax/Bags/WC/Cars | Vehicle | Service | Driver ── -->
-                                        <div class="bw-sec" style="padding-top:7px; padding-bottom:7px;">
-                                            <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+                                        <!-- ══ SECTION D: Vehicle / Assignment ══ -->
+                                        <div class="bw-sec" style="padding-top:6px;padding-bottom:6px;">
+                                            <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:6px;">
                                                 <!-- Pax -->
                                                 <div style="text-align:center;">
                                                     <span class="bw-jlabel" style="text-align:center;"><i class="fa fa-users"></i></span>
@@ -3581,7 +3572,6 @@ $(document).ready(function() {
                                                         <option ng-value="7">7</option>
                                                     </select>
                                                 </div>
-                                                <!-- divider -->
                                                 <div style="width:1px;background:#e0e4ec;align-self:stretch;margin:0 2px;"></div>
                                                 <!-- Vehicle Type -->
                                                 <div style="flex:1;min-width:100px;">
@@ -3590,8 +3580,8 @@ $(document).ready(function() {
                                                         <option ng-repeat="(key, carr) in carlist" ng-value="{{key}}">{{carr}}</option>
                                                     </select>
                                                 </div>
-                                                <!-- Service type -->
-                                                <div style="flex:1;min-width:140px;">
+                                                <!-- Service -->
+                                                <div style="flex:1;min-width:120px;">
                                                     <span class="bw-jlabel"><i class="fa fa-tag"></i> Service</span>
                                                     <div style="display:flex;gap:3px;flex-wrap:wrap;">
                                                         <button type="button" ng-click="bwServiceType='taxi'" title="Taxi" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #1565c0;cursor:pointer;font-weight:600;" ng-style="{background:bwServiceType==='taxi'?'#1565c0':'#f0f4ff',color:bwServiceType==='taxi'?'#fff':'#1565c0'}"><i class="fa fa-taxi"></i></button>
@@ -3601,10 +3591,9 @@ $(document).ready(function() {
                                                     </div>
                                                 </div>
                                             </div>
-
-                                            <!-- Driver + Vehicle row -->
-                                            <div class="bw-jrow" style="margin-top:7px;margin-bottom:0;">
-                                                <div>
+                                            <!-- Driver + Vehicle -->
+                                            <div style="display:flex;gap:6px;align-items:flex-end;">
+                                                <div style="flex:1;">
                                                     <span class="bw-jlabel"><i class="fa fa-user"></i> Driver</span>
                                                     <select class="form-control ddlDriver required" id="ddlDriver" ng-model="selecteddriver" ng-change="getddlvehicle()" style="padding:2px 4px;">
                                                         <option ng-value="0" data-foo="0" data-zoneq="0" selected="selected">Automatic</option>
@@ -3614,22 +3603,47 @@ $(document).ready(function() {
                                                         <option ng-repeat="driwqq in driverdatarealx" ng-show="checkofferjob(driwqq.driverid) && checkDriverSvc(driwqq.driverid, (bwServiceType||'taxi'))" ng-if="driwqq.vehiclestatus == 'Available' && true == checkjobvehile1(driwqq.vehicletype)" data-zoneq="{{driwqq.zonequeue}}" data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber}} {{driwqq.vehicletype}}</option>
                                                     </select>
                                                 </div>
-                                                <div>
+                                                <div style="flex:1;">
                                                     <span class="bw-jlabel"><i class="fa fa-car"></i> Vehicle</span>
                                                     <select class="form-control ddlVehicleType required" id="ddlVehicleType" style="padding:2px 4px;"><option value="0" selected="selected">Automatic</option></select>
                                                 </div>
-                                                <!-- ACC info compact -->
-                                                <div>
-                                                    <span class="bw-jlabel">Claim # / Remain</span>
-                                                    <div style="display:flex;gap:4px;">
-                                                        <input type="text" class="form-control" style="flex:1;" ng-readonly="true" value="{{claim_number}}" placeholder="Claim #">
-                                                        <input type="text" class="form-control" style="width:50px;" ng-readonly="true" value="{{trip_days_left}}" placeholder="Rem">
+                                            </div>
+                                        </div>
+
+                                        <hr class="bw-sec-divider">
+
+                                        <!-- ══ SECTION E: Repeat booking ══ -->
+                                        <div ng-show="updatex == 0" class="bw-sec" style="padding-top:6px;padding-bottom:6px;background:#f8f9fb;">
+                                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1a1a2e;cursor:pointer;margin-bottom:0;">
+                                                <input name="repeat" type="checkbox" ng-model="showdays" style="margin:0;">
+                                                <i class="fa fa-repeat" style="color:#5c6bc0;margin-right:2px;"></i> Repeat this booking
+                                            </label>
+                                            <div id="DivRepeatList" ng-show="showdays" style="margin-top:6px;">
+                                                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:5px;align-items:flex-end;">
+                                                    <div style="flex:1;min-width:120px;">
+                                                        <span class="bw-jlabel">Until date</span>
+                                                        <input type="date" id="MultipleDate" ng-model="datetimesecond" class="form-control" style="height:26px;font-size:11px;" />
+                                                    </div>
+                                                    <div>
+                                                        <span class="bw-jlabel">Weeks</span>
+                                                        <select name="recur_weeks" ng-model="weekselect" ng-change="changeweekday()" class="form-control" style="width:80px;height:26px;font-size:11px;">
+                                                            <option ng-value="0">All</option><option ng-value="1">Odd</option><option ng-value="2">Even</option>
+                                                        </select>
+                                                    </div>
+                                                    <div style="display:flex;flex-wrap:wrap;gap:7px;font-size:12px;align-items:center;">
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="mon" ng-value="0" ng-model="mon" type="checkbox"> Mon</label>
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="tue" ng-value="1" ng-model="tue" type="checkbox"> Tue</label>
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="wed" ng-value="2" ng-model="wed" type="checkbox"> Wed</label>
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="thu" ng-value="3" ng-model="thu" type="checkbox"> Thu</label>
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="fri" ng-value="4" ng-model="fri" type="checkbox"> Fri</label>
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="sat" ng-value="5" ng-model="sat" type="checkbox"> Sat</label>
+                                                        <label style="display:flex;align-items:center;gap:3px;margin:0;"><input name="sun" ng-value="6" ng-model="sun" type="checkbox"> Sun</label>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <script>
+                                                                                <script>
                                             function minutechecks_now(currentminute) {
                                                 var valueofdate = document.getElementById("laterDate").value;
                                                 var now = new Date();
