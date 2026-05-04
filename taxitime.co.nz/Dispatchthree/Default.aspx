@@ -21381,15 +21381,15 @@ $(document).ready(function() {
             });
         }
 
-        // Tab switcher for Create Job form
-        function bwSwitchTab(n) {
+        // Tab switcher for Create Job form (must be global for onclick= attributes)
+        window.bwSwitchTab = function(n) {
             [1, 2, 3].forEach(function(i) {
                 var pane = document.getElementById('bwTabPane' + i);
                 var btn  = document.getElementById('bwTab' + i + 'Btn');
                 if (pane) pane.style.display = (i === n) ? 'block' : 'none';
                 if (btn)  btn.className = 'bw-jtab' + (i === n ? ' bw-jtab-active' : '');
             });
-        }
+        };
 
         $(document).on('shown.bs.modal', '#largeModal', function() {
             _bindDrag();
