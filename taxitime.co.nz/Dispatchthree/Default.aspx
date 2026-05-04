@@ -3338,445 +3338,392 @@ $(document).ready(function() {
                 </div>
 
                         <!-- Large Modal -->
-                        <div id="largeModal" class="modal fade"   >
-                            <div class="modal-dialog"  >
-                                <div class="modal-content " id="largeModalcontet" style="margin-top: 0; width: 430px;">
+                        <div id="largeModal" class="modal fade">
+                            <div class="modal-dialog">
+                                <div class="modal-content" id="largeModalcontet" style="margin-top:0; width:700px;">
 
-                                    <!-- ── Drag handle ── -->
+                                    <!-- Drag handle -->
                                     <div class="bw-drag-handle" title="Drag to move">
                                         <span><i class="fa fa-arrows" style="margin-right:6px; opacity:0.7;"></i>Create Job</span>
                                         <span style="font-size:10px; opacity:0.5; letter-spacing:0.03em;">drag to reposition</span>
                                     </div>
 
-                                    <div class="modal-body pd-20" style="max-height:82vh; overflow-y:auto; overflow-x:hidden;">
-
-
-                                        <!-- Accordion begin -->
-                                        <ul class="demo-accordion accordionjs m-0"  >
-                                         <!-- Section 1 -->
-                                            <li class="acc_active" id="firss">
-                                                <div>
-                                                    <span style="font-size:13px; font-weight:700; color:#333; letter-spacing:0.3px;"><i class="fa fa-map-marker" style="color:#dfba5f; margin-right:5px;"></i>Pick &amp; Drop off Address</span>
-                                                </div>
-                                                <div class="col-sm-12 col-md-12 col-xl-12" id="firss1">
-                                                    <div class="row">
-                                                       
-                                                            <input id="LocalPickLat" hidden type="text"   value="0"  ng-model="LocalPickLat" >
-                                                            <input id="LocalPickLng" hidden type="text"  value="0" ng-model="LocalPickLng"  >
-                                                            <input id="LocalDropLat" hidden type="text" value="0" ng-model="LocalDropLat" >
-                                                            <input id="LocalDropLng" hidden type="text" value="0" ng-model="LocalDropLng" >
-                                                        
-                                                        <div class="col-sm-6">
-                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; display:block;"><i class="fa fa-map-marker" style="color:#2ecc71; margin-right:3px;"></i>Pick up</label>
-                                                            <div class="col-sm-12 row" >
-                                                                <input type="text" name="" class="form-control" id="pac-input" ng-model="pickupaddress" placeholder="Search Pick Up Location">
-                                                              <button type="button" ng-show="showstopshow" ng-click="createnewstop()" style="font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid #2ecc71; background:#f0fff4; color:#27ae60; cursor:pointer; margin-top:3px; line-height:1.4;"><i class="fa fa-plus"></i> Stop</button>
-                                                            </div>
-
-                                                              <div id="newstopdiv" ng-show="stoplstshow">
-                                                                <div ng-repeat=" stops   in stoplistarray">
-                                                                    <input id="lat{{stops.id}}" type="text"  hidden value="{{stops.lat}}"   />
-                                                                    <input id="lng{{stops.id}}" type="text" hidden  value="{{stops.lng}}" />
-                                                                    <div class="input-group">
-                                                                        <span class="input-group-addon"><i class="fa fa-minus-circle" ng-click="deletestopz(stops.id)"></i></span>
-                                                                        <input id="pac-input{{stops.id}}" class="form-control" value="{{stops.path}}" placeholder="Enter New Stop" ng-keydown="createnewstoplat(stops.id)"  />
-                                                                      </div>
-                                                                    
-                                                                     
-                                                                </div>
-                                                          
-                                                            </div>
-                                                            <!-- Controls row: Reverse | Corner | Urgent -->
-                                                            <div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">
-                                                                <button type="button" ng-click="btnReverse()" style="font-size:11px; padding:3px 9px; border-radius:4px; border:1px solid #ccc; background:#f5f5f5; color:#555; cursor:pointer; line-height:1.4;"><i class="fa fa-exchange"></i> Reverse</button>
-                                                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; margin:0; cursor:pointer; color:#555; font-weight:500; white-space:nowrap;">
-                                                                    <input type="checkbox" name="corner" ng-model="cornershow" style="margin:0;"> Corner
-                                                                </label>
-                                                                <label style="display:flex; align-items:center; gap:4px; font-size:12px; margin:0; cursor:pointer; color:#c0392b; font-weight:600; white-space:nowrap;">
-                                                                    <input type="checkbox" name="Urgent" ng-model="urgentdata" style="margin:0;"> Urgent
-                                                                </label>
-                                                            </div>
-                                                            <input type="text" class="form-control" style="margin-top:4px; font-size:12px; height:28px;" placeholder="Corner detail" ng-show="cornershow" ng-model="cornerdata" />
-                                                            <!-- Estimated details — subtle inline line -->
-                                                            <div ng-show="Time" style="margin-top:5px; font-size:11px; color:#666; background:#f4f4f4; border-radius:4px; padding:3px 8px; display:flex; gap:8px; flex-wrap:wrap;">
-                                                                <span><i class="fa fa-clock-o"></i> {{Time}}</span>
-                                                                <span><i class="fa fa-road"></i> {{distance}}</span>
-                                                                <span ng-show="currencyprice"><i class="fa fa-dollar"></i> {{currencyprice}} {{currency}}</span>
-                                                            </div>
-                                                            <!-- Now / Later pill toggle -->
-                                                            <div style="display:flex; margin-top:8px; border:1px solid #ced4da; border-radius:5px; overflow:hidden; width:fit-content;">
-                                                                <label ng-style="{background: bookingtime_select==0 ? '#dfba5f' : '#fff', color: bookingtime_select==0 ? '#333' : '#888', fontWeight: bookingtime_select==0 ? '700' : '400'}" style="margin:0; font-size:12px; padding:4px 16px; cursor:pointer; border-right:1px solid #ced4da; transition:background 0.15s;">
-                                                                    <input type="radio" id="nowcheck" name="time" ng-checked="bookingtime_select == 0" ng-value="0" ng-model="bookingtime_select" style="display:none;"> Now
-                                                                </label>
-                                                                <label ng-style="{background: bookingtime_select==1 ? '#dfba5f' : '#fff', color: bookingtime_select==1 ? '#333' : '#888', fontWeight: bookingtime_select==1 ? '700' : '400'}" style="margin:0; font-size:12px; padding:4px 16px; cursor:pointer; transition:background 0.15s;">
-                                                                    <input type="radio" id="latecheck" name="time" ng-value="1" ng-checked="bookingtime_select == 1" ng-model="bookingtime_select" ng-change="initLaterTime()" style="display:none;"> Later
-                                                                </label>
-                                                            </div>
-                                                             
-                                                            <div ng-show="bookingtime_select == 1" style="margin-top:8px; background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:8px 10px;">
-                                                                <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
-                                                                    <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Date</label>
-                                                                    <input type="date" id="laterDate" class="form-control" style="height:28px; font-size:12px; padding:2px 6px; flex:1; border:1px solid #ced4da; border-radius:4px; cursor:pointer;" />
-                                                                </div>
-                                                                <div style="display:flex; align-items:center; margin-bottom:6px; gap:8px;">
-                                                                    <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Time (24h)</label>
-                                                                    <div style="display:flex; align-items:center; gap:4px;">
-                                                                        <select onchange="checktime_now(this.value)" class="form-control" id="ddlLaterHrs" ng-model="ddlLaterHrs" style="height:28px; font-size:12px; padding:2px 4px; width:58px;">
-                                                                            <option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option>
-                                                                            <option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option>
-                                                                            <option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option>
-                                                                            <option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
-                                                                            <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option>
-                                                                            <option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option>
-                                                                        </select>
-                                                                        <span style="font-weight:bold; font-size:14px;">:</span>
-                                                                        <select ng-model="ddlLaterMins" onchange="minutechecks_now(this.value)" class="form-control" id="ddlLaterMins" style="height:28px; font-size:12px; padding:2px 4px; width:58px;">
-                                                                            <option value="00">00</option><option value="05">05</option><option value="10">10</option><option value="15">15</option>
-                                                                            <option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="35">35</option>
-                                                                            <option value="40">40</option><option value="45">45</option><option value="50">50</option><option value="55">55</option>
-                                                                        </select>
-                                                                    </div>
-                                                                </div>
-                                                                <div style="display:flex; align-items:center; gap:8px;">
-                                                                    <label style="min-width:90px; font-size:12px; font-weight:600; color:#495057; margin:0;">Dispatch before</label>
-                                                                    <select id="assign_notice" ng-model="assign_notice" class="form-control" style="height:28px; font-size:12px; padding:2px 4px; flex:1;">
-                                                                        <option value="0">0 min</option>
-                                                                        <option value="5">5 min</option>
-                                                                        <option value="10">10 min</option>
-                                                                        <option value="15">15 min</option>
-                                                                        <option value="20">20 min</option>
-                                                                        <option value="30">30 min</option>
-                                                                        <option value="45">45 min</option>
-                                                                        <option value="60">1h 0min</option>
-                                                                        <option value="75">1h 15min</option>
-                                                                        <option value="90">1h 30min</option>
-                                                                        <option value="120">2h 0min</option>
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-                                                     
-         
-                                                        </div>
-                                                        <script>
-                                                            function minutechecks_now(currentminute) {
-                                                                var valueofdate = document.getElementById("laterDate").value;
-                                                                var now = new Date();
-                                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-                                                                if (valueofdate < todayStr) {
-                                                                    Swal.fire('Warning!', 'This date has already passed. Please select today or a future date.', 'warning');
-                                                                } else if (valueofdate === todayStr) {
-                                                                    var selHr = parseInt(document.getElementById('ddlLaterHrs').value) || 0;
-                                                                    var curHr = now.getHours();
-                                                                    var curMin = now.getMinutes();
-                                                                    if (selHr === curHr && parseInt(currentminute) <= curMin) {
-                                                                        var snap = Math.ceil((curMin + 1) / 5) * 5;
-                                                                        if (snap >= 60) snap = 55;
-                                                                        document.getElementById('ddlLaterMins').value = String(snap).padStart(2,'0');
-                                                                    }
-                                                                }
-                                                            }
-                                                            function checktime_now(currenthour) {
-                                                                var valueofdate = document.getElementById("laterDate").value;
-                                                                var now = new Date();
-                                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-                                                                if (valueofdate < todayStr) {
-                                                                    Swal.fire('Warning!', 'This date has already passed. Please select today or a future date.', 'warning');
-                                                                } else if (valueofdate === todayStr && parseInt(currenthour) < now.getHours()) {
-                                                                    Swal.fire('Warning!', 'This hour has already passed. Setting to current hour.', 'warning');
-                                                                    document.getElementById('ddlLaterHrs').value = String(now.getHours()).padStart(2,'0');
-                                                                }
-                                                            }
-                                                        </script>
-                                                        <div class="col-sm-6">
-                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px; display:block;"><i class="fa fa-flag-checkered" style="color:#e74c3c; margin-right:3px;"></i>Drop off</label>
-                                                            <input type="text" name="slng" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search Drop off Location">
-
-                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:2px; display:block;">Info</label>
-                                                            <input type="text" name="info" ng-model="rideinfo" class="form-control" placeholder="Job notes / instructions">
-                                                            <label style="font-size:11px; font-weight:600; color:#555; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; margin-bottom:2px; display:block;">Tariff</label>
-                                                            <select class="form-control" style="height:28px; font-size:12px; padding:2px 4px;" ng-change="unitChanged()" ng-model="selectedtarrif" id="ddlTariff">
-                                                                <option ng-value='0'>Automatic</option>
-                                                                <option ng-value='-1'>Custom</option>
-                                                                <option ng-repeat="item in tarriflist" ng-value="item.Id">{{item.TariffName}}</option>
-                                                            </select>
-                                                            <input type="number" class="form-control" style="margin-top:4px; font-size:12px; height:28px;" ng-show="customeshow" ng-model="CustomeRate" placeholder="Custom rate"/>
-
-                                                            <div>
-                                                               <span id="timesuggested" ng-show="bookingtime_select == 1" style="display:block; margin-top:6px; font-size:11px; color:#7b1fa2; font-weight:600;"></span>
-
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                
-                                            
-
-                                            <!-- Section 2 -->
-                                            
-                                               
-                                                
-                                                    <div class="row">
-                                                        <div class="col-xl-12 col-md-12 col-sm-12">
-                                                           <div  class="col-xl-12 col-md-12 col-sm-12 row">
-                                                             <input type="Search" id="searchdatasx" class="form-control" autocomplete="off" style="width: 80%;" name="searchaap" ng-model="searchtext" ng-keydown="Searchmulti( )" placeholder="Search Acc ID/ Account ID/ Customer">
-                                                              <button class="btn btn-success" ng-click="clearseacch()"  style="    padding: 0px 10px;
- 
-    margin-left: 3px;">Clear</button>
-
-                                                           </div>
-                                                            <div id="searchdatas" style="   position: absolute;
-                                                                z-index: 3;   background: #efe3e3;
-                                                                width: 100%;   color: grey;     
-                                                                ">
-                                                <h5 ng-click="accselect(acc)" id="testingss" style="      cursor: pointer;  margin-bottom: 8px;" ng-repeat="acc in acc_record_search"><label class="label label-success">Calim No: {{acc.claim_number}}</label> | <label class="label label-success">Claim: {{acc.client_name}}</label> | <label class="label label-success">Phone: {{acc.client_phone}}</label> | <label class="label label-success"> ACC</label></h5>
-                                                <h5  id="testingss" ng-click="accountselect(account)"  style ="     cursor: pointer; 
-                                                  margin-bottom: 8px;"  ng-repeat="account in account_record_search"><label class="label label-success">Id: {{account.Id}}</label> | <label class="label label-success">Account: {{account.Type}}</label> | <label class="label label-success">Phone: {{account.PhoneNo}}</label></h5>
-                                                <h5 id="testingss" ng-click="customerselect(passenger)"  style="     cursor: pointer;  
-                                                 margin-bottom: 8px;"  ng-repeat="passenger in passenger_record_search">  <label class="label label-success">Phone: {{passenger.PhoneNo}}</label> | <label class="label label-success">Name: {{passenger.Name}}</label></h5>
-                                                                
-                                                        
-
-
-                                                            </div>
-                                                        </div>
-                                                        <div class="col-sm-4 col-md-4">
-                                                            <label class="label label-success">Passenger Name: </label>
-                                                            <input type="text" class="form-control" name="passengerphone" ng-model="account_Name" value="{{account_Name}}">
-                                                            <label class="label label-success">Phone:   </label>
-                                                            <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo"  value="{{account_PhoneNo}}">
-                                                            <label class="label label-success">Account ID: </label>
-                                                            <input type="text" class="form-control" name="accountid" value="{{account_AccountId}}">
-                                                            <label class="label label-success">Email: </label>
-                                                            <input type="text" class="form-control" name="Email" " ng-model="account_Email" value="{{}}">
-                                                        </div>
-                                                        <div class="col-sm-4 col-md-4">
-                                                            <label class="label label-success">Claim Number: </label>
-                                                            <input type="text" class="form-control" ng-readonly="true" name="passengerphone" value="{{claim_number}}">
-                                                            <label class="label label-success">Remain Ride:   </label>
-                                                            <input type="text" class="form-control" ng-readonly="true" name="passengerRemain" value="{{trip_days_left}}">
-                                                            <label class="label label-success">Client Name: </label>
-                                                            <input type="text" class="form-control" ng-readonly="true" name="passengerClientName" value="{{client_name}}">
-                                                            <label class="label label-success">Number: </label>
-                                                            <input type="text" class="form-control" ng-readonly="true" name="passengerNumber" value="{{client_phone}}">
-                                                        </div>
-                                                    </div>
-                                                
-                                            
-
-                                            <!-- Section 3 -->
-                                            
-                                                
-                                                    <div class="col-lg-12 col-sm-12 col-md-12">
-                                                        <div class="row">
-                                                            <div class="col-sm-12 col-md-8 col-xl-8">
-                                                                <div class="row">
-                                                                    <div class="col-sm-3">
-                                                                        <!--  <img src="images/icon-user.png" title="No Of Passenger"> -->
-                                                                        <label class="label label-primary"><i class="fa fa-users"></i></label>
-                                                                         <select class="form-control"  ng-change="changeperson()"  ng-model="selectedcustomer">
-                                                                           <option ng-value="1">1</option>
-                                                                            <option ng-value="2">2</option>
-                                                                            <option ng-value="3">3</option>
-                                                                            <option ng-value="4">4</option>
-                                                                            <option ng-value="5">5</option>
-                                                                            <option ng-value="6">6</option>
-                                                                            <option ng-value="7">7</option>
-                                                                            <option ng-value="8">8</option>
-                                                                            <option ng-value="9">9</option>
-                                                                            <option ng-value="10">10</option>
-                                                                            <option ng-value="11">11</option>
-                                                                            <option ng-value="12">12</option>
-                                                                            <option ng-value="13">13</option>
-                                                                            <option ng-value="14">14</option>
-                                                                            <option ng-value="15">15</option>
-                                                                            <option ng-value="16">16</option>
-                                                                            <option ng-value="17">17</option>
-                                                                            <option ng-value="18">18</option>
-                                                                            <option ng-value="19">19</option>
-                                                                            <option ng-value="20">20</option>
-                                                                             </select>   
-                                                                       
-                                                                    </div>
-                                                                    <div class="col-sm-3">
-                                                                        <!--  <img src="images/icon-user.png" title="No Of Passenger"> -->
-                                                                        <label class="label label-primary"><i class="fa fa-shopping-bag"></i></label>
-                                                                        <select class="selectBox form-control" ng-model="selectedbeg">
-                                                                             <option   ng-value="0">0</option>
-                                                                             <option   ng-value="1">1</option>
-                                                                            <option  ng-value="2">2</option>
-                                                                            <option ng-value="3">3</option>
-                                                                            <option ng-value="4">4</option>
-                                                                            <option ng-value="5">5</option>
-
-                                                                        </select>
-                                                                    </div>
-                                                                    <div class="col-sm-3">
-                                                                        <!--  <img src="images/icon-user.png" title="No Of Passenger"> -->
-                                                                        <label class="label label-primary"><i class="fa fa-wheelchair"></i></label>
-                                                                        <select class="selectBox form-control" ng-change="changewheelch()"  ng-model="selectedwheelchair">
-                                                                            <option  ng-value="0">0</option>
-                                                                             <option  ng-value="1">1</option>
-                                                                            <option ng-value="2">2</option>
-                                                                            <option ng-value="3">3</option>
-                                                                            <option ng-value="4">4</option>
-                                                                            <option ng-value="5">5</option>
-
-
-                                                                        </select>   
-                                                                    </div>
-                                                                    <div class="col-sm-3">
-                                                                        <!--  <img src="images/icon-user.png" title="No Of Passenger"> -->
-                                                                        <label class="label label-primary"><i class="fa fa-car"></i></label>
-                                                                        <select class="selectBox form-control" ng-model="selectedcar">
-                                                                            <option ng-value="1">1</option>
-                                                                            <option ng-value="2">2</option>
-                                                                            <option ng-value="3">3</option>
-                                                                            <option ng-value="4">4</option>
-                                                                            <option ng-value="5">5</option>
-                                                                            <option ng-value="6">6</option>
-                                                                            <option ng-value="7">7</option>
-                                                                            <option ng-value="8">8</option>
-                                                                            <option ng-value="9">9</option>
-                                                                            <option ng-value="10">10</option>
-
-
-                                                                        </select>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="col-sm-12 col-md-4 col-xl-4">
-                                                                <label class="label label-primary"><i class="fa fa-car"></i></label>
-                                                                <select class="form-control VehicleType"  
-                                                                      ng-model="selectedcartype" id="VehicleType">
- 
-                                                                    <option ng-repeat=" (key  , carr )  in carlist" ng-value="{{key}}">{{carr}}</option>    
-                                                                </select>
-                                                               
-                                                            </div>
-                                                        </div>
-                                                        <!-- Service Type selector -->
-                                                        <div class="col-sm-12" style="margin:4px 0 6px 0;">
-                                                            <label class="label label-primary" style="margin-bottom:4px;display:block;font-size:11px;"><i class="fa fa-tag"></i> Service Type</label>
-                                                            <div style="display:flex;gap:4px;flex-wrap:wrap;">
-                                                                <button type="button" ng-click="bwServiceType='taxi'"
-                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #1565c0;cursor:pointer;font-weight:600;"
-                                                                    ng-style="{background:bwServiceType==='taxi'?'#1565c0':'#f0f4ff',color:bwServiceType==='taxi'?'#fff':'#1565c0'}">
-                                                                    <i class="fa fa-taxi"></i> Taxi</button>
-                                                                <button type="button" ng-click="bwServiceType='food'"
-                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2e7d32;cursor:pointer;font-weight:600;"
-                                                                    ng-style="{background:bwServiceType==='food'?'#2e7d32':'#f0fff2',color:bwServiceType==='food'?'#fff':'#2e7d32'}">
-                                                                    <i class="fa fa-cutlery"></i> Food</button>
-                                                                <button type="button" ng-click="bwServiceType='freight'"
-                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #e65100;cursor:pointer;font-weight:600;"
-                                                                    ng-style="{background:bwServiceType==='freight'?'#e65100':'#fff8f0',color:bwServiceType==='freight'?'#fff':'#e65100'}">
-                                                                    <i class="fa fa-truck"></i> Freight</button>
-                                                                <button type="button" ng-click="bwServiceType='tm'"
-                                                                    style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #6a1b9a;cursor:pointer;font-weight:600;"
-                                                                    ng-style="{background:bwServiceType==='tm'?'#6a1b9a':'#faf0ff',color:bwServiceType==='tm'?'#fff':'#6a1b9a'}">
-                                                                    <i class="fa fa-wheelchair"></i> TM</button>
-                                                            </div>
-                                                        </div>
-                                                        <div class="col-sm-12 col-md-12 col-xs-12 col-xl-12">
-                                                            <div class="row">
-                                                                <div class="col-sm-12 col-md-6 col-xl-6" style="padding:0px;">
-                                                                    <label class="label label-primary"><i class="fa fa-users">Select Driver</i></label>
-                                                                    <select class="form-control ddlDriver required"  id="ddlDriver" ng-model="selecteddriver" ng-change="getddlvehicle()">
-                                                                    <option ng-value="0" data-foo="0"  data-zoneq="0" selected="selected">Automatic</option>
-                                                                    <option ng-value="-2" data-foo="0"  data-zoneq="0">Pending (Broadcast)</option>
-                                                                    <option ng-value="-1" data-foo="0"  data-zoneq="0">No One</option>
-                                                                         
-                                                                   <option ng-repeat ="driz in LoginDriverdata" ng-if="!isDriverInRealtime(driz.Id)" data-zoneq="{{driz.zonequeue}}"   data-foo="{{driz.VehicleId}}" ng-value="{{driz.Id}}">  {{driz.UserFName}} / {{driz.VehicleNo }} </option>
-
-                                                                 <option ng-repeat ="driwqq in driverdatarealx" ng-show="checkofferjob(driwqq.driverid) && checkDriverSvc(driwqq.driverid, (bwServiceType||'taxi'))" ng-if="driwqq.vehiclestatus == 'Available'  &&   true == checkjobvehile1(driwqq.vehicletype )" data-zoneq="{{driwqq.zonequeue}}"   data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber }}  {{driwqq.vehicletype}} </option>
-                                                                </select> 
-                                                                </div>
-                                                               <div class="col-sm-12 col-md-6 col-xl-6" >
-                                                                                                                        <label class="label label-primary" ><i class="fa fa-car"></i></label>
-                                                                                                                        <select class="form-control ddlVehicleType required" id="ddlVehicleType"><option value="0" selected="selected">Automatic</option></select>
-                                                                                                                        </div>  
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                              </div> 
-                                            </li>
-
-
-                                        </ul>
-
-                                        <div class="row col-sm-12">
-                                                  <p class="label label-primary"  ng-show="bookingtime_select == 1 && updatex == 0"  >  <input name="repeat" type="checkbox" ng-show="bookingtime_select == 1"  ng-model="showdays" />Repeat</p></br>
-                                                 <div id="DivRepeatList" class=" row col-sm-12"  ng-show="showdays" > 
-                                                 <div class="col-lg-6 col-md-12 col-sm-12 col-xs-12"> 
-                                                 <div class="col-lg-8 col-md-12 col-sm-12 col-xs-12"> 
-                                                    <span class="label label-primary">until:</span> 
-                                                  </div> 
-                                                  <div class="col-sm-12 col-xs-12"> 
-                                                  <input type="date" id="MultipleDate" ng-model="datetimesecond" /> 
-                                                  </div> 
-                                                      <div class="col-lg-4 col-md-4 col-sm-12 col-xs-12"> 
-                                                 <span class="label label-primary">Weeks:</span> 
-                                                  </div> 
-                                                  <div class="col-lg-8 col-md-8 col-sm-12 col-xs-12"> 
-                                                 <select name="recur_weeks" ng-model="weekselect" ng-change="changeweekday()"> 
-                                                 <option ng-value="0">All</option> 
-                                                 <option ng-value="1">Odd</option> 
-                                                 <option ng-value="2">Even</option> 
-                                                  </select> 
-                                                </div> 
-                                                 </div> 
-                                                 <div class="col-lg-6 col-md-12 col-sm-12 col-xs-12"> 
-                                                 <table id="tblDays"> 
-                                                <tbody> 
-                                                <tr> 
-                                                 <td><input name="mon" ng-value="0" ng-model="mon"  type="checkbox">Monday</td></tr> 
-                                                 <td><input name="tue" ng-value="1" ng-model="tue"   type="checkbox">Tuesday</td></tr> 
-                                                 <td><input name="wed" ng-value="2" ng-model="wed"  type="checkbox">Wednesday</td></tr> 
-                                                 <td><input name="thu" ng-value="3" ng-model="thu"  type="checkbox">Thursday</td></tr> 
-                                                 <td><input name="fri" ng-value="4" ng-model="fri"  type="checkbox">Friday</td></tr> 
-                                                 <td><input name="sat" ng-value="5" ng-model="sat"  type="checkbox">Saturday</td></tr> 
-                                                 <td><input name="sun" ng-value="6" ng-model="sun"  type="checkbox">Sunday</td></tr> 
-
-                                                </tbody> 
-                                                 </table> 
-                                                 </div> 
-                                             </div> 
-                                             
-                                            <button class="btn btn-success" ng-show="updatex == 0" ng-click="bookingridebefore();" >Book
-                                            </button>
-                                             
-                                            <button class="btn btn-warning" ng-show="updatex == 0 && AmmountAddedvalue != ''" ng-click="carbooking();" >Card Booking
-                                            </button>
-                                            
-                                            <button class="btn btn-danger" ng-show="updatex == 1" ng-click="updateride(selecteddriverpre ,vehicleidpre);" >Update
-                                            </button>
-                                            
-                                            <button class="btn btn-danger" ng-show="updatex == 2" ng-click="updateride2(selecteddriverpre , vehicleidpre);" >Update
-                                            </button>
-                                            
-                                            <button class="btn btn-danger"  ng-show="updatex == 0"  ng-click="clearsection();" style="position: absolute;
-    right: 0;
-    margin: 0;" >Clear
-                                             <button class="btn btn-danger"   ng-show="updatex == 1 || updatex == 2 "  ng-click="clearsectionuupdate();" style="position: absolute;
-    right: 0;
-    margin: 0;" >Clear
-
-                                                 </button>
-                                                 <input type="hidden" id="updatecancel" ng-modal="updatex" ng-value="updatex" />
-                                            <button class="btn btn-success" ng-show="updatex > 0" ng-click="copything();" >Copy
-                                            </button>
-
-                                            <label ng-if="AmmountAddedvaluesend != ''" class="label label-success" style="float: right;
-                                            padding: 10px 10px;
-                                            margin: 1px; background-color: #6b6092;"> {{AmmountAddedvaluesend}} Paid  </label>
-                                       
-                                         </div>
-
+                                    <!-- Tab nav -->
+                                    <style>
+                                        .bw-jtab { padding:7px 18px; font-size:12px; font-weight:600; border:none; background:transparent; color:#888; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; letter-spacing:0.3px; transition:color 0.15s,border-color 0.15s; }
+                                        .bw-jtab:hover { color:#333; }
+                                        .bw-jtab.bw-jtab-active { color:#1a1a2e; border-bottom-color:#dfba5f; }
+                                        .bw-jtabpane { padding:12px 14px; }
+                                        .bw-jrow { display:flex; gap:10px; margin-bottom:8px; }
+                                        .bw-jrow > div { flex:1; min-width:0; }
+                                        .bw-jlabel { font-size:11px; font-weight:600; color:#555; margin-bottom:3px; display:block; text-transform:uppercase; letter-spacing:0.4px; }
+                                        .bw-jtabpane .form-control { height:30px; font-size:12px; }
+                                    </style>
+                                    <div style="display:flex; background:#f5f6f8; border-bottom:2px solid #e0e4ec; padding:0 10px;">
+                                        <button type="button" id="bwTab1Btn" onclick="bwSwitchTab(1)" class="bw-jtab bw-jtab-active"><i class="fa fa-map-marker"></i> Ride</button>
+                                        <button type="button" id="bwTab2Btn" onclick="bwSwitchTab(2)" class="bw-jtab"><i class="fa fa-user"></i> Passenger</button>
+                                        <button type="button" id="bwTab3Btn" onclick="bwSwitchTab(3)" class="bw-jtab"><i class="fa fa-cog"></i> Options</button>
                                     </div>
-                                    <!-- modal-body -->
+
+                                    <!-- ══ TAB 1 : RIDE ══ -->
+                                    <div id="bwTabPane1" class="bw-jtabpane">
+
+                                        <!-- hidden coords -->
+                                        <input id="LocalPickLat" hidden type="text" value="0" ng-model="LocalPickLat">
+                                        <input id="LocalPickLng" hidden type="text" value="0" ng-model="LocalPickLng">
+                                        <input id="LocalDropLat" hidden type="text" value="0" ng-model="LocalDropLat">
+                                        <input id="LocalDropLng" hidden type="text" value="0" ng-model="LocalDropLng">
+
+                                        <!-- Pickup + Dropoff side by side -->
+                                        <div class="bw-jrow">
+                                            <div>
+                                                <span class="bw-jlabel"><i class="fa fa-map-marker" style="color:#2ecc71;margin-right:3px;"></i>Pick up</span>
+                                                <input type="text" class="form-control" id="pac-input" ng-model="pickupaddress" placeholder="Search Pick Up Location" autocomplete="off">
+                                                <button type="button" ng-show="showstopshow" ng-click="createnewstop()" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid #2ecc71;background:#f0fff4;color:#27ae60;cursor:pointer;margin-top:3px;line-height:1.4;"><i class="fa fa-plus"></i> Add Stop</button>
+                                                <div id="newstopdiv" ng-show="stoplstshow">
+                                                    <div ng-repeat="stops in stoplistarray">
+                                                        <input id="lat{{stops.id}}" type="text" hidden value="{{stops.lat}}" />
+                                                        <input id="lng{{stops.id}}" type="text" hidden value="{{stops.lng}}" />
+                                                        <div class="input-group" style="margin-top:3px;">
+                                                            <span class="input-group-addon" style="cursor:pointer;" ng-click="deletestopz(stops.id)"><i class="fa fa-minus-circle"></i></span>
+                                                            <input id="pac-input{{stops.id}}" class="form-control" value="{{stops.path}}" placeholder="Enter stop" ng-keydown="createnewstoplat(stops.id)" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel"><i class="fa fa-flag-checkered" style="color:#e74c3c;margin-right:3px;"></i>Drop off</span>
+                                                <input type="text" class="form-control" ng-model="dropupaddress" id="pac-inputx" placeholder="Search Drop off Location" autocomplete="off">
+                                            </div>
+                                        </div>
+
+                                        <!-- Quick action buttons row -->
+                                        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                                            <button type="button" ng-click="btnReverse()" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #ccc;background:#f5f5f5;color:#555;cursor:pointer;"><i class="fa fa-exchange"></i> Reverse</button>
+                                            <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin:0;cursor:pointer;color:#555;font-weight:500;white-space:nowrap;">
+                                                <input type="checkbox" name="corner" ng-model="cornershow" style="margin:0;"> Corner
+                                            </label>
+                                            <label style="display:flex;align-items:center;gap:4px;font-size:12px;margin:0;cursor:pointer;color:#c0392b;font-weight:600;white-space:nowrap;">
+                                                <input type="checkbox" name="Urgent" ng-model="urgentdata" style="margin:0;"> Urgent
+                                            </label>
+                                        </div>
+
+                                        <!-- Corner detail -->
+                                        <input type="text" class="form-control" style="margin-bottom:8px;font-size:12px;height:28px;" placeholder="Corner detail" ng-show="cornershow" ng-model="cornerdata" />
+
+                                        <!-- Notes + Tariff row -->
+                                        <div class="bw-jrow">
+                                            <div>
+                                                <span class="bw-jlabel">Notes</span>
+                                                <input type="text" class="form-control" ng-model="rideinfo" placeholder="Job notes / instructions">
+                                            </div>
+                                            <div style="flex:0 0 175px;">
+                                                <span class="bw-jlabel">Tariff</span>
+                                                <select class="form-control" style="padding:2px 4px;" ng-change="unitChanged()" ng-model="selectedtarrif" id="ddlTariff">
+                                                    <option ng-value="0">Automatic</option>
+                                                    <option ng-value="-1">Custom</option>
+                                                    <option ng-repeat="item in tarriflist" ng-value="item.Id">{{item.TariffName}}</option>
+                                                </select>
+                                                <input type="number" class="form-control" style="margin-top:3px;font-size:12px;height:28px;" ng-show="customeshow" ng-model="CustomeRate" placeholder="Custom rate" />
+                                            </div>
+                                        </div>
+
+                                        <!-- Now / Later toggle -->
+                                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px; flex-wrap:wrap;">
+                                            <div style="display:flex; border:1px solid #ced4da; border-radius:5px; overflow:hidden;">
+                                                <label ng-style="{background: bookingtime_select==0 ? '#dfba5f' : '#fff', color: bookingtime_select==0 ? '#333' : '#888', fontWeight: bookingtime_select==0 ? '700' : '400'}" style="margin:0;font-size:12px;padding:5px 20px;cursor:pointer;border-right:1px solid #ced4da;transition:background 0.15s;white-space:nowrap;">
+                                                    <input type="radio" id="nowcheck" name="time" ng-checked="bookingtime_select == 0" ng-value="0" ng-model="bookingtime_select" style="display:none;"> Now
+                                                </label>
+                                                <label ng-style="{background: bookingtime_select==1 ? '#dfba5f' : '#fff', color: bookingtime_select==1 ? '#333' : '#888', fontWeight: bookingtime_select==1 ? '700' : '400'}" style="margin:0;font-size:12px;padding:5px 20px;cursor:pointer;transition:background 0.15s;white-space:nowrap;">
+                                                    <input type="radio" id="latecheck" name="time" ng-value="1" ng-checked="bookingtime_select == 1" ng-model="bookingtime_select" ng-change="initLaterTime()" style="display:none;"> Later
+                                                </label>
+                                            </div>
+                                            <span id="timesuggested" ng-show="bookingtime_select == 1" style="font-size:11px;color:#7b1fa2;font-weight:600;"></span>
+                                        </div>
+
+                                        <!-- Later fields (compact row) -->
+                                        <div ng-show="bookingtime_select == 1" style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:8px 10px;margin-bottom:6px;">
+                                            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+                                                <div style="flex:1; min-width:130px;">
+                                                    <span class="bw-jlabel">Date</span>
+                                                    <input type="date" id="laterDate" class="form-control" style="height:28px;font-size:12px;padding:2px 6px;" />
+                                                </div>
+                                                <div>
+                                                    <span class="bw-jlabel">Time (24h)</span>
+                                                    <div style="display:flex;align-items:center;gap:4px;">
+                                                        <select onchange="checktime_now(this.value)" class="form-control" id="ddlLaterHrs" ng-model="ddlLaterHrs" style="height:28px;font-size:12px;padding:2px 4px;width:58px;">
+                                                            <option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option>
+                                                            <option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option>
+                                                            <option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option>
+                                                            <option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
+                                                            <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option>
+                                                            <option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option>
+                                                        </select>
+                                                        <span style="font-weight:bold;font-size:14px;">:</span>
+                                                        <select ng-model="ddlLaterMins" onchange="minutechecks_now(this.value)" class="form-control" id="ddlLaterMins" style="height:28px;font-size:12px;padding:2px 4px;width:58px;">
+                                                            <option value="00">00</option><option value="05">05</option><option value="10">10</option><option value="15">15</option>
+                                                            <option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="35">35</option>
+                                                            <option value="40">40</option><option value="45">45</option><option value="50">50</option><option value="55">55</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div style="flex:0 0 150px;">
+                                                    <span class="bw-jlabel">Dispatch before</span>
+                                                    <select id="assign_notice" ng-model="assign_notice" class="form-control" style="height:28px;font-size:12px;padding:2px 4px;">
+                                                        <option value="0">0 min</option>
+                                                        <option value="5">5 min</option>
+                                                        <option value="10">10 min</option>
+                                                        <option value="15">15 min</option>
+                                                        <option value="20">20 min</option>
+                                                        <option value="30">30 min</option>
+                                                        <option value="45">45 min</option>
+                                                        <option value="60">1h 0 min</option>
+                                                        <option value="75">1h 15 min</option>
+                                                        <option value="90">1h 30 min</option>
+                                                        <option value="120">2h 0 min</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Estimation bar -->
+                                        <div ng-show="Time" style="font-size:11px;color:#555;background:#f0f4f8;border-radius:4px;padding:4px 10px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+                                            <span><i class="fa fa-clock-o" style="color:#888;margin-right:3px;"></i>{{Time}}</span>
+                                            <span><i class="fa fa-road" style="color:#888;margin-right:3px;"></i>{{distance}}</span>
+                                            <span ng-show="currencyprice"><i class="fa fa-dollar" style="color:#888;margin-right:3px;"></i>{{currencyprice}} {{currency}}</span>
+                                        </div>
+
+                                        <script>
+                                            function minutechecks_now(currentminute) {
+                                                var valueofdate = document.getElementById("laterDate").value;
+                                                var now = new Date();
+                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                                                if (valueofdate < todayStr) {
+                                                    Swal.fire('Warning!', 'This date has already passed. Please select today or a future date.', 'warning');
+                                                } else if (valueofdate === todayStr) {
+                                                    var selHr = parseInt(document.getElementById('ddlLaterHrs').value) || 0;
+                                                    var curHr = now.getHours();
+                                                    var curMin = now.getMinutes();
+                                                    if (selHr === curHr && parseInt(currentminute) <= curMin) {
+                                                        var snap = Math.ceil((curMin + 1) / 5) * 5;
+                                                        if (snap >= 60) snap = 55;
+                                                        document.getElementById('ddlLaterMins').value = String(snap).padStart(2,'0');
+                                                    }
+                                                }
+                                            }
+                                            function checktime_now(currenthour) {
+                                                var valueofdate = document.getElementById("laterDate").value;
+                                                var now = new Date();
+                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                                                if (valueofdate < todayStr) {
+                                                    Swal.fire('Warning!', 'This date has already passed. Please select today or a future date.', 'warning');
+                                                } else if (valueofdate === todayStr && parseInt(currenthour) < now.getHours()) {
+                                                    Swal.fire('Warning!', 'This hour has already passed. Setting to current hour.', 'warning');
+                                                    document.getElementById('ddlLaterHrs').value = String(now.getHours()).padStart(2,'0');
+                                                }
+                                            }
+                                        </script>
+
+                                    </div><!-- /bwTabPane1 -->
+
+                                    <!-- ══ TAB 2 : PASSENGER ══ -->
+                                    <div id="bwTabPane2" class="bw-jtabpane" style="display:none;">
+
+                                        <!-- Search bar -->
+                                        <div style="position:relative; margin-bottom:10px;">
+                                            <div style="display:flex; gap:6px;">
+                                                <input type="Search" id="searchdatasx" class="form-control" autocomplete="off" style="flex:1;height:30px;font-size:12px;" name="searchaap" ng-model="searchtext" ng-keydown="Searchmulti( )" placeholder="Search ACC / Account ID / Customer">
+                                                <button class="btn btn-success btn-sm" ng-click="clearseacch()" style="padding:2px 12px;font-size:12px;white-space:nowrap;">Clear</button>
+                                            </div>
+                                            <div id="searchdatas" style="position:absolute;z-index:100;background:#efe3e3;width:100%;color:grey;top:34px;left:0;border-radius:4px;max-height:160px;overflow-y:auto;">
+                                                <h5 ng-click="accselect(acc)" id="testingss" style="cursor:pointer;margin-bottom:8px;padding:4px 8px;font-size:12px;" ng-repeat="acc in acc_record_search">
+                                                    <label class="label label-success">Calim No: {{acc.claim_number}}</label> | <label class="label label-success">Claim: {{acc.client_name}}</label> | <label class="label label-success">Phone: {{acc.client_phone}}</label> | <label class="label label-success">ACC</label>
+                                                </h5>
+                                                <h5 id="testingss" ng-click="accountselect(account)" style="cursor:pointer;margin-bottom:8px;padding:4px 8px;font-size:12px;" ng-repeat="account in account_record_search">
+                                                    <label class="label label-success">Id: {{account.Id}}</label> | <label class="label label-success">Account: {{account.Type}}</label> | <label class="label label-success">Phone: {{account.PhoneNo}}</label>
+                                                </h5>
+                                                <h5 id="testingss" ng-click="customerselect(passenger)" style="cursor:pointer;margin-bottom:8px;padding:4px 8px;font-size:12px;" ng-repeat="passenger in passenger_record_search">
+                                                    <label class="label label-success">Phone: {{passenger.PhoneNo}}</label> | <label class="label label-success">Name: {{passenger.Name}}</label>
+                                                </h5>
+                                            </div>
+                                        </div>
+
+                                        <!-- Name + Phone -->
+                                        <div class="bw-jrow">
+                                            <div>
+                                                <span class="bw-jlabel">Passenger Name</span>
+                                                <input type="text" class="form-control" name="passengerphone" ng-model="account_Name" value="{{account_Name}}">
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel">Phone</span>
+                                                <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo" value="{{account_PhoneNo}}">
+                                            </div>
+                                        </div>
+
+                                        <!-- Account ID + Email -->
+                                        <div class="bw-jrow">
+                                            <div>
+                                                <span class="bw-jlabel">Account ID</span>
+                                                <input type="text" class="form-control" name="accountid" value="{{account_AccountId}}">
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel">Email</span>
+                                                <input type="text" class="form-control" name="Email" ng-model="account_Email" value="{{}}">
+                                            </div>
+                                        </div>
+
+                                        <!-- ACC info block -->
+                                        <div style="background:#f0fff4;border:1px solid #b7ebc8;border-radius:6px;padding:8px 10px;margin-top:4px;">
+                                            <div style="font-size:11px;font-weight:700;color:#27ae60;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;"><i class="fa fa-medkit" style="margin-right:4px;"></i>ACC Information</div>
+                                            <div class="bw-jrow">
+                                                <div>
+                                                    <span class="bw-jlabel">Claim Number</span>
+                                                    <input type="text" class="form-control" ng-readonly="true" name="passengerphone" value="{{claim_number}}">
+                                                </div>
+                                                <div>
+                                                    <span class="bw-jlabel">Remain Ride</span>
+                                                    <input type="text" class="form-control" ng-readonly="true" name="passengerRemain" value="{{trip_days_left}}">
+                                                </div>
+                                            </div>
+                                            <div class="bw-jrow">
+                                                <div>
+                                                    <span class="bw-jlabel">Client Name</span>
+                                                    <input type="text" class="form-control" ng-readonly="true" name="passengerClientName" value="{{client_name}}">
+                                                </div>
+                                                <div>
+                                                    <span class="bw-jlabel">Client Phone</span>
+                                                    <input type="text" class="form-control" ng-readonly="true" name="passengerNumber" value="{{client_phone}}">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                    </div><!-- /bwTabPane2 -->
+
+                                    <!-- ══ TAB 3 : OPTIONS ══ -->
+                                    <div id="bwTabPane3" class="bw-jtabpane" style="display:none;">
+
+                                        <!-- Pax / Bags / Wheelchair / Cars row -->
+                                        <div class="bw-jrow" style="text-align:center; margin-bottom:10px;">
+                                            <div>
+                                                <span class="bw-jlabel" style="text-align:center;"><i class="fa fa-users"></i> Pax</span>
+                                                <select class="form-control" style="text-align:center;" ng-change="changeperson()" ng-model="selectedcustomer">
+                                                    <option ng-value="1">1</option><option ng-value="2">2</option><option ng-value="3">3</option><option ng-value="4">4</option>
+                                                    <option ng-value="5">5</option><option ng-value="6">6</option><option ng-value="7">7</option><option ng-value="8">8</option>
+                                                    <option ng-value="9">9</option><option ng-value="10">10</option><option ng-value="11">11</option><option ng-value="12">12</option>
+                                                    <option ng-value="13">13</option><option ng-value="14">14</option><option ng-value="15">15</option><option ng-value="16">16</option>
+                                                    <option ng-value="17">17</option><option ng-value="18">18</option><option ng-value="19">19</option><option ng-value="20">20</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel" style="text-align:center;"><i class="fa fa-shopping-bag"></i> Bags</span>
+                                                <select class="selectBox form-control" style="text-align:center;" ng-model="selectedbeg">
+                                                    <option ng-value="0">0</option><option ng-value="1">1</option><option ng-value="2">2</option>
+                                                    <option ng-value="3">3</option><option ng-value="4">4</option><option ng-value="5">5</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel" style="text-align:center;"><i class="fa fa-wheelchair"></i> W/Chair</span>
+                                                <select class="selectBox form-control" style="text-align:center;" ng-change="changewheelch()" ng-model="selectedwheelchair">
+                                                    <option ng-value="0">0</option><option ng-value="1">1</option><option ng-value="2">2</option>
+                                                    <option ng-value="3">3</option><option ng-value="4">4</option><option ng-value="5">5</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel" style="text-align:center;"><i class="fa fa-car"></i> Cars</span>
+                                                <select class="selectBox form-control" style="text-align:center;" ng-model="selectedcar">
+                                                    <option ng-value="1">1</option><option ng-value="2">2</option><option ng-value="3">3</option>
+                                                    <option ng-value="4">4</option><option ng-value="5">5</option><option ng-value="6">6</option>
+                                                    <option ng-value="7">7</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <!-- Vehicle Type + Service Type row -->
+                                        <div class="bw-jrow" style="align-items:flex-end; margin-bottom:10px;">
+                                            <div style="flex:0 0 160px;">
+                                                <span class="bw-jlabel"><i class="fa fa-car"></i> Vehicle Type</span>
+                                                <select class="form-control VehicleType" style="padding:2px 4px;" ng-model="selectedcartype" id="VehicleType">
+                                                    <option ng-repeat="(key, carr) in carlist" ng-value="{{key}}">{{carr}}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel"><i class="fa fa-tag"></i> Service Type</span>
+                                                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                                    <button type="button" ng-click="bwServiceType='taxi'" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #1565c0;cursor:pointer;font-weight:600;" ng-style="{background:bwServiceType==='taxi'?'#1565c0':'#f0f4ff',color:bwServiceType==='taxi'?'#fff':'#1565c0'}"><i class="fa fa-taxi"></i> Taxi</button>
+                                                    <button type="button" ng-click="bwServiceType='food'" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #2e7d32;cursor:pointer;font-weight:600;" ng-style="{background:bwServiceType==='food'?'#2e7d32':'#f0fff2',color:bwServiceType==='food'?'#fff':'#2e7d32'}"><i class="fa fa-cutlery"></i> Food</button>
+                                                    <button type="button" ng-click="bwServiceType='freight'" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #e65100;cursor:pointer;font-weight:600;" ng-style="{background:bwServiceType==='freight'?'#e65100':'#fff8f0',color:bwServiceType==='freight'?'#fff':'#e65100'}"><i class="fa fa-truck"></i> Freight</button>
+                                                    <button type="button" ng-click="bwServiceType='tm'" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid #6a1b9a;cursor:pointer;font-weight:600;" ng-style="{background:bwServiceType==='tm'?'#6a1b9a':'#faf0ff',color:bwServiceType==='tm'?'#fff':'#6a1b9a'}"><i class="fa fa-wheelchair"></i> TM</button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Driver + Vehicle row -->
+                                        <div class="bw-jrow" style="margin-bottom:10px;">
+                                            <div>
+                                                <span class="bw-jlabel"><i class="fa fa-user"></i> Driver</span>
+                                                <select class="form-control ddlDriver required" id="ddlDriver" ng-model="selecteddriver" ng-change="getddlvehicle()" style="padding:2px 4px;">
+                                                    <option ng-value="0" data-foo="0" data-zoneq="0" selected="selected">Automatic</option>
+                                                    <option ng-value="-2" data-foo="0" data-zoneq="0">Pending (Broadcast)</option>
+                                                    <option ng-value="-1" data-foo="0" data-zoneq="0">No One</option>
+                                                    <option ng-repeat="driz in LoginDriverdata" ng-if="!isDriverInRealtime(driz.Id)" data-zoneq="{{driz.zonequeue}}" data-foo="{{driz.VehicleId}}" ng-value="{{driz.Id}}">{{driz.UserFName}} / {{driz.VehicleNo}}</option>
+                                                    <option ng-repeat="driwqq in driverdatarealx" ng-show="checkofferjob(driwqq.driverid) && checkDriverSvc(driwqq.driverid, (bwServiceType||'taxi'))" ng-if="driwqq.vehiclestatus == 'Available' && true == checkjobvehile1(driwqq.vehicletype)" data-zoneq="{{driwqq.zonequeue}}" data-foo="{{driwqq.VehicleId}}" ng-value="{{driwqq.driverid}}">{{driwqq.vehiclenumber}} {{driwqq.vehicletype}}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <span class="bw-jlabel"><i class="fa fa-car"></i> Vehicle</span>
+                                                <select class="form-control ddlVehicleType required" id="ddlVehicleType" style="padding:2px 4px;"><option value="0" selected="selected">Automatic</option></select>
+                                            </div>
+                                        </div>
+
+                                        <!-- Repeat booking -->
+                                        <div ng-show="bookingtime_select == 1 && updatex == 0" style="padding-top:8px;border-top:1px solid #e0e4ec;">
+                                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#555;cursor:pointer;margin-bottom:6px;">
+                                                <input name="repeat" type="checkbox" ng-show="bookingtime_select == 1" ng-model="showdays" style="margin:0;"> Repeat booking
+                                            </label>
+                                            <div id="DivRepeatList" ng-show="showdays" style="background:#f8f9fa;border-radius:6px;padding:8px 10px;">
+                                                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px;align-items:flex-end;">
+                                                    <div style="flex:1;min-width:130px;">
+                                                        <span class="bw-jlabel">Until</span>
+                                                        <input type="date" id="MultipleDate" ng-model="datetimesecond" class="form-control" style="height:28px;font-size:12px;" />
+                                                    </div>
+                                                    <div>
+                                                        <span class="bw-jlabel">Weeks</span>
+                                                        <select name="recur_weeks" ng-model="weekselect" ng-change="changeweekday()" class="form-control" style="height:28px;font-size:12px;width:90px;">
+                                                            <option ng-value="0">All</option>
+                                                            <option ng-value="1">Odd</option>
+                                                            <option ng-value="2">Even</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="mon" ng-value="0" ng-model="mon" type="checkbox"> Mon</label>
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="tue" ng-value="1" ng-model="tue" type="checkbox"> Tue</label>
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="wed" ng-value="2" ng-model="wed" type="checkbox"> Wed</label>
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="thu" ng-value="3" ng-model="thu" type="checkbox"> Thu</label>
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="fri" ng-value="4" ng-model="fri" type="checkbox"> Fri</label>
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="sat" ng-value="5" ng-model="sat" type="checkbox"> Sat</label>
+                                                    <label style="display:flex;align-items:center;gap:3px;"><input name="sun" ng-value="6" ng-model="sun" type="checkbox"> Sun</label>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                    </div><!-- /bwTabPane3 -->
+
+                                    <!-- Footer: action buttons always visible -->
+                                    <div style="padding:8px 14px;background:#f8f9fb;border-top:2px solid #e0e4ec;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                                        <button class="btn btn-success btn-sm" ng-show="updatex == 0" ng-click="bookingridebefore();">Book</button>
+                                        <button class="btn btn-warning btn-sm" ng-show="updatex == 0 && AmmountAddedvalue != ''" ng-click="carbooking();">Card Booking</button>
+                                        <button class="btn btn-danger btn-sm" ng-show="updatex == 1" ng-click="updateride(selecteddriverpre, vehicleidpre);">Update</button>
+                                        <button class="btn btn-danger btn-sm" ng-show="updatex == 2" ng-click="updateride2(selecteddriverpre, vehicleidpre);">Update</button>
+                                        <button class="btn btn-danger btn-sm" ng-show="updatex == 0" ng-click="clearsection();">Clear</button>
+                                        <button class="btn btn-danger btn-sm" ng-show="updatex == 1 || updatex == 2" ng-click="clearsectionuupdate();">Clear</button>
+                                        <input type="hidden" id="updatecancel" ng-modal="updatex" ng-value="updatex" />
+                                        <button class="btn btn-success btn-sm" ng-show="updatex > 0" ng-click="copything();">Copy</button>
+                                        <label ng-if="AmmountAddedvaluesend != ''" class="label label-success" style="padding:6px 10px;margin:0 0 0 auto;background-color:#6b6092;">{{AmmountAddedvaluesend}} Paid</label>
+                                    </div>
 
                                 </div>
                             </div>
-                            <!-- modal-dialog -->
                         </div>
                         <!-- modal -->
                     </div>
@@ -21401,7 +21348,7 @@ $(document).ready(function() {
             dlg._bwDragBound = true;
 
             // Dock to top-right corner on first open so it doesn't block the map
-            var _w = 430;
+            var _w = 700;
             dlg.style.position = 'fixed';
             dlg.style.margin   = '0';
             dlg.style.top      = '58px';
@@ -21434,7 +21381,20 @@ $(document).ready(function() {
             });
         }
 
-        $(document).on('shown.bs.modal', '#largeModal', _bindDrag);
+        // Tab switcher for Create Job form
+        function bwSwitchTab(n) {
+            [1, 2, 3].forEach(function(i) {
+                var pane = document.getElementById('bwTabPane' + i);
+                var btn  = document.getElementById('bwTab' + i + 'Btn');
+                if (pane) pane.style.display = (i === n) ? 'block' : 'none';
+                if (btn)  btn.className = 'bw-jtab' + (i === n ? ' bw-jtab-active' : '');
+            });
+        }
+
+        $(document).on('shown.bs.modal', '#largeModal', function() {
+            _bindDrag();
+            bwSwitchTab(1); // always open on Ride tab
+        });
 
         // Reset on close so the next open is centred again
         $(document).on('hidden.bs.modal', '#largeModal', function() {
