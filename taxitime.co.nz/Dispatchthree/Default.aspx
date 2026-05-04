@@ -3339,8 +3339,8 @@ $(document).ready(function() {
 
                         <!-- Large Modal -->
                         <div id="largeModal" class="modal fade"   >
-                            <div class="modal-dialog modal-lg"  >
-                                <div class="modal-content " id="largeModalcontet" style="margin-top: 0; margin-left: -200px; width: 550px;">
+                            <div class="modal-dialog"  >
+                                <div class="modal-content " id="largeModalcontet" style="margin-top: 0; width: 430px;">
 
                                     <!-- ── Drag handle ── -->
                                     <div class="bw-drag-handle" title="Drag to move">
@@ -3348,7 +3348,7 @@ $(document).ready(function() {
                                         <span style="font-size:10px; opacity:0.5; letter-spacing:0.03em;">drag to reposition</span>
                                     </div>
 
-                                    <div class="modal-body pd-20">
+                                    <div class="modal-body pd-20" style="max-height:82vh; overflow-y:auto; overflow-x:hidden;">
 
 
                                         <!-- Accordion begin -->
@@ -21399,6 +21399,15 @@ $(document).ready(function() {
             var content = document.getElementById('largeModalcontet');
             if (!dlg || dlg._bwDragBound) return;
             dlg._bwDragBound = true;
+
+            // Dock to top-right corner on first open so it doesn't block the map
+            var _w = 430;
+            dlg.style.position = 'fixed';
+            dlg.style.margin   = '0';
+            dlg.style.top      = '58px';
+            dlg.style.left     = Math.max(0, window.innerWidth - _w - 14) + 'px';
+            dlg.style.width    = _w + 'px';
+            dlg.style.maxWidth = 'none';
 
             var handle = content && content.querySelector('.bw-drag-handle');
             if (!handle) return;
