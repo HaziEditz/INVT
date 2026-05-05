@@ -3514,19 +3514,19 @@ $(document).ready(function() {
                                                 </div>
                                                 <div style="flex:1;min-width:90px;">
                                                     <span class="bw-jlabel">Account ID</span>
-                                                    <input type="text" class="form-control" name="accountid" value="{{account_AccountId}}">
+                                                    <input type="text" class="form-control" name="accountid" ng-model="account_AccountId" readonly>
                                                 </div>
                                                 <div style="flex:1;min-width:110px;">
                                                     <span class="bw-jlabel">Email</span>
-                                                    <input type="text" class="form-control" name="Email" ng-model="account_Email" value="{{}}">
+                                                    <input type="text" class="form-control" name="Email" ng-model="account_Email">
                                                 </div>
                                                 <div style="flex:1;min-width:80px;">
                                                     <span class="bw-jlabel">Claim #</span>
-                                                    <input type="text" class="form-control" ng-readonly="true" value="{{claim_number}}" placeholder="Claim #">
+                                                    <input type="text" class="form-control" ng-model="claim_number" readonly placeholder="Claim #">
                                                 </div>
                                                 <div style="flex:0 0 60px;">
                                                     <span class="bw-jlabel">Remain</span>
-                                                    <input type="text" class="form-control" ng-readonly="true" value="{{trip_days_left}}" placeholder="Rem">
+                                                    <input type="text" class="form-control" ng-model="trip_days_left" readonly placeholder="Rem">
                                                 </div>
                                             </div>
                                         </div>
@@ -20017,75 +20017,92 @@ $(document).ready(function() {
     function getapprovalall(){
         var proc = 'ACC_All_approval';
         getmanager([], proc).then(function (result) {
-    
             $res = JSON.parse(result.d);
             var items = $res;
             var datasetx = [];
-        
+            var todaydate = new Date().toISOString().slice(0,10);
+
             for ($i = 0; $i < items.length; $i++) {
                 var datas = [];
-                var d = new Date();
-                var x = d.getFullYear()+"-";
-                var check = d.getMonth() + 1;
-                var  y =    d.getMonth() + 1 +"-";
-                if(check < 10){
-                    var yy = "0"+y;
-                }else{
-                    var yy = y;
-                }
-                var z   = d.getDate();
-                var todaydate = x+yy+z;
-            
-                var CDate = new Date(todaydate);
+                var CDate  = new Date(todaydate);
                 var CDate1 = new Date(items[$i].trip_to_date);
-                var statuss = '';
-                var color  = '';
-                if(CDate > CDate1){
-                    statuss = "expire";
-                    color= "red";
-                }else{
-                    statuss = "Continues";
-                    color= "green";
-                }
+                var expired = CDate > CDate1;
+                var statuss = expired ? "Expired" : "Active";
+                var color   = expired ? "red"     : "green";
+                var tripsLeft = items[$i].trip_days_left !== undefined ? items[$i].trip_days_left : items[$i].trip_days_approved;
 
-                datas.push("<span style='    width: 119px;  position: absolute;  overflow: hidden;'>"+ items[$i].acc_id+"</span>");
-                datas.push("<span style='    width: 119px;  position: absolute;  overflow: hidden;'>"+ items[$i].manager_name+"</span>");
-                datas.push("<span style='    width: 119px;  position: absolute;  overflow: hidden;'>"+ items[$i].client_name+"</span>");
-                datas.push("<span>"+ items[$i].claim_number+"</span>");
-                datas.push("<span>"+ items[$i].trip_from_date+"</span>");
-                datas.push("<span>"+ items[$i].trip_to_date+"</span>");
-                datas.push("<span>"+ items[$i].trip_days_approved+"/"+items[$i].trip_days_left +"</span>");
-                datas.push("<span style='width: 199px; display: table-caption;  overflow: auto;'>"+ items[$i].trip_description+"</span>");
-                datas.push("<span style='color:"+ color +"'>"+ statuss +"</span>");
-                datas.push("<button class='btn btn-warning' onclick='editapprove("+ items[$i].id +")'>Edit</button>");
-
+                datas.push("<span style='overflow:hidden;max-width:100px;display:block;'>"+ (items[$i].acc_id||'')+"</span>");
+                datas.push("<span style='overflow:hidden;max-width:110px;display:block;'>"+ (items[$i].manager_name||'')+"</span>");
+                datas.push("<span style='overflow:hidden;max-width:110px;display:block;'>"+ (items[$i].client_name||'')+"</span>");
+                datas.push("<span>"+ (items[$i].claim_number||'')+"</span>");
+                datas.push("<span>"+ (items[$i].purchase_order_number||'')+"</span>");
+                datas.push("<span>"+ (items[$i].trip_from_date||'')+"</span>");
+                datas.push("<span>"+ (items[$i].trip_to_date||'')+"</span>");
+                datas.push("<span style='font-weight:700;color:"+(tripsLeft<1?'red':'#1a5276');+"'>"+ (items[$i].trip_days_approved||0)+"/"+tripsLeft+"</span>");
+                datas.push("<span style='color:"+color+";font-weight:600;'>"+ statuss +"</span>");
+                datas.push(
+                    "<button class='btn btn-warning btn-xs' style='margin-right:3px;' onclick='editapprove("+ items[$i].id +")'>Edit</button>" +
+                    "<button class='btn btn-success btn-xs' style='margin-right:3px;' onclick='openExtendTrips("+ items[$i].id +","+ tripsLeft +")'>+Trips</button>" +
+                    "<button class='btn btn-info btn-xs' onclick='openExtendDate("+ items[$i].id +",\""+ (items[$i].trip_to_date||'') +"\")'>+Date</button>"
+                );
                 datasetx.push(datas);
             }
 
-            var tabless =  $('#approvaltable').DataTable({
+            $('#approvaltable').DataTable({
                 data: datasetx,
                 columns: [
-                    { title: "ACC_ID" },
-                    { title: "Manager Name" },
-                    { title: "Client Name" },
-                    { title: "Claim Number" },
-                    { title: "Trip From" },
-                    { title: "Trip To" },
-                    { title: "T/ R Trip" },
-                    { title: "Trip Detail" },
-                    { title: "Trip Status" },
-                    {title : "Edit/Update"}
+                    { title: "ACC ID" },
+                    { title: "Manager" },
+                    { title: "Client" },
+                    { title: "Claim #" },
+                    { title: "PO #" },
+                    { title: "From" },
+                    { title: "To" },
+                    { title: "Appr/Left" },
+                    { title: "Status" },
+                    { title: "Actions" }
                 ],
                 dom: 'Bfrtip',
-                buttons: [
-                    'copy', 'csv', 'pdf', 'print'
-                ],
+                buttons: ['copy', 'csv', 'pdf', 'print'],
                 destroy: true,
-           
             });
-
         });
+    }
 
+    // ── Dispatcher quick-extend functions (trips or date only) ──────────────
+    function openExtendTrips(approvalId, currentLeft) {
+        var add = prompt('Current trips remaining: ' + currentLeft + '\n\nHow many trips to ADD?', '');
+        if (add === null || add === '') return;
+        var addNum = parseInt(add);
+        if (isNaN(addNum) || addNum < 1) { alert('Please enter a number greater than 0.'); return; }
+        Addmanager([
+            { name: 'id', Value: approvalId },
+            { name: 'add_trips', Value: addNum }
+        ], 'ACC_Extend').then(function(r) {
+            if (r && (r.d === 'Extended successfully' || (r.d && r.d.includes('Extended')))) {
+                toastr.success('Added ' + addNum + ' trips to this approval.', 'Updated!');
+                getapprovalall();
+            } else {
+                toastr.error('Could not extend trips.', 'Error');
+            }
+        });
+    }
+
+    function openExtendDate(approvalId, currentToDate) {
+        var newDate = prompt('Current end date: ' + currentToDate + '\n\nEnter new end date (YYYY-MM-DD):', currentToDate);
+        if (newDate === null || newDate === '') return;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) { alert('Please enter date as YYYY-MM-DD (e.g. 2026-09-30)'); return; }
+        Addmanager([
+            { name: 'id', Value: approvalId },
+            { name: 'new_to_date', Value: newDate }
+        ], 'ACC_Extend').then(function(r) {
+            if (r && (r.d === 'Extended successfully' || (r.d && r.d.includes('Extended')))) {
+                toastr.success('End date updated to ' + newDate, 'Updated!');
+                getapprovalall();
+            } else {
+                toastr.error('Could not extend date.', 'Error');
+            }
+        });
     }
 
     function getmanagerlist(){

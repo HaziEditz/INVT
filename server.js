@@ -58,6 +58,11 @@ const COOKIE_FILE               = path.join(DATA_DIR, 'session.txt');
 const ZONE_ASSIGNMENTS_FILE     = path.join(DATA_DIR, 'zone_assignments.json');
 const TARIFF_STORE_FILE         = path.join(DATA_DIR, 'tariffs.json');
 const REGISTRATIONS_FILE        = path.join(DATA_DIR, 'registrationRequests.json');
+const ACC_MANAGERS_FILE         = path.join(DATA_DIR, 'acc_managers.json');
+const ACC_CLIENTS_FILE          = path.join(DATA_DIR, 'acc_clients.json');
+const ACC_APPROVALS_FILE        = path.join(DATA_DIR, 'acc_approvals.json');
+const BUSINESS_ACCOUNTS_FILE    = path.join(DATA_DIR, 'business_accounts.json');
+const PASSENGERS_FILE           = path.join(DATA_DIR, 'passengers.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
 // ─── Registration / account request store ────────────────────────────────────
@@ -71,6 +76,32 @@ try {
     console.log(`[persist] loaded ${registrationStore.length} registration request(s) from disk`);
   }
 } catch(e) { console.log('[persist] registrations load error:', e.message); }
+
+// ── ACC & Business Account stores ──────────────────────────────────────────
+let accManagerStore   = [];
+let accClientStore    = [];
+let accApprovalStore  = [];
+let businessAccStore  = [];
+let passengerStore    = [];
+let accNextMgrId  = 1;
+let accNextCliId  = 1;
+let accNextAppId  = 1;
+let baccNextId    = 1;
+let pasNextId     = 1;
+function loadJsonStore(file, arr, label) {
+  try { if (fs.existsSync(file)) { const d = JSON.parse(fs.readFileSync(file,'utf8')); if(Array.isArray(d)){arr.push(...d);} console.log('[persist] loaded '+arr.length+' '+label); } } catch(e) { console.log('[persist] '+label+' load error:',e.message); }
+}
+function saveJsonStore(file, arr) { try { fs.writeFileSync(file, JSON.stringify(arr, null, 2)); } catch(e) {} }
+loadJsonStore(ACC_MANAGERS_FILE,  accManagerStore,  'ACC manager(s)');
+loadJsonStore(ACC_CLIENTS_FILE,   accClientStore,   'ACC client(s)');
+loadJsonStore(ACC_APPROVALS_FILE, accApprovalStore, 'ACC approval(s)');
+loadJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore, 'business account(s)');
+loadJsonStore(PASSENGERS_FILE,    passengerStore,   'passenger(s)');
+if (accManagerStore.length)  accNextMgrId  = Math.max(...accManagerStore.map(r=>r.id||0))  + 1;
+if (accClientStore.length)   accNextCliId  = Math.max(...accClientStore.map(r=>r.id||0))   + 1;
+if (accApprovalStore.length) accNextAppId  = Math.max(...accApprovalStore.map(r=>r.id||0)) + 1;
+if (businessAccStore.length) baccNextId    = Math.max(...businessAccStore.map(r=>r.id||0)) + 1;
+if (passengerStore.length)   pasNextId     = Math.max(...passengerStore.map(r=>r.id||0))   + 1;
 
 function saveRegistrations() {
   fs.writeFile(REGISTRATIONS_FILE, JSON.stringify(registrationStore, null, 2), err => {
@@ -2860,20 +2891,163 @@ const server = http.createServer(async (req, res) => {
         successD(res, 'Emergency Stored');
 
       } else if (action === 'ACC_Approval_add') {
-        console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval saved`);
+        const app = {
+          id: accNextAppId++,
+          companyId: sessionCompanyId,
+          manager_id:            parseInt(param('manager_id')||'0')||0,
+          client_id:             parseInt(param('client_id')||'0')||0,
+          acc_id:                (param('acc_id')||'').trim(),
+          claim_number:          (param('claim_number')||'').trim(),
+          purchase_order_number: (param('purchase_order_number')||'').trim(),
+          client_services_code:  (param('client_services_code')||'').trim(),
+          trip_from_date:        (param('trip_from_date')||'').trim(),
+          trip_to_date:          (param('trip_to_date')||'').trim(),
+          trip_status:           (param('trip_status')||'One Way').trim(),
+          trip_days_approved:    parseInt(param('trip_days_approved')||'0')||0,
+          trip_description:      (param('trip_description')||'').trim(),
+          max_price_per_trip:    parseFloat(param('max_price_per_trip')||'0')||0,
+          approved_pickup_address:  (param('approved_pickup_address')||'').trim(),
+          approved_dropoff_address: (param('approved_dropoff_address')||'').trim(),
+          wheelchair:            (param('wheelchair')||'0')==='1',
+          created_at:            nowNZ(),
+        };
+        // derive client details for display
+        const _appCli = accClientStore.find(c=>c.id===app.client_id && c.companyId===sessionCompanyId);
+        const _appMgr = accManagerStore.find(m=>m.id===app.manager_id && m.companyId===sessionCompanyId);
+        app.client_name  = _appCli ? _appCli.client_name  : '';
+        app.client_phone = _appCli ? _appCli.client_phone : '';
+        app.manager_name  = _appMgr ? _appMgr.manager_name  : '';
+        app.manager_email = _appMgr ? _appMgr.manager_email : '';
+        app.manager_phone = _appMgr ? _appMgr.manager_phone : '';
+        app.trip_days_left = app.trip_days_approved;
+        accApprovalStore.push(app);
+        saveJsonStore(ACC_APPROVALS_FILE, accApprovalStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval #${app.id} saved`);
         successD(res, 'Approval successfully Saved');
 
       } else if (action === 'ACC_Approval_update') {
-        console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval updated`);
-        successD(res, 'Approval successfully update');
+        const updId = parseInt(param('id')||'0')||0;
+        const upd = accApprovalStore.find(a=>a.id===updId && a.companyId===sessionCompanyId);
+        if (upd) {
+          if (param('acc_id'))                upd.acc_id                = (param('acc_id')||'').trim();
+          if (param('claim_number'))          upd.claim_number          = (param('claim_number')||'').trim();
+          if (param('purchase_order_number')) upd.purchase_order_number = (param('purchase_order_number')||'').trim();
+          if (param('client_services_code'))  upd.client_services_code  = (param('client_services_code')||'').trim();
+          if (param('trip_from_date'))        upd.trip_from_date        = (param('trip_from_date')||'').trim();
+          if (param('trip_to_date'))          upd.trip_to_date          = (param('trip_to_date')||'').trim();
+          if (param('trip_status'))           upd.trip_status           = (param('trip_status')||'').trim();
+          if (param('trip_days_approved'))    upd.trip_days_approved    = parseInt(param('trip_days_approved')||'0')||0;
+          if (param('trip_description'))      upd.trip_description      = (param('trip_description')||'').trim();
+          if (param('max_price_per_trip'))    upd.max_price_per_trip    = parseFloat(param('max_price_per_trip')||'0')||0;
+          if (param('approved_pickup_address'))  upd.approved_pickup_address  = (param('approved_pickup_address')||'').trim();
+          if (param('approved_dropoff_address')) upd.approved_dropoff_address = (param('approved_dropoff_address')||'').trim();
+          saveJsonStore(ACC_APPROVALS_FILE, accApprovalStore);
+          console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval #${updId} updated`);
+          successD(res, 'Approval successfully update');
+        } else {
+          successD(res, 'Approval not found');
+        }
+
+      } else if (action === 'ACC_Extend') {
+        // Dispatcher quick-action: extend trips remaining and/or end date only
+        const extId = parseInt(param('id')||'0')||0;
+        const ext = accApprovalStore.find(a=>a.id===extId && a.companyId===sessionCompanyId);
+        if (ext) {
+          const addTrips = parseInt(param('add_trips')||'0')||0;
+          const newToDate = (param('new_to_date')||'').trim();
+          if (addTrips > 0) {
+            ext.trip_days_approved += addTrips;
+            ext.trip_days_left     = (ext.trip_days_left||0) + addTrips;
+          }
+          if (newToDate) ext.trip_to_date = newToDate;
+          saveJsonStore(ACC_APPROVALS_FILE, accApprovalStore);
+          console.log(`200: POST ${urlPath} [action=${action}] -> ACC approval #${extId} extended (+${addTrips} trips, to=${newToDate||'unchanged'})`);
+          successD(res, 'Extended successfully');
+        } else {
+          successD(res, 'Approval not found');
+        }
+
+      } else if (action === 'ACC_TripUsed') {
+        // Called when a job with an ACC approval is completed — decrements trips_left
+        const tuId = parseInt(param('approval_id')||param('id')||'0')||0;
+        const tu = accApprovalStore.find(a=>a.id===tuId && a.companyId===sessionCompanyId);
+        if (tu && (tu.trip_days_left||0) > 0) {
+          tu.trip_days_left = (tu.trip_days_left||0) - 1;
+          saveJsonStore(ACC_APPROVALS_FILE, accApprovalStore);
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> trips_left now ${tu?tu.trip_days_left:'?'}`);
+        successD(res, 'Trip recorded');
 
       } else if (action === 'Client_ACC_ADD') {
-        console.log(`200: POST ${urlPath} [action=${action}] -> ACC client added`);
+        const cli = {
+          id:                accNextCliId++,
+          companyId:         sessionCompanyId,
+          manager_id:        parseInt(param('manager_id')||'0')||0,
+          client_name:       (param('client_name')||'').trim(),
+          client_phone:      (param('client_phone')||'').trim(),
+          client_address:    (param('client_address')||'').trim(),
+          registration_date: (param('registration_date')||param('client_registration_Date')||'').trim(),
+          wheelchair:        (param('wheelchair')||'0')==='1',
+          notes:             (param('notes')||'').trim(),
+          created_at:        nowNZ(),
+        };
+        accClientStore.push(cli);
+        saveJsonStore(ACC_CLIENTS_FILE, accClientStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC client #${cli.id} "${cli.client_name}" saved`);
         successD(res, 'Client successfully Saved');
 
       } else if (action === 'Manager_ACC_ADD') {
-        console.log(`200: POST ${urlPath} [action=${action}] -> ACC manager added`);
+        const mgr = {
+          id:                   accNextMgrId++,
+          companyId:            sessionCompanyId,
+          manager_name:         (param('manager_name')||'').trim(),
+          manager_branch_code:  (param('manager_branch_code')||'').trim(),
+          manager_city:         (param('manager_city')||param('manager_branch_code')||'').trim(),
+          manager_address:      (param('manager_address')||'').trim(),
+          po_box:               (param('po_box')||'').trim(),
+          manager_country:      (param('manager_country')||'New Zealand').trim(),
+          manager_phone:        (param('manager_phone')||'').trim(),
+          manager_phone_ext:    (param('manager_phone_ext')||'').trim(),
+          manager_email:        (param('manager_email')||'').trim(),
+          registration_date:    (param('registration_date')||'').trim(),
+          created_at:           nowNZ(),
+        };
+        accManagerStore.push(mgr);
+        saveJsonStore(ACC_MANAGERS_FILE, accManagerStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ACC manager #${mgr.id} "${mgr.manager_name}" saved`);
         successD(res, 'Manager successfully Saved');
+
+      } else if (action === 'Business_Account_ADD') {
+        const bacc = {
+          id:            baccNextId++,
+          companyId:     sessionCompanyId,
+          name:          (param('name')||'').trim(),
+          contact_name:  (param('contact_name')||'').trim(),
+          phone:         (param('phone')||'').trim(),
+          email:         (param('email')||'').trim(),
+          address:       (param('address')||'').trim(),
+          notes:         (param('notes')||'').trim(),
+          active:        true,
+          created_at:    nowNZ(),
+        };
+        businessAccStore.push(bacc);
+        saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> business account #${bacc.id} "${bacc.name}" saved`);
+        successD(res, 'Account saved');
+
+      } else if (action === 'Business_Account_GET') {
+        const baccAll = businessAccStore.filter(b=>b.companyId===sessionCompanyId && b.active!==false);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${baccAll.length} business accounts`);
+        arrayD(res, baccAll);
+
+      } else if (action === 'Passenger_ADD') {
+        const existing = passengerStore.find(p=>p.companyId===sessionCompanyId && p.phone===(param('phone')||'').trim());
+        if (!existing) {
+          const pas = { id: pasNextId++, companyId: sessionCompanyId, Name: (param('name')||param('Name')||'').trim(), PhoneNo: (param('phone')||'').trim(), Email: (param('email')||'').trim(), Address: (param('address')||'').trim(), created_at: nowNZ() };
+          passengerStore.push(pas);
+          saveJsonStore(PASSENGERS_FILE, passengerStore);
+        }
+        successD(res, 'Passenger saved');
 
       } else if (action === 'checkmanagername' || action === 'checkmanageremail' || action === 'checkmanagerphone' || action === 'checkpassengernumber') {
         console.log(`200: POST ${urlPath} [action=${action}] -> remote validation ok`);
@@ -3953,53 +4127,60 @@ const server = http.createServer(async (req, res) => {
         console.log(`200: POST ${urlPath} [action=${action}] -> ${mapped.length} unread from driver #${driverId}`);
         arrayD(res, mapped);
 
-      // ── ACC / Accident Claim handlers ──────────────────────────────────────
+      // ── ACC / Accident Claim handlers (real persistent storage) ───────────
+      } else if (action === '[searchmulti]') {
+        // Dispatcher Create Job — Customer Search box
+        // dt1 = ACC clients (with active approval info), dt2 = business accounts, dt3 = passengers
+        const q = ((param('claim_number')||param('value')||param('searchtext')||'')).toLowerCase().trim();
+        const todayStr = new Date().toISOString().slice(0,10);
+        const accResults = accClientStore
+          .filter(c => c.companyId===sessionCompanyId && (!q || c.client_name.toLowerCase().includes(q) || (c.client_phone||'').includes(q)))
+          .map(c => {
+            const activeApp = accApprovalStore.find(a => a.client_id===c.id && a.companyId===sessionCompanyId && a.trip_to_date >= todayStr && (a.trip_days_left||0) > 0) || null;
+            return { id: c.id, client_name: c.client_name, client_phone: c.client_phone, client_address: c.client_address,
+              claim_number: activeApp ? activeApp.claim_number : '', trip_days_left: activeApp ? activeApp.trip_days_left : 0,
+              acc_approval_id: activeApp ? activeApp.id : null, manager_id: activeApp ? activeApp.manager_id : c.manager_id };
+          }).filter(c => q || c.claim_number); // only show ACC clients that have active approvals unless searching
+        const baccResults = businessAccStore
+          .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q)))
+          .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, Type: 'Account' }));
+        const pasResults = passengerStore
+          .filter(p => p.companyId===sessionCompanyId && (!q || (p.Name||'').toLowerCase().includes(q) || (p.PhoneNo||'').includes(q) || (p.Email||'').toLowerCase().includes(q)))
+          .slice(0, 20)
+          .map(p => ({ Id: p.id, Name: p.Name, PhoneNo: p.PhoneNo, Email: p.Email }));
+        const multiResult = { dt1: accResults, dt2: baccResults, dt3: pasResults };
+        console.log(`200: POST ${urlPath} [action=${action}] q="${q}" -> dt1:${accResults.length} dt2:${baccResults.length} dt3:${pasResults.length}`);
+        jsonReply(res, { d: JSON.stringify(multiResult) });
+
       } else if (action === 'Manager_ACC_GET') {
-        const demoManagers = [
-          { id: 1, manager_name: 'ACC Head Office', manager_branch_code: 'ACC001', manager_email: 'head@acc.co.nz' },
-          { id: 2, manager_name: 'Southland Branch', manager_branch_code: 'ACC002', manager_email: 'south@acc.co.nz' },
-          { id: 3, manager_name: 'Otago Branch',    manager_branch_code: 'ACC003', manager_email: 'otago@acc.co.nz' },
-        ];
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${demoManagers.length} ACC managers`);
-        arrayD(res, demoManagers);
+        const mgrs = accManagerStore.filter(m=>m.companyId===sessionCompanyId);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${mgrs.length} ACC managers`);
+        arrayD(res, mgrs);
 
       } else if (action === 'Client_ACC_GET') {
-        const managerId = parseInt(param('manager_id') || '0') || 0;
-        const demoClients = [
-          { id: 1, client_name: 'John Smith',   manager_id: 1, phone: '021 111 0001', address: '12 Main St, Invercargill' },
-          { id: 2, client_name: 'Mary Johnson', manager_id: 1, phone: '021 111 0002', address: '45 Tay St, Invercargill'  },
-          { id: 3, client_name: 'Paul Davis',   manager_id: 2, phone: '021 111 0003', address: '78 Dee St, Invercargill'  },
-        ];
-        const filtered = managerId ? demoClients.filter(c => c.manager_id === managerId) : demoClients;
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${filtered.length} ACC clients`);
-        arrayD(res, filtered);
+        const managerId = parseInt(param('manager_id')||'0')||0;
+        const clis = accClientStore.filter(c=>c.companyId===sessionCompanyId && (!managerId || c.manager_id===managerId));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${clis.length} ACC clients`);
+        arrayD(res, clis);
 
       } else if (action === 'Client_ACC_ALL') {
-        const demoClients = [
-          { id: 1, client_name: 'John Smith',   manager_id: 1, manager_name: 'ACC Head Office', phone: '021 111 0001', address: '12 Main St, Invercargill' },
-          { id: 2, client_name: 'Mary Johnson', manager_id: 1, manager_name: 'ACC Head Office', phone: '021 111 0002', address: '45 Tay St, Invercargill'  },
-          { id: 3, client_name: 'Paul Davis',   manager_id: 2, manager_name: 'Southland Branch', phone: '021 111 0003', address: '78 Dee St, Invercargill'  },
-        ];
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${demoClients.length} all ACC clients`);
-        arrayD(res, demoClients);
+        const allClis = accClientStore.filter(c=>c.companyId===sessionCompanyId).map(c=>{
+          const mgr = accManagerStore.find(m=>m.id===c.manager_id);
+          return { ...c, manager_name: mgr ? mgr.manager_name : '' };
+        });
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${allClis.length} all ACC clients`);
+        arrayD(res, allClis);
 
       } else if (action === 'Approve_ACC_GET') {
-        const clientId = parseInt(param('client_id') || param('id') || '0') || 0;
-        const demoApprovals = [
-          { id: 1, acc_id: 'ACC-2026-001', client_id: 1, client_name: 'John Smith',  manager_name: 'ACC Head Office', manager_email: 'head@acc.co.nz', manager_phone: '03 214 0001', client_phone: '021 111 0001', registration_date: '2025-01-15', claim_number: 'CLM001', purchase_order_number: 'PO-001', client_services_code: 'SVC-01', trip_from_date: '2026-04-01', trip_to_date: '2026-06-30', trip_status: 'Round Trip', trip_days_approved: 30, trip_days_left: 22, trip_description: 'Post-surgery transport to physiotherapy' },
-          { id: 2, acc_id: 'ACC-2026-002', client_id: 2, client_name: 'Mary Johnson', manager_name: 'ACC Head Office', manager_email: 'head@acc.co.nz', manager_phone: '03 214 0001', client_phone: '021 111 0002', registration_date: '2025-02-20', claim_number: 'CLM002', purchase_order_number: 'PO-002', client_services_code: 'SVC-02', trip_from_date: '2026-03-15', trip_to_date: '2026-05-15', trip_status: 'One Way', trip_days_approved: 20, trip_days_left: 5,  trip_description: 'Transport to outpatient appointments' },
-        ];
-        const filtered = (clientId && clientId > 0) ? demoApprovals.filter(a => a.id === clientId || a.client_id === clientId) : demoApprovals;
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${filtered.length} approvals`);
-        arrayD(res, filtered);
+        const clientId = parseInt(param('client_id')||param('id')||'0')||0;
+        const apps = accApprovalStore.filter(a=>a.companyId===sessionCompanyId && (!clientId || a.client_id===clientId || a.id===clientId));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${apps.length} approvals`);
+        arrayD(res, apps);
 
       } else if (action === 'ACC_All_approval') {
-        const demoApprovals = [
-          { id: 1, acc_id: 'ACC-2026-001', client_name: 'John Smith',  manager_name: 'ACC Head Office', claim_number: 'CLM001', trip_from_date: '2026-04-01', trip_to_date: '2026-06-30', trip_days_approved: 30, trip_days_left: 22, trip_description: 'Post-surgery transport to physiotherapy' },
-          { id: 2, acc_id: 'ACC-2026-002', client_name: 'Mary Johnson', manager_name: 'ACC Head Office', claim_number: 'CLM002', trip_from_date: '2026-03-15', trip_to_date: '2026-05-15', trip_days_approved: 20, trip_days_left: 5,  trip_description: 'Transport to outpatient appointments' },
-        ];
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${demoApprovals.length} all approvals`);
-        arrayD(res, demoApprovals);
+        const allApps = accApprovalStore.filter(a=>a.companyId===sessionCompanyId);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${allApps.length} all approvals`);
+        arrayD(res, allApps);
 
       } else if (action === '[QuickSetNoOne]') {
         // Quick dispatcher action: mark job as "No One" from card dropdown.
