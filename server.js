@@ -3297,19 +3297,19 @@ const server = http.createServer(async (req, res) => {
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
-          // Per-driver double-offer guard: block if this driver already has a DIFFERENT job in Offered state
-          // that was set very recently (within 1 second — concurrent race window only).
+          // Per-driver double-offer guard: block if this driver already has ANY other job
+          // currently in Offered state. The 1-second window was too narrow — a second
+          // _sadTrigger fire 1-2 s later could slip through and offer a second job to the
+          // same driver, leaving both permanently stuck in Offered.
           if (newStatus === 'Offered' && incomingDriverId) {
-            const _offerWindow = 1000; // ms — only block truly concurrent duplicate offers
-            const _now = Date.now();
             const _existingOffer = jobStore.find(j =>
               j.BookingStatus === 'Offered' &&
               String(j.DriverId) === String(incomingDriverId) &&
-              j.Id !== bookingId &&
-              j.offeredAt && (_now - j.offeredAt) < _offerWindow
+              j.Id !== bookingId
             );
             if (_existingOffer) {
-              console.log(`  [changeriddestatusforoffer/DP] BLOCKED per-driver double-offer: driver ${incomingDriverId} already has job #${_existingOffer.Id} Offered (${_now - _existingOffer.offeredAt}ms ago), blocking job #${bookingId}`);
+              const _age = _existingOffer.offeredAt ? Math.round((Date.now() - _existingOffer.offeredAt) / 1000) : '?';
+              console.log(`  [changeriddestatusforoffer/DP] BLOCKED per-driver double-offer: driver ${incomingDriverId} already has job #${_existingOffer.Id} Offered (${_age}s ago), blocking job #${bookingId}`);
               objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
               return;
             }

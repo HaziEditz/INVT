@@ -3730,6 +3730,8 @@ $(document).ready(function() {
                                                                                 <script>
                                             function minutechecks_now(currentminute) {
                                                 var valueofdate = document.getElementById("laterDate").value;
+                                                // No date selected yet — skip validation so the dropdown works freely
+                                                if (!valueofdate) return;
                                                 var now = new Date();
                                                 var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
                                                 if (valueofdate < todayStr) {
@@ -3739,19 +3741,27 @@ $(document).ready(function() {
                                                     var curHr = now.getHours(); var curMin = now.getMinutes();
                                                     if (selHr === curHr && parseInt(currentminute) <= curMin) {
                                                         var snap = Math.ceil((curMin + 1) / 5) * 5; if (snap >= 60) snap = 55;
-                                                        document.getElementById('ddlLaterMins').value = String(snap).padStart(2,'0');
+                                                        var snapStr = String(snap).padStart(2,'0');
+                                                        document.getElementById('ddlLaterMins').value = snapStr;
+                                                        // Sync Angular scope so the booking picks up the corrected value
+                                                        try { angular.element(document.getElementById('ddlLaterMins')).triggerHandler('change'); } catch(e) {}
                                                     }
                                                 }
                                             }
                                             function checktime_now(currenthour) {
                                                 var valueofdate = document.getElementById("laterDate").value;
+                                                // No date selected yet — skip validation so the dropdown works freely
+                                                if (!valueofdate) return;
                                                 var now = new Date();
                                                 var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
                                                 if (valueofdate < todayStr) {
                                                     Swal.fire('Warning!', 'This date has already passed.', 'warning');
                                                 } else if (valueofdate === todayStr && parseInt(currenthour) < now.getHours()) {
                                                     Swal.fire('Warning!', 'Hour already passed.', 'warning');
-                                                    document.getElementById('ddlLaterHrs').value = String(now.getHours()).padStart(2,'0');
+                                                    var fixedHr = String(now.getHours()).padStart(2,'0');
+                                                    document.getElementById('ddlLaterHrs').value = fixedHr;
+                                                    // Sync Angular scope
+                                                    try { angular.element(document.getElementById('ddlLaterHrs')).triggerHandler('change'); } catch(e) {}
                                                 }
                                             }
                                         </script>
@@ -15045,6 +15055,24 @@ $(document).ready(function() {
                     var resz = JSON.parse(result.d);
                     var pendingJobs = (resz && resz['dt1']) ? resz['dt1'] : [];
                     if (!pendingJobs.length) return;
+
+                    // Stale-lock recovery: if the server returns a job as Pending that the
+                    // client still has in _activeOfferIds (e.g. the server's stale-offer
+                    // watchdog reset it from Offered → Pending without notifying the client),
+                    // clear the client lock so this cycle can re-offer it normally.
+                    pendingJobs.forEach(function(pj) {
+                        var pjId = String(pj.Id);
+                        if (_activeOfferIds[pjId]) {
+                            console.log('[smartAutoDispatch] clearing stale client lock for job #' + pjId + ' (server says Pending)');
+                            delete _activeOfferIds[pjId];
+                            // Also clear the driver lock for this job
+                            Object.keys(_activeOfferDrivers).forEach(function(dId) {
+                                if (String(_activeOfferDrivers[dId]) === pjId) {
+                                    delete _activeOfferDrivers[dId];
+                                }
+                            });
+                        }
+                    });
 
                     // Use Angular scope's driverdatarealx — already has zonequeue and live status
                     var _sc = angular.element(document.getElementById('myangular')).scope();
