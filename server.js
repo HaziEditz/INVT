@@ -346,7 +346,22 @@ const messageStore = [];
 function buildDriverChatList(cid) {
   const drivers = cid ? ZONE_DRIVERS.filter(d => !d.companyId || d.companyId === cid) : ZONE_DRIVERS;
   const msgs    = cid ? messageStore.filter(m => !m.companyId || m.companyId === cid)  : messageStore;
-  return drivers.map(d => {
+  // Deduplicate: same vehiclenumber OR same drivername means the same physical
+  // driver appeared twice in ZONE_DRIVERS (e.g. once from the driver app's
+  // [DriverStatusChanged] call and once from the Firebase child_added listener).
+  const seenVehicle = new Set();
+  const seenName    = new Set();
+  const unique = [];
+  drivers.forEach(d => {
+    const vkey  = String(d.vehiclenumber || d.VehicleId || '').toLowerCase();
+    const nkey  = String(d.drivername || '').trim().toLowerCase();
+    if (vkey && seenVehicle.has(vkey)) return;
+    if (nkey && seenName.has(nkey))    return;
+    if (vkey) seenVehicle.add(vkey);
+    if (nkey) seenName.add(nkey);
+    unique.push(d);
+  });
+  return unique.map(d => {
     const did = String(d.driverid || d.VehicleId || '');
     const unread = msgs.filter(m => String(m.SenderId) === did && !m.IsRead).length;
     const dn = d.drivername || '';

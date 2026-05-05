@@ -101,6 +101,21 @@ function GetDetails() {
             if (!sqlIds[String(d.Id)]) combined.push(d);
         });
 
+        // Deduplicate combined list by name — same driver can appear twice if
+        // ZONE_DRIVERS has two entries (one from driver app, one from Firebase
+        // child_added) or if liveDrivers overlaps with the server list.
+        var seenNames = {};
+        var seenIds   = {};
+        combined = combined.filter(function (d) {
+            var idKey   = String(d.Id || '');
+            var nameKey = ((d.UserFName || '') + ' ' + (d.UserLName || '')).trim().toLowerCase();
+            if (idKey   && seenIds[idKey])     return false;
+            if (nameKey && seenNames[nameKey]) return false;
+            if (idKey)   seenIds[idKey]     = true;
+            if (nameKey) seenNames[nameKey] = true;
+            return true;
+        });
+
         var $list = $(".friend-list").empty();
 
         if (combined.length === 0) {
@@ -509,9 +524,19 @@ function _showDriverMessage(driverId, driverName, text) {
             { timeOut: 8000, extendedTimeOut: 3000 });
     }
 
-    // Show live in open conversation
+    // Show live in open conversation.
+    // Match by direct ID OR by the name shown in the chat header — the driver
+    // app may use a Firebase UID as the message key while the dispatcher has
+    // the conversation open under the SQL driver ID.  Name matching bridges
+    // that gap so the bubble always appears in the right conversation.
     var openId = $("#UserId").text();
-    if (driverId && openId && String(driverId) === String(openId)) {
+    var openName = $("#ttChatHeader .tt-chat-header-name").text().trim().toLowerCase();
+    var msgName  = (driverName || '').trim().toLowerCase();
+    var isOpenConvo = driverId && openId && (
+        String(driverId) === String(openId) ||
+        (msgName && openName && msgName === openName)
+    );
+    if (isOpenConvo) {
         var $ul = $(".chat");
         $ul.find('.tt-empty-chat').closest('li').remove();
         $ul.append(_buildBubble(null, false, driverName, _avatarColor(driverName), false, text, ts, false));
