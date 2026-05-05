@@ -721,6 +721,10 @@ function _normFbJob(job) {
   const pickLng = job.PickupLng  || job.pickupLng  || job.PickLng  || job.pickLng  || 0;
   const dropLat = job.DropoffLat || job.dropoffLat || job.DropLat  || job.dropLat  || 0;
   const dropLng = job.DropoffLng || job.dropoffLng || job.DropLng  || job.dropLng  || 0;
+  // Normalise serviceType: passenger app may send 'taxi','food','freight','tm'
+  const _rawSvc = (job.serviceType || job.ServiceType || job.bookingType || job.BookingType || '').toLowerCase().trim();
+  const _svcMap = { taxi:'taxi', food:'food', freight:'freight', tm:'tm', delivery:'freight', restaurant:'food' };
+  const serviceType = _svcMap[_rawSvc] || (_rawSvc || 'taxi');
   return {
     name:        job.PassengerName  || job.passengerName  || job.name || '',
     phone:       job.PhoneNo        || job.phoneNo        || job.phone || '',
@@ -745,6 +749,8 @@ function _normFbJob(job) {
     })(),
     scheduledFor: parseInt(job.ScheduledFor || job.scheduledFor || 0),
     scheduledAt:  job.ScheduledAt || '',
+    serviceType,
+    bookingType: job.bookingType || job.BookingType || '',
   };
 }
 
@@ -5578,10 +5584,11 @@ const server = http.createServer(async (req, res) => {
               BookingDateTime: _sn.createdAt || new Date().toISOString(),
               ScheduledFor:  _sMs,
               Notes: _sn.notes, Passengers: _sn.passengers,
+              serviceType: _sn.serviceType, bookingType: _sn.bookingType,
               DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
             });
             saveJobStore();
-            console.log(`[passenger] Scheduled job ${_ipjFbKey} ingested as Pending — ${_sn.name} from ${_sn.pickAddress}`);
+            console.log(`[passenger] Scheduled job ${_ipjFbKey} ingested as Pending (svc=${_sn.serviceType}) — ${_sn.name} from ${_sn.pickAddress}`);
           }
           objectD(res, { ok: true, action: 'pending' });
 
@@ -5605,10 +5612,11 @@ const server = http.createServer(async (req, res) => {
               EstimatedFare: _wn.estimatedFare,
               BookingDateTime: _wn.createdAt || new Date().toISOString(),
               Notes: _wn.notes, Passengers: _wn.passengers,
+              serviceType: _wn.serviceType, bookingType: _wn.bookingType,
               DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
             });
             saveJobStore();
-            console.log(`[passenger] Waiting job ${_ipjFbKey} ingested — ${_wn.name} from ${_wn.pickAddress}`);
+            console.log(`[passenger] Waiting job ${_ipjFbKey} ingested (svc=${_wn.serviceType}) — ${_wn.name} from ${_wn.pickAddress}`);
           }
           objectD(res, { ok: true, action: 'pending' });
 

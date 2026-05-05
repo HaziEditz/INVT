@@ -5905,6 +5905,58 @@ $(document).ready(function() {
         _pjRef.once('value', function() { _pjInit = true; });
     })();
 
+    // ── 6c. Tow-request alert listener ────────────────────────────────────
+    // Listens to Firebase towRequests/{companyId} for tow alerts written by the
+    // driver/owner app. Shows a persistent dispatcher alert with sound so the
+    // dispatcher can create a tow job immediately.
+    (function() {
+        if (!SomeSession2) return;
+        var _towRef  = DbRef.ref('towRequests/' + SomeSession2);
+        var _towInit = false;
+        var _towSeen = {};
+        _towRef.on('child_added', function(snap) {
+            if (!_towInit) return;
+            var t = snap.val();
+            if (!t || _towSeen[snap.key]) return;
+            _towSeen[snap.key] = true;
+            var _towKey    = snap.key;
+            var _towName   = t.driverName   || t.name        || 'Unknown driver';
+            var _towVeh    = t.vehicleNo    || t.vehicleName || t.vehicleId || '';
+            var _towLoc    = t.location     || t.address     || t.pickupAddress || '';
+            var _towNote   = t.notes        || t.reason      || '';
+            var _towTime   = t.createdAt    ? new Date(t.createdAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+            var _towMsg    = '🚨 Tow alert from ' + _towName
+                           + (_towVeh  ? ' (vehicle ' + _towVeh + ')'  : '')
+                           + (_towLoc  ? ' — ' + _towLoc               : '')
+                           + (_towNote ? ' — ' + _towNote               : '')
+                           + (_towTime ? ' at ' + _towTime              : '');
+            // Show in the booking alert banner
+            var alertEl = document.getElementById('bw-booking-alert');
+            var msgEl   = document.getElementById('bw-booking-alert-msg');
+            if (alertEl && msgEl) {
+                msgEl.textContent = _towMsg;
+                alertEl.style.display = 'block';
+                alertEl.style.background = '#b71c1c';
+                // Revert to default colour after the alert is hidden
+                setTimeout(function() {
+                    alertEl.style.display = 'none';
+                    alertEl.style.background = '';
+                }, 30000);
+            }
+            try { if (typeof playSound === 'function') playSound('newjob'); } catch(e) {}
+            console.log('[towRequests] tow alert received key=' + _towKey + ':', t);
+            // Mark acknowledged on Firebase so the same alert doesn't re-fire
+            // if the listener reconnects. Non-critical — fire-and-forget.
+            try { _towRef.child(_towKey).child('_dispatcherAlerted').set(true); } catch(e) {}
+        }, function(e) { console.warn('[towRequests] listener error:', e && (e.code || e.message)); });
+        _towRef.on('child_changed', function(snap) {
+            // Re-alert on changes only if not already acknowledged
+            var t = snap.val();
+            if (t && !t._dispatcherAlerted) _towSeen[snap.key] = false;
+        }, function(e) {});
+        _towRef.once('value', function() { _towInit = true; });
+    })();
+
     // ── 7. Driver self-registration listener ──────────────────────────────
     // Listens to Firebase driverRegistrations/{companyId} for new drivers
     // who registered via the driver app. Shows a notification so the dispatcher
