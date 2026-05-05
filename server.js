@@ -597,14 +597,23 @@ function _patchRentalComplete(job) {
   const _completedAt = (job.JobCompleteTime || new Date().toISOString()).replace(/\.$/, '');
   function _doRentalPatch(attempt) {
     getFirebaseServerToken().then(token => {
-      if (!token) { console.error(`  [rental] _patchRentalComplete: no token (attempt ${attempt}) for ${_rKey}`); return; }
+      if (!token) {
+        console.error('[rental-complete] Firebase patch failed after retry — no auth token',
+          { rentalKey: _rKey, jobId: _rId, completedAt: _completedAt, attempt });
+        return;
+      }
       firebaseDbPatch(`rentalTaxiRequests/${_rKey}`,
         { status: 'completed', completedAt: _completedAt, jobId: _rId }, token
       ).then(() => {
         console.log(`  [rental] rentalTaxiRequests/${_rKey} → completed (job #${_rId})`);
       }).catch(err => {
-        console.error(`  [rental] completion patch attempt ${attempt} FAILED for ${_rKey}:`, err && err.message);
-        if (attempt === 1) setTimeout(() => _doRentalPatch(2), 4000);
+        if (attempt === 1) {
+          console.warn(`  [rental] completion patch attempt 1 failed for ${_rKey} — retrying in 4 s:`, err && err.message);
+          setTimeout(() => _doRentalPatch(2), 4000);
+        } else {
+          console.error('[rental-complete] Firebase patch failed after retry',
+            { rentalKey: _rKey, jobId: _rId, completedAt: _completedAt, error: err && err.message });
+        }
       });
     });
   }
