@@ -2140,26 +2140,15 @@
                 </div>
                 <!-- Tabs -->
                 <div style="background:#22263a; display:flex; flex-shrink:0; border-bottom:none;">
-                    <a data-toggle="tab" href="#manager" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;" class="acc-tab-link active-acc-tab">
-                        <i class="fa fa-user-plus" style="margin-right:5px;"></i>Manager
+                    <a data-toggle="tab" href="#approvaldetails" onclick="getapprovalall()" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.9); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid #dfba5f; transition:all 0.15s; letter-spacing:0.3px;" class="acc-tab-link active-acc-tab">
+                        <i class="fa fa-check-circle" style="margin-right:5px;"></i>Approvals &amp; POs
                     </a>
-                    <a data-toggle="tab" href="#client" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
-                        <i class="fa fa-address-card" style="margin-right:5px;"></i>Client
-                    </a>
-                    <a data-toggle="tab" href="#clientride" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
-                        <i class="fa fa-car" style="margin-right:5px;"></i>ACC Claim
-                    </a>
-                    <a data-toggle="tab" href="#approvaldetails" onclick="getapprovalall()" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
-                        <i class="fa fa-check-circle" style="margin-right:5px;"></i>Approvals
-                    </a>
-                    <a data-toggle="tab" href="#bizaccounts" onclick="loadBizAccounts()" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
-                        <i class="fa fa-building" style="margin-right:5px;"></i>Accounts
-                    </a>
+                    <!-- Manager / Client / ACC Claim / Accounts tabs moved to Owner Panel -->
                 </div>
                 <div class="modal-body" style="background:#f9fafb; overflow-y:auto; padding:20px; flex:1;">
 
                             <div class="tab-content">
-                              <div id="manager" class="tab-pane fade in active">
+                              <div id="manager" class="tab-pane fade">
                               <div class="col-lg-12">
                                 <div class="col-lg-4">
                                
@@ -2370,7 +2359,7 @@
                                  </div>
                                </div>
 
-                               <div id="approvaldetails" class="tab-pane fade">
+                               <div id="approvaldetails" class="tab-pane fade in active">
 
                                    <!-- ── Pending Driver Approvals ── -->
                                    <div style="margin-bottom:18px;">
@@ -3466,11 +3455,11 @@ $(document).ready(function() {
                                                     <div style="display:flex;gap:6px;">
                                                         <div style="flex:1;">
                                                             <span class="bw-jlabel">Name</span>
-                                                            <input type="text" class="form-control" name="passengerphone" ng-model="account_Name" value="{{account_Name}}" placeholder="Passenger name">
+                                                            <input type="text" class="form-control" name="passengerphone" ng-model="account_Name" placeholder="Passenger name">
                                                         </div>
                                                         <div style="flex:1;">
                                                             <span class="bw-jlabel">Phone</span>
-                                                            <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo" value="{{account_PhoneNo}}" placeholder="Phone number">
+                                                            <input type="text" class="form-control" id="phonenumbers" name="phone" ng-model="account_PhoneNo" placeholder="Phone number">
                                                         </div>
                                                     </div>
                                                 </div>
@@ -5632,11 +5621,13 @@ $(document).ready(function() {
             if (!s) return;
             // Feature flags — defaults to false if not set
             window._bwFeatures = {
-                tmEnabled:       !!(s.features && s.features.tmEnabled),
-                autoDispatch:    !!(s.features && s.features.autoDispatch),
-                zoneQueue:       !!(s.features && s.features.zoneQueue),
-                directAssign:    !!(s.features && s.features.directAssign),
-                cardBooking:     !!(s.features && s.features.cardBooking),
+                tmEnabled:        !!(s.features && s.features.tmEnabled),
+                autoDispatch:     !!(s.features && s.features.autoDispatch),
+                zoneQueue:        !!(s.features && s.features.zoneQueue),
+                directAssign:     !!(s.features && s.features.directAssign),
+                cardBooking:      !!(s.features && s.features.cardBooking),
+                accEnabled:       !!(s.features && s.features.accEnabled),
+                businessAccounts: !!(s.features && s.features.businessAccounts),
             };
             console.log('[bw-settings] feature flags loaded:', JSON.stringify(window._bwFeatures));
             // Company name (override chip if owner panel set one)
@@ -12926,6 +12917,7 @@ $(document).ready(function() {
            { "name": "CornerAddress", "Value": $scope.cornerdata },
            { "name": "PromoId", "Value": '' },
            { "name": "Acc_job_id", "Value": $scope.acc_select_id},
+           { "name": "po_id",      "Value": $scope.acc_select_id},
            { "name": "Acc_manager_id", "Value": $scope.manager_id },
            { "name": "Account_id", "Value":$scope.account_Select_Id},
            { "name": "Acc_claim_id", "Value":   $scope.claim_number  },
@@ -13350,6 +13342,7 @@ $(document).ready(function() {
             { "name": "nextstopdata", "Value": completelistofstop  },
             { "name": "ZoneId", "Value": PickZoneId },
             { "name": "Acc_job_id", "Value": $scope.acc_select_id},
+            { "name": "po_id",      "Value": $scope.acc_select_id},
             { "name": "Acc_claim_id", "Value":  $scope.claim_number },
             { "name": "Acc_client_id", "Value": $scope.client_id },
             { "name": "Acc_manager_id", "Value": $scope.manager_id },
@@ -13509,6 +13502,7 @@ $(document).ready(function() {
                     { "name": "nextstopdata", "Value": completelistofstop  },
                     { "name": "ZoneId", "Value": PickZoneId },
                     { "name": "Acc_job_id", "Value": $scope.acc_select_id},
+                    { "name": "po_id",      "Value": $scope.acc_select_id},
                     { "name": "Acc_claim_id", "Value":  $scope.claim_number },
                     { "name": "Acc_client_id", "Value": $scope.client_id },
                     { "name": "Acc_manager_id", "Value": $scope.manager_id },
@@ -15716,41 +15710,69 @@ $(document).ready(function() {
         $scope.client_id =     '';
         $scope.trip_status =     '';
         $scope.acc_select_id =    '';
-        $scope.accselect = function(arg){
-             
-            if(arg.trip_days_left < 1){
-                $scope.acc_record_search = [];
-                $scope.account_record_search = [];
-                $scope.passenger_record_search = [];
-             
-                toastr["error"]("This Claim Id is Expired Or No more Ride", 'Error!');
+        $scope.accselect = function(arg) {
+            $scope.acc_record_search = [];
+            $scope.account_record_search = [];
+            $scope.passenger_record_search = [];
+            $scope.searchtext = '';
 
-            }else{
-                $scope.claim_number =    arg.claim_number;
-                $scope.trip_days_left =    arg.trip_days_left;
-                $scope.client_name =     arg.client_name;
-                $scope.client_phone =      arg.client_phone;
-                $scope.claim_number =      arg.claim_number;
-                $scope.manager_id =      arg.manager_id;
-                $scope.client_id =      arg.client_id;
-                $scope.trip_status =       arg.trip_status;
-                $scope.acc_select_id =       arg.id;
-
-
-                $scope.account_Select_Id = '' ;
-                $scope.account_Name =  '';
-                $scope.account_PhoneNo =  '';
+            if (arg._fbSource) {
+                // Firebase path — async PO lookup from purchaseOrders/{companyId}
+                var today = new Date().toISOString().slice(0, 10);
+                DbRef.ref('purchaseOrders/' + SomeSession2)
+                    .orderByChild('clientId').equalTo(arg.id)
+                    .once('value', function(snap) {
+                        var activePO = null;
+                        snap.forEach(function(child) {
+                            var po = child.val();
+                            if (!po) return;
+                            var remaining = (po.qty || 0) - (po.tripsUsed || 0);
+                            if (po.dateFrom <= today && po.dateTo >= today && remaining > 0) {
+                                activePO = { id: child.key, remaining: remaining, po: po };
+                            }
+                        });
+                        $scope.$apply(function() {
+                            if (!activePO) {
+                                toastr['error']('No active purchase order or no trips remaining for this client.', 'Cannot Book ACC Ride');
+                                return;
+                            }
+                            var c = arg._raw;
+                            $scope.claim_number      = c.claimNumber || '';
+                            $scope.trip_days_left    = activePO.remaining;
+                            $scope.client_name       = c.name || '';
+                            $scope.client_phone      = c.phone || '';
+                            $scope.manager_id        = c.managerId || '';
+                            $scope.client_id         = arg.id;
+                            $scope.trip_status       = activePO.po.status || 'active';
+                            $scope.acc_select_id     = activePO.id;
+                            $scope.account_Name      = c.name || '';
+                            $scope.account_PhoneNo   = c.phone || '';
+                            $scope.account_Select_Id = '';
+                            $scope.account_AccountId = '';
+                            $scope.account_Email     = '';
+                        });
+                    });
+            } else {
+                // Local store path
+                if (!arg.trip_days_left || arg.trip_days_left < 1) {
+                    toastr['error']('This Claim is Expired or has no Rides remaining.', 'Cannot Book ACC Ride');
+                    return;
+                }
+                $scope.claim_number      = arg.claim_number;
+                $scope.trip_days_left    = arg.trip_days_left;
+                $scope.client_name       = arg.client_name;
+                $scope.client_phone      = arg.client_phone;
+                $scope.manager_id        = arg.manager_id;
+                $scope.client_id         = arg.client_id;
+                $scope.trip_status       = arg.trip_status;
+                $scope.acc_select_id     = arg.id;
+                $scope.account_Name      = arg.client_name;
+                $scope.account_PhoneNo   = arg.client_phone;
+                $scope.account_Select_Id = '';
                 $scope.account_AccountId = '';
-                $scope.account_Email = '';
-
-
-                $scope.acc_record_search = [];
-                $scope.account_record_search = [];
-                $scope.passenger_record_search = []; 
+                $scope.account_Email     = '';
             }
-
-            $scope.searchtext =    '';
-        }
+        };
         $scope.accountselect = function(arg){
          
           
@@ -15808,39 +15830,72 @@ $(document).ready(function() {
             $scope.account_record_search = [];
             $scope.passenger_record_search = [];
         }
-        $scope.Searchmulti = function( ){
-           
-            $scope.paramm =  [{ "name": "claim_number", "value":  $scope.searchtext }];
-            $scope.procm = '[searchmulti]';
+        $scope.Searchmulti = function() {
+            var q = ($scope.searchtext || '').trim();
+            if (!q) {
+                $scope.acc_record_search = [];
+                $scope.account_record_search = [];
+                $scope.passenger_record_search = [];
+                return;
+            }
+            var qLow = q.toLowerCase();
+            var features = window._bwFeatures || {};
+
+            // Always call server for passengers (dt3); also fills acc/biz when flags are OFF
             $http({
+                method: 'POST',
+                url: 'DataManager/Data.aspx/DataSelector',
+                data: { data: [{ name: 'claim_number', value: q }], action: '[searchmulti]' }
+            }).then(function(result) {
+                var $res = JSON.parse(result.data.d);
+                if (!features.accEnabled)       { $scope.acc_record_search     = $res['dt1'] || []; }
+                if (!features.businessAccounts) { $scope.account_record_search = $res['dt2'] || []; }
+                $scope.passenger_record_search = $res['dt3'] || [];
+            }, function() {});
 
-                method: "POST",
+            // Firebase ACC client search (when accEnabled flag is on)
+            if (features.accEnabled && typeof DbRef !== 'undefined' && SomeSession2) {
+                DbRef.ref('accClients/' + SomeSession2).once('value', function(snap) {
+                    var items = [];
+                    snap.forEach(function(child) {
+                        var c = child.val();
+                        if (!c) return;
+                        var nm = (c.name || '').toLowerCase();
+                        var ph = (c.phone || '').toLowerCase();
+                        var cn = (c.claimNumber || '').toLowerCase();
+                        if (nm.indexOf(qLow) >= 0 || ph.indexOf(qLow) >= 0 || cn.indexOf(qLow) >= 0) {
+                            items.push({
+                                id: child.key,
+                                client_name: c.name || '',
+                                client_phone: c.phone || '',
+                                claim_number: c.claimNumber || '',
+                                _fbSource: true,
+                                _raw: c
+                            });
+                        }
+                    });
+                    $scope.$apply(function() { $scope.acc_record_search = items; });
+                });
+            }
 
-                url: "DataManager/Data.aspx/DataSelector",
-
-                data: {
-                    data: $scope.paramm,
-                    action: $scope.procm
-                }
-
-            }).then(function mySuccess(result) {
-                
-                var resp = result.data;
-                $res = JSON.parse(resp.d);
-               
-                $scope.acc_record_search = $res['dt1'];
-                $scope.account_record_search = $res['dt2'];
-                $scope.passenger_record_search = $res['dt3'];
-
-              
-            }, function myError(response) {
-
-
-
-            });
-
-
-        }
+            // Firebase Business Account search (when businessAccounts flag is on)
+            if (features.businessAccounts && typeof DbRef !== 'undefined' && SomeSession2) {
+                DbRef.ref('businessAccounts/' + SomeSession2).once('value', function(snap) {
+                    var items = [];
+                    snap.forEach(function(child) {
+                        var b = child.val();
+                        if (!b) return;
+                        var nm = (b.name || '').toLowerCase();
+                        var ph = (b.phone || '').toLowerCase();
+                        var fk = child.key.toLowerCase();
+                        if (nm.indexOf(qLow) >= 0 || ph.indexOf(qLow) >= 0 || fk.indexOf(qLow) >= 0) {
+                            items.push({ Id: child.key, Name: b.name || '', PhoneNo: b.phone || '', Email: b.email || '', Type: 'Account' });
+                        }
+                    });
+                    $scope.$apply(function() { $scope.account_record_search = items; });
+                });
+            }
+        };
 
 
         $scope.showstopshow = 0;
@@ -18797,6 +18852,7 @@ $(document).ready(function() {
                  { "name": "CornerAddress", "Value":  $scope.cornerdata },
                  { "name": "PromoId", "Value": '' },
                  { "name": "Acc_job_id", "Value": $scope.acc_select_id},
+                 { "name": "po_id",      "Value": $scope.acc_select_id},
                  { "name": "Acc_manager_id", "Value": $scope.manager_id },
                  { "name": "Account_id", "Value":$scope.account_Select_Id},
                 { "name": "Acc_claim_id", "Value":   $scope.claim_number  },
