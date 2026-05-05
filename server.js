@@ -2427,7 +2427,7 @@ const server = http.createServer(async (req, res) => {
       // Job write / status changes — both plain and v2 are handled locally; v2 does background sync
       '[AssignJobStatusFromJobList]', '[AssignJobStatusFromJobListv2]',
       '[UnAssignJobStatusFromJobList]', '[CancelUnAssignedJobStatusFromJobList]',
-      '[changeriddestatusforoffer]', '[DriverStatusChanged]',
+      '[changeriddestatusforoffer]', '[DriverStatusChanged]', '[BwForceDriver]',
       '[checkjobstatus]', '[checkjobstatusv2]',
       // Ride-status gate checks — mock-only, must NOT proxy to real backend
       'checkriddestatusforoffer', 'checkriddestatusforautodispatch', 'checkriddestatus',
@@ -3443,6 +3443,70 @@ const server = http.createServer(async (req, res) => {
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _newQueueNo });
+
+      } else if (action === '[BwForceDriver]') {
+        // Force a driver online/offline in ZONE_DRIVERS without needing the Firebase driver app.
+        // Used for testing dispatching when the driver app cannot go on shift.
+        // Params: driverid (required unless vehiclenumber given), vehiclenumber, drivername,
+        //         vehicletype, lat, lng, zonename, online ('false' = force offline).
+        const _fdId     = (param('driverid')      || '').toString().trim();
+        const _fdVehNo  = (param('vehiclenumber') || '').toString().trim();
+        const _fdName   = (param('drivername')    || '').toString().trim();
+        const _fdType   = (param('vehicletype')   || 'Sedan').toString().trim();
+        const _fdLat    = (param('lat')           || '').toString().trim();
+        const _fdLng    = (param('lng')           || '').toString().trim();
+        const _fdZone   = (param('zonename')      || '').toString().trim();
+        const _fdOnline = param('online') !== 'false';
+        const _fdKey    = _fdId || _fdVehNo;
+        if (!_fdKey) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'driverid or vehiclenumber required' }));
+          return;
+        }
+        if (!_fdOnline) {
+          const _kept = ZONE_DRIVERS.filter(d =>
+            String(d.driverid) !== _fdKey && String(d.vehiclenumber) !== _fdKey && String(d.VehicleId) !== _fdKey
+          );
+          ZONE_DRIVERS.length = 0;
+          _kept.forEach(d => ZONE_DRIVERS.push(d));
+          console.log(`[BwForceDriver] forced OFFLINE: ${_fdKey} — ZONE_DRIVERS now ${ZONE_DRIVERS.length}`);
+          objectD(res, { dt1: [{ ok: true, action: 'offline', driverid: _fdKey }], dt2: [], dt3: [], dt4: [], dt5: [] });
+          return;
+        }
+        let _fdZd = ZONE_DRIVERS.find(d =>
+          String(d.driverid) === _fdKey || String(d.VehicleId) === _fdKey ||
+          (_fdVehNo && String(d.vehiclenumber) === _fdVehNo)
+        );
+        if (_fdZd) {
+          _fdZd.vehiclestatus = 'Available';
+          if (_fdVehNo) _fdZd.vehiclenumber = _fdVehNo;
+          if (_fdName)  _fdZd.drivername    = _fdName;
+          if (_fdType)  _fdZd.vehicletype   = _fdType;
+          if (_fdZone)  _fdZd.zonename      = _fdZone;
+          if (_fdLat)   _fdZd.lat           = _fdLat;
+          if (_fdLng)   _fdZd.lng           = _fdLng;
+        } else {
+          const _maxQ = companyDrivers(ZONE_DRIVERS).reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+          _fdZd = {
+            driverid:       _fdKey,
+            VehicleId:      _fdId || _fdKey,
+            vehiclenumber:  _fdVehNo || _fdKey,
+            drivername:     _fdName || _fdVehNo || _fdKey,
+            vehicletype:    _fdType,
+            vehiclestatus:  'Available',
+            lat:            _fdLat,
+            lng:            _fdLng,
+            zonename:       _fdZone,
+            zonequeue:      _maxQ + 1,
+            queueWaitSince: Date.now(),
+            companyId:      sessionCompanyId,
+            _forcedOnline:  true,
+          };
+          ZONE_DRIVERS.push(_fdZd);
+        }
+        _firstDriverSeenAfterStart = true;
+        console.log(`[BwForceDriver] forced ONLINE: ${_fdKey} (${_fdVehNo || ''}) vehicletype=${_fdType} zone=${_fdZone || '-'} — ZONE_DRIVERS now ${ZONE_DRIVERS.length}`);
+        objectD(res, { dt1: [{ ok: true, action: 'online', driverid: _fdKey, vehiclenumber: _fdVehNo || _fdKey, drivername: _fdName || _fdVehNo || _fdKey }], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[DriverStatusChanged]') {
         // Called via Action() → DataProcessor URL when Firebase vehiclestatus changes.

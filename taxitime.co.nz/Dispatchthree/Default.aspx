@@ -2382,6 +2382,51 @@
                                        </div>
                                    </div>
 
+                                   <!-- ── Force Driver Online (test tool) ── -->
+                                   <div style="margin-bottom:18px; margin-top:10px;">
+                                       <div style="font-size:14px; font-weight:700; color:#1a6fb0; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+                                           <i class="fa fa-plug"></i> Simulate Driver Online
+                                           <span style="font-size:10px; font-weight:500; color:#666; background:#eef; border-radius:8px; padding:1px 8px;">Testing Tool</span>
+                                       </div>
+                                       <div style="font-size:12px; color:#666; margin-bottom:10px;">
+                                           Use this when the driver app cannot go on shift. Registers a driver as Available directly — bypasses Firebase/driver app.
+                                       </div>
+                                       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+                                           <div>
+                                               <label style="font-size:11px; font-weight:600; color:#555; display:block; margin-bottom:3px;">Vehicle / Driver ID</label>
+                                               <input id="bw-fd-id" type="text" placeholder="e.g. D001" class="form-control input-sm" style="width:110px;" />
+                                           </div>
+                                           <div>
+                                               <label style="font-size:11px; font-weight:600; color:#555; display:block; margin-bottom:3px;">Vehicle Number</label>
+                                               <input id="bw-fd-veh" type="text" placeholder="e.g. TAXI01" class="form-control input-sm" style="width:110px;" />
+                                           </div>
+                                           <div>
+                                               <label style="font-size:11px; font-weight:600; color:#555; display:block; margin-bottom:3px;">Driver Name</label>
+                                               <input id="bw-fd-name" type="text" placeholder="e.g. Test Driver" class="form-control input-sm" style="width:130px;" />
+                                           </div>
+                                           <div>
+                                               <label style="font-size:11px; font-weight:600; color:#555; display:block; margin-bottom:3px;">Vehicle Type</label>
+                                               <select id="bw-fd-type" class="form-control input-sm" style="width:100px;">
+                                                   <option value="Sedan">Sedan</option>
+                                                   <option value="SUV">SUV</option>
+                                                   <option value="Van">Van</option>
+                                                   <option value="Wheelchair">Wheelchair</option>
+                                               </select>
+                                           </div>
+                                           <div>
+                                               <label style="font-size:11px; font-weight:600; color:#555; display:block; margin-bottom:3px;">Zone (optional)</label>
+                                               <input id="bw-fd-zone" type="text" placeholder="e.g. City" class="form-control input-sm" style="width:100px;" />
+                                           </div>
+                                           <button id="bw-fd-btn" class="btn btn-primary btn-sm" onclick="bwForceDriverOnline()" style="font-weight:700; white-space:nowrap;">
+                                               <i class="fa fa-sign-in"></i> Force Online
+                                           </button>
+                                           <button class="btn btn-default btn-sm" onclick="bwForceDriverOffline()" style="font-weight:700; white-space:nowrap;">
+                                               <i class="fa fa-sign-out"></i> Force Offline
+                                           </button>
+                                       </div>
+                                       <div id="bw-fd-status" style="margin-top:8px; font-size:12px; display:none;"></div>
+                                   </div>
+
                                    <!-- ── Existing approval table ── -->
                                    <button class="btn btn-success" onclick="refresshapprove()">Refresh</button>
                                 <table id="approvaltable" class="table table-striped table-bordered dt-responsive nowrap" style="border-collapse: collapse; border-spacing: 0; width: 100%;" width="100%" width="100%"></table>
@@ -5565,7 +5610,9 @@ $(document).ready(function() {
         var _bwLoginTime = Date.now();
         localStorage.setItem('bw_loginTime', String(_bwLoginTime));
 
+        var _bwHbBlocked = false; // stop retrying after first PERMISSION_DENIED
         function _bwWriteHeartbeat() {
+            if (_bwHbBlocked) return;
             var _uid = '';
             try { var _cu = firebase.auth().currentUser; if (_cu) _uid = _cu.uid; } catch(e) {}
             _bwHbRef.set({
@@ -5577,7 +5624,11 @@ $(document).ready(function() {
                 ip:         _bwHbIp,
                 ua:         _bwHbUa,
                 sessionKey: _bwSessionKey
-            }).catch(function() { /* non-critical — ignore */ });
+            }).catch(function(err) {
+                if (err && (err.code === 'PERMISSION_DENIED' || (err.message && err.message.indexOf('permission_denied') !== -1))) {
+                    _bwHbBlocked = true; // Firebase rules block this path — stop spamming console
+                }
+            });
         }
         _bwWriteHeartbeat(); // immediate
         setInterval(_bwWriteHeartbeat, 60 * 1000); // every 60 seconds
@@ -20593,6 +20644,102 @@ $(document).ready(function() {
         $('#clientadding').show(1000);
 
     }
+    // ── Force Driver Online / Offline (testing tool) ───────────────────────
+    // Calls [BwForceDriver] on the server and adds the driver to driverdatarealx
+    // so they appear on the board immediately without needing the driver app.
+    function bwForceDriverOnline() {
+        var _fdId   = (document.getElementById('bw-fd-id')   || {}).value || '';
+        var _fdVeh  = (document.getElementById('bw-fd-veh')  || {}).value || '';
+        var _fdName = (document.getElementById('bw-fd-name') || {}).value || '';
+        var _fdType = (document.getElementById('bw-fd-type') || {}).value || 'Sedan';
+        var _fdZone = (document.getElementById('bw-fd-zone') || {}).value || '';
+        var _fdSt   = document.getElementById('bw-fd-status');
+        if (!_fdId && !_fdVeh) {
+            if (_fdSt) { _fdSt.style.display = 'block'; _fdSt.style.color = '#c0392b'; _fdSt.textContent = 'Please enter a Vehicle/Driver ID or Vehicle Number.'; }
+            return;
+        }
+        var _key = _fdId || _fdVeh;
+        if (_fdSt) { _fdSt.style.display = 'block'; _fdSt.style.color = '#888'; _fdSt.textContent = 'Registering...'; }
+        jQuery.ajax({
+            type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+            data: JSON.stringify({ data: [
+                { name: 'driverid',      Value: _fdId  },
+                { name: 'vehiclenumber', Value: _fdVeh  },
+                { name: 'drivername',    Value: _fdName },
+                { name: 'vehicletype',   Value: _fdType },
+                { name: 'zonename',      Value: _fdZone },
+                { name: 'online',        Value: 'true'  }
+            ], action: '[BwForceDriver]' }),
+            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+            success: function(resp) {
+                try {
+                    var rd = resp && resp.d ? JSON.parse(resp.d) : null;
+                    var ok = rd && rd.dt1 && rd.dt1[0] && rd.dt1[0].ok;
+                    if (ok) {
+                        // Also inject into driverdatarealx so the board shows them immediately
+                        var _sc = angular.element(document.getElementById('myangular')).scope();
+                        if (_sc && typeof _sc.adddrivernew === 'function') {
+                            _sc.adddrivernew({
+                                driverid:      _key,
+                                VehicleId:     _fdId || _key,
+                                vehiclenumber: _fdVeh || _key,
+                                drivername:    _fdName || _fdVeh || _key,
+                                vehicletype:   _fdType,
+                                vehiclestatus: 'Available',
+                                zonename:      _fdZone,
+                                zonequeue:     1,
+                                _forcedOnline: true
+                            });
+                        }
+                        if (_fdSt) { _fdSt.style.color = '#27ae60'; _fdSt.textContent = 'Driver ' + (_fdVeh || _fdId) + ' is now online and Available on the board.'; }
+                        if (typeof toastr !== 'undefined') toastr['success']((_fdVeh || _fdId) + ' is now Available', 'Driver Online');
+                    } else {
+                        if (_fdSt) { _fdSt.style.color = '#c0392b'; _fdSt.textContent = 'Server returned error — check console.'; }
+                    }
+                } catch(e) {
+                    if (_fdSt) { _fdSt.style.color = '#c0392b'; _fdSt.textContent = 'Unexpected error: ' + e.message; }
+                }
+            },
+            error: function() {
+                if (_fdSt) { _fdSt.style.display = 'block'; _fdSt.style.color = '#c0392b'; _fdSt.textContent = 'Request failed — is the server running?'; }
+            }
+        });
+    }
+
+    function bwForceDriverOffline() {
+        var _fdId  = (document.getElementById('bw-fd-id')  || {}).value || '';
+        var _fdVeh = (document.getElementById('bw-fd-veh') || {}).value || '';
+        var _fdSt  = document.getElementById('bw-fd-status');
+        var _key   = _fdId || _fdVeh;
+        if (!_key) {
+            if (_fdSt) { _fdSt.style.display = 'block'; _fdSt.style.color = '#c0392b'; _fdSt.textContent = 'Please enter a Vehicle/Driver ID or Vehicle Number.'; }
+            return;
+        }
+        jQuery.ajax({
+            type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+            data: JSON.stringify({ data: [
+                { name: 'driverid',      Value: _fdId },
+                { name: 'vehiclenumber', Value: _fdVeh },
+                { name: 'online',        Value: 'false' }
+            ], action: '[BwForceDriver]' }),
+            dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+            success: function() {
+                // Remove from driverdatarealx
+                var _sc = angular.element(document.getElementById('myangular')).scope();
+                if (_sc && _sc.driverdatarealx) {
+                    _sc.driverdatarealx = _sc.driverdatarealx.filter(function(d) {
+                        return String(d.driverid) !== _key && String(d.VehicleId) !== _key && String(d.vehiclenumber) !== _key;
+                    });
+                    _sc.driverlist = _sc.driverdatarealx;
+                    if (typeof _sc.zonetablez === 'function') _sc.zonetablez();
+                    if (!_sc.$$phase) _sc.$digest();
+                }
+                if (_fdSt) { _fdSt.style.display = 'block'; _fdSt.style.color = '#888'; _fdSt.textContent = 'Driver ' + _key + ' removed from board.'; }
+                if (typeof toastr !== 'undefined') toastr['info'](_key + ' removed', 'Driver Offline');
+            }
+        });
+    }
+
     function refresshapprove() {
         getapprovalall();
     }
