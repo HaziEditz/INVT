@@ -21132,7 +21132,16 @@ $(document).ready(function() {
     
                         $res = JSON.parse(result.d);
                         var datasetx = [];
-             
+                        // Format any date string (ISO UTC or local) to NZ local readable time
+                        function _bwFmtDt(raw) {
+                            if (!raw) return '';
+                            var s = String(raw).trim().replace(/\.$/, ''); // strip trailing dot
+                            var d = new Date(s);
+                            if (isNaN(d.getTime())) return raw;
+                            return d.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland',
+                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                        }
                         var closedJobIdMap = [];
                         for ($i = 0; $i < $res["dt1"].length; $i++) {
                             var datas = [];
@@ -21141,8 +21150,8 @@ $(document).ready(function() {
                             datas.push($action);
                             $refresh = " <span><i class='fa fa-refresh txt-theme' onclick='event.stopPropagation(); RefreshJob(" + $res["dt1"][$i].Id + ")'></i></span>";
                             datas.push($refresh);
-                            datas.push("<span>"+ ($res["dt1"][$i].BookingDateTime || '')+"</span>");
-                            datas.push("<span>"+($res["dt1"][$i].JobCompleteTime || '')+"</span>");
+                            datas.push("<span>"+ _bwFmtDt($res["dt1"][$i].BookingDateTime || '')+"</span>");
+                            datas.push("<span>"+ _bwFmtDt($res["dt1"][$i].JobCompleteTime || '')+"</span>");
                             var _pick = $res["dt1"][$i].PickAddress || '';
                             var _pickLatLng = $res["dt1"][$i].PickLatLng || '';
                             var _pickHtml;
@@ -21159,7 +21168,10 @@ $(document).ready(function() {
                             var _vno = $res["dt1"][$i].VehicleNo || $res["dt1"][$i].CallSign || '';
                             if (!_vno) { var _vid = parseInt($res["dt1"][$i].VehicleId); if (_vid > 0) _vno = String($res["dt1"][$i].VehicleId); }
                             datas.push("<span>"+_vno+"</span>");
-                            datas.push("<span>"+($res["dt1"][$i].UserFName || '') + ($res["dt1"][$i].UserLName || '')+"</span>");
+                            var _drvCJ = $res["dt1"][$i];
+                            var _drvNameCJ = _drvCJ.drivername ||
+                                ((_drvCJ.UserFName || '') + ' ' + (_drvCJ.UserLName || '')).trim() || '—';
+                            datas.push("<span>"+_drvNameCJ+"</span>");
                             var cancelledBy = $res["dt1"][$i].CancelledBy;
                             var sourceLabel = cancelledBy ? ('Cancelled by ' + cancelledBy) : ($res["dt1"][$i].BookingSource || '');
                             datas.push("<span>"+sourceLabel+"</span>");
@@ -21433,16 +21445,22 @@ $(document).ready(function() {
             function jdpBuildFare(j) {
                 var hasFare = false;
                 $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
-                var dist = j.EstimatedDistance || j.Distance || '';
-                if (dist && dist !== '0') { $('#jdp-fare-distance').text(dist + ' km'); $('#jdp-fare-distance-wrap').show(); hasFare = true; }
+                // Distance: prefer actual trip distance, fall back to estimated
+                var dist = j.JobDistance || j.EstimatedDistance || j.Distance || j.FareDistance || '';
+                if (dist && String(dist) !== '0') { $('#jdp-fare-distance').text(parseFloat(dist).toFixed(2) + ' km'); $('#jdp-fare-distance-wrap').show(); hasFare = true; }
                 function fmtDollar(v) { var n = parseFloat(v); return (!isNaN(n) && n > 0) ? '$' + n.toFixed(2) : null; }
-                var ride = fmtDollar(j.RideCost);
+                // Ride cost: FareBase (offline sync) or RideCost
+                var ride = fmtDollar(j.FareBase || j.RideCost);
                 if (ride) { $('#jdp-fare-ride').text(ride); $('#jdp-fare-ride-wrap').show(); hasFare = true; }
-                var wait = fmtDollar(j.WaitingCost);
+                // Waiting/time cost: FareTime (offline sync) or WaitingCost
+                var wait = fmtDollar(j.FareTime || j.WaitingCost);
                 if (wait) { $('#jdp-fare-waiting').text(wait); $('#jdp-fare-waiting-wrap').show(); hasFare = true; }
                 var drv = fmtDollar(j.DriverCost);
                 if (drv) { $('#jdp-fare-driver').text(drv); $('#jdp-fare-driver-wrap').show(); hasFare = true; }
-                var total = parseFloat(j.Cost || '0') || (parseFloat(j.RideCost||'0') + parseFloat(j.WaitingCost||'0') + parseFloat(j.DriverCost||'0'));
+                // Total: TotalFare (driver app) > Fare > Cost, then sum components
+                var total = parseFloat(j.TotalFare || j.Fare || j.Cost || '0') ||
+                    (parseFloat(j.FareBase||j.RideCost||'0') + parseFloat(j.FareTime||j.WaitingCost||'0') +
+                     parseFloat(j.FareExtras||'0') + parseFloat(j.DriverCost||'0'));
                 if (total > 0) { $('#jdp-fare-total').text('$' + total.toFixed(2)); $('#jdp-fare-total-wrap').show(); hasFare = true; }
                 if (hasFare) $('#jdp-fare-wrap').show(); else $('#jdp-fare-wrap').hide();
             }
@@ -21528,8 +21546,16 @@ $(document).ready(function() {
                         $('#jdp-source').text(j.BookingSource || '');
                         $('#jdp-title').html('<i class="fa fa-file-text-o" style="color:#dfba5f; margin-right:8px;"></i>Job #' + (j.bookingidx || j.Id || jobId));
                         $('#jdp-pickup').text(j.PickAddress || '—');
-                        $('#jdp-dropoff').text(j.DropAddress || 'Not set');
-                        var drvName = ((j.UserFName||'') + ' ' + (j.UserLName||'')).trim() || '—';
+                        // Show drop-off address; if blank but DropLatLng valid, show coords for now
+                        // (reverse geocoding happens below in the map section)
+                        var _dropTxt = j.DropAddress || '';
+                        if (!_dropTxt && j.DropLatLng && j.DropLatLng !== '0,0') {
+                            _dropTxt = j.DropLatLng; // will be geocoded below
+                        }
+                        $('#jdp-dropoff').text(_dropTxt || 'Not set');
+                        // Prefer stored drivername over Firebase username (UserFName may be email/handle)
+                        var drvName = j.drivername ||
+                            ((j.UserFName||'') + ' ' + (j.UserLName||'')).trim() || '—';
                         $('#jdp-driver').text(drvName);
                         $('#jdp-vehicle').text( (j.CallSign ? j.CallSign + ' / ' : '') + (j.VehicleNo || '—') );
                         $('#jdp-dispatcher').text(j.DispatcherName ? 'Dispatched by: ' + j.DispatcherName : '');
@@ -21539,8 +21565,17 @@ $(document).ready(function() {
                         $('#jdp-pax').text(j.Passengers || '1');
                         $('#jdp-bags').text(j.Bags || '0');
                         $('#jdp-chairs').text(j.WheelChairs || '0');
-                        $('#jdp-booked').text(j.BookingDateTime || '—');
-                        $('#jdp-closed').text(j.JobCompleteTime || j.newcompelete || '—');
+                        function _jdpFmtDt(raw) {
+                            if (!raw) return '—';
+                            var s = String(raw).trim().replace(/\.$/, '');
+                            var d = new Date(s);
+                            if (isNaN(d.getTime())) return raw;
+                            return d.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland',
+                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                        }
+                        $('#jdp-booked').text(_jdpFmtDt(j.BookingDateTime));
+                        $('#jdp-closed').text(_jdpFmtDt(j.JobCompleteTime || j.newcompelete));
                         $('#jdp-vtype').text(j.VehicleType || '—');
                         $('#jdp-tariff').text(j.TarriffType ? 'Tariff: ' + j.TarriffType : '');
                         var notes = j.EntitiesDetails || j.jobinfo || '';

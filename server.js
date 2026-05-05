@@ -4205,6 +4205,7 @@ const server = http.createServer(async (req, res) => {
             DropAddress:   dropAddr,
             CallSign:      callSign,
             VehicleType:   vehicleType,
+            drivername:    job.drivername || (zdV ? zdV.drivername : '') || '',
           }];
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${jobId}`);
@@ -4815,8 +4816,11 @@ const server = http.createServer(async (req, res) => {
           const vehicleNo = j.VehicleNo || (zdN ? zdN.vehiclenumber : null) || null;
           const callSign  = j.CallSign  || (zdN ? zdN.vehiclenumber : null) || null;
           if (j.UserFName !== undefined && j.UserFName !== null) {
-            // UserFName already set — update address + vehicle enrichment
-            return { ...j, PickAddress: pickAddr, DropAddress: dropAddr, VehicleNo: vehicleNo, CallSign: callSign };
+            // UserFName already set — also enrich drivername from ZONE_DRIVERS so the
+            // browser can prefer the real display name over a Firebase username/handle.
+            const _zdName = zdN ? zdN.drivername : null;
+            return { ...j, PickAddress: pickAddr, DropAddress: dropAddr, VehicleNo: vehicleNo, CallSign: callSign,
+                     drivername: j.drivername || _zdName || '' };
           }
           let fName = '', lName = '';
           if (zdN && zdN.drivername) {
