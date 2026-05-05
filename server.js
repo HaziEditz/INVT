@@ -586,6 +586,31 @@ function saveClosedJobStore() {
   });
 }
 
+// ─── Rental completion patch ──────────────────────────────────────────────────
+// Patches rentalTaxiRequests/{key} to status:'completed' when any completion path
+// fires for a rental-sourced job. Retries once after 4 s so a transient network
+// hiccup doesn't leave the SA portal permanently stuck at status:'confirmed'.
+function _patchRentalComplete(job) {
+  const _rKey = job && job.rentalRequestId;
+  if (!_rKey) return;
+  const _rId         = job.Id;
+  const _completedAt = (job.JobCompleteTime || new Date().toISOString()).replace(/\.$/, '');
+  function _doRentalPatch(attempt) {
+    getFirebaseServerToken().then(token => {
+      if (!token) { console.error(`  [rental] _patchRentalComplete: no token (attempt ${attempt}) for ${_rKey}`); return; }
+      firebaseDbPatch(`rentalTaxiRequests/${_rKey}`,
+        { status: 'completed', completedAt: _completedAt, jobId: _rId }, token
+      ).then(() => {
+        console.log(`  [rental] rentalTaxiRequests/${_rKey} → completed (job #${_rId})`);
+      }).catch(err => {
+        console.error(`  [rental] completion patch attempt ${attempt} FAILED for ${_rKey}:`, err && err.message);
+        if (attempt === 1) setTimeout(() => _doRentalPatch(2), 4000);
+      });
+    });
+  }
+  _doRentalPatch(1);
+}
+
 // ─── Firebase rentalTaxiRequests polling (Ride-to-Rental) ────────────────────
 // Polls rentalTaxiRequests for status="pending" entries written by the SA Portal
 // when a customer books a rental car and wants a taxi to the pickup depot.
@@ -2239,6 +2264,7 @@ const server = http.createServer(async (req, res) => {
       closedJobStore.push(_sotJob);
       saveJobStore();
       saveClosedJobStore();
+      if (_sotJob.BookingStatus === 'Completed') _patchRentalComplete(_sotJob);
       // Release the driver in ZONE_DRIVERS
       const _sotZd = ZONE_DRIVERS.find(d =>
         String(d.driverid) === _sotDrvId || String(d.VehicleId) === _sotDrvId ||
@@ -2693,6 +2719,7 @@ const server = http.createServer(async (req, res) => {
           jobStore.splice(jobIdx, 1);
           saveJobStore();
           saveClosedJobStore();
+          _patchRentalComplete(job);
           console.log(`200: POST ${urlPath} [action=UpdateBooking] -> closed job #${closeId}, driver ${closingDriverId} released`);
           arrayD(res, [{ Result: 'Ride Ended Successfully', BookingId: closeId }]);
         } else {
@@ -3814,6 +3841,7 @@ const server = http.createServer(async (req, res) => {
                 closedJobStore.push(job);
                 saveJobStore();
                 saveClosedJobStore();
+                _patchRentalComplete(job);
                 // Capture for Firebase write by the client
                 _dscCompletedJob = {
                   tripId:      String(job.Id),
@@ -4091,6 +4119,7 @@ const server = http.createServer(async (req, res) => {
           closedJobStore.push(_fcJob);
           saveJobStore();
           saveClosedJobStore();
+          _patchRentalComplete(_fcJob);
           console.log(`200: POST ${urlPath} [action=${action}] -> job #${_fcJobId} force-completed by dispatcher`);
           objectD(res, { dt1: [{ Result: 'Job force-completed', jobId: _fcJobId }], dt2: [], dt3: [], dt4: [], dt5: [] });
         }
@@ -5350,6 +5379,7 @@ const server = http.createServer(async (req, res) => {
                 closedJobStore.push(job);
                 saveJobStore();
                 saveClosedJobStore();
+                _patchRentalComplete(job);
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailableDS) {
