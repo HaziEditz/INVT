@@ -20966,7 +20966,9 @@ $(document).ready(function() {
                             datas.push("<div id='lessshow' style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span style='width:20px;'>"+($res["dt1"][$i].DropAddress || '')+"</span></div>");
                             datas.push("<span>"+($res["dt1"][$i].Name || '')+"</span>");
                             datas.push("<span>"+($res["dt1"][$i].PhoneNo || '')+"</span>");
-                            datas.push("<span>"+($res["dt1"][$i].VehicleNo || '')+"</span>");
+                            var _vno = $res["dt1"][$i].VehicleNo || $res["dt1"][$i].CallSign || '';
+                            if (!_vno) { var _vid = parseInt($res["dt1"][$i].VehicleId); if (_vid > 0) _vno = String($res["dt1"][$i].VehicleId); }
+                            datas.push("<span>"+_vno+"</span>");
                             datas.push("<span>"+($res["dt1"][$i].UserFName || '') + ($res["dt1"][$i].UserLName || '')+"</span>");
                             var cancelledBy = $res["dt1"][$i].CancelledBy;
                             var sourceLabel = cancelledBy ? ('Cancelled by ' + cancelledBy) : ($res["dt1"][$i].BookingSource || '');
@@ -21376,10 +21378,13 @@ $(document).ready(function() {
                         if (looksLikeCoords(dropText) && looksLikeCoords(dropLLRaw)) {
                             jdpGeocodeCoords(dropLLRaw, function(addr) { if (addr) $('#jdp-dropoff').text(addr); });
                         }
-                        // Draw route map if we have both pickup and dropoff GPS
-                        if (pickLLRaw && dropLLRaw) {
+                        // Draw route map if we have both pickup and dropoff GPS.
+                        // hasValidCoords rejects "0,0" (equatorial default) so a missing
+                        // drop-off doesn't plot a marker in the Gulf of Guinea / Africa.
+                        function hasValidCoords(s) { return looksLikeCoords(s) && s.trim() !== '0,0'; }
+                        if (hasValidCoords(pickLLRaw) && hasValidCoords(dropLLRaw)) {
                             jdpDrawRoute(pickLLRaw, dropLLRaw);
-                        } else if (pickLLRaw && looksLikeCoords(pickLLRaw)) {
+                        } else if (hasValidCoords(pickLLRaw)) {
                             jdpDrawSinglePin(pickLLRaw);
                         }
 

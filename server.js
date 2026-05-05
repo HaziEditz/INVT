@@ -2839,6 +2839,11 @@ const server = http.createServer(async (req, res) => {
             if (zd) {
               // Save home zone/queue BEFORE the driver is taken off the queue
               saveDriverHomeState(driverId, zd);
+              // Capture vehicle number on the job so it persists after the driver goes offline
+              if (!job.VehicleNo && zd.vehiclenumber) job.VehicleNo = zd.vehiclenumber;
+              if (!job.CallSign  && zd.vehiclenumber) job.CallSign  = zd.vehiclenumber;
+              if (!job.UserFName && zd.drivername)   job.UserFName = zd.drivername.split(/\s+/)[0] || '';
+              if (!job.UserLName && zd.drivername)   job.UserLName = zd.drivername.split(/\s+/).slice(1).join(' ') || '';
               zd.vehiclestatus = 'Picking';
               zd.JobphoneNo = job.PhoneNo || '';
               zd.jobpickup  = job.PickAddress || '';
@@ -3379,12 +3384,26 @@ const server = http.createServer(async (req, res) => {
             job.offeredAt = Date.now(); // stale-offer watchdog uses this
             // Save home zone & queue before the driver is dispatched
             const zdOffer = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId || d.VehicleId === incomingDriverId);
-            if (zdOffer) saveDriverHomeState(incomingDriverId, zdOffer);
+            if (zdOffer) {
+              saveDriverHomeState(incomingDriverId, zdOffer);
+              // Capture vehicle number on the job so it persists after the driver goes offline
+              if (!job.VehicleNo && zdOffer.vehiclenumber) job.VehicleNo = zdOffer.vehiclenumber;
+              if (!job.CallSign  && zdOffer.vehiclenumber) job.CallSign  = zdOffer.vehiclenumber;
+              if (!job.UserFName && zdOffer.drivername)   job.UserFName = zdOffer.drivername.split(/\s+/)[0] || '';
+              if (!job.UserLName && zdOffer.drivername)   job.UserLName = zdOffer.drivername.split(/\s+/).slice(1).join(' ') || '';
+            }
           }
           if (effectiveStatus === 'Assigned') {
             // incomingDriverId already parsed above (handles both '1212' and 'D001' string IDs)
             if (incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
               job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
+              const zdAssign = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId || d.VehicleId === incomingDriverId);
+              if (zdAssign) {
+                if (!job.VehicleNo && zdAssign.vehiclenumber) job.VehicleNo = zdAssign.vehiclenumber;
+                if (!job.CallSign  && zdAssign.vehiclenumber) job.CallSign  = zdAssign.vehiclenumber;
+                if (!job.UserFName && zdAssign.drivername)   job.UserFName = zdAssign.drivername.split(/\s+/)[0] || '';
+                if (!job.UserLName && zdAssign.drivername)   job.UserLName = zdAssign.drivername.split(/\s+/).slice(1).join(' ') || '';
+              }
             }
           }
           const releaseStatuses = new Set(['Unreached', 'Pending', 'Cancelled', 'Unassigned', 'NoShow', 'No Show']);
@@ -4090,10 +4109,14 @@ const server = http.createServer(async (req, res) => {
           //   Passengers  ← TotalPassengers
           //   Bags        ← TotalBags
           //   WheelChairs ← WheelChairs (same name ✓)
-          // Look up vehicle info for CallSign and VehicleType
-          const zdV = job.VehicleId
-            ? ZONE_DRIVERS.find(d => String(d.VehicleId) === String(job.VehicleId) || String(d.vehiclenumber) === String(job.VehicleNo))
-            : null;
+          // Look up vehicle info for CallSign and VehicleType.
+          // Also try by driver username so historical jobs with VehicleId="0" can still resolve.
+          const _jdVid = v => v && String(v) !== '0' && parseInt(v) !== 0;
+          const zdV = ZONE_DRIVERS.find(d =>
+            (_jdVid(job.VehicleId) && (String(d.VehicleId) === String(job.VehicleId) || String(d.driverid) === String(job.VehicleId))) ||
+            (_jdVid(job.DriverId)  && (String(d.driverid)  === String(job.DriverId)  || String(d.VehicleId) === String(job.DriverId)))  ||
+            (job.UserFName && d.drivername && d.drivername.toLowerCase() === (job.UserFName || '').toLowerCase())
+          ) || null;
           const callSign   = job.CallSign   || (zdV ? zdV.vehiclenumber  : '') || job.VehicleNo || '';
           const vehicleType= job.VehicleType|| (zdV ? zdV.vehicletype    : '') || '';
           // Normalize raw driver-app status values to what the UI expects.
@@ -4717,20 +4740,27 @@ const server = http.createServer(async (req, res) => {
           if (isHail && !dropAddr.trim()) {
             dropAddr = 'Street Pickup (no destination)';
           }
+          // Look up in ZONE_DRIVERS by driverId, vehicleId, or UserFName (for jobs
+          // where VehicleId was recorded as 0 but the driver name is known)
+          const _validId = v => v && String(v) !== '0' && parseInt(v) !== 0;
+          const zdN = ZONE_DRIVERS.find(d =>
+            (_validId(j.DriverId)  && (String(d.driverid) === String(j.DriverId)  || String(d.VehicleId) === String(j.DriverId)))  ||
+            (_validId(j.VehicleId) && (String(d.driverid) === String(j.VehicleId) || String(d.VehicleId) === String(j.VehicleId))) ||
+            (j.UserFName && d.drivername && d.drivername.toLowerCase() === (j.UserFName || '').toLowerCase())
+          ) || null;
+          const vehicleNo = j.VehicleNo || (zdN ? zdN.vehiclenumber : null) || null;
+          const callSign  = j.CallSign  || (zdN ? zdN.vehiclenumber : null) || null;
           if (j.UserFName !== undefined && j.UserFName !== null) {
-            // UserFName already set — only update address fields if needed
-            if (isHail) return { ...j, PickAddress: pickAddr, DropAddress: dropAddr };
-            return j;
+            // UserFName already set — update address + vehicle enrichment
+            return { ...j, PickAddress: pickAddr, DropAddress: dropAddr, VehicleNo: vehicleNo, CallSign: callSign };
           }
-          const zdN = j.DriverId ? ZONE_DRIVERS.find(d =>
-            String(d.driverid) === String(j.DriverId) || String(d.VehicleId) === String(j.DriverId)) : null;
           let fName = '', lName = '';
           if (zdN && zdN.drivername) {
             const parts = zdN.drivername.trim().split(/\s+/);
             fName = parts[0] || '';
             lName = parts.slice(1).join(' ') || '';
           }
-          return { ...j, UserFName: fName, UserLName: lName, PickAddress: pickAddr, DropAddress: dropAddr };
+          return { ...j, UserFName: fName, UserLName: lName, PickAddress: pickAddr, DropAddress: dropAddr, VehicleNo: vehicleNo, CallSign: callSign };
         });
         // Build driver/vehicle lists from the actual job results for the filter dropdowns
         const seenDrivers = new Map(), seenVehicles = new Map();
