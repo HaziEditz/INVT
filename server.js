@@ -2446,6 +2446,12 @@ const server = http.createServer(async (req, res) => {
       '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]', '[PromoteQueuedToAssigned]',
       // Payments
       '[InsertPassengerBalance]', '[GetPassengerBalance]',
+      // ACC / Business Account / Passenger — all local storage, never proxy
+      '[searchmulti]',
+      'Manager_ACC_ADD', 'Client_ACC_ADD',
+      'ACC_Approval_add', 'ACC_Approval_update', 'ACC_Extend', 'ACC_TripUsed',
+      'Business_Account_ADD', 'Business_Account_GET', 'Passenger_ADD',
+      'checkmanagername', 'checkmanageremail', 'checkmanagerphone', 'checkpassengernumber',
     ]);
 
     if (!LOCAL_ONLY_ACTIONS.has(action)) {
@@ -4128,30 +4134,6 @@ const server = http.createServer(async (req, res) => {
         arrayD(res, mapped);
 
       // ── ACC / Accident Claim handlers (real persistent storage) ───────────
-      } else if (action === '[searchmulti]') {
-        // Dispatcher Create Job — Customer Search box
-        // dt1 = ACC clients (with active approval info), dt2 = business accounts, dt3 = passengers
-        const q = ((param('claim_number')||param('value')||param('searchtext')||'')).toLowerCase().trim();
-        const todayStr = new Date().toISOString().slice(0,10);
-        const accResults = accClientStore
-          .filter(c => c.companyId===sessionCompanyId && (!q || c.client_name.toLowerCase().includes(q) || (c.client_phone||'').includes(q)))
-          .map(c => {
-            const activeApp = accApprovalStore.find(a => a.client_id===c.id && a.companyId===sessionCompanyId && a.trip_to_date >= todayStr && (a.trip_days_left||0) > 0) || null;
-            return { id: c.id, client_name: c.client_name, client_phone: c.client_phone, client_address: c.client_address,
-              claim_number: activeApp ? activeApp.claim_number : '', trip_days_left: activeApp ? activeApp.trip_days_left : 0,
-              acc_approval_id: activeApp ? activeApp.id : null, manager_id: activeApp ? activeApp.manager_id : c.manager_id };
-          }).filter(c => q || c.claim_number); // only show ACC clients that have active approvals unless searching
-        const baccResults = businessAccStore
-          .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q)))
-          .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, Type: 'Account' }));
-        const pasResults = passengerStore
-          .filter(p => p.companyId===sessionCompanyId && (!q || (p.Name||'').toLowerCase().includes(q) || (p.PhoneNo||'').includes(q) || (p.Email||'').toLowerCase().includes(q)))
-          .slice(0, 20)
-          .map(p => ({ Id: p.id, Name: p.Name, PhoneNo: p.PhoneNo, Email: p.Email }));
-        const multiResult = { dt1: accResults, dt2: baccResults, dt3: pasResults };
-        console.log(`200: POST ${urlPath} [action=${action}] q="${q}" -> dt1:${accResults.length} dt2:${baccResults.length} dt3:${pasResults.length}`);
-        jsonReply(res, { d: JSON.stringify(multiResult) });
-
       } else if (action === 'Manager_ACC_GET') {
         const mgrs = accManagerStore.filter(m=>m.companyId===sessionCompanyId);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${mgrs.length} ACC managers`);
@@ -4268,7 +4250,30 @@ const server = http.createServer(async (req, res) => {
 
     // ── /DataSelector — read operations with action routing ───────────────
     if (urlPath.includes('/DataSelector') && !urlPath.includes('/DataSelectorLess') && !urlPath.includes('/DataSelectorRide')) {
-      if (action === '[GetSuspendedDrivers]') {
+      if (action === '[searchmulti]') {
+        // Dispatcher Create Job — Customer Search: ACC clients (active POs), business accounts, passengers
+        const q = ((param('claim_number')||param('value')||param('searchtext')||'')).toLowerCase().trim();
+        const todayStr = new Date().toISOString().slice(0,10);
+        const accResults = accClientStore
+          .filter(c => c.companyId===sessionCompanyId && (!q || c.client_name.toLowerCase().includes(q) || (c.client_phone||'').includes(q)))
+          .map(c => {
+            const activeApp = accApprovalStore.find(a => a.client_id===c.id && a.companyId===sessionCompanyId && a.trip_to_date >= todayStr && (a.trip_days_left||0) > 0) || null;
+            return { id: c.id, client_name: c.client_name, client_phone: c.client_phone, client_address: c.client_address,
+              claim_number: activeApp ? activeApp.claim_number : '', trip_days_left: activeApp ? activeApp.trip_days_left : 0,
+              acc_approval_id: activeApp ? activeApp.id : null, manager_id: activeApp ? activeApp.manager_id : c.manager_id,
+              trip_status: activeApp ? activeApp.trip_status : '' };
+          });
+        const baccResults = businessAccStore
+          .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q)))
+          .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, Type: 'Account' }));
+        const pasResults = passengerStore
+          .filter(p => p.companyId===sessionCompanyId && (!q || (p.Name||'').toLowerCase().includes(q) || (p.PhoneNo||'').includes(q) || (p.Email||'').toLowerCase().includes(q)))
+          .slice(0, 20).map(p => ({ Id: p.id, Name: p.Name, PhoneNo: p.PhoneNo, Email: p.Email }));
+        const multiResult = { dt1: accResults, dt2: baccResults, dt3: pasResults };
+        console.log(`200: POST ${urlPath} [action=${action}] q="${q}" -> ACC:${accResults.length} Biz:${baccResults.length} Pax:${pasResults.length}`);
+        jsonReply(res, { d: JSON.stringify(multiResult) });
+
+      } else if (action === '[GetSuspendedDrivers]') {
         console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${SUSPENDED_DRIVERS.length} suspended driver(s)`);
         objectD(res, { dt1: SUSPENDED_DRIVERS, dt2: [], dt3: [], dt4: [], dt5: [] });
         return;

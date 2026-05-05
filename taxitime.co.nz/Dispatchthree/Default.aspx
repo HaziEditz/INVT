@@ -2152,6 +2152,9 @@
                     <a data-toggle="tab" href="#approvaldetails" onclick="getapprovalall()" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
                         <i class="fa fa-check-circle" style="margin-right:5px;"></i>Approvals
                     </a>
+                    <a data-toggle="tab" href="#bizaccounts" onclick="loadBizAccounts()" style="flex:1; padding:12px 8px; text-align:center; color:rgba(255,255,255,0.5); font-size:12.5px; font-weight:600; text-decoration:none; border-bottom:3px solid transparent; transition:all 0.15s; letter-spacing:0.3px;">
+                        <i class="fa fa-building" style="margin-right:5px;"></i>Accounts
+                    </a>
                 </div>
                 <div class="modal-body" style="background:#f9fafb; overflow-y:auto; padding:20px; flex:1;">
 
@@ -2320,6 +2323,53 @@
                                   </div>
                                     
                                </div>
+                               <!-- ── Business Accounts tab ── -->
+                               <div id="bizaccounts" class="tab-pane fade">
+                                 <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+                                   <!-- Add form -->
+                                   <div style="flex:1;min-width:280px;background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,0.08);border:1px solid #e5e7eb;">
+                                     <div style="font-size:13px;font-weight:700;color:#1a5276;margin-bottom:14px;"><i class="fa fa-plus-circle" style="margin-right:6px;color:#dfba5f;"></i>Add Business Account</div>
+                                     <div style="margin-bottom:10px;">
+                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Company Name *</label>
+                                       <input type="text" id="bacc_name" class="form-control" placeholder="e.g. Southland Hospital">
+                                     </div>
+                                     <div style="margin-bottom:10px;">
+                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Contact Name</label>
+                                       <input type="text" id="bacc_contact" class="form-control" placeholder="e.g. Jane Smith">
+                                     </div>
+                                     <div style="display:flex;gap:8px;margin-bottom:10px;">
+                                       <div style="flex:1;">
+                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Phone</label>
+                                         <input type="text" id="bacc_phone" class="form-control" placeholder="03 xxx xxxx">
+                                       </div>
+                                       <div style="flex:1;">
+                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Email</label>
+                                         <input type="text" id="bacc_email" class="form-control" placeholder="billing@company.co.nz">
+                                       </div>
+                                     </div>
+                                     <div style="margin-bottom:10px;">
+                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Address</label>
+                                       <input type="text" id="bacc_address" class="form-control" placeholder="Billing address">
+                                     </div>
+                                     <div style="margin-bottom:14px;">
+                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Notes</label>
+                                       <textarea id="bacc_notes" class="form-control" rows="2" placeholder="e.g. Net 30 billing"></textarea>
+                                     </div>
+                                     <button class="btn btn-success btn-sm" style="width:100%;font-weight:700;" onclick="saveBizAccount()"><i class="fa fa-save" style="margin-right:5px;"></i>Save Account</button>
+                                   </div>
+                                   <!-- Account list -->
+                                   <div style="flex:2;min-width:320px;">
+                                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                                       <span style="font-size:13px;font-weight:700;color:#1a5276;"><i class="fa fa-list" style="margin-right:6px;color:#dfba5f;"></i>Existing Accounts</span>
+                                       <button class="btn btn-default btn-xs" onclick="loadBizAccounts()"><i class="fa fa-refresh"></i> Refresh</button>
+                                     </div>
+                                     <div id="biz_account_list" style="max-height:380px;overflow-y:auto;">
+                                       <p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0;">Loading...</p>
+                                     </div>
+                                   </div>
+                                 </div>
+                               </div>
+
                                <div id="approvaldetails" class="tab-pane fade">
 
                                    <!-- ── Pending Driver Approvals ── -->
@@ -20038,7 +20088,7 @@ $(document).ready(function() {
                 datas.push("<span>"+ (items[$i].purchase_order_number||'')+"</span>");
                 datas.push("<span>"+ (items[$i].trip_from_date||'')+"</span>");
                 datas.push("<span>"+ (items[$i].trip_to_date||'')+"</span>");
-                datas.push("<span style='font-weight:700;color:"+(tripsLeft<1?'red':'#1a5276');+"'>"+ (items[$i].trip_days_approved||0)+"/"+tripsLeft+"</span>");
+                datas.push("<span style='font-weight:700;color:"+(tripsLeft<1?'red':'#1a5276')+"'>"+ (items[$i].trip_days_approved||0)+"/"+tripsLeft+"</span>");
                 datas.push("<span style='color:"+color+";font-weight:600;'>"+ statuss +"</span>");
                 datas.push(
                     "<button class='btn btn-warning btn-xs' style='margin-right:3px;' onclick='editapprove("+ items[$i].id +")'>Edit</button>" +
@@ -20489,6 +20539,64 @@ $(document).ready(function() {
     }
     function refresshapprove() {
         getapprovalall();
+    }
+
+    // ── Business Account functions ──────────────────────────────────────────
+    function loadBizAccounts() {
+        getmanager([], 'Business_Account_GET').then(function(result) {
+            var items = JSON.parse(result.d);
+            var el = document.getElementById('biz_account_list');
+            if (!el) return;
+            if (!items || items.length === 0) {
+                el.innerHTML = '<p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0;"><i class="fa fa-inbox"></i> No business accounts yet.</p>';
+                return;
+            }
+            var html = '';
+            items.forEach(function(b) {
+                html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:7px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;">' +
+                    '<div style="flex:1;">' +
+                        '<div style="font-weight:700;font-size:13px;color:#1a5276;">' + (b.name||'—') + ' <span style="font-size:10px;font-weight:400;color:#888;margin-left:5px;">ID #' + b.id + '</span></div>' +
+                        '<div style="font-size:11px;color:#555;margin-top:3px;">' +
+                            (b.contact_name ? '<i class="fa fa-user" style="color:#dfba5f;margin-right:4px;"></i>' + b.contact_name + '&nbsp;&nbsp;' : '') +
+                            (b.phone ? '<i class="fa fa-phone" style="color:#27ae60;margin-right:4px;"></i>' + b.phone + '&nbsp;&nbsp;' : '') +
+                            (b.email ? '<i class="fa fa-envelope" style="color:#2980b9;margin-right:4px;"></i>' + b.email : '') +
+                        '</div>' +
+                        (b.address ? '<div style="font-size:11px;color:#888;margin-top:2px;"><i class="fa fa-map-marker" style="margin-right:4px;"></i>' + b.address + '</div>' : '') +
+                        (b.notes ? '<div style="font-size:11px;color:#aaa;margin-top:2px;font-style:italic;">' + b.notes + '</div>' : '') +
+                    '</div>' +
+                '</div>';
+            });
+            el.innerHTML = html;
+        }).catch(function() {
+            document.getElementById('biz_account_list').innerHTML = '<p style="color:#c0392b;font-size:13px;padding:10px;">Failed to load accounts.</p>';
+        });
+    }
+
+    function saveBizAccount() {
+        var name = (document.getElementById('bacc_name').value || '').trim();
+        if (!name) { toastr.error('Company name is required.', 'Error'); return; }
+        var param = [
+            { name: 'name',         Value: name },
+            { name: 'contact_name', Value: (document.getElementById('bacc_contact').value || '').trim() },
+            { name: 'phone',        Value: (document.getElementById('bacc_phone').value || '').trim() },
+            { name: 'email',        Value: (document.getElementById('bacc_email').value || '').trim() },
+            { name: 'address',      Value: (document.getElementById('bacc_address').value || '').trim() },
+            { name: 'notes',        Value: (document.getElementById('bacc_notes').value || '').trim() },
+        ];
+        Addmanager(param, 'Business_Account_ADD').then(function(result) {
+            if (result && result.d === 'Account saved') {
+                toastr.success(name + ' saved.', 'Account Added');
+                document.getElementById('bacc_name').value = '';
+                document.getElementById('bacc_contact').value = '';
+                document.getElementById('bacc_phone').value = '';
+                document.getElementById('bacc_email').value = '';
+                document.getElementById('bacc_address').value = '';
+                document.getElementById('bacc_notes').value = '';
+                loadBizAccounts();
+            } else {
+                toastr.error('Could not save account.', 'Error');
+            }
+        });
     }
 
   
