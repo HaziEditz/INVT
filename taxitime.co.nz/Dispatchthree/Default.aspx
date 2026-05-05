@@ -5704,10 +5704,33 @@ $(document).ready(function() {
                 var logo = document.querySelector('.header-brand-img');
                 if (logo) logo.src = s.logoUrl;
             }
+            // Company timezone — IANA string (e.g. "Pacific/Auckland").
+            // Stored in localStorage so every part of the console uses the same TZ.
+            var _bwTZ = s.timezone || s.Timezone || '';
+            if (_bwTZ) {
+                localStorage.setItem('TT_TZ', _bwTZ);
+                window._companyTZ = _bwTZ;
+                console.log('[bw-settings] timezone set:', _bwTZ);
+            }
         }, function(e) {
             console.warn('[bw-settings] could not read companySettings:', e.code);
         });
     })();
+
+    // ── Timezone helpers ────────────────────────────────────────────────────
+    // window._companyTZ   — IANA string for current company (set above + [DispatcherSettings])
+    // window._tzToday()   — "YYYY-MM-DD" in company TZ  (correct "today's date")
+    // window._tzDisplay() — format a UTC timestamp for display in company TZ
+    window._companyTZ = localStorage.getItem('TT_TZ') || 'Pacific/Auckland';
+    window._tzToday = function() {
+        return new Date().toLocaleDateString('en-CA', { timeZone: window._companyTZ || 'Pacific/Auckland' });
+    };
+    window._tzDisplay = function(ts, tz) {
+        if (!ts && ts !== 0) return '';
+        var d = new Date(typeof ts === 'number' ? ts : String(ts).replace(/\.$/, '').trim());
+        if (isNaN(d.getTime())) return String(ts);
+        return d.toLocaleString('en-NZ', { timeZone: tz || window._companyTZ || 'Pacific/Auckland' });
+    };
 
     // ── 5b. Minimum version gate ───────────────────────────────────────────
     // Reads bwConfig/appSettings/dispatchAppMinVersion from Firebase once.
@@ -13478,12 +13501,9 @@ $(document).ready(function() {
                           
                         NewDate.setDate(NewDate.getDate() + $C);
 
-                        var dateshow =    NewDate.toLocaleDateString().split('/');
-                             
-                        var mmm =  (dateshow[0] < 10 ? '0' : '') +dateshow[0];
-                        var ddd =   (dateshow[1] < 10 ? '0' : '') + dateshow[1];
-                        var yyy=   dateshow[2]
-                        var compliging = yyy+"-"+mmm+"-"+ddd;
+                        // Use en-CA locale + company TZ so YYYY-MM-DD is always unambiguous
+                        var _ndTZ = window._companyTZ || 'Pacific/Auckland';
+                        var compliging = NewDate.toLocaleDateString('en-CA', { timeZone: _ndTZ });
                         var  BookingDateTime2 = compliging + " " +  $("#ddlLaterHrs").val() + ":" +$("#ddlLaterMins").val()  + ":00";
                            
                         var DispatchingTime2 = new Date(BookingDateTime2);
@@ -16671,6 +16691,12 @@ $(document).ready(function() {
                     // Update splash with real company name, then dismiss it
                     if (window._bwSplashSetCompany) window._bwSplashSetCompany(_cname);
                     if (window._bwSplashReady)      window._bwSplashReady('Ready');
+                    // Store company timezone — server sends the IANA string per companyTZMap.
+                    var _dsTZ = $res["dt1"][0].Timezone || '';
+                    if (_dsTZ) {
+                        localStorage.setItem('TT_TZ', _dsTZ);
+                        window._companyTZ = _dsTZ;
+                    }
                     $("#DirectBookingIsAllowed").text($res["dt1"][0].DirectBookingIsAllowed); 
                     $("#AllowDirectAssignment").text($res["dt1"][0].JobAllowedToAssignToaDriver);
                     $("#AutoDispatch").text($res["dt1"][0].AutoDispatch);
@@ -20240,7 +20266,7 @@ $(document).ready(function() {
             $res = JSON.parse(result.d);
             var items = $res;
             var datasetx = [];
-            var todaydate = new Date().toISOString().slice(0,10);
+            var todaydate = window._tzToday ? window._tzToday() : new Date().toLocaleDateString('en-CA', { timeZone: window._companyTZ || 'Pacific/Auckland' });
 
             for ($i = 0; $i < items.length; $i++) {
                 var datas = [];
