@@ -16,14 +16,21 @@ function _tzTodayStr(tz) {
   return new Date().toLocaleDateString('en-CA', { timeZone: tz || 'Pacific/Auckland' });
 }
 // Date object for midnight (start of today) in the company's timezone.
+// Uses Intl-based offset so it is correct even when the server runs in UTC.
 function _tzTodayStart(tz) {
-  const tzStr  = tz || 'Pacific/Auckland';
-  const today  = _tzTodayStr(tzStr);           // "YYYY-MM-DD"
-  const midnight = today + 'T00:00:00';        // local midnight string
-  // Parse as UTC, then shift by TZ offset so midnight is correct in tz.
-  const local  = new Date(midnight);
-  const utcMs  = local.getTime() - local.getTimezoneOffset() * 60000;
-  return new Date(utcMs);
+  const tzStr = tz || 'Pacific/Auckland';
+  const today = _tzTodayStr(tzStr);          // "YYYY-MM-DD" in tz
+  // Probe: what local date/time does "today 00:00 UTC" appear as in tz?
+  const probeUTC = new Date(today + 'T00:00:00Z');
+  // toLocaleString with 'sv' locale returns "YYYY-MM-DD HH:MM:SS" (ISO-like, no ambiguity)
+  const localAtProbe = probeUTC.toLocaleString('sv', { timeZone: tzStr });
+  // Treat that local string as a UTC ms value so we can compute the diff
+  const localAtProbeMs = new Date(localAtProbe.replace(' ', 'T') + 'Z').getTime();
+  // offsetMs = (UTC ms) - (local ms when treated as UTC) = UTC-local offset in ms
+  const offsetMs = probeUTC.getTime() - localAtProbeMs;
+  // Midnight in tz = local midnight (treated as UTC) + offset
+  const localMidnightMs = new Date(today + 'T00:00:00Z').getTime();
+  return new Date(localMidnightMs + offsetMs);
 }
 // Format a stored UTC ISO timestamp for display in the company's timezone.
 function _tzDisplay(ts, tz) {
@@ -3586,7 +3593,7 @@ const server = http.createServer(async (req, res) => {
           if (_suspCheck) {
             const _stillSusp = !_suspCheck.suspendedUntil || new Date(_suspCheck.suspendedUntil).getTime() > Date.now();
             if (_stillSusp) {
-              const _untilStr = _suspCheck.suspendedUntil ? new Date(_suspCheck.suspendedUntil).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) : 'further notice';
+              const _untilStr = _suspCheck.suspendedUntil ? new Date(_suspCheck.suspendedUntil).toLocaleString('en-NZ', { timeZone: getCompanyTZ(sessionCompanyId) }) : 'further notice';
               const _suspMsg  = `Your account is suspended until ${_untilStr}. Please contact your dispatcher.`;
               console.log(`  [DriverStatusChanged/DP] BLOCKED — driver ${driverId} is suspended until ${_suspCheck.suspendedUntil || 'further notice'}`);
               objectD(res, { dt1: [{ suspended: true, message: _suspMsg, suspendedUntil: _suspCheck.suspendedUntil || null }], dt2: [], dt3: [], dt4: [], dt5: [] });
@@ -5153,7 +5160,7 @@ const server = http.createServer(async (req, res) => {
           if (_suspCheckDS) {
             const _stillSuspDS = !_suspCheckDS.suspendedUntil || new Date(_suspCheckDS.suspendedUntil).getTime() > Date.now();
             if (_stillSuspDS) {
-              const _untilStrDS = _suspCheckDS.suspendedUntil ? new Date(_suspCheckDS.suspendedUntil).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' }) : 'further notice';
+              const _untilStrDS = _suspCheckDS.suspendedUntil ? new Date(_suspCheckDS.suspendedUntil).toLocaleString('en-NZ', { timeZone: getCompanyTZ(sessionCompanyId) }) : 'further notice';
               const _suspMsgDS  = `Your account is suspended until ${_untilStrDS}. Please contact your dispatcher.`;
               console.log(`  [DriverStatusChanged/DS] BLOCKED — driver ${driverId} is suspended until ${_suspCheckDS.suspendedUntil || 'further notice'}`);
               objectD(res, { dt1: [{ suspended: true, message: _suspMsgDS, suspendedUntil: _suspCheckDS.suspendedUntil || null }], dt2: [], dt3: [], dt4: [], dt5: [] });
