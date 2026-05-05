@@ -106,6 +106,7 @@ const ACC_CLIENTS_FILE          = path.join(DATA_DIR, 'acc_clients.json');
 const ACC_APPROVALS_FILE        = path.join(DATA_DIR, 'acc_approvals.json');
 const BUSINESS_ACCOUNTS_FILE    = path.join(DATA_DIR, 'business_accounts.json');
 const PASSENGERS_FILE           = path.join(DATA_DIR, 'passengers.json');
+const STRIPE_PAYMENTS_FILE      = path.join(DATA_DIR, 'stripe_payments.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
 // ─── Registration / account request store ────────────────────────────────────
@@ -140,6 +141,14 @@ loadJsonStore(ACC_CLIENTS_FILE,   accClientStore,   'ACC client(s)');
 loadJsonStore(ACC_APPROVALS_FILE, accApprovalStore, 'ACC approval(s)');
 loadJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore, 'business account(s)');
 loadJsonStore(PASSENGERS_FILE,    passengerStore,   'passenger(s)');
+
+// ── Stripe payment record store ───────────────────────────────────────────────
+// Persists every [InsertPassengerBalance] call so SA can audit charges server-side.
+// Schema: { id, companyId, phone, amount, chargeId, paidAt, method }
+let stripePaymentStore = [];
+let stripePayNextId = 1;
+loadJsonStore(STRIPE_PAYMENTS_FILE, stripePaymentStore, 'Stripe payment(s)');
+if (stripePaymentStore.length) stripePayNextId = Math.max(...stripePaymentStore.map(r => r.id || 0)) + 1;
 if (accManagerStore.length)  accNextMgrId  = Math.max(...accManagerStore.map(r=>r.id||0))  + 1;
 if (accClientStore.length)   accNextCliId  = Math.max(...accClientStore.map(r=>r.id||0))   + 1;
 if (accApprovalStore.length) accNextAppId  = Math.max(...accApprovalStore.map(r=>r.id||0)) + 1;
@@ -2528,6 +2537,7 @@ const server = http.createServer(async (req, res) => {
       '[checkjobstatusv2]', '[DispatcherConversation]', '[DispatcherUnReadMessages]',
       'Manager_ACC_GET', 'Client_ACC_GET', 'Client_ACC_ALL',
       'Approve_ACC_GET', 'ACC_All_approval',
+      'GetStripePayments',
       // Messaging
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
@@ -4074,16 +4084,41 @@ const server = http.createServer(async (req, res) => {
 
       } else if (action === '[InsertPassengerBalance]') {
         // Records a successful Stripe payment against the passenger's phone number.
-        const _pbPhone  = (param('PhoneNo') || param('phoneno') || '').toString().trim();
-        const _pbAmount = parseFloat(param('Amount') || param('amount') || '0') || 0;
-        const _pbEntry  = { phone: _pbPhone, amount: _pbAmount, paidAt: new Date().toISOString(), method: 'Stripe' };
-        console.log(`200: POST ${urlPath} [action=${action}] -> recorded payment $${_pbAmount} for ${_pbPhone}`);
+        const _pbPhone    = (param('PhoneNo') || param('phoneno') || '').toString().trim();
+        const _pbAmount   = parseFloat(param('Amount') || param('amount') || '0') || 0;
+        const _pbChargeId = (param('ChargeId') || param('chargeId') || param('chargeid') || '').toString().trim();
+        const _pbEntry = {
+          id:        stripePayNextId++,
+          companyId: sessionCompanyId,
+          phone:     _pbPhone,
+          amount:    _pbAmount,
+          chargeId:  _pbChargeId,
+          paidAt:    new Date().toISOString(),
+          method:    'Stripe',
+        };
+        stripePaymentStore.push(_pbEntry);
+        saveJsonStore(STRIPE_PAYMENTS_FILE, stripePaymentStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> recorded & persisted Stripe payment $${_pbAmount} for ${_pbPhone} (id=${_pbEntry.id})`);
         objectD(res, { dt1: [_pbEntry], dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[GetPassengerBalance]') {
         const _gbPhone = (param('PhoneNo') || param('phoneno') || '').toString().trim();
         console.log(`200: POST ${urlPath} [action=${action}] -> balance lookup for ${_gbPhone}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
+
+      } else if (action === 'GetStripePayments') {
+        // SA-facing query — returns persisted Stripe payment records for this company.
+        // Optional filters: phone, fromDate (ISO), toDate (ISO).
+        const _spPhone    = (param('phone') || param('Phone') || '').toString().trim();
+        const _spFrom     = (param('fromDate') || param('FromDate') || '').toString().trim();
+        const _spTo       = (param('toDate') || param('ToDate') || '').toString().trim();
+        let _spResults = stripePaymentStore.filter(r => r.companyId === sessionCompanyId);
+        if (_spPhone)  _spResults = _spResults.filter(r => r.phone === _spPhone);
+        if (_spFrom)   _spResults = _spResults.filter(r => r.paidAt >= _spFrom);
+        if (_spTo)     _spResults = _spResults.filter(r => r.paidAt <= _spTo);
+        _spResults = _spResults.slice().sort((a, b) => (b.paidAt > a.paidAt ? 1 : -1));
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_spResults.length} Stripe payment(s) companyId=${sessionCompanyId}`);
+        objectD(res, { dt1: _spResults, dt2: [], dt3: [], dt4: [], dt5: [] });
 
       } else if (action === '[ForceCompleteJob]') {
         // Dispatcher manually marks a stuck Assigned/Active job as Completed.
