@@ -7326,6 +7326,28 @@ $(document).ready(function() {
                 }, 1500);
             }
         })(driverData);
+        // Register driver in server ZONE_DRIVERS so DT6 can manage their lifecycle.
+        // Without this call a Firebase-sourced driver appears on the map but ZONE_DRIVERS
+        // stays empty, so DT6 warm-up mode never sweeps the ghost car.
+        (function(dval) {
+            var _regId    = String(dval.driverid  || dval.VehicleId || dval.PlayerId || '');
+            var _regVehNo = String(dval.vehiclenumber || '');
+            if (!_regId && !_regVehNo) return;
+            jQuery.ajax({
+                type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                data: JSON.stringify({ data: [
+                    { name: 'driverid',      Value: _regId },
+                    { name: 'newstatus',     Value: String(dval.vehiclestatus || 'Available') },
+                    { name: 'vehiclenumber', Value: _regVehNo },
+                    { name: 'drivername',    Value: String(dval.drivername || '') },
+                    { name: 'lat',           Value: String(dval.lat || '') },
+                    { name: 'lng',           Value: String(dval.lng || '') },
+                    { name: 'zonename',      Value: String(dval.zonename  || '') },
+                    { name: 'zonequeue',     Value: String(dval.zonequeue || '0') }
+                ], action: '[DriverStatusChanged]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+            });
+        })(driverData);
         // Eagerly fetch shared-driver status so the SHARED badge renders
         // as soon as the driver row appears, rather than waiting for a hover/render.
         if (typeof window._bwFetchDriverSharedStatus === 'function') {
@@ -7814,6 +7836,19 @@ $(document).ready(function() {
             var _sc = angular.element(document.getElementById('myangular')).scope();
             if (_sc) { removeFn(_sc); }
             else { setTimeout(function() { var s = angular.element(document.getElementById('myangular')).scope(); if(s) removeFn(s); }, 1500); }
+            // Unregister from ZONE_DRIVERS so VehiclesStatus count drops to 0 and
+            // DT6 stops including this driver in its online list.
+            var _offId    = String((driverData && (driverData.driverid || driverData.VehicleId)) || vehicleKey);
+            var _offVehNo = String((driverData && driverData.vehiclenumber) || '');
+            jQuery.ajax({
+                type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                data: JSON.stringify({ data: [
+                    { name: 'driverid',      Value: _offId },
+                    { name: 'newstatus',     Value: 'Offline' },
+                    { name: 'vehiclenumber', Value: _offVehNo }
+                ], action: '[DriverStatusChanged]' }),
+                dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+            });
         }, 30000); // 30 s — covers screen-off reconnects (10-30s); dt6 poll handles sign-outs within its own 30-s cycle
     });
     // ── Firebase presence listener ─────────────────────────────────────────
@@ -20724,9 +20759,17 @@ $(document).ready(function() {
             ], action: '[BwForceDriver]' }),
             dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
             success: function() {
-                // Remove from driverdatarealx
+                // Remove from driverdatarealx and clear map markers
                 var _sc = angular.element(document.getElementById('myangular')).scope();
                 if (_sc && _sc.driverdatarealx) {
+                    // Remove map markers before filtering the array
+                    _sc.driverdatarealx.forEach(function(d) {
+                        if (String(d.driverid) === _key || String(d.VehicleId) === _key || String(d.vehiclenumber) === _key) {
+                            if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
+                                markers[d.vehiclenumber].setMap(null);
+                            }
+                        }
+                    });
                     _sc.driverdatarealx = _sc.driverdatarealx.filter(function(d) {
                         return String(d.driverid) !== _key && String(d.VehicleId) !== _key && String(d.vehiclenumber) !== _key;
                     });
