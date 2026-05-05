@@ -9,6 +9,13 @@ function nowNZ() {
   return new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }).replace('T', ' ').slice(0, 19);
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException — keeping alive:', err.message, err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandledRejection — keeping alive:', reason && reason.message ? reason.message : String(reason));
+});
+
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
