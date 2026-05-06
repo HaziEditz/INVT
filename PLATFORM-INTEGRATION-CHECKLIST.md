@@ -392,3 +392,91 @@ That SQL record surfaces in `deliveryjobs` on the next poll cycle (≤10 s).
 | Food ordering app | Replace direct Firebase write with `POST /api/job/create` + `InsertBookingv4`. Set `serviceType: 'food'`. |
 | SA / dispatcher | No dispatcher code change needed — SQL pipeline already handles `serviceType: 'food'` correctly. |
 
+
+---
+
+## 25. Food Delivery Job — Panel Routing & Auto-Dispatch Audit (2026-05-06)
+
+**Question from passenger app team:** When a food job with `serviceType: "food"` comes in via `InsertBookingv4`, does it appear in the food delivery panel? Does `smartAutoDispatch` pick up food jobs from Firebase or SQL?
+
+---
+
+### Q1: Does a food job via InsertBookingv4 appear in the food delivery panel?
+
+**Was: ❌ No — bug in server-side filter. Now: ✅ Fixed.**
+
+**Root cause:** `buildDeliveryResponse()` (powers `[deviUnAssignedJobsv2]` / the DY delivery tab) filtered only:
+```
+BookingType === 'Delivery'  OR  BookingSource === 'Delivery App'
+```
+A job created via `InsertBookingv4` with `serviceType: 'food'` has `BookingSource: 'Dispatch Console'` / `'passenger'` / `'web'` — never `'Delivery App'`. So food jobs landed in the main Unassigned tab only, invisible to the delivery panel.
+
+**Fix applied (`server.js` — `buildDeliveryResponse`):**
+```js
+// Before
+jobs.filter(j => j.BookingType === 'Delivery' || j.BookingSource === 'Delivery App')
+
+// After — also matches serviceType-based food/freight jobs from any source
+jobs.filter(j =>
+  j.BookingType === 'Delivery' ||
+  j.BookingSource === 'Delivery App' ||
+  j.serviceType === 'food' ||
+  j.serviceType === 'freight'
+)
+```
+
+---
+
+### Q2: Does smartAutoDispatch pick up food jobs from Firebase or SQL?
+
+**SQL only — confirmed.** And a second bug was found and fixed in the process.
+
+**How dispatch sources jobs:**
+1. `smartAutoDispatch` calls `AutoDispatchVehiclesallride` (SQL) every 10 seconds.
+2. Returns **all** `Pending` jobs from the job store regardless of `serviceType`.
+3. Client-side then calls `_bwCanDriverDoService(dvId, job.serviceType)` to gate which drivers see food vs. taxi jobs.
+4. **No Firebase paths** (`allbookings`, `pendingjobs`, `foodOrders`) are used by `smartAutoDispatch` — Firebase is ingest-only.
+
+**Second bug found and fixed — `AutoDispatchVehiclesallride` was stripping `serviceType`:**
+
+The `dt1` job objects returned by `AutoDispatchVehiclesallride` were missing `serviceType` entirely. So on the client, `job.serviceType || 'taxi'` always resolved to `'taxi'` — meaning food jobs were silently offered to taxi drivers, bypassing the `_bwCanDriverDoService` gate entirely.
+
+**Fix applied (`server.js` — `AutoDispatchVehiclesallride` dt1 map):**
+```js
+// Added to each job object in dt1:
+serviceType:        j.serviceType    || 'taxi',
+BookingSource:      j.BookingSource  || '',
+paymentStatus:      j.paymentStatus  || '',   // needed for BUG 7 payment gate
+prepaid:            j.prepaid        || false,
+DispatchTimebefore: j.DispatchTimebefore || '0',  // needed for BUG 2 window check
+BookingDateTime:    j.BookingDateTime    || '',
+```
+
+This also completes the server-side support for **BUG 2** (dispatch window) and **BUG 7** (payment gate) fixes made in Section 23 — those client-side filters now receive the fields they need.
+
+---
+
+### Does the web booking site's Firebase-based flow work for food jobs?
+
+**Yes — `pendingjobs` → SQL → dispatch works correctly end-to-end**, provided:
+
+| Step | What happens |
+|---|---|
+| Website writes `pendingjobs/{cid}/{key}` with `serviceType: 'food'` | Dispatcher Firebase listener (`pendingjobs` `child_added`) fires immediately |
+| Listener calls `[IngestPassengerJob]` | `_normFbJob()` preserves `serviceType: 'food'` (maps `'restaurant'` → `'food'` too) |
+| Job lands in SQL job store as `Pending` with `serviceType: 'food'` | ✅ |
+| Next `AutoDispatchVehiclesallride` cycle (≤10s) returns it | Now includes `serviceType: 'food'` ✅ (after fix) |
+| `smartAutoDispatch` offers only to food-capable drivers | ✅ |
+| `[deviUnAssignedJobsv2]` poll returns it in delivery panel | Now matches `serviceType === 'food'` ✅ (after fix) |
+
+The website does **not** need to call `InsertBookingv4` separately if it uses the `pendingjobs` Firebase path. Both paths now work.
+
+---
+
+### Summary of fixes in this section
+
+| Bug | File | Fix |
+|---|---|---|
+| Food jobs not appearing in delivery panel | `server.js` `buildDeliveryResponse` | Add `serviceType === 'food' \|\| 'freight'` to filter |
+| Food jobs offered to taxi drivers (serviceType stripped) | `server.js` `AutoDispatchVehiclesallride` dt1 map | Add `serviceType`, `BookingSource`, `paymentStatus`, `prepaid`, `DispatchTimebefore`, `BookingDateTime` to returned job objects |
+

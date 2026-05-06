@@ -1068,7 +1068,15 @@ function buildJobListResponse(jobs) {
 
 // Build delivery (DY tab) response — mirrors buildJobListResponse with deUnAssignedCount
 function buildDeliveryResponse(jobs) {
-  const deliveryJobs = jobs.filter(j => j.BookingType === 'Delivery' || j.BookingSource === 'Delivery App');
+  // Match food/freight jobs regardless of how they were created:
+  //   - legacy delivery apps set BookingType='Delivery' or BookingSource='Delivery App'
+  //   - passenger/web/food-app flows set serviceType='food' or 'freight'
+  const deliveryJobs = jobs.filter(j =>
+    j.BookingType === 'Delivery' ||
+    j.BookingSource === 'Delivery App' ||
+    j.serviceType === 'food' ||
+    j.serviceType === 'freight'
+  );
   const dt1 = deliveryJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
   return {
     dt1,
@@ -4969,6 +4977,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           VehicleType: j.VehicleType || 'Not Specified',
           Passengers: j.PassengersNo || 1,
           PickLatLng: j.PickLatLng || '0,0',
+          // serviceType and BookingSource are required by smartAutoDispatch on the client:
+          // _bwCanDriverDoService(dvId, job.serviceType) gates which drivers see food/freight jobs.
+          // BUG FIX: previously omitted — all food jobs were silently treated as 'taxi'.
+          serviceType:    j.serviceType    || 'taxi',
+          BookingSource:  j.BookingSource  || '',
+          // paymentStatus needed for BUG 7 web-booking payment gate
+          paymentStatus:  j.paymentStatus  || '',
+          prepaid:        j.prepaid        || false,
+          // DispatchTimebefore + BookingDateTime needed for BUG 2 client-side window check
+          DispatchTimebefore: j.DispatchTimebefore || '0',
+          BookingDateTime:    j.BookingDateTime    || '',
         }));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${dt1.length} pending job(s) for auto-dispatch (sorted by priority)`);
         objectD(res, { dt1, dt2: [], dt3: [], dt4: [], dt5: [] });
