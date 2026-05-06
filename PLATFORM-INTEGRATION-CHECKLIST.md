@@ -339,3 +339,56 @@ Remaining 4 bugs from Section 21, all investigated and fixed in this round.
 |---|---|---|
 | BUG 1 (job offer to wrong driver) | ⬜ **Driver app action required** | Dispatcher side confirmed correct. Driver app must listen on `notification/{sqlDriverId}` (the numeric SQL driver ID, not Firebase UID). See Section 21. |
 | BUG 4 (driver-to-dispatch messages missing) | ⬜ **Driver app action required** | Driver app must write to `/driverMsg/{companyId}` (not `/driverMsg/{driverId}`). See Section 21 BUG 4 and Section 22 R2-1. |
+
+---
+
+## 24. Food Ordering App — Firebase Ingest Path Audit (2026-05-06)
+
+**Question from SA:** Does `foodOrders/{cid}/{bookingId}` appear correctly in the dispatcher inbox?
+
+**Answer: ❌ No.**
+
+### What exists
+- `foodOrders/{cid}` has a valid Firebase rule (authenticated read/write per companyId) — path is real and writable.
+- Dispatcher has a full food delivery UI: `$scope.deliveryjobs`, green `bw-svc-food` card styling, food icon badges, delivery count badge.
+
+### What is missing
+- The dispatcher has **no Firebase listener** on `foodOrders/{cid}/*` anywhere (confirmed: Default.aspx, ChatRoom.js, BwMessaging.js — zero matches).
+- `$scope.deliveryjobs` is populated exclusively from **SQL** via a periodic `DataSelector → [UnAssignedJobsv3]` poll. Firebase is never consulted for delivery jobs.
+
+### What happens if the food app writes to Firebase only
+Nothing. The job is silently lost. The dispatcher never sees it.
+
+### Correct ingest contract for food orders
+
+Food ordering app must create jobs via the platform API — same flow as every other booking source:
+
+```
+1. POST /api/job/create
+   Body: { source: 'food-app', companyId: '{cid}' }
+   Response: { jobId: 12345 }
+
+2. POST DataManager/Data.aspx/DataSelectorRide
+   action: InsertBookingv4
+   params: [
+     { name: 'serviceType',   Value: 'food' },
+     { name: 'BookingSource', Value: 'Website' },   // or 'Food App'
+     { name: 'ExternalJobId', Value: '12345' },
+     { name: 'PickAddress',   Value: '...' },
+     { name: 'DropAddress',   Value: '...' },
+     ...
+   ]
+```
+
+That SQL record surfaces in `deliveryjobs` on the next poll cycle (≤10 s).
+
+### Optional Firebase write
+`foodOrders/{cid}/{bookingId}` **can** still be written for passenger-facing order tracking (status updates, ETA), but it is **not** the ingest path for dispatch. Job must exist in SQL first.
+
+### Action required
+
+| Team | Action |
+|---|---|
+| Food ordering app | Replace direct Firebase write with `POST /api/job/create` + `InsertBookingv4`. Set `serviceType: 'food'`. |
+| SA / dispatcher | No dispatcher code change needed — SQL pipeline already handles `serviceType: 'food'` correctly. |
+
