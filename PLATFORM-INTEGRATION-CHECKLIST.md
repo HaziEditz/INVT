@@ -480,3 +480,87 @@ The website does **not** need to call `InsertBookingv4` separately if it uses th
 | Food jobs not appearing in delivery panel | `server.js` `buildDeliveryResponse` | Add `serviceType === 'food' \|\| 'freight'` to filter |
 | Food jobs offered to taxi drivers (serviceType stripped) | `server.js` `AutoDispatchVehiclesallride` dt1 map | Add `serviceType`, `BookingSource`, `paymentStatus`, `prepaid`, `DispatchTimebefore`, `BookingDateTime` to returned job objects |
 
+
+---
+
+## 26. Owner Portal — Driver Service Permissions (allowedServices) (2026-05-06)
+
+**Source:** Dispatch app audit (Sections 23–25) confirmed that `_bwCanDriverDoService` reads `drivers/{cid}/{uid}/allowedServices` from Firebase to gate which job types a driver can receive. Currently the owner portal has no UI to set these flags — they are hardcoded or absent on most driver records.
+
+---
+
+### Firebase contract
+
+**Path:** `drivers/{cid}/{uid}/allowedServices`
+
+**Schema:**
+```json
+{
+  "taxi":    true,
+  "food":    true,
+  "freight": true,
+  "tm":      false
+}
+```
+
+**Dispatch gate (Default.aspx `_bwCanDriverDoService`):**
+```js
+function _bwCanDriverDoService(dvId, serviceType) {
+  const svc = (serviceType || 'taxi').toLowerCase();
+  const allowed = _driverAllowedServices[dvId] || { taxi: true };
+  return !!allowed[svc];
+}
+```
+
+**Default behaviour when `allowedServices` is absent:** falls back to `{ taxi: true }` — driver receives taxi jobs **only**. This is intentional: drivers must be explicitly granted food/freight/TM access.
+
+---
+
+### Owner portal requirement
+
+On both the **Add Driver** and **Edit Driver** forms, add a checkbox group labelled **"Allowed Services"**:
+
+| Checkbox | Firebase key | Default |
+|---|---|---|
+| ☑ Taxi | `taxi` | `true` (always on, cannot be deselected) |
+| ☐ Food Delivery | `food` | `false` |
+| ☐ Freight / Courier | `freight` | `false` |
+| ☐ Total Mobility | `tm` | `false` — **show only if company has TM enabled** |
+
+**On save**, write the object to `drivers/{cid}/{uid}/allowedServices`:
+```js
+firebase.database()
+  .ref(`drivers/${cid}/${uid}/allowedServices`)
+  .set({ taxi: true, food: fFood, freight: fFreight, tm: fTm });
+```
+
+`taxi` must always be `true` in the write — it cannot be false.
+
+---
+
+### Edge cases & rules
+
+| Case | Behaviour |
+|---|---|
+| Driver record has no `allowedServices` node | Dispatch defaults to `{ taxi: true }` — driver gets taxi jobs only |
+| Company does not have TM enabled | TM checkbox is hidden entirely; `tm` key is omitted from the write or explicitly written as `false` |
+| Owner saves Edit Driver without changing services | Re-write existing values (idempotent) |
+| New driver created | Write `allowedServices` at the same time as the rest of the driver record |
+
+---
+
+### Acceptance criteria
+
+- [ ] Add Driver form has "Allowed Services" checkbox group with taxi pre-checked and disabled
+- [ ] Edit Driver form pre-populates checkboxes from existing `drivers/{cid}/{uid}/allowedServices`
+- [ ] Save writes complete `allowedServices` object to Firebase (no partial updates)
+- [ ] TM checkbox hidden when company TM flag is off
+- [ ] Drivers without `allowedServices` in Firebase are treated as `{ taxi: true }` by dispatch (no change needed on dispatch side — already implemented)
+- [ ] No regression: existing drivers with `allowedServices` already set continue to work correctly
+
+---
+
+### No dispatch-side changes needed
+
+The `_bwCanDriverDoService` function and `AutoDispatchVehiclesallride` serviceType filtering are already correct after the Section 23–25 fixes. This section is **owner portal UI only**.
+
