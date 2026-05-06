@@ -751,6 +751,20 @@ function _normFbJob(job) {
     scheduledAt:  job.ScheduledAt || '',
     serviceType,
     bookingType: job.bookingType || job.BookingType || '',
+    // Total Mobility fields — passenger app writes tmVoucherNumbers (array);
+    // normalise to tmVoucherNo (string) so dispatcher display + driver offer both work.
+    paymentType:       job.paymentType       || job.PaymentType       || '',
+    tmVoucherNo:       Array.isArray(job.tmVoucherNumbers) ? (job.tmVoucherNumbers[0] || '')
+                         : (job.tmVoucherNumbers || job.tmVoucherNo || job.TmVoucherNo || ''),
+    tmPassengerName:   job.tmPassengerName   || job.TmPassengerName   || '',
+    tmCardExpiry:      job.tmCardExpiry      || job.TmCardExpiry      || '',
+    tmSubsidy:         job.tmSubsidy         != null ? Number(job.tmSubsidy)         : (job.TmSubsidy         != null ? Number(job.TmSubsidy)         : null),
+    tmSubsidyHoist:    job.tmSubsidyHoist    != null ? Number(job.tmSubsidyHoist)    : (job.TmSubsidyHoist    != null ? Number(job.TmSubsidyHoist)    : null),
+    tmPassengerPays:   job.tmPassengerPays   != null ? Number(job.tmPassengerPays)   : (job.TmPassengerPays   != null ? Number(job.TmPassengerPays)   : null),
+    tmHoistRequired:   !!(job.tmHoistRequired   || job.TmHoistRequired),
+    tmHoistCount:      parseInt(job.tmHoistCount || job.TmHoistCount || 0) || 0,
+    tmPaymentMethod:   job.tmPaymentMethod   || job.TmPaymentMethod   || '',
+    councilId:         job.councilId         || job.CouncilId         || '',
   };
 }
 

@@ -8340,8 +8340,24 @@ $(document).ready(function() {
                 jobFare:       String(details.fare || ''),
                 jobCount:      1,
                 jobServiceType: details.serviceType   || 'taxi',
-                jobBookingSrc:  details.bookingSource || _src || 'Dispatcher'
+                jobBookingSrc:  details.bookingSource || _src || 'Dispatcher',
+                vehicleId:     String(vehicleId   || ''),
+                companyId:     String(SomeSession2 || '')
             };
+            // TM extras — driver app reads extras.tmVoucherNo to write trips/{cid}/{bookingId}
+            if (details.tmVoucherNo) {
+                fullPayload.extras = {
+                    tmVoucherNo:       details.tmVoucherNo,
+                    tmPassengerName:   details.tmPassengerName   || '',
+                    tmCardExpiry:      details.tmCardExpiry      || '',
+                    tmSubsidy:         details.tmSubsidy         != null ? details.tmSubsidy         : '',
+                    tmSubsidyHoist:    details.tmSubsidyHoist    != null ? details.tmSubsidyHoist    : '',
+                    tmPassengerPays:   details.tmPassengerPays   != null ? details.tmPassengerPays   : '',
+                    tmHoistRequired:   details.tmHoistRequired   || false,
+                    tmHoistCount:      details.tmHoistCount      || 0,
+                    tmPaymentMethod:   details.tmPaymentMethod   || ''
+                };
+            }
             // Driver app listens at /notification/{driverId} (SQL driverid) — use directly.
             var _fbUidNotif = driverId;
             var notifRef = db.ref('/notification/' + _fbUidNotif);
@@ -8365,7 +8381,7 @@ $(document).ready(function() {
                 _doWrite();
             });
 
-            db.ref('/jobDetails/' + bookingId).set(fullPayload)
+            db.ref('/jobDetails/' + SomeSession2 + '/' + bookingId).set(fullPayload)
                 .catch(function(e) { console.warn('[writeJobDetailsToFirebase] jobDetails write failed:', e.code || e.message || e); });
         } catch(e) {
             console.warn('[writeJobDetailsToFirebase] error:', e.code || e.message || e);
@@ -8415,6 +8431,10 @@ $(document).ready(function() {
         }
 
         function _doSend(job) {
+            // Normalise TM voucher: passenger app writes tmVoucherNumbers (array);
+            // driver app reads extras.tmVoucherNo (single string).
+            var _tmVoucherNo = (Array.isArray(job.tmVoucherNumbers) ? job.tmVoucherNumbers[0]
+                                : (job.tmVoucherNumbers || job.tmVoucherNo || job.TmVoucherNo || ''));
             writeJobDetailsToFirebase(driverId, vehicleId, bookingId, {
                 pickup:        job.PickAddress     || job.PickLocation    || '',
                 dropoff:       job.DropAddress     || job.DropLocation    || '',
@@ -8428,7 +8448,16 @@ $(document).ready(function() {
                 source:        _src,
                 u_id:          _u,
                 serviceType:   job.serviceType    || 'taxi',
-                bookingSource: job.BookingSource  || job.bookingSource  || _src || 'Dispatcher'
+                bookingSource: job.BookingSource  || job.bookingSource  || _src || 'Dispatcher',
+                tmVoucherNo:       _tmVoucherNo,
+                tmPassengerName:   job.tmPassengerName   || job.TmPassengerName   || '',
+                tmCardExpiry:      job.tmCardExpiry      || job.TmCardExpiry      || '',
+                tmSubsidy:         job.tmSubsidy         != null ? job.tmSubsidy         : (job.TmSubsidy         != null ? job.TmSubsidy         : null),
+                tmSubsidyHoist:    job.tmSubsidyHoist    != null ? job.tmSubsidyHoist    : (job.TmSubsidyHoist    != null ? job.TmSubsidyHoist    : null),
+                tmPassengerPays:   job.tmPassengerPays   != null ? job.tmPassengerPays   : (job.TmPassengerPays   != null ? job.TmPassengerPays   : null),
+                tmHoistRequired:   job.tmHoistRequired   || job.TmHoistRequired   || false,
+                tmHoistCount:      job.tmHoistCount      || job.TmHoistCount      || 0,
+                tmPaymentMethod:   job.tmPaymentMethod   || job.TmPaymentMethod   || ''
             });
             // ── ETA push to passenger app ──────────────────────────────────
             // Writes ride status to Firebase so the passenger app can track
