@@ -80,6 +80,8 @@ Every field the driver app may read. Mark ✅ if your app sends/reads this corre
 | Presence: lastSeen | `online/{cid}/{vid}/current.lastSeen: Date.now()` | ✅ | ⬜ |
 | onDisconnect cleanup | `online/{cid}/{vid}` removed or `current.online = false` | ✅ handles both | ⬜ confirm which cleanup method |
 
+**Dispatcher GPS read order (backward-compat):** `driverData.lat || driverData.current?.lat` — tries top-level fields first (older driver app builds that write flat), then falls through to `.current.lat`. Driver app must not change this without a coordinated cut-over. (Q3 — confirmed May 2026)
+
 ---
 
 ## 4. Job ID Contract
@@ -89,6 +91,8 @@ Every field the driver app may read. Mark ✅ if your app sends/reads this corre
 | Canonical job ID source | `POST /api/job/create` → `{ jobId }` → passed as `ExternalJobId` to SQL | ✅ called on every booking create | ⬜ called on passenger booking? | n/a |
 | Fallback if `/api/job/create` fails | **None — do not create local IDs** | ✅ booking fails cleanly | ⬜ | n/a |
 | Firebase job key | Must match SQL bookingId | ✅ | ⬜ | ⬜ |
+
+**Edge case closed (Q4 — May 2026):** The scenario "server returns `{}` with no `jobId`" is impossible. `generateJobId()` (`src/jobId.ts`) always returns a valid string or throws — an unhandled throw becomes `{ ok: false, error: "..." }` with HTTP 500. There is no code path that emits `{ ok: true }` without a `jobId`. No defensive handling needed on client side beyond checking `ok === false`.
 
 ---
 
@@ -131,7 +135,7 @@ Canonical values (lowercase). Teams must use these exactly — no aliases in Fir
 | Revoke all dispatchers for a company | `superClients/{cid}/sessionRevoke` | SA portal | Dispatcher | SA writes `Date.now()` (ms integer). Dispatcher compares vs `localStorage.bw_loginTime`. |
 | Dispatcher login timestamp | `localStorage.bw_loginTime` | Dispatcher | Dispatcher | Set at login. Must be set before the revoke listener attaches. |
 
-⚠️ Path is `superClients/{cid}/sessionRevoke` — NOT `companies/{cid}/sessionRevoke`. Other teams writing to the wrong path will not trigger sign-out.
+⚠️ **CROSS-TEAM WARNING — PATH IS EXACT:** `superClients/{cid}/sessionRevoke` — **NOT** `companies/{cid}/sessionRevoke`. Writing to the wrong path produces no error and no sign-outs. SA portal already writes to the correct path. Driver app and owner portal must never write to this path — they don't hold session revoke authority. (Q2 — confirmed May 2026)
 
 ---
 
@@ -139,7 +143,53 @@ Canonical values (lowercase). Teams must use these exactly — no aliases in Fir
 
 | Gap | Impact | Owner | Status |
 |---|---|---|---|
-| SA master report reads only `completedJobs` — not `allbookings` | Revenue/trip counts understated for dispatched jobs | SA portal dev | Parked — fix when report is next touched |
+| SA master report reads only `completedJobs` — not `allbookings` | Revenue/trip counts understated for dispatched jobs | SA portal dev | ✅ Closed — Section 11 fix reads both paths and deduplicates by bookingId. Dispatcher uses SQL for job lists; `allbookings` is only touched as a recall fallback. No further change needed. (Q1 — May 2026) |
 | Food order real-time status (`foodOrders/{cid}`) | Passenger app can't track food orders | Passenger app + SA portal | Parked — paths documented, ready to scope |
 | Freight post-booking tracking | Same | Passenger app + SA portal | Parked |
 | Card commission / net payout deduction (`companies/{cid}/cardSettings`) | Owner portal + SA portal revenue inaccurate | Owner portal + SA portal | Parked |
+
+---
+
+## 17. Dispatcher Q&A — May 2026
+
+Recorded answers from the dispatcher team review. Each entry is self-contained so other teams can read it without cross-referencing the Q&A thread.
+
+---
+
+### Q1 — `allbookings` / `completedJobs` coverage gap
+
+**Question:** SA master report only reads `completedJobs`. Does the dispatcher write dispatched trips there, or only to `allbookings`? Are trip counts understated?
+
+**Answer (dispatcher team):** The dispatcher does **not** use Firebase for job lists at all — all job data comes from the SQL API. `allbookings/{cid}` is only ever touched by the dispatcher as a recall-notification fallback (checking for a booking that was cancelled before the driver saw it). `completedJobs/{cid}` is write-only from the dispatcher side: the dispatcher writes one node per completed trip, and the SA portal reads from there.
+
+**Resolution:** ✅ Closed. The Section 11 fix in the SA master report now reads **both** `completedJobs` and `allbookings` and deduplicates by `bookingId`, so any edge cases are covered. The "understated revenue" gap in Section 8 is closed. No code change needed on the dispatcher side.
+
+---
+
+### Q2 — `sessionRevoke` path correctness
+
+**Question:** Dispatcher listens on `superClients/{cid}/sessionRevoke`. SA portal — are you writing to that exact path or to `companies/{cid}/sessionRevoke`?
+
+**Answer (SA portal team):** SA portal writes to `superClients/{cid}/sessionRevoke` — correct path confirmed.
+
+**Resolution:** ✅ Confirmed correct. Cross-team warning added to Section 7: any team writing to `companies/{cid}/sessionRevoke` instead will get no sign-outs and no error — a silent failure. The warning is now prominent in the checklist so future SA portal changes don't accidentally drift the path.
+
+---
+
+### Q3 — GPS read-order backward compatibility
+
+**Question:** The dispatcher reads GPS as `driverData.lat || driverData.current?.lat`. Is this the right fallback order? Will it break when the driver app migrates to writing only under `.current`?
+
+**Answer (dispatcher team):** Yes — `driverData.lat` first covers older driver app builds that write flat top-level fields; fallback to `.current.lat` covers builds that already write the nested structure. Both shapes are in production simultaneously.
+
+**Resolution:** ✅ Confirmed correct. The read order **must not change** until all driver app installs in the field have been updated to the nested format. Any driver app change to the write path requires a coordinated cut-over with the dispatcher team. Pattern documented in Section 3.
+
+---
+
+### Q4 — `/api/job/create` edge case: `{}` response with no `jobId`
+
+**Question:** What happens if `POST /api/job/create` returns HTTP 200 with `{}` and no `jobId`? The passenger app would silently create a booking with no canonical ID.
+
+**Answer (dispatcher team):** Impossible code path. `generateJobId()` in `src/jobId.ts` always returns a valid string (e.g. `62026050601`) or throws. An unhandled throw becomes `{ ok: false, error: "..." }` with HTTP 500 — never `{ ok: true }` without a `jobId`. There is no conditional branch that omits `jobId` from a success response.
+
+**Resolution:** ✅ Closed — no change needed on either side. Client-side defensive check: treat any response where `ok !== true` as a hard failure and surface an error to the user. Do not fall back to a locally-generated ID.
