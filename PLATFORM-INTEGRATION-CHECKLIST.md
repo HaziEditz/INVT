@@ -233,10 +233,12 @@ Recorded responses from the SA portal team following the dispatcher audit notes.
 
 All teams. Updated May 2026.
 
+**Audit status: ✅ Complete.** All 6 teams certified. All bugs fixed. All documentation updated on both sides. One gate remains before go-live.
+
 | Item | Owner | Status |
 |---|---|---|
-| `firebase deploy --only database` (taxilatest) | SA portal or dispatcher — whoever has Firebase CLI | ⏳ **Blocking** — clears 2 smoke test failures and opens 30 paths for all clients |
-| Net payout deduction (`companies/{cid}/cardSettings`) | SA portal + owner portal | Parked — joint feature, schedule together |
+| `firebase deploy --only database` (taxilatest) | SA portal or dispatcher — whoever has Firebase CLI authenticated against `taxilatest` | ⏳ **The only remaining blocker.** `database.rules.json` is ready in the repo. Run from project root — takes ~10 seconds. After deploy: dispatcher re-runs smoke test → 27/27 green; all client apps (driver, passenger, website) stop getting silent denies on the 30 previously missing paths. |
+| Cross-team E2E test session | All 6 teams | Schedule when teams are available — Sections 2–8 have the exact steps |
+| Net payout deduction (`companies/{cid}/cardSettings`) | SA portal + owner portal | Parked — joint feature, ship together |
 | Freight POD photo / signature | All teams | Future feature — field names to be agreed before any team builds |
-| `contactInquiries` SA reader | SA portal | Future sprint |
-| Cross-team E2E test session | All 6 teams | Schedule before go-live |
+| `contactInquiries` SA reader | SA portal | Future sprint, low priority |
