@@ -564,3 +564,74 @@ firebase.database()
 
 The `_bwCanDriverDoService` function and `AutoDispatchVehiclesallride` serviceType filtering are already correct after the Section 23–25 fixes. This section is **owner portal UI only**.
 
+
+---
+
+## 27. Food/Freight Jobs in Main Unassigned Tab (2026-05-06)
+
+**Requirement from SA:** Food and freight jobs should also appear in the main Unassigned tab, not only the food delivery panel. Job cards should show a food/freight icon badge.
+
+---
+
+### Audit result: ✅ Already fully implemented — no code changes needed
+
+#### Server side — `[UnAssignedJobsv3]` / `buildJobListResponse`
+
+`buildJobListResponse` applies no `serviceType` filter. It returns **all** non-terminal pending jobs regardless of service type:
+
+```js
+function buildJobListResponse(jobs) {
+  const TERMINAL = new Set(['Dispatched','Done','Cancel','Cancelled','Closed','Completed','No Show','NoShow','Reject']);
+  const allNonTerminal = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
+  const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus) || isOrphaned(j));
+  // ↑ no serviceType exclusion — food and freight jobs are included
+  ...
+}
+```
+
+Food/freight jobs have always been returned by `[UnAssignedJobsv3]`. They were not absent from the main tab because of a server filter — they were absent because the job was never being created correctly (the `serviceType` stripping bug fixed in Section 25).
+
+#### Client side — icon badge markup
+
+The main Unassigned tab job card (Default.aspx ~line 3873) already carries:
+
+```html
+<!-- CSS class applied to card wrapper -->
+ng-class="{'bw-svc-food': value.serviceType==='food',
+           'bw-svc-freight': value.serviceType==='freight', ...}"
+
+<!-- Icon badge inside the card -->
+<span ng-if="value.serviceType && value.serviceType !== 'taxi'"
+      class="bw-b"
+      ng-style="{background: value.serviceType==='food'?'#16a34a':...}">
+  <i ng-class="{'fa fa-cutlery':value.serviceType==='food',
+                'fa fa-truck':value.serviceType==='freight', ...}"></i>
+  {{value.serviceType|uppercase}}
+</span>
+```
+
+The badge is already rendered — green background + fork icon for food, orange + truck for freight, purple + wheelchair for TM.
+
+#### Driver dropdown in the Unassigned card
+
+```html
+<option ng-repeat="drivi in driverdatarealx"
+        ng-show="checkDriverSvc(drivi.driverid, (value.serviceType||'taxi'))"
+        ...>
+```
+
+The manual-assign dropdown already filters to service-capable drivers only via `checkDriverSvc`.
+
+---
+
+### Why jobs now appear correctly
+
+The fix in **Section 25** (Bug B — `AutoDispatchVehiclesallride` stripping `serviceType`) was the root cause of food jobs appearing absent or misfiled. After that fix:
+
+1. Food jobs are created with `serviceType: 'food'` in the job store ✅
+2. `buildJobListResponse` returns them in `dt1` for the main Unassigned tab ✅  
+3. `buildDeliveryResponse` also returns them for the DY delivery panel ✅  
+4. Both job card badges render correctly from the existing markup ✅
+
+**No further dispatch or UI changes are required for this requirement.**
+
