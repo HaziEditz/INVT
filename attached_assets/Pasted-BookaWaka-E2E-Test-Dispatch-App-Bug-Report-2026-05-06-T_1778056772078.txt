@@ -1,0 +1,26 @@
+BookaWaka E2E Test — Dispatch App Bug Report (2026-05-06)
+These bugs were found during a solo end-to-end test run. Please fix and confirm when done.
+
+CRITICAL
+BUG 1 — Dispatch jobs not reaching the driver app Jobs created in the dispatch app sit at Status: Pending in Firebase and are never delivered to the driver app as an offer. The driver app never shows the incoming job offer popup. Firebase path: allbookings/{cid}/{bookingId} — Status stays "Pending", AssignedDriver stays blank. Fix: check the offer push/listener pipeline between dispatch and driver app.
+
+HIGH
+BUG 2 — Scheduled (later) jobs not dispatching at the correct time Jobs scheduled for a future pickup time are not being automatically dispatched to drivers at the pre-dispatch window before pickup. Fix: verify the scheduled dispatch timer/cron is running and correctly watching allbookings/{cid} for upcoming jobs.
+
+BUG 3 — Creating or editing a scheduled job fails Attempting to create or update a job with a future scheduled time does not save the job — no record appears in Firebase. Fix: check the job creation flow for scheduled bookings; confirm POST /api/job/create is being called and the response job ID is being used.
+
+BUG 4 — Driver-to-dispatch messages not showing Messages sent by the driver to dispatch are not appearing in the dispatch app. Fix: check the Firebase listener path for driver messages.
+
+BUG 5 — Closed job detail missing data When viewing a completed job in the dispatch app, the trip detail panel is missing: route map, fare, distance, duration, driver info, passenger info. Firebase paths to read: allbookings/{cid}/{bookingId} and completedJobs/{cid}/{bookingId}
+
+BUG 6 — Two taxis showing in fleet when one is inactive The dispatch fleet view is showing both Taxi01 (status: inactive) and Taxi02 (status: active). Only active vehicles should appear in the dispatch view. Fix: filter vehicles by status === 'active' when loading the fleet list.
+
+MEDIUM
+BUG 7 — Payment flow — dispatch should require pre-payment for web bookings Web bookings should require payment before the job is dispatched (no pay-on-arrival). Currently jobs from the web booking site are dispatched without any payment being collected first. Fix: check the paymentStatus or prepaid field on the booking before offering it to drivers. Web bookings should be held until payment is confirmed.
+
+Dispatch app — Firebase field contract reminders
+Job record path: allbookings/{cid}/{bookingId} — use Status (capital S) field
+Driver GPS: read from online/{cid}/{vid}/current → {lat, lng, hasGps, time} (lat/lng are under current child, not top-level)
+Session revoke: listen to superClients/{cid}/sessionRevoke — force sign-out if sessionRevoke > loginTimestamp
+vehicleId and companyId must be included in every job payload written to jobDetails/{cid}/{bookingId}
+All job IDs must come from POST /api/job/create — no local ID generation

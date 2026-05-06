@@ -240,8 +240,63 @@ All teams. Updated May 2026.
 |---|---|---|
 | `firebase deploy --only database` (taxilatest) | SA portal or dispatcher — whoever has Firebase CLI authenticated against `taxilatest` | ⏳ **The only remaining blocker.** `database.rules.json` is ready in the repo. Run from project root — takes ~10 seconds. After deploy: dispatcher re-runs smoke test → 27/27 green; all client apps (driver, passenger, website) stop getting silent denies on the 30 previously missing paths. |
 | Driver app — 10 bugs from E2E test (see Section 20) | Driver app dev | ❌ 2 critical, 5 high, 3 medium — fix before go-live |
+| Dispatch app — 7 bugs from E2E test (see Section 21) | Dispatcher dev | ❌ 1 critical, 5 high, 1 medium — dispatcher dev investigating BUGs 1, 4, 6 |
 | Vehicle field name mismatch: `allocatedVehicles` vs `assignedVehicles` (BUG 10) | Owner portal + driver app — cross-team | ❌ **Cross-team blocker.** Owner portal writes `allocatedVehicles: {"Taxi02": true}`. Driver app reads `assignedVehicles: ["Taxi02"]` + `vehicleId`. Agree on one format and both sides update together. |
 | Cross-team E2E test session | All 6 teams | Schedule after driver app bugs are fixed — Sections 2–8 have the exact steps |
 | Net payout deduction (`companies/{cid}/cardSettings`) | SA portal + owner portal | Parked — joint feature, ship together |
 | Freight POD photo / signature | All teams | Future feature — field names to be agreed before any team builds |
 | `contactInquiries` SA reader | SA portal | Future sprint, low priority |
+
+---
+
+## 20. Driver App Bug Report — E2E Test 2026-05-06
+
+All bugs are driver app dev's responsibility unless noted as cross-team.
+
+| # | Priority | Bug | Fix | Cross-team? |
+|---|---|---|---|---|
+| 1 | 🔴 CRITICAL | Offer while on active job cancels the current job. Accept/reject of incoming offer triggers job cancellation and shows false "cancelled by dispatcher" message. | Incoming offer UI must be fully isolated from current job state. Accept/reject must never touch active job. | BUG 7 is related — see below |
+| 2 | 🟠 HIGH | Map is static during a trip — GPS position does not update or animate. | Implement real-time GPS map updates during active trip. | No |
+| 3 | 🟠 HIGH | App disconnects when backgrounded. GPS stops, offers stop, active trip stops. Resumes only on foreground. | Implement Android foreground service to keep GPS, Firebase listeners, and job state alive when backgrounded. | No |
+| 4 | 🟠 HIGH | Hail trips get device-generated IDs (`hail-{timestamp}`). Platform contract requires all IDs from `POST /api/job/create`. Device IDs cause collisions and break SA reporting. | Call `/api/job/create` before starting hail meter. Retry 3× on failure. No local fallback. | Contracts with SA portal — Section 4 |
+| 5 | 🟠 HIGH | TM hail trips write `tmSubsidy: 0` and `tmSubsidyFare: 0` even when a voucher is entered. Subsidy calculation not written to completed record. | Write to `completedJobs/{cid}/{bookingId}`: `tmSubsidy`, `tmSubsidyFare`, `tmPassengerPays`, `tmVoucherNo`, `tmPassengerName`, `tmTripCategory` | SA portal reads these — Section 5 |
+| 6 | 🟠 HIGH | Cash hail trips record `tariffName: "Total Mobility"` and `tariffId: "5"` even without a voucher. Tariff carries over from previous TM trip. | Reset tariff to default taxi tariff at start of each new hail trip. | No |
+| 7 | 🟠 HIGH | False "Job cancelled by dispatcher" message on any app-triggered cancellation. | Only show "cancelled by dispatcher" if `CancelledBy === 'dispatcher'` in Firebase job record. Show neutral message otherwise. | Related to BUG 1 |
+| 8 | 🟡 MEDIUM | No sign-out button. Only workaround: Android Settings → Apps → Clear Data. | Add sign-out to settings/profile screen. Call `firebase.auth().signOut()` and return to login. | No |
+| 9 | 🟡 MEDIUM | Hail flow asks driver to select job type (taxi/food/freight). Hail is always taxi. | Auto-set type to `"taxi"` for hail and remove the type-selection step. | No |
+| 10 | 🟡 MEDIUM | **Cross-team.** Owner portal writes `allocatedVehicles: {"Taxi02": true}` (object). Driver app reads `assignedVehicles: ["Taxi02"]` (array) + `vehicleId: "TAXI02"` (string). Result: drivers created via Owner Portal show "No vehicles available." | Agree on one format. Option A: Owner portal writes `assignedVehicles` array + `vehicleId` string. Option B: Driver app reads `allocatedVehicles` object. Must move together. | ✅ Owner portal + driver app must coordinate |
+
+**Firebase field contract reminders for driver app dev:**
+
+| Action | Path | Fields |
+|---|---|---|
+| Cancelled trip | `allbookings/{cid}/{bookingId}` (patch) | `status: 'Cancelled'`, `Status: 'Cancelled'`, `CancelledAt: ISO`, `CancelledBy: 'driver'` |
+| GPS update | `online/{cid}/{vid}/current` | `{ lat, lng, hasGps: true, time }` |
+| Rating write | `driverRatings/{cid}/{bookingId}` (full node) + `allbookings/{cid}/{bookingId}/driverRating` (patch score) | — |
+| Job ID | All jobs — `POST /api/job/create` | No local ID generation under any circumstance |
+
+---
+
+## 21. Dispatch App Bug Report — E2E Test 2026-05-06
+
+Bugs in the dispatcher UI / server.js. Marked with owner.
+
+| # | Priority | Bug | Fix | Owner |
+|---|---|---|---|---|
+| 1 | 🔴 CRITICAL | Dispatch jobs sit at `Status: Pending` in Firebase and never reach the driver app as an offer. Driver app never shows incoming offer popup. | **Dispatcher side investigated — code is correct.** Dispatcher writes to `notification/{sqlDriverId}` (SQL numeric driverId). **Driver app action required:** confirm your Firebase listener is on `notification/{sqlDriverId}` — NOT `notification/{firebaseUID}`. If the driver app is listening on the Firebase UID, offers will never arrive. | ⬜ Driver app to confirm listener path |
+| 2 | 🟠 HIGH | Scheduled (later) jobs not dispatching at the correct pre-dispatch window. | Verify scheduled dispatch timer/cron watches `allbookings/{cid}` for upcoming jobs. | Dispatcher dev |
+| 3 | 🟠 HIGH | Creating or editing a scheduled job fails — no record appears in Firebase. | Check job creation flow for scheduled bookings; confirm `POST /api/job/create` is called and response jobId is used. | Dispatcher dev |
+| 4 | 🟠 HIGH | Driver-to-dispatch messages not appearing in dispatch app. | **Dispatcher side investigated — listeners are correct.** Dispatch app listens on two paths: (1) `/driverMsg/{companyId}` — `child_added` with auto-delete after display; (2) `/chat` — `child_changed` for driver replies to dispatcher chat nodes. **Driver app action required:** write to `firebase.database().ref('/driverMsg/{companyId}').push({ driverId, driverName, vehicleNumber, message, timestamp })`. If the driver app writes to `/driverMsg/{driverId}` or any other path, messages will not appear. | ⬜ Driver app to confirm write path |
+| 5 | 🟠 HIGH | Completed job detail panel missing: route map, fare, distance, duration, driver info, passenger info. | Read from `allbookings/{cid}/{bookingId}` and `completedJobs/{cid}/{bookingId}` and populate panel. | Dispatcher dev |
+| 6 | 🟠 HIGH | Fleet view shows inactive vehicles alongside active ones. | **✅ Fixed in dispatcher.** Three-layer guard added: (1) `child_added` handler — returns immediately if `vehiclestatus === 'inactive'`; (2) `child_changed` handler — removes vehicle from scope + map if it becomes inactive; (3) `$scope.tallo` — rejects inactive before adding to `driverdatarealx`; (4) fleet table `ng-if` also excludes `vehiclestatus === 'inactive'`. | ✅ Dispatcher fixed |
+| 7 | 🟡 MEDIUM | Web bookings dispatched without payment collected first. | Check `paymentStatus` or `prepaid` field before offering job to driver. Hold web bookings until payment confirmed. | Dispatcher dev |
+
+**Firebase field contract reminders for dispatch dev:**
+
+| Item | Detail |
+|---|---|
+| Job record path | `allbookings/{cid}/{bookingId}` — use `Status` (capital S) |
+| Driver GPS | Read `online/{cid}/{vid}/current → { lat, lng, hasGps, time }` — lat/lng are under `current`, not top-level |
+| Session revoke | Listen `superClients/{cid}/sessionRevoke` — sign out if value > loginTimestamp |
+| Job payload | `vehicleId` and `companyId` must be in every write to `jobDetails/{cid}/{bookingId}` |
+| Job IDs | All from `POST /api/job/create` — no local generation |

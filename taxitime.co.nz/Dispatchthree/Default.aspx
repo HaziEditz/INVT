@@ -4727,7 +4727,7 @@ $(document).ready(function() {
 
                                                 </tr>
                                             </thead>
-                                               <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
+                                               <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername && driverz.vehiclestatus !== 'inactive' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
                                                          {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}}
                                                          <span ng-if="driverIsOffline(driverz.driverid, driverz.VehicleId)" title="Last seen: {{driverLastSeenAgo(driverz.driverid, driverz.VehicleId)}}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;">OFFLINE</span>
@@ -7387,6 +7387,8 @@ $(document).ready(function() {
             driverData.PlayerId = String(driverData.driverid);
         }
         if (!driverData || typeof driverData !== 'object') return;
+        // BUG 6 fix: skip vehicles the Owner Portal has marked inactive
+        if (driverData.vehiclestatus === 'inactive') return;
         cars_count++;
         // Notification: driver came online
         if (window._TT && (driverData.vehiclenumber || driverData.drivername)) {
@@ -7468,6 +7470,23 @@ $(document).ready(function() {
             driverData.PlayerId = String(driverData.driverid);
         }
         if (!driverData || typeof driverData !== 'object') return;
+        // BUG 6 fix: if Owner Portal marks a vehicle inactive, remove it from scope and map
+        if (driverData.vehiclestatus === 'inactive') {
+            try {
+                var _scInact = angular.element(document.getElementById('myangular')).scope();
+                if (_scInact && _scInact.driverdatarealx) {
+                    _scInact.driverdatarealx = _scInact.driverdatarealx.filter(function(d) {
+                        return d.VehicleId !== driverData.VehicleId && d.vehiclenumber !== driverData.vehiclenumber;
+                    });
+                    if (!_scInact.$$phase) _scInact.$digest();
+                }
+                if (typeof markers !== 'undefined' && driverData.vehiclenumber && markers[driverData.vehiclenumber]) {
+                    try { markers[driverData.vehiclenumber].setMap(null); } catch(e) {}
+                    delete markers[driverData.vehiclenumber];
+                }
+            } catch(e) {}
+            return;
+        }
         // Attach the Firebase key so adddriverremove can match by it if VehicleId is absent
         if (!driverData._fbKey) driverData._fbKey = data.key;
         // GPS: driver app writes lat/lng under /current sub-node.
@@ -11427,6 +11446,8 @@ $(document).ready(function() {
             // Guard: must have at least driverid or vehiclenumber to be a valid driver entry
             if (!datacom || (typeof datacom !== 'object')) return;
             if (!datacom.driverid && !datacom.vehiclenumber && !datacom.drivername) return;
+            // BUG 6 fix: never add inactive vehicles to the fleet list
+            if (datacom.vehiclestatus === 'inactive') return;
             // Ensure display fields always have a value so driver shows in all tables
             datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + datacom.driverid);
             datacom.vehiclestatus = datacom.vehiclestatus || 'Available';
