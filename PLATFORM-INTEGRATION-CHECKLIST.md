@@ -300,3 +300,15 @@ Bugs in the dispatcher UI / server.js. Marked with owner.
 | Session revoke | Listen `superClients/{cid}/sessionRevoke` — sign out if value > loginTimestamp |
 | Job payload | `vehicleId` and `companyId` must be in every write to `jobDetails/{cid}/{bookingId}` |
 | Job IDs | All from `POST /api/job/create` — no local generation |
+
+---
+
+## 22. Dispatch App Bug Report — Round 2 (2026-05-06)
+
+New findings from SA after reviewing Round 1 responses.
+
+| # | Priority | Item | Fix | Status |
+|---|---|---|---|---|
+| R2-1 | 🟠 HIGH | `notification/{vehicleId}` contains a driver message mixed with job offer format — driver app cannot distinguish the two. | Add `type: 'job_offer'` to every notification payload written by the dispatcher. Driver app filters on `type` field. | ✅ **Fixed** — `type: 'job_offer'` added to `fullPayload` in `writeJobDetailsToFirebase` |
+| R2-2 | 🟠 HIGH | `rideStatus/{cid}/{bookingId}.vehicleId` contains driver dispatch ID (e.g. `"D002"`) instead of taxi number (e.g. `"TAXI02"`). GPS path `online/{cid}/{vehicleId}/current` uses taxi number as key — passenger app / map cannot locate driver. | Write `vehicleId` as uppercase taxi number; add `driverDispatchId` as separate field for the driver reference. | ✅ **Fixed** — `rideStatus` set now looks up taxi number from `driverdatarealx` by driverId; falls back to `.toUpperCase()` of the passed vehicleId. Added `driverDispatchId` field for the original driver ID. |
+| R2-F | 🟡 FEATURE | No unread badge on Messages tab — dispatcher has no indication when a driver sends a message. | Show unread count badge on Messages tab. Increment on each incoming driver message. Clear when tab is opened. | ✅ **Fixed** — Red badge `#bw-drv-msg-badge` added to Messages tab button. Incremented in `_showDriverMessage`, cleared by `_bwClearMsgBadge()` on tab click. |

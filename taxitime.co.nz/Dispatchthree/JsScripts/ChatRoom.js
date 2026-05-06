@@ -476,7 +476,21 @@ function _handleChatNode(snapshot) {
     _showDriverMessage(driverId, driverName, text);
 }
 
+// ── Unread message badge on Messages tab ──────────────────────────────────────
+window._bwMsgUnread = 0;
+window._bwIncrMsgBadge = function() {
+    window._bwMsgUnread++;
+    var $b = $('#bw-drv-msg-badge');
+    $b.text(window._bwMsgUnread).show();
+};
+window._bwClearMsgBadge = function() {
+    window._bwMsgUnread = 0;
+    $('#bw-drv-msg-badge').text('0').hide();
+};
+
 function _showDriverMessage(driverId, driverName, text) {
+    // Increment unread badge on Messages tab (cleared when tab is opened)
+    if (typeof window._bwIncrMsgBadge === 'function') window._bwIncrMsgBadge();
     // Notification bell
     if (window._TT) {
         _TT.push('message',

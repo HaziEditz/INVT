@@ -2539,8 +2539,9 @@
                             <button class="tt-tab-btn" data-panel="ttDriverChat" onclick="populateDriverChatDropdowns()">
                                 <i class="fa fa-exchange"></i> Driver
                             </button>
-                            <button class="tt-tab-btn" data-panel="ttMessages" onclick="bwMsgActivate()">
+                            <button class="tt-tab-btn" data-panel="ttMessages" onclick="bwMsgActivate(); _bwClearMsgBadge();">
                                 <i class="fa fa-envelope-o"></i> Messages
+                                <span id="bw-drv-msg-badge" style="display:none;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;margin-left:4px;vertical-align:middle;line-height:1.4;">0</span>
                             </button>
                         </div>
 
@@ -8345,6 +8346,7 @@ $(document).ready(function() {
             var _stat  = details.status || 'Offered';
             var _bookingidStr = bookingId + ',' + _stat + ',' + driverId + ',' + _uid + ',' + _src;
             var fullPayload = {
+                type:          'job_offer',
                 bookingid:     _bookingidStr,
                 content:       'You have offered new Job please view details',
                 joboffer:      String(bookingId),
@@ -8484,17 +8486,37 @@ $(document).ready(function() {
             // Path: rideStatus/{companyId}/{bookingId}
             try {
                 if (SomeSession2 && bookingId) {
+                    // BUG 2 fix: vehicleId must be the uppercase taxi number (e.g. TAXI02),
+                    // not the driver's dispatch ID (e.g. D002). Look up from driverdatarealx
+                    // using driverId; fall back to the vehicleId param if not found.
+                    var _rsTaxiNum = (function() {
+                        try {
+                            var _rs = angular.element(document.getElementById('myangular')).scope();
+                            if (_rs && _rs.driverdatarealx) {
+                                for (var _ri = 0; _ri < _rs.driverdatarealx.length; _ri++) {
+                                    var _rd = _rs.driverdatarealx[_ri];
+                                    if (String(_rd.driverid) === String(driverId) ||
+                                        String(_rd.VehicleId) === String(vehicleId) ||
+                                        String(_rd.vehiclenumber) === String(vehicleId)) {
+                                        return String(_rd.vehiclenumber || _rd.VehicleId || vehicleId || '').toUpperCase();
+                                    }
+                                }
+                            }
+                        } catch(_re) {}
+                        return String(vehicleId || '').toUpperCase();
+                    })();
                     var _etaRef = firebase.database().ref('rideStatus/' + SomeSession2 + '/' + bookingId);
                     _etaRef.set({
-                        status:      status || 'Offered',
-                        driverId:    driverId  || '',
-                        vehicleId:   vehicleId || '',
-                        companyId:   SomeSession2,
-                        bookingId:   bookingId,
-                        pickup:      job.PickAddress  || job.PickLocation  || '',
-                        dropoff:     job.DropAddress  || job.DropLocation  || '',
-                        vehicleType: job.VehicleType  || '',
-                        updatedAt:   firebase.database.ServerValue.TIMESTAMP
+                        status:          status || 'Offered',
+                        driverId:        String(driverId || ''),
+                        driverDispatchId: String(driverId || ''),
+                        vehicleId:       _rsTaxiNum,
+                        companyId:       SomeSession2,
+                        bookingId:       bookingId,
+                        pickup:          job.PickAddress  || job.PickLocation  || '',
+                        dropoff:         job.DropAddress  || job.DropLocation  || '',
+                        vehicleType:     job.VehicleType  || '',
+                        updatedAt:       firebase.database.ServerValue.TIMESTAMP
                     }).catch(function() { /* non-critical */ });
                 }
             } catch(e) { /* non-critical */ }
