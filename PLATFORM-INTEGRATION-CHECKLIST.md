@@ -23,7 +23,7 @@ Instructions for each team:
 | `jobs/{cid}/{vid}/{driverId}` | Dispatcher | Driver app | Job acceptance handshake node. Checked before sending new offer. |
 | `notification/{driverId}` | Dispatcher | Driver app | Job offer payload. Fields: bookingid (CSV), jobpickup, jobdropoff, JobphoneNo, jobname, jobbags, jobpassengers, jobvehicletype, jobFare, jobServiceType, vehicleId, companyId, extras{} |
 | `notification/{cid}` | **Nobody** | — | Dead path. Remove any listener on this path. |
-| `jobDetails/{cid}/{bookingId}` | Dispatcher | Passenger app | Full job payload including vehicleId. Passenger app uses vehicleId to build GPS tracking path. |
+| `jobDetails/{cid}/{bookingId}` | Dispatcher | Passenger app | Full job payload including vehicleId. Passenger app uses vehicleId to build GPS tracking path. SA portal confirmed zero reads of this path — no SA change needed. |
 | `rideStatus/{cid}/{bookingId}` | Dispatcher | Passenger app | `{ status, driverId, vehicleId, companyId, pickup, dropoff, vehicleType, updatedAt }` — ETA / live tracking anchor |
 | `Emergency/{cid}` | Driver app | Dispatcher | Emergency alert. Dispatcher listens, shows red banner, plays sound. |
 | `towRequests/{cid}` | Driver app | Dispatcher | Tow request alert. Same banner/sound pattern as Emergency. |
@@ -146,7 +146,8 @@ Canonical values (lowercase). Teams must use these exactly — no aliases in Fir
 | SA master report reads only `completedJobs` — not `allbookings` | Revenue/trip counts understated for dispatched jobs | SA portal dev | ✅ Closed — Section 11 fix reads both paths and deduplicates by bookingId. Dispatcher uses SQL for job lists; `allbookings` is only touched as a recall fallback. No further change needed. (Q1 — May 2026) |
 | Food order real-time status (`foodOrders/{cid}`) | Passenger app can't track food orders | Passenger app + SA portal | Parked — paths documented, ready to scope |
 | Freight post-booking tracking | Same | Passenger app + SA portal | Parked |
-| Card commission / net payout deduction (`companies/{cid}/cardSettings`) | Owner portal + SA portal revenue inaccurate | Owner portal + SA portal | Parked |
+| Card commission / net payout deduction (`companies/{cid}/cardSettings`) | Owner portal + SA portal revenue inaccurate | Owner portal + SA portal | Parked — joint feature, schedule with owner portal team |
+| `firebase deploy --only database` not yet run | `rideStatus` and `driverEarnings` writes blocked; smoke test shows 2 failures | SA portal or dispatcher (whoever has Firebase CLI) | **Blocking** — SA portal audited their `database.rules.json` and found 30 paths missing (including `superClients`, `freightOrders`, `foodOrders`, `driverRatings`, `trips`, and more — all now added). Deploy must be run once against `taxilatest` project to activate all new rules. |
 
 ---
 
@@ -193,3 +194,49 @@ Recorded answers from the dispatcher team review. Each entry is self-contained s
 **Answer (dispatcher team):** Impossible code path. `generateJobId()` in `src/jobId.ts` always returns a valid string (e.g. `62026050601`) or throws. An unhandled throw becomes `{ ok: false, error: "..." }` with HTTP 500 — never `{ ok: true }` without a `jobId`. There is no conditional branch that omits `jobId` from a success response.
 
 **Resolution:** ✅ Closed — no change needed on either side. Client-side defensive check: treat any response where `ok !== true` as a hard failure and surface an error to the user. Do not fall back to a locally-generated ID.
+
+---
+
+## 18. SA Portal Response — May 2026
+
+Recorded responses from the SA portal team following the dispatcher audit notes.
+
+---
+
+### `jobDetails` path change — SA portal not affected
+
+**SA portal:** Checked the entire SA portal codebase. Zero reads of `jobDetails` anywhere. No change needed.
+
+**Status:** ✅ Closed. Path change (`jobDetails/{bookingId}` → `jobDetails/{cid}/{bookingId}`) only affects the passenger app, which reads this node to get `vehicleId` for GPS tracking. SA portal is not a consumer.
+
+---
+
+### `sessionRevoke`, master report gap, TM fields — all confirmed correct
+
+**SA portal:** No action required. All three items match what is documented.
+
+**Status:** ✅ Confirmed. No further follow-up needed from either side.
+
+---
+
+### Firebase rules — larger audit on SA portal side
+
+**SA portal:** The rules issue was wider than the two paths identified by the smoke test. A full audit of the SA portal's `database.rules.json` found **30 paths missing** rules entirely, including `superClients`, `freightOrders`, `foodOrders`, `driverRatings`, `trips`, and others. All have now been added to `database.rules.json` on the SA portal side.
+
+**Action required:** `firebase deploy --only database` must be run once against the `taxilatest` project. Either the SA portal team or the dispatcher team can run this — whoever has the Firebase CLI configured for `taxilatest`. Once deployed, the smoke test at `GET /dev/smoketest?adminKey=bookawaka-admin-2026&cid=620611` should return 27/27 green.
+
+**Status:** ⏳ Pending deploy.
+
+---
+
+## 19. Pre-Go-Live Outstanding Items
+
+All teams. Updated May 2026.
+
+| Item | Owner | Status |
+|---|---|---|
+| `firebase deploy --only database` (taxilatest) | SA portal or dispatcher — whoever has Firebase CLI | ⏳ **Blocking** — clears 2 smoke test failures and opens 30 paths for all clients |
+| Net payout deduction (`companies/{cid}/cardSettings`) | SA portal + owner portal | Parked — joint feature, schedule together |
+| Freight POD photo / signature | All teams | Future feature — field names to be agreed before any team builds |
+| `contactInquiries` SA reader | SA portal | Future sprint |
+| Cross-team E2E test session | All 6 teams | Schedule before go-live |
