@@ -436,33 +436,6 @@ function initDriverMessageListener(companyId) {
         console.error('[ChatRoom] /chat listener error:', e);
     }
 
-    // ── Path 3: /notification/{companyId} ──────────────────────────────────
-    // Some driver apps reply by writing to /notification/{companyId} (the
-    // symmetrical path of the dispatcher's /notification/{driverId} sends).
-    try {
-        console.log('[ChatRoom] attaching /notification/' + companyId + ' listener');
-        var _notifFirstLoad = true;
-        firebase.database().ref('/notification/' + companyId).on('child_added', function(snapshot) {
-            if (_notifFirstLoad) return;
-            var msg = snapshot.val();
-            var key = snapshot.key;
-            console.log('[ChatRoom] /notification/' + companyId + ' child_added key=' + key + ' val=' + JSON.stringify(msg));
-            if (!msg) return;
-            var bookingid = msg.bookingid || '';
-            // Extract the same comma-delimited format drivers use
-            var parts = bookingid ? bookingid.split(',') : [];
-            var driverId   = String(msg.driverId || msg.DriverId || msg.driver_id || (parts[3]) || key || '');
-            var driverName = msg.SenderName || msg.senderName || msg.driverName || msg.DriverName || msg.DriverFirstName || ('Driver ' + driverId);
-            var text       = msg.message || msg.Message || msg.body || msg.text || msg.content ||
-                             (parts.length >= 2 ? parts.slice(1, Math.max(2, parts.length - 2)).join(',') : '') || '';
-            if (!text) { console.warn('[ChatRoom] /notification/' + companyId + ': no text in', msg); return; }
-            _showDriverMessage(driverId, driverName, text);
-            firebase.database().ref('/notification/' + companyId + '/' + key).remove();
-        });
-        setTimeout(function() { _notifFirstLoad = false; }, 3000);
-    } catch (e) {
-        console.error('[ChatRoom] /notification listener error:', e);
-    }
 }
 
 function _handleChatNode(snapshot) {
