@@ -13213,6 +13213,9 @@ $(document).ready(function() {
                     if(laterjob){
                         FnCancelRide(previousdriverid,  BookingIz );
                         $("#Divo" + BookingIz + "").remove();
+                        // BUG 3: Refresh job lists after scheduling edit so the updated
+                        // pre-booked job reappears correctly in the Unassigned panel.
+                        setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 1500);
                     }else{
                         if (DriveId == "0" || DriveId == "-1") {
                             FnCancelRide(previousdriverid, BookingIz );
@@ -15202,6 +15205,41 @@ $(document).ready(function() {
                     );
                     var resz = JSON.parse(result.d);
                     var pendingJobs = (resz && resz['dt1']) ? resz['dt1'] : [];
+                    if (!pendingJobs.length) return;
+
+                    // ── BUG 7: Payment gate for web bookings ─────────────────────────
+                    // Skip Website-sourced jobs that have not been confirmed as paid.
+                    // The paymentStatus field is set by the web-booking flow on the server.
+                    // Jobs without it stay in Pending until the payment webhook marks them paid.
+                    pendingJobs = pendingJobs.filter(function(pj) {
+                        var src = (pj.BookingSource || pj.bookingSource || '').toLowerCase();
+                        if (src !== 'website' && src !== 'web booking' && src !== 'web') return true;
+                        var paid = (pj.paymentStatus || pj.PaymentStatus || '').toLowerCase();
+                        var prepaid = pj.prepaid === true || pj.Prepaid === true;
+                        if (paid === 'paid' || paid === 'completed' || prepaid) return true;
+                        console.log('[smartAutoDispatch] Skipping web job #' + pj.Id + ' — payment not confirmed (status: ' + (pj.paymentStatus || 'none') + ')');
+                        return false;
+                    });
+                    if (!pendingJobs.length) return;
+
+                    // ── BUG 2: Dispatch window gate for pre-booked (Later) jobs ─────────
+                    // Skip jobs whose dispatch window has not yet opened.
+                    // DispatchTimebefore (minutes) is the lead time before pickup.
+                    // Window opens when: now >= BookingDateTime - DispatchTimebefore minutes.
+                    var _nowMs = Date.now();
+                    pendingJobs = pendingJobs.filter(function(pj) {
+                        var db = parseInt(pj.DispatchTimebefore || pj.dispatchTimebefore || 0);
+                        if (db <= 0) return true; // ASAP jobs always qualify
+                        var bdt = pj.BookingDateTime || pj.bookingDateTime || '';
+                        if (!bdt) return true; // no time stored, let it through
+                        var bdtMs = new Date(bdt.replace(' ', 'T')).getTime();
+                        if (isNaN(bdtMs)) return true;
+                        var windowOpensMs = bdtMs - db * 60000;
+                        if (_nowMs >= windowOpensMs) return true;
+                        var minsLeft = Math.ceil((windowOpensMs - _nowMs) / 60000);
+                        console.log('[smartAutoDispatch] Skipping pre-booked job #' + pj.Id + ' — dispatch window opens in ' + minsLeft + ' min');
+                        return false;
+                    });
                     if (!pendingJobs.length) return;
 
                     // Stale-lock recovery: if the server returns a job as Pending that the
@@ -21859,6 +21897,21 @@ $(document).ready(function() {
                                         _fillTmFields(fbJob, fbStatus);
                                     } else if (fbStatus) {
                                         _fillTmFields({}, fbStatus);
+                                    }
+                                    // BUG 5: Enrich fare/duration/timeline with driver-app completedJob data.
+                                    // The SQL JobDetails record may lack fare breakdown and precise timestamps
+                                    // that the driver app writes to Firebase after completing the trip.
+                                    // Merge fbJob fields over the SQL record (SQL values take priority where
+                                    // they're non-empty so we don't overwrite known-good dispatcher data).
+                                    if (fbJob) {
+                                        var _merged = {};
+                                        // Start with fbJob, then overlay non-empty SQL fields on top
+                                        Object.keys(fbJob).forEach(function(k) { _merged[k] = fbJob[k]; });
+                                        Object.keys(j).forEach(function(k) {
+                                            if (j[k] !== null && j[k] !== undefined && j[k] !== '') _merged[k] = j[k];
+                                        });
+                                        jdpBuildFare(_merged);
+                                        jdpBuildTimeline(_merged);
                                     }
                                 }).catch(function(e) {
                                     console.warn('[ShowJobPopup] TM Firebase fetch error:', e);

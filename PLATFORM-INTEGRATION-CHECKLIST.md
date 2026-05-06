@@ -312,3 +312,30 @@ New findings from SA after reviewing Round 1 responses.
 | R2-1 | 🟠 HIGH | `notification/{vehicleId}` contains a driver message mixed with job offer format — driver app cannot distinguish the two. | Add `type: 'job_offer'` to every notification payload written by the dispatcher. Driver app filters on `type` field. | ✅ **Fixed** — `type: 'job_offer'` added to `fullPayload` in `writeJobDetailsToFirebase` |
 | R2-2 | 🟠 HIGH | `rideStatus/{cid}/{bookingId}.vehicleId` contains driver dispatch ID (e.g. `"D002"`) instead of taxi number (e.g. `"TAXI02"`). GPS path `online/{cid}/{vehicleId}/current` uses taxi number as key — passenger app / map cannot locate driver. | Write `vehicleId` as uppercase taxi number; add `driverDispatchId` as separate field for the driver reference. | ✅ **Fixed** — `rideStatus` set now looks up taxi number from `driverdatarealx` by driverId; falls back to `.toUpperCase()` of the passed vehicleId. Added `driverDispatchId` field for the original driver ID. |
 | R2-F | 🟡 FEATURE | No unread badge on Messages tab — dispatcher has no indication when a driver sends a message. | Show unread count badge on Messages tab. Increment on each incoming driver message. Clear when tab is opened. | ✅ **Fixed** — Red badge `#bw-drv-msg-badge` added to Messages tab button. Incremented in `_showDriverMessage`, cleared by `_bwClearMsgBadge()` on tab click. |
+
+---
+
+## 23. Dispatch App Bug Report — Round 3 (2026-05-06)
+
+Remaining 4 bugs from Section 21, all investigated and fixed in this round.
+
+| # | Priority | Bug | Root Cause | Fix | Status |
+|---|---|---|---|---|---|
+| BUG 2 | 🔴 CRITICAL | Pre-booked (scheduled) jobs dispatched immediately — dispatch window ignored. `smartAutoDispatch` offers jobs to drivers as soon as they enter Pending state, regardless of pickup time. | `smartAutoDispatch` had no `DispatchTimebefore` check. All pending jobs were offered in every 10s cycle, even if the pickup was hours away. | Added dispatch window filter in `smartAutoDispatch` after `pendingJobs` is fetched. Logic: if `DispatchTimebefore > 0`, skip the job unless `now >= BookingDateTime - DispatchTimebefore minutes`. Logs skipped jobs with minutes remaining. | ✅ **Fixed** |
+| BUG 3 | 🟠 HIGH | Editing a scheduled (Later) job removes it from the UI — job card disappears and never reappears. | After a successful later-job edit, `FnCancelRide` and `$("#Divo...").remove()` cleared the card correctly, but `changerefresh()` was not called — so the updated job never reloaded into the Unassigned panel. (Create path was already correct.) | Added `setTimeout(changerefresh, 1500)` immediately after the `laterjob` DOM removal block in the edit success handler. The 1.5s delay lets the SQL backend commit before the refresh fetch. | ✅ **Fixed** |
+| BUG 5 | 🟠 HIGH | Completed job detail popup missing fare, distance, duration. Fare section stays hidden even on finished trips. | `ShowJobPopup` already fetches `completedJobs/{cid}/{jobKey}` from Firebase but only used that data for Total Mobility fields (`_fillTmFields`). Driver-app fare fields (`TotalFare`, `FareBase`, `FareTime`, `JobDistance`, timestamps) were in Firebase but never passed to `jdpBuildFare()` / `jdpBuildTimeline()`. | In the `completedJobs` Firebase `.then()` callback, after TM processing: merge `fbJob` (Firebase) fields under the SQL job object `j` (SQL non-empty fields win), then call `jdpBuildFare(merged)` and `jdpBuildTimeline(merged)`. All fare/duration sub-panels now populate from combined SQL+Firebase data. | ✅ **Fixed** |
+| BUG 7 | 🟡 MEDIUM | Web bookings (`BookingSource === 'Website'`) dispatched to drivers before payment is collected. | `smartAutoDispatch` offered every Pending job regardless of `BookingSource` or payment state. No `paymentStatus` field existed in the dispatch flow. | Added payment gate filter in `smartAutoDispatch` (runs before the dispatch window filter). Web/website/web-booking jobs are skipped unless `paymentStatus === 'paid'` / `'completed'` or `prepaid === true`. Logs skipped jobs. The payment webhook on the server side sets `paymentStatus: 'paid'` when Stripe confirms — until then the job stays Pending but is not offered. | ✅ **Fixed** |
+
+**Notes for SA/testing team:**
+
+- **BUG 2**: Test by creating a Later job with `DispatchTimebefore = 15` (15-min lead time), pickup 2 hours from now. Console should log `"dispatch window opens in X min"` every 10s cycle. No driver offer should appear until the window opens.
+- **BUG 3**: Test by editing an existing scheduled job → change time or pickup. Job card should disappear then reappear in the Unassigned panel within ~2 seconds (not stay gone permanently).
+- **BUG 5**: Open a completed job detail popup. If the driver app wrote fare data to `completedJobs/{cid}/{bookingId}`, the Fare section (distance, ride cost, total fare) and Timeline durations now populate. If Firebase path has no data, the section remains hidden (correct).
+- **BUG 7**: Web booking jobs with no `paymentStatus` will **not** be offered to drivers — they stay in the Pending/Unassigned queue. Dispatcher can still manually assign them. Once Stripe webhook fires and sets `paymentStatus: 'paid'`, the next 10s `smartAutoDispatch` cycle will offer them normally.
+
+**Outstanding items still open from Section 21:**
+
+| # | Status | Notes |
+|---|---|---|
+| BUG 1 (job offer to wrong driver) | ⬜ **Driver app action required** | Dispatcher side confirmed correct. Driver app must listen on `notification/{sqlDriverId}` (the numeric SQL driver ID, not Firebase UID). See Section 21. |
+| BUG 4 (driver-to-dispatch messages missing) | ⬜ **Driver app action required** | Driver app must write to `/driverMsg/{companyId}` (not `/driverMsg/{driverId}`). See Section 21 BUG 4 and Section 22 R2-1. |
