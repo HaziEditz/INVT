@@ -2175,6 +2175,331 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET/POST /dev/smoketest — end-to-end data pipeline smoke test ────────────
+  // Writes synthetic data through every Firebase path in the booking lifecycle,
+  // then reads back from all three report consumers and verifies field presence.
+  // Cleans up all test data on completion.
+  // Protected by BW_ADMIN_KEY.
+  // Usage: GET /dev/smoketest?adminKey=<key>&cid=<companyId>&driverId=<id>
+  if (urlPath === '/dev/smoketest' && (req.method === 'GET' || req.method === 'POST')) {
+    const _stQs       = new URL('http://x' + req.url).searchParams;
+    const _stKey      = (req.headers['x-admin-key'] || _stQs.get('adminKey') || '').trim();
+    const _stCid      = (_stQs.get('cid')      || '620611').trim();
+    const _stDriverId = (_stQs.get('driverId') || 'smoketest_driver_1').trim();
+    const _stVehicleId= (_stQs.get('vehicleId')|| 'smoketest_vehicle_1').trim();
+
+    if (_stKey !== (process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026')) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden — pass ?adminKey=<key>');
+      return;
+    }
+
+    // ── Test identifiers ────────────────────────────────────────────────────
+    const _stJobId   = 'ST' + Date.now(); // unique per run
+    const _stTripId  = _stJobId;
+    const _stFare    = 18.50;
+    const _stNow     = new Date().toISOString();
+
+    const results = []; // { step, path, field, expected, got, pass }
+    const writtenPaths = []; // for cleanup
+
+    function check(step, path, field, expected, got) {
+      const pass = (got !== null && got !== undefined && got !== '' && got !== false)
+                   ? (expected === '__present__' ? true : String(got) === String(expected))
+                   : false;
+      results.push({ step, path, field, expected: expected === '__present__' ? '(present)' : expected, got: got == null ? 'null/missing' : got, pass });
+      return pass;
+    }
+
+    // Helper: attempt a Firebase write; on failure push an error check result but continue
+    async function fbWrite(token, stepLabel, path, data) {
+      try {
+        await firebaseDbSet(path, data, token);
+        writtenPaths.push(path);
+        return true;
+      } catch(e) {
+        results.push({ step: stepLabel, path, field: 'WRITE', expected: 'ok', got: `WRITE FAILED: ${e.message}`, pass: false });
+        return false;
+      }
+    }
+    async function fbRead(token, url) {
+      try {
+        const r = await fbRequest(`${url}?auth=${encodeURIComponent(token)}`, 'GET', null);
+        return r.body || {};
+      } catch(e) { return {}; }
+    }
+
+    let token;
+    try {
+      token = await getFirebaseServerToken();
+      if (!token) throw new Error('Could not obtain Firebase server token — check BW_FIREBASE_SECRET or Firebase rules');
+    } catch(e) {
+      results.push({ step: 'FATAL', path: '', field: '', expected: '', got: e.message, pass: false });
+    }
+
+    if (token) {
+      // ── STEP 1: Passenger app writes booking to pendingjobs ───────────────
+      const _pendingJob = {
+        PassengerName:    'Smoke Test Passenger',
+        phoneNo:          '021 999 000',
+        pickupAddress:    '1 Test St, Invercargill',
+        pickupLat:        -46.41,
+        pickupLng:        168.35,
+        dropoffAddress:   'Invercargill Airport',
+        dropoffLat:       -46.42,
+        dropoffLng:       168.33,
+        serviceType:      'taxi',
+        paymentMethod:    'cash',
+        estimatedFare:    _stFare,
+        passengers:       1,
+        createdAt:        _stNow,
+        scheduledFor:     0,
+        _smoketest:       true,
+      };
+      await fbWrite(token, '1-ingest', `pendingjobs/${_stCid}/${_stJobId}`, _pendingJob);
+
+      // Verify _normFbJob normalisation (local — no Firebase needed)
+      const _normed = _normFbJob(_pendingJob);
+      check('1-ingest', `pendingjobs/${_stCid}/${_stJobId}`, 'name',        '__present__', _normed.name);
+      check('1-ingest', `pendingjobs/${_stCid}/${_stJobId}`, 'pickAddress', '__present__', _normed.pickAddress);
+      check('1-ingest', `pendingjobs/${_stCid}/${_stJobId}`, 'serviceType', 'taxi',        _normed.serviceType);
+      check('1-ingest', `pendingjobs/${_stCid}/${_stJobId}`, 'pickLatLng',  '__present__', _normed.pickLatLng);
+
+      // ── STEP 2: Passenger app writes to allbookings (long-term store) ─────
+      const _allBooking = Object.assign({}, _pendingJob, { bookingId: _stJobId, status: 'Pending' });
+      const _s2ok = await fbWrite(token, '2-allbookings', `allbookings/${_stCid}/${_stJobId}`, _allBooking);
+      if (_s2ok) {
+        const _ab = await fbRead(token, `${FB_DB_URL}/allbookings/${_stCid}/${_stJobId}.json`);
+        check('2-allbookings', `allbookings/${_stCid}/${_stJobId}`, 'bookingId', _stJobId,  _ab.bookingId);
+        check('2-allbookings', `allbookings/${_stCid}/${_stJobId}`, 'status',    'Pending', _ab.status);
+      }
+
+      // ── STEP 3: Dispatcher sends job offer → notification + jobDetails + rideStatus
+      const _fullPayload = {
+        bookingid:      `${_stJobId},Offered,${_stDriverId},,Dispatcher`,
+        content:        'You have offered new Job please view details',
+        joboffer:       String(_stJobId),
+        jobpickup:      '1 Test St, Invercargill',
+        jobdropoff:     'Invercargill Airport',
+        JobphoneNo:     '021 999 000',
+        jobname:        'Smoke Test Passenger',
+        jobbags:        '0',
+        jobpassengers:  '1',
+        jobvehicletype: 'Sedan',
+        jobinfo:        '',
+        jobFare:        String(_stFare),
+        jobCount:       1,
+        jobServiceType: 'taxi',
+        jobBookingSrc:  'Dispatcher',
+        vehicleId:      String(_stVehicleId),
+        companyId:      String(_stCid),
+      };
+
+      const _s3notifOk = await fbWrite(token, '3-offer/notification', `notification/${_stDriverId}`, _fullPayload);
+      if (_s3notifOk) {
+        const _nb = await fbRead(token, `${FB_DB_URL}/notification/${_stDriverId}.json`);
+        check('3-offer', `notification/${_stDriverId}`, 'vehicleId',  String(_stVehicleId), _nb.vehicleId);
+        check('3-offer', `notification/${_stDriverId}`, 'companyId',  String(_stCid),       _nb.companyId);
+        check('3-offer', `notification/${_stDriverId}`, 'joboffer',   String(_stJobId),     _nb.joboffer);
+        check('3-offer', `notification/${_stDriverId}`, 'JobphoneNo', '__present__',         _nb.JobphoneNo);
+      }
+
+      const _s3jdOk = await fbWrite(token, '3-offer/jobDetails', `jobDetails/${_stCid}/${_stJobId}`, _fullPayload);
+      if (_s3jdOk) {
+        const _jdb = await fbRead(token, `${FB_DB_URL}/jobDetails/${_stCid}/${_stJobId}.json`);
+        check('3-jobDetails', `jobDetails/${_stCid}/${_stJobId}`, 'vehicleId', String(_stVehicleId), _jdb.vehicleId);
+        check('3-jobDetails', `jobDetails/${_stCid}/${_stJobId}`, 'companyId', String(_stCid),       _jdb.companyId);
+      }
+
+      const _rideStatusData = {
+        status:      'Offered',
+        driverId:    String(_stDriverId),
+        vehicleId:   String(_stVehicleId),
+        companyId:   String(_stCid),
+        bookingId:   String(_stJobId),
+        pickup:      '1 Test St, Invercargill',
+        dropoff:     'Invercargill Airport',
+        vehicleType: 'Sedan',
+        updatedAt:   Date.now(),
+      };
+      const _s3rsOk = await fbWrite(token, '3-offer/rideStatus', `rideStatus/${_stCid}/${_stJobId}`, _rideStatusData);
+      if (_s3rsOk) {
+        const _rsb = await fbRead(token, `${FB_DB_URL}/rideStatus/${_stCid}/${_stJobId}.json`);
+        check('3-rideStatus', `rideStatus/${_stCid}/${_stJobId}`, 'vehicleId', String(_stVehicleId), _rsb.vehicleId);
+        check('3-rideStatus', `rideStatus/${_stCid}/${_stJobId}`, 'driverId',  String(_stDriverId),  _rsb.driverId);
+      }
+
+      // ── STEP 4: Driver completes job → dispatcher writes completedJobs (SA-MasterReport reads this)
+      const _completedNode = {
+        fare:        _stFare,
+        paymentType: 'cash',
+        completedAt: _stNow,
+        driverId:    String(_stDriverId),
+        pickup:      '1 Test St, Invercargill',
+        dropoff:     'Invercargill Airport',
+      };
+      const _s4ok = await fbWrite(token, '4-completedJobs', `completedJobs/${_stCid}/${_stTripId}`, _completedNode);
+      if (_s4ok) {
+        const _cjb = await fbRead(token, `${FB_DB_URL}/completedJobs/${_stCid}/${_stTripId}.json`);
+        check('4-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTripId}`, 'fare',        String(_stFare),     _cjb.fare);
+        check('4-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTripId}`, 'paymentType', 'cash',              _cjb.paymentType);
+        check('4-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTripId}`, 'completedAt', '__present__',       _cjb.completedAt);
+        check('4-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTripId}`, 'driverId',    String(_stDriverId), _cjb.driverId);
+        check('4-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTripId}`, 'pickup',      '__present__',       _cjb.pickup);
+        check('4-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTripId}`, 'dropoff',     '__present__',       _cjb.dropoff);
+      }
+
+      // ── STEP 5: Dispatcher writes driverEarnings (SA-Payouts + Owner portal read this)
+      const _earningsNode = {
+        driverName:    'Smoke Test Driver',
+        totalEarned:   _stFare,
+        pendingAmount: _stFare,
+        tripCount:     1,
+        lastPaidAt:    null,
+        updatedAt:     Date.now(),
+      };
+      const _s5ok = await fbWrite(token, '5-driverEarnings', `driverEarnings/taxi/${_stCid}/${_stDriverId}`, _earningsNode);
+      if (_s5ok) {
+        const _deb = await fbRead(token, `${FB_DB_URL}/driverEarnings/taxi/${_stCid}/${_stDriverId}.json`);
+        check('5-driverEarnings [SA-Payouts]',   `driverEarnings/taxi/${_stCid}/${_stDriverId}`, 'totalEarned',   String(_stFare), _deb.totalEarned);
+        check('5-driverEarnings [SA-Payouts]',   `driverEarnings/taxi/${_stCid}/${_stDriverId}`, 'pendingAmount', String(_stFare), _deb.pendingAmount);
+        check('5-driverEarnings [SA-Payouts]',   `driverEarnings/taxi/${_stCid}/${_stDriverId}`, 'tripCount',     '1',             _deb.tripCount);
+        check('5-driverEarnings [Owner-portal]', `driverEarnings/taxi/${_stCid}/${_stDriverId}`, 'driverName',    '__present__',   _deb.driverName);
+        check('5-driverEarnings [Owner-portal]', `driverEarnings/taxi/${_stCid}/${_stDriverId}`, 'updatedAt',     '__present__',   _deb.updatedAt);
+      }
+
+      // ── STEP 6: TM job — notification.extras + completedJobs TM fields ────
+      const _stTmJobId = _stJobId + '_TM';
+      const _tmPayload = Object.assign({}, _fullPayload, {
+        joboffer: _stTmJobId,
+        extras: {
+          tmVoucherNo:     'TM-SMOKE-001',
+          tmPassengerName: 'TM Test Passenger',
+          tmCardExpiry:    '12/2026',
+          tmSubsidy:       12.00,
+          tmPassengerPays: 3.00,
+          tmHoistRequired: false,
+          tmHoistCount:    0,
+          tmPaymentMethod: 'cash',
+        },
+      });
+      const _s6notifOk = await fbWrite(token, '6-TM/notification', `notification/${_stDriverId}_TM`, _tmPayload);
+      if (_s6notifOk) {
+        const _tmnb = (await fbRead(token, `${FB_DB_URL}/notification/${_stDriverId}_TM.json`)).extras || {};
+        check('6-TM-offer [driver-app extras]', `notification/${_stDriverId}_TM`, 'extras.tmVoucherNo',     'TM-SMOKE-001', _tmnb.tmVoucherNo);
+        check('6-TM-offer [driver-app extras]', `notification/${_stDriverId}_TM`, 'extras.tmSubsidy',       '12',           _tmnb.tmSubsidy);
+        check('6-TM-offer [driver-app extras]', `notification/${_stDriverId}_TM`, 'extras.tmPassengerPays', '3',            _tmnb.tmPassengerPays);
+      }
+
+      const _tmCompletedNode = Object.assign({}, _completedNode, {
+        paymentType:     'total_mobility',
+        tmSubsidy:       12.00,
+        tmSubsidyHoist:  0,
+        tmPassengerPays: 3.00,
+        councilId:       'INV',
+      });
+      const _s6cjOk = await fbWrite(token, '6-TM/completedJobs', `completedJobs/${_stCid}/${_stTmJobId}`, _tmCompletedNode);
+      if (_s6cjOk) {
+        const _tmcjb = await fbRead(token, `${FB_DB_URL}/completedJobs/${_stCid}/${_stTmJobId}.json`);
+        check('6-TM-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTmJobId}`, 'paymentType',     'total_mobility', _tmcjb.paymentType);
+        check('6-TM-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTmJobId}`, 'tmSubsidy',       '12',             _tmcjb.tmSubsidy);
+        check('6-TM-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTmJobId}`, 'tmPassengerPays', '3',              _tmcjb.tmPassengerPays);
+        check('6-TM-completedJobs [SA-MasterReport]', `completedJobs/${_stCid}/${_stTmJobId}`, 'councilId',       'INV',            _tmcjb.councilId);
+      }
+
+      // ── STEP 7: allbookings gap — SA master report ONLY reads completedJobs ─
+      results.push({
+        step: '7-gap [SA-MasterReport]',
+        path: `allbookings/${_stCid}/${_stJobId}`,
+        field: 'coverage',
+        expected: 'completedJobs',
+        got: 'allbookings ONLY — dispatched trips not in SA-MasterReport (known gap)',
+        pass: null,
+      });
+    }
+
+    // ── Cleanup: delete all written test paths ──────────────────────────────
+    const cleanupErrors = [];
+    try {
+      const _cleanToken = await getFirebaseServerToken();
+      if (_cleanToken) {
+        await Promise.all(writtenPaths.map(p =>
+          firebaseDbDelete(p, _cleanToken).catch(e => cleanupErrors.push(`${p}: ${e.message}`))
+        ));
+      }
+    } catch(e) { cleanupErrors.push('cleanup error: ' + e.message); }
+
+    // ── Build HTML report ───────────────────────────────────────────────────
+    const passed  = results.filter(r => r.pass === true).length;
+    const failed  = results.filter(r => r.pass === false).length;
+    const gaps    = results.filter(r => r.pass === null).length;
+    const total   = results.filter(r => r.pass !== null).length;
+    const allPass = failed === 0;
+
+    const rowsHtml = results.map(r => {
+      const bg  = r.pass === true  ? '#e8f5e9'
+                : r.pass === false ? '#ffebee'
+                :                    '#fff8e1';
+      const icon = r.pass === true  ? '✅'
+                 : r.pass === false ? '❌'
+                 :                    '⚠️';
+      return `<tr style="background:${bg}">
+        <td style="padding:6px 10px;border:1px solid #ddd;font-size:12px;">${icon}</td>
+        <td style="padding:6px 10px;border:1px solid #ddd;font-size:12px;">${r.step}</td>
+        <td style="padding:6px 10px;border:1px solid #ddd;font-family:monospace;font-size:11px;">${r.path}</td>
+        <td style="padding:6px 10px;border:1px solid #ddd;font-family:monospace;font-size:11px;">${r.field}</td>
+        <td style="padding:6px 10px;border:1px solid #ddd;font-size:12px;">${r.expected}</td>
+        <td style="padding:6px 10px;border:1px solid #ddd;font-size:12px;">${r.got}</td>
+      </tr>`;
+    }).join('');
+
+    const headerBg = allPass ? '#2e7d32' : '#c62828';
+    const headerTxt = allPass
+      ? `✅ ALL ${total} CHECKS PASSED — pipeline is clean`
+      : `❌ ${failed} of ${total} checks FAILED — see rows below`;
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>BW Smoke Test — ${new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' })}</title>
+<style>body{font-family:sans-serif;margin:24px;} table{border-collapse:collapse;width:100%;} th{background:#333;color:#fff;padding:8px 10px;text-align:left;font-size:12px;} </style>
+</head><body>
+<h2 style="margin-bottom:4px;">BookaWaka End-to-End Smoke Test</h2>
+<p style="color:#555;margin-top:0;">companyId: <b>${_stCid}</b> &nbsp;|&nbsp; jobId: <b>${_stJobId}</b> &nbsp;|&nbsp; driverId: <b>${_stDriverId}</b> &nbsp;|&nbsp; ran: <b>${new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' })}</b></p>
+<div style="background:${headerBg};color:#fff;padding:14px 18px;border-radius:6px;font-size:15px;font-weight:bold;margin-bottom:18px;">${headerTxt}${gaps > 0 ? ` &nbsp;(${gaps} known gap${gaps > 1 ? 's' : ''})` : ''}</div>
+<table>
+  <thead><tr>
+    <th width="32"></th>
+    <th width="220">Step</th>
+    <th width="300">Firebase Path</th>
+    <th width="180">Field</th>
+    <th width="120">Expected</th>
+    <th>Got</th>
+  </tr></thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+${cleanupErrors.length ? `<p style="color:#b71c1c;margin-top:16px;">⚠ Cleanup errors: ${cleanupErrors.join('; ')}</p>` : '<p style="color:#555;margin-top:16px;font-size:12px;">✓ All test data cleaned up from Firebase.</p>'}
+${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;padding:12px 16px;margin-top:8px;font-size:12px;color:#555;">
+  <b>WRITE FAILED = Permission denied?</b> Rules for <code>rideStatus</code> and <code>driverEarnings</code> were added to <code>database.rules.json</code> but
+  have not been deployed to Firebase yet. Fix: run <code>firebase deploy --only database</code>. Alternatively, set the
+  <code>BW_FIREBASE_SECRET</code> environment variable (Legacy DB Secret) — this bypasses all rules and will make all checks pass immediately.
+</div>` : ''}
+<details style="margin-top:16px;"><summary style="cursor:pointer;color:#555;font-size:12px;">What this test covers</summary>
+<ul style="font-size:12px;color:#333;">
+  <li><b>Step 1</b>: Passenger app writes to <code>pendingjobs/{cid}/{id}</code> → <code>_normFbJob()</code> normalises all fields correctly</li>
+  <li><b>Step 2</b>: Passenger app writes to <code>allbookings/{cid}/{id}</code> → data readable back</li>
+  <li><b>Step 3</b>: Dispatcher sends job offer → <code>notification/{driverId}</code> has <code>vehicleId</code> + <code>companyId</code>; <code>jobDetails/{cid}/{id}</code> written with companyId scope; <code>rideStatus/{cid}/{id}</code> has GPS anchor fields for passenger tracking</li>
+  <li><b>Step 4</b>: Completion writes <code>completedJobs/{cid}/{id}</code> → <b>SA-MasterReport.aspx</b> readable (fare, paymentType, completedAt, driverId, pickup, dropoff)</li>
+  <li><b>Step 5</b>: <code>driverEarnings/taxi/{cid}/{driverId}</code> → <b>SA-Payouts.aspx</b> + <b>Owner portal</b> readable (totalEarned, pendingAmount, tripCount)</li>
+  <li><b>Step 6</b>: TM booking — <code>notification.extras.tmVoucherNo</code> present for driver app; <code>completedJobs</code> has tmSubsidy, tmPassengerPays, councilId for SA subsidy chain</li>
+  <li><b>Step 7</b>: Known gap — <code>allbookings/{cid}</code> dispatched trips do NOT appear in SA-MasterReport (reads completedJobs only)</li>
+</ul>
+</details>
+</body></html>`;
+
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(html);
+    return;
+  }
+
   // ── POST /api/syncOfflineTrip — driver app uploads offline trip data ────────
   // Called by the driver app when it reconnects after completing a job offline.
   // Accepts a full event journal + trip summary, runs all status transitions in

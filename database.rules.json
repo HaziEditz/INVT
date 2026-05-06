@@ -231,8 +231,99 @@
       }
     },
     "jobDetails": {
-      "$bookingId": {
-        ".validate": "$bookingId!='null'",
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$bookingId": {
+          ".validate": "$bookingId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "rideStatus": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$bookingId": {
+          ".validate": "$bookingId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "driverEarnings": {
+      "taxi": {
+        "$companyId": {
+          ".validate": "$companyId!='null'",
+          "$driverId": {
+            ".validate": "$driverId!='null'",
+            ".read": "auth != null",
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+    "superClients": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "companySettings": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "tmTripStatus": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$bookingId": {
+          ".validate": "$bookingId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "chatMessages": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$conversationId": {
+          ".validate": "$conversationId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "towRequests": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "driverRatings": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "freightOrders": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$bookingId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
+    "foodOrders": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
         ".read": "auth != null",
         ".write": "auth != null"
       }
