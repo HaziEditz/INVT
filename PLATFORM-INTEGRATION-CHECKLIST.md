@@ -18,7 +18,7 @@ Instructions for each team:
 | `online/{cid}/{vid}` | Driver app | Dispatcher | Top-level node: driver metadata (vehiclenumber, driverid, vehiclestatus, etc.) |
 | `online/{cid}/{vid}/current` | Driver app | Dispatcher, Passenger app | `{ lat, lng, hasGps: true, time }` — GPS only, not metadata |
 | `pendingjobs/{cid}/{bookingId}` | Passenger app, Server | Dispatcher | Unassigned passenger-app bookings. Server ingests via `[IngestPassengerJob]`. |
-| `allbookings/{cid}/{bookingId}` | Passenger app | Server (recall fallback), SA portal | Long-term booking store. SA master report does NOT read this yet — understated revenue. |
+| `allbookings/{cid}/{bookingId}` | Passenger app, Driver app | Server (recall fallback), SA portal | Long-term booking store. Driver app must patch on cancellation: `{ status: 'Cancelled', Status: 'Cancelled', CancelledAt: ISO, CancelledBy: 'driver' }`. Driver app must also patch `driverRating` here after a rating is submitted. |
 | `completedJobs/{cid}/{tripId}` | Dispatcher (on completion) | SA portal | Fields: fare, paymentType, completedAt, driverId, pickup, dropoff, + TM fields if applicable |
 | `jobs/{cid}/{vid}/{driverId}` | Dispatcher | Driver app | Job acceptance handshake node. Checked before sending new offer. |
 | `notification/{driverId}` | Dispatcher | Driver app | Job offer payload. Fields: bookingid (CSV), jobpickup, jobdropoff, JobphoneNo, jobname, jobbags, jobpassengers, jobvehicletype, jobFare, jobServiceType, vehicleId, companyId, extras{} |
@@ -32,9 +32,10 @@ Instructions for each team:
 | `companySettings/{cid}` | Owner portal | Dispatcher, Driver app | Feature flags, company name, logo URL, opening hours. |
 | `driverEarnings/taxi/{cid}/{driverId}` | Dispatcher | Owner portal | Cumulative: totalEarned, pendingAmount, tripCount, lastPaidAt. |
 | `tmTripStatus/{cid}/{bookingId}` | SA portal | Dispatcher (popup) | TM approval status. Values: pending / company_approved / submitted / approved / paid |
-| `driverRatings/{cid}/{bookingId}` | Driver app / Passenger app | SA portal | Not read by dispatcher — no change needed. |
+| `driverRatings/{cid}/{bookingId}` | Driver app / Passenger app | SA portal | Write full rating node here AND patch `allbookings/{cid}/{bookingId}/driverRating` with the score. Not read by dispatcher. |
 | `freightOrders/{cid}/{bookingId}` | Driver app | SA portal | Freight pickup/delivery confirmation. Not read by dispatcher. |
 | `foodOrders/{cid}` | Passenger app | SA portal | Food order real-time status. Parked — not yet in scope. |
+| `drivers/{driverId}/assignedVehicles` | Owner portal | Driver app | ⚠️ **Field name mismatch (BUG 10):** Owner portal writes `allocatedVehicles: { "Taxi02": true }` (object). Driver app reads `assignedVehicles: ["Taxi02"]` (array) + `vehicleId: "TAXI02"` (string). Must be normalised — coordinate Owner portal ↔ Driver app before go-live. |
 
 ---
 
@@ -238,7 +239,9 @@ All teams. Updated May 2026.
 | Item | Owner | Status |
 |---|---|---|
 | `firebase deploy --only database` (taxilatest) | SA portal or dispatcher — whoever has Firebase CLI authenticated against `taxilatest` | ⏳ **The only remaining blocker.** `database.rules.json` is ready in the repo. Run from project root — takes ~10 seconds. After deploy: dispatcher re-runs smoke test → 27/27 green; all client apps (driver, passenger, website) stop getting silent denies on the 30 previously missing paths. |
-| Cross-team E2E test session | All 6 teams | Schedule when teams are available — Sections 2–8 have the exact steps |
+| Driver app — 10 bugs from E2E test (see Section 20) | Driver app dev | ❌ 2 critical, 5 high, 3 medium — fix before go-live |
+| Vehicle field name mismatch: `allocatedVehicles` vs `assignedVehicles` (BUG 10) | Owner portal + driver app — cross-team | ❌ **Cross-team blocker.** Owner portal writes `allocatedVehicles: {"Taxi02": true}`. Driver app reads `assignedVehicles: ["Taxi02"]` + `vehicleId`. Agree on one format and both sides update together. |
+| Cross-team E2E test session | All 6 teams | Schedule after driver app bugs are fixed — Sections 2–8 have the exact steps |
 | Net payout deduction (`companies/{cid}/cardSettings`) | SA portal + owner portal | Parked — joint feature, ship together |
 | Freight POD photo / signature | All teams | Future feature — field names to be agreed before any team builds |
 | `contactInquiries` SA reader | SA portal | Future sprint, low priority |
