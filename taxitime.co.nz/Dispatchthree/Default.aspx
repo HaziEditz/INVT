@@ -7470,6 +7470,10 @@ $(document).ready(function() {
         if (!driverData || typeof driverData !== 'object') return;
         // Attach the Firebase key so adddriverremove can match by it if VehicleId is absent
         if (!driverData._fbKey) driverData._fbKey = data.key;
+        // GPS: driver app writes lat/lng under /current sub-node.
+        // Fall back to top-level lat/lng for older driver app versions.
+        var _gpsLat = driverData.lat || (driverData.current && driverData.current.lat) || 0;
+        var _gpsLng = driverData.lng || (driverData.current && driverData.current.lng) || 0;
         var childsnapshot = { val: function() { return driverData; } };
         {
             var _scChanged = angular.element(document.getElementById('myangular')).scope();
@@ -7479,7 +7483,7 @@ $(document).ready(function() {
                 datax = childsnapshot.val();
             }
               
-            var totaldis = (datax && datax.lat && datax.lng) ? distance(childsnapshot.val().lat, childsnapshot.val().lng, datax.lat, datax.lng, "K") : 0;
+            var totaldis = (datax && datax.lat && datax.lng) ? distance(_gpsLat, _gpsLng, datax.lat, datax.lng, "K") : 0;
           
            
            
@@ -7514,7 +7518,7 @@ $(document).ready(function() {
                 ImageUrl = 'img/red.png';  
             }
             if (typeof google === 'undefined' || !google.maps) return;
-            var latlng = new google.maps.LatLng(parseFloat(childsnapshot.val().lat), parseFloat(childsnapshot.val().lng));
+            var latlng = new google.maps.LatLng(parseFloat(_gpsLat), parseFloat(_gpsLng));
          
             if(markers[childsnapshot.val().vehiclenumber]){
                   car8500 = '<svg width="479px"    height="1077px" viewBox="0 0 479 1077" version="1.1" id="car8500'+childsnapshot.val().vehiclenumber+'" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">\n' +
