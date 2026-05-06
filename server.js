@@ -717,10 +717,14 @@ pollRentalTaxiRequests(); // run immediately on startup
 // Firebase uses PickupAddress/PickupLat/PickupLng and DropoffAddress/DropoffLat/DropoffLng
 // (both CamelCase and camelCase variants).
 function _normFbJob(job) {
-  const pickLat = job.PickupLat  || job.pickupLat  || job.PickLat  || job.pickLat  || 0;
-  const pickLng = job.PickupLng  || job.pickupLng  || job.PickLng  || job.pickLng  || 0;
-  const dropLat = job.DropoffLat || job.dropoffLat || job.DropLat  || job.dropLat  || 0;
-  const dropLng = job.DropoffLng || job.dropoffLng || job.DropLng  || job.dropLng  || 0;
+  // Nested location objects written by web booking portal and passenger app:
+  //   pickupLocation: { lat, lng, address }  /  dropoffLocation: { lat, lng, address }
+  const _pLoc = job.pickupLocation  || job.PickupLocation  || {};
+  const _dLoc = job.dropoffLocation || job.DropoffLocation || {};
+  const pickLat = job.PickupLat  || job.pickupLat  || job.PickLat  || job.pickLat  || _pLoc.lat  || 0;
+  const pickLng = job.PickupLng  || job.pickupLng  || job.PickLng  || job.pickLng  || _pLoc.lng  || 0;
+  const dropLat = job.DropoffLat || job.dropoffLat || job.DropLat  || job.dropLat  || _dLoc.lat  || 0;
+  const dropLng = job.DropoffLng || job.dropoffLng || job.DropLng  || job.dropLng  || _dLoc.lng  || 0;
   // Normalise serviceType: passenger app may send 'taxi','food','freight','tm'
   const _rawSvc = (job.serviceType || job.ServiceType || job.bookingType || job.BookingType || '').toLowerCase().trim();
   const _svcMap = { taxi:'taxi', food:'food', freight:'freight', tm:'tm', delivery:'freight', restaurant:'food' };

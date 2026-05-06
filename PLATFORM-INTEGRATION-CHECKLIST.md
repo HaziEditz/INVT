@@ -635,3 +635,84 @@ The fix in **Section 25** (Bug B — `AutoDispatchVehiclesallride` stripping `se
 
 **No further dispatch or UI changes are required for this requirement.**
 
+
+---
+
+## 28. E2E Auto-Dispatch Test — Job 62061126050610 (2026-05-06)
+
+### Firebase audit results
+
+**Job `pendingjobs/620611/62061126050610` — confirmed present:**
+```json
+{
+  "BookingId": "62061126050610",
+  "CompanyId": "620611",
+  "Status": "Pending",
+  "ServiceType": "taxi",
+  "PaymentMethod": "cash",
+  "WebBooking": true,
+  "PickAddress": "165, Inglewood Road, Newfield, Invercargill City...",
+  "DropAddress": "Invercargill Airport...",
+  "PassengerName": "Abdullah Gul",
+  "pickupLocation": { "lat": -46.4285, "lng": 168.3552 },
+  "dropoffLocation": { "lat": -46.4124, "lng": 168.313 }
+}
+```
+
+**`online/620611/TAXI02/current.vehiclestatus` — "Away" (NOT "Available"):**
+The dispatch team's claim that the status was fixed to "Available" was not reflected in Firebase at query time. However, browser console logs show a subsequent `[changedata Busy→Available]` event fired for D002/TAXI02 (see below).
+
+---
+
+### Bug found and fixed — `_normFbJob` dropped nested lat/lng (`server.js`)
+
+The web booking portal writes lat/lng as nested objects:
+```json
+"pickupLocation": { "lat": -46.4285, "lng": 168.3552 }
+```
+`_normFbJob` only read flat fields (`PickupLat`, `pickupLat`, etc.) — the nested values were silently ignored and the job was stored with `pickLatLng: '0,0'`.
+
+**Fix:** Extended the lat/lng resolution chain to also read from `job.pickupLocation.lat/lng` and `job.dropoffLocation.lat/lng` before falling back to `'0,0'`.
+
+---
+
+### E2E auto-dispatch status — observed from browser console logs
+
+Auto-dispatch IS running and working correctly at the dispatch end:
+
+```
+[changedata Busy→Available] stale pre-queue offer for job #6112605063 
+   (driver D002 never accepted) — clearing map, re-offering with popup
+[acknowledgemethodx] driverid: D002  job: 6112605063
+[writeJobDetailsToFirebase] notification written for driver D002 job 6112605063
+status: Unreached           ← driver app did not respond within timeout
+[smartAutoDispatch] Job #6112605063 — all available drivers tried, resetting loop
+[smartAutoDispatch] Job #6112605063 → driver D002 (fbUID:current, car:TAXI02) queue#1
+[writeJobDetailsToFirebase] notification written for driver D002 job 6112605063
+status: Unreached
+```
+
+**Dispatch side is working:** TAXI02/D002 is found as Available, offers are written to `notification/D002` (or `notification/{sqlDriverId}`) in Firebase, and the job cycles correctly on Unreached.
+
+**Blocker is driver-app side:** The driver app is not reading or responding to the offer notification. Each offer times out → `Unreached` → auto-dispatch resets and re-offers.
+
+---
+
+### What the driver app team must check
+
+| Check | Path | Expected |
+|---|---|---|
+| Notification listener path | `notification/{sqlDriverId}` where `sqlDriverId = D002` | App must listen here, not on Firebase UID |
+| Offer acknowledged | App must write `joboffer: 1` or `accept` to Firebase within the offer window | Currently silent → timeout → Unreached |
+| Driver status after Unreached | `online/620611/TAXI02/current.vehiclestatus` | Should remain "Available" so re-offer fires |
+
+See **BUG 1** (Section 23) — driver app listener path — and **BUG 4** — message path. Both remain outstanding on the driver app side.
+
+---
+
+### `child_added` re-ingest gap (server-side)
+
+Firebase `child_added` listeners only deliver events for nodes written **after** the listener was attached. Jobs written to `pendingjobs` while the dispatch server is down (or before login) are missed on restart. The job was manually re-ingested via the `[IngestPassengerJob]` admin endpoint using the `X-BW-Test-Company: 620611` dev header. This is the correct recovery procedure until a startup-scan of `pendingjobs` is added.
+
+**Recommended future hardening:** On server startup (or dispatcher login), do a one-time `once('value')` read of `pendingjobs/{cid}` and ingest any `Status: Pending` entries not already in the job store.
+
