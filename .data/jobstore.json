@@ -3,7 +3,7 @@
     "_fbKey": "620611:6112605073",
     "Id": 6112605073,
     "companyId": "620611",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "BookingSource": "passenger",
     "Name": "Abdullah",
     "PhoneNo": "",
@@ -20,15 +20,16 @@
     "serviceType": "taxi",
     "bookingType": "",
     "paymentStatus": "",
-    "DriverId": "D002",
-    "VehicleId": "D002",
+    "DriverId": 0,
+    "VehicleId": 0,
     "DispatchTimebefore": "0",
     "OfferedAt": "2026-05-07T06:57:30.934Z",
-    "offeredAt": 1778137050934,
+    "offeredAt": 1778138164686,
     "VehicleNo": "TAXI02",
     "CallSign": "TAXI02",
     "UserFName": "TestDriver",
     "UserLName": "Two",
-    "AcceptedAt": "2026-05-07T06:57:41.482Z"
+    "AcceptedAt": "2026-05-07T06:57:41.482Z",
+    "returnReason": "No Response – Not Accepted"
   }
 ]

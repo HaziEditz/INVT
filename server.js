@@ -1192,7 +1192,13 @@ function buildAssignedResponse(jobs) {
     (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Queued') &&
     j.DriverId && String(j.DriverId) !== '0' && String(j.DriverId) !== '-1'
   );
-  const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j) }));
+  // §99 — WaitMins: minutes since job was created (for wait-timer display on assigned tab)
+  const dt1 = assigned.map(j => ({
+    ...j,
+    BookingId: j.Id,
+    JobMins:  calcJobMins(j),
+    WaitMins: j.createdAt ? Math.floor((Date.now() - j.createdAt) / 60000) : null,
+  }));
   const activeCount = jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length;
   return {
     dt1,
@@ -3132,6 +3138,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
+          // §99 — createdAt (Unix ms) so wait-timer formula works: Math.floor((Date.now()-createdAt)/60000)
+          createdAt: Date.now(),
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
           // displayed countdown is correct regardless of server/client timezone.
           ...(_scheduledMs1 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs1 } : {}),
@@ -3176,18 +3184,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             DispatchTimebefore: String(newJob.DispatchTimebefore || '0'),
             VehicleType:      newJob.VehicleType || 'Not Specified',
             BookingSource:    newJob.BookingSource || 'Dispatch Console',
-            // §98 — ZoneId 0 = catch-all: auto-assign engine must include zone-0 drivers.
             ZoneId:           0,
-            CreatedAt:        new Date().toISOString(),
+            // §99 — createdAt as Unix ms so wait-timer formula works correctly
+            createdAt:        newJob.createdAt,
+            CreatedAt:        new Date(newJob.createdAt).toISOString(),
             WebBooking:       false,
           };
           getFirebaseServerToken().then(tok => {
             if (!tok) return;
-            return firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok);
+            // Write to pendingjobs AND allbookings (§99)
+            return Promise.all([
+              firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
+              firebaseDbSet(`allbookings/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
+            ]);
           }).then(() => {
-            console.log(`  [InsertBookingv4] Firebase pendingjobs/${sessionCompanyId}/${newId} written`);
+            console.log(`  [InsertBookingv4] Firebase pendingjobs+allbookings/${sessionCompanyId}/${newId} written`);
           }).catch(e => {
-            console.warn(`  [InsertBookingv4] Firebase pendingjobs write failed (non-fatal): ${e.message}`);
+            console.warn(`  [InsertBookingv4] Firebase pendingjobs/allbookings write failed (non-fatal): ${e.message}`);
           });
         }
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs1 ? new Date(_scheduledMs1).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
@@ -3317,6 +3330,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
+          // §99 — createdAt (Unix ms) so wait-timer formula works: Math.floor((Date.now()-createdAt)/60000)
+          createdAt: Date.now(),
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
           // displayed countdown is correct regardless of server/client timezone.
           ...(_scheduledMs2 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs2 } : {}),
@@ -3361,18 +3376,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             DispatchTimebefore: String(newJob.DispatchTimebefore || '0'),
             VehicleType:      newJob.VehicleType || 'Not Specified',
             BookingSource:    newJob.BookingSource || 'Dispatch Console',
-            // §98 — ZoneId 0 = catch-all: auto-assign engine must include zone-0 drivers.
             ZoneId:           0,
-            CreatedAt:        new Date().toISOString(),
+            // §99 — createdAt as Unix ms so wait-timer formula works correctly
+            createdAt:        newJob.createdAt,
+            CreatedAt:        new Date(newJob.createdAt).toISOString(),
             WebBooking:       false,
           };
           getFirebaseServerToken().then(tok => {
             if (!tok) return;
-            return firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob2, tok);
+            // Write to pendingjobs AND allbookings (§99)
+            return Promise.all([
+              firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob2, tok),
+              firebaseDbSet(`allbookings/${sessionCompanyId}/${newId}`, _fbPendingJob2, tok),
+            ]);
           }).then(() => {
-            console.log(`  [${action}] Firebase pendingjobs/${sessionCompanyId}/${newId} written`);
+            console.log(`  [${action}] Firebase pendingjobs+allbookings/${sessionCompanyId}/${newId} written`);
           }).catch(e => {
-            console.warn(`  [${action}] Firebase pendingjobs write failed (non-fatal): ${e.message}`);
+            console.warn(`  [${action}] Firebase pendingjobs/allbookings write failed (non-fatal): ${e.message}`);
           });
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs2 ? new Date(_scheduledMs2).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);

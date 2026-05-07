@@ -1100,3 +1100,89 @@ After acceptance, `online/620611/TAXI02` should read:
 
 Dispatcher reads `vehiclestatus` from the **top-level** flat field (not `current/vehiclestatus`). Driver app restart reads `current/currentJobId` to reconstruct the active job card. GPS reads from `current/lat` + `current/lng`.
 
+
+---
+
+### §34. `createdAt` field — console job creation (§99 fix)
+
+**Bug:** Console jobs created via `InsertBookingv4` never set `createdAt`, so the driver app's wait-timer formula `Math.floor((Date.now() - job.createdAt) / 60000)` produced `NaN` or a huge stale value (e.g. "731m").
+
+**Fix (server.js):**
+- Both `InsertBookingv4` handlers now write `createdAt: Date.now()` into the in-memory `newJob` object at creation time.
+- Both Firebase write shapes (`_fbPendingJob1`, `_fbPendingJob2`) now include:
+  ```json
+  { "createdAt": 1746584400000, "CreatedAt": "2026-05-07T06:00:00.000Z" }
+  ```
+  `createdAt` (Unix ms) is the primary field for timer math; `CreatedAt` (ISO string) is kept for human readability and backward compatibility.
+- `buildAssignedResponse` now computes and returns `WaitMins` on every poll:
+  ```js
+  WaitMins: j.createdAt ? Math.floor((Date.now() - j.createdAt) / 60000) : null
+  ```
+  Assigned tab card (layout 2) displays this as a yellow hourglass badge: `Wait Xm`.
+
+**Driver app contract:**
+```js
+// Correct wait-timer formula — depends on createdAt being a Unix-ms number:
+const waitMins = Math.floor((Date.now() - job.createdAt) / 60000);
+```
+
+---
+
+### §35. `allbookings` write at job creation (§99 fix)
+
+**Bug:** Console jobs were written to `pendingjobs/{cid}/{jobId}` (§97 fix) but never to `allbookings/{cid}/{jobId}`. Some portals and the driver app read `allbookings` as their primary path for job details on restart.
+
+**Fix (server.js):**  
+Both `InsertBookingv4` handlers now fire-and-forget write the same `_fbPendingJob*` shape to **both** paths simultaneously:
+```js
+Promise.all([
+  firebaseDbSet(`pendingjobs/${cid}/${jobId}`, shape, tok),
+  firebaseDbSet(`allbookings/${cid}/${jobId}`, shape, tok),
+])
+```
+
+---
+
+### §36. Auto-dispatch immediate trigger on `pendingjobs child_added` (§99b fix)
+
+**Bug:** `smartAutoDispatch` (`_sadTrigger`) ran on a ~10-second poll interval. When a new passenger-app booking arrived via Firebase `pendingjobs/child_added`, the dispatcher could wait up to 10 seconds before a driver was offered the job.
+
+**Fix (Default.aspx):**  
+The `_pjRef.on('child_added', …)` callback now fires `_sadTrigger` with a 600 ms debounce after `_pjIngest` completes:
+```js
+_pjRef.on('child_added', function(snap) {
+    _pjIngest(snap, false);
+    // §99b — trigger auto-dispatch immediately instead of waiting for next timer tick
+    setTimeout(function() {
+        if (typeof _sadTrigger === 'function') _sadTrigger();
+    }, 600);
+}, …);
+```
+The 600 ms delay lets `_pjIngest` finish its AJAX ingest (`[IngestPassengerJob]`) and `sc2.getjobs()` refresh before auto-dispatch scans the job list. `_sadTrigger` is guarded by `typeof === 'function'` so it's a no-op if `initSmartAutoDispatch` hasn't run yet (e.g. during the initial page load scan).
+
+---
+
+### §37. Timestamp display — NZ local time formatting (timestamp display fix)
+
+**Bug:** Assigned tab cards and the job detail modal showed raw ISO strings like `2026-05-07T06:45:53.319Z` for `BookingDateTime`, which is UTC and hard to read for NZ dispatchers.
+
+**Fix (Default.aspx):**  
+Added `$scope.bwFmtDt(raw)` to the Angular scope (near `$scope.latealert`). Formats any ISO string or Unix-ms number to NZ local readable time:
+```js
+$scope.bwFmtDt = function(raw) {
+    var d = (typeof raw === 'number') ? new Date(raw) : new Date(String(raw).trim());
+    return d.toLocaleString('en-NZ', {
+        timeZone: 'Pacific/Auckland',
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
+};
+```
+Templates updated:
+| Location | Before | After |
+|---|---|---|
+| Assigned card (layout 1, line ~991) | `{{avalue.BookingDateTime}}` | `{{bwFmtDt(avalue.BookingDateTime)}}` |
+| Assigned card (layout 2, line ~4155) | `{{avalue.BookingDateTime}}` | `{{bwFmtDt(avalue.BookingDateTime)}}` |
+| Job detail modal (line ~1573) | `{{showi.BookingDateTime}}` | `{{bwFmtDt(showi.BookingDateTime)}}` |
+
+Example output: `07 May 2026, 06:45 pm`

@@ -985,7 +985,7 @@
                                                                 {{avalue.Id}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="glyphicon glyphicon-time"></i>
-                                                                {{avalue.BookingDateTime}}  </span>
+                                                                {{bwFmtDt(avalue.BookingDateTime)}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-users "></i>
                                                                 {{avalue.passengername}}</span>
@@ -1567,7 +1567,7 @@
                                      </div>
                                  <div class="col-12">
                                    <label  class="label label-pill label-primary mt-2 ng-binding">Booking Time:</label>
-                                     <h6> {{showi.BookingDateTime}}</h6>
+                                     <h6> {{bwFmtDt(showi.BookingDateTime)}}</h6>
                                      </div>
                                  <div class="col-4">
                                     <label  class="label label-pill label-primary mt-2 ng-binding">Booking Source:</label>
@@ -4149,7 +4149,10 @@ $(document).ready(function() {
                                                                 #{{avalue.Id}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-clock-o"></i>
-                                                                {{avalue.BookingDateTime}}</span>
+                                                                {{bwFmtDt(avalue.BookingDateTime)}}</span>
+                                                            <span class="label label-pill label-warning mt-2" ng-if="avalue.WaitMins !== null && avalue.WaitMins !== undefined">
+                                                                <i class="fa fa-hourglass-half"></i>
+                                                                Wait {{avalue.WaitMins}}m</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-user"></i>
                                                                 {{avalue.passengername || avalue.Name}}</span>
@@ -5903,8 +5906,14 @@ $(document).ready(function() {
             }
         }
 
-        _pjRef.on('child_added',   function(snap) { _pjIngest(snap, false); },
-                                   function(e) { console.warn('[pendingjobs] listener error:', e.code); });
+        _pjRef.on('child_added',   function(snap) {
+                                       _pjIngest(snap, false);
+                                       // §99b — trigger auto-dispatch immediately on new job,
+                                       // instead of waiting up to 10 s for the next timer tick.
+                                       setTimeout(function() {
+                                           if (typeof _sadTrigger === 'function') _sadTrigger();
+                                       }, 600);
+                                   }, function(e) { console.warn('[pendingjobs] listener error:', e.code); });
         _pjRef.on('child_changed', function(snap) { _pjIngest(snap, true); }, function(e) {});
         _pjRef.once('value', function(allSnap) {
             _pjInit = true;
@@ -18831,6 +18840,21 @@ $(document).ready(function() {
         
             $scope.latejobx = 0;
 
+
+            // §99 — Format any raw date string or Unix-ms timestamp as NZ local time.
+            // Usage in templates: {{bwFmtDt(avalue.BookingDateTime)}}
+            // e.g. "2026-05-07T06:45:53.319Z" → "07/05/2026, 18:45:53"
+            $scope.bwFmtDt = function(raw) {
+                if (!raw) return '';
+                var s = String(raw).trim().replace(/\.$/, '');
+                var d = (typeof raw === 'number') ? new Date(raw) : new Date(s);
+                if (isNaN(d.getTime())) return s;
+                return d.toLocaleString('en-NZ', {
+                    timeZone: 'Pacific/Auckland',
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: true
+                });
+            };
 
             $scope.latealert = function (DispatchTimebefore, BookingDateTime) {
                 BookingDateTime = _bwToDateStr(BookingDateTime);
