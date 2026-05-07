@@ -848,6 +848,7 @@ function _normFbJob(job) {
     bookingType: job.bookingType || job.BookingType || '',
     // Total Mobility fields — passenger app writes tmVoucherNumbers (array);
     // normalise to tmVoucherNo (string) so dispatcher display + driver offer both work.
+    paymentStatus:     (job.paymentStatus || job.PaymentStatus || '').toLowerCase(),
     paymentType:       job.paymentType       || job.PaymentType       || '',
     tmVoucherNo:       Array.isArray(job.tmVoucherNumbers) ? (job.tmVoucherNumbers[0] || '')
                          : (job.tmVoucherNumbers || job.tmVoucherNo || job.TmVoucherNo || ''),
@@ -6089,6 +6090,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               ScheduledFor:  _sMs,
               Notes: _sn.notes, Passengers: _sn.passengers,
               serviceType: _sn.serviceType, bookingType: _sn.bookingType,
+              paymentStatus: _sn.paymentStatus || '',
               DriverId: 0, VehicleId: 0, DispatchTimebefore: _dtb,
             });
             saveJobStore();
@@ -6096,7 +6098,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           objectD(res, { ok: true, action: 'pending' });
 
-        } else if (_ipjStatus === 'Waiting') {
+        } else if (_ipjStatus === 'Waiting' || _ipjStatus === 'Pending') {
+          // 'Pending' written by some external dispatch apps — treated same as 'Waiting' (book-now).
           const already = jobStore.find(j => j._fbKey === _ipjFbKey);
           const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey);
           if (!already && !alreadyClosed) {
@@ -6117,6 +6120,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               BookingDateTime: _wn.createdAt || new Date().toISOString(),
               Notes: _wn.notes, Passengers: _wn.passengers,
               serviceType: _wn.serviceType, bookingType: _wn.bookingType,
+              paymentStatus: _wn.paymentStatus || '',
               DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
             });
             saveJobStore();

@@ -5888,7 +5888,10 @@ $(document).ready(function() {
                 });
                 console.log('[pendingjobs] Scheduled booking ingested as Pending:', k, b);
 
-            } else if (status === 'Waiting') {
+            } else if (status === 'Waiting' || status === 'Pending') {
+                // 'Waiting'  = book-now request from passenger app.
+                // 'Pending'  = some dispatch apps write this instead of 'Waiting' for
+                //              a ready-to-dispatch job. Treat identically — ingest immediately.
                 _pjAlert('📱 New booking from ' + (b.passengerName || b.name || 'Passenger') + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
                     contentType:'application/json; charset=utf-8', dataType:'json',
@@ -5896,7 +5899,7 @@ $(document).ready(function() {
                 }).done(function() {
                     if (sc2 && typeof sc2.getjobs === 'function') sc2.getjobs();
                 });
-                console.log('[pendingjobs] Waiting (book-now) booking received:', k, b);
+                console.log('[pendingjobs] ' + status + ' (book-now) booking received:', k, b);
             }
         }
 

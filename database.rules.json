@@ -368,6 +368,13 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
+    "driverRegistrations": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
     "rentalTaxiRequests": {
       ".read": "auth != null",
       ".write": "auth != null",
