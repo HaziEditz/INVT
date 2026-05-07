@@ -4191,15 +4191,13 @@ $(document).ready(function() {
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
-                                                                            {{avalue.PickAddress}} 
-                                                                                                                                
+                                                                            {{avalue.PickAddress || 'Hail / Street Pickup'}}
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
-                                                                            {{avalue.DropAddress}}
-                                                                                                                                
+                                                                            {{avalue.DropAddress || '—'}}
                                                                         </span>
                                                                     </div>
 
@@ -4363,15 +4361,13 @@ $(document).ready(function() {
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
-                                                                            {{acvalue.PickAddress}}
-                                                                                                                                
+                                                                            {{acvalue.PickAddress || 'Hail / Street Pickup'}}
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
-                                                                            {{acvalue.DropAddress}}
-                                                                                                                                
+                                                                            {{acvalue.DropAddress || '—'}}
                                                                         </span>
                                                                     </div>
 

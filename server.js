@@ -4803,7 +4803,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
       } else if (action === '[ActiveJobsv3]') {
         const active = companyJobs(jobStore).filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
-        const activeWithId = active.map(j => ({ ...j, BookingId: j.Id }));
+        const activeWithId = active.map(j => {
+          const isHail = j.BookingSource === 'Hail' || j.booking_type === 'Hail';
+          let pickAddr = j.PickAddress || '';
+          if (isHail) {
+            if (pickAddr.startsWith('Hail - ')) {
+              pickAddr = 'Hail Pickup (' + pickAddr.slice('Hail - '.length).trim() + ')';
+            } else if (!pickAddr || pickAddr === 'Hail / Street Pickup') {
+              pickAddr = 'Hail / Street Pickup';
+            }
+          }
+          return { ...j, BookingId: j.Id, PickAddress: pickAddr || j.PickAddress || '' };
+        });
         console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active companyId=${sessionCompanyId}`);
         arrayD(res, activeWithId);
 
