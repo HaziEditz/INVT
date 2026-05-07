@@ -13782,6 +13782,8 @@ $(document).ready(function() {
                                 if ($res[0].Result == "Booking Information Successfully Submitted") {
                                     toastr["success"]("Job #" + $res[0].BookingId + " created.", "Booking Created!");
                                     setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 2000);
+                                } else if ($res[0].Error || ($res[0].Result && $res[0].Result.indexOf('Error:') === 0)) {
+                                    Swal.fire('Booking Failed', $res[0].Result.replace(/^Error:\s*/,''), 'error');
                                 }
                             }
 
@@ -13819,7 +13821,9 @@ $(document).ready(function() {
                                 $res = result.data;
                                 $res = JSON.parse($res.d);
                           
-                                if ($res[0].Result == "Booking Information Successfully Submitted") {
+                                if ($res[0].Error || ($res[0].Result && $res[0].Result.indexOf('Error:') === 0)) {
+                                    Swal.fire('Booking Failed', $res[0].Result.replace(/^Error:\s*/,''), 'error');
+                                } else if ($res[0].Result == "Booking Information Successfully Submitted") {
                                     console.log($("#ddlVehicleType").val())
                                     
                                     toastr["success"]("Job #" + $res[0].BookingId + " created successfully.", "Booking Created!");

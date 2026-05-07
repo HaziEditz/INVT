@@ -439,10 +439,45 @@ function _toDateStr(v) {
   return String(v).replace(/\.$/, '').trim();
 }
 
-function calcJobMins(bookingDateTimeStr) {
-  const bdt = new Date(_toDateStr(bookingDateTimeStr));
-  const now = new Date();
-  return Math.round((bdt - now) / 60000);
+// Parse a "YYYY-MM-DD HH:mm:ss" string that is in the company's LOCAL timezone and
+// return the equivalent UTC millisecond timestamp.  Required because the dispatcher
+// browser runs in NZ, constructs a local-time string, and sends it as-is — the server
+// (running UTC) must not parse it naively as UTC or every time will be 12 hours wrong.
+function _parseLocalDT(dtStr, companyId) {
+  if (!dtStr) return null;
+  const tz = getCompanyTZ(companyId);
+  const clean = String(dtStr).replace(/\.$/, '').trim();
+  // Already has timezone info — parse directly.
+  if (/Z$|[+-]\d{2}:\d{2}$/.test(clean)) return new Date(clean).getTime();
+  // Naive parse treats string as UTC.
+  const naiveMs = new Date(clean.replace(' ', 'T') + 'Z').getTime();
+  if (isNaN(naiveMs)) return null;
+  // Find the UTC offset at this naive moment in the company's timezone.
+  // toLocaleString with 'sv' gives "YYYY-MM-DD HH:MM:SS" (ISO-like, no ambiguity).
+  const localStr = new Date(naiveMs).toLocaleString('sv', { timeZone: tz });
+  const localMs  = new Date(localStr.replace(' ', 'T') + 'Z').getTime();
+  // offsetMs > 0 for UTC+ zones (e.g. NZ = +12h = +43200000)
+  const offsetMs = localMs - naiveMs;
+  // Real UTC = the local time value minus the zone offset
+  return naiveMs - offsetMs;
+}
+
+// Calculate minutes from now until the job's pickup time.
+// Accepts either a job object (preferred — uses ScheduledFor when available for
+// accurate UTC arithmetic) or a raw BookingDateTime string (legacy).
+function calcJobMins(jobOrStr) {
+  let ms;
+  if (jobOrStr && typeof jobOrStr === 'object') {
+    const sf = jobOrStr.ScheduledFor;
+    if (sf) {
+      ms = typeof sf === 'number' ? sf : new Date(_toDateStr(sf)).getTime();
+    } else {
+      ms = new Date(_toDateStr(jobOrStr.BookingDateTime || '')).getTime();
+    }
+  } else {
+    ms = new Date(_toDateStr(String(jobOrStr || ''))).getTime();
+  }
+  return Math.round((ms - Date.now()) / 60000);
 }
 
 // Sort jobs newest-first: prefer JobCompleteTime (for closed jobs), then BookingDateTime.
@@ -1116,7 +1151,7 @@ function buildJobListResponse(jobs) {
   const PENDING_ST = new Set(['Pending', 'Offered', 'Reject', 'Unreached', 'No One']);
   const isOrphaned = j => j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0');
   const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus) || isOrphaned(j));
-  const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
+  const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j) }));
   return {
     dt1,
     dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned' && !isOrphaned(j)).length }],
@@ -1137,7 +1172,7 @@ function buildDeliveryResponse(jobs) {
     j.serviceType === 'food' ||
     j.serviceType === 'freight'
   );
-  const dt1 = deliveryJobs.map(j => ({ ...j, JobMins: calcJobMins(j.BookingDateTime) }));
+  const dt1 = deliveryJobs.map(j => ({ ...j, JobMins: calcJobMins(j) }));
   return {
     dt1,
     dt2: [{ AssignedCount: 0 }],
@@ -1156,7 +1191,7 @@ function buildAssignedResponse(jobs) {
     (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Queued') &&
     j.DriverId && String(j.DriverId) !== '0' && String(j.DriverId) !== '-1'
   );
-  const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j.BookingDateTime) }));
+  const dt1 = assigned.map(j => ({ ...j, BookingId: j.Id, JobMins: calcJobMins(j) }));
   const activeCount = jobs.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length;
   return {
     dt1,
@@ -3035,7 +3070,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
         const dropLatLng = param('DropLatLng') || '0,0';
-        const bookingDT = param('BookingDateTime') || (() => {
+        // Client sends the pickup time as { name:"DateTime", Value:"YYYY-MM-DD HH:mm:ss" }
+        // where the string is the COMPANY'S LOCAL TIME (NZ).  Check both field names.
+        const _dtRaw1   = param('DateTime') || param('BookingDateTime') || '';
+        // Parse the local-time string → UTC ms so ScheduledFor is correct for calcJobMins.
+        const _scheduledMs1 = _parseLocalDT(_dtRaw1, sessionCompanyId);
+        const bookingDT = _dtRaw1 || (() => {
           const now = new Date();
           return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:00.`;
         })();
@@ -3091,7 +3131,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
+          // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
+          // displayed countdown is correct regardless of server/client timezone.
+          ...(_scheduledMs1 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs1 } : {}),
         };
+        // Server-side past-date guard — prevents bookings set in the past from being
+        // silently treated as ASAP.  Allow 90 s grace for clock skew / submit delay.
+        if (_scheduledMs1 && dispatchBefore > 0 && _scheduledMs1 < Date.now() - 90000) {
+          arrayD(res, [{ Result: 'Error: The pickup time is already in the past. Please choose a future date and time.', Error: true }]);
+          return;
+        }
         // Resolve tariff and custom price from dispatcher form
         { const _tId = String(param('TarriffId') || '').trim();
           const _tName = String(param('TarriffName') || '').trim();
@@ -3105,7 +3154,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           } }
         jobStore.push(newJob);
         saveJobStore();
-        console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} companyId=${sessionCompanyId}`);
+        console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs1 ? new Date(_scheduledMs1).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
       } else if (action === 'UpdateBooking') {
         // Called by cancelactivejob / close-ride flow.
@@ -3174,13 +3223,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
         const dropLatLng = param('DropLatLng') || '0,0';
-        const bookingDT = param('BookingDateTime') || (() => {
+        // Client sends the pickup time as { name:"DateTime", Value:"YYYY-MM-DD HH:mm:ss" }
+        // where the string is the COMPANY'S LOCAL TIME (NZ).  Check both field names.
+        const _dtRaw2   = param('DateTime') || param('BookingDateTime') || '';
+        const _scheduledMs2 = _parseLocalDT(_dtRaw2, sessionCompanyId);
+        const bookingDT = _dtRaw2 || (() => {
           const now = new Date();
           return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:00.`;
         })();
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
-        const _rawDId2  = parseInt(param('DId') || '0') || 0;
+        const _rawDId2   = parseInt(param('DId') || '0') || 0;
         // Clamp stale sentinels (e.g. -2 "recalled") to 0 (Pending/no driver). Only -1 ("No One") is intentional.
         const driverId  = (_rawDId2 === -1) ? -1 : Math.max(0, _rawDId2);
         // VehicleId is a string call-sign (e.g. "T201") — do NOT parseInt it or 'T201' becomes 0.
@@ -3228,7 +3281,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
+          // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
+          // displayed countdown is correct regardless of server/client timezone.
+          ...(_scheduledMs2 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs2 } : {}),
         };
+        // Server-side past-date guard — prevents bookings set in the past from being
+        // silently treated as ASAP.  Allow 90 s grace for clock skew / submit delay.
+        if (_scheduledMs2 && dispatchBefore > 0 && _scheduledMs2 < Date.now() - 90000) {
+          arrayD(res, [{ Result: 'Error: The pickup time is already in the past. Please choose a future date and time.', Error: true }]);
+          return;
+        }
         // Resolve tariff and custom price from dispatcher form
         { const _tId2 = String(param('TarriffId') || '').trim();
           const _tName2 = String(param('TarriffName') || '').trim();
@@ -3242,7 +3304,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           } }
         jobStore.push(newJob);
         saveJobStore();
-        console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT}) companyId=${sessionCompanyId}`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs2 ? new Date(_scheduledMs2).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
 
       } else if (action === '[ProcUpdateJobv6]') {
@@ -3269,7 +3331,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const _dbRaw = param('Dispatchbefore');
           if (_dbRaw !== undefined) job.DispatchTimebefore = String(parseInt(_dbRaw) || 0);
           const _newDT = param('DateTime');
-          if (_newDT) { job.BookingDateTime = _newDT; job.Pickingtime = _newDT; }
+          if (_newDT) {
+            job.BookingDateTime = _newDT;
+            job.Pickingtime = _newDT;
+            // Re-derive ScheduledFor so calcJobMins stays accurate after an edit.
+            const _editedMs = _parseLocalDT(_newDT, job.companyId || sessionCompanyId);
+            if (_editedMs) job.ScheduledFor = _editedMs; else delete job.ScheduledFor;
+          }
           // Only change status and driver assignment for jobs that are still in a pre-dispatch state.
           // Never overwrite DriverId/VehicleId/BookingStatus for Assigned/Active/Picking jobs —
           // the edit form sends DId:-1 (no driver selected) which would corrupt a live assignment.
@@ -4730,7 +4798,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             ...job,
             bookingidx:    job.Id,
             Route:         '',
-            JobMins:       calcJobMins(job.BookingDateTime),
+            JobMins:       calcJobMins(job),
             BookingStatus: normStatus,
             ppname:        job.ppname        || job.Name        || '',
             AccountId:     job.AccountId     || job.PhoneNo     || '',
@@ -4919,7 +4987,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const jobId = idParam !== undefined ? parseInt(idParam) : 0;
         let job = jobStore.find(j => j.Id === jobId);
         if (!job) job = jobStore[0];
-        const jobWithMins = job ? { ...job, JobMins: calcJobMins(job.BookingDateTime) } : null;
+        const jobWithMins = job ? { ...job, JobMins: calcJobMins(job) } : null;
         const resp = {
           dt1: jobWithMins ? [jobWithMins] : [],
           dt2: [{ AssignedCount: 0 }],

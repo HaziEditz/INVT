@@ -833,3 +833,61 @@ Job `6206112605071` was already ingested with wrong values before this fix. Afte
 2. Re-ingest via `[IngestPassengerJob]` with the correct Firebase record
 3. `ScheduledFor` → `1778119200000`, `BookingDateTime` → `"2026-05-07T02:00:00.000Z"`, `DispatchTimebefore` → `'30'`
 
+
+---
+
+## Section 30 — Dispatch-Console Booking DateTime Bugs (S30)
+
+**Reported:** Job `6112605073` booked for 2:15 PM NZ shows as ASAP. Request for past-date validation message.
+
+### Root causes found and fixed
+
+#### Bug S30-A: Param name mismatch — `DateTime` vs `BookingDateTime`
+
+| | Detail |
+|---|---|
+| **Client sends** | `{ name: "DateTime", Value: "2026-05-07 14:15:00" }` |
+| **Server read** | `param('BookingDateTime')` → `null` → fell back to `new Date()` (current time) |
+| **Effect** | Every later-booking had `BookingDateTime = now`, showing as ASAP |
+| **Fix** | Both `InsertBookingv4` mock handlers now read `param('DateTime') \|\| param('BookingDateTime')` |
+
+#### Bug S30-B: NZ local time string parsed as UTC by server
+
+The server runs in **UTC**. The browser (NZ = UTC+12) constructs `"2026-05-07 14:15:00"` as a local-time string. `new Date("2026-05-07 14:15:00")` on the UTC server = 14:15 UTC = 2:15 AM NZ next cycle — 12 hours wrong.
+
+**Fix:** New helper `_parseLocalDT(dtStr, companyId)` converts a NZ-local datetime string to the correct UTC ms timestamp using the `sv` locale offset technique (same as `_tzTodayStart`). All `InsertBookingv4` and `[ProcUpdateJobv6]` handlers use this to set `ScheduledFor`.
+
+#### Bug S30-C: `ScheduledFor` not set for dispatch-console later bookings
+
+`calcJobMins` received `BookingDateTime` (display string, NZ local) and parsed it as UTC → 12-hour JobMins error.
+
+**Fix:** `calcJobMins` upgraded to accept a job object and use `ScheduledFor` (UTC ms) when present; falls back to string parse only for legacy jobs. All 5 callsites updated to pass the full job object.
+
+#### Bug S30-D: No past-date guard on the server
+
+**Fix (server):** Both `InsertBookingv4` handlers: if `ScheduledFor < now - 90s` and `DispatchTimebefore > 0`, return `{ Result: 'Error: The pickup time is already in the past...', Error: true }` and do NOT create the job.
+
+**Fix (client):** Both `updateride` + `updateride2` success callbacks now check `$res[0].Error` and show `Swal.fire('Booking Failed', ...)` so the dispatcher sees a clear modal explaining the rejection.
+
+Note: Client-side past-date validation (`Swal.fire('Invalid Time!', ...)`) was already present at both booking paths — these are the first line of defence.
+
+### Summary of files changed
+
+| File | Change |
+|---|---|
+| `server.js` | `_parseLocalDT()` helper added; `calcJobMins()` upgraded; both `InsertBookingv4` handlers read correct param, set `ScheduledFor`, guard past dates; `[ProcUpdateJobv6]` edit handler updates `ScheduledFor` on time change |
+| `Default.aspx` | Both booking success callbacks show `Swal.fire` error when server rejects with `Error: true` |
+
+### Company timezone contract
+
+`_parseLocalDT(dtStr, companyId)` reads from `companyTZMap` (line 8–10 of `server.js`). To add a new company:
+
+```js
+const companyTZMap = {
+  '620611': 'Pacific/Auckland',
+  'NEW_ID': 'Pacific/Auckland', // or Australia/Auckland etc.
+};
+```
+
+When the SA portal approves a new company it must also ensure the correct IANA timezone is in `companyTZMap`.
+
