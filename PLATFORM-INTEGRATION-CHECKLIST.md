@@ -1213,3 +1213,56 @@ On app restart the driver app should read `online/{cid}/{vid}/current/vehiclesta
 | ~8984 | `resolveAfter2Secondsx` — `discription == 'Ride Status… Reject'` branch |
 | ~9046 | `resolveAfter2Secondsx` — `localva = "Reject"` branch |
 | ~9147 | 27-second timeout — driver never responded |
+
+---
+
+### §39. Hail job `companyId` stamped at creation (Active tab persistence fix)
+
+**Bug:** Both `[DriverStatusChanged]` handlers (DataSelector ~line 4358, DataSelectorLess ~line 5963) pushed hail jobs to `jobStore` **without a `companyId` field**. On server restart, `saveJobStore` drops any job where `j.companyId` is falsy (`_rawJobs.filter(j => j.companyId)`), so every hail job vanished after a restart. In a live-traffic session the in-memory filter `!j.companyId || j.companyId === cid` still returned them, masking the bug between restarts.
+
+**Fix (server.js — both hail push sites):**
+```js
+// DataSelector handler (~line 4359) and DataSelectorLess handler (~line 5964)
+jobStore.push({
+  Id: hailId, BookingStatus: 'Active',
+  companyId: sessionCompanyId || '',   // ← stamped (was missing)
+  DriverId: driverId,
+  ...
+});
+```
+
+**Log confirmation:** Console now prints `companyId=…` in both hail-creation log lines:
+```
+[DriverStatusChanged]    Hail job #XYZ created … companyId=620611 …
+[DriverStatusChanged/DS] Hail job #XYZ for driver … companyId=620611 …
+```
+
+---
+
+### §40. Active tab keeps sync via `getjobs()` polling — `dt6` field (Active tab recurring bug fix)
+
+**Root cause of recurring bug:** `$scope.ActiveJob` (the Active tab list) was populated **only** by explicit `ActiveJobsdata()` calls triggered from Firebase `child_changed` event handlers. Those calls are nested inside deep `try/catch` blocks — any unrelated throw (e.g. in the completedJob Firebase write chain) silently swallowed the call and the Active tab stopped updating. The regular `getjobs()` polling loop only updated the `ActiveCount` badge (`dt3`) but never the actual list.
+
+**Fix — server.js `buildJobListResponse`:**
+Added `dt6` — the full active jobs list — to every `[UnAssignedJobsv3]` response:
+```js
+const activeJobs = allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
+return {
+  dt1, dt2, dt3: [{ ActiveCount: activeJobs.length }], dt4, dt5,
+  dt6: activeJobs.map(j => ({ ...j, BookingId: j.Id })),   // ← new
+};
+```
+
+**Fix — Default.aspx `getjobs()` success handler:**
+After populating `driverlist` from `dt5`, read `dt6` and update the Active tab in the same poll cycle:
+```js
+var _dt6 = $scope.jobsdata['dt6'];
+if (Array.isArray(_dt6)) {
+    $scope.ActiveJob   = _dt6;
+    $scope.ActiveCount = _dt6.length;
+}
+```
+
+**Effect:** Active tab now refreshes on every regular poll (same cadence as the Unassigned tab). Firebase event-driven `ActiveJobsdata()` calls remain in place as an additional fast-path but are no longer the sole update mechanism.
+
+**Note on `dt6` naming:** `dt6` is also returned by `[VehiclesStatus]` with a completely different shape (online driver IDs). These are separate actions with separate response parsers — no collision.

@@ -17357,6 +17357,15 @@ $(document).ready(function() {
                 }
 
                     $scope.driverlist = $scope.jobsdata['dt5'];
+
+                    // dt6: active jobs list — keep Active tab in sync on every poll
+                    // This eliminates the reliance on Firebase event-driven ActiveJobsdata() calls,
+                    // which can silently fail when code throws inside their try/catch handlers.
+                    var _dt6 = $scope.jobsdata['dt6'];
+                    if (Array.isArray(_dt6)) {
+                        $scope.ActiveJob   = _dt6;
+                        $scope.ActiveCount = _dt6.length;
+                    }
                     //$scope.$digest();
                 
             }, function myError(response) {

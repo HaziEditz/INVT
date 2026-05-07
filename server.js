@@ -1153,12 +1153,14 @@ function buildJobListResponse(jobs) {
   const isOrphaned = j => j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0');
   const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus) || isOrphaned(j));
   const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j) }));
+  const activeJobs = allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
   return {
     dt1,
     dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned' && !isOrphaned(j)).length }],
-    dt3: [{ ActiveCount: allNonTerminal.filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking').length }],
+    dt3: [{ ActiveCount: activeJobs.length }],
     dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
     dt5: [{ PublicKey: STRIPE_PK }],
+    dt6: activeJobs.map(j => ({ ...j, BookingId: j.Id })),
   };
 }
 
@@ -4352,6 +4354,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               const _hailNow = new Date().toISOString();
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
+                companyId: sessionCompanyId || '',
                 DriverId: driverId,
                 VehicleId: vehiclenumber || driverId,
                 VehicleNo: vehiclenumber || driverId,
@@ -4366,7 +4369,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
-              console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber}) at ${pickAddr}`);
+              console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber}) companyId=${sessionCompanyId} at ${pickAddr}`);
             }
           }
           // Re-query after potential hail insertion so Available can complete a just-created job
@@ -5956,6 +5959,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               const _hailPartsDS = _hailFullNameDS.trim().split(/\s+/);
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
+                companyId: sessionCompanyId || '',
                 DriverId: driverId,
                 VehicleId: vehiclenumber || driverId,
                 VehicleNo: vehiclenumber || driverId,
@@ -5969,7 +5973,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
-              console.log(`  [DriverStatusChanged/DS] Hail job #${hailId} for driver ${driverId} (${vehiclenumber}) at ${pickAddr}`);
+              console.log(`  [DriverStatusChanged/DS] Hail job #${hailId} for driver ${driverId} (${vehiclenumber}) companyId=${sessionCompanyId} at ${pickAddr}`);
             }
           }
           const allDriverJobs = jobStore.filter(matchesDriverDS);
