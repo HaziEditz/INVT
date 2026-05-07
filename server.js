@@ -4804,6 +4804,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveClosedJobStore();
                 _patchRentalComplete(job);
                 // Capture for Firebase write by the client
+                // §108d — resolve paymentType correctly for web (card) bookings.
+                // Web booking jobs carry paymentMethod:'card' + paymentStatus:'paid' but
+                // do NOT have PaymentType/paymentType (those are TM-specific fields).
+                // Priority: PaymentType > paymentType > paymentMethod > PaymentMethod > 'cash'
+                const _cjPayMethod = (
+                  job.PaymentType   || job.paymentType   ||
+                  job.PaymentMethod || job.paymentMethod || 'cash'
+                ).toLowerCase();
                 _dscCompletedJob = {
                   tripId:      String(job.Id),
                   bookingId:   String(job.Id),        // stored as field — SA portal queries orderByChild('bookingId')
@@ -4814,7 +4822,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   vehicleId:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
                   vehicleNo:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
                   fare:        job.Fare != null ? Number(job.Fare) : (job.TotalFare != null ? Number(job.TotalFare) : 0),
-                  paymentType: (job.PaymentType || job.paymentType || 'cash').toLowerCase(),
+                  paymentType:   _cjPayMethod,
+                  paymentMethod: _cjPayMethod,
+                  paymentStatus: job.paymentStatus || job.PaymentStatus || '',
+                  stripeChargeId: job.stripeChargeId || job.StripeChargeId || null,
                   completedAt: job.completedAtMs,
                   status:      'Completed',
                   source:      'dispatch',
@@ -4831,6 +4842,34 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   totalCouncilPays: job.totalCouncilPays != null ? Number(job.totalCouncilPays) : null,
                   councilId:        job.councilId || null,
                 };
+                // §108d — patch allbookings at completion so SA portal gets correct
+                // paymentMethod and Status regardless of which path created the record.
+                // Use getFirebaseServerToken so this fires even without a client auth session.
+                (function _patchAllbookingsCompletion(j, cid, pm) {
+                  getFirebaseServerToken().then(function(tok) {
+                    if (!tok || !cid || !j.Id) return;
+                    const _abPatch = {
+                      Status:        'Completed',
+                      paymentMethod: pm,
+                      PaymentMethod: pm,
+                      completedAt:   j.JobCompleteTime || new Date().toISOString(),
+                    };
+                    if (j.paymentStatus || j.PaymentStatus) {
+                      _abPatch.paymentStatus = j.paymentStatus || j.PaymentStatus;
+                      _abPatch.PaymentStatus = j.paymentStatus || j.PaymentStatus;
+                    }
+                    if (j.stripeChargeId || j.StripeChargeId) {
+                      _abPatch.stripeChargeId = j.stripeChargeId || j.StripeChargeId;
+                    }
+                    firebaseDbPatch(`allbookings/${cid}/${j.Id}`, _abPatch, tok)
+                      .then(function() {
+                        console.log(`  [§108d] allbookings/${cid}/${j.Id} → Completed paymentMethod=${pm}`);
+                      })
+                      .catch(function(e) {
+                        console.warn(`  [§108d] allbookings patch failed for job #${j.Id}:`, e && e.message);
+                      });
+                  });
+                })(job, sessionCompanyId, _cjPayMethod);
                 console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailable) {

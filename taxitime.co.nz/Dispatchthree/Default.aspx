@@ -11981,11 +11981,16 @@ $(document).ready(function() {
                                             // Key is our numeric tripId. bookingId stored as a field so SA portal can
                                             // query orderByChild('bookingId') regardless of which side wrote the record.
                                             if (_cjTripId) {
+                                                // §108d — server now resolves paymentType/paymentMethod
+                                                // correctly (checks PaymentMethod before defaulting to cash).
+                                                // Use server value directly; fallback to 'cash' only if absent.
+                                                var _cjPayType = _cj.paymentType || _cj.paymentMethod || 'cash';
                                                 var _cjNode = {
                                                     bookingId:     _cjBid,
                                                     companyId:     _cjCid,
                                                     fare:          _cj.fare || 0,
-                                                    paymentType:   _cj.paymentType || 'cash',
+                                                    paymentType:   _cjPayType,
+                                                    paymentMethod: _cj.paymentMethod || _cjPayType,
                                                     completedAt:   _cj.completedAt
                                                                      ? new Date(_cj.completedAt).toISOString()
                                                                      : new Date().toISOString(),
@@ -11997,6 +12002,8 @@ $(document).ready(function() {
                                                     dropAddress:   _cj.dropoff   || '',
                                                     distanceKm:    _cj.distanceKm || 0,
                                                 };
+                                                if (_cj.paymentStatus) _cjNode.paymentStatus = _cj.paymentStatus;
+                                                if (_cj.stripeChargeId) _cjNode.stripeChargeId = _cj.stripeChargeId;
                                                 // TM fields — only include if present
                                                 if (_cj.paymentType === 'total_mobility') {
                                                     if (_cj.tmSubsidy        != null) _cjNode.tmSubsidy        = _cj.tmSubsidy;

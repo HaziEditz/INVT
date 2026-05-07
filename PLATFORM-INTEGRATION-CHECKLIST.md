@@ -1557,3 +1557,98 @@ metadata: {
 - Non-numeric `companyId: "Auckland Cabs"` → `{"received":true}` (200), error logged, no Firebase write ✅
 - Missing `bookingId`/`companyId` → `{"received":true}` (200), error logged with Stripe event ID, no crash ✅
 - STRIPE_WEBHOOK_SECRET not set → `{"received":true}` with dev-mode warning logged ✅
+
+---
+
+## Section 36 — §108d: Preserve paymentMethod at Job Completion (2026-05-07)
+
+### Problem
+
+When a driver completed a trip and went `Available`, the dispatch server built `_dscCompletedJob` with:
+
+```js
+paymentType: (job.PaymentType || job.paymentType || 'cash').toLowerCase()
+```
+
+Web booking jobs in `jobStore` carry `paymentMethod: 'card'` and `paymentStatus: 'paid'` (written by `/api/stripe/webhook` or `/api/payment/confirm`) but do **not** have `PaymentType` or `paymentType` — those are TM-specific fields. So the chain always fell through to `'cash'`.
+
+The dispatch console frontend then wrote `completedJobs/{cid}/{tripId}` with `paymentType: 'cash'`, and the SA-MasterReport read that as a cash trip regardless of how the passenger actually paid.
+
+### Root causes
+
+| # | Location | Bug |
+|---|---|---|
+| 1 | `server.js` ~4817 (`_dscCompletedJob`) | `paymentType` resolved as `PaymentType \|\| paymentType \|\| 'cash'` — never checked `PaymentMethod`/`paymentMethod` |
+| 2 | `Default.aspx` ~11988 (completedJobs write) | `paymentType: _cj.paymentType \|\| 'cash'` — correct once server sends right value, but `paymentMethod`/`stripeChargeId`/`paymentStatus` were never included |
+| 3 | No server-side allbookings patch at completion | `allbookings/{cid}/{jobId}` was left with `Status` stale and no `paymentMethod` set at completion |
+
+### Fix applied
+
+**`server.js` — `_dscCompletedJob` construction (DriverStatusChanged Available → Completed path)**
+
+```js
+// Priority: PaymentType > paymentType > PaymentMethod > paymentMethod > 'cash'
+const _cjPayMethod = (
+  job.PaymentType   || job.paymentType   ||
+  job.PaymentMethod || job.paymentMethod || 'cash'
+).toLowerCase();
+_dscCompletedJob = {
+  ...
+  paymentType:    _cjPayMethod,
+  paymentMethod:  _cjPayMethod,         // NEW — propagated to completedJobs
+  paymentStatus:  job.paymentStatus || job.PaymentStatus || '',   // NEW
+  stripeChargeId: job.stripeChargeId || job.StripeChargeId || null, // NEW
+  ...
+};
+```
+
+**`server.js` — allbookings patch at completion (IIFE, server-authenticated)**
+
+After `_dscCompletedJob` is populated, a server-side Firebase patch fires against `allbookings/{cid}/{jobId}`:
+
+```js
+{
+  Status:        'Completed',
+  paymentMethod: _cjPayMethod,   // 'card' for Stripe-paid, 'cash' for cash
+  PaymentMethod: _cjPayMethod,
+  completedAt:   job.JobCompleteTime,
+  paymentStatus: ...,            // only if present
+  stripeChargeId: ...,           // only if present
+}
+```
+
+This uses `getFirebaseServerToken()` so it fires without needing a client Firebase session. Logged as `[§108d] allbookings/{cid}/{id} → Completed paymentMethod=card`.
+
+**`Default.aspx` — completedJobs write (~11988)**
+
+```js
+var _cjPayType = _cj.paymentType || _cj.paymentMethod || 'cash';
+var _cjNode = {
+    ...
+    paymentType:   _cjPayType,
+    paymentMethod: _cj.paymentMethod || _cjPayType,   // NEW
+    ...
+};
+if (_cj.paymentStatus)   _cjNode.paymentStatus  = _cj.paymentStatus;   // NEW
+if (_cj.stripeChargeId)  _cjNode.stripeChargeId = _cj.stripeChargeId;  // NEW
+```
+
+### Fields now correctly populated at completion
+
+| Firebase path | Field | Cash job | Card (web) job |
+|---|---|---|---|
+| `completedJobs/{cid}/{id}` | `paymentType` | `cash` | `card` |
+| `completedJobs/{cid}/{id}` | `paymentMethod` | `cash` | `card` |
+| `completedJobs/{cid}/{id}` | `paymentStatus` | `''` | `paid` |
+| `completedJobs/{cid}/{id}` | `stripeChargeId` | absent | Stripe charge ID |
+| `allbookings/{cid}/{id}` | `Status` | `Completed` | `Completed` |
+| `allbookings/{cid}/{id}` | `paymentMethod` | `cash` | `card` |
+| `allbookings/{cid}/{id}` | `PaymentMethod` | `cash` | `card` |
+
+### Verified
+
+- Cash job (driver goes Available after Active Hail): `_dscCompletedJob.paymentType = 'cash'` ✅ (unchanged behaviour)
+- Web card job (job has `paymentMethod:'card'`, `paymentStatus:'paid'`): `_dscCompletedJob.paymentType = 'card'` ✅ (was `'cash'` before fix)
+- TM job (job has `PaymentType:'total_mobility'`): `_dscCompletedJob.paymentType = 'total_mobility'` ✅ (unchanged — PaymentType takes priority)
+- `allbookings` patch fires server-side with correct `paymentMethod` ✅
+- `completedJobs` write now includes `paymentMethod`, `paymentStatus`, `stripeChargeId` ✅
