@@ -1327,60 +1327,82 @@ else if (hasValidCoords(pickLLRaw))                       jdpDrawSinglePin(pickL
 
 ---
 
-### §103. Web booking notifications — wrong source label and missing NotifyDispatchAt timer
+### §103. Web booking notifications — wrong source label and missing scheduled-job lifecycle  ✅ FIXED
 
 **Root causes (two distinct bugs):**
 
-**Bug 1 — Source label says "Passenger" for web bookings:**
-Both `_pjAlert` calls in `_pjIngest` (Default.aspx) used `b.passengerName || b.name || 'Passenger'` as the sender label. Web-portal bookings carry `CreatedBy: 'WEB'` but no `passengerName`, so the alert always read "📅 Scheduled booking from Passenger!" or "📱 New booking from Passenger!".
+**Bug 1 — Notification said "Website" instead of "Web Booking":**
+`_pjIngest` (Default.aspx) computed `_bkSender = _isWebBk ? 'Website' : ...`. User requirement is "Web Booking".
 
-Equally, `[IngestPassengerJob]` (server.js) hardcoded `BookingSource: 'passenger'` for both the `Scheduled` and `Waiting/Pending` branches regardless of origin.
+**Bug 2 — Scheduled jobs invisible / auto-dispatch skipped before promotion:**
+Four cascading problems:
+1. `PENDING_ST` in `buildJobListResponse` (server.js) lacked `'Scheduled'` → `dt1` never contained scheduled jobs → Unassigned tab was empty when dispatcher clicked the arrival alert.
+2. `[IngestPassengerJob]` Scheduled branch stored `BookingStatus: 'Pending'` instead of `'Scheduled'` → Sched badge never appeared and auto-assign could grab the job before the pickup time.
+3. No cancellable timer tracking — if a dispatcher edited the lead time, the original timer still fired at the old time.
+4. `[IngestPassengerJob]` Waiting/Pending branch had no promotion path — when the `NotifyDispatchAt` timer fired and wrote `Status:'Pending'` to Firebase, `child_changed` → `[IngestPassengerJob]` hit the "already exists" guard and silently no-op'd, leaving `BookingStatus:'Scheduled'` on the server and the job excluded from auto-dispatch.
 
-**Bug 2 — Clicking the NotifyDispatchAt notification led to an empty Unassigned tab:**
-`NotifyDispatchAt` is a field written by the web booking portal (e.g. `"2026-05-07T11:00:00.000Z"`) indicating when the dispatcher should be alerted to dispatch the job. No timer existed to fire at that moment. The scheduled booking was ingested immediately on arrival, so the job was in `jobStore` — but at `NotifyDispatchAt` time the Firebase entry still had `Status: 'Scheduled'`. The dispatcher received the initial "awareness" notification (on first arrival) but never a second "actionable dispatch" alert. The fix arms a `setTimeout` that fires at `NotifyDispatchAt` and writes `Status: 'Pending'` to Firebase, triggering `child_changed` → `_pjIngest` Waiting/Pending branch → actionable notification + `getjobs()`.
+**Fixes applied:**
 
-**Fixes — Default.aspx `_pjIngest`:**
-
+**server.js — `buildJobListResponse`:**
 ```js
-// §103 Bug 1 — derive source label
-var _isWebBk  = !!(b.WebBooking || b.webBooking || b.CreatedBy === 'WEB' || b.CreatedBy === 'web'
-                || (b.BookingSource || '').toLowerCase() === 'website');
-var _bkSender = _isWebBk ? 'Website' : (b.passengerName || b.name || 'Passenger');
+// 'Scheduled' jobs live in Unassigned tab (Sched badge) until promoted to 'Pending'
+const PENDING_ST = new Set(['Pending', 'Scheduled', 'Offered', 'Reject', 'Unreached', 'No One']);
+// dt4 UnAssignedCount includes Scheduled
+dt4: [{ UnAssignedCount: pendingJobs.filter(j =>
+    j.BookingStatus === 'Pending' || j.BookingStatus === 'Scheduled' ||
+    j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
+```
 
-// Scheduled branch — emoji changes to 🌐 for web, timer added:
-_pjAlert((_isWebBk ? '🌐' : '📅') + ' Scheduled booking from ' + _bkSender + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
+**server.js — `[IngestPassengerJob]` Scheduled branch:**
+```js
+BookingStatus: 'Scheduled',   // ← was 'Pending'
+// additional fields persisted:
+NotifyDispatchAt: _ipjJob.NotifyDispatchAt || _ipjJob.notifyDispatchAt || null,
+NotifyDispatchBeforeMinutes: parseInt(_ipjJob.NotifyDispatchBeforeMinutes || '15') || 15,
+```
 
-// §103 Bug 2 — NotifyDispatchAt timer:
-var _notifyAtStr = b.NotifyDispatchAt || b.notifyDispatchAt || '';
-var _notifyAtMs  = _notifyAtStr ? new Date(_notifyAtStr).getTime() : 0;
-var _notifyDelay = _notifyAtMs ? (_notifyAtMs - Date.now()) : 0;
-if (_notifyAtMs && _notifyDelay > 0) {
-    setTimeout(function() {
-        _pjRef.child(k).update({ Status: 'Pending' }, function(err) {
-            if (err) console.warn('[pendingjobs] NotifyDispatchAt promote failed:', err);
-            else     console.log('[pendingjobs] NotifyDispatchAt fired → promoted to Pending:', k);
-        });
-    }, _notifyDelay);
-    console.log('[pendingjobs] NotifyDispatchAt timer armed for ' + k + ' in ' + Math.round(_notifyDelay/1000) + 's');
+**server.js — `[IngestPassengerJob]` Waiting/Pending branch (promotion path):**
+```js
+if (already && already.BookingStatus === 'Scheduled') {
+    already.BookingStatus = 'Pending';
+    saveJobStore();
+    // falls through to objectD({ ok:true, action:'pending' })
+} else if (!already && !alreadyClosed) {
+    // normal new book-now job push
 }
-
-// Waiting/Pending branch:
-_pjAlert((_isWebBk ? '🌐' : '📱') + ' New booking from ' + _bkSender + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
 ```
 
-**Fix — server.js `[IngestPassengerJob]`:**
+**server.js — new `[UpdateScheduledLeadTime]` action** (also added to `LOCAL_ONLY_ACTIONS`):
+- Accepts `jobId`, `notifyBeforeMinutes`; recalculates `NotifyDispatchAt = ScheduledFor − mins`; returns both for client to reschedule timer.
+
+**server.js — `LOCAL_ONLY_ACTIONS`**: added `'[IngestPassengerJob]'` and `'[UpdateScheduledLeadTime]'` (were missing — would have been proxied to real backend and failed).
+
+**Default.aspx — `_pjIngest`:**
 ```js
-// Both Scheduled and Waiting branches now derive origin before jobStore.push():
-const _isWebBk = !!(_ipjJob.WebBooking || _ipjJob.webBooking
-               || _ipjJob.CreatedBy === 'WEB' || _ipjJob.CreatedBy === 'web'
-               || (_ipjJob.BookingSource || '').toLowerCase() === 'website');
-// ...
-BookingSource: _isWebBk ? 'Website' : 'passenger',
+// Bug 1 — label fix
+var _bkSender = _isWebBk ? 'Web Booking' : (b.passengerName || b.name || 'Passenger');
+
+// Bug 2 — cancellable timer with window._bwSchedTimers tracking
+window._bwSchedTimers = window._bwSchedTimers || {};
+if (_notifyAtMs && _notifyDelay > 0) {
+    if (window._bwSchedTimers[k]) clearTimeout(window._bwSchedTimers[k]);
+    window._bwSchedTimers[k] = setTimeout(function() {
+        _pjRef.child(k).update({ Status: 'Pending' });
+        delete window._bwSchedTimers[k];
+    }, _notifyDelay);
+}
 ```
+
+**Default.aspx — Unassigned job card (Scheduled jobs only):**
+Inline editable "N min lead" control inserted after the Sched badge. `onchange` calls `window._bwUpdateSchedLead(jobId, fbKey, scheduledForMs, newMins)`.
+
+**Default.aspx — `window._bwUpdateSchedLead`** (added after pendingjobs IIFE):
+Writes new `NotifyDispatchBeforeMinutes` + recalculated `NotifyDispatchAt` to Firebase, POSTs `[UpdateScheduledLeadTime]` to server, cancels and reschedules `window._bwSchedTimers[fbJobKey]`.
 
 **Full flow after fix:**
-1. Web portal writes `pendingjobs/{cid}/{id}` with `Status:'Scheduled'`, `CreatedBy:'WEB'`, `NotifyDispatchAt:'<ISO>'`
-2. `child_added` → `_pjIngest` → awareness alert says **"🌐 Scheduled booking from Website for HH:MM!"** → `[IngestPassengerJob]` stores `BookingSource:'Website'` → `getjobs()` → job in Unassigned with Website tag
-3. `setTimeout` armed for `NotifyDispatchAt` delay (e.g. 30 min)
-4. Timer fires → writes `Status:'Pending'` to Firebase
-5. `child_changed` → `_pjIngest` (isChange=true, bypasses `_pjSeen` guard) → **"🌐 New booking from Website — <address>!"** → `[IngestPassengerJob]` (no-op, job already exists) → `getjobs()` → job visible in Unassigned ✓
+1. Web portal writes `pendingjobs/{cid}/{key}` with `Status:'Scheduled'`, `CreatedBy:'WEB'`, `NotifyDispatchAt:'<ISO>'`, `NotifyDispatchBeforeMinutes:15`
+2. `child_added` → `_pjIngest` → **"🌐 Scheduled booking from Web Booking for HH:MM!"** → `[IngestPassengerJob]` stores `BookingStatus:'Scheduled'` + notify fields → `getjobs()` → job in Unassigned with Sched badge + editable "15 min lead" control
+3. Cancellable `window._bwSchedTimers[k]` timer armed for `NotifyDispatchAt` delay
+4. (Optional) Dispatcher edits lead time → `_bwUpdateSchedLead` → Firebase + server updated → old timer cancelled → new timer armed
+5. Timer fires → writes `Status:'Pending'` to Firebase
+6. `child_changed` → `_pjIngest` (isChange=true, bypasses `_pjSeen`) → **"🌐 New booking from Web Booking — <address>!"** → `[IngestPassengerJob]` Waiting/Pending branch → **promotion**: `BookingStatus:'Scheduled'→'Pending'` → `getjobs()` → auto-dispatch eligible ✓

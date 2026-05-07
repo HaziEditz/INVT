@@ -1149,7 +1149,9 @@ function buildJobListResponse(jobs) {
   // dt1 = jobs that belong in the Unassigned/Pending tab.
   // 'Unreached' = driver didn't respond; 'No One' = auto-dispatch found no driver.
   // Assigned+DriverId=0 is an orphaned job (driver left without completing) — treat as Pending.
-  const PENDING_ST = new Set(['Pending', 'Offered', 'Reject', 'Unreached', 'No One']);
+  // §103 — 'Scheduled' pre-booked web jobs live in the Unassigned tab with a Sched badge
+  //         until their NotifyDispatchAt timer promotes them to 'Pending' for auto-dispatch.
+  const PENDING_ST = new Set(['Pending', 'Scheduled', 'Offered', 'Reject', 'Unreached', 'No One']);
   const isOrphaned = j => j.BookingStatus === 'Assigned' && (!j.DriverId || String(j.DriverId) === '0');
   const pendingJobs = allNonTerminal.filter(j => PENDING_ST.has(j.BookingStatus) || isOrphaned(j));
   const dt1 = pendingJobs.map(j => ({ ...j, JobMins: calcJobMins(j) }));
@@ -1158,7 +1160,7 @@ function buildJobListResponse(jobs) {
     dt1,
     dt2: [{ AssignedCount: allNonTerminal.filter(j => j.BookingStatus === 'Assigned' && !isOrphaned(j)).length }],
     dt3: [{ ActiveCount: activeJobs.length }],
-    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
+    dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Scheduled' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
     dt5: [{ PublicKey: STRIPE_PK }],
     dt6: activeJobs.map(j => ({ ...j, BookingId: j.Id })),
   };
@@ -3006,6 +3008,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]', '[PromoteQueuedToAssigned]',
       // Payments
       '[InsertPassengerBalance]', '[GetPassengerBalance]',
+      // Web / Passenger bookings — all handled locally
+      '[IngestPassengerJob]', '[UpdateScheduledLeadTime]',
       // ACC / Business Account / Passenger — all local storage, never proxy
       '[searchmulti]',
       'Manager_ACC_ADD', 'Client_ACC_ADD',
@@ -6186,9 +6190,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // collisions with the external ASP.NET system's sequential job IDs.
             // _ipjJobId is the Firebase key (e.g. "6206112605071") — safe as a JS integer.
             const _sId = parseInt(_ipjJobId, 10) || newCompanyJobId(_sCid);
+            // §103 — store as 'Scheduled' so it shows in Unassigned with the Sched badge.
+            // NotifyDispatchAt timer (client) will promote to 'Pending' at dispatch time.
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
-              BookingStatus: 'Pending', BookingSource: _isWebBk ? 'Website' : 'passenger',
+              BookingStatus: 'Scheduled', BookingSource: _isWebBk ? 'Website' : 'passenger',
               Name:          _sn.name,
               PhoneNo:       _sn.phone,
               PickAddress:   _sn.pickAddress,
@@ -6204,17 +6210,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               serviceType: _sn.serviceType, bookingType: _sn.bookingType,
               paymentStatus: _sn.paymentStatus || '',
               DriverId: 0, VehicleId: 0, DispatchTimebefore: _dtb,
+              NotifyDispatchAt: _ipjJob.NotifyDispatchAt || _ipjJob.notifyDispatchAt || null,
+              NotifyDispatchBeforeMinutes: parseInt(_ipjJob.NotifyDispatchBeforeMinutes || _ipjJob.notifyDispatchBeforeMinutes || '15') || 15,
             });
             saveJobStore();
-            console.log(`[passenger] Scheduled job ${_ipjFbKey} ingested as Pending (svc=${_sn.serviceType}) — ${_sn.name} from ${_sn.pickAddress}`);
+            console.log(`[passenger] Scheduled job ${_ipjFbKey} stored as Scheduled (svc=${_sn.serviceType}) — ${_sn.name} from ${_sn.pickAddress}`);
           }
           objectD(res, { ok: true, action: 'pending' });
 
         } else if (_ipjStatus === 'Waiting' || _ipjStatus === 'Pending') {
           // 'Pending' written by some external dispatch apps — treated same as 'Waiting' (book-now).
+          // Also fired by the client-side NotifyDispatchAt timer to promote a Scheduled job.
           const already = jobStore.find(j => j._fbKey === _ipjFbKey);
           const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey);
-          if (!already && !alreadyClosed) {
+          // §103 Bug 2 — promote an existing Scheduled job to Pending (NotifyDispatchAt fired).
+          // Only if not already manually assigned/offered by a dispatcher.
+          if (already && already.BookingStatus === 'Scheduled') {
+            already.BookingStatus = 'Pending';
+            saveJobStore();
+            console.log(`[passenger] Scheduled job ${_ipjFbKey} promoted → Pending (NotifyDispatchAt)`);
+            // fall through to the objectD below
+          } else if (!already && !alreadyClosed) {
             const _wCid = String(sessionCompanyId);
             const _wn = _normFbJob(_ipjJob);
             // §103 Bug 1 — use 'Website' for web-portal bookings, not 'passenger'
@@ -6257,6 +6273,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
         } else {
           objectD(res, { ok: false, error: 'unhandled status: ' + _ipjStatus });
+        }
+
+      } else if (action === '[UpdateScheduledLeadTime]') {
+        // §103 — dispatcher adjusts NotifyDispatchBeforeMinutes on a scheduled web job.
+        // Recalculates NotifyDispatchAt = ScheduledFor − newMins, saves, returns new values
+        // so the client can reschedule the Firebase-promotion timer.
+        const _ustJobId = (param('jobId') || '').toString().trim();
+        const _ustMins  = Math.max(0, Math.min(180, parseInt(param('notifyBeforeMinutes') || '15') || 15));
+        const _ustJob   = companyJobs(jobStore).find(j => String(j.Id) === _ustJobId && j.BookingStatus === 'Scheduled');
+        if (!_ustJob) {
+          objectD(res, { ok: false, error: 'scheduled job not found: ' + _ustJobId });
+        } else {
+          _ustJob.NotifyDispatchBeforeMinutes = _ustMins;
+          if (_ustJob.ScheduledFor) {
+            _ustJob.NotifyDispatchAt = new Date(_ustJob.ScheduledFor - _ustMins * 60000).toISOString();
+          }
+          saveJobStore();
+          console.log(`[UpdateScheduledLeadTime] job #${_ustJobId} lead → ${_ustMins} min, notifyAt=${_ustJob.NotifyDispatchAt}`);
+          objectD(res, { ok: true, notifyDispatchAt: _ustJob.NotifyDispatchAt, notifyBeforeMinutes: _ustMins });
         }
 
       } else if (action === '[deviUnAssignedJobsv2]') {

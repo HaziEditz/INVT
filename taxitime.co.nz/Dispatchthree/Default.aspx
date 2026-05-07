@@ -3894,6 +3894,7 @@ $(document).ready(function() {
                                                             <span ng-if="value.BookingSource==='Rental'" class="bw-b" style="background:#0891b2;color:#fff;font-size:11px;font-weight:700;"><i class="fa fa-car"></i> Rental</span>
                                                             <span ng-if="value.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
                                                             <span ng-if="value.ScheduledFor" class="bw-b" style="background:#1d4ed8;color:#fff;"><i class="fa fa-calendar"></i> Sched</span>
+                                            <span ng-if="value.BookingStatus==='Scheduled' && value.ScheduledFor" style="display:inline-flex;align-items:center;gap:2px;background:#e0f2fe;color:#0369a1;border-radius:3px;padding:1px 5px;font-size:11px;font-weight:600;" title="Dispatcher lead time: minutes before pickup to alert you to dispatch (not shown to passenger)"><i class="fa fa-clock-o" style="font-size:10px;"></i><input type="number" id="slm{{value.Id}}" value="{{value.NotifyDispatchBeforeMinutes||15}}" min="0" max="180" style="width:34px;border:none;background:transparent;color:#0369a1;font-weight:700;font-size:11px;text-align:center;padding:0;" onchange="window._bwUpdateSchedLead('{{value.Id}}','{{value._fbKey}}',{{value.ScheduledFor}},this.value)" title="Lead time (min before pickup) — dispatcher only">min lead</span>
                                                             <span ng-if="value.returnReason" class="bw-b" ng-style="{background: value.returnReason.indexOf('Rejected')>=0?'#c0392b':(value.returnReason.indexOf('Network')>=0?'#8e44ad':'#e67e22'), color:'#fff'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
                                                             <span ng-if="value.usertype == 1" class="bw-b" style="background:#fce8e8;color:#b91c1c;"><i class="fa fa-user"></i> Senior</span>
                                                             <span ng-if="value.usertype == 2" class="bw-b" style="background:#fce8e8;color:#b91c1c;"><i class="fa fa-user"></i> Disabled</span>
@@ -5834,6 +5835,9 @@ $(document).ready(function() {
         var _pjRef   = DbRef.ref('pendingjobs/' + SomeSession2);
         var _pjInit  = false;
         var _pjSeen  = {};
+        // §103 — track NotifyDispatchAt setTimeout IDs by Firebase key so they can be
+        // cancelled and rescheduled when the dispatcher edits NotifyDispatchBeforeMinutes.
+        window._bwSchedTimers = window._bwSchedTimers || {};
 
         function _pjAlert(text, duration) {
             var alertEl = document.getElementById('bw-booking-alert');
@@ -5877,7 +5881,7 @@ $(document).ready(function() {
 
             // §103 Bug 1 — derive source label: web bookings say "Website", not "Passenger"
             var _isWebBk = !!(b.WebBooking || b.webBooking || b.CreatedBy === 'WEB' || b.CreatedBy === 'web' || (b.BookingSource || '').toLowerCase() === 'website');
-            var _bkSender = _isWebBk ? 'Website' : (b.passengerName || b.name || 'Passenger');
+            var _bkSender = _isWebBk ? 'Web Booking' : (b.passengerName || b.name || 'Passenger');
 
             if (status === 'Scheduled') {
                 // Scheduled bookings: show immediate awareness notification, then arm a
@@ -5900,15 +5904,17 @@ $(document).ready(function() {
                 var _notifyAtMs  = _notifyAtStr ? new Date(_notifyAtStr).getTime() : 0;
                 var _notifyDelay = _notifyAtMs ? (_notifyAtMs - Date.now()) : 0;
                 if (_notifyAtMs && _notifyDelay > 0) {
-                    setTimeout(function() {
+                    if (window._bwSchedTimers[k]) clearTimeout(window._bwSchedTimers[k]);
+                    window._bwSchedTimers[k] = setTimeout(function() {
                         _pjRef.child(k).update({ Status: 'Pending' }, function(err) {
                             if (err) console.warn('[pendingjobs] NotifyDispatchAt promote failed:', err);
                             else console.log('[pendingjobs] NotifyDispatchAt fired → promoted to Pending:', k);
                         });
+                        delete window._bwSchedTimers[k];
                     }, _notifyDelay);
                     console.log('[pendingjobs] NotifyDispatchAt timer armed for ' + k + ' in ' + Math.round(_notifyDelay / 1000) + 's');
                 }
-                console.log('[pendingjobs] Scheduled booking ingested as Pending:', k, b);
+                console.log('[pendingjobs] Scheduled booking stored — NotifyDispatchAt:', _notifyAtStr || 'none', 'key:', k);
 
             } else if (status === 'Waiting' || status === 'Pending') {
                 // 'Waiting'  = book-now request from passenger app.
@@ -5943,6 +5949,52 @@ $(document).ready(function() {
             console.log('[pendingjobs] initial scan complete — ' + allSnap.numChildren() + ' job(s) processed');
         });
     })();
+
+    // ── 6b-helper. Scheduled lead-time editor ─────────────────────────────
+    // Called when a dispatcher edits the "N min lead" input on a Scheduled job card.
+    // Updates Firebase pendingjobs + server jobStore, then reschedules the
+    // NotifyDispatchAt promotion timer so it fires at the new (recalculated) time.
+    window._bwUpdateSchedLead = function(jobId, fbKey, scheduledForMs, newMins) {
+        var mins    = Math.max(0, Math.min(180, parseInt(newMins) || 0));
+        var sfMs    = parseInt(scheduledForMs) || 0;
+        var newNotifyAt = sfMs ? new Date(sfMs - mins * 60000).toISOString() : null;
+        // Derive the bare Firebase key (strip "companyId:" prefix written by _pjIngest)
+        var fbParts  = (fbKey || '').split(':');
+        var fbJobKey = fbParts.length > 1 ? fbParts.slice(1).join(':') : fbParts[0];
+        // 1. Write new values to Firebase so other tabs / the passenger app see them
+        if (typeof DbRef !== 'undefined' && fbJobKey && SomeSession2) {
+            DbRef.ref('pendingjobs/' + SomeSession2 + '/' + fbJobKey).update({
+                NotifyDispatchBeforeMinutes: mins,
+                NotifyDispatchAt: newNotifyAt || null,
+            });
+        }
+        // 2. Update server-side jobStore
+        jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
+            contentType:'application/json; charset=utf-8', dataType:'json',
+            data: JSON.stringify({ data:[
+                { name:'jobId',               Value: String(jobId) },
+                { name:'notifyBeforeMinutes', Value: String(mins)  },
+            ], action:'[UpdateScheduledLeadTime]' })
+        }).done(function(res) {
+            if (!res || !res.ok) return;
+            var confirmedAt = res.notifyDispatchAt;
+            // 3. Reschedule the local NotifyDispatchAt promotion timer
+            if (fbJobKey && window._bwSchedTimers) {
+                if (window._bwSchedTimers[fbJobKey]) clearTimeout(window._bwSchedTimers[fbJobKey]);
+                var delay = confirmedAt ? (new Date(confirmedAt).getTime() - Date.now()) : 0;
+                if (delay > 0) {
+                    window._bwSchedTimers[fbJobKey] = setTimeout(function() {
+                        if (typeof DbRef !== 'undefined' && SomeSession2) {
+                            DbRef.ref('pendingjobs/' + SomeSession2 + '/' + fbJobKey).update({ Status: 'Pending' });
+                        }
+                        delete window._bwSchedTimers[fbJobKey];
+                    }, delay);
+                    console.log('[bwSchedLead] job', jobId, 'timer rearmed in', Math.round(delay/1000), 's');
+                }
+            }
+        });
+        console.log('[bwSchedLead] job', jobId, 'lead →', mins, 'min, notifyAt:', newNotifyAt);
+    };
 
     // ── 6c. Tow-request alert listener ────────────────────────────────────
     // Listens to Firebase towRequests/{companyId} for tow alerts written by the
