@@ -8682,18 +8682,45 @@ $(document).ready(function() {
         }).catch(function(e) {
             console.warn('[BW] allbookings write-back failed:', e.code || e.message || e);
         });
-        // 3. online/{vehicleId}/vehiclestatus (top-level) — prevents ghost re-offer on page reload.
-        // child_added reads the top-level field; if it still says 'Available' on reload,
-        // the driver appears free and auto-dispatch will offer them another job.
+        // 3. online/{vehicleId} — two writes needed for app reconstruction on restart:
+        //    a) top-level vehiclestatus: prevents ghost re-offer on dispatcher page reload
+        //       (child_added reads the flat field; 'Available' there means auto-dispatch offers again)
+        //    b) current/jobId + current/currentJobId: the driver app reads current/ to reconstruct
+        //       its active-job card after an app restart. Without these fields the driver sees an
+        //       address-only overlay with no booking link and can't load the trip details.
+        //    Both are merged writes (.update) so existing current/ fields (pickup, dropoff, etc.)
+        //    written by the driver app itself are preserved.
         if (vehicleId) {
-            _db.ref('online/' + SomeSession2 + '/' + String(vehicleId)).update({
+            var _onlineRef = _db.ref('online/' + SomeSession2 + '/' + String(vehicleId));
+            _onlineRef.update({
                 vehiclestatus: 'Assigned'
             }).then(function() {
                 console.log('[BW] online/' + SomeSession2 + '/' + vehicleId + '/vehiclestatus → Assigned');
             }).catch(function(e) {
                 console.warn('[BW] online vehiclestatus update failed:', e.code || e.message || e);
             });
+            _onlineRef.child('current').update({
+                jobId:        String(bookingId),
+                currentJobId: String(bookingId),
+                vehiclestatus: 'Assigned'
+            }).then(function() {
+                console.log('[BW] online/' + SomeSession2 + '/' + vehicleId + '/current → jobId=' + bookingId);
+            }).catch(function(e) {
+                console.warn('[BW] online/current jobId update failed:', e.code || e.message || e);
+            });
         }
+        // 4. jobs/{companyId}/{bookingId} — flat booking-keyed path some driver app versions
+        //    read to confirm assignment after restart (distinct from jobs/{cid}/{vehicleId}/{uid}
+        //    which is the offer/accept handshake path). Write status + driverId so the app
+        //    can reconstruct the active trip without a full pendingjobs fetch.
+        _db.ref('jobs/' + SomeSession2 + '/' + String(bookingId)).update({
+            status:   'assigned',
+            driverId: String(driverId),
+            vehicleId: vehicleId ? String(vehicleId) : '',
+            AssignedAt: _now
+        }).catch(function(e) {
+            console.warn('[BW] jobs/{bookingId} update failed:', e.code || e.message || e);
+        });
     }
 
     function _resolveAcceptance(bookingId, driverId, _mustQueue) {
