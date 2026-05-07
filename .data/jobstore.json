@@ -13,8 +13,8 @@
     "Pickingtime": "2026-05-07 02:09:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": 0,
-    "DriverId": 0,
+    "VehicleId": "D002",
+    "DriverId": "D002",
     "DispatcherName": "Abdullah Gul",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -32,9 +32,9 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Pending",
+    "BookingStatus": "Offered",
     "VehicleType": "Not Specified",
-    "serviceType": "tm",
+    "serviceType": "taxi",
     "Urgent": "No",
     "CornerAddress": "",
     "Notes": "",
@@ -45,6 +45,6 @@
     "companyId": "620611",
     "returnReason": "No Response – Not Accepted",
     "OfferedAt": "2026-05-07T02:09:55.477Z",
-    "offeredAt": null
+    "offeredAt": 1778127731136
   }
 ]

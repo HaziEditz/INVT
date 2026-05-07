@@ -5903,7 +5903,14 @@ $(document).ready(function() {
         _pjRef.on('child_added',   function(snap) { _pjIngest(snap, false); },
                                    function(e) { console.warn('[pendingjobs] listener error:', e.code); });
         _pjRef.on('child_changed', function(snap) { _pjIngest(snap, true); }, function(e) {});
-        _pjRef.once('value', function() { _pjInit = true; });
+        _pjRef.once('value', function(allSnap) {
+            _pjInit = true;
+            // Re-scan all existing jobs now that _pjInit is set.
+            // child_added fires before once('value') so pre-existing jobs were skipped
+            // by the _pjInit guard — process them now to catch jobs already in Firebase.
+            allSnap.forEach(function(child) { _pjIngest(child, false); });
+            console.log('[pendingjobs] initial scan complete — ' + allSnap.numChildren() + ' job(s) processed');
+        });
     })();
 
     // ── 6c. Tow-request alert listener ────────────────────────────────────
