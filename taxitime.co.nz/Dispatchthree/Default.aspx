@@ -7458,10 +7458,29 @@ $(document).ready(function() {
         // The outer key IS the Firebase auth UID — capture it as PlayerId before unwrapping.
         // IMPORTANT: only unwrap when the first value is itself an object. Partial updates
         // like { vehiclestatus: 'Offline' } must NOT be unwrapped (they are direct updates).
+        // BUG FIX (fbUID:current): The dispatch console writes a 'current' sub-object under
+        // online/{companyId}/{vehicleId} when a job is assigned.  Previously, Object.keys()[0]
+        // could resolve to 'current' (alphabetically before the real Firebase UID), causing
+        // PlayerId = 'current' and notifications going to /notification/current (dead path).
+        // Fix: skip known dispatch-console sub-fields; require the candidate object to contain
+        // driverid, vehiclenumber, or drivername before treating it as the Firebase UID node.
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
-            if (keys.length > 0 && typeof driverData[keys[0]] === 'object' && driverData[keys[0]] !== null) {
-                var _fbUid = keys[0];
+            var _SKIP_UID_KEYS = { current: true, vehiclestatus: true, lat: true, lng: true,
+                                   online: true, zonename: true, zonequeue: true, jobcount: true,
+                                   Direction: true, speed: true, GPSstatus: true, appver: true };
+            var _fbUid = null;
+            for (var _ki = 0; _ki < keys.length; _ki++) {
+                var _k = keys[_ki];
+                if (_SKIP_UID_KEYS[_k]) continue;
+                var _cand = driverData[_k];
+                if (typeof _cand === 'object' && _cand !== null &&
+                    (_cand.driverid || _cand.vehiclenumber || _cand.drivername)) {
+                    _fbUid = _k;
+                    break;
+                }
+            }
+            if (_fbUid) {
                 driverData = driverData[_fbUid];
                 // Store the Firebase UID so notifications go to the right path
                 if (driverData && typeof driverData === 'object' && !driverData.PlayerId) {
@@ -7543,10 +7562,25 @@ $(document).ready(function() {
         // Capture the Firebase auth UID as PlayerId before unwrapping.
         // IMPORTANT: only unwrap when the first value is itself an object. Partial updates
         // like { vehiclestatus: 'Offline' } must NOT be unwrapped (they are direct updates).
+        // BUG FIX (fbUID:current): same fix as child_added — skip known dispatch-console
+        // sub-fields and require a real driver entry before treating a key as the UID.
         if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
             var keys = Object.keys(driverData);
-            if (keys.length > 0 && typeof driverData[keys[0]] === 'object' && driverData[keys[0]] !== null) {
-                var _fbUid = keys[0];
+            var _SKIP_UID_KEYS = { current: true, vehiclestatus: true, lat: true, lng: true,
+                                   online: true, zonename: true, zonequeue: true, jobcount: true,
+                                   Direction: true, speed: true, GPSstatus: true, appver: true };
+            var _fbUid = null;
+            for (var _ki = 0; _ki < keys.length; _ki++) {
+                var _k = keys[_ki];
+                if (_SKIP_UID_KEYS[_k]) continue;
+                var _cand = driverData[_k];
+                if (typeof _cand === 'object' && _cand !== null &&
+                    (_cand.driverid || _cand.vehiclenumber || _cand.drivername)) {
+                    _fbUid = _k;
+                    break;
+                }
+            }
+            if (_fbUid) {
                 driverData = driverData[_fbUid];
                 if (driverData && typeof driverData === 'object' && !driverData.PlayerId) {
                     driverData.PlayerId = _fbUid;
