@@ -7488,6 +7488,16 @@ $(document).ready(function() {
                 }
             }
         }
+        // Fallback: driver app writes its full record to the 'current' sub-key
+        // (online/{companyId}/{vehicleId}/current). The fbUID search above skips
+        // 'current' to avoid treating it as a Firebase UID, but if we still have no
+        // vehiclenumber/driverid the actual driver data IS in current — use it directly.
+        if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
+            if (driverData.current && typeof driverData.current === 'object' &&
+                (driverData.current.driverid || driverData.current.vehiclenumber || driverData.current.drivername)) {
+                driverData = driverData.current;
+            }
+        }
         // Also stamp PlayerId if the field is already flat but PlayerId is missing
         if (driverData && !driverData.PlayerId && driverData.driverid) {
             driverData.PlayerId = String(driverData.driverid);
@@ -7585,6 +7595,15 @@ $(document).ready(function() {
                 if (driverData && typeof driverData === 'object' && !driverData.PlayerId) {
                     driverData.PlayerId = _fbUid;
                 }
+            }
+        }
+        // Fallback: driver app writes its full record to the 'current' sub-key.
+        // If fbUID search found nothing and vehiclenumber/driverid are still absent,
+        // the real driver data is in driverData.current — use it directly.
+        if (typeof driverData.vehiclenumber === 'undefined' && typeof driverData.driverid === 'undefined') {
+            if (driverData.current && typeof driverData.current === 'object' &&
+                (driverData.current.driverid || driverData.current.vehiclenumber || driverData.current.drivername)) {
+                driverData = driverData.current;
             }
         }
         if (driverData && !driverData.PlayerId && driverData.driverid) {
