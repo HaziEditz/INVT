@@ -93,7 +93,7 @@
       ".write": false
     },
     "online": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null",
       "$companyid": {
         ".validate": "$companyid!='null'",
@@ -181,11 +181,11 @@
       ".write": "auth != null"
     },
     "drivers": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null"
     },
     "vehicles": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null"
     },
     "allbookings": {
@@ -198,9 +198,9 @@
     },
     "pendingjobs": {
       "$companyId": {
-        ".read": "auth != null",
+        ".read": true,
         "$bookingId": {
-          ".read": "auth != null",
+          ".read": true,
           ".write": "auth != null"
         }
       }
@@ -272,7 +272,7 @@
     "companySettings": {
       "$companyId": {
         ".validate": "$companyId!='null'",
-        ".read": "auth != null",
+        ".read": true,
         ".write": "auth != null"
       }
     },
