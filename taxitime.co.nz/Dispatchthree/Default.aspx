@@ -8655,6 +8655,47 @@ $(document).ready(function() {
         } catch(e) {}
     }
 
+    // Write assignment status back to Firebase so the SA portal, passenger app, and
+    // any other Firebase consumers see the correct job state immediately after acceptance.
+    // Also updates online/{companyId}/{vehicleId}/vehiclestatus (top-level) to 'Assigned'
+    // so that page-reload child_added events don't present the driver as Available and
+    // trigger a ghost re-offer while they are already on a job.
+    function _bwWriteAssignmentToFirebase(bookingId, driverId, vehicleId) {
+        if (!SomeSession2 || !bookingId) return;
+        var _db = firebase.database();
+        var _now = new Date().toISOString();
+        // 1. pendingjobs — SA portal + passenger app poll this to show trip status
+        _db.ref('pendingjobs/' + SomeSession2 + '/' + String(bookingId)).update({
+            Status:         'Assigned',
+            AssignedDriver: String(driverId),
+            AssignedAt:     _now
+        }).then(function() {
+            console.log('[BW] pendingjobs/' + SomeSession2 + '/' + bookingId + ' → Assigned (driver ' + driverId + ')');
+        }).catch(function(e) {
+            console.warn('[BW] pendingjobs write-back failed:', e.code || e.message || e);
+        });
+        // 2. allbookings — some portals read here instead of pendingjobs
+        _db.ref('allbookings/' + SomeSession2 + '/' + String(bookingId)).update({
+            Status:         'Assigned',
+            AssignedDriver: String(driverId),
+            AssignedAt:     _now
+        }).catch(function(e) {
+            console.warn('[BW] allbookings write-back failed:', e.code || e.message || e);
+        });
+        // 3. online/{vehicleId}/vehiclestatus (top-level) — prevents ghost re-offer on page reload.
+        // child_added reads the top-level field; if it still says 'Available' on reload,
+        // the driver appears free and auto-dispatch will offer them another job.
+        if (vehicleId) {
+            _db.ref('online/' + SomeSession2 + '/' + String(vehicleId)).update({
+                vehiclestatus: 'Assigned'
+            }).then(function() {
+                console.log('[BW] online/' + SomeSession2 + '/' + vehicleId + '/vehiclestatus → Assigned');
+            }).catch(function(e) {
+                console.warn('[BW] online vehiclestatus update failed:', e.code || e.message || e);
+            });
+        }
+    }
+
     function _resolveAcceptance(bookingId, driverId, _mustQueue) {
         // _mustQueue=true means this call came from _wbAccept (silent busy-offer path).
         // In that case we ALWAYS queue — never re-check live driverdatarealx, because the
@@ -8662,11 +8703,13 @@ $(document).ready(function() {
         // by the time this function runs (race condition).
         var _rasc = angular.element(document.getElementById('myangular')).scope();
         var _driverIsBusy = (_mustQueue === true);
+        var _raVehicleId  = null; // captured for Firebase write-back
         if (!_driverIsBusy && _rasc && _rasc.driverdatarealx) {
             for (var _ri = 0; _ri < _rasc.driverdatarealx.length; _ri++) {
                 var _rd = _rasc.driverdatarealx[_ri];
                 if (String(_rd.driverid) === String(driverId) || String(_rd.VehicleId) === String(driverId)) {
                     _driverIsBusy = (_rd.vehiclestatus === 'Busy');
+                    _raVehicleId  = _rd.VehicleId || String(_rd.driverid);
                     break;
                 }
             }
@@ -8756,6 +8799,10 @@ $(document).ready(function() {
         } else {
             // Driver is Available — assign immediately.
             convertstatus(bookingId, 'Assigned', driverId, '');
+            // Write assignment back to Firebase so SA portal + passenger app see the driver.
+            // Also stamps online/{vehicleId}/vehiclestatus='Assigned' to prevent ghost re-offer
+            // if the dispatch page is reloaded while D002 is on this trip.
+            _bwWriteAssignmentToFirebase(bookingId, driverId, _raVehicleId);
             delete window._driverQueueMap[String(driverId)];
             if (_rasc) {
                 if (typeof _rasc.getjobs      === 'function') _rasc.getjobs();
