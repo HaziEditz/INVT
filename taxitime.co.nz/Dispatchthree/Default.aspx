@@ -5506,7 +5506,13 @@ $(document).ready(function() {
     firebase.auth().onAuthStateChanged(function(user) {
         if (!user) {
             firebase.auth().signInAnonymously().catch(function(e) {
-                console.warn('Firebase auth failed (' + e.code + '). Real-time features (driver locations, emergency alerts) will not load.');
+                if (e.code === 'auth/operation-not-allowed') {
+                    console.error('[BW] Firebase anonymous auth is DISABLED in the Firebase Console. ' +
+                        'Go to Firebase Console → Authentication → Sign-in methods → Anonymous → Enable. ' +
+                        'Until then, Emergency alerts and real-time driver locations will not load.');
+                } else {
+                    console.warn('[BW] Firebase auth failed (' + e.code + '). Real-time features (driver locations, emergency alerts) will not load.');
+                }
             });
         }
     });
@@ -6333,19 +6339,19 @@ $(document).ready(function() {
             }
             else {
                 $res = JSON.parse(result.d);
-                if ($res["dt1"].length != []) {
+                if ($res["dt1"].length > 0) {
                     $(".AllVehicles").text($res["dt1"][0].All);
                 }
-                if ($res["dt3"].length != []) {
+                if ($res["dt3"].length > 0) {
                     $("#FreeVehicles").text($res["dt3"][0].Free);
                 }
-                if ($res["dt4"].length != []) {
+                if ($res["dt4"].length > 0) {
                     $("#PickingVehicles").text($res["dt4"][0].Picking);
                 }
-                if ($res["dt2"].length != []) {
+                if ($res["dt2"].length > 0) {
                     $("#BusyVehicles").text($res["dt2"][0].Busy);
                 }
-                if ($res["dt5"].length != []) {
+                if ($res["dt5"].length > 0) {
                     $("#AwayVehicles").text($res["dt5"][0].Away);
                 }
                 // dt6 semantics from server:
@@ -6518,16 +6524,16 @@ $(document).ready(function() {
         Selector(param, proc).then(function (result) {
             $res = JSON.parse(result.d);
 
-            if ($res["dt2"].length != []) {
+            if ($res["dt2"].length > 0) {
                 $("#CancelledJobs").text($res["dt2"][0].CancelledCount);
             }
-            if ($res["dt3"].length != []) {
+            if ($res["dt3"].length > 0) {
                 $("#NoShownJobs").text($res["dt3"][0].NoShownCount);
             }
-            if ($res["dt1"].length != []) {
+            if ($res["dt1"].length > 0) {
                 $("#DispatchedJobs").text($res["dt1"][0].ClosedCount);
             }
-            if ($res["dt4"].length != []) {
+            if ($res["dt4"].length > 0) {
                 $("#AllJobs").text($res["dt4"][0].AllCount);
             }
 
@@ -10374,7 +10380,7 @@ $(document).ready(function() {
              var proc = '[payment_percentage]';
              Selector1(param, proc).then(function (result) {
                  $res = JSON.parse(result.d);
-                 if ($res.length != []) {
+                 if ($res.length > 0) {
                                  
                      document.getElementById("percentagevalue").value = $res[0]['paymentpercent'];
                      document.getElementById("transection").value = $res[0]['chargepertra'];
@@ -10406,7 +10412,7 @@ $(document).ready(function() {
          //    Selector(param, proc).then(function (result) {
          //        $res = JSON.parse(result.d);
          //       console.log($res);
-         //        if ($res["dt1"].length != []) {
+         //        if ($res["dt1"].length > 0) {
                     
                    
          //            $("#DirectBookingIsAllowed").text($res["dt1"][0].DirectBookingIsAllowed); 
@@ -10428,7 +10434,7 @@ $(document).ready(function() {
          //        $(".VehicleType").empty();
          //        $(".VehicleType").append("<option ng-value='Automatic' selected='selected'>Not Specified</option>");
 
-         //        if ($res["dt3"].length != []) {
+         //        if ($res["dt3"].length > 0) {
 
 
          //            for ($i = 0; $i < $res["dt3"].length; $i++) {
@@ -10437,7 +10443,7 @@ $(document).ready(function() {
          //        }
                  
 
-         //        if ($res["dt4"].length != []) {
+         //        if ($res["dt4"].length > 0) {
          //            $('#StripePublicKey').text($res["dt5"][0].PublicKey);
          //        }
 
@@ -11202,7 +11208,7 @@ $(document).ready(function() {
                     $res = JSON.parse(result.d);
 
                     $("#SearchedJobsDetails").empty();
-                    if ($res.length != []) {
+                    if ($res.length > 0) {
                         $scope.searchitem = $res;
                         if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
@@ -11257,7 +11263,7 @@ $(document).ready(function() {
                         $scope.VehicleImage = $data.VehicleImage;
                      
                         $("#VehicleJobs").empty();
-                        if ($res["dt2"].length != []) {
+                        if ($res["dt2"].length > 0) {
                             if ($res["dt2"].length === 0) {
                                 $("#VehicleJobs").append('<div class="drv-job-empty"><i class="fa fa-inbox" style="font-size:24px;display:block;margin-bottom:6px;opacity:0.4;"></i>No active jobs</div>');
                             }
@@ -12246,7 +12252,7 @@ $(document).ready(function() {
                     $res = JSON.parse(result.d);
                     console.log($res);
                     $("#SearchedJobsDetails").empty();
-                    if ($res.length != []) {
+                    if ($res.length > 0) {
                         $scope.searchitem = $res;
                         if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
                     }
@@ -12848,7 +12854,7 @@ $(document).ready(function() {
                              }catch(z){
                                  $res = [];
                              }
-                             if ($res.length != [] && $res[0].AutoDispatch == '1') {
+                             if ($res.length > 0 && $res[0].AutoDispatch == '1') {
                                  $("#ddlVehicleType").append("<option value='' selected='selected'>Vehicle</option>");
                                  for ($i = 0; $i < $res.length; $i++) {
                                      $("#ddlVehicleType").append("<option value=" + $res[$i].Id + " >" + $res[$i].VehicleNo + " ," + $res[$i].CallSign + "</option>");
@@ -12969,7 +12975,7 @@ $(document).ready(function() {
                 $("#PickupZoneId").text("0");
                 return true;
             }
-            if (ZonesArea["dt1"].length != [] || ZonesArea["dt2"].length != []) {
+            if (ZonesArea["dt1"].length > 0 || ZonesArea["dt2"].length > 0) {
     
       
                 var polygon = [], ZonesPolygon = [], UpdatedVehicle = [];
@@ -14211,7 +14217,7 @@ $(document).ready(function() {
                                   var ressp  = JSON.parse(result.d);
                                  
                                 
-                                  if (ressp["dt2"].length != []) {
+                                  if (ressp["dt2"].length > 0) {
 
                                       var  param = [   { "name": "bookingid", "Value": id} 
                                       ];
@@ -14553,10 +14559,10 @@ $(document).ready(function() {
                     Selector(param, prod).then(  function (result) {
                         let res = JSON.parse(result.d);
                         console.log(res);
-                        if (res["dt1"].length != []) {
+                        if (res["dt1"].length > 0) {
 
                             var  VehiclesArray = [];
-                            if (res["dt2"].length != []) {
+                            if (res["dt2"].length > 0) {
                                 console.log(res["dt2"].length);
                                 totaldrivers = [];
 
@@ -14886,10 +14892,10 @@ $(document).ready(function() {
                           Selector(param, prod).then(  function (result) {
                               let res = JSON.parse(result.d);
                               console.log(res);
-                              if (res["dt1"].length != []) {
+                              if (res["dt1"].length > 0) {
 
                                   var  VehiclesArray = [];
-                                  if (res["dt2"].length != []) {
+                                  if (res["dt2"].length > 0) {
                                       console.log(res["dt2"].length);
                                       totaldrivers = [];
 
@@ -15125,11 +15131,11 @@ $(document).ready(function() {
             Selector(random1, random2).then(function (result) {
                 random3  = JSON.parse(result.d);
                 console.log(random3);
-                if (random3["dt2"].length != []) {
+                if (random3["dt2"].length > 0) {
 
                     console.log("zone Driver");
                     console.log(random3);
-                    if (random3["dt1"].length != []) {
+                    if (random3["dt1"].length > 0) {
                         console.log("enter in sending state");
                         random4 = 0;
                         random5 = new IntervalTimer(function () {
@@ -15365,7 +15371,7 @@ $(document).ready(function() {
                     }
                 }
                 else {
-                    if (random3["dt1"].length != []) {
+                    if (random3["dt1"].length > 0) {
                         if(inrolejob.includes(random3["dt1"][0].Id)){
                             console.log("already in que");
                         }else{
@@ -15400,10 +15406,10 @@ $(document).ready(function() {
             Selector(random11, random22).then(  function (result) {
                 random33 = JSON.parse(result.d);
                 console.log(random33);
-                if (random33["dt1"].length != []) {
+                if (random33["dt1"].length > 0) {
 
                     var  VehiclesArray = [];
-                    if (random33["dt2"].length != []) {
+                    if (random33["dt2"].length > 0) {
                         console.log(random33["dt2"].length);
                         random77 = [];
                         random33["dt2"].forEach(async function( item) {
@@ -16655,7 +16661,7 @@ $(document).ready(function() {
                         $scope.VehicleImage = $data.VehicleImage;
                      
                       
-                        if ($res["dt2"].length != []) {
+                        if ($res["dt2"].length > 0) {
                             var jobColor;
 
                             if ($res["dt2"].length === 0) {
@@ -16940,7 +16946,7 @@ $(document).ready(function() {
                         var resp = result.data;
                
                         $res = JSON.parse(resp.d);
-                        if ($res.length != []) {
+                        if ($res.length > 0) {
 
 
                             var totalvalue = (parseFloat($res[0].StartPrice) + (parseFloat($res[0].DistanceRate) * parseFloat(DistanceRes))).toFixed(2);
@@ -17130,7 +17136,7 @@ $(document).ready(function() {
                     });
                 }
             
-                if ($res["dt1"].length != []) {
+                if ($res["dt1"].length > 0) {
 
                     var _cname = $res["dt1"][0].CompanyName || localStorage.getItem('TT_Company') || '';
                     if (_cname) $('#CompanyName').text(_cname);
@@ -17202,7 +17208,7 @@ $(document).ready(function() {
                     })();
                 }
                         
-                if ($res["dt3"].length != []) {
+                if ($res["dt3"].length > 0) {
                     $scope.cartype =  $res["dt3"];
                     console.log( $scope.cartype);
                     $scope.carlist.push("Not Specified");
@@ -17213,7 +17219,7 @@ $(document).ready(function() {
                 }
 
                 console.log($scope.carlist);
-                if ($scope.defaltlist["dt5"].length != []) {
+                if ($scope.defaltlist["dt5"].length > 0) {
                     $scope.publickey =   $res["dt5"][0].PublicKey;
                 }
             }, function myError(response) {
@@ -18495,7 +18501,7 @@ $(document).ready(function() {
                             var resp = result.data;
                
                             $res = JSON.parse(resp.d);
-                            if ($res.length != []) {
+                            if ($res.length > 0) {
 
 
                                 var totalvalue = (parseFloat($res[0].StartPrice) + (parseFloat($res[0].DistanceRate) * parseInt(DistanceRes[0])));
@@ -20416,7 +20422,7 @@ $(document).ready(function() {
                 angular.element(document.getElementById('myangular')).scope().getjobs( );
             }
             document.getElementById("total_notification").innerHTML = $res.length;
-            if ($res.length != []) {
+            if ($res.length > 0) {
                 document.getElementById("total_notification").className = "button-glow2";
                 if ($("#DispatchSounds").text() == "1") {
 
@@ -21851,7 +21857,7 @@ $(document).ready(function() {
                         $res = JSON.parse(result.d);
 
                         $("#CustomerJobsDetails").empty();
-                        if ($res["dt1"].length != []) {
+                        if ($res["dt1"].length > 0) {
                             $("#TxtCustomer").val($res["dt1"][0].Customer);
                             $("#ddlType").val($res["dt1"][0].Type);
                             $("#TxtAddress").val($res["dt1"][0].Address);

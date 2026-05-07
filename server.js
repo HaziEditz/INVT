@@ -135,7 +135,7 @@ let pasNextId     = 1;
 function loadJsonStore(file, arr, label) {
   try { if (fs.existsSync(file)) { const d = JSON.parse(fs.readFileSync(file,'utf8')); if(Array.isArray(d)){arr.push(...d);} console.log('[persist] loaded '+arr.length+' '+label); } } catch(e) { console.log('[persist] '+label+' load error:',e.message); }
 }
-function saveJsonStore(file, arr) { try { fs.writeFileSync(file, JSON.stringify(arr, null, 2)); } catch(e) {} }
+function saveJsonStore(file, arr) { try { fs.writeFileSync(file, JSON.stringify(arr, null, 2)); } catch(e) { console.error('[persist] saveJsonStore error writing', file + ':', e.message); } }
 loadJsonStore(ACC_MANAGERS_FILE,  accManagerStore,  'ACC manager(s)');
 loadJsonStore(ACC_CLIENTS_FILE,   accClientStore,   'ACC client(s)');
 loadJsonStore(ACC_APPROVALS_FILE, accApprovalStore, 'ACC approval(s)');
@@ -649,6 +649,14 @@ function saveJobStore() {
 }
 
 function saveClosedJobStore() {
+  // BUG13 — cap closed job store to prevent unbounded disk/memory growth.
+  // Keeps the most-recent CLOSED_JOB_CAP records globally; oldest are trimmed.
+  const CLOSED_JOB_CAP = 2000;
+  if (closedJobStore.length > CLOSED_JOB_CAP) {
+    const trimmed = closedJobStore.length - CLOSED_JOB_CAP;
+    closedJobStore.splice(0, trimmed);
+    console.log(`[persist] closedjobstore trimmed ${trimmed} oldest record(s) → ${closedJobStore.length} remaining`);
+  }
   fs.writeFile(CLOSED_JOB_STORE_FILE, JSON.stringify(closedJobStore, null, 2), (err) => {
     if (err) console.log('[persist] closedjobstore save error:', err.message);
   });
@@ -5166,7 +5174,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       return;
     }
 
-    // ── /DataSelectorLess — read operations ───────────────────────────────
+    // ── /DataSelectorLess — primary read path (with some intentional write side-effects) ───
+    // NOTE (BUG9): [QuickSetNoOne], [CancelJobStatusFromJobList] and [DispatcherUnReadMessages]
+    // live here because the frontend hardcodes /DataSelectorLess for those calls.
+    // They go through the same session/company auth as /DataSelector and are safe,
+    // but any future read-only middleware on this path must explicitly exclude them.
     if (urlPath.includes('/DataSelectorLess')) {
       if (action === 'RetrieveAlarms' || action === 'AllAlarms' || action === 'RetrieveAlarts' || action === 'RetrieveAlerts' || action === 'GetAlarms' || action === 'GetAlerts') {
         console.log(`200: POST ${urlPath} [action=${action}] -> []`);
@@ -5543,8 +5555,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [AutoDispatch] stale-offer watchdog: resetting job #${j.Id} (offered to driver ${j.DriverId}, age ${Math.round(age/1000)}s) → Pending`);
               j.BookingStatus = 'Pending';
               j.offeredAt = null;
-              j.DriverId = null;
-              j.VehicleId = null;
+              j.DriverId = 0;
+              j.VehicleId = 0;
             }
           }
           // Orphaned-job watchdog: Assigned status but no driver assigned (DriverId=0/null).
@@ -6099,8 +6111,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
           const currentStatus2 = job.BookingStatus || '';
           // Atomic double-offer guard: block second offer if job is already Offered to a different driver.
-          const incomingDriverId2 = parseInt(param('driverid') || '0') || 0;
-          if (newStatus === 'Offered' && currentStatus2 === 'Offered' && job.DriverId && job.DriverId !== incomingDriverId2) {
+          // BUG11 — use same string-safe pattern as DP path so 'D001'-style IDs are preserved.
+          const _rawDriverId2 = (param('driverid') || '').toString().trim();
+          const incomingDriverId2 = parseInt(_rawDriverId2) > 0 ? parseInt(_rawDriverId2) : (_rawDriverId2 || 0);
+          if (newStatus === 'Offered' && currentStatus2 === 'Offered' && job.DriverId && String(job.DriverId) !== String(incomingDriverId2)) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId2}`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
@@ -6177,8 +6191,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
           if (effectiveStatus2 === 'Assigned') {
-            const acceptDriverId2 = parseInt(param('driverid') || '0') || 0;
-            if (acceptDriverId2 > 0) { job.DriverId = acceptDriverId2; job.VehicleId = acceptDriverId2; }
+            // BUG11 — preserve string driver IDs (e.g. 'D001') instead of parseInt→0
+            const _rawAcceptId2 = (param('driverid') || '').toString().trim();
+            const acceptDriverId2 = parseInt(_rawAcceptId2) > 0 ? parseInt(_rawAcceptId2) : (_rawAcceptId2 || 0);
+            if (acceptDriverId2) { job.DriverId = acceptDriverId2; job.VehicleId = acceptDriverId2; }
           }
           // Only release (reset) the driver when the job is being cancelled/unassigned.
           // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
