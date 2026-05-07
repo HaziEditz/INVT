@@ -175,8 +175,8 @@ setInterval(() => {
       r.status = 'deactivated';
       console.log(`[accounts] ${r.email} grace expired → deactivated`);
       // Revoke Firebase adminAccess async
-      if (r.ownerUid && r.companyId && r.passwordHash) {
-        firebaseSignIn(r.email, r.passwordHash)
+      if (r.ownerUid && r.companyId && r._rawPassword) {
+        firebaseSignIn(r.email, r._rawPassword)
           .then(({ idToken }) => firebaseDbDelete(`adminAccess/${r.companyId}/${r.ownerUid}`, idToken))
           .then(() => console.log(`[accounts] Firebase: revoked adminAccess/${r.companyId}/${r.ownerUid}`))
           .catch(e => console.log(`[accounts] Firebase revoke warning (auto-deactivate) for ${r.email}: ${e.message}`));
@@ -748,7 +748,7 @@ async function pollRentalTaxiRequests() {
         DispatchNotes: promoNote,
         EstimatedDistance: '0', EstimatedTime: '0',
         TarriffType: 'Automatic',
-        companyId: '',           // no company scope — visible to all dispatchers
+        companyId: data.companyId || data.CompanyId || String(data.companyid || '') || '',
         rentalRequestId: key,    // link back to Firebase for status sync
         promoCode: data.promoCode || '',
         discountPercent: data.discountPercent || 0,
@@ -1631,10 +1631,10 @@ const server = http.createServer(async (req, res) => {
           let idToken;
           if (ownerUid) {
             // UID already set at registration — sign in to get a fresh idToken
-            ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+            ({ idToken } = await firebaseSignIn(reg.email, reg._rawPassword));
           } else {
             // Fallback: Firebase user wasn't created at registration — create it now
-            const created = await firebaseCreateUser(reg.email, reg.passwordHash);
+            const created = await firebaseCreateUser(reg.email, reg._rawPassword);
             ownerUid = created.uid;
             idToken  = created.idToken;
           }
@@ -1697,8 +1697,8 @@ const server = http.createServer(async (req, res) => {
         reg.status = 'deactivated';
         saveRegistrations();
         // Remove Firebase adminAccess node if we have the uid and password
-        if (reg.ownerUid && reg.companyId && reg.passwordHash) {
-          firebaseSignIn(reg.email, reg.passwordHash)
+        if (reg.ownerUid && reg.companyId && reg._rawPassword) {
+          firebaseSignIn(reg.email, reg._rawPassword)
             .then(({ idToken }) => firebaseDbDelete(`adminAccess/${reg.companyId}/${reg.ownerUid}`, idToken))
             .then(() => console.log(`[admin] Firebase: deleted adminAccess/${reg.companyId}/${reg.ownerUid}`))
             .catch(e => console.log(`[admin] Firebase revoke warning for ${reg.email}: ${e.message}`));
@@ -1717,8 +1717,8 @@ const server = http.createServer(async (req, res) => {
         if (idx !== -1) registrationStore.splice(idx, 1);
         saveRegistrations();
         // Revoke Firebase access asynchronously
-        if (reg.ownerUid && reg.companyId && reg.passwordHash) {
-          firebaseSignIn(reg.email, reg.passwordHash)
+        if (reg.ownerUid && reg.companyId && reg._rawPassword) {
+          firebaseSignIn(reg.email, reg._rawPassword)
             .then(({ idToken }) => firebaseDbDelete(`adminAccess/${reg.companyId}/${reg.ownerUid}`, idToken))
             .then(() => console.log(`[admin] Firebase: revoked adminAccess/${reg.companyId}/${reg.ownerUid}`))
             .catch(e => console.log(`[admin] Firebase revoke warning (delete) for ${reg.email}: ${e.message}`));
@@ -1733,8 +1733,8 @@ const server = http.createServer(async (req, res) => {
       // Repair: write users/{uid}/companyId to Firebase for already-approved accounts
       // that were approved before this fix was deployed. Safe to call multiple times.
       if (action === 'fix-firebase' && req.method === 'POST') {
-        if (!reg.companyId || !reg.passwordHash) {
-          jsonReply(res, { error: 'Account is missing companyId or password hash — cannot repair.' });
+        if (!reg.companyId || !reg._rawPassword) {
+          jsonReply(res, { error: 'Account is missing companyId or password — cannot repair.' });
           return;
         }
         let fbError = null;
@@ -1743,26 +1743,26 @@ const server = http.createServer(async (req, res) => {
           // If uid missing, try sign-in first; if that fails, create the user
           let idToken;
           if (uid) {
-            ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+            ({ idToken } = await firebaseSignIn(reg.email, reg._rawPassword));
           } else {
             try {
-              ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+              ({ idToken } = await firebaseSignIn(reg.email, reg._rawPassword));
               // Sign-in succeeded — get uid from the token response
               const tokenData = JSON.parse(Buffer.from(idToken.split('.')[1] + '==', 'base64').toString());
               uid = tokenData.user_id || tokenData.sub || uid;
             } catch(_) {
               // Sign-in failed — create the Firebase user
-              const created = await firebaseCreateUser(reg.email, reg.passwordHash);
+              const created = await firebaseCreateUser(reg.email, reg._rawPassword);
               uid = created.uid;
               idToken = created.idToken;
             }
           }
           if (!uid) {
             // Get uid from fresh sign-in token
-            ({ idToken } = await firebaseSignIn(reg.email, reg.passwordHash));
+            ({ idToken } = await firebaseSignIn(reg.email, reg._rawPassword));
           }
           // Re-sign in to get a fresh idToken (needed if uid was recovered above)
-          const fresh = await firebaseSignIn(reg.email, reg.passwordHash);
+          const fresh = await firebaseSignIn(reg.email, reg._rawPassword);
           idToken = fresh.idToken;
           uid = uid || fresh.uid;
           await firebaseDbSet(`adminAccess/${reg.companyId}/${uid}`, true, idToken);
@@ -1910,7 +1910,7 @@ const server = http.createServer(async (req, res) => {
       name:           reqName,
       email:          reqEmail,
       phone:          reqPhone,
-      passwordHash:   reqPass,
+      _rawPassword:   reqPass,   // plaintext — needed for Firebase sign-in during approval; remove when switching to server-token-only flow
       businessNumber: reqBizNum,
       fleetSize:      reqFleet,
       area:           reqArea,
@@ -5495,8 +5495,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         jsonReply(res, { d: JSON.stringify(multiResult) });
 
       } else if (action === '[GetSuspendedDrivers]') {
-        console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${SUSPENDED_DRIVERS.length} suspended driver(s)`);
-        objectD(res, { dt1: SUSPENDED_DRIVERS, dt2: [], dt3: [], dt4: [], dt5: [] });
+        const _mysSuspendedDS = companySuspended(SUSPENDED_DRIVERS);
+        console.log(`200: POST ${urlPath} [action=[GetSuspendedDrivers]] -> ${_mysSuspendedDS.length} suspended driver(s) (companyId=${sessionCompanyId})`);
+        objectD(res, { dt1: _mysSuspendedDS, dt2: [], dt3: [], dt4: [], dt5: [] });
         return;
 
       } else if (action === 'RetrieveAlarms' || action === 'AllAlarms' || action === 'RetrieveAlarts' || action === 'RetrieveAlerts' || action === 'GetAlarms' || action === 'GetAlerts') {
@@ -5506,8 +5507,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[Editjobv4]') {
         const idParam = param('Id');
         const jobId = idParam !== undefined ? parseInt(idParam) : 0;
-        let job = jobStore.find(j => j.Id === jobId);
-        if (!job) job = jobStore[0];
+        const job = jobStore.find(j => j.Id === jobId);
         const jobWithMins = job ? { ...job, JobMins: calcJobMins(job) } : null;
         const resp = {
           dt1: jobWithMins ? [jobWithMins] : [],
@@ -6239,6 +6239,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         let _dssQueueNo = null;
         let _dssDriverCancelled = null;
         let _dssDriverRecalled  = null;
+        let _dscCompletedJobDS  = null;
         if (driverId && newStatus) {
           // ── Suspension gate ───────────────────────────────────────────────────
           const _suspCheckDS = SUSPENDED_DRIVERS.find(s =>
@@ -6440,6 +6441,52 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveJobStore();
                 saveClosedJobStore();
                 _patchRentalComplete(job);
+                // §108d — patch allbookings so SA portal gets correct Status and paymentMethod.
+                // Mirror of the DP path fix; without this, DS-path completions showed wrong data.
+                const _cjPayMethodDS = (
+                  job.PaymentType   || job.paymentType   ||
+                  job.PaymentMethod || job.paymentMethod || 'cash'
+                ).toLowerCase();
+                _dscCompletedJobDS = {
+                  tripId:      String(job.Id),
+                  bookingId:   String(job.Id),
+                  companyId:   String(sessionCompanyId || ''),
+                  driverId:    String(driverId),
+                  driverName:  drivername || (job.UserFName ? ((job.UserFName || '') + ' ' + (job.UserLName || '')).trim() : ''),
+                  vehicleId:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
+                  vehicleNo:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
+                  fare:        job.Fare != null ? Number(job.Fare) : (job.TotalFare != null ? Number(job.TotalFare) : 0),
+                  paymentType:    _cjPayMethodDS,
+                  paymentMethod:  _cjPayMethodDS,
+                  paymentStatus:  job.paymentStatus || job.PaymentStatus || '',
+                  stripeChargeId: job.stripeChargeId || job.StripeChargeId || null,
+                  completedAt: Date.now(),
+                  status:      'Completed',
+                  source:      'dispatch',
+                  pickup:      job.PickAddress || '',
+                  dropoff:     job.DropAddress || '',
+                };
+                (function _patchAllbookingsCompletionDS(j, cid, pm) {
+                  getFirebaseServerToken().then(function(tok) {
+                    if (!tok || !cid || !j.Id) return;
+                    const _abPatchDS = {
+                      Status:        'Completed',
+                      paymentMethod: pm,
+                      PaymentMethod: pm,
+                      completedAt:   j.JobCompleteTime || new Date().toISOString(),
+                    };
+                    if (j.paymentStatus || j.PaymentStatus) {
+                      _abPatchDS.paymentStatus = j.paymentStatus || j.PaymentStatus;
+                      _abPatchDS.PaymentStatus = j.paymentStatus || j.PaymentStatus;
+                    }
+                    if (j.stripeChargeId || j.StripeChargeId) {
+                      _abPatchDS.stripeChargeId = j.stripeChargeId || j.StripeChargeId;
+                    }
+                    firebaseDbPatch(`allbookings/${cid}/${j.Id}`, _abPatchDS, tok)
+                      .then(function() { console.log(`  [§108d/DS] allbookings/${cid}/${j.Id} → Completed paymentMethod=${pm}`); })
+                      .catch(function(e) { console.warn(`  [§108d/DS] allbookings patch failed for job #${j.Id}:`, e && e.message); });
+                  });
+                })(job, sessionCompanyId, _cjPayMethodDS);
                 console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Completed`);
               } else if (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking') {
                 if (_hasActiveBeforeAvailableDS) {
@@ -6457,6 +6504,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   // Treating this as a recall would incorrectly cancel an active assignment,
                   // so we skip recall/cancel detection entirely.
                   console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (${prev}) zone-only update — skipping recall detection`);
+                } else if (consumeDriverReconnectPending(driverId)) {
+                  // Driver's Away was previously ignored (crash/onDisconnect pattern).
+                  // Their Available now is a reconnect, NOT a deliberate cancel.
+                  // Keep the job Assigned so it shows up when the driver app restarts.
+                  const _zdReconDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
+                  if (_zdReconDS) _zdReconDS.vehiclestatus = 'Picking';
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (${prev}) PROTECTED — driver ${driverId} reconnected after crash (reconnect-pending flag consumed)`);
                 } else {
                   // Driver went Available while still Assigned/Picking (no other Active job).
                   // This happens when the driver recalls/cancels via the app (status flip, no joback).
@@ -6551,7 +6605,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus}`);
-        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null, driverCancelled: _dssDriverCancelled || null, driverRecalled: _dssDriverRecalled || null, zoneOnly: zoneOnlyDS || false });
+        objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null, driverCancelled: _dssDriverCancelled || null, driverRecalled: _dssDriverRecalled || null, zoneOnly: zoneOnlyDS || false, completedJob: _dscCompletedJobDS || null });
 
       } else if (action === '[UnAssignedJobsv3]') {
         const _cJobs = companyJobs(jobStore);
@@ -6675,12 +6729,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           objectD(res, { ok: true, action: 'pending' });
 
         } else if (_ipjStatus === 'Cancelled') {
-          // Remove from jobStore if still pending (passenger cancelled before dispatch)
+          // Remove from jobStore only if the job has NOT yet been assigned/dispatched.
+          // If a dispatcher has already assigned the job (Assigned/Active/Picking/Offered),
+          // the passenger cancel arrives too late — don't silently delete an in-progress trip.
           const _cIdx = jobStore.findIndex(j => j._fbKey === _ipjFbKey);
           if (_cIdx !== -1) {
-            jobStore.splice(_cIdx, 1);
-            saveJobStore();
-            console.log(`[passenger] Cancelled job ${_ipjFbKey} removed from queue`);
+            const _cJob = jobStore[_cIdx];
+            const _safeToRemove = new Set(['Pending', 'Scheduled', 'No One', 'Unreached', '']);
+            if (_safeToRemove.has(_cJob.BookingStatus || '')) {
+              jobStore.splice(_cIdx, 1);
+              saveJobStore();
+              console.log(`[passenger] Cancelled job ${_ipjFbKey} removed from queue (was ${_cJob.BookingStatus})`);
+            } else {
+              console.log(`[passenger] Cancelled job ${_ipjFbKey} NOT removed — already in state "${_cJob.BookingStatus}" (dispatcher must handle)`);
+            }
           }
           objectD(res, { ok: true, action: 'cancelled' });
 
