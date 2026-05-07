@@ -19,18 +19,20 @@ Instructions for each team:
 | `online/{cid}/{vid}/current` | Driver app | Dispatcher, Passenger app | `{ lat, lng, hasGps: true, time }` — GPS only, not metadata |
 | `pendingjobs/{cid}/{bookingId}` | Passenger app, Server | Dispatcher | Unassigned passenger-app bookings. Server ingests via `[IngestPassengerJob]`. |
 | `allbookings/{cid}/{bookingId}` | Passenger app, Driver app | Server (recall fallback), SA portal | Long-term booking store. Driver app must patch on cancellation: `{ status: 'Cancelled', Status: 'Cancelled', CancelledAt: ISO, CancelledBy: 'driver' }`. Driver app must also patch `driverRating` here after a rating is submitted. |
-| `completedJobs/{cid}/{tripId}` | Dispatcher (on completion) | SA portal | Fields: fare, paymentType, completedAt, driverId, pickup, dropoff, + TM fields if applicable |
+| `completedJobs/{cid}/{tripId}` | Dispatcher (numeric tripId key) + Driver app (push key) | SA portal | Key structure: dispatcher uses numeric `tripId`; driver app uses Firebase push key. `bookingId` stored as a **field inside every record** — SA portal queries `orderByChild('bookingId')`. Full field contract: Section 31. |
+| `rideStatus/{cid}/{bookingId}` | **Driver app owns all lifecycle writes** — Assigned → Queued → OnTrip → Declined/Cancelled → Completed. Dispatcher writes only at recall and ETA anchor. | Passenger app | Full record fields: `bookingId, companyId, driverId, driverDispatchId, vehicleId, vehicleType, pickup, dropoff, status, updatedAt`. See Section 31. |
 | `jobs/{cid}/{vid}/{driverId}` | Dispatcher | Driver app | Job acceptance handshake node. Checked before sending new offer. |
 | `notification/{driverId}` | Dispatcher | Driver app | Job offer payload. Fields: bookingid (CSV), jobpickup, jobdropoff, JobphoneNo, jobname, jobbags, jobpassengers, jobvehicletype, jobFare, jobServiceType, vehicleId, companyId, extras{} |
 | `notification/{cid}` | **Nobody** | — | Dead path. Remove any listener on this path. |
 | `jobDetails/{cid}/{bookingId}` | Dispatcher | Passenger app | Full job payload including vehicleId. Passenger app uses vehicleId to build GPS tracking path. SA portal confirmed zero reads of this path — no SA change needed. |
-| `rideStatus/{cid}/{bookingId}` | Dispatcher | Passenger app | `{ status, driverId, vehicleId, companyId, pickup, dropoff, vehicleType, updatedAt }` — ETA / live tracking anchor |
+| ~~`rideStatus/{cid}/{bookingId}`~~ | ~~Dispatcher~~ | — | **Superseded — see updated row above. Driver app owns all rideStatus lifecycle writes.** Dispatcher writes only recall + ETA anchor. |
 | `Emergency/{cid}` | Driver app | Dispatcher | Emergency alert. Dispatcher listens, shows red banner, plays sound. |
 | `towRequests/{cid}` | Driver app | Dispatcher | Tow request alert. Same banner/sound pattern as Emergency. |
 | `chatMessages/{cid}/{conversationId}` | Driver app, Dispatcher | Driver app, Dispatcher | Real-time chat. key = `{driverId}_{bookingId}` or `broadcast`. |
 | `superClients/{cid}/sessionRevoke` | SA portal | Dispatcher | SA writes `Date.now()` (ms). Dispatcher signs out if value > `bw_loginTime` (localStorage). |
 | `companySettings/{cid}` | Owner portal | Dispatcher, Driver app | Feature flags, company name, logo URL, opening hours. |
-| `driverEarnings/taxi/{cid}/{driverId}` | Dispatcher | Owner portal | Cumulative: totalEarned, pendingAmount, tripCount, lastPaidAt. |
+| `driverEarnings/taxi/{cid}/{driverId}` | Dispatcher (on driver Available after Active) + SA portal's `syncOfflineTrip` endpoint. **Driver app never writes this path.** | Owner portal, SA-Payouts | Cumulative: totalEarned, pendingAmount, tripCount, lastPaidAt. Double-count guard: dispatcher queries `orderByChild('bookingId')` before incrementing — skips if driver app's push-key record already exists for same bookingId. |
+| `online/{cid}/{vid}` top-level + `/current` | Dispatcher writes `vehiclestatus: 'Assigned'` + `current/jobId` + `current/currentJobId` at acceptance. Driver app writes these same fields at accept tap (Promise.all). Both use `.update()` — merges, never overwrites. | Driver app (job card reconstruction on restart), Dispatcher (child_added reload guard) | See Section 31 for full acceptance write contract. |
 | `tmTripStatus/{cid}/{bookingId}` | SA portal | Dispatcher (popup) | TM approval status. Values: pending / company_approved / submitted / approved / paid |
 | `driverRatings/{cid}/{bookingId}` | Driver app / Passenger app | SA portal | Write full rating node here AND patch `allbookings/{cid}/{bookingId}/driverRating` with the score. Not read by dispatcher. |
 | `freightOrders/{cid}/{bookingId}` | Driver app | SA portal | Freight pickup/delivery confirmation. Not read by dispatcher. |
@@ -890,4 +892,108 @@ const companyTZMap = {
 ```
 
 When the SA portal approves a new company it must also ensure the correct IANA timezone is in `companyTZMap`.
+
+---
+
+## 31. Acceptance & Completion Firebase Write Contract (2026-05-07)
+
+Confirmed cross-team. All writes below are in production code as of this session.
+
+---
+
+### 31A. Driver accepts a job — Firebase writes at accept time
+
+Both the **driver app** and the **dispatcher** write these paths. Both sides use `.update()` so they merge cleanly — last-write-wins per field, no clobber.
+
+| Path | Writer | Fields | Purpose |
+|---|---|---|---|
+| `online/{cid}/{vehicleId}` (top-level) | Driver app (Promise.all) + Dispatcher (`_bwWriteAssignmentToFirebase`) | `vehiclestatus: 'Assigned'` | Prevents ghost re-offer: dispatcher's `child_added` on page reload reads this field. Was stuck at 'Available' before this fix. |
+| `online/{cid}/{vehicleId}/current` | Driver app (Promise.all) + Dispatcher | `{ currentJobId, jobId, vehiclestatus: 'Assigned' }` | Driver app restart reads `current/currentJobId` to rehydrate active job card. Without this field, app showed address-only overlay with no booking link. |
+| `pendingjobs/{cid}/{bookingId}` | Dispatcher only | `{ Status: 'Assigned', AssignedDriver, AssignedAt }` | SA portal + passenger app poll this for trip status. |
+| `allbookings/{cid}/{bookingId}` | Dispatcher only | `{ Status: 'Assigned', AssignedDriver, AssignedAt }` | Some portals read here instead of pendingjobs. |
+| `jobs/{cid}/{bookingId}` | Dispatcher only | `{ status: 'assigned', driverId, vehicleId, AssignedAt }` | Flat booking-keyed path some driver app versions read to confirm assignment on restart. Distinct from `jobs/{cid}/{vehicleId}/{driverId}` (offer/accept handshake). |
+
+**Root cause of the original bug:** Driver app's accept write only set `current/vehiclestatus`. Top-level `online/vehiclestatus` stayed 'Available', and `current` had no `jobId` field. On app restart, the driver app read `current/` and found addresses but no booking link → blank job card. Dispatcher page reload saw `vehiclestatus: 'Available'` via `child_added` → auto-dispatch re-offered the job to an already-assigned driver.
+
+---
+
+### 31B. rideStatus lifecycle — driver app owns all writes
+
+**Confirmed: driver app team.** Dispatcher does NOT write `rideStatus` as part of the accept flow. Dispatcher writes `rideStatus` only at two narrow points: recall notification and ETA GPS anchor on offer. From `Assigned` onwards, the driver app owns all `rideStatus` writes.
+
+| Event | `status` written | Write type |
+|---|---|---|
+| Driver accepts offer | `Assigned` | Full record |
+| Driver queues second job | `Queued` | Full record |
+| Driver taps "Start Meter" | `OnTrip` | `status + updatedAt` |
+| Driver rejects / releases | `Declined` / `Cancelled` | `status + updatedAt` |
+| Driver completes trip | `Completed` | `status + updatedAt` |
+
+**Full record fields (on Assigned):** `bookingId, companyId, driverId, driverDispatchId, vehicleId, vehicleType, pickup, dropoff, status, updatedAt`
+
+---
+
+### 31C. completedJobs — key structure and double-count guard
+
+**Confirmed cross-team (2026-05-07).**
+
+#### Key structure
+- **Driver app** writes to `completedJobs/{cid}/{pushKey}` — Firebase-generated push key. `bookingId` stored as a **field inside the record**.
+- **Dispatcher** writes to `completedJobs/{cid}/{numericTripId}` — numeric job ID as key. `bookingId` also stored as a field.
+- SA portal queries via `orderByChild('bookingId').equalTo(bookingId)` — finds both records regardless of key type.
+- Firebase index `.indexOn: ["bookingId"]` on `completedJobs/$companyId` deployed in `taxilatest`. ✅
+
+#### Dispatcher completedJobs write shape (full — as of this session)
+
+```json
+{
+  "bookingId":     "6206112605074",
+  "companyId":     "620611",
+  "fare":          18.50,
+  "paymentType":   "cash",
+  "completedAt":   "2026-05-07T17:59:00.000Z",
+  "status":        "Completed",
+  "source":        "dispatch",
+  "driverId":      "D002",
+  "vehicleId":     "TAXI02",
+  "pickupAddress": "165 Inglewood Road, Invercargill",
+  "dropAddress":   "Invercargill Airport",
+  "distanceKm":    0
+}
+```
+
+TM jobs also include: `tmSubsidy, tmSubsidyHoist, tmPassengerPays, totalCouncilPays, councilId`.
+
+#### Fare field name — confirmed
+SA portal reads `t.fare || t.FinalFare || t.meterFare` (earnings.ts). Primary field is `fare`. `FinalFare` is a fallback already handled. Both sides must write `fare` as the primary field.
+
+#### driverEarnings ownership — confirmed
+- **Driver app:** never writes `driverEarnings`. ✅ Confirmed.
+- **Dispatcher:** writes on `[DriverStatusChanged]` Available event when server returns `completedJob`.
+- **SA portal:** writes via `syncOfflineTrip` endpoint for offline trip recovery.
+- **Double-count guard:** Dispatcher's Available handler queries `completedJobs/{cid}` by `orderByChild('bookingId')` before incrementing. Logic: 1 record found (ours only) → driver app hasn't written yet → increment. 2+ records found → driver app already wrote → skip increment. Guard is harmless in practice since driver app never writes `driverEarnings` — query always returns 1 → always increments correctly.
+
+---
+
+### 31D. `online/` field contract — full acceptance snapshot
+
+After acceptance, `online/620611/TAXI02` should read:
+
+```json
+{
+  "vehiclestatus": "Assigned",
+  "vehiclenumber": "TAXI02",
+  "driverid":      "D002",
+  "current": {
+    "vehiclestatus": "Assigned",
+    "currentJobId":  "6206112605074",
+    "jobId":         "6206112605074",
+    "lat":           -46.4285,
+    "lng":           168.3552,
+    "hasGps":        true
+  }
+}
+```
+
+Dispatcher reads `vehiclestatus` from the **top-level** flat field (not `current/vehiclestatus`). Driver app restart reads `current/currentJobId` to reconstruct the active job card. GPS reads from `current/lat` + `current/lng`.
 
