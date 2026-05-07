@@ -751,7 +751,19 @@ function _normFbJob(job) {
       if (typeof raw === 'number') return new Date(raw).toISOString();
       return String(raw);
     })(),
-    scheduledFor: parseInt(job.ScheduledFor || job.scheduledFor || 0),
+    // ScheduledFor from web portal is an ISO string ("2026-05-07T02:00:00.000Z").
+    // parseInt() of an ISO string extracts only the year (2026) — wrong.
+    // Fix: prefer ScheduledForMs (Unix ms already written by web portal), then
+    //      parse ISO string with new Date(), then fall back to parseInt for legacy numeric strings.
+    scheduledFor: (function() {
+      const ms = job.ScheduledForMs || job.scheduledForMs;
+      if (ms && typeof ms === 'number') return ms;
+      const raw = job.ScheduledFor || job.scheduledFor || 0;
+      if (!raw) return 0;
+      if (typeof raw === 'number') return raw;
+      const parsed = new Date(raw).getTime();
+      return isNaN(parsed) ? (parseInt(raw) || 0) : parsed;
+    })(),
     scheduledAt:  job.ScheduledAt || '',
     serviceType,
     bookingType: job.bookingType || job.BookingType || '',
@@ -5930,7 +5942,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (!already && !alreadyClosed) {
             const _sCid = String(sessionCompanyId);
             const _sn = _normFbJob(_ipjJob);
-            const _sMs = parseInt(_ipjJob.ScheduledFor || _ipjJob.scheduledFor || 0) || null;
+            // _normFbJob now resolves ScheduledForMs → ISO parse → parseInt correctly.
+            // _sn.scheduledFor is the Unix ms of the scheduled pickup time (or 0 for ASAP).
+            const _sMs = _sn.scheduledFor || null;
+            // BookingDateTime = the actual pickup time the passenger chose, not the booking
+            // creation time. For Scheduled jobs the pickup time IS ScheduledFor.
+            const _bdt = _sMs ? new Date(_sMs).toISOString() : (_sn.createdAt || new Date().toISOString());
+            // DispatchTimebefore: how many minutes before pickup to start offering.
+            // Web portal doesn't send this field, so we derive it:
+            //   • pickup > 30 min away  →  start offering 30 min before (standard pre-book)
+            //   • pickup ≤ 30 min away  →  offer now (0 = ASAP behaviour)
+            const _minsToPickup = _sMs ? Math.round((_sMs - Date.now()) / 60000) : 0;
+            const _dtb = _minsToPickup > 30 ? '30' : '0';
             jobStore.push({
               _fbKey: _ipjFbKey, Id: newCompanyJobId(_sCid), companyId: _sCid,
               BookingStatus: 'Pending', BookingSource: 'passenger',
@@ -5943,11 +5966,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               VehicleType:   _sn.vehicleType,
               PaymentMethod: _sn.paymentMethod,
               EstimatedFare: _sn.estimatedFare,
-              BookingDateTime: _sn.createdAt || new Date().toISOString(),
+              BookingDateTime: _bdt,
               ScheduledFor:  _sMs,
               Notes: _sn.notes, Passengers: _sn.passengers,
               serviceType: _sn.serviceType, bookingType: _sn.bookingType,
-              DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
+              DriverId: 0, VehicleId: 0, DispatchTimebefore: _dtb,
             });
             saveJobStore();
             console.log(`[passenger] Scheduled job ${_ipjFbKey} ingested as Pending (svc=${_sn.serviceType}) — ${_sn.name} from ${_sn.pickAddress}`);

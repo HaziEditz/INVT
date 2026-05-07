@@ -716,3 +716,120 @@ Firebase `child_added` listeners only deliver events for nodes written **after**
 
 **Recommended future hardening:** On server startup (or dispatcher login), do a one-time `once('value')` read of `pendingjobs/{cid}` and ingest any `Status: Pending` entries not already in the job store.
 
+
+---
+
+## 29. Pre-booked Web Booking Showing as ASAP — Root Cause & Fix (2026-05-06)
+
+**Symptom:** A scheduled (future) web booking appeared in the Unassigned panel as an immediate ASAP job with no Sched badge and `DispatchTimebefore: '0'`.
+
+---
+
+### Full flow trace — web portal → Firebase → dispatch
+
+**Step 1 — Web portal writes to Firebase `pendingjobs/620611/{key}`:**
+```json
+{
+  "Status":         "Scheduled",
+  "ScheduledFor":   "2026-05-07T02:00:00.000Z",   ← ISO string (pickup time)
+  "ScheduledForMs": 1778119200000,                  ← Unix ms (same time — portal writes both)
+  "CreatedAt":      "2026-05-07T00:36:11.937Z",    ← booking creation time (different!)
+  "BookingDateTime": undefined                       ← not written by portal
+}
+```
+
+**Step 2 — Dispatcher Firebase `child_added` fires → `[IngestPassengerJob]`:**
+
+`_ipjStatus === 'Scheduled'` → enters the Scheduled branch.
+
+**Step 3 — (BUG) `_sMs` calculated incorrectly:**
+```js
+// Before
+const _sMs = parseInt(_ipjJob.ScheduledFor || ...) || null;
+// parseInt("2026-05-07T02:00:00.000Z") = 2026  ← year only, not ms timestamp!
+// ScheduledForMs (1778119200000) was never read at all
+```
+
+**Step 4 — (BUG) `BookingDateTime` set from creation time, not pickup time:**
+```js
+// Before
+BookingDateTime: _sn.createdAt || new Date().toISOString(),
+// → "2026-05-07T00:36:11.937Z"  (when booking was MADE, not when to pick up)
+```
+
+**Step 5 — (BUG) `DispatchTimebefore` hardcoded to `'0'`:**
+```js
+DispatchTimebefore: '0'   // 0 = ASAP — always, even for jobs 12 hours away
+```
+
+**Result in the store:**
+```json
+{ "ScheduledFor": 2026, "BookingDateTime": "...(creation time)...", "DispatchTimebefore": "0" }
+```
+→ Dispatch window gate sees `DispatchTimebefore === 0` → treats as ASAP → job offered immediately.
+→ Sched badge on client checks `ScheduledFor > Date.now()` → `2026 > 1778000000000` → false → no badge.
+
+---
+
+### Fixes applied (`server.js`)
+
+**Fix 1 — `_normFbJob` `scheduledFor` field (line ~754):**
+```js
+// After — reads ScheduledForMs first, then parses ISO string properly
+scheduledFor: (function() {
+  const ms = job.ScheduledForMs || job.scheduledForMs;
+  if (ms && typeof ms === 'number') return ms;
+  const raw = job.ScheduledFor || job.scheduledFor || 0;
+  if (!raw) return 0;
+  if (typeof raw === 'number') return raw;
+  const parsed = new Date(raw).getTime();
+  return isNaN(parsed) ? (parseInt(raw) || 0) : parsed;
+})(),
+```
+
+**Fix 2 — `[IngestPassengerJob]` `_sMs` (line ~5933):**
+```js
+// After — reuse _sn.scheduledFor which is now correctly resolved
+const _sMs = _sn.scheduledFor || null;
+```
+
+**Fix 3 — `BookingDateTime` = scheduled pickup time:**
+```js
+// After
+const _bdt = _sMs ? new Date(_sMs).toISOString() : (_sn.createdAt || new Date().toISOString());
+BookingDateTime: _bdt,
+```
+
+**Fix 4 — `DispatchTimebefore` derived from time-to-pickup:**
+```js
+// After — start offering 30 min before pickup; offer now if ≤ 30 min away
+const _minsToPickup = _sMs ? Math.round((_sMs - Date.now()) / 60000) : 0;
+const _dtb = _minsToPickup > 30 ? '30' : '0';
+DispatchTimebefore: _dtb,
+```
+
+---
+
+### Web portal contract for `pendingjobs`
+
+| Field | Type | Notes |
+|---|---|---|
+| `Status` | `"Scheduled"` / `"Pending"` | `"Scheduled"` = pre-book; `"Pending"` / `"Waiting"` = ASAP |
+| `ScheduledFor` | ISO string | Pickup date-time — always write; dispatch uses this to show Sched badge |
+| `ScheduledForMs` | Unix ms (number) | Pickup date-time as ms — write alongside `ScheduledFor` for server to read reliably |
+| `CreatedAt` | ISO string | When booking was made — different from pickup time for pre-books |
+| `pickupLocation` | `{lat, lng, address}` | Nested object — server now reads `.lat`/`.lng` correctly (Section 28 fix) |
+| `dropoffLocation` | `{lat, lng, address}` | Same |
+
+**Recommendation to web portal team:** Always write both `ScheduledFor` (ISO) and `ScheduledForMs` (Unix ms). The server now handles both, but ms is preferred.
+
+---
+
+### Currently bad job in store — remediation
+
+Job `6206112605071` was already ingested with wrong values before this fix. After server restart it must be manually re-ingested:
+
+1. Delete from store via `[CancelJob]` or server restart
+2. Re-ingest via `[IngestPassengerJob]` with the correct Firebase record
+3. `ScheduledFor` → `1778119200000`, `BookingDateTime` → `"2026-05-07T02:00:00.000Z"`, `DispatchTimebefore` → `'30'`
+
