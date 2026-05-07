@@ -36,9 +36,8 @@
     },
     "notification": {
       "$driverid": {
-        ".validate": "$driverid!='null'",
-        ".read": "auth != null",
-        ".write": "auth != null"
+        ".read": true,
+        ".write": true
       }
     },
     "lastshifttime": {
@@ -50,9 +49,8 @@
     },
     "autodisp": {
       "$driverid": {
-        ".validate": "$driverid!='null'",
-        ".read": "auth != null",
-        ".write": "auth != null"
+        ".read": true,
+        ".write": true
       }
     },
     "JobDispatching": {
