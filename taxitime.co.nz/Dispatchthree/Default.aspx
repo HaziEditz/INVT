@@ -5875,13 +5875,18 @@ $(document).ready(function() {
 
             var sc2 = angular.element(document.getElementById('myangular')).scope();
 
+            // §103 Bug 1 — derive source label: web bookings say "Website", not "Passenger"
+            var _isWebBk = !!(b.WebBooking || b.webBooking || b.CreatedBy === 'WEB' || b.CreatedBy === 'web' || (b.BookingSource || '').toLowerCase() === 'website');
+            var _bkSender = _isWebBk ? 'Website' : (b.passengerName || b.name || 'Passenger');
+
             if (status === 'Scheduled') {
-                // Scheduled bookings now go straight into the Unassigned queue
-                // (same flow as Waiting/book-now). The 📅 Sched badge on the job card
-                // indicates source. No separate holding area — dispatcher sees it immediately.
+                // Scheduled bookings: show immediate awareness notification, then arm a
+                // NotifyDispatchAt timer (§103 Bug 2). When it fires, promote the Firebase
+                // entry to 'Pending' → child_changed fires → Waiting/Pending branch runs
+                // → dispatcher sees the actionable notification + job appears in Unassigned.
                 var scheduledMs = parseInt(b.ScheduledFor || b.scheduledFor || 0);
                 var timeStr = scheduledMs ? new Date(scheduledMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
-                _pjAlert('📅 Scheduled booking from ' + (b.passengerName || b.name || 'Passenger') + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
+                _pjAlert((_isWebBk ? '🌐' : '📅') + ' Scheduled booking from ' + _bkSender + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
                 b.ScheduledFor = scheduledMs || null;
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
                     contentType:'application/json; charset=utf-8', dataType:'json',
@@ -5889,13 +5894,27 @@ $(document).ready(function() {
                 }).done(function() {
                     if (sc2 && typeof sc2.getjobs === 'function') sc2.getjobs();
                 });
+                // §103 Bug 2 — arm NotifyDispatchAt timer: promote to Pending in Firebase
+                // so child_changed fires and the dispatcher gets the actionable alert.
+                var _notifyAtStr = b.NotifyDispatchAt || b.notifyDispatchAt || '';
+                var _notifyAtMs  = _notifyAtStr ? new Date(_notifyAtStr).getTime() : 0;
+                var _notifyDelay = _notifyAtMs ? (_notifyAtMs - Date.now()) : 0;
+                if (_notifyAtMs && _notifyDelay > 0) {
+                    setTimeout(function() {
+                        _pjRef.child(k).update({ Status: 'Pending' }, function(err) {
+                            if (err) console.warn('[pendingjobs] NotifyDispatchAt promote failed:', err);
+                            else console.log('[pendingjobs] NotifyDispatchAt fired → promoted to Pending:', k);
+                        });
+                    }, _notifyDelay);
+                    console.log('[pendingjobs] NotifyDispatchAt timer armed for ' + k + ' in ' + Math.round(_notifyDelay / 1000) + 's');
+                }
                 console.log('[pendingjobs] Scheduled booking ingested as Pending:', k, b);
 
             } else if (status === 'Waiting' || status === 'Pending') {
                 // 'Waiting'  = book-now request from passenger app.
                 // 'Pending'  = some dispatch apps write this instead of 'Waiting' for
                 //              a ready-to-dispatch job. Treat identically — ingest immediately.
-                _pjAlert('📱 New booking from ' + (b.passengerName || b.name || 'Passenger') + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
+                _pjAlert((_isWebBk ? '🌐' : '📱') + ' New booking from ' + _bkSender + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
                     contentType:'application/json; charset=utf-8', dataType:'json',
                     data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify(b) }], action:'[IngestPassengerJob]' })

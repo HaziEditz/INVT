@@ -1324,3 +1324,63 @@ else if (hasValidCoords(pickLLRaw))                       jdpDrawSinglePin(pickL
 | Web/App booking | ✅ full address | ✅ DirectionsService route | ✅ from UpdateBooking or Firebase |
 | Dispatcher console | ✅ full address | ✅ route or single pin | ✅ from UpdateBooking |
 | Food/Freight | ✅ full address | ✅ route or single pin | ✅ from UpdateBooking or Firebase |
+
+---
+
+### §103. Web booking notifications — wrong source label and missing NotifyDispatchAt timer
+
+**Root causes (two distinct bugs):**
+
+**Bug 1 — Source label says "Passenger" for web bookings:**
+Both `_pjAlert` calls in `_pjIngest` (Default.aspx) used `b.passengerName || b.name || 'Passenger'` as the sender label. Web-portal bookings carry `CreatedBy: 'WEB'` but no `passengerName`, so the alert always read "📅 Scheduled booking from Passenger!" or "📱 New booking from Passenger!".
+
+Equally, `[IngestPassengerJob]` (server.js) hardcoded `BookingSource: 'passenger'` for both the `Scheduled` and `Waiting/Pending` branches regardless of origin.
+
+**Bug 2 — Clicking the NotifyDispatchAt notification led to an empty Unassigned tab:**
+`NotifyDispatchAt` is a field written by the web booking portal (e.g. `"2026-05-07T11:00:00.000Z"`) indicating when the dispatcher should be alerted to dispatch the job. No timer existed to fire at that moment. The scheduled booking was ingested immediately on arrival, so the job was in `jobStore` — but at `NotifyDispatchAt` time the Firebase entry still had `Status: 'Scheduled'`. The dispatcher received the initial "awareness" notification (on first arrival) but never a second "actionable dispatch" alert. The fix arms a `setTimeout` that fires at `NotifyDispatchAt` and writes `Status: 'Pending'` to Firebase, triggering `child_changed` → `_pjIngest` Waiting/Pending branch → actionable notification + `getjobs()`.
+
+**Fixes — Default.aspx `_pjIngest`:**
+
+```js
+// §103 Bug 1 — derive source label
+var _isWebBk  = !!(b.WebBooking || b.webBooking || b.CreatedBy === 'WEB' || b.CreatedBy === 'web'
+                || (b.BookingSource || '').toLowerCase() === 'website');
+var _bkSender = _isWebBk ? 'Website' : (b.passengerName || b.name || 'Passenger');
+
+// Scheduled branch — emoji changes to 🌐 for web, timer added:
+_pjAlert((_isWebBk ? '🌐' : '📅') + ' Scheduled booking from ' + _bkSender + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
+
+// §103 Bug 2 — NotifyDispatchAt timer:
+var _notifyAtStr = b.NotifyDispatchAt || b.notifyDispatchAt || '';
+var _notifyAtMs  = _notifyAtStr ? new Date(_notifyAtStr).getTime() : 0;
+var _notifyDelay = _notifyAtMs ? (_notifyAtMs - Date.now()) : 0;
+if (_notifyAtMs && _notifyDelay > 0) {
+    setTimeout(function() {
+        _pjRef.child(k).update({ Status: 'Pending' }, function(err) {
+            if (err) console.warn('[pendingjobs] NotifyDispatchAt promote failed:', err);
+            else     console.log('[pendingjobs] NotifyDispatchAt fired → promoted to Pending:', k);
+        });
+    }, _notifyDelay);
+    console.log('[pendingjobs] NotifyDispatchAt timer armed for ' + k + ' in ' + Math.round(_notifyDelay/1000) + 's');
+}
+
+// Waiting/Pending branch:
+_pjAlert((_isWebBk ? '🌐' : '📱') + ' New booking from ' + _bkSender + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
+```
+
+**Fix — server.js `[IngestPassengerJob]`:**
+```js
+// Both Scheduled and Waiting branches now derive origin before jobStore.push():
+const _isWebBk = !!(_ipjJob.WebBooking || _ipjJob.webBooking
+               || _ipjJob.CreatedBy === 'WEB' || _ipjJob.CreatedBy === 'web'
+               || (_ipjJob.BookingSource || '').toLowerCase() === 'website');
+// ...
+BookingSource: _isWebBk ? 'Website' : 'passenger',
+```
+
+**Full flow after fix:**
+1. Web portal writes `pendingjobs/{cid}/{id}` with `Status:'Scheduled'`, `CreatedBy:'WEB'`, `NotifyDispatchAt:'<ISO>'`
+2. `child_added` → `_pjIngest` → awareness alert says **"🌐 Scheduled booking from Website for HH:MM!"** → `[IngestPassengerJob]` stores `BookingSource:'Website'` → `getjobs()` → job in Unassigned with Website tag
+3. `setTimeout` armed for `NotifyDispatchAt` delay (e.g. 30 min)
+4. Timer fires → writes `Status:'Pending'` to Firebase
+5. `child_changed` → `_pjIngest` (isChange=true, bypasses `_pjSeen` guard) → **"🌐 New booking from Website — <address>!"** → `[IngestPassengerJob]` (no-op, job already exists) → `getjobs()` → job visible in Unassigned ✓

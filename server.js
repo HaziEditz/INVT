@@ -6161,6 +6161,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (!already && !alreadyClosed) {
             const _sCid = String(sessionCompanyId);
             const _sn = _normFbJob(_ipjJob);
+            // §103 Bug 1 — use 'Website' for web-portal bookings, not 'passenger'
+            const _isWebBk = !!(_ipjJob.WebBooking || _ipjJob.webBooking || _ipjJob.CreatedBy === 'WEB' || _ipjJob.CreatedBy === 'web' || (_ipjJob.BookingSource || '').toLowerCase() === 'website');
             // _normFbJob now resolves ScheduledForMs → ISO parse → parseInt correctly.
             // _sn.scheduledFor is the Unix ms of the scheduled pickup time (or 0 for ASAP).
             const _sMs = _sn.scheduledFor || null;
@@ -6186,7 +6188,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _sId = parseInt(_ipjJobId, 10) || newCompanyJobId(_sCid);
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
-              BookingStatus: 'Pending', BookingSource: 'passenger',
+              BookingStatus: 'Pending', BookingSource: _isWebBk ? 'Website' : 'passenger',
               Name:          _sn.name,
               PhoneNo:       _sn.phone,
               PickAddress:   _sn.pickAddress,
@@ -6215,12 +6217,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (!already && !alreadyClosed) {
             const _wCid = String(sessionCompanyId);
             const _wn = _normFbJob(_ipjJob);
+            // §103 Bug 1 — use 'Website' for web-portal bookings, not 'passenger'
+            const _isWebBkW = !!(_ipjJob.WebBooking || _ipjJob.webBooking || _ipjJob.CreatedBy === 'WEB' || _ipjJob.CreatedBy === 'web' || (_ipjJob.BookingSource || '').toLowerCase() === 'website');
             // Use the passenger app's own BookingId as our internal Id to avoid
             // collisions with the external ASP.NET system's sequential job IDs.
             const _wId = parseInt(_ipjJobId, 10) || newCompanyJobId(_wCid);
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
-              BookingStatus: 'Pending', BookingSource: 'passenger',
+              BookingStatus: 'Pending', BookingSource: _isWebBkW ? 'Website' : 'passenger',
               Name:          _wn.name,
               PhoneNo:       _wn.phone,
               PickAddress:   _wn.pickAddress,
