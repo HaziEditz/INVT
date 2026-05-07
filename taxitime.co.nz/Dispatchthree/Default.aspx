@@ -8502,7 +8502,11 @@ $(document).ready(function() {
                 jobServiceType: details.serviceType   || 'taxi',
                 jobBookingSrc:  details.bookingSource || _src || 'Dispatcher',
                 vehicleId:     String(vehicleId   || ''),
-                companyId:     String(SomeSession2 || '')
+                companyId:     String(SomeSession2 || ''),
+                // §109 — include payment fields so driver app can display correct payment
+                // method (card vs cash) without a separate sync call.
+                paymentMethod: details.paymentMethod || details.paymentType || '',
+                paymentType:   details.paymentType   || details.paymentMethod || ''
             };
             // TM extras — driver app reads extras.tmVoucherNo to write trips/{cid}/{bookingId}
             if (details.tmVoucherNo) {
@@ -8609,6 +8613,10 @@ $(document).ready(function() {
                 u_id:          _u,
                 serviceType:   job.serviceType    || 'taxi',
                 bookingSource: job.BookingSource  || job.bookingSource  || _src || 'Dispatcher',
+                // §109 — pass payment method through to notification payload so driver app
+                // knows card vs cash without a separate sync call.
+                paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
+                paymentType:   job.PaymentType    || job.paymentType    || '',
                 tmVoucherNo:       _tmVoucherNo,
                 tmPassengerName:   job.tmPassengerName   || job.TmPassengerName   || '',
                 tmCardExpiry:      job.tmCardExpiry      || job.TmCardExpiry      || '',
@@ -15482,6 +15490,13 @@ $(document).ready(function() {
                         var paid = (pj.paymentStatus || pj.PaymentStatus || '').toLowerCase();
                         var prepaid = pj.prepaid === true || pj.Prepaid === true;
                         if (paid === 'paid' || paid === 'completed' || prepaid) return true;
+                        // §109 — explicit hold for PendingPayment (web booking site sets this
+                        // while Stripe checkout is open; Stripe webhook clears it to 'paid').
+                        // Must be confirmed before card payments go live — this is the last gate.
+                        if (paid === 'pendingpayment' || paid === 'pending_payment') {
+                            console.log('[smartAutoDispatch] HOLD web job #' + pj.Id + ' — payment pending (PendingPayment gate)');
+                            return false;
+                        }
                         console.log('[smartAutoDispatch] Skipping web job #' + pj.Id + ' — payment not confirmed (status: ' + (pj.paymentStatus || 'none') + ')');
                         return false;
                     });
