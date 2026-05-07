@@ -1,0 +1,11 @@
+[
+  {
+    "id": 1,
+    "companyId": "620611",
+    "phone": "12465454",
+    "amount": 28,
+    "chargeId": "",
+    "paidAt": "2026-05-07T10:25:52.098Z",
+    "method": "Stripe"
+  }
+]

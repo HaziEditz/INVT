@@ -470,8 +470,19 @@ function calcJobMins(jobOrStr) {
   if (jobOrStr && typeof jobOrStr === 'object') {
     const sf = jobOrStr.ScheduledFor;
     if (sf) {
+      // Pre-booked jobs: ScheduledFor is always UTC ms — use directly.
       ms = typeof sf === 'number' ? sf : new Date(_toDateStr(sf)).getTime();
+    } else if (typeof jobOrStr.createdAt === 'number' && jobOrStr.createdAt > 0) {
+      // Book-now jobs: createdAt (Date.now() at creation) is always UTC ms and
+      // is unambiguous.  BookingDateTime is a naive "YYYY-MM-DD HH:mm:ss" string
+      // whose timezone is ambiguous — the server TZ=Pacific/Auckland makes
+      // new Date("2026-05-07 10:25:00") parse as NZ local = UTC−12h, turning a
+      // just-created job into "722m overdue".  Prefer createdAt here.
+      ms = jobOrStr.createdAt;
     } else {
+      // Fallback for legacy jobs without createdAt (e.g. old closed-job records,
+      // Firebase-ingested passenger jobs).  ISO strings with 'Z' parse correctly;
+      // naive strings are accepted as NZ local time (correct for ASP.NET backend jobs).
       ms = new Date(_toDateStr(jobOrStr.BookingDateTime || '')).getTime();
     }
   } else {
