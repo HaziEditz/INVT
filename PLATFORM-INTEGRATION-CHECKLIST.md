@@ -1492,3 +1492,68 @@ Content-Type: application/json
 - `POST /api/payment/confirm` with valid payload (jobId `6206112605075`, cid `620611`) → `200 { ok: true }`, jobStore entry updated `paymentStatus:'paid'`, Firebase pendingjobs+allbookings patched ✅
 - `newCompanyJobId("Auckland Cabs")` throws immediately with clear message ✅
 - `newCompanyJobId("620611")` produces correct numeric job ID ✅
+
+---
+
+## Section 35 — Wire SA Stripe Webhook to Dispatch /api/payment/confirm (2026-05-07)
+
+### Context
+
+When a web booking payment completes, Stripe fires a webhook to the SA portal. The SA portal is `server.js` (not a separate codebase). Previously the SA portal had no Stripe webhook endpoint — the `allbookings` spread path was the only write mechanism and it omitted/miscased the dispatcher-required fields (root cause of Bug 1, Section 34).
+
+### Webhook URL audit findings
+
+There was no `POST /api/stripe/webhook` endpoint in the codebase before this fix. Any webhook URL registered in the Stripe dashboard was pointing at a non-existent path, which is why "the Stripe webhook did not arrive at the SA portal at all for a live test booking." The endpoint now exists.
+
+**Correct webhook URL — must be set in Stripe Dashboard → Developers → Webhooks:**
+
+| Environment | URL |
+|---|---|
+| Dev (Replit) | `https://01067f31-afeb-4a32-a195-60c80223accf-00-dgff2mfkeoci.riker.replit.dev/api/stripe/webhook` |
+| Production (deployed) | `https://{DEPLOYED_DOMAIN}/api/stripe/webhook` |
+
+**Events to enable in the Stripe webhook endpoint:**
+- `checkout.session.completed`
+- `payment_intent.succeeded` (fallback for non-Checkout flows)
+
+**Signing secret:** Set `STRIPE_WEBHOOK_SECRET` env var to the `whsec_xxx` value from Stripe Dashboard → Developers → Webhooks → your endpoint → Signing secret. Without this env var the handler accepts all events without signature verification (development only — not safe for production).
+
+### Fix applied (`server.js`) — new `POST /api/stripe/webhook` endpoint
+
+The endpoint:
+1. **Verifies Stripe signature** using `STRIPE_WEBHOOK_SECRET` if set; logs a warning and accepts without verification if not set (dev mode).
+2. **Responds 200 immediately** (before any async work) — Stripe requires a response within 30 s or it retries.
+3. **Skips non-booking events** — only processes events where `metadata.eventType === 'booking_payment'` or `metadata.bookingId` is present. Subscription invoices, rental flows etc. are logged and skipped.
+4. **Validates metadata** — logs a clear error if `bookingId` or `companyId` is missing or non-numeric; does not crash.
+5. **Updates in-memory jobStore** with `paymentStatus: 'paid'` — lifts the BUG 7 payment gate on the next auto-dispatch cycle.
+6. **Writes schema-complete `pendingjobs` record** — every field the dispatcher needs is set explicitly (replaces the old raw `allbookings` spread that omitted dispatcher-required fields).
+7. **Keeps `allbookings` update in place** — patches `paymentStatus: 'paid'`, `Status: 'Pending'`, `BookingSource: 'Website'`, `WebBooking: true`, `stripeChargeId`, `amountPaid`, `updatedAt`.
+8. **Logs success/failure** with booking ID for traceability — errors are caught and logged, never thrown (would crash the already-responded handler).
+
+### Required Stripe Checkout session metadata
+
+When creating the Stripe Checkout session, pass:
+
+```js
+metadata: {
+  eventType:       'booking_payment',   // skips rental/subscription events
+  bookingId:       '6206112605076',     // numeric string — the Firebase booking key
+  companyId:       '620611',            // NUMERIC — NOT the company name
+  pickupAddress:   '120 Esk Street, Invercargill',
+  dropoffAddress:  'Southland Hospital',
+  pickupLat:       '-46.4132',
+  pickupLng:       '168.3538',
+  dropoffLat:      '-46.4260',
+  dropoffLng:      '168.3380',
+  passengerName:   'Jane Doe',
+  phone:           '021000111',
+}
+```
+
+### Verified
+
+- `POST /api/stripe/webhook` `checkout.session.completed` with valid booking metadata → `{"received":true}` (200), jobStore updated, Firebase pendingjobs+allbookings patched ✅
+- Non-booking event (`invoice.payment_succeeded`, no bookingId metadata) → `{"received":true}` (200), logged as skipped, no Firebase write ✅
+- Non-numeric `companyId: "Auckland Cabs"` → `{"received":true}` (200), error logged, no Firebase write ✅
+- Missing `bookingId`/`companyId` → `{"received":true}` (200), error logged with Stripe event ID, no crash ✅
+- STRIPE_WEBHOOK_SECRET not set → `{"received":true}` with dev-mode warning logged ✅

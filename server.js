@@ -3021,6 +3021,200 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── POST /api/stripe/webhook — Stripe payment event receiver (SA portal) ─────
+  //
+  // Stripe fires this when a Checkout session or Payment Intent completes.
+  // This IS the SA portal's webhook handler — the SA portal and dispatch server are
+  // the same process (server.js). There is no separate HTTP call to /api/payment/confirm;
+  // the same Firebase update logic runs directly here.
+  //
+  // ┌─ Required Stripe dashboard configuration ──────────────────────────────────┐
+  // │  Webhook URL:                                                               │
+  // │    Dev:  https://{REPLIT_DEV_DOMAIN}/api/stripe/webhook                    │
+  // │    Prod: https://{DEPLOYED_DOMAIN}/api/stripe/webhook                      │
+  // │                                                                             │
+  // │  Current dev URL:                                                           │
+  // │    https://01067f31-afeb-4a32-a195-60c80223accf-00-dgff2mfkeoci.riker.replit.dev/api/stripe/webhook
+  // │                                                                             │
+  // │  Events to enable:                                                          │
+  // │    checkout.session.completed                                               │
+  // │    payment_intent.succeeded   (fallback for non-Checkout flows)             │
+  // │                                                                             │
+  // │  Signing secret: set STRIPE_WEBHOOK_SECRET env var (whsec_xxx from         │
+  // │  Stripe dashboard → Developers → Webhooks → your endpoint → Signing secret) │
+  // └─────────────────────────────────────────────────────────────────────────────┘
+  //
+  // Required session metadata (set when creating the Stripe Checkout session):
+  //   metadata.bookingId    — the Firebase/dispatch booking key (numeric string)
+  //   metadata.companyId    — the numeric company ID (e.g. "620611") — NOT the name
+  //   metadata.eventType    — "booking_payment" (to skip rental/subscription events)
+  //   metadata.pickupAddress, metadata.dropoffAddress  (optional — fill schema)
+  //   metadata.pickupLat, metadata.pickupLng, metadata.dropoffLat, metadata.dropoffLng
+  //
+  // Out of scope: rental/towing Stripe flows, subscription invoice events.
+  if (urlPath === '/api/stripe/webhook' && req.method === 'POST') {
+    // Must read the raw body for Stripe signature verification (before any JSON.parse)
+    const _swRawBody = await readBody(req);
+    const _swSig     = req.headers['stripe-signature'] || '';
+    const _swSecret  = process.env.STRIPE_WEBHOOK_SECRET || '';
+
+    let _swEvent = null;
+    if (_swSecret) {
+      // Verify Stripe signature — protects against spoofed webhook calls
+      try {
+        const _swStripe = getStripe();
+        _swEvent = _swStripe.webhooks.constructEvent(_swRawBody, _swSig, _swSecret);
+      } catch (e) {
+        console.error(`[stripe/webhook] Signature verification FAILED: ${e.message}`);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Webhook signature verification failed' }));
+        return;
+      }
+    } else {
+      // No signing secret — accept without verification (development only)
+      console.warn('[stripe/webhook] STRIPE_WEBHOOK_SECRET not set — processing without signature check. Set this env var in production.');
+      try { _swEvent = JSON.parse(_swRawBody); } catch(e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
+    }
+
+    // Stripe requires a 200 response within 30 s — acknowledge immediately before
+    // any async work. If we time out, Stripe will retry the webhook (up to 3 days).
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ received: true }));
+
+    const _swType = (_swEvent && _swEvent.type) || '';
+    const _swObj  = (_swEvent && _swEvent.data && _swEvent.data.object) || {};
+    const _swMeta = _swObj.metadata || {};
+
+    console.log(`[stripe/webhook] event=${_swType} id=${(_swEvent && _swEvent.id) || '?'}`);
+
+    // Only process booking_payment events — skip rental, subscription, etc.
+    // Accept events that have metadata.bookingId OR metadata.eventType === 'booking_payment'
+    const _swIsBookingPmt = _swMeta.eventType === 'booking_payment' || !!(_swMeta.bookingId || _swMeta.booking_id);
+    if (!_swIsBookingPmt) {
+      console.log(`[stripe/webhook] Skipping non-booking-payment event: ${_swType}`);
+      return;
+    }
+    if (_swType !== 'checkout.session.completed' && _swType !== 'payment_intent.succeeded') {
+      console.log(`[stripe/webhook] Unhandled event type for booking_payment: ${_swType} — add handler if needed`);
+      return;
+    }
+
+    // Extract booking details from Stripe session/intent metadata
+    const _swBookingId = (_swMeta.bookingId  || _swMeta.booking_id  || '').toString().trim();
+    const _swCid       = (_swMeta.companyId  || _swMeta.company_id  || '').toString().trim();
+    const _swChargeId  = (_swObj.payment_intent || _swObj.id         || '').toString().trim();
+    const _swPickAddr  = (_swMeta.pickupAddress  || _swMeta.pickup_address  || '').toString().trim();
+    const _swDropAddr  = (_swMeta.dropoffAddress || _swMeta.dropoff_address || '').toString().trim();
+    const _swPickLat   = parseFloat(_swMeta.pickupLat  || _swMeta.pickup_lat  || '0') || 0;
+    const _swPickLng   = parseFloat(_swMeta.pickupLng  || _swMeta.pickup_lng  || '0') || 0;
+    const _swDropLat   = parseFloat(_swMeta.dropoffLat || _swMeta.dropoff_lat || '0') || 0;
+    const _swDropLng   = parseFloat(_swMeta.dropoffLng || _swMeta.dropoff_lng || '0') || 0;
+    const _swPaxName   = (_swMeta.passengerName || (_swObj.customer_details && _swObj.customer_details.name)  || '').toString().trim();
+    const _swPhone     = (_swMeta.phone         || (_swObj.customer_details && _swObj.customer_details.phone) || '').toString().trim();
+    const _swAmountPaid= ((_swObj.amount_total || _swObj.amount || 0) / 100); // cents → dollars
+
+    if (!_swBookingId || !_swCid) {
+      console.error(
+        `[stripe/webhook] MISSING METADATA — bookingId="${_swBookingId}" companyId="${_swCid}" ` +
+        `event=${_swType} stripeId=${(_swEvent && _swEvent.id) || '?'}. ` +
+        `Add metadata.bookingId and metadata.companyId when creating the Stripe session.`
+      );
+      return;
+    }
+    if (!/^\d+$/.test(_swCid)) {
+      console.error(
+        `[stripe/webhook] companyId is NOT numeric: "${_swCid}" — ` +
+        `pass the numeric company ID (e.g. "620611"), not the company name.`
+      );
+      return;
+    }
+
+    // 1. Update in-memory jobStore — lifts auto-dispatch BUG-7 payment gate immediately
+    const _swJobIdNum = parseInt(_swBookingId, 10) || 0;
+    const _swJob = jobStore.find(j =>
+      (j.Id === _swJobIdNum || String(j.Id) === _swBookingId || j._fbKey === _swBookingId) &&
+      String(j.companyId || '') === _swCid
+    );
+    if (_swJob) {
+      _swJob.paymentStatus = 'paid';
+      if (_swPickAddr && !_swJob.PickAddress) _swJob.PickAddress = _swPickAddr;
+      if (_swDropAddr && !_swJob.DropAddress) _swJob.DropAddress = _swDropAddr;
+      if (_swPickLat && !_swJob.PickLatLng)   _swJob.PickLatLng  = `${_swPickLat},${_swPickLng}`;
+      if (_swDropLat && !_swJob.DropLatLng)   _swJob.DropLatLng  = `${_swDropLat},${_swDropLng}`;
+      if (!_swJob.BookingSource || _swJob.BookingSource === 'passenger') _swJob.BookingSource = 'Website';
+      saveJobStore();
+      console.log(`[stripe/webhook] jobStore job #${_swBookingId} → paymentStatus:'paid' (charge=${_swChargeId} $${_swAmountPaid})`);
+    } else {
+      console.warn(`[stripe/webhook] job #${_swBookingId} (cid=${_swCid}) not found in jobStore — Firebase-only update`);
+    }
+
+    // 2. Write schema-complete pendingjobs record.
+    //    Replaces the old "spread raw allbookings into pendingjobs" pattern that was
+    //    the root cause of Bug 1 — every dispatcher-required field is set explicitly.
+    const _swFbJob = {
+      BookingId:      _swBookingId,
+      companyId:      _swCid,
+      CompanyId:      _swCid,
+      Status:         'Pending',
+      status:         'pending',
+      BookingSource:  'Website',
+      WebBooking:     true,
+      paymentStatus:  'paid',
+      PaymentStatus:  'paid',
+      paymentMethod:  'card',
+      PaymentMethod:  'card',
+      stripeChargeId: _swChargeId || null,
+      amountPaid:     _swAmountPaid || null,
+      PickAddress:    (_swPickAddr || (_swJob && _swJob.PickAddress)  || ''),
+      DropAddress:    (_swDropAddr || (_swJob && _swJob.DropAddress) || ''),
+      PickLatLng:     _swPickLat ? `${_swPickLat},${_swPickLng}` : ((_swJob && _swJob.PickLatLng) || ''),
+      DropLatLng:     _swDropLat ? `${_swDropLat},${_swDropLng}` : ((_swJob && _swJob.DropLatLng) || ''),
+      Name:           (_swPaxName || (_swJob && _swJob.Name)   || ''),
+      PassengerName:  (_swPaxName || (_swJob && _swJob.Name)   || ''),
+      PhoneNo:        (_swPhone   || (_swJob && _swJob.PhoneNo) || ''),
+      VehicleType:    ((_swJob && _swJob.VehicleType) || 'Not Specified'),
+      ServiceType:    ((_swJob && _swJob.serviceType) || 'taxi'),
+      BookingDateTime:((_swJob && _swJob.BookingDateTime) || new Date().toISOString()),
+      ScheduledFor:   ((_swJob && _swJob.ScheduledFor)  || 0),
+      ScheduledForMs: ((_swJob && _swJob.ScheduledFor)  || 0),
+      Notes:          ((_swJob && _swJob.Notes)          || ''),
+      Passengers:     ((_swJob && _swJob.Passengers)     || 1),
+      DispatchTimebefore: ((_swJob && _swJob.DispatchTimebefore) || '0'),
+      updatedAt:      new Date().toISOString(),
+    };
+
+    // 3. allbookings update — keep existing write in place per task spec step 3.
+    //    Only patches payment fields; does not overwrite address/name data.
+    const _swAbPatch = {
+      paymentStatus:  'paid',
+      PaymentStatus:  'paid',
+      Status:         'Pending',
+      BookingSource:  'Website',
+      WebBooking:     true,
+      stripeChargeId: _swChargeId || null,
+      amountPaid:     _swAmountPaid || null,
+      updatedAt:      new Date().toISOString(),
+    };
+
+    getFirebaseServerToken().then(tok => {
+      if (!tok) return Promise.resolve();
+      return Promise.all([
+        firebaseDbPatch(`pendingjobs/${_swCid}/${_swBookingId}`, _swFbJob, tok),
+        firebaseDbPatch(`allbookings/${_swCid}/${_swBookingId}`, _swAbPatch, tok),
+      ]);
+    }).then(() => {
+      console.log(`  [stripe/webhook] Firebase pendingjobs+allbookings/${_swCid}/${_swBookingId} updated`);
+    }).catch(e => {
+      // Must not throw — webhook response already sent; Stripe would re-deliver on timeout
+      console.error(`  [stripe/webhook] Firebase update FAILED for booking #${_swBookingId}: ${e.message}`);
+    });
+    return;
+  }
+
   // ── GET /api/driver/myjob — driver app startup recovery ────────────────────
   // Called by the driver app on launch to check if they have an active/assigned job
   // waiting from before a crash.  Returns the job details if found, or { found: false }.

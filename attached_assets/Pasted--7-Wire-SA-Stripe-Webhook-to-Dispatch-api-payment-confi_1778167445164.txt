@@ -1,0 +1,27 @@
+#7 - Wire SA Stripe Webhook to Dispatch /api/payment/confirm
+What & Why
+When a web booking payment completes, Stripe fires a webhook to the SA portal. Currently the SA portal's webhook handler writes directly to Firebase pendingjobs by spreading the raw allbookings record. The dispatch server now has a dedicated POST /api/payment/confirm endpoint that correctly updates its in-memory jobStore (lifting the payment gate) and writes a schema-complete pendingjobs record. The SA portal must call this endpoint instead of doing the Firebase write itself, otherwise the dispatch system never picks up the job.
+
+There is also a secondary issue observed in testing: the Stripe webhook did not arrive at the SA portal at all for a live test booking. This must be investigated as part of this task — if the webhook URL registered in Stripe is wrong or pointing elsewhere, the code change alone will not fix the problem.
+
+Done looks like
+A web booking payment triggers the SA portal's Stripe webhook (POST /api/stripe/webhook)
+The handler calls the dispatch server's POST /api/payment/confirm with the correct X-Admin-Key header and a numeric companyId
+The dispatch system picks up the job and assigns a driver as expected
+The direct Firebase pendingjobs spread in the SA portal webhook is removed or replaced by the dispatch call
+If the webhook was not arriving (wrong Stripe URL), the correct webhook URL is identified and documented so the Stripe dashboard can be updated
+Out of scope
+Changes to the dispatch server itself (already done by dispatch dev)
+Rental or towing Stripe flows
+Subscription invoice webhook handling
+Steps
+Audit Stripe webhook delivery — Check the Stripe dashboard webhook logs (or add logging to the SA portal webhook handler) to confirm whether the booking_payment webhook is being delivered to the SA portal URL. Identify if the registered webhook URL is correct and document the expected URL.
+
+Replace pendingjobs spread with dispatch API call — In the booking_payment branch of the SA portal's Stripe webhook handler, remove the direct Firebase pendingjobs write. Replace it with an HTTP POST to the dispatch server's /api/payment/confirm endpoint, passing X-Admin-Key in the header and a numeric companyId in the body along with the booking details (bookingId, cid, stripeSessionId, etc.).
+
+Keep allbookings update in place — The existing write to allbookings/{cid}/{bookingId} (patching paymentStatus: 'paid', Status: 'Pending') should remain — only the pendingjobs spread is being replaced.
+
+Add error handling and logging — If the dispatch API call fails (network error, non-2xx), log the error with the booking ID and fall back gracefully (do not crash the webhook handler). Log success with the booking ID for traceability.
+
+Relevant files
+src/routes/stripe.ts
