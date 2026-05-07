@@ -8925,6 +8925,8 @@ $(document).ready(function() {
                             firebase.database().ref().child("/notification/" + _fbd).remove();
                             firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                            // §100 — also write Away to current/ so driver app overlay clears correctly
+                            firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
                             FnNotifyDriverAway(driverid, 'reject');
                             // Immediately update driver colour — don't wait for Firebase propagation
                             (function(_drvid, _veh) {
@@ -8977,6 +8979,8 @@ $(document).ready(function() {
                                     firebase.database().ref().child("/notification/" + _fbd).remove();
                                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                                    // §100 — also write Away to current/ so driver app overlay clears correctly
+                                    firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
                                     FnNotifyDriverAway(driverid, 'reject');
                                     (function(_drvid, _veh) {
                                         var _sc = angular.element(document.getElementById('myangular')).scope();
@@ -9037,6 +9041,8 @@ $(document).ready(function() {
                                 firebase.database().ref().child("/notification/" + _fbd).remove();
                                 firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                                // §100 — also write Away to current/ so driver app overlay clears correctly
+                                firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
                                 FnNotifyDriverAway(driverid, 'reject');
                                 (function(_drvid, _veh) {
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
@@ -9136,6 +9142,8 @@ $(document).ready(function() {
 
                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
+                    // §100 — also write Away to current/ so driver app overlay clears correctly
+                    firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
                     FnNotifyDriverAway(driverid, 'timeout');
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     if (_fbsc && _fbsc.driverdatarealx) {

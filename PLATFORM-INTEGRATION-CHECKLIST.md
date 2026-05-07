@@ -1186,3 +1186,30 @@ Templates updated:
 | Job detail modal (line ~1573) | `{{showi.BookingDateTime}}` | `{{bwFmtDt(showi.BookingDateTime)}}` |
 
 Example output: `07 May 2026, 06:45 pm`
+
+---
+
+### §38. Away written to both Firebase paths on timeout/reject (§100 fix)
+
+**Bug:** When a driver timed out or rejected a job, the dispatcher wrote `vehiclestatus: 'Away'` only to the **top-level** `online/{cid}/{vid}` path. The driver app reconstructs its state from `online/{cid}/{vid}/current` on restart — if `current/vehiclestatus` still read `Assigned` or `Offered`, the driver app showed a stale active-job overlay even though the driver was marked Away.
+
+**Fix (Default.aspx):**  
+Added a matching `…/current` write immediately after every existing top-level Away write. Four call sites updated (3 × reject path, 1 × timeout path):
+
+```js
+// Top-level — dispatcher reads this (unchanged, already present)
+firebase.database().ref("online/" + cid + "/" + vid).update({ vehiclestatus: 'Away' });
+// §100 — nested current/ — driver app reads this on restart (new)
+firebase.database().ref("online/" + cid + "/" + vid + "/current").update({ vehiclestatus: 'Away' });
+```
+
+**Driver app contract:**  
+On app restart the driver app should read `online/{cid}/{vid}/current/vehiclestatus` to reconstruct mode. Both paths are now in sync after any Away transition triggered by the dispatcher.
+
+**Call sites patched:**
+| Line (approx) | Trigger |
+|---|---|
+| ~8930 | `resolveAfter2Secondsx` — explicit `Reject` response |
+| ~8984 | `resolveAfter2Secondsx` — `discription == 'Ride Status… Reject'` branch |
+| ~9046 | `resolveAfter2Secondsx` — `localva = "Reject"` branch |
+| ~9147 | 27-second timeout — driver never responded |
