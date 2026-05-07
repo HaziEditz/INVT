@@ -11832,20 +11832,33 @@ $(document).ready(function() {
                                         // SA-TaxiDriverPay both depend on these Firebase nodes.
                                         if (_r && _r.completedJob && _newSt === 'Available' && SomeSession2) {
                                             var _cj = _r.completedJob;
-                                            var _cjCid = SomeSession2;
-                                            var _cjTripId = String(_cj.tripId || '');
-                                            var _cjDrvId  = String(_cj.driverId || _capDid || '');
+                                            var _cjCid    = SomeSession2;
+                                            var _cjTripId = String(_cj.tripId    || '');
+                                            // bookingId is stored as a field inside the record (driver app uses push keys,
+                                            // not bookingId as the Firebase key — so SA portal queries orderByChild('bookingId')).
+                                            var _cjBid    = String(_cj.bookingId || _cj.bookingRef || _cjTripId);
+                                            var _cjDrvId  = String(_cj.driverId  || _capDid || '');
                                             var _db = firebase.database();
 
                                             // 1. Write completedJobs/{cid}/{tripId}
+                                            // Key is our numeric tripId. bookingId stored as a field so SA portal can
+                                            // query orderByChild('bookingId') regardless of which side wrote the record.
                                             if (_cjTripId) {
                                                 var _cjNode = {
-                                                    fare:        _cj.fare || 0,
-                                                    paymentType: _cj.paymentType || 'cash',
-                                                    completedAt: _cj.completedAt || Date.now(),
-                                                    driverId:    _cjDrvId,
-                                                    pickup:      _cj.pickup || '',
-                                                    dropoff:     _cj.dropoff || '',
+                                                    bookingId:     _cjBid,
+                                                    companyId:     _cjCid,
+                                                    fare:          _cj.fare || 0,
+                                                    paymentType:   _cj.paymentType || 'cash',
+                                                    completedAt:   _cj.completedAt
+                                                                     ? new Date(_cj.completedAt).toISOString()
+                                                                     : new Date().toISOString(),
+                                                    status:        'Completed',
+                                                    source:        'dispatch',
+                                                    driverId:      _cjDrvId,
+                                                    vehicleId:     _cj.vehicleId || _cj.vehicleNo || '',
+                                                    pickupAddress: _cj.pickup    || '',
+                                                    dropAddress:   _cj.dropoff   || '',
+                                                    distanceKm:    _cj.distanceKm || 0,
                                                 };
                                                 // TM fields — only include if present
                                                 if (_cj.paymentType === 'total_mobility') {
@@ -11860,25 +11873,45 @@ $(document).ready(function() {
                                             }
 
                                             // 2. Update driverEarnings/taxi/{cid}/{driverId}
-                                            if (_cjDrvId) {
-                                                var _deRef = _db.ref('driverEarnings/taxi/' + _cjCid + '/' + _cjDrvId);
-                                                _deRef.once('value').then(function(snap) {
-                                                    var _ex = snap.val() || {};
-                                                    var _fare = Number(_cj.fare) || 0;
-                                                    // Preserve lastPaidAt exactly as stored — do not coerce via ||
-                                                    // (a stored value of 0 is falsy but still valid)
-                                                    var _lpa = (_ex.hasOwnProperty && _ex.hasOwnProperty('lastPaidAt'))
-                                                                 ? _ex.lastPaidAt
-                                                                 : (_ex.lastPaidAt !== undefined ? _ex.lastPaidAt : null);
-                                                    return _deRef.set({
-                                                        driverName:    _cj.driverName || _ex.driverName || '',
-                                                        totalEarned:   (_ex.totalEarned   || 0) + _fare,
-                                                        pendingAmount: (_ex.pendingAmount  || 0) + _fare,
-                                                        tripCount:     (_ex.tripCount      || 0) + 1,
-                                                        lastPaidAt:    _lpa,
-                                                        updatedAt:     Date.now(),
-                                                    });
-                                                }).catch(function() {});
+                                            // Guard: query orderByChild('bookingId') first. If the driver app already
+                                            // wrote a completedJobs record for this booking (push-key entry with
+                                            // bookingId field), it will also have incremented driverEarnings — skip
+                                            // our increment to prevent double-counting.
+                                            // Requires ".indexOn": ["bookingId"] on completedJobs/$companyId in rules.
+                                            if (_cjDrvId && _cjBid) {
+                                                _db.ref('completedJobs/' + _cjCid)
+                                                    .orderByChild('bookingId').equalTo(_cjBid)
+                                                    .once('value')
+                                                    .then(function(existSnap) {
+                                                        // existSnap includes the record we just wrote (our own tripId key)
+                                                        // plus any push-key record the driver app wrote.
+                                                        // Double-count = more than one record found for this bookingId.
+                                                        var _existCount = 0;
+                                                        existSnap.forEach(function() { _existCount++; });
+                                                        if (_existCount > 1) {
+                                                            // Driver app already wrote + incremented earnings for this booking.
+                                                            console.log('[BW] completedJobs/' + _cjCid + ' has ' + _existCount + ' records for bookingId=' + _cjBid + ' — driverEarnings increment skipped (driver app already wrote)');
+                                                            return;
+                                                        }
+                                                        // Only our record exists — safe to increment earnings.
+                                                        var _deRef = _db.ref('driverEarnings/taxi/' + _cjCid + '/' + _cjDrvId);
+                                                        return _deRef.once('value').then(function(deSnap) {
+                                                            var _ex = deSnap.val() || {};
+                                                            var _fare = Number(_cj.fare) || 0;
+                                                            // Preserve lastPaidAt exactly as stored — a value of 0 is falsy but valid
+                                                            var _lpa = (_ex.hasOwnProperty && _ex.hasOwnProperty('lastPaidAt'))
+                                                                         ? _ex.lastPaidAt
+                                                                         : (_ex.lastPaidAt !== undefined ? _ex.lastPaidAt : null);
+                                                            return _deRef.set({
+                                                                driverName:    _cj.driverName || _ex.driverName || '',
+                                                                totalEarned:   (_ex.totalEarned   || 0) + _fare,
+                                                                pendingAmount: (_ex.pendingAmount  || 0) + _fare,
+                                                                tripCount:     (_ex.tripCount      || 0) + 1,
+                                                                lastPaidAt:    _lpa,
+                                                                updatedAt:     Date.now(),
+                                                            });
+                                                        });
+                                                    }).catch(function() {});
                                             }
                                         }
                                     } catch(e) {}

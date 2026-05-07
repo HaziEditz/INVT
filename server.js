@@ -4346,15 +4346,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 // Capture for Firebase write by the client
                 _dscCompletedJob = {
                   tripId:      String(job.Id),
+                  bookingId:   String(job.Id),        // stored as field — SA portal queries orderByChild('bookingId')
+                  bookingRef:  String(job.Id),
+                  companyId:   String(sessionCompanyId || ''),
                   driverId:    String(driverId),
                   driverName:  drivername || (job.UserFName ? ((job.UserFName || '') + ' ' + (job.UserLName || '')).trim() : ''),
+                  vehicleId:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
                   vehicleNo:   vehiclenumber || String(job.VehicleNo || job.VehicleId || ''),
                   fare:        job.Fare != null ? Number(job.Fare) : (job.TotalFare != null ? Number(job.TotalFare) : 0),
                   paymentType: (job.PaymentType || job.paymentType || 'cash').toLowerCase(),
                   completedAt: job.completedAtMs,
+                  status:      'Completed',
+                  source:      'dispatch',
                   pickup:      job.PickAddress || '',
                   dropoff:     job.DropAddress || '',
-                  bookingRef:  String(job.Id),
+                  pickupAddress: job.PickAddress || '',
+                  dropAddress:   job.DropAddress || '',
+                  distanceKm:  job.JobDistance != null ? Number(job.JobDistance)
+                               : (job.EstimatedDistance != null ? Number(job.EstimatedDistance)
+                               : (job.Distance != null ? Number(job.Distance) : 0)),
                   tmSubsidy:        job.tmSubsidy        != null ? Number(job.tmSubsidy)        : null,
                   tmSubsidyHoist:   job.tmSubsidyHoist   != null ? Number(job.tmSubsidyHoist)   : null,
                   tmPassengerPays:  job.tmPassengerPays  != null ? Number(job.tmPassengerPays)  : null,

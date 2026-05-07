@@ -222,6 +222,7 @@
     },
     "completedJobs": {
       "$companyId": {
+        ".indexOn": ["bookingId"],
         "$bookingId": {
           ".read": "auth != null",
           ".write": "auth != null"
