@@ -6074,8 +6074,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               ? _estimateDispatchLeadMins(_sCid, _pickLat, _pickLng)
               : 0;
             const _dtb = String(_estMins);
+            // Use the passenger app's own BookingId as our internal Id to avoid
+            // collisions with the external ASP.NET system's sequential job IDs.
+            // _ipjJobId is the Firebase key (e.g. "6206112605071") — safe as a JS integer.
+            const _sId = parseInt(_ipjJobId, 10) || newCompanyJobId(_sCid);
             jobStore.push({
-              _fbKey: _ipjFbKey, Id: newCompanyJobId(_sCid), companyId: _sCid,
+              _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
               BookingStatus: 'Pending', BookingSource: 'passenger',
               Name:          _sn.name,
               PhoneNo:       _sn.phone,
@@ -6105,8 +6109,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (!already && !alreadyClosed) {
             const _wCid = String(sessionCompanyId);
             const _wn = _normFbJob(_ipjJob);
+            // Use the passenger app's own BookingId as our internal Id to avoid
+            // collisions with the external ASP.NET system's sequential job IDs.
+            const _wId = parseInt(_ipjJobId, 10) || newCompanyJobId(_wCid);
             jobStore.push({
-              _fbKey: _ipjFbKey, Id: newCompanyJobId(_wCid), companyId: _wCid,
+              _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
               BookingStatus: 'Pending', BookingSource: 'passenger',
               Name:          _wn.name,
               PhoneNo:       _wn.phone,
