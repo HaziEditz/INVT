@@ -1406,3 +1406,89 @@ Writes new `NotifyDispatchBeforeMinutes` + recalculated `NotifyDispatchAt` to Fi
 4. (Optional) Dispatcher edits lead time → `_bwUpdateSchedLead` → Firebase + server updated → old timer cancelled → new timer armed
 5. Timer fires → writes `Status:'Pending'` to Firebase
 6. `child_changed` → `_pjIngest` (isChange=true, bypasses `_pjSeen`) → **"🌐 New booking from Web Booking — <address>!"** → `[IngestPassengerJob]` Waiting/Pending branch → **promotion**: `BookingStatus:'Scheduled'→'Pending'` → `getjobs()` → auto-dispatch eligible ✓
+
+---
+
+## Section 34 — Dispatch Assignment & Booking ID Format Bugs (2026-05-07)
+
+### Bug 1 — Web booking cannot be dispatched (job stuck, driver never notified)
+
+**Root cause:** The SA portal's Stripe webhook wrote the pendingjobs record by spreading the raw `allbookings` record. That record uses different field casing or omits dispatcher-required fields entirely (`BookingSource`, `WebBooking`, `PickAddress`, `DropAddress`, `paymentStatus`). The dispatcher's `_normFbJob()` / `_doSend()` pipeline silently skipped the job or built a broken notification payload — leaving the car "Available" and the job perpetually stuck.
+
+Secondary: if the rideStatus write never happened (broken payload), the existing normalizer never cleaned up the stale pendingjobs entry (it only acted on `status === 'assigned'`).
+
+### Bug 2 — Booking ID contains letters from company name
+
+**Root cause:** `newCompanyJobId(companyId)` used `String(companyId).slice(-3)` as the 3-character prefix. If the web booking site sent `companyId: "Auckland Cabs"` (company name string) instead of the numeric ID `"620611"`, the slice produced `"abs"` → `parseInt("abs2605011") = NaN` → `j.Id === NaN` in the store. The downstream `syncOfflineTrip` endpoint checks `/^\d{9,}$/` and rejected the ID.
+
+### Fixes applied (`server.js`)
+
+**Fix 1 — `newCompanyJobId` guard (line ~375):**
+```js
+// Throws clearly if companyId is not purely numeric
+if (!_cidRaw || !/^\d+$/.test(_cidRaw)) {
+  throw new Error(`newCompanyJobId: companyId must be a non-empty numeric string — received: "${_cidRaw}".`);
+}
+```
+Surfaces the misconfiguration immediately in server logs instead of silently producing a broken job ID.
+
+**Fix 2 — `/api/job/create` companyId validation (line ~2823):**
+```js
+if (!/^\d+$/.test(_cjCid)) {
+  return 400 { error: `companyId must be a numeric string (received: "${_cjCid}")`, receivedCompanyId: _cjCid }
+}
+```
+Returns a descriptive 400 so the web booking site configuration error is visible immediately.
+
+**Fix 3 — New `POST /api/payment/confirm` endpoint (line ~2896):**
+
+Replaces the SA portal Stripe webhook's raw `allbookings` spread pattern. Called by the SA portal after Stripe confirms payment. Builds the pendingjobs record **explicitly** — every field the dispatcher pipeline needs is set by name, not spread:
+
+```
+Auth: X-Admin-Key header
+Body: { jobId, companyId, paymentStatus?, paymentMethod?, stripeChargeId?,
+        pickupLocation?: {address,lat,lng}, dropoffLocation?: {address,lat,lng} }
+Response: { ok: true, jobId, paymentStatus }
+```
+
+Actions:
+1. Updates in-memory jobStore entry `paymentStatus:'paid'` → auto-dispatch payment gate (BUG 7) lifts on the next 10-s cycle.
+2. Writes schema-complete record to `pendingjobs/{cid}/{jobId}` with: `BookingSource:'Website'`, `WebBooking:true`, `paymentStatus:'paid'`, `Status:'Pending'`, `status:'pending'`, `PickAddress`, `DropAddress`, `PickLatLng`, `DropLatLng`, and all other dispatcher-required fields.
+3. Patches `allbookings/{cid}/{jobId}` with `paymentStatus`, `BookingSource`, `WebBooking`, `stripeChargeId`.
+
+**Fix 4 — pendingjobs normalizer interval (line ~6735, runs every 30 s):**
+
+Two-in-one background task:
+
+- **Stale-pending cleanup (Step 3):** For every Firebase `pendingjobs/{cid}` record whose corresponding job is already in `closedJobStore`, fire-and-forget deletes the Firebase record. Handles edge cases where the trip completed successfully but pendingjobs was never cleaned up.
+- **Schema patch (Step 4):** For records missing `PickAddress`, `DropAddress`, `BookingSource`, or `WebBooking`, patches from the corresponding `jobStore` entry. Auto-heals any future schema gaps within 30 seconds.
+
+### SA portal integration contract for `/api/payment/confirm`
+
+```
+POST /api/payment/confirm
+X-Admin-Key: <BW_ADMIN_KEY>
+Content-Type: application/json
+
+{
+  "jobId":          "6206112605075",   // numeric string — the Firebase/booking key
+  "companyId":      "620611",          // NUMERIC string — NOT the company name
+  "paymentStatus":  "paid",            // default: "paid"
+  "paymentMethod":  "card",            // default: "card"
+  "stripeChargeId": "ch_xxx",
+  "pickupLocation":  { "address": "...", "lat": -46.41, "lng": 168.35 },
+  "dropoffLocation": { "address": "...", "lat": -46.42, "lng": 168.33 }
+}
+```
+
+**Critical:** `companyId` must be the numeric company ID (e.g. `"620611"`), **not** the company name string. Passing `"Auckland Cabs"` returns `400 { error: "companyId must be numeric..." }`.
+
+### Verified
+
+- `POST /api/job/create` with `companyId: "Auckland Cabs"` → `400` with `receivedCompanyId` in body ✅
+- `POST /api/job/create` with `companyId: "620611"` → `200 { ok: true, jobId: ... }` ✅
+- `POST /api/payment/confirm` with wrong key → `401` ✅
+- `POST /api/payment/confirm` with non-numeric companyId → `400` ✅
+- `POST /api/payment/confirm` with valid payload (jobId `6206112605075`, cid `620611`) → `200 { ok: true }`, jobStore entry updated `paymentStatus:'paid'`, Firebase pendingjobs+allbookings patched ✅
+- `newCompanyJobId("Auckland Cabs")` throws immediately with clear message ✅
+- `newCompanyJobId("620611")` produces correct numeric job ID ✅

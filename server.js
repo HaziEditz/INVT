@@ -370,7 +370,20 @@ function newJobId() {
 // Sequence is per-company per-day, resets at midnight, no zero-padding.
 const _companyJobSeq = {}; // key: "611-260501" → count
 function newCompanyJobId(companyId) {
-  const prefix = String(companyId).slice(-3); // last 3 digits
+  const _cidRaw = String(companyId || '').trim();
+  // Guard: companyId must be purely numeric (e.g. "620611").
+  // A company name like "Auckland Cabs" → slice(-3) = "abs" → parseInt("abs...") = NaN,
+  // producing a broken job ID that fails downstream /^\d{9,}$/ checks in syncOfflineTrip
+  // and leaves j.Id === NaN in the store — completely broken.
+  if (!_cidRaw || !/^\d+$/.test(_cidRaw)) {
+    const _cidErr = new Error(
+      `newCompanyJobId: companyId must be a non-empty numeric string — received: "${_cidRaw}". ` +
+      `Pass the numeric company ID (e.g. "620611"), not the company name.`
+    );
+    console.error('[newCompanyJobId] INVALID companyId:', _cidErr.message);
+    throw _cidErr;
+  }
+  const prefix = _cidRaw.slice(-3);
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -2800,8 +2813,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
     // Validate
     if (!_cjCid) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ ok: false, error: 'companyId is required' }));
+      return;
+    }
+    // Guard: companyId must be purely numeric. A company name (e.g. "Auckland Cabs")
+    // produces a letter-prefixed job ID ("abs2605...") which syncOfflineTrip rejects.
+    if (!/^\d+$/.test(_cjCid)) {
+      console.error(`[/api/job/create] INVALID companyId — received: "${_cjCid}". ` +
+        `Expected a numeric string like "620611". Fix the web booking site configuration.`);
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        ok: false,
+        error: `companyId must be a numeric string (received: "${_cjCid}"). ` +
+          `If you are passing a company name instead of a numeric company ID, fix the calling configuration.`,
+        receivedCompanyId: _cjCid,
+      }));
       return;
     }
     if (!BOOKING_SOURCES.has(_cjSource)) {
@@ -2860,6 +2887,137 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     console.log(`200: POST /api/job/create -> reserved job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ ok: true, jobId: _cjIdStr, createdAt: _cjCreated }));
+    return;
+  }
+
+  // ── POST /api/payment/confirm — Stripe / web-portal payment confirmation ────
+  // Called by the SA portal (or a Stripe webhook adapter) once Stripe confirms a
+  // successful payment for a web booking.
+  //
+  // Effect 1 — Updates the in-memory jobStore entry with paymentStatus:'paid' so
+  //   the auto-dispatch payment gate (BUG 7) lifts on the very next 10-s cycle.
+  //
+  // Effect 2 — Writes a schema-COMPLETE record to Firebase pendingjobs/{cid}/{jobId}
+  //   with every field the dispatcher pipeline (_normFbJob / _doSend) needs:
+  //   BookingSource, WebBooking, paymentStatus, PickAddress, DropAddress, etc.
+  //   Root cause of Bug 1: the SA portal's Stripe webhook spread the raw allbookings
+  //   record into pendingjobs — allbookings can omit or mis-case these fields —
+  //   so the dispatcher silently skipped the job or built a broken notification.
+  //   We build the record explicitly here to close that gap permanently.
+  //
+  // Auth: X-Admin-Key header (same secret used by /api/syncOfflineTrip etc.)
+  // Body (JSON): { jobId, companyId, paymentStatus?, paymentMethod?, stripeChargeId?,
+  //               pickupLocation?: {address,lat,lng},
+  //               dropoffLocation?: {address,lat,lng},
+  //               passengerName?, phone?, notes? }
+  if (urlPath === '/api/payment/confirm' && req.method === 'POST') {
+    const _pcRaw = await readBody(req);
+    let _pcBody = {};
+    try { _pcBody = JSON.parse(_pcRaw); } catch(e) {}
+
+    const _pcKey      = (req.headers['x-admin-key'] || _pcBody.adminKey || '').toString().trim();
+    const _pcJobId    = (_pcBody.jobId     || '').toString().trim();
+    const _pcCid      = (_pcBody.companyId || '').toString().trim();
+    const _pcStatus   = (_pcBody.paymentStatus  || 'paid').toString().toLowerCase().trim();
+    const _pcMethod   = (_pcBody.paymentMethod  || 'card').toString().trim();
+    const _pcChargeId = (_pcBody.stripeChargeId || _pcBody.chargeId || '').toString().trim();
+    const _pcPickup   = _pcBody.pickupLocation  || {};
+    const _pcDropoff  = _pcBody.dropoffLocation || {};
+
+    if (_pcKey !== ADMIN_KEY) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: 'Unauthorised — invalid adminKey' }));
+      return;
+    }
+    if (!_pcJobId || !_pcCid) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: 'jobId and companyId are required' }));
+      return;
+    }
+    if (!/^\d+$/.test(_pcCid)) {
+      console.error(`[/api/payment/confirm] INVALID companyId: "${_pcCid}"`);
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: `companyId must be numeric — received: "${_pcCid}"`, receivedCompanyId: _pcCid }));
+      return;
+    }
+
+    // 1. Update in-memory jobStore — lifts payment gate for auto-dispatch immediately
+    const _pcJobIdNum = parseInt(_pcJobId, 10) || 0;
+    const _pcJob = jobStore.find(j =>
+      (j.Id === _pcJobIdNum || String(j.Id) === _pcJobId || j._fbKey === _pcJobId) &&
+      String(j.companyId || '') === _pcCid
+    );
+    if (_pcJob) {
+      _pcJob.paymentStatus = _pcStatus;
+      if (_pcPickup.address  && !_pcJob.PickAddress) _pcJob.PickAddress = _pcPickup.address;
+      if (_pcDropoff.address && !_pcJob.DropAddress) _pcJob.DropAddress = _pcDropoff.address;
+      if (_pcPickup.lat  && !_pcJob.PickLatLng) _pcJob.PickLatLng  = `${_pcPickup.lat},${_pcPickup.lng  || 0}`;
+      if (_pcDropoff.lat && !_pcJob.DropLatLng) _pcJob.DropLatLng  = `${_pcDropoff.lat},${_pcDropoff.lng || 0}`;
+      if (!_pcJob.BookingSource || _pcJob.BookingSource === 'passenger') _pcJob.BookingSource = 'Website';
+      saveJobStore();
+      console.log(`[payment/confirm] jobStore job #${_pcJobId} → paymentStatus:'${_pcStatus}' BookingSource:'${_pcJob.BookingSource}'`);
+    } else {
+      console.warn(`[payment/confirm] job #${_pcJobId} (cid=${_pcCid}) not found in jobStore — Firebase-only update`);
+    }
+
+    // 2. Build a schema-complete pendingjobs record.
+    //    Every field the dispatcher pipeline needs is set EXPLICITLY — no raw spread
+    //    of allbookings which may have different casing or missing fields (Bug 1 root cause).
+    const _pcFbJob = {
+      BookingId:      _pcJobId,
+      companyId:      _pcCid,
+      CompanyId:      _pcCid,
+      Status:         'Pending',
+      status:         'pending',
+      BookingSource:  'Website',
+      WebBooking:     true,
+      paymentStatus:  _pcStatus,
+      PaymentStatus:  _pcStatus,
+      paymentMethod:  _pcMethod,
+      PaymentMethod:  _pcMethod,
+      stripeChargeId: _pcChargeId || null,
+      // Address fields — top-level keys the dispatcher reads directly
+      PickAddress:    (_pcPickup.address  || (_pcJob && _pcJob.PickAddress)  || ''),
+      DropAddress:    (_pcDropoff.address || (_pcJob && _pcJob.DropAddress) || ''),
+      PickLatLng:     _pcPickup.lat  ? `${_pcPickup.lat},${_pcPickup.lng  || 0}` : ((_pcJob && _pcJob.PickLatLng)  || ''),
+      DropLatLng:     _pcDropoff.lat ? `${_pcDropoff.lat},${_pcDropoff.lng || 0}` : ((_pcJob && _pcJob.DropLatLng) || ''),
+      // Passenger / booking details
+      Name:           (_pcJob && _pcJob.Name)    || _pcBody.passengerName || '',
+      PassengerName:  (_pcJob && _pcJob.Name)    || _pcBody.passengerName || '',
+      PhoneNo:        (_pcJob && _pcJob.PhoneNo) || _pcBody.phone         || '',
+      VehicleType:    (_pcJob && _pcJob.VehicleType) || 'Not Specified',
+      ServiceType:    (_pcJob && _pcJob.serviceType) || 'taxi',
+      BookingDateTime: (_pcJob && _pcJob.BookingDateTime) || new Date().toISOString(),
+      ScheduledFor:   (_pcJob && _pcJob.ScheduledFor)  || 0,
+      ScheduledForMs: (_pcJob && _pcJob.ScheduledFor)  || 0,
+      Notes:          (_pcJob && _pcJob.Notes) || _pcBody.notes || '',
+      Passengers:     (_pcJob && _pcJob.Passengers)    || 1,
+      DispatchTimebefore: (_pcJob && _pcJob.DispatchTimebefore) || '0',
+      updatedAt:      new Date().toISOString(),
+    };
+
+    // Fire-and-forget — do not block the HTTP response on Firebase writes
+    getFirebaseServerToken().then(tok => {
+      if (!tok) return Promise.resolve();
+      return Promise.all([
+        firebaseDbPatch(`pendingjobs/${_pcCid}/${_pcJobId}`, _pcFbJob, tok),
+        firebaseDbPatch(`allbookings/${_pcCid}/${_pcJobId}`, {
+          paymentStatus:  _pcStatus,
+          PaymentStatus:  _pcStatus,
+          BookingSource:  'Website',
+          WebBooking:     true,
+          stripeChargeId: _pcChargeId || null,
+          updatedAt:      new Date().toISOString(),
+        }, tok),
+      ]);
+    }).then(() => {
+      console.log(`  [payment/confirm] Firebase pendingjobs+allbookings/${_pcCid}/${_pcJobId} updated`);
+    }).catch(e => {
+      console.warn(`  [payment/confirm] Firebase update failed (non-fatal): ${e.message}`);
+    });
+
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ ok: true, jobId: _pcJobId, paymentStatus: _pcStatus }));
     return;
   }
 
@@ -6570,6 +6728,97 @@ setInterval(() => {
   });
   if (changed) saveJobStore();
 }, 90 * 1000);
+
+// ── pendingjobs Firebase normalizer — runs every 30 s ─────────────────────────
+// Two responsibilities:
+//
+// Step 3 (stale-pending cleanup) — Delete Firebase pendingjobs records for jobs
+//   that are already in closedJobStore. This handles the edge case where the
+//   dispatcher successfully completed/assigned a trip but the rideStatus write
+//   (which normally cleans up pendingjobs on the driver-app side) never happened —
+//   leaving a stuck 'pending' record that prevents the slot being reused.
+//   The existing normalizer only acted on status==='assigned'; this covers status==='pending'.
+//
+// Step 4 (schema patch) — For pendingjobs records missing any of the dispatcher-
+//   required fields (PickAddress, DropAddress, BookingSource, WebBooking), patch
+//   them in from the corresponding jobStore entry if found. Acts as a 30-second
+//   auto-heal safety net so future schema gaps close without manual intervention.
+//
+// Fire-and-forget on Firebase; errors are logged but never surface to callers.
+setInterval(async () => {
+  let token;
+  try { token = await getFirebaseServerToken(); } catch(e) { return; }
+  if (!token) return;
+
+  // Collect all distinct companyIds from registrationStore + jobStore
+  const _normCids = new Set([
+    ...(registrationStore || []).map(r => r.companyId).filter(Boolean),
+    ...jobStore.map(j => String(j.companyId || '')).filter(Boolean),
+  ]);
+  if (!_normCids.size) return;
+
+  for (const cid of _normCids) {
+    try {
+      const _normResp = await fetch(
+        `${FB_DB_URL}/pendingjobs/${cid}.json?auth=${encodeURIComponent(token)}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      if (!_normResp.ok) continue;
+      const _normData = await _normResp.json();
+      if (!_normData || typeof _normData !== 'object') continue;
+
+      for (const [key, rec] of Object.entries(_normData)) {
+        if (!rec || typeof rec !== 'object') continue;
+        const _normIdNum = parseInt(key, 10) ||
+          parseInt(rec.BookingId || rec.bookingId || '', 10) || 0;
+
+        // ── Step 3: stale-pending cleanup ──────────────────────────────────
+        // If this pendingjobs key corresponds to a job that is already closed,
+        // delete it so it doesn't permanently block that job slot.
+        if (_normIdNum) {
+          const _normClosed = closedJobStore.find(j =>
+            j.Id === _normIdNum && String(j.companyId || '') === cid
+          );
+          if (_normClosed) {
+            firebaseDbDelete(`pendingjobs/${cid}/${key}`, token).catch(() => {});
+            console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store)`);
+            continue;
+          }
+        }
+
+        // ── Step 4: schema patch ───────────────────────────────────────────
+        // If the record is missing dispatcher-required fields, patch from
+        // the corresponding jobStore entry (which may have been built correctly
+        // by [IngestPassengerJob] or /api/payment/confirm).
+        const _needsPatch = (!rec.PickAddress || !rec.DropAddress ||
+          !rec.BookingSource || rec.WebBooking === undefined);
+        if (!_needsPatch) continue;
+
+        const _normJob = _normIdNum
+          ? jobStore.find(j => j.Id === _normIdNum && String(j.companyId || '') === cid)
+          : null;
+        if (!_normJob) continue;
+
+        const _patch = {};
+        if (!rec.PickAddress  && _normJob.PickAddress)  _patch.PickAddress  = _normJob.PickAddress;
+        if (!rec.DropAddress  && _normJob.DropAddress)  _patch.DropAddress  = _normJob.DropAddress;
+        if (!rec.BookingSource && _normJob.BookingSource) _patch.BookingSource = _normJob.BookingSource;
+        if (rec.WebBooking === undefined) {
+          _patch.WebBooking = !!(
+            _normJob.BookingSource === 'Website' || _normJob.BookingSource === 'web' ||
+            _normJob.WebBooking === true
+          );
+        }
+        if (Object.keys(_patch).length) {
+          firebaseDbPatch(`pendingjobs/${cid}/${key}`, _patch, token).catch(() => {});
+          console.log(`[pendingjobs-normalizer] Patched pendingjobs/${cid}/${key}: ${Object.keys(_patch).join(', ')}`);
+        }
+      }
+    } catch (e) {
+      console.warn(`[pendingjobs-normalizer] Error scanning cid=${cid}: ${e.message}`);
+    }
+  }
+}, 30 * 1000);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

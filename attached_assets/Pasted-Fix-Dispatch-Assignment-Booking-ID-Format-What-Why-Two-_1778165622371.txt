@@ -1,0 +1,36 @@
+Fix Dispatch Assignment & Booking ID Format
+What & Why
+Two bugs reported by the operator:
+
+Bug 1 — Dispatch: car shows Available but cannot be sent to a job. When a booking comes in from the website, it lands in pendingjobs/{cid}/{bookingId}. The dispatch console sees the job in its queue but when the dispatcher tries to assign/send an available car, the assignment appears to go through on the dispatch side yet the job is never actually marked Assigned and no notification reaches the driver. Investigation points to the pendingjobs record written by the Stripe webhook (src/routes/stripe.ts) copying the full allbookings record — which uses a different field schema than what the dispatcher's _normFbJob() / _doSend() pipeline expects. Specifically, the record is missing or has wrong-cased versions of BookingSource, PaymentMethod, Status, PickAddress/DropAddress, and the WebBooking: true flag. The dispatcher's auto-dispatch and manual-send filters may silently skip the job or fail to build the notification payload correctly, leaving the car "Available" and the job stuck in the queue with no assignment recorded.
+
+Additionally, the normalizer marks pendingjobs jobs as Assigned status after dispatch writes to rideStatus, but if the pendingjobs record is never cleaned up after a successful assignment (because rideStatus write never happened due to the broken payload), the stale-pending-jobs normalizer won't clean it either (it only acts on status === 'assigned' records that have a completed/cancelled rideStatus).
+
+Bug 2 — Booking ID shows full company name instead of 3-digit suffix. The generateJobId() function in src/jobId.ts correctly uses cid.slice(-3) (last 3 digits of the company ID). However, if the web booking site passes the full company name string (e.g. "Auckland Cabs") instead of the numeric company ID as companyId, cid.slice(-3) produces "abs" — three letters from the company name — and the regex check /^\d{9,}$/ in syncOfflineTrip then rejects the resulting ID. The fix is to validate that companyId is numeric in generateJobId and throw clearly if not, and to audit the Stripe webhook + pendingjobs write path to ensure companyId (not companyName) is always used.
+
+Done looks like
+A web booking that comes in from the website can be assigned to an available car in the dispatch console without getting stuck — the job is marked Assigned, the driver receives the notification, and rideStatus is written correctly.
+Booking IDs generated from website bookings are purely numeric (e.g. 34526050842), not containing letters from a company name.
+The syncOfflineTrip endpoint no longer rejects valid booking IDs from web-sourced trips.
+The normalizer's stale-pending-jobs cleaner handles edge cases where the dispatcher successfully wrote rideStatus but pendingjobs was not cleaned up.
+Out of scope
+Changes to the dispatcher app itself (separate codebase — this plan only covers the SA portal server-side and the pendingjobs record schema).
+Fixing auto-dispatch logic in the dispatcher (that is a dispatcher-side concern).
+Any changes to how the driver app processes notifications.
+Steps
+Validate companyId in generateJobId — In src/jobId.ts, add a guard at the top of generateJobId that throws a clear error if companyId is not a numeric string (i.e. /^\d+$/ fails). Log the bad value so it surfaces in server logs.
+
+Audit the Stripe webhook pendingjobs write — In src/routes/stripe.ts, after Stripe confirms booking_payment, the code does a spread of the raw allbookings record into pendingjobs. Ensure the written record explicitly includes the fields the dispatcher pipeline needs: BookingSource: 'Website', WebBooking: true, paymentStatus: 'paid', paymentMethod: 'card', Status: 'Pending', status: 'pending', and that PickAddress/DropAddress are correctly mapped from pickupLocation.address/dropoffLocation.address if the top-level fields are absent. Also confirm companyId (not companyName) is in the record.
+
+Normalizer: broaden stale-pending-jobs cleanup — In src/normalizer.ts, the normalizeStalePendingJobs function currently only acts on records where jobStatus === 'assigned'. Extend it to also clean up records where jobStatus === 'pending' but rideStatus already shows completed or cancelled — these are stuck jobs that the dispatcher successfully finished but never cleared from pendingjobs.
+
+Add a pendingjobs schema normalizer pass — In src/normalizer.ts, add a new normalization step that checks every pendingjobs record for missing dispatcher-required fields (PickAddress, DropAddress, BookingSource, WebBooking) and patches them in from the corresponding allbookings record if found. This acts as a safety net so any future schema gaps are auto-healed within 30 seconds.
+
+Log and surface job ID validation errors — In src/routes/jobs.ts POST /api/job/create, if companyId fails the numeric check (delegated to generateJobId), return a clear 400 error that includes the received companyId value. This makes the web-booking-site misconfiguration immediately visible in logs rather than silently producing broken IDs.
+
+Relevant files
+src/jobId.ts
+src/routes/stripe.ts
+src/routes/jobs.ts
+src/normalizer.ts
+PLATFORM-INTEGRATION-CHECKLIST.md
