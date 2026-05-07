@@ -21552,8 +21552,13 @@ $(document).ready(function() {
                             } else {
                                 _pickHtml = "<span>"+_pick+"</span>";
                             }
-                            datas.push("<div id='lessshow'  style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'>"+_pickHtml+"</div>");
-                            datas.push("<div id='lessshow' style='white-space: nowrap;  overflow: hidden;  text-overflow: ellipsis; width: 121px;'><span style='width:20px;'>"+($res["dt1"][$i].DropAddress || '')+"</span></div>");
+                            var _pickTitle = ($res["dt1"][$i].PickAddress || '').replace(/'/g, "&#39;");
+                            datas.push("<div title='" + _pickTitle + "' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width:140px; max-width:260px;'>"+_pickHtml+"</div>");
+                            var _dropAddr = $res["dt1"][$i].DropAddress || '';
+                            var _dropLatLng = $res["dt1"][$i].DropLatLng || '';
+                            if (!_dropAddr && _dropLatLng && _dropLatLng !== '0,0') _dropAddr = _dropLatLng;
+                            var _dropTitle = _dropAddr.replace(/'/g, "&#39;");
+                            datas.push("<div title='" + _dropTitle + "' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width:140px; max-width:260px;'>"+(_dropAddr || '—')+"</div>");
                             datas.push("<span>"+($res["dt1"][$i].Name || '')+"</span>");
                             datas.push("<span>"+($res["dt1"][$i].PhoneNo || '')+"</span>");
                             var _vno = $res["dt1"][$i].VehicleNo || $res["dt1"][$i].CallSign || '';
@@ -21836,8 +21841,8 @@ $(document).ready(function() {
             function jdpBuildFare(j) {
                 var hasFare = false;
                 $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
-                // Distance: prefer actual trip distance, fall back to estimated
-                var dist = j.JobDistance || j.EstimatedDistance || j.Distance || j.FareDistance || '';
+                // Distance: prefer actual trip distance; also accept Firebase camelCase field names
+                var dist = j.JobDistance || j.distanceKm || j.EstimatedDistance || j.Distance || j.FareDistance || '';
                 if (dist && String(dist) !== '0') { $('#jdp-fare-distance').text(parseFloat(dist).toFixed(2) + ' km'); $('#jdp-fare-distance-wrap').show(); hasFare = true; }
                 function fmtDollar(v) { var n = parseFloat(v); return (!isNaN(n) && n > 0) ? '$' + n.toFixed(2) : null; }
                 // Ride cost: FareBase (offline sync) or RideCost
@@ -21848,8 +21853,8 @@ $(document).ready(function() {
                 if (wait) { $('#jdp-fare-waiting').text(wait); $('#jdp-fare-waiting-wrap').show(); hasFare = true; }
                 var drv = fmtDollar(j.DriverCost);
                 if (drv) { $('#jdp-fare-driver').text(drv); $('#jdp-fare-driver-wrap').show(); hasFare = true; }
-                // Total: TotalFare (driver app) > Fare > Cost, then sum components
-                var total = parseFloat(j.TotalFare || j.Fare || j.Cost || '0') ||
+                // Total: TotalFare (offline sync) > totalFare/fare (Firebase camelCase) > Fare > Cost, then sum components
+                var total = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || '0') ||
                     (parseFloat(j.FareBase||j.RideCost||'0') + parseFloat(j.FareTime||j.WaitingCost||'0') +
                      parseFloat(j.FareExtras||'0') + parseFloat(j.DriverCost||'0'));
                 if (total > 0) { $('#jdp-fare-total').text('$' + total.toFixed(2)); $('#jdp-fare-total-wrap').show(); hasFare = true; }
@@ -21896,6 +21901,30 @@ $(document).ready(function() {
                 var mapDiv = document.getElementById('jdp-map');
                 _jdpMapObj = new google.maps.Map(mapDiv, { zoom:15, center:pos, mapTypeId:'roadmap', disableDefaultUI:true, zoomControl:true });
                 new google.maps.Marker({ map:_jdpMapObj, position:pos, title:'Pickup' });
+                $('#jdp-map-wrap').show();
+            }
+            // Draw actual GPS route from encoded polyline string (from driver app / syncOfflineTrip)
+            function jdpDrawPolyline(polylineStr, fallbackPickLL) {
+                if (typeof google === 'undefined' || !google.maps) { $('#jdp-map-wrap').hide(); return; }
+                var decodedPath = null;
+                try {
+                    if (google.maps.geometry && google.maps.geometry.encoding) {
+                        decodedPath = google.maps.geometry.encoding.decodePath(polylineStr);
+                    }
+                } catch(e) { decodedPath = null; }
+                if (!decodedPath || decodedPath.length < 2) {
+                    // Geometry library not ready or decode failed — fall back to single pin
+                    if (fallbackPickLL) jdpDrawSinglePin(fallbackPickLL);
+                    return;
+                }
+                var bounds = new google.maps.LatLngBounds();
+                decodedPath.forEach(function(p) { bounds.extend(p); });
+                var mapDiv = document.getElementById('jdp-map');
+                _jdpMapObj = new google.maps.Map(mapDiv, { zoom:13, center:bounds.getCenter(), mapTypeId:'roadmap', disableDefaultUI:true, zoomControl:true });
+                new google.maps.Polyline({ path:decodedPath, geodesic:true, strokeColor:'#d4a017', strokeOpacity:1.0, strokeWeight:4, map:_jdpMapObj });
+                new google.maps.Marker({ map:_jdpMapObj, position:decodedPath[0],                  title:'Pickup',   label:{text:'P', color:'#fff'} });
+                new google.maps.Marker({ map:_jdpMapObj, position:decodedPath[decodedPath.length-1], title:'Drop-off', label:{text:'D', color:'#fff'} });
+                _jdpMapObj.fitBounds(bounds);
                 $('#jdp-map-wrap').show();
             }
             // ────────────────────────────────────────────────────────────────────────
@@ -21994,11 +22023,15 @@ $(document).ready(function() {
                         if (looksLikeCoords(dropText) && looksLikeCoords(dropLLRaw)) {
                             jdpGeocodeCoords(dropLLRaw, function(addr) { if (addr) $('#jdp-dropoff').text(addr); });
                         }
-                        // Draw route map if we have both pickup and dropoff GPS.
+                        // Draw route map: prefer actual GPS polyline from driver app, then
+                        // DirectionsService route when both endpoints are known, then single pin.
                         // hasValidCoords rejects "0,0" (equatorial default) so a missing
                         // drop-off doesn't plot a marker in the Gulf of Guinea / Africa.
                         function hasValidCoords(s) { return looksLikeCoords(s) && s.trim() !== '0,0'; }
-                        if (hasValidCoords(pickLLRaw) && hasValidCoords(dropLLRaw)) {
+                        var _routePoly = (j.RoutePolyline || j.routePolyline || '').toString().trim();
+                        if (_routePoly && hasValidCoords(pickLLRaw)) {
+                            jdpDrawPolyline(_routePoly, pickLLRaw);
+                        } else if (hasValidCoords(pickLLRaw) && hasValidCoords(dropLLRaw)) {
                             jdpDrawRoute(pickLLRaw, dropLLRaw);
                         } else if (hasValidCoords(pickLLRaw)) {
                             jdpDrawSinglePin(pickLLRaw);
@@ -22064,28 +22097,69 @@ $(document).ready(function() {
                                 ]).then(function(snaps) {
                                     var fbJob    = snaps[0].exists() ? snaps[0].val() : null;
                                     var fbStatus = snaps[1].exists() ? (typeof snaps[1].val() === 'object' ? snaps[1].val().status : snaps[1].val()) : null;
-                                    if (fbJob && (fbJob.paymentType === 'total_mobility' || fbJob.PaymentType === 'total_mobility' || fbStatus)) {
-                                        _fillTmFields(fbJob, fbStatus);
-                                    } else if (fbStatus) {
-                                        _fillTmFields({}, fbStatus);
+                                    if (fbStatus) {
+                                        _fillTmFields(fbJob || {}, fbStatus);
+                                    } else if (fbJob && (fbJob.paymentType === 'total_mobility' || fbJob.PaymentType === 'total_mobility')) {
+                                        _fillTmFields(fbJob, null);
                                     }
-                                    // BUG 5: Enrich fare/duration/timeline with driver-app completedJob data.
-                                    // The SQL JobDetails record may lack fare breakdown and precise timestamps
-                                    // that the driver app writes to Firebase after completing the trip.
-                                    // Merge fbJob fields over the SQL record (SQL values take priority where
-                                    // they're non-empty so we don't overwrite known-good dispatcher data).
-                                    if (fbJob) {
+
+                                    // Enrich fare/timeline/map/addresses with Firebase completedJob data.
+                                    // Normalises Firebase camelCase field names to match in-memory schema,
+                                    // merges with the in-memory record (in-memory wins where non-empty),
+                                    // and triggers a secondary orderByChild query for driver-app records
+                                    // that were written with push keys instead of the numeric jobId key.
+                                    function _enrichFromFbJob(fb) {
+                                        if (!fb) return;
+                                        // Normalise Firebase camelCase → PascalCase so shared helpers read them
+                                        if (!fb.JobDistance  && fb.distanceKm)      fb.JobDistance   = fb.distanceKm;
+                                        if (!fb.TotalFare    && fb.fare != null)     fb.TotalFare     = fb.fare;
+                                        if (!fb.TotalFare    && fb.totalFare != null)fb.TotalFare     = fb.totalFare;
+                                        if (!fb.PickAddress  && fb.pickupAddress)    fb.PickAddress   = fb.pickupAddress;
+                                        if (!fb.DropAddress  && fb.dropAddress)      fb.DropAddress   = fb.dropAddress;
+                                        if (!fb.RoutePolyline&& fb.route_polyline)   fb.RoutePolyline = fb.route_polyline;
+                                        if (!fb.RoutePolyline&& fb.routePolyline)    fb.RoutePolyline = fb.routePolyline;
+                                        // Merge: Firebase base, then overlay non-empty in-memory record
                                         var _merged = {};
-                                        // Start with fbJob, then overlay non-empty SQL fields on top
-                                        Object.keys(fbJob).forEach(function(k) { _merged[k] = fbJob[k]; });
+                                        Object.keys(fb).forEach(function(k) { _merged[k] = fb[k]; });
                                         Object.keys(j).forEach(function(k) {
                                             if (j[k] !== null && j[k] !== undefined && j[k] !== '') _merged[k] = j[k];
                                         });
+                                        // Update popup pickup/dropoff text if Firebase has better data
+                                        var _curPick = $('#jdp-pickup').text();
+                                        if (fb.PickAddress && (_curPick === '—' || !_curPick || /^-?\d/.test(_curPick))) {
+                                            $('#jdp-pickup').text(fb.PickAddress);
+                                        }
+                                        var _curDrop = $('#jdp-dropoff').text();
+                                        if (fb.DropAddress && (_curDrop === 'Not set' || _curDrop === '—' || !_curDrop || /^-?\d/.test(_curDrop))) {
+                                            $('#jdp-dropoff').text(fb.DropAddress);
+                                        }
+                                        // Draw actual GPS route polyline if available and map not yet visible
+                                        var _fbPoly = (_merged.RoutePolyline || '').toString().trim();
+                                        if (_fbPoly && !$('#jdp-map-wrap').is(':visible')) {
+                                            var _fbPickLL = (_merged.PickLatLng || pickLLRaw || '').toString().trim();
+                                            jdpDrawPolyline(_fbPoly, _fbPickLL);
+                                        }
                                         jdpBuildFare(_merged);
                                         jdpBuildTimeline(_merged);
                                     }
+
+                                    if (fbJob) {
+                                        _enrichFromFbJob(fbJob);
+                                    } else {
+                                        // Secondary query: driver-app records use Firebase push keys
+                                        // but store the numeric bookingId as a field.
+                                        // Requires ".indexOn": ["bookingId"] on completedJobs/$cid in rules.
+                                        db.ref('completedJobs/' + _cid)
+                                            .orderByChild('bookingId').equalTo(String(_jobKey))
+                                            .limitToFirst(1).once('value')
+                                            .then(function(s2) {
+                                                var fb2 = null;
+                                                if (s2.exists()) { s2.forEach(function(ch) { fb2 = ch.val(); return true; }); }
+                                                _enrichFromFbJob(fb2);
+                                            }).catch(function() {});
+                                    }
                                 }).catch(function(e) {
-                                    console.warn('[ShowJobPopup] TM Firebase fetch error:', e);
+                                    console.warn('[ShowJobPopup] Firebase fetch error:', e);
                                 });
                             }
                         })();

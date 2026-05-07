@@ -1266,3 +1266,61 @@ if (Array.isArray(_dt6)) {
 **Effect:** Active tab now refreshes on every regular poll (same cadence as the Unassigned tab). Firebase event-driven `ActiveJobsdata()` calls remain in place as an additional fast-path but are no longer the sole update mechanism.
 
 **Note on `dt6` naming:** `dt6` is also returned by `[VehiclesStatus]` with a completely different shape (online driver IDs). These are separate actions with separate response parsers — no collision.
+
+---
+
+### §41. Closed jobs — full data in popup and DataTable for all service types
+
+**Root causes (six distinct bugs):**
+
+1. **DataTable address columns capped at `121px`** — `Pick up` and `Drop off` cells had `style="width:121px"` which truncated most addresses to invisibility. Dropoff also had no fallback — blank cell when `DropAddress` was empty.
+
+2. **`jdpBuildFare` field name mismatch with Firebase** — Firebase `completedJobs` records store fare/distance in camelCase (`distanceKm`, `fare`, `totalFare`). `jdpBuildFare` only read PascalCase (`JobDistance`, `TotalFare`, `Fare`). Result: Firebase enrichment was fetched successfully but fare data was silently discarded.
+
+3. **`jdpDrawPolyline` didn't exist** — `syncOfflineTrip` stores the GPS track as `RoutePolyline` (encoded polyline string). There was no function to draw it; the field was ignored.
+
+4. **Map drew estimated route, never actual GPS track** — `ShowJobPopup` map section only called `jdpDrawRoute` (Google DirectionsService estimate) or `jdpDrawSinglePin`. It never checked `j.RoutePolyline`.
+
+5. **Firebase BUG 5 — single-key lookup missed driver-app records** — The enrichment block only read `completedJobs/{cid}/{jobId}` (dispatcher-written records use the numeric jobId as key). Driver-app records use Firebase push keys but store `bookingId` as a field. The lookup found nothing for driver-app-completed jobs so `_enrichFromFbJob` was never called.
+
+6. **Firebase enrichment didn't update address text or re-draw map** — Even when Firebase data was found, the merged object's `PickAddress`/`DropAddress` and `RoutePolyline` were used only for `jdpBuildFare`/`jdpBuildTimeline` — the popup address fields and map were never updated after the async Firebase call.
+
+**Fixes — Default.aspx:**
+
+*FnClosedJobs DataTable (line ~21558):*
+- Removed `width:121px` — replaced with `min-width:140px; max-width:260px`
+- Added HTML `title` attribute with full address (hover tooltip shows complete text)
+- Dropoff now falls back to `DropLatLng` coords when `DropAddress` is empty, shows `—` when neither exists
+
+*`jdpBuildFare`:*
+- Distance: `j.JobDistance || j.distanceKm || j.EstimatedDistance || ...`
+- Total: `j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || ...`
+
+*New `jdpDrawPolyline(polylineStr, fallbackPickLL)`:*
+- Decodes encoded polyline via `google.maps.geometry.encoding.decodePath()`
+- Draws gold polyline (brand colour `#d4a017`) with P/D markers auto-fitted to bounds
+- Falls back to `jdpDrawSinglePin` if geometry library unavailable or decode fails
+
+*ShowJobPopup map section:*
+```js
+var _routePoly = (j.RoutePolyline || j.routePolyline || '').toString().trim();
+if (_routePoly && hasValidCoords(pickLLRaw))              jdpDrawPolyline(_routePoly, pickLLRaw);
+else if (hasValidCoords(pickLLRaw) && hasValidCoords(dropLLRaw)) jdpDrawRoute(pickLLRaw, dropLLRaw);
+else if (hasValidCoords(pickLLRaw))                       jdpDrawSinglePin(pickLLRaw);
+```
+
+*Firebase enrichment block — complete rewrite:*
+- Field normalisation on arrival: `distanceKm→JobDistance`, `fare/totalFare→TotalFare`, `pickupAddress→PickAddress`, `dropAddress→DropAddress`, `route_polyline/routePolyline→RoutePolyline`
+- Address text in popup updated post-async if Firebase has better data
+- Map re-drawn post-async if `RoutePolyline` found and map not yet visible
+- Secondary `orderByChild('bookingId')` query fires when direct-key lookup returns nothing (driver-app push-key records)
+
+**Requires** `".indexOn": ["bookingId"]` on `completedJobs/$companyId` in `database.rules.json` — already present at line 225.
+
+**Effect by service type:**
+| Type | Addresses | Map | Fare/Distance |
+|------|-----------|-----|---------------|
+| Hail | ✅ "Hail Pickup (lat,lng)" / "Street Pickup (no dest)" | ✅ single pin at GPS pickup | ✅ if driver app synced via Firebase/syncOfflineTrip |
+| Web/App booking | ✅ full address | ✅ DirectionsService route | ✅ from UpdateBooking or Firebase |
+| Dispatcher console | ✅ full address | ✅ route or single pin | ✅ from UpdateBooking |
+| Food/Freight | ✅ full address | ✅ route or single pin | ✅ from UpdateBooking or Firebase |
