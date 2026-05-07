@@ -713,6 +713,50 @@ pollRentalTaxiRequests(); // run immediately on startup
 // Polls pendingjobs/{companyId} for passenger-app bookings (Waiting/Cancelled).
 // Scheduled bookings now ingest directly as Pending — no separate holding store.
 
+// ── Dispatch lead-time estimation ──────────────────────────────────────────
+// Matches the client-side updateDispatchSuggestion formula exactly:
+//   3 min per km, minimum 5 min, snapped to the assign_notice select options.
+// Used at ingest time for Scheduled (pre-booked) jobs so DispatchTimebefore
+// is set to a sensible value without waiting for a dispatcher to edit the job.
+
+// Haversine great-circle distance in km (same as client distance() with unit='K')
+function _haversineKm(lat1, lng1, lat2, lng2) {
+  const R    = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a    = Math.sin(dLat / 2) ** 2
+             + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+             * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Company base / depot location — used as the "from" point for distance estimation.
+// Checks the registration record for baseLat/baseLng (SA portal can set these).
+// Falls back to known NZ city defaults, then Auckland.
+// SA portal should write baseLat / baseLng to the registration record to improve accuracy.
+function _companyBaseLocation(companyId) {
+  const reg = registrationStore.find(r => String(r.companyId) === String(companyId));
+  if (reg && reg.baseLat && reg.baseLng) return { lat: Number(reg.baseLat), lng: Number(reg.baseLng) };
+  const knownCenters = {
+    '620611': { lat: -46.4127, lng: 168.3538 }, // Invercargill city center
+    // Add more companyId → lat/lng as new companies register
+  };
+  return knownCenters[String(companyId)] || { lat: -36.8485, lng: 174.7633 }; // Auckland fallback
+}
+
+// Estimate dispatch lead time in minutes from company base to pickup coordinates.
+// Returns a value snapped to the options available in the #assign_notice select:
+//   [0, 5, 10, 15, 20, 30, 45, 60, 75, 90, 120]
+function _estimateDispatchLeadMins(companyId, pickLat, pickLng) {
+  if (!pickLat || !pickLng || pickLat === 0 || pickLng === 0) return 30; // no GPS — safe default
+  const base      = _companyBaseLocation(companyId);
+  const dist      = _haversineKm(base.lat, base.lng, pickLat, pickLng);
+  const rawMins   = Math.max(5, Math.ceil(dist * 3)); // 3 min/km, min 5 min
+  const opts      = [0, 5, 10, 15, 20, 30, 45, 60, 75, 90, 120];
+  return opts.reduce((p, c) => Math.abs(c - rawMins) < Math.abs(p - rawMins) ? c : p);
+}
+// ── End dispatch lead-time estimation ──────────────────────────────────────
+
 // Normalise a Firebase passenger-app job object to server internal field names.
 // Firebase uses PickupAddress/PickupLat/PickupLng and DropoffAddress/DropoffLat/DropoffLng
 // (both CamelCase and camelCase variants).
@@ -5949,11 +5993,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // creation time. For Scheduled jobs the pickup time IS ScheduledFor.
             const _bdt = _sMs ? new Date(_sMs).toISOString() : (_sn.createdAt || new Date().toISOString());
             // DispatchTimebefore: how many minutes before pickup to start offering.
-            // Web portal doesn't send this field, so we derive it:
-            //   • pickup > 30 min away  →  start offering 30 min before (standard pre-book)
-            //   • pickup ≤ 30 min away  →  offer now (0 = ASAP behaviour)
+            // Estimated using Haversine distance from company base to pickup coords —
+            // same formula as the client-side updateDispatchSuggestion function.
+            // Dispatcher can override this at any time via the job edit form.
+            const _pickParts = (_sn.pickLatLng || '0,0').split(',');
+            const _pickLat   = parseFloat(_pickParts[0]) || 0;
+            const _pickLng   = parseFloat(_pickParts[1]) || 0;
             const _minsToPickup = _sMs ? Math.round((_sMs - Date.now()) / 60000) : 0;
-            const _dtb = _minsToPickup > 30 ? '30' : '0';
+            // Only estimate if pickup is more than 5 min away; otherwise offer immediately.
+            const _estMins = (_sMs && _minsToPickup > 5)
+              ? _estimateDispatchLeadMins(_sCid, _pickLat, _pickLng)
+              : 0;
+            const _dtb = String(_estMins);
             jobStore.push({
               _fbKey: _ipjFbKey, Id: newCompanyJobId(_sCid), companyId: _sCid,
               BookingStatus: 'Pending', BookingSource: 'passenger',

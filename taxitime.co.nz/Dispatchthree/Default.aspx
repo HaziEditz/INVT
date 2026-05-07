@@ -18910,6 +18910,15 @@ $(document).ready(function() {
                          $('#pac-inputx').val($res["dt1"][0].DropAddress);
                         $scope.pickupaddress = $res["dt1"][0].PickAddress;
                         $('#pac-input').val($res["dt1"][0].PickAddress);
+                        // Show distance-based dispatch lead time suggestion immediately
+                        // when editing an existing pre-booked job — same hint as when
+                        // the dispatcher changes the pickup address via autocomplete.
+                        setTimeout(function() {
+                            updateDispatchSuggestion(
+                                parseFloat(LatDetails[0]) || 0,
+                                parseFloat(LatDetails[1]) || 0
+                            );
+                        }, 300);
                         $scope.distance = $res["dt1"][0].EstimatedTime;
                        $scope.Time = $res["dt1"][0].EstimatedDistance;
                         $scope.currency = $res["dt1"][0].EstimatedCost;
