@@ -3155,6 +3155,41 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           } }
         jobStore.push(newJob);
         saveJobStore();
+        // §97 — Write to Firebase pendingjobs so the auto-assign engine can find console jobs.
+        // Fire-and-forget: do not block the HTTP response on the Firebase write.
+        if (sessionCompanyId) {
+          const _fbPendingJob1 = {
+            BookingId:        String(newId),
+            CompanyId:        String(sessionCompanyId),
+            Status:           bookstatus === 'Pending' ? 'Pending' : bookstatus,
+            ServiceType:      newJob.serviceType || 'taxi',
+            Name:             newJob.Name || '',
+            PassengerName:    newJob.Name || '',
+            PhoneNo:          newJob.PhoneNo || '',
+            PickAddress:      newJob.PickAddress || '',
+            DropAddress:      newJob.DropAddress || '',
+            PickLatLng:       newJob.PickLatLng || '',
+            DropLatLng:       newJob.DropLatLng || '',
+            BookingDateTime:  newJob.BookingDateTime || '',
+            ScheduledFor:     newJob.ScheduledFor || 0,
+            ScheduledForMs:   newJob.ScheduledFor || 0,
+            DispatchTimebefore: String(newJob.DispatchTimebefore || '0'),
+            VehicleType:      newJob.VehicleType || 'Not Specified',
+            BookingSource:    newJob.BookingSource || 'Dispatch Console',
+            // §98 — ZoneId 0 = catch-all: auto-assign engine must include zone-0 drivers.
+            ZoneId:           0,
+            CreatedAt:        new Date().toISOString(),
+            WebBooking:       false,
+          };
+          getFirebaseServerToken().then(tok => {
+            if (!tok) return;
+            return firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok);
+          }).then(() => {
+            console.log(`  [InsertBookingv4] Firebase pendingjobs/${sessionCompanyId}/${newId} written`);
+          }).catch(e => {
+            console.warn(`  [InsertBookingv4] Firebase pendingjobs write failed (non-fatal): ${e.message}`);
+          });
+        }
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs1 ? new Date(_scheduledMs1).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
       } else if (action === 'UpdateBooking') {
@@ -3305,6 +3340,41 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           } }
         jobStore.push(newJob);
         saveJobStore();
+        // §97 — Write to Firebase pendingjobs so the auto-assign engine can find console jobs.
+        // Fire-and-forget: do not block the HTTP response on the Firebase write.
+        if (sessionCompanyId) {
+          const _fbPendingJob2 = {
+            BookingId:        String(newId),
+            CompanyId:        String(sessionCompanyId),
+            Status:           bookstatus === 'Pending' ? 'Pending' : bookstatus,
+            ServiceType:      newJob.serviceType || 'taxi',
+            Name:             newJob.Name || '',
+            PassengerName:    newJob.Name || '',
+            PhoneNo:          newJob.PhoneNo || '',
+            PickAddress:      newJob.PickAddress || '',
+            DropAddress:      newJob.DropAddress || '',
+            PickLatLng:       newJob.PickLatLng || '',
+            DropLatLng:       newJob.DropLatLng || '',
+            BookingDateTime:  newJob.BookingDateTime || '',
+            ScheduledFor:     newJob.ScheduledFor || 0,
+            ScheduledForMs:   newJob.ScheduledFor || 0,
+            DispatchTimebefore: String(newJob.DispatchTimebefore || '0'),
+            VehicleType:      newJob.VehicleType || 'Not Specified',
+            BookingSource:    newJob.BookingSource || 'Dispatch Console',
+            // §98 — ZoneId 0 = catch-all: auto-assign engine must include zone-0 drivers.
+            ZoneId:           0,
+            CreatedAt:        new Date().toISOString(),
+            WebBooking:       false,
+          };
+          getFirebaseServerToken().then(tok => {
+            if (!tok) return;
+            return firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob2, tok);
+          }).then(() => {
+            console.log(`  [${action}] Firebase pendingjobs/${sessionCompanyId}/${newId} written`);
+          }).catch(e => {
+            console.warn(`  [${action}] Firebase pendingjobs write failed (non-fatal): ${e.message}`);
+          });
+        }
         console.log(`200: POST ${urlPath} [action=${action}] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs2 ? new Date(_scheduledMs2).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
 
@@ -5533,7 +5603,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === 'AutoDispatchVehiclesv2') {
         // Return available drivers in the requested zone
         const zoneId = (param('ZoneId') || '').toString().trim();
-        const avail = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available' && (!zoneId || String(d.zoneid) === zoneId));
+        // §98 — Zone 0 = catch-all (no zones configured, zones/{cid} is null).
+        // Include zone-0 drivers for any zone request so they are never skipped.
+        const avail = ZONE_DRIVERS.filter(d => d.vehiclestatus === 'Available' && (!zoneId || String(d.zoneid) === zoneId || String(d.zoneid) === '0'));
         const dt2 = avail.map(d => ({
           VehicleId: d.VehicleId, driverid: d.driverid, drivername: d.drivername,
           vehiclenumber: d.vehiclenumber, vehicletype: d.vehicletype,

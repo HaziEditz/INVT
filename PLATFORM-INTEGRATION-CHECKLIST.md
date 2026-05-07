@@ -895,6 +895,109 @@ When the SA portal approves a new company it must also ensure the correct IANA t
 
 ---
 
+## 32. §97 — Console Jobs Not Written to Firebase pendingjobs (2026-05-07)
+
+### Root cause
+
+Both `InsertBookingv4` handlers (console booking creation) pushed the job to the in-memory `jobStore` and responded to the client — but never wrote to Firebase `pendingjobs/{cid}/{jobId}`. The auto-assign engine listens to Firebase for `child_added` events on `pendingjobs`. Console-created jobs were invisible to it.
+
+Job `6112605073` was the concrete example: created via the dispatch console, never appeared in Firebase, never reached the auto-assign engine.
+
+### Fix applied (`server.js`)
+
+After `jobStore.push(newJob); saveJobStore()` in both `InsertBookingv4` handlers, added a fire-and-forget Firebase write:
+
+```js
+getFirebaseServerToken().then(tok => {
+  if (!tok) return;
+  return firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob, tok);
+}).then(() => {
+  console.log(`  [InsertBookingv4] Firebase pendingjobs/${cid}/${newId} written`);
+}).catch(e => {
+  console.warn(`  [InsertBookingv4] Firebase pendingjobs write failed (non-fatal): ${e.message}`);
+});
+```
+
+The write does NOT block the HTTP response — job creation latency is unchanged. If the Firebase write fails, the job still exists in the local store for `smartAutoDispatch` to handle.
+
+### pendingjobs write shape for console jobs
+
+| Field | Value | Notes |
+|---|---|---|
+| `BookingId` | `String(newId)` | String-coerced for Firebase key parity |
+| `CompanyId` | `String(sessionCompanyId)` | |
+| `Status` | `"Pending"` (or `"Offered"` if pre-assigned) | |
+| `ServiceType` | from job, default `"taxi"` | |
+| `Name` / `PassengerName` | passenger name from form | |
+| `PhoneNo` | |  |
+| `PickAddress` / `DropAddress` | from form | |
+| `PickLatLng` / `DropLatLng` | from form | |
+| `BookingDateTime` | NZ local string | |
+| `ScheduledFor` / `ScheduledForMs` | UTC ms (0 for ASAP) | |
+| `DispatchTimebefore` | string, "0" for ASAP | |
+| `VehicleType` | from form | |
+| `BookingSource` | `"Dispatch Console"` | |
+| `ZoneId` | **`0`** | catch-all — see §98 |
+| `CreatedAt` | ISO string | |
+| `WebBooking` | `false` | |
+
+### Confirmed live
+
+Browser console log immediately after fix deployed:
+```
+[pendingjobs] Pending (book-now) booking received: "6112605073"
+{ BookingId: "6112605073", zone: 0, zoneid: 0, status: "Pending", source: "console", ... }
+```
+
+---
+
+## 33. §98 — Zone 0 Not Treated as Catch-All (2026-05-07)
+
+### Root cause — two locations
+
+#### Location A: `AutoDispatchVehiclesv2` (server.js)
+
+```js
+// Before — zone-0 drivers explicitly excluded when a job zone is passed
+const avail = ZONE_DRIVERS.filter(d =>
+  d.vehiclestatus === 'Available' &&
+  (!zoneId || String(d.zoneid) === zoneId)   // ← 0 ≠ '1', so zone-0 drivers dropped
+);
+```
+
+When `zones/620611 is null`, no zone polygons are configured. The driver app assigns all drivers `zoneid: 0` (the default). The dispatch console's `ZoneCoordinates` response returns `ZoneId: 1` (NZ-wide polygon), so console jobs carry `ZoneId: 1`. With the old filter, passing `ZoneId=1` excluded all zone-0 drivers — i.e. **every driver in the system**.
+
+#### Location B: `pendingjobs` write shape (§97 fix)
+
+Console jobs were writing `ZoneId: 1` (from `PickupZoneId`). Any auto-assign engine that reads `pendingjobs.ZoneId` and matches against `driver.zoneid` would also skip zone-0 drivers. Fixed by writing `ZoneId: 0` in the pendingjobs record.
+
+### Fix applied (`server.js`)
+
+**`AutoDispatchVehiclesv2`:**
+```js
+// After — zone-0 drivers are catch-all (included for any zone request)
+const avail = ZONE_DRIVERS.filter(d =>
+  d.vehiclestatus === 'Available' &&
+  (!zoneId || String(d.zoneid) === zoneId || String(d.zoneid) === '0')
+);
+```
+
+**`InsertBookingv4` pendingjobs write:**
+```js
+ZoneId: 0,   // catch-all — matches all zone-0 drivers
+```
+
+### Zone 0 contract
+
+| State | `zones/{cid}` | Driver `zoneid` | Correct behaviour |
+|---|---|---|---|
+| No zones configured | `null` | `0` (default) | Zone-0 drivers are catch-all — eligible for any job |
+| Zones configured | has polygons | `1`, `2`, etc. | Zone-specific matching; zone-0 drivers still eligible as fallback |
+
+When `zones/{cid}` is populated later, zone-specific drivers will be preferred (their `zoneid` will match the job's zone), and zone-0 drivers remain as a valid fallback for any unmatched zone. No further changes needed.
+
+---
+
 ## 31. Acceptance & Completion Firebase Write Contract (2026-05-07)
 
 Confirmed cross-team. All writes below are in production code as of this session.
