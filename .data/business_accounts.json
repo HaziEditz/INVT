@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "id": "-Os7EhxblNgbMg2B0D6G",
+    "companyId": "620611",
+    "name": "invercargill taxis",
+    "contact_name": "Safinah Mohammed",
+    "contact": "Safinah Mohammed",
+    "phone": "+6421304322",
+    "email": "safinhmohammed@hotmail.com",
+    "address": "",
+    "notes": "",
+    "accountCode": "001",
+    "paymentTerms": "20th of month following",
+    "active": true,
+    "created_at": 1778254797523
+  }
+]
