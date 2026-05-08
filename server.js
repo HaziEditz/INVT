@@ -1224,10 +1224,12 @@ function buildDeliveryResponse(jobs) {
 function buildAssignedResponse(jobs) {
   // 'Offered' = dispatcher sent the job, driver hasn't accepted yet → stays in Pending/Offered tab
   // 'Assigned' = driver accepted → shows in Assigned tab
-  // 'Queued'   = Busy driver accepted a pre-queue offer → shows in Assigned tab (no Recall button)
+  // 'Queued'   = Busy driver accepted a pre-queue offer → shown exclusively in the orange Queued
+  //              section (fed by [GetQueuedJobs]), NOT in this dt1 list. This prevents the job
+  //              appearing twice and keeps AssignedCount accurate (true Assigned jobs only).
   // Exclude orphaned jobs (Assigned but no real driver: DriverId=0 or -1) — those appear in Unassigned tab instead.
   const assigned = jobs.filter(j =>
-    (j.BookingStatus === 'Assigned' || j.BookingStatus === 'Queued') &&
+    j.BookingStatus === 'Assigned' &&
     j.DriverId && String(j.DriverId) !== '0' && String(j.DriverId) !== '-1'
   );
   // §99 — WaitMins: minutes since job was created (for wait-timer display on assigned tab)
