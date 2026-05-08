@@ -1801,11 +1801,8 @@
                                 <input type="date" id="DateFrom" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
                                 <script>
                                     $(document).ready(function() {
-                                        var now = new Date();
-                                        now.setDate(now.getDate() - 7);
-                                        var day = ("0" + now.getDate()).slice(-2);
-                                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                                        $('#DateFrom').val(now.getFullYear() + "-" + month + "-" + day);
+                                        var _tz = window._companyTZ || 'Pacific/Auckland';
+                                        $('#DateFrom').val(new Date(Date.now() - 7 * 86400000).toLocaleDateString('en-CA', { timeZone: _tz }));
                                     });
                                 </script>
                             </div>
@@ -1814,10 +1811,8 @@
                                 <input type="date" id="DateTo" class="form-control" style="height:34px; font-size:13px; border-radius:6px; border-color:#d0d4dc;">
                                 <script>
                                     $(document).ready(function() {
-                                        var now = new Date();
-                                        var day = ("0" + now.getDate()).slice(-2);
-                                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                                        $('#DateTo').val(now.getFullYear() + "-" + month + "-" + day);
+                                        var _tz = window._companyTZ || 'Pacific/Auckland';
+                                        $('#DateTo').val(new Date().toLocaleDateString('en-CA', { timeZone: _tz }));
                                     });
                                 </script>
                             </div>
@@ -1835,10 +1830,10 @@
                     <!-- Quick date shortcuts -->
                     <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
                         <span style="font-size:10px; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.5px; align-self:center; margin-right:4px;">Quick:</span>
-                        <button onclick="(function(){ var d=new Date(); var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; $('#DateFrom').val(fmt(d)); $('#DateTo').val(fmt(d)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Today</button>
-                        <button onclick="(function(){ var d=new Date(); d.setDate(d.getDate()-1); var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; $('#DateFrom').val(fmt(d)); $('#DateTo').val(fmt(d)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Yesterday</button>
-                        <button onclick="(function(){ var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; var to=new Date(); var from=new Date(); from.setDate(from.getDate()-6); $('#DateFrom').val(fmt(from)); $('#DateTo').val(fmt(to)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Last 7 Days</button>
-                        <button onclick="(function(){ var fmt=function(x){return x.getFullYear()+'-'+('0'+(x.getMonth()+1)).slice(-2)+'-'+('0'+x.getDate()).slice(-2);}; var to=new Date(); var from=new Date(); from.setDate(from.getDate()-29); $('#DateFrom').val(fmt(from)); $('#DateTo').val(fmt(to)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Last 30 Days</button>
+                        <button onclick="(function(){ var _tz=window._companyTZ||'Pacific/Auckland'; var _fmt=function(ms){return new Date(ms).toLocaleDateString('en-CA',{timeZone:_tz});}; var _t=Date.now(); $('#DateFrom').val(_fmt(_t)); $('#DateTo').val(_fmt(_t)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Today</button>
+                        <button onclick="(function(){ var _tz=window._companyTZ||'Pacific/Auckland'; var _fmt=function(ms){return new Date(ms).toLocaleDateString('en-CA',{timeZone:_tz});}; var _y=Date.now()-86400000; $('#DateFrom').val(_fmt(_y)); $('#DateTo').val(_fmt(_y)); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Yesterday</button>
+                        <button onclick="(function(){ var _tz=window._companyTZ||'Pacific/Auckland'; var _fmt=function(ms){return new Date(ms).toLocaleDateString('en-CA',{timeZone:_tz});}; $('#DateFrom').val(_fmt(Date.now()-6*86400000)); $('#DateTo').val(_fmt(Date.now())); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Last 7 Days</button>
+                        <button onclick="(function(){ var _tz=window._companyTZ||'Pacific/Auckland'; var _fmt=function(ms){return new Date(ms).toLocaleDateString('en-CA',{timeZone:_tz});}; $('#DateFrom').val(_fmt(Date.now()-29*86400000)); $('#DateTo').val(_fmt(Date.now())); })()" type="button" style="background:#fff; border:1px solid #d0d4dc; border-radius:5px; padding:3px 10px; font-size:12px; cursor:pointer; color:#444;">Last 30 Days</button>
                     </div>
                 </div>
 
@@ -3773,13 +3768,13 @@ $(document).ready(function() {
                                                 var valueofdate = document.getElementById("laterDate").value;
                                                 // No date selected yet — skip validation so the dropdown works freely
                                                 if (!valueofdate) return;
-                                                var now = new Date();
-                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                                                var _nzV = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                                                var todayStr = _nzV.date;
                                                 if (valueofdate < todayStr) {
                                                     Swal.fire('Warning!', 'This date has already passed.', 'warning');
                                                 } else if (valueofdate === todayStr) {
                                                     var selHr = parseInt(document.getElementById('ddlLaterHrs').value) || 0;
-                                                    var curHr = now.getHours(); var curMin = now.getMinutes();
+                                                    var curHr = parseInt(_nzV.h, 10); var curMin = parseInt(_nzV.m, 10);
                                                     if (selHr === curHr && parseInt(currentminute) <= curMin) {
                                                         var snap = Math.ceil((curMin + 1) / 5) * 5; if (snap >= 60) snap = 55;
                                                         var snapStr = String(snap).padStart(2,'0');
@@ -3793,14 +3788,13 @@ $(document).ready(function() {
                                                 var valueofdate = document.getElementById("laterDate").value;
                                                 // No date selected yet — skip validation so the dropdown works freely
                                                 if (!valueofdate) return;
-                                                var now = new Date();
-                                                var todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+                                                var _nzV = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                                                var todayStr = _nzV.date;
                                                 if (valueofdate < todayStr) {
                                                     Swal.fire('Warning!', 'This date has already passed.', 'warning');
-                                                } else if (valueofdate === todayStr && parseInt(currenthour) < now.getHours()) {
+                                                } else if (valueofdate === todayStr && parseInt(currenthour) < parseInt(_nzV.h, 10)) {
                                                     Swal.fire('Warning!', 'Hour already passed.', 'warning');
-                                                    var fixedHr = String(now.getHours()).padStart(2,'0');
-                                                    document.getElementById('ddlLaterHrs').value = fixedHr;
+                                                    document.getElementById('ddlLaterHrs').value = _nzV.h;
                                                     // Sync Angular scope
                                                     try { angular.element(document.getElementById('ddlLaterHrs')).triggerHandler('change'); } catch(e) {}
                                                 }
@@ -5782,6 +5776,14 @@ $(document).ready(function() {
         var d = new Date(typeof ts === 'number' ? ts : String(ts).replace(/\.$/, '').trim());
         if (isNaN(d.getTime())) return String(ts);
         return d.toLocaleString('en-NZ', { timeZone: tz || window._companyTZ || 'Pacific/Auckland' });
+    };
+    // Returns { date:"YYYY-MM-DD", h:"HH", m:"MM", str:"YYYY-MM-DD HH:MM" } in company TZ.
+    // Use instead of getHours()/getDate() so the UI shows NZ time even when the
+    // browser OS (e.g. Replit preview) is in UTC.
+    window._tzNow = function() {
+        var _tz = window._companyTZ || 'Pacific/Auckland';
+        var _sv = new Date().toLocaleString('sv', { timeZone: _tz });
+        return { date: _sv.slice(0, 10), h: _sv.slice(11, 13), m: _sv.slice(14, 16), str: _sv.slice(0, 16).replace('T', ' ') };
     };
 
     // ── 5b. Minimum version gate ───────────────────────────────────────────
@@ -12724,10 +12726,7 @@ $(document).ready(function() {
         $scope.assign_notice = '0';
         $scope.ddlLaterHrs = '00';
         $scope.dataset = function(){
-            var now = new Date();
-            var day = ("0" + now.getDate()).slice(-2);
-            var month = ("0" + (now.getMonth() + 1)).slice(-2);
-            var todayz = now.getFullYear()+"-"+(month)+"-"+(day) ;
+            var todayz = window._tzNow ? window._tzNow().date : new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' });
             $scope.datetimemain  = new  Date(todayz);                                              
             $scope.datetimesecond  = new  Date(todayz);     
             console.log($scope.datetimemain );
@@ -12994,14 +12993,11 @@ $(document).ready(function() {
         $scope.dispatchlatertime = 0
 
         $scope.initLaterTime = function () {
-            var n = new Date();
-            var d = ("0" + n.getDate()).slice(-2);
-            var mo = ("0" + (n.getMonth() + 1)).slice(-2);
-            var dateStr = n.getFullYear() + '-' + mo + '-' + d;
-            $scope.latedate = dateStr;
-            $('#laterDate').val(dateStr);
-            $scope.ddlLaterHrs = ("0" + n.getHours()).slice(-2);
-            var mins = Math.ceil(n.getMinutes() / 5) * 5;
+            var _nz = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+            $scope.latedate = _nz.date;
+            $('#laterDate').val(_nz.date);
+            $scope.ddlLaterHrs = _nz.h;
+            var mins = Math.ceil(parseInt(_nz.m, 10) / 5) * 5;
             if (mins >= 60) { mins = 0; }
             $scope.ddlLaterMins = ("0" + mins).slice(-2);
             if ($scope.assign_notice === '0' || !$scope.assign_notice) $scope.assign_notice = '10';
@@ -13558,14 +13554,8 @@ $(document).ready(function() {
                 laterchecking = 0;
                 if ($scope._origDispatchBefore > 0) {
                     // Was a pre-booked job, now switched to ASAP → set BookingDateTime to now
-                    var now = new Date();
-                    var day = ("0" + now.getDate()).slice(-2);
-                    var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                    var todayz = now.getFullYear() + "-" + month + "-" + day;
-                    var d = new Date();
-                    h = (d.getHours() < 10 ? '0' : '') + d.getHours();
-                    m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                    BookingDateTime = todayz + " " + h + ':' + m;
+                    var _nzNowUp = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                    BookingDateTime = _nzNowUp.date + " " + _nzNowUp.h + ':' + _nzNowUp.m;
                 } else {
                     // Already ASAP — preserve original booking time (don't reset wait timer)
                     BookingDateTime = '';
@@ -14040,14 +14030,8 @@ $(document).ready(function() {
                     laterchecking = 0;
                     if ($scope._origDispatchBefore > 0) {
                         // Was a pre-booked job, now switched to ASAP → set BookingDateTime to now
-                        var now = new Date();
-                        var day = ("0" + now.getDate()).slice(-2);
-                        var month = ("0" + (now.getMonth() + 1)).slice(-2);
-                        var todayz = now.getFullYear() + "-" + month + "-" + day;
-                        var d = new Date();
-                        h = (d.getHours() < 10 ? '0' : '') + d.getHours();
-                        m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                        BookingDateTime = todayz + " " + h + ':' + m;
+                        var _nzNowUp2 = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                        BookingDateTime = _nzNowUp2.date + " " + _nzNowUp2.h + ':' + _nzNowUp2.m;
                     } else {
                         // Already ASAP — preserve original booking time (don't reset wait timer)
                         BookingDateTime = '';
@@ -14454,20 +14438,10 @@ $(document).ready(function() {
         var timerz = '';
         $scope.FnZonewiseJobtwo =  function () {
             console.warn("start");
-            var d = new Date();
-            var month = d.getMonth() + 1;
-            var date = d.getDate();
-            var FinalOutput = d.getFullYear() + '-' +
-                (('' + month).length < 2 ? '0' : '') +
-                month + '-' +
-                (('' + date).length < 2 ? '0' : '') + date;
-
-            h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-            m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-            var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
-            var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
-            var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
-            var CurrentDateTime = _foUtc + " " + _hUtc + ':' + _mUtc;
+            var _nzFZJ = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+            h = _nzFZJ.h;
+            m = _nzFZJ.m;
+            var CurrentDateTime = _nzFZJ.date + " " + _nzFZJ.h + ':' + _nzFZJ.m;
    
             var param = [{ "name": "CurrentDateTime", "Value": CurrentDateTime }];
             var proc = 'AutoDispatchVehiclesallride';
@@ -15751,18 +15725,8 @@ $(document).ready(function() {
                 if (_sad_running) return;
                 _sad_running = true;
                 try {
-                    var d = new Date();
-                    var mo = d.getMonth() + 1;
-                    var dt = d.getDate();
-                    var dateStr = d.getFullYear() + '-' +
-                        (('' + mo).length < 2 ? '0' : '') + mo + '-' +
-                        (('' + dt).length < 2 ? '0' : '') + dt;
-                    var hh = (d.getUTCHours()   < 10 ? '0' : '') + d.getUTCHours();
-                    var mm = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
-                    var _mo2 = d.getUTCMonth() + 1;
-                    var _dt2 = d.getUTCDate();
-                    var _dtStrUtc = d.getUTCFullYear() + '-' + (_mo2 < 10 ? '0' : '') + _mo2 + '-' + (_dt2 < 10 ? '0' : '') + _dt2;
-                    var currentDT = _dtStrUtc + ' ' + hh + ':' + mm;
+                    var _nzSAD = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                    var currentDT = _nzSAD.date + ' ' + _nzSAD.h + ':' + _nzSAD.m;
 
                     var result = await Selector(
                         [{ name: 'CurrentDateTime', Value: currentDT }],
@@ -17768,31 +17732,12 @@ $(document).ready(function() {
                 }, 2500); // 2.5 s delay — lets Firebase finish initialising before we touch its paths
             }
 
-            var now = new Date();
-
-            var day = ("0" + now.getDate()).slice(-2);
-            var month = ("0" + (now.getMonth() + 1)).slice(-2);
-
-            var today = now.getFullYear() + "-" + (month) + "-" + (day);
-
-
-
-            var d = new Date();
-            var month = d.getMonth() + 1;
-            var date = d.getDate();
-            var FinalOutput = d.getFullYear() + '-' +
-                (('' + month).length < 2 ? '0' : '') +
-                month + '-' +
-                (('' + date).length < 2 ? '0' : '') + date;
-
-            h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-            m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-            var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
-            var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
-            var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
-            var FindMinutes = _foUtc + " " + _hUtc + ':' + _mUtc;
+            var _nzNow = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+            var today = _nzNow.date;
+            h = _nzNow.h;
+            m = _nzNow.m;
+            var FindMinutes = today + " " + h + ':' + m;
             $scope.CurrentDateTime = today + " " + h + ':' + m + ':00';
-
 
             $scope.param = [{ "name": "CurrentDateTime", "Value": FindMinutes }];
             $scope.proc = '[UnAssignedJobsv3]';
@@ -18122,31 +18067,12 @@ $(document).ready(function() {
 
             $scope.GetJobsdelivery = function () {
 
-                var now = new Date();
-
-                var day = ("0" + now.getDate()).slice(-2);
-                var month = ("0" + (now.getMonth() + 1)).slice(-2);
-
-                var today = now.getFullYear() + "-" + (month) + "-" + (day);
-
-
-
-                var d = new Date();
-                var month = d.getMonth() + 1;
-                var date = d.getDate();
-                var FinalOutput = d.getFullYear() + '-' +
-                    (('' + month).length < 2 ? '0' : '') +
-                    month + '-' +
-                    (('' + date).length < 2 ? '0' : '') + date;
-
-                h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-                m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
-                var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
-                var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
-                var FindMinutes = _foUtc + " " + _hUtc + ':' + _mUtc;
+                var _nzDel = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                var today = _nzDel.date;
+                h = _nzDel.h;
+                m = _nzDel.m;
+                var FindMinutes = today + " " + h + ':' + m;
                 $scope.CurrentDateTime = today + " " + h + ':' + m + ':00';
-
 
                 $scope.param = [{ "name": "CurrentDateTime", "Value": FindMinutes }];
                 $scope.proc = '[deviUnAssignedJobsv2]';
@@ -19604,20 +19530,9 @@ $(document).ready(function() {
                         // Remember original booking type so updateride can detect later→ASAP switch
                         $scope._origDispatchBefore = _dispatchBefore;
                         var newtime =  remaining_time + _dispatchBefore ;
-                        var d = new Date();
-
-                        var month = d.getMonth() + 1;
-                        var date = d.getDate();
-                        var FinalOutput = d.getFullYear() + '-' +
-                            (('' + month).length < 2 ? '0' : '') +
-                            month + '-' +
-                            (('' + date).length < 2 ? '0' : '') + date;
-                          h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
-                        m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                        var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
-                        var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
-                        var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
-                        var FindMinutes = _foUtc + " " + _hUtc + ':' + _mUtc;
+                        var _nzEdit = window._tzNow ? window._tzNow() : (function() { var _sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' }); return { date: _sv.slice(0,10), h: _sv.slice(11,13), m: _sv.slice(14,16) }; })();
+                        h = _nzEdit.h;
+                        m = _nzEdit.m;
                         var CurrentDateTime = $("#laterDate").val() + " " + h + ':' + m + ':00';
             
                         var strtime = $res["dt1"][0].BookingDateTime;
