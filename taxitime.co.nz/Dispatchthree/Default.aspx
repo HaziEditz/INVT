@@ -2359,6 +2359,16 @@
                                        <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Address</label>
                                        <input type="text" id="bacc_address" class="form-control" placeholder="Billing address">
                                      </div>
+                                     <div style="display:flex;gap:8px;margin-bottom:10px;">
+                                       <div style="flex:1;">
+                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Account Code</label>
+                                         <input type="text" id="bacc_accountCode" class="form-control" placeholder="e.g. 001">
+                                       </div>
+                                       <div style="flex:1;">
+                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Payment Terms</label>
+                                         <input type="text" id="bacc_paymentTerms" class="form-control" placeholder="e.g. Net 30">
+                                       </div>
+                                     </div>
                                      <div style="margin-bottom:14px;">
                                        <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Notes</label>
                                        <textarea id="bacc_notes" class="form-control" rows="2" placeholder="e.g. Net 30 billing"></textarea>
@@ -16637,8 +16647,18 @@ $(document).ready(function() {
         $scope.bwBizAccounts = [];
         $scope.bwSelBizAcc   = '';
         $scope.bwLoadBizAccounts = function() {
-            // Primary: load from Firebase businessAccounts/{cid} — Firebase push keys as ids.
-            if (typeof DbRef !== 'undefined' && SomeSession2) {
+            var _loadFromServer = function() {
+                getmanager([], 'Business_Account_GET').then(function(result) {
+                    try {
+                        var res = JSON.parse(result.d);
+                        var list = Array.isArray(res) ? res : (res['dt1'] || []);
+                        if (!$scope.$$phase) $scope.$apply(function() { $scope.bwBizAccounts = list; });
+                        else $scope.bwBizAccounts = list;
+                        console.log('[bwLoadBizAccounts] loaded', list.length, 'account(s) from server');
+                    } catch(e) { $scope.bwBizAccounts = []; }
+                }, function() { $scope.bwBizAccounts = []; });
+            };
+            var _loadFromFirebase = function() {
                 DbRef.ref('businessAccounts/' + SomeSession2).once('value', function(snap) {
                     var items = [];
                     snap.forEach(function(child) {
@@ -16654,17 +16674,27 @@ $(document).ready(function() {
                             paymentTerms: b.paymentTerms || '',
                         });
                     });
-                    $scope.$apply(function() { $scope.bwBizAccounts = items; });
+                    console.log('[bwLoadBizAccounts] loaded', items.length, 'account(s) from Firebase');
+                    if (!$scope.$$phase) $scope.$apply(function() { $scope.bwBizAccounts = items; });
+                    else $scope.bwBizAccounts = items;
+                }, function(err) {
+                    console.warn('[bwLoadBizAccounts] Firebase read failed (' + err.code + ') — using server');
+                    _loadFromServer();
                 });
+            };
+            // Primary: load from Firebase — but only after auth is confirmed
+            if (typeof DbRef !== 'undefined' && SomeSession2 && typeof firebase !== 'undefined' && firebase.auth) {
+                if (firebase.auth().currentUser) {
+                    _loadFromFirebase();
+                } else {
+                    var _unsub = firebase.auth().onAuthStateChanged(function(user) {
+                        if (!user) return;
+                        _unsub();
+                        _loadFromFirebase();
+                    });
+                }
             } else {
-                // Fallback: load from local server store
-                getmanager([], 'Business_Account_GET').then(function(result) {
-                    try {
-                        var res = JSON.parse(result.d);
-                        $scope.bwBizAccounts = Array.isArray(res) ? res : (res['dt1'] || []);
-                        if (!$scope.$$phase) $scope.$digest();
-                    } catch(e) { $scope.bwBizAccounts = []; }
-                }, function() { $scope.bwBizAccounts = []; });
+                _loadFromServer();
             }
         };
         $scope.bwLoadBizAccounts();
@@ -21788,6 +21818,8 @@ $(document).ready(function() {
             { name: 'email',        Value: (document.getElementById('bacc_email').value || '').trim() },
             { name: 'address',      Value: (document.getElementById('bacc_address').value || '').trim() },
             { name: 'notes',        Value: (document.getElementById('bacc_notes').value || '').trim() },
+            { name: 'accountCode',  Value: (document.getElementById('bacc_accountCode').value || '').trim() },
+            { name: 'paymentTerms', Value: (document.getElementById('bacc_paymentTerms').value || '').trim() },
         ];
         Addmanager(param, 'Business_Account_ADD').then(function(result) {
             if (result && result.d === 'Account saved') {
@@ -21798,6 +21830,8 @@ $(document).ready(function() {
                 document.getElementById('bacc_email').value = '';
                 document.getElementById('bacc_address').value = '';
                 document.getElementById('bacc_notes').value = '';
+                document.getElementById('bacc_accountCode').value = '';
+                document.getElementById('bacc_paymentTerms').value = '';
                 loadBizAccounts();
             } else {
                 toastr.error('Could not save account.', 'Error');
