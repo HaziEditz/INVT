@@ -3951,6 +3951,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.log(`200: POST ${urlPath} [action=${action}] -> "Operation Successfully Performed"`);
         successD(res, 'Operation Successfully Performed');
 
+      } else if (action === 'Business_Account_ADD') {
+        const bacc = {
+          id:            baccNextId++,
+          companyId:     sessionCompanyId,
+          name:          (param('name')||'').trim(),
+          contact_name:  (param('contact_name')||'').trim(),
+          phone:         (param('phone')||'').trim(),
+          email:         (param('email')||'').trim(),
+          address:       (param('address')||'').trim(),
+          notes:         (param('notes')||'').trim(),
+          active:        true,
+          created_at:    new Date().toISOString(),
+        };
+        businessAccStore.push(bacc);
+        saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+        console.log(`200: POST ${urlPath} [action=${action}] -> business account #${bacc.id} "${bacc.name}" saved`);
+        successD(res, 'Account saved');
+
       } else if (action === 'InsertAlarm') {
         successD(res, 'Alarm Saved Successfully');
       } else if (action === 'UpdateAlarm' || action === 'UpdateAlarts' || action === 'UpdateAlerts') {
