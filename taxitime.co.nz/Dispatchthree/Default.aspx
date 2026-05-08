@@ -3953,6 +3953,7 @@ $(document).ready(function() {
                                                                     </select>
                                                                 </span>
                                                                 <span class="bw-b bw-send-pulse" style="background:#16a34a;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane"></i></span>
+                                                                <span class="bw-b" style="background:#1565c0;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup"><i class="fa fa-map-marker"></i></span>
                                                             </span>
                                                         </div>
 
@@ -4072,7 +4073,7 @@ $(document).ready(function() {
                                                                     <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
                                                                     <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
                                                                   </select>
-                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span>
+                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
                                                                 <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
                                                                     <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
                                                                 </span>
@@ -14184,7 +14185,10 @@ $(document).ready(function() {
 
             h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
             m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-            var CurrentDateTime = FinalOutput + " " + h + ':' + m;
+            var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
+            var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
+            var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
+            var CurrentDateTime = _foUtc + " " + _hUtc + ':' + _mUtc;
    
             var param = [{ "name": "CurrentDateTime", "Value": CurrentDateTime }];
             var proc = 'AutoDispatchVehiclesallride';
@@ -15474,9 +15478,12 @@ $(document).ready(function() {
                     var dateStr = d.getFullYear() + '-' +
                         (('' + mo).length < 2 ? '0' : '') + mo + '-' +
                         (('' + dt).length < 2 ? '0' : '') + dt;
-                    var hh = (d.getHours()   < 10 ? '0' : '') + d.getHours();
-                    var mm = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                    var currentDT = dateStr + ' ' + hh + ':' + mm;
+                    var hh = (d.getUTCHours()   < 10 ? '0' : '') + d.getUTCHours();
+                    var mm = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
+                    var _mo2 = d.getUTCMonth() + 1;
+                    var _dt2 = d.getUTCDate();
+                    var _dtStrUtc = d.getUTCFullYear() + '-' + (_mo2 < 10 ? '0' : '') + _mo2 + '-' + (_dt2 < 10 ? '0' : '') + _dt2;
+                    var currentDT = _dtStrUtc + ' ' + hh + ':' + mm;
 
                     var result = await Selector(
                         [{ name: 'CurrentDateTime', Value: currentDT }],
@@ -17355,7 +17362,10 @@ $(document).ready(function() {
 
             h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
             m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-            var FindMinutes = FinalOutput + " " + h + ':' + m;
+            var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
+            var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
+            var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
+            var FindMinutes = _foUtc + " " + _hUtc + ':' + _mUtc;
             $scope.CurrentDateTime = today + " " + h + ':' + m + ':00';
 
 
@@ -17706,7 +17716,10 @@ $(document).ready(function() {
 
                 h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
                 m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                var FindMinutes = FinalOutput + " " + h + ':' + m;
+                var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
+                var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
+                var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
+                var FindMinutes = _foUtc + " " + _hUtc + ':' + _mUtc;
                 $scope.CurrentDateTime = today + " " + h + ':' + m + ':00';
 
 
@@ -18596,19 +18609,23 @@ $(document).ready(function() {
             $scope.GetJobsdelivery();
             $scope.datecreate = function (data, dispatchBefore) {
                 if (!data) return '';
-                var clean = data.replace(/\.$/, '').trim();
-                var booking = new Date(clean);
+                var _raw = String(data).trim();
+                var _isAspUtc = _raw.endsWith('.');
+                var clean = _raw.replace(/\.$/, '');
+                var booking = _isAspUtc ? new Date(clean.replace(' ', 'T') + 'Z') : new Date(clean);
                 if (isNaN(booking.getTime())) {
                     var p = clean.split(' ');
                     var d = (p[0] || '').split('-');
                     return (d[2] || '') + '-' + (d[1] || '') + ' ' + (p[1] ? p[1].substring(0, 5) : '');
                 }
                 var now = new Date();
-                var h = booking.getHours();
-                var mi = booking.getMinutes();
+                var _nzt = new Date(booking.toLocaleString('sv', { timeZone: 'Pacific/Auckland' }));
+                var h = _nzt.getHours();
+                var mi = _nzt.getMinutes();
                 var timeStr = String(h).padStart(2,'0') + ':' + (mi < 10 ? '0' : '') + mi;
-                var todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                var bookMid  = new Date(booking.getFullYear(), booking.getMonth(), booking.getDate());
+                var _nowNzt = new Date(now.toLocaleString('sv', { timeZone: 'Pacific/Auckland' }));
+                var todayMid = new Date(_nowNzt.getFullYear(), _nowNzt.getMonth(), _nowNzt.getDate());
+                var bookMid  = new Date(_nzt.getFullYear(), _nzt.getMonth(), _nzt.getDate());
                 var dayDiff  = Math.round((bookMid - todayMid) / 86400000);
                 // Pre-booked jobs always show "Pickup:" label so the time is unambiguous
                 var db = parseInt(dispatchBefore) || 0;
@@ -18617,7 +18634,7 @@ $(document).ready(function() {
                 if (dayDiff === 1)  return prefix + 'Tmrw ' + timeStr;
                 var days   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
                 var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                return prefix + days[booking.getDay()] + ' ' + booking.getDate() + ' ' + months[booking.getMonth()] + ' ' + timeStr;
+                return prefix + days[_nzt.getDay()] + ' ' + _nzt.getDate() + ' ' + months[_nzt.getMonth()] + ' ' + timeStr;
             }
 
             $scope.jobTypeLabel = function (jobMins, dispatchBefore) {
@@ -19011,8 +19028,13 @@ $(document).ready(function() {
             // e.g. "2026-05-07T06:45:53.319Z" → "07/05/2026, 18:45:53"
             $scope.bwFmtDt = function(raw) {
                 if (!raw) return '';
-                var s = String(raw).trim().replace(/\.$/, '');
-                var d = (typeof raw === 'number') ? new Date(raw) : new Date(s);
+                var _s = String(raw).trim();
+                var _isAspUtc = _s.endsWith('.');
+                var s = _s.replace(/\.$/, '');
+                var d;
+                if (typeof raw === 'number') { d = new Date(raw); }
+                else if (_isAspUtc) { d = new Date(s.replace(' ', 'T') + 'Z'); }
+                else { d = new Date(s); }
                 if (isNaN(d.getTime())) return s;
                 return d.toLocaleString('en-NZ', {
                     timeZone: 'Pacific/Auckland',
@@ -19167,7 +19189,10 @@ $(document).ready(function() {
                             (('' + date).length < 2 ? '0' : '') + date;
                           h = (d.getHours() < 10 ? '0' : '') + d.getHours(),
                         m = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-                        var FindMinutes = FinalOutput + " " + h + ':' + m;
+                        var _hUtc = (d.getUTCHours() < 10 ? '0' : '') + d.getUTCHours();
+                        var _mUtc = (d.getUTCMinutes() < 10 ? '0' : '') + d.getUTCMinutes();
+                        var _foUtc = d.getUTCFullYear() + '-' + (d.getUTCMonth()+1 < 10 ? '0' : '') + (d.getUTCMonth()+1) + '-' + (d.getUTCDate() < 10 ? '0' : '') + d.getUTCDate();
+                        var FindMinutes = _foUtc + " " + _hUtc + ':' + _mUtc;
                         var CurrentDateTime = $("#laterDate").val() + " " + h + ':' + m + ':00';
             
                         var strtime = $res["dt1"][0].BookingDateTime;
