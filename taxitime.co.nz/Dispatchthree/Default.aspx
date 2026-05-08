@@ -3608,7 +3608,7 @@ $(document).ready(function() {
                                                 </div>
                                                 <div style="flex:1;min-width:90px;">
                                                     <span class="bw-jlabel">Account ID</span>
-                                                    <input type="text" class="form-control" name="accountid" ng-model="account_AccountId" readonly>
+                                                    <input type="text" class="form-control" name="accountid" ng-model="account_AccountId">
                                                 </div>
                                                 <div style="flex:1;min-width:110px;">
                                                     <span class="bw-jlabel">Email</span>
@@ -3616,7 +3616,7 @@ $(document).ready(function() {
                                                 </div>
                                                 <div style="flex:1;min-width:80px;">
                                                     <span class="bw-jlabel">Claim #</span>
-                                                    <input type="text" class="form-control" ng-model="claim_number" readonly placeholder="Claim #">
+                                                    <input type="text" class="form-control" ng-model="claim_number" placeholder="Claim #">
                                                 </div>
                                                 <div style="flex:0 0 60px;">
                                                     <span class="bw-jlabel">Remain</span>
