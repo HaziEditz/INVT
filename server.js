@@ -7507,7 +7507,11 @@ async function _syncBizAccountsFromFirebase() {
     let added = 0;
     for (const cid of cids) {
       let snap;
-      try { snap = await firebaseDbGet(`businessAccounts/${cid}`, tok); } catch(_) { continue; }
+      try { snap = await firebaseDbGet(`businessAccounts/${cid}`, tok); } catch(e) {
+        console.warn(`[sync-biz-accounts] Firebase read failed for cid=${cid}: ${e.message}`);
+        continue;
+      }
+      console.log(`[sync-biz-accounts] cid=${cid} snap type=${typeof snap} isNull=${snap===null} keys=${snap && typeof snap==='object' ? Object.keys(snap).join(',') : 'n/a'}`);
       if (!snap || typeof snap !== 'object') continue;
       Object.entries(snap).forEach(([key, val]) => {
         if (!val || val.active === false) return;
