@@ -3627,12 +3627,15 @@ $(document).ready(function() {
                                                 </div>
                                                 <div style="flex:1;min-width:130px;">
                                                     <span class="bw-jlabel">Account</span>
-                                                    <select class="form-control" style="padding:2px 4px;" ng-model="bwSelBizAcc" ng-change="bwPickBizAcc(bwSelBizAcc)">
-                                                        <option value="">— Select or type below —</option>
-                                                        <option ng-repeat="ba in bwBizAccounts" value="{{ba.id}}">{{ba.name}} ({{ba.id}})</option>
+                                                    <select class="form-control" style="padding:2px 4px;" ng-model="bwSelBizAcc" ng-change="bwPickBizAcc(bwSelBizAcc)" ng-hide="account_Name_hint">
+                                                        <option value="">— Select account —</option>
+                                                        <option ng-repeat="ba in bwBizAccounts" value="{{ba.id}}">{{ba.name}}{{ba.accountCode ? ' ['+ba.accountCode+']' : ''}}</option>
                                                     </select>
-                                                    <input type="text" class="form-control" style="margin-top:2px;font-size:11px;height:24px;" name="accountid" ng-model="account_AccountId" ng-change="bwSyncAccountId()" placeholder="or type Account ID">
-                                                    <span ng-show="account_Name_hint" style="font-size:10px;color:#27ae60;display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="fa fa-check-circle"></i> {{account_Name_hint}}</span>
+                                                    <input type="text" class="form-control" style="margin-top:2px;font-size:11px;height:24px;" name="accountid" ng-model="account_AccountId" ng-change="bwSyncAccountId()" placeholder="Type account code e.g. 001" ng-hide="account_Name_hint">
+                                                    <div ng-show="account_Name_hint" style="margin-top:2px;background:#eafaf1;border:1px solid #27ae60;border-radius:4px;padding:4px 6px;display:flex;align-items:center;justify-content:space-between;">
+                                                        <span style="font-size:11px;color:#1e8449;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="fa fa-check-circle"></i> {{account_Name_hint}}</span>
+                                                        <button type="button" style="background:none;border:none;color:#888;font-size:13px;cursor:pointer;padding:0 0 0 6px;line-height:1;" ng-click="bwClearBizAcc()" title="Remove account">&times;</button>
+                                                    </div>
                                                 </div>
                                                 <div style="flex:1;min-width:110px;">
                                                     <span class="bw-jlabel">Email</span>
@@ -16755,6 +16758,13 @@ $(document).ready(function() {
                     if (!$scope.account_Name) { $scope.account_Name = bz.Name; }
                 } else { $scope.account_Name_hint = ''; }
             }, function() { $scope.account_Name_hint = ''; });
+        };
+        $scope.bwClearBizAcc = function() {
+            $scope.account_Name_hint = '';
+            $scope.account_AccountId = '';
+            $scope.account_Select_Id = '';
+            $scope.account_Name      = '';
+            $scope.bwSelBizAcc       = '';
         };
         $scope.accountselect = function(arg){
          
