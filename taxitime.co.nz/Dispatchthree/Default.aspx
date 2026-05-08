@@ -1,8 +1,18 @@
 
 
 <!doctype html>
-<html lang="en" dir="ltr">
+<html lang="en" dir="ltr" data-bw-mode="light">
 <head>
+<script>
+(function(){
+  var m = localStorage.getItem('bw_mode') || 'light';
+  document.documentElement.setAttribute('data-bw-mode', m);
+  document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.getElementById('bwModeToggle');
+    if (btn) btn.innerHTML = m === 'dark' ? '<i class="fa fa-sun-o"></i>' : '<i class="fa fa-moon-o"></i>';
+  });
+}());
+</script>
     <meta charset="UTF-8">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
@@ -3388,8 +3398,7 @@ $(document).ready(function() {
                            <a  data-toggle="modal" data-target="#alarms">Alarms</a>
                             <a  data-toggle="modal" data-target="#messages">Message</a>
                             <a  onclick="Logout()">Log Out</a>
-                           
-                         
+                            <a href="javascript:void(0)" id="bwModeToggle" title="Toggle dark / light mode" style="font-size:13px;padding:5px 8px;" onclick="(function(){var h=document.documentElement;var cur=h.getAttribute('data-bw-mode')||'light';var next=cur==='light'?'dark':'light';h.setAttribute('data-bw-mode',next);localStorage.setItem('bw_mode',next);var btn=document.getElementById('bwModeToggle');if(btn){btn.innerHTML=next==='dark'?'<i class=\'fa fa-sun-o\'></i>':'<i class=\'fa fa-moon-o\'></i>';}})()"><i class="fa fa-moon-o"></i></a>
                         </div>  
                          <div class="dropdown"    >
                            <input type="hidden"  id="totalnoti" value=""   />
@@ -5110,7 +5119,11 @@ $(document).ready(function() {
                                 <div  >
                                     <div>
                                       
-                                        <table id="example" style="width:100%;" ng-if="zonelist && zonelist.length > 0">
+                                        <div ng-if="!driverdatarealx || driverdatarealx.length === 0" style="text-align:center;padding:24px 10px;color:#999;font-size:11.5px;line-height:1.8;">
+                            <i class="fa fa-wifi" style="font-size:22px;opacity:0.2;display:block;margin-bottom:6px;"></i>
+                            No drivers online<br><span style="font-size:10.5px;opacity:0.7;">Zones appear when drivers connect via the driver app</span>
+                        </div>
+                        <table id="example" style="width:100%;" ng-if="zonelist && zonelist.length > 0">
                                             <thead>
                                                 <tr>
                                                     <th class="wd-15p">ID</th>

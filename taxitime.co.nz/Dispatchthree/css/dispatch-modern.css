@@ -1520,3 +1520,201 @@ html[data-bw-mode="light"] #largeModal input[type="date"]::-webkit-calendar-pick
 .bw-site-footer__inner a:hover {
   color: #f5be1e;
 }
+
+/* ============================================================
+   LIGHT MODE — extended overrides (layout, sidebar, panels,
+   forms, tables, modals, nav, footer)
+   Activated by: html[data-bw-mode="light"]
+   ============================================================ */
+
+/* ── Sidebar stats strip ── */
+html[data-bw-mode="light"] .container-stats-top {
+  background: #fff !important;
+  border-right: 1px solid rgba(0,0,0,0.08) !important;
+}
+html[data-bw-mode="light"] .container-stats-top .form-control#zoomlabel {
+  background: #f0f2f5 !important;
+  border-color: rgba(0,0,0,0.15) !important;
+  color: #374151 !important;
+}
+html[data-bw-mode="light"] .container-stats-bottom ul.list-inline {
+  background: rgba(255,255,255,0.95) !important;
+  border-color: rgba(0,0,0,0.10) !important;
+}
+html[data-bw-mode="light"] .container-stats-bottom ul.list-inline li {
+  color: #374151 !important;
+}
+
+/* ── Cards / panels ── */
+html[data-bw-mode="light"] .card,
+html[data-bw-mode="light"] div.panel {
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
+}
+html[data-bw-mode="light"] .card-body { background: transparent !important; }
+html[data-bw-mode="light"] .card-header,
+html[data-bw-mode="light"] .panel-heading {
+  background: #f5f7fa !important;
+  border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+  color: #14181f !important;
+}
+
+/* ── Job panel tabs ── */
+html[data-bw-mode="light"] ul.nav.panel-tabs {
+  background: #f5f7fa !important;
+  border-bottom: 1px solid rgba(0,0,0,0.10) !important;
+}
+html[data-bw-mode="light"] ul.nav.panel-tabs li a {
+  color: #4b5563 !important;
+}
+html[data-bw-mode="light"] ul.nav.panel-tabs li a:hover:not(.active) {
+  background: rgba(0,0,0,0.04) !important;
+  color: #111827 !important;
+}
+html[data-bw-mode="light"] ul.nav.panel-tabs li a span.badge,
+html[data-bw-mode="light"] ul.nav.panel-tabs li a span[class=""] {
+  background: rgba(0,0,0,0.07) !important;
+  color: #374151 !important;
+}
+
+/* ── Job list scroll area ── */
+html[data-bw-mode="light"] .card-body[style*="overflow"],
+html[data-bw-mode="light"] .job-list-scroll {
+  background: #e8edf2 !important;
+  scrollbar-color: rgba(0,0,0,0.12) transparent !important;
+}
+html[data-bw-mode="light"] .tab-pane#tab5 {
+  background: #e8edf2 !important;
+}
+
+/* ── Modals ── */
+html[data-bw-mode="light"] .modal-content {
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.10) !important;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.18) !important;
+}
+html[data-bw-mode="light"] .modal-header {
+  background: #f5f7fa !important;
+  border-bottom: 1px solid rgba(0,0,0,0.08) !important;
+}
+html[data-bw-mode="light"] .modal-header h4,
+html[data-bw-mode="light"] .modal-header h5 { color: #14181f !important; }
+html[data-bw-mode="light"] .modal-body { color: #374151 !important; }
+html[data-bw-mode="light"] .modal-body p,
+html[data-bw-mode="light"] .modal-body label,
+html[data-bw-mode="light"] .modal-body th,
+html[data-bw-mode="light"] .modal-body td { color: inherit !important; }
+html[data-bw-mode="light"] .modal-footer {
+  background: #f5f7fa !important;
+  border-top: 1px solid rgba(0,0,0,0.08) !important;
+}
+html[data-bw-mode="light"] .modal-backdrop { background: rgba(0,0,0,0.45) !important; }
+html[data-bw-mode="light"] .close { color: #374151 !important; }
+
+/* ── Form controls ── */
+html[data-bw-mode="light"] .form-control {
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.18) !important;
+  color: #14181f !important;
+}
+html[data-bw-mode="light"] .form-control:focus {
+  border-color: rgba(37,99,235,0.5) !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08) !important;
+}
+html[data-bw-mode="light"] .form-control::placeholder { color: #9ca3af !important; }
+html[data-bw-mode="light"] select.form-control option { background: #fff !important; color: #14181f !important; }
+
+/* ── Buttons ── */
+html[data-bw-mode="light"] .btn-default {
+  background: #f0f2f5 !important;
+  border: 1px solid rgba(0,0,0,0.15) !important;
+  color: #374151 !important;
+}
+html[data-bw-mode="light"] .btn-default:hover { background: #e2e6ea !important; }
+
+/* ── Tables ── */
+html[data-bw-mode="light"] td,
+html[data-bw-mode="light"] th {
+  border: 1px solid rgba(0,0,0,0.07) !important;
+  color: #374151 !important;
+}
+html[data-bw-mode="light"] table th { background: #f5f7fa !important; }
+html[data-bw-mode="light"] table#example,
+html[data-bw-mode="light"] table.dataTable { background: #fff !important; }
+html[data-bw-mode="light"] table#example th,
+html[data-bw-mode="light"] table.dataTable thead th {
+  background: #f5f7fa !important;
+  color: #374151 !important;
+  border-bottom: 1px solid rgba(0,0,0,0.10) !important;
+}
+html[data-bw-mode="light"] table#example td,
+html[data-bw-mode="light"] table.dataTable tbody td {
+  color: #374151 !important;
+  border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+}
+html[data-bw-mode="light"] table#example tr:hover td,
+html[data-bw-mode="light"] table.dataTable tbody tr:hover td {
+  background: rgba(0,0,0,0.025) !important;
+  color: #111827 !important;
+}
+html[data-bw-mode="light"] .dataTables_filter input,
+html[data-bw-mode="light"] .dataTables_length select {
+  background: #fff !important;
+  border: 1px solid rgba(0,0,0,0.15) !important;
+  color: #14181f !important;
+}
+html[data-bw-mode="light"] .dataTables_info,
+html[data-bw-mode="light"] .dataTables_filter label,
+html[data-bw-mode="light"] .dataTables_length label { color: #4b5563 !important; }
+
+/* ── Top nav links ── */
+html[data-bw-mode="light"] .topnav a {
+  color: #374151 !important;
+}
+html[data-bw-mode="light"] .topnav a:hover {
+  background: rgba(0,0,0,0.05) !important;
+  color: #111827 !important;
+}
+html[data-bw-mode="light"] .topnav a[onclick*="Logout"] {
+  color: rgba(220,38,38,0.75) !important;
+}
+html[data-bw-mode="light"] .topnav a[onclick*="Logout"]:hover {
+  color: #dc2626 !important;
+  background: rgba(220,38,38,0.06) !important;
+}
+html[data-bw-mode="light"] .topnav a[data-target*="suspended"] {
+  color: rgba(220,38,38,0.85) !important;
+}
+html[data-bw-mode="light"] .topnav a.active {
+  color: #1d4ed8 !important;
+  background: rgba(37,99,235,0.08) !important;
+}
+html[data-bw-mode="light"] #bwModeToggle { color: #374151 !important; }
+
+/* ── Site footer ── */
+html[data-bw-mode="light"] .bw-site-footer {
+  background: rgba(240,242,245,0.97) !important;
+  border-top: 1px solid rgba(0,0,0,0.07) !important;
+}
+html[data-bw-mode="light"] .bw-site-footer__inner { color: rgba(0,0,0,0.45) !important; }
+html[data-bw-mode="light"] .bw-site-footer__inner a { color: #b45309 !important; }
+
+/* ── Input groups / addons ── */
+html[data-bw-mode="light"] .input-group-addon {
+  background: #f0f2f5 !important;
+  border-color: rgba(0,0,0,0.18) !important;
+  color: #374151 !important;
+}
+
+/* ── Toastr notifications ── */
+html[data-bw-mode="light"] .toast-success { background-color: #16a34a !important; }
+html[data-bw-mode="light"] .toast-error   { background-color: #dc2626 !important; }
+html[data-bw-mode="light"] .toast-warning { background-color: #d97706 !important; }
+html[data-bw-mode="light"] .toast-info    { background-color: #2563eb !important; }
+
+/* ── Zone / driver table rows ── */
+html[data-bw-mode="light"] tr[style*="background"] td { color: #14181f !important; }
+
+/* Dark mode: ensure tab-pane background overrides inline */
+.tab-pane#tab5 { background: var(--bw-bg) !important; }
