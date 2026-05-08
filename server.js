@@ -7178,6 +7178,84 @@ server.on('error', (err) => {
   }
 });
 
+// ─── Startup: seed ZONE_DRIVERS from Firebase ────────────────────────────────
+// On server restart ZONE_DRIVERS is empty. Auto-dispatch would see 0 drivers
+// until each driver app sends its next heartbeat — which could be minutes away
+// for idle drivers. This reads the live `online/{companyId}` nodes from Firebase
+// and pre-populates ZONE_DRIVERS so dispatching works immediately after restart.
+// Entries are marked _fbSeeded=true so they can be identified; the first real
+// heartbeat from each driver app overwrites them with fresh data.
+async function _seedZoneDriversFromFirebase() {
+  try {
+    const token = await getFirebaseServerToken();
+    if (!token) { console.warn('[seed-drivers] no Firebase token — skipping startup seed'); return; }
+
+    const r = await fbRequest(
+      `${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null
+    );
+    if (r.status !== 200 || !r.body || typeof r.body !== 'object') {
+      console.log('[seed-drivers] online/ node empty or unavailable — skipping');
+      return;
+    }
+
+    const _OFFLINE = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
+    let seeded = 0;
+
+    for (const [cid, vehicles] of Object.entries(r.body)) {
+      if (!vehicles || typeof vehicles !== 'object') continue;
+      for (const [vehicleId, node] of Object.entries(vehicles)) {
+        if (!node || typeof node !== 'object') continue;
+
+        // Driver fields may be flat on the node or nested under current/
+        const cur = (node.current && typeof node.current === 'object') ? node.current : {};
+
+        const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
+        // Skip offline / logged-out drivers — they are genuinely not available
+        if (!status || _OFFLINE.has(status)) continue;
+
+        const driverId     = String(cur.driverid  || cur.driverId  || node.driverid  || vehicleId);
+        const drivername   = cur.drivername   || cur.driverName   || node.drivername   || '';
+        const vehiclenumber= cur.vehiclenumber|| cur.vehicleNumber|| node.vehiclenumber|| vehicleId;
+        const vehicletype  = cur.vehicletype  || cur.vehicleType  || node.vehicletype  || '';
+        const zonename     = cur.zonename     || cur.zoneName     || node.zonename     || '';
+        const zonequeue    = parseInt(cur.zonequeue || cur.zoneQueue || node.zonequeue || '0') || 0;
+        const lat          = cur.lat || node.lat || '';
+        const lng          = cur.lng || node.lng || '';
+
+        // Don't overwrite an entry that the driver app has already re-registered
+        const already = ZONE_DRIVERS.find(d =>
+          String(d.driverid) === driverId || String(d.VehicleId) === vehicleId
+        );
+        if (already) continue;
+
+        const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+        ZONE_DRIVERS.push({
+          driverid:      driverId,
+          VehicleId:     vehicleId,
+          drivername,
+          vehiclenumber,
+          vehicletype,
+          vehiclestatus: status,
+          zonename,
+          zonequeue:     zonequeue || maxQ + 1,
+          queueWaitSince: Date.now(),
+          lat,
+          lng,
+          companyId:     cid,
+          _fbSeeded:     true,  // replaced by real heartbeat on driver's next update
+        });
+        seeded++;
+      }
+    }
+    console.log(`[seed-drivers] seeded ${seeded} driver(s) from Firebase online/ into ZONE_DRIVERS`);
+  } catch (e) {
+    console.warn('[seed-drivers] startup seed failed (non-fatal):', e.message);
+  }
+}
+
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
+  // Seed ZONE_DRIVERS from Firebase so auto-dispatch works immediately after restart,
+  // without waiting for each driver app to send its next heartbeat.
+  _seedZoneDriversFromFirebase();
 });
