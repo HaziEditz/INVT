@@ -937,7 +937,7 @@
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -1047,7 +1047,7 @@
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         <span ng-if="avalue.Acc_job_id">ACC</span>
-                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}}</span>
+                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}} &middot; Account Job</span>
                                                                         <span ng-if="avalue.Recieve_payment">Paid</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
@@ -1171,7 +1171,7 @@
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                        <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -3974,7 +3974,7 @@ $(document).ready(function() {
                                                             <span ng-if="value.BookingStatus=='Pending'" class="bw-b" style="background:#7b1fa2;color:#fff;"><i class="fa fa-bullhorn"></i> BC</span>
                                                             <span ng-if="value._preQueueDriver" class="bw-b" style="background:#e67e22;color:#fff;" title="Offered to busy driver: {{value._preQueueDriver}}"><i class="fa fa-clock-o"></i> Busy&#8594;{{value._preQueueDriver}}</span>
                                                             <span ng-if="value.Acc_job_id" class="bw-mc">ACC</span>
-                                                            <span ng-if="value.Account_id" class="bw-mc" title="Account ID: {{value.Account_id}}{{value.Acc_claim_id ? ' | Claim: '+value.Acc_claim_id : ''}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || ('Acct #'+value.Account_id)}}</span>
+                                                            <span ng-if="value.Account_id" class="bw-mc" title="Account ID: {{value.Account_id}}{{value.Acc_claim_id ? ' | Claim: '+value.Acc_claim_id : ''}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || ('Acct #'+value.Account_id)}} &middot; Account Job</span>
                                                             <span ng-if="value.Recieve_payment" class="bw-mc">Paid</span>
                                                             <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
                                                                 <span class="bw-ml" ng-if="value.DispatcherName" style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{value.DispatcherName}}"><i class="fa fa-headphones"></i> {{value.DispatcherName}}</span>
@@ -4117,7 +4117,7 @@ $(document).ready(function() {
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -4247,7 +4247,7 @@ $(document).ready(function() {
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         <span ng-if="avalue.Acc_job_id">ACC</span>
-                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}}</span>
+                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}} &middot; Account Job</span>
                                                                         <span ng-if="avalue.Recieve_payment">Paid</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
@@ -4420,7 +4420,7 @@ $(document).ready(function() {
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                        <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
