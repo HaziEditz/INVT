@@ -3606,9 +3606,12 @@ $(document).ready(function() {
                                                     </select>
                                                     <input type="number" class="form-control" style="margin-top:2px;font-size:11px;height:24px;" ng-show="customeshow" ng-model="CustomeRate" placeholder="Custom rate" />
                                                 </div>
-                                                <div style="flex:1;min-width:90px;">
-                                                    <span class="bw-jlabel">Account ID</span>
-                                                    <input type="text" class="form-control" name="accountid" ng-model="account_AccountId" ng-change="bwSyncAccountId()">
+                                                <div style="flex:1;min-width:120px;">
+                                                    <span class="bw-jlabel">Account</span>
+                                                    <select class="form-control" style="padding:2px 4px;" ng-model="bwSelBizAcc" ng-change="bwPickBizAcc(bwSelBizAcc)">
+                                                        <option value="">— None —</option>
+                                                        <option ng-repeat="ba in bwBizAccounts" value="{{ba.id}}">{{ba.name}} ({{ba.id}})</option>
+                                                    </select>
                                                     <span ng-show="account_Name_hint" style="font-size:10px;color:#27ae60;display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="fa fa-check-circle"></i> {{account_Name_hint}}</span>
                                                 </div>
                                                 <div style="flex:1;min-width:110px;">
@@ -16341,6 +16344,8 @@ $(document).ready(function() {
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
             $scope.account_Name_hint = '';
+            $scope.bwSelBizAcc = '';
+            $scope.account_AccountId = '';
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
             $scope.LocalDropLat = 0 ;
@@ -16460,6 +16465,8 @@ $(document).ready(function() {
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
             $scope.account_Name_hint = '';
+            $scope.bwSelBizAcc = '';
+            $scope.account_AccountId = '';
             $scope.selecteddriver = 0;
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
@@ -16594,6 +16601,40 @@ $(document).ready(function() {
                 $scope.account_AccountId = '';
                 $scope.account_Email     = '';
             }
+        };
+        $scope.bwBizAccounts = [];
+        $scope.bwSelBizAcc   = '';
+        $scope.bwLoadBizAccounts = function() {
+            getmanager([], 'Business_Account_GET').then(function(result) {
+                try {
+                    var res = JSON.parse(result.d);
+                    $scope.bwBizAccounts = Array.isArray(res) ? res : (res['dt1'] || []);
+                    if (!$scope.$$phase) $scope.$digest();
+                } catch(e) { $scope.bwBizAccounts = []; }
+            }).catch(function() { $scope.bwBizAccounts = []; });
+        };
+        $scope.bwLoadBizAccounts();
+        $scope.bwPickBizAcc = function(selId) {
+            if (!selId) {
+                $scope.account_Select_Id = '';
+                $scope.account_AccountId = '';
+                $scope.account_Name_hint = '';
+                $scope.account_Name      = '';
+                $scope.account_Email     = '';
+                $scope.account_PhoneNo   = '';
+                return;
+            }
+            var ba = ($scope.bwBizAccounts || []).find(function(b) { return String(b.id) === String(selId); });
+            if (!ba) return;
+            $scope.account_Select_Id = String(ba.id);
+            $scope.account_AccountId = String(ba.id);
+            $scope.account_Name      = ba.name  || '';
+            $scope.account_Name_hint = ba.name  || '';
+            $scope.account_Email     = ba.email || '';
+            $scope.account_PhoneNo   = ba.phone || '';
+            $scope.acc_record_search      = [];
+            $scope.account_record_search  = [];
+            $scope.passenger_record_search = [];
         };
         $scope.bwSyncAccountId = function() {
             $scope.account_Select_Id = $scope.account_AccountId;
