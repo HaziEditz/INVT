@@ -1,0 +1,27 @@
+Yes — the server restarts were the trigger. Here's the chain:
+
+Step 1 — Driver D002 was actively on job #6112605083
+Job 83 was "Active" with D002 in the server store. Job 84 was sitting "Pending" in the queue with no driver.
+
+Step 2 — Server restarted (code fix restart)
+When the dispatch console page reloaded, the client-side _cleanupOrphanedFirebase function ran. It reads a list of "in-flight offers" stored in browser localStorage from the previous session. It found job 83 (and 81, 82) still recorded there.
+
+For each one it calls the server asking: "Is this job still in 'Offered' status?" — Job 83's answer was "No, it's Active" (not "Offered"). The cleanup code treats anything that isn't "Offered" as an orphan and deletes the Firebase notification paths for that driver/job. Job 83's Firebase entry was wiped.
+
+This is the key flaw: the cleanup can't distinguish between "genuinely abandoned offer" and "driver is actively on this job — the offer was already accepted in a previous session." It sees "not Offered" and removes it regardless.
+
+Step 3 — Auto-dispatch immediately re-offered job 84 to D002
+After cleanup, auto-dispatch polled and found job 84 still "Pending" with no driver. D002 was not blocked (the server's driver-availability check relies on Firebase vehiclestatus — which had just been cleared by the cleanup in Step 2). So D002 was offered job 84.
+
+Step 4 — D002 accepted job 84 → current job changed in Firebase
+When D002 accepted job 84, this code ran on the client:
+
+// online/620611/TAXI02/current → jobId=6112605084
+
+That overwrote Firebase's record of D002's current job from 83 → 84. The dispatch console's Firebase listener on online/TAXI02/current immediately updated the Active panel to show job 84 — making job 83 "disappear." Job 83 was still Active in the server store, but Firebase no longer pointed to it as D002's live job, so the driver's screen and the console both showed job 84.
+
+Step 5 — Second restart (jobstore timestamp fix) made it worse
+When I corrected the timestamps in jobstore.json and restarted the server, I wrote the file while job 84 had already been accepted and re-saved. My write reset job 84 back to "Pending" with no driver — losing the accepted state. The server then restarted again with a stale snapshot, re-running the whole cycle for job 84 once more. That's why both jobs are now sitting as "Pending" with no driver.
+
+Root bug identified (not fixing yet)
+_cleanupOrphanedFirebase has no concept of "this job is Active, leave it alone." It only keeps an entry alive if the server says BookingStatus === 'Offered'. The moment a job transitions to Active (or any other state), the next restart will treat it as an orphan, clear its Firebase paths, and open the door for auto-dispatch to re-offer a new job to that driver. A server restart while a driver is on an Active job will always repeat this behaviour until the cleanup logic distinguishes Active jobs from stale offers.
