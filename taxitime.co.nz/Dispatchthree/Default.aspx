@@ -8327,10 +8327,16 @@ $(document).ready(function() {
         }
     }
     // Sends a visible notification to the driver app explaining why they are Away.
-    // Clears /notification/{id} first (awaits remove), then writes the Away message
-    // so it is never immediately overwritten by a stale remove that fires after the write.
-    // reason: 'reject' | 'timeout'
-    function FnNotifyDriverAway(DriverId, reason) {
+    // reason: 'reject' | 'timeout', jobId: the booking ID that triggered the Away transition.
+    // §BUG1-FIX: added jobId parameter.
+    // Before writing the Away message, reads the current /notification/{driverId} value
+    // and aborts if a NEW job offer has already been written there.
+    // Root cause: _sadTrigger fires 400ms after the 27-s timeout — both FnNotifyDriverAway
+    // (from the expiring offer) and writeJobDetailsToFirebase (from the new offer) run
+    // nearly simultaneously.  Without this guard, FnNotifyDriverAway's update() could land
+    // AFTER the new offer's set(), overwriting the new job offer with the "Away" message so
+    // the driver never sees the next job.  This is the primary intermittent bug.
+    function FnNotifyDriverAway(DriverId, reason, jobId) {
         if (!DriverId) return;
         var _fbUid = DriverId;
         var msg = reason === 'reject'
@@ -8339,7 +8345,14 @@ $(document).ready(function() {
         var now = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
         var bookingidStr = 'BookaWaka,' + msg + ',' + now + ',0,Dispatcher';
         var db = firebase.database();
-        db.ref('/notification/' + _fbUid).remove().then(function() {
+        var _notifRef = db.ref('/notification/' + _fbUid);
+        _notifRef.once('value').then(function(snap) {
+            var cur = snap.val();
+            if (cur && jobId && String(cur.joboffer) !== String(jobId)) {
+                console.log('[FnNotifyDriverAway] skipping Away write — /notification/' + _fbUid +
+                    ' already has job ' + cur.joboffer + ' (away was for job ' + jobId + ')');
+                return;
+            }
             var updates = {};
             updates['/notification/' + _fbUid] = { bookingid: bookingidStr, content: msg };
             updates['/chat/' + _fbUid]         = { bookingid: bookingidStr, content: msg };
@@ -8561,8 +8574,15 @@ $(document).ready(function() {
             var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + _fbUidNotif);
 
             function _doWrite() {
-                notifRef.remove()
-                    .then(function() { return notifRef.set(fullPayload); })
+                // §BUG3-FIX: use set() directly — no remove() first.
+                // Previously remove().then(set()) created a visibility gap where /notification/{id}
+                // was briefly null between the two async calls.  If set() failed after remove(),
+                // the driver notification disappeared permanently with only a console.warn.
+                // Adding _ts ensures Firebase always fires an onChange event to the driver app
+                // even when the payload data is identical to the previous value (e.g. re-offer
+                // of the same job after Unreached), so the driver screen always updates.
+                fullPayload._ts = Date.now();
+                notifRef.set(fullPayload)
                     .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', _fbUidNotif, '(sql:', driverId, ') job', bookingId); })
                     .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
             }
@@ -8743,7 +8763,18 @@ $(document).ready(function() {
             if (typeof settleCallback === 'function') settleCallback();
             firebase.database().ref().child("joback/"+id+"/"+_fbUidCjz).remove();
             $('#Divo'+id).remove();
-            firebase.database().ref().child("/notification/" + _fbUidCjz).remove();
+            // §BUG4-FIX: guard notification removal — only clear if it still belongs to this job.
+            // Without this, checkingjobz's unconditional remove() could wipe a new offer that
+            // arrived for the same driver after this 20-s timer was armed.
+            (function(_cjzId, _cjzDrv) {
+                var _cjzRef = firebase.database().ref('/notification/' + _cjzDrv);
+                _cjzRef.once('value').then(function(snap) {
+                    var cur = snap.val();
+                    if (!cur || !cur.joboffer || String(cur.joboffer) === String(_cjzId)) {
+                        _cjzRef.remove();
+                    }
+                });
+            }(id, _fbUidCjz));
             convertstatus1(vehicle , id,'Unreached', driverid ,  $message ) ;
             _immediateJobPending(id);
         }, 20000);
@@ -8759,7 +8790,16 @@ $(document).ready(function() {
             if (typeof settleCallback === 'function') settleCallback();
             firebase.database().ref().child("joback/"+id+"/"+_fbUidCj).remove();
             $('#Divo'+id).remove();
-            firebase.database().ref().child("/notification/" + _fbUidCj).remove();
+            // §BUG4-FIX: guard notification removal — only clear if it still belongs to this job.
+            (function(_cjId, _cjDrv) {
+                var _cjRef = firebase.database().ref('/notification/' + _cjDrv);
+                _cjRef.once('value').then(function(snap) {
+                    var cur = snap.val();
+                    if (!cur || !cur.joboffer || String(cur.joboffer) === String(_cjId)) {
+                        _cjRef.remove();
+                    }
+                });
+            }(id, _fbUidCj));
             convertstatus(id,'Unreached', driverid ,  $message ) ;
             _immediateJobPending(id);
         }, 20000);
@@ -9090,7 +9130,7 @@ $(document).ready(function() {
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                             // §100 — also write Away to current/ so driver app overlay clears correctly
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
-                            FnNotifyDriverAway(driverid, 'reject');
+                            FnNotifyDriverAway(driverid, 'reject', id);
                             // Immediately update driver colour — don't wait for Firebase propagation
                             (function(_drvid, _veh) {
                                 var _sc = angular.element(document.getElementById('myangular')).scope();
@@ -9144,7 +9184,7 @@ $(document).ready(function() {
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                     // §100 — also write Away to current/ so driver app overlay clears correctly
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
-                                    FnNotifyDriverAway(driverid, 'reject');
+                                    FnNotifyDriverAway(driverid, 'reject', id);
                                     (function(_drvid, _veh) {
                                         var _sc = angular.element(document.getElementById('myangular')).scope();
                                         if (_sc && _sc.driverdatarealx) {
@@ -9206,7 +9246,7 @@ $(document).ready(function() {
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                 // §100 — also write Away to current/ so driver app overlay clears correctly
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
-                                FnNotifyDriverAway(driverid, 'reject');
+                                FnNotifyDriverAway(driverid, 'reject', id);
                                 (function(_drvid, _veh) {
                                     var _sc = angular.element(document.getElementById('myangular')).scope();
                                     if (_sc && _sc.driverdatarealx) {
@@ -9307,7 +9347,7 @@ $(document).ready(function() {
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     // §100 — also write Away to current/ so driver app overlay clears correctly
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
-                    FnNotifyDriverAway(driverid, 'timeout');
+                    FnNotifyDriverAway(driverid, 'timeout', id);
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     if (_fbsc && _fbsc.driverdatarealx) {
                         for (var _di = 0; _di < _fbsc.driverdatarealx.length; _di++) {
