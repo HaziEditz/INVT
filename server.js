@@ -528,10 +528,12 @@ function enrichSearchResult(j) {
   };
 }
 
-// Format a Date object as the "YYYY-MM-DD HH:MM:SS." string the client expects
+// Format a Date object as the "YYYY-MM-DD HH:MM:SS." string the client expects.
+// Uses the Intl API (toLocaleString 'sv') so the result is always in NZ local time
+// regardless of whether process.env.TZ was successfully applied by the runtime.
 function fmtDT(dt) {
-  const pad = n => String(n).padStart(2, '0');
-  return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:00.`;
+  const nz = dt.toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
+  return nz.substring(0, 16).replace('T', ' ') + ':00.';
 }
 
 // Live job store — loaded from disk on startup, saved on every mutation
@@ -715,12 +717,12 @@ async function pollRentalTaxiRequests() {
       if (jobStore.some(j => j.rentalRequestId === key)) continue;
       if (closedJobStore.some(j => j.rentalRequestId === key)) continue;
 
-      // Normalise scheduledAt to the server's datetime string format
+      // Normalise scheduledAt to the server's datetime string format (NZ local time).
       let scheduledAt = data.scheduledAt;
       if (typeof scheduledAt === 'number') {
-        scheduledAt = new Date(scheduledAt).toISOString().replace('T', ' ').substring(0, 16) + '.';
+        scheduledAt = fmtDT(new Date(scheduledAt));
       } else {
-        scheduledAt = scheduledAt ? String(scheduledAt) : (new Date().toISOString().replace('T', ' ').substring(0, 16) + '.');
+        scheduledAt = scheduledAt ? String(scheduledAt) : fmtDT(new Date());
       }
 
       const promoNote = data.promoCode
@@ -3459,10 +3461,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const _dtRaw1   = param('DateTime') || param('BookingDateTime') || '';
         // Parse the local-time string → UTC ms so ScheduledFor is correct for calcJobMins.
         const _scheduledMs1 = _parseLocalDT(_dtRaw1, sessionCompanyId);
-        const bookingDT = _dtRaw1 || (() => {
-          const now = new Date();
-          return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:00.`;
-        })();
+        const bookingDT = _dtRaw1 || fmtDT(new Date());
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
         const _rawDId   = parseInt(param('DId') || '0') || 0;
