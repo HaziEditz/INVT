@@ -3511,7 +3511,11 @@ $(document).ready(function() {
                                                 <!-- RIGHT: customer -->
                                                 <div style="flex:1; position:relative;">
                                                     <span class="bw-jlabel"><i class="fa fa-search" style="margin-right:2px;"></i>Customer Search</span>
-                                                    <div style="display:flex;gap:4px;margin-bottom:4px;">
+                                                    <div ng-show="acc_Name_hint" style="background:#eafaf1;border:1px solid #27ae60;border-radius:4px;padding:4px 6px;display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                                                        <span style="font-size:11px;color:#1e8449;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="fa fa-check-circle"></i> {{client_name}} &middot; Claim: {{claim_number}}{{trip_days_left ? ' &middot; '+trip_days_left+' trips rem.' : ''}}</span>
+                                                        <button type="button" style="background:none;border:none;color:#888;font-size:13px;cursor:pointer;padding:0 0 0 6px;line-height:1;" ng-click="bwClearAccSel()" title="Remove ACC client">&times;</button>
+                                                    </div>
+                                                    <div ng-hide="acc_Name_hint" style="display:flex;gap:4px;margin-bottom:4px;">
                                                         <input type="Search" id="searchdatasx" class="form-control" autocomplete="off" style="flex:1;" name="searchaap" ng-model="searchtext" ng-keydown="Searchmulti( )" placeholder="ACC / Account / Name">
                                                         <button class="btn btn-default btn-sm" ng-click="clearseacch()" style="padding:1px 8px;font-size:11px;white-space:nowrap;">&#10005;</button>
                                                     </div>
@@ -16384,6 +16388,7 @@ $(document).ready(function() {
             $scope.bookingtime_select = 0;
             $amountadded =  '';
             $scope.acc_select_id = '';
+            $scope.acc_Name_hint = '';
             $scope.account_Select_Id = '';
             $scope.account_Name    = '';
             $scope.account_Email = '';
@@ -16619,6 +16624,7 @@ $(document).ready(function() {
                             $scope.client_id         = arg.id;
                             $scope.trip_status       = activePO.po.status || 'active';
                             $scope.acc_select_id     = activePO.id;
+                            $scope.acc_Name_hint     = c.name || '';
                             $scope.account_Name      = c.name || '';
                             $scope.account_PhoneNo   = c.phone || '';
                             $scope.account_Select_Id = '';
@@ -16640,12 +16646,25 @@ $(document).ready(function() {
                 $scope.client_id         = arg.client_id;
                 $scope.trip_status       = arg.trip_status;
                 $scope.acc_select_id     = arg.id;
+                $scope.acc_Name_hint     = arg.client_name || '';
                 $scope.account_Name      = arg.client_name;
                 $scope.account_PhoneNo   = arg.client_phone;
                 $scope.account_Select_Id = '';
                 $scope.account_AccountId = '';
                 $scope.account_Email     = '';
             }
+        };
+        $scope.bwClearAccSel = function() {
+            $scope.acc_Name_hint  = '';
+            $scope.claim_number   = '';
+            $scope.trip_days_left = '';
+            $scope.client_name    = '';
+            $scope.client_phone   = '';
+            $scope.manager_id     = '';
+            $scope.client_id      = '';
+            $scope.trip_status    = '';
+            $scope.acc_select_id  = '';
+            $scope.searchtext     = '';
         };
         $scope.bwBizAccounts = [];
         $scope.bwSelBizAcc   = '';
@@ -16827,6 +16846,7 @@ $(document).ready(function() {
             $scope.account_record_search = [];
             $scope.passenger_record_search = [];
             $scope.account_Name_hint = '';
+            $scope.acc_Name_hint = '';
         }
         $scope.Searchmulti = function() {
             var q = ($scope.searchtext || '').trim();
