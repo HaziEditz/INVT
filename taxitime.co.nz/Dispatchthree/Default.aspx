@@ -1620,9 +1620,18 @@
                                     <h6> {{showi.JobCompleteTime}}</h6>
                                      </div>
                                 
-                                     <div class="col-4" ng-if="showi.Account_id">
-                                    <label  class="label label-pill label-danger mt-2 ng-binding">Account Company Id:</label>
-                                    <h6> {{showi.Account_id}}</h6>
+                                     <div class="col-8" ng-if="showi.Account_id">
+                                    <label class="label label-pill label-danger mt-2 ng-binding">Business Account:</label>
+                                    <h6>{{showi.Account_Name || showi.Account_id}}
+                                        <small class="text-muted" style="font-size:10px;">ID: {{showi.Account_id}}</small>
+                                    </h6>
+                                    <div ng-if="bwShownAccDetail" style="font-size:11px;color:#555;margin-top:2px;">
+                                        <span ng-if="bwShownAccDetail.contact"><i class="fa fa-user"></i> {{bwShownAccDetail.contact}} &nbsp;</span>
+                                        <span ng-if="bwShownAccDetail.phone"><i class="fa fa-phone"></i> {{bwShownAccDetail.phone}} &nbsp;</span>
+                                        <span ng-if="bwShownAccDetail.email"><i class="fa fa-envelope"></i> {{bwShownAccDetail.email}} &nbsp;</span>
+                                        <span ng-if="bwShownAccDetail.accountCode"><i class="fa fa-hashtag"></i> {{bwShownAccDetail.accountCode}} &nbsp;</span>
+                                        <span ng-if="bwShownAccDetail.paymentTerms"><i class="fa fa-credit-card"></i> {{bwShownAccDetail.paymentTerms}}</span>
+                                    </div>
                                      </div>
                                     <div class="col-4" ng-if="showi.Recieve_payment">
                                     <label  class="label label-pill label-danger mt-2 ng-binding">Paid Amount:</label>
@@ -12228,8 +12237,9 @@ $(document).ready(function() {
                                                     dropAddress:   _cj.dropoff   || '',
                                                     distanceKm:    _cj.distanceKm || 0,
                                                 };
-                                                if (_cj.paymentStatus) _cjNode.paymentStatus = _cj.paymentStatus;
-                                                if (_cj.stripeChargeId) _cjNode.stripeChargeId = _cj.stripeChargeId;
+                                                if (_cj.paymentStatus)    _cjNode.paymentStatus    = _cj.paymentStatus;
+                                                if (_cj.stripeChargeId)   _cjNode.stripeChargeId   = _cj.stripeChargeId;
+                                                if (_cj.businessAccountId) _cjNode.businessAccountId = _cj.businessAccountId;
                                                 // TM fields — only include if present
                                                 if (_cj.paymentType === 'total_mobility') {
                                                     if (_cj.tmSubsidy        != null) _cjNode.tmSubsidy        = _cj.tmSubsidy;
@@ -12493,10 +12503,31 @@ $(document).ready(function() {
         }
  
         $scope.jobdetailshowing = [];
+        $scope.bwShownAccDetail = null;
         $scope.jobsectionempty =function (){
             $scope.jobdetailshowing = [];
-
+            $scope.bwShownAccDetail = null;
         }
+        // Auto-fetch account details from Firebase when a closed job with a businessAccountId is displayed
+        $scope.$watch('jobdetailshowing', function(newVal) {
+            $scope.bwShownAccDetail = null;
+            if (!newVal || !newVal.length) return;
+            var _accId = (newVal[0].Account_id || '').trim();
+            if (!_accId || typeof DbRef === 'undefined' || !SomeSession2) return;
+            DbRef.ref('businessAccounts/' + SomeSession2 + '/' + _accId).once('value', function(snap) {
+                var v = snap.val();
+                if (!v) return;
+                $scope.$apply(function() {
+                    $scope.bwShownAccDetail = {
+                        contact:      v.contact      || '',
+                        phone:        v.phone        || '',
+                        email:        v.email        || '',
+                        accountCode:  v.accountCode  || '',
+                        paymentTerms: v.paymentTerms || '',
+                    };
+                });
+            });
+        }, true);
         var coords;
         $scope.JobDetails = function(ele) {
             // Delegate to the shared popup which works from any modal context
@@ -16606,13 +16637,35 @@ $(document).ready(function() {
         $scope.bwBizAccounts = [];
         $scope.bwSelBizAcc   = '';
         $scope.bwLoadBizAccounts = function() {
-            getmanager([], 'Business_Account_GET').then(function(result) {
-                try {
-                    var res = JSON.parse(result.d);
-                    $scope.bwBizAccounts = Array.isArray(res) ? res : (res['dt1'] || []);
-                    if (!$scope.$$phase) $scope.$digest();
-                } catch(e) { $scope.bwBizAccounts = []; }
-            }, function() { $scope.bwBizAccounts = []; });
+            // Primary: load from Firebase businessAccounts/{cid} — Firebase push keys as ids.
+            if (typeof DbRef !== 'undefined' && SomeSession2) {
+                DbRef.ref('businessAccounts/' + SomeSession2).once('value', function(snap) {
+                    var items = [];
+                    snap.forEach(function(child) {
+                        var b = child.val();
+                        if (!b || b.active === false) return;
+                        items.push({
+                            id:           child.key,
+                            name:         b.name         || '',
+                            contact:      b.contact      || '',
+                            phone:        b.phone        || '',
+                            email:        b.email        || '',
+                            accountCode:  b.accountCode  || '',
+                            paymentTerms: b.paymentTerms || '',
+                        });
+                    });
+                    $scope.$apply(function() { $scope.bwBizAccounts = items; });
+                });
+            } else {
+                // Fallback: load from local server store
+                getmanager([], 'Business_Account_GET').then(function(result) {
+                    try {
+                        var res = JSON.parse(result.d);
+                        $scope.bwBizAccounts = Array.isArray(res) ? res : (res['dt1'] || []);
+                        if (!$scope.$$phase) $scope.$digest();
+                    } catch(e) { $scope.bwBizAccounts = []; }
+                }, function() { $scope.bwBizAccounts = []; });
+            }
         };
         $scope.bwLoadBizAccounts();
         $scope.bwPickBizAcc = function(selId) {
@@ -16629,10 +16682,11 @@ $(document).ready(function() {
             if (!ba) return;
             $scope.account_Select_Id = String(ba.id);
             $scope.account_AccountId = String(ba.id);
-            $scope.account_Name      = ba.name  || '';
-            $scope.account_Name_hint = ba.name  || '';
-            $scope.account_Email     = ba.email || '';
-            $scope.account_PhoneNo   = ba.phone || '';
+            $scope.account_Name      = ba.name    || '';
+            $scope.account_Name_hint = ba.name    || '';
+            $scope.account_Email     = ba.email   || '';
+            $scope.account_PhoneNo   = ba.phone   || '';
+            $scope.account_Contact   = ba.contact || '';
             $scope.acc_record_search      = [];
             $scope.account_record_search  = [];
             $scope.passenger_record_search = [];

@@ -350,6 +350,24 @@ async function firebaseDbPatch(path, value, idToken) {
   return r.body;
 }
 
+async function firebaseDbGet(path, idToken) {
+  const r = await fbRequest(
+    `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
+    'GET', null
+  );
+  if (r.status !== 200) throw new Error(`Firebase DB read failed: ${JSON.stringify(r.body)}`);
+  return r.body;
+}
+
+async function firebaseDbPush(path, value, idToken) {
+  const r = await fbRequest(
+    `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
+    'POST', value
+  );
+  if (r.status !== 200) throw new Error(`Firebase DB push failed: ${JSON.stringify(r.body)}`);
+  return r.body; // { name: "-Os7EhxblNgbMg2B0D6G" }
+}
+
 // ─── In-memory job store ──────────────────────────────────────────────────────
 // Legacy booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
 let _idSeqDate = '';
@@ -3952,22 +3970,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === 'Business_Account_ADD') {
-        const bacc = {
-          id:            baccNextId++,
-          companyId:     sessionCompanyId,
-          name:          (param('name')||'').trim(),
-          contact_name:  (param('contact_name')||'').trim(),
-          phone:         (param('phone')||'').trim(),
-          email:         (param('email')||'').trim(),
-          address:       (param('address')||'').trim(),
-          notes:         (param('notes')||'').trim(),
-          active:        true,
-          created_at:    new Date().toISOString(),
+        const _baccPayload = {
+          name:         (param('name')||'').trim(),
+          contact:      (param('contact_name')||param('contact')||'').trim(),
+          phone:        (param('phone')||'').trim(),
+          email:        (param('email')||'').trim(),
+          address:      (param('address')||'').trim(),
+          notes:        (param('notes')||'').trim(),
+          accountCode:  (param('accountCode')||'').trim(),
+          paymentTerms: (param('paymentTerms')||'').trim(),
+          active:       true,
+          createdAt:    new Date().toISOString(),
         };
-        businessAccStore.push(bacc);
-        saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
-        console.log(`200: POST ${urlPath} [action=${action}] -> business account #${bacc.id} "${bacc.name}" saved`);
-        successD(res, 'Account saved');
+        const _baccCid = sessionCompanyId;
+        getFirebaseServerToken().then(function(tok) {
+          return firebaseDbPush('businessAccounts/' + _baccCid, _baccPayload, tok);
+        }).then(function(pushed) {
+          const _fbKey = (pushed && pushed.name) ? pushed.name : String(baccNextId++);
+          const bacc = Object.assign({ id: _fbKey, companyId: _baccCid, contact_name: _baccPayload.contact }, _baccPayload);
+          businessAccStore.push(bacc);
+          saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+          console.log(`200: POST ${urlPath} [action=${action}] -> business account "${_fbKey}" "${bacc.name}" saved to Firebase`);
+          successD(res, 'Account saved');
+        }).catch(function(e) {
+          console.warn(`[Business_Account_ADD/DP] Firebase push failed (${e.message}) — saving locally only`);
+          const bacc = Object.assign({ id: String(baccNextId++), companyId: _baccCid, contact_name: _baccPayload.contact }, _baccPayload);
+          businessAccStore.push(bacc);
+          saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+          successD(res, 'Account saved');
+        });
 
       } else if (action === 'InsertAlarm') {
         successD(res, 'Alarm Saved Successfully');
@@ -4104,22 +4135,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Manager successfully Saved');
 
       } else if (action === 'Business_Account_ADD') {
-        const bacc = {
-          id:            baccNextId++,
-          companyId:     sessionCompanyId,
-          name:          (param('name')||'').trim(),
-          contact_name:  (param('contact_name')||'').trim(),
-          phone:         (param('phone')||'').trim(),
-          email:         (param('email')||'').trim(),
-          address:       (param('address')||'').trim(),
-          notes:         (param('notes')||'').trim(),
-          active:        true,
-          created_at:    new Date().toISOString(),
+        const _baccPayload2 = {
+          name:         (param('name')||'').trim(),
+          contact:      (param('contact_name')||param('contact')||'').trim(),
+          phone:        (param('phone')||'').trim(),
+          email:        (param('email')||'').trim(),
+          address:      (param('address')||'').trim(),
+          notes:        (param('notes')||'').trim(),
+          accountCode:  (param('accountCode')||'').trim(),
+          paymentTerms: (param('paymentTerms')||'').trim(),
+          active:       true,
+          createdAt:    new Date().toISOString(),
         };
-        businessAccStore.push(bacc);
-        saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
-        console.log(`200: POST ${urlPath} [action=${action}] -> business account #${bacc.id} "${bacc.name}" saved`);
-        successD(res, 'Account saved');
+        const _baccCid2 = sessionCompanyId;
+        getFirebaseServerToken().then(function(tok) {
+          return firebaseDbPush('businessAccounts/' + _baccCid2, _baccPayload2, tok);
+        }).then(function(pushed) {
+          const _fbKey2 = (pushed && pushed.name) ? pushed.name : String(baccNextId++);
+          const bacc2 = Object.assign({ id: _fbKey2, companyId: _baccCid2, contact_name: _baccPayload2.contact }, _baccPayload2);
+          businessAccStore.push(bacc2);
+          saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+          console.log(`200: POST ${urlPath} [action=${action}] -> business account "${_fbKey2}" "${bacc2.name}" saved to Firebase`);
+          successD(res, 'Account saved');
+        }).catch(function(e) {
+          console.warn(`[Business_Account_ADD/DS] Firebase push failed (${e.message}) — saving locally only`);
+          const bacc2 = Object.assign({ id: String(baccNextId++), companyId: _baccCid2, contact_name: _baccPayload2.contact }, _baccPayload2);
+          businessAccStore.push(bacc2);
+          saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+          successD(res, 'Account saved');
+        });
 
       } else if (action === 'Business_Account_GET') {
         const baccAll = businessAccStore.filter(b=>b.companyId===sessionCompanyId && b.active!==false);
@@ -4951,6 +4995,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   tmPassengerPays:  job.tmPassengerPays  != null ? Number(job.tmPassengerPays)  : null,
                   totalCouncilPays: job.totalCouncilPays != null ? Number(job.totalCouncilPays) : null,
                   councilId:        job.councilId || null,
+                  businessAccountId: job.Account_id || '',
                 };
                 // §108d — patch allbookings at completion so SA portal gets correct
                 // paymentMethod and Status regardless of which path created the record.
@@ -6663,6 +6708,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   source:      'dispatch',
                   pickup:      job.PickAddress || '',
                   dropoff:     job.DropAddress || '',
+                  businessAccountId: job.Account_id || '',
                 };
                 (function _patchAllbookingsCompletionDS(j, cid, pm) {
                   getFirebaseServerToken().then(function(tok) {
@@ -7451,9 +7497,52 @@ async function _seedZoneDriversFromFirebase() {
   }
 }
 
+async function _syncBizAccountsFromFirebase() {
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const cids = [...new Set(registrationStore.map(r => r.companyId).filter(Boolean))];
+    // Always include default companyId even if no registrations yet
+    if (!cids.includes('620611')) cids.push('620611');
+    let added = 0;
+    for (const cid of cids) {
+      let snap;
+      try { snap = await firebaseDbGet(`businessAccounts/${cid}`, tok); } catch(_) { continue; }
+      if (!snap || typeof snap !== 'object') continue;
+      Object.entries(snap).forEach(([key, val]) => {
+        if (!val || val.active === false) return;
+        if (businessAccStore.find(b => b.id === key && b.companyId === cid)) return;
+        businessAccStore.push({
+          id:           key,
+          companyId:    cid,
+          name:         val.name         || '',
+          contact_name: val.contact      || '',
+          contact:      val.contact      || '',
+          phone:        val.phone        || '',
+          email:        val.email        || '',
+          address:      val.address      || '',
+          notes:        val.notes        || '',
+          accountCode:  val.accountCode  || '',
+          paymentTerms: val.paymentTerms || '',
+          active:       val.active !== false,
+          created_at:   val.createdAt    || new Date().toISOString(),
+        });
+        added++;
+      });
+    }
+    if (added) saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+    console.log(`[sync-biz-accounts] synced ${added} account(s) from Firebase (total: ${businessAccStore.length})`);
+  } catch (e) {
+    console.warn('[sync-biz-accounts] startup sync failed (non-fatal):', e.message);
+  }
+}
+
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
   // Seed ZONE_DRIVERS from Firebase so auto-dispatch works immediately after restart,
   // without waiting for each driver app to send its next heartbeat.
   _seedZoneDriversFromFirebase();
+  // Sync business accounts from Firebase businessAccounts/{cid} so the local store
+  // reflects any accounts created or managed outside this console (e.g. Dispatch HQ).
+  _syncBizAccountsFromFirebase();
 });
