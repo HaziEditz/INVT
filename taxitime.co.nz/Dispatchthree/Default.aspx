@@ -3606,12 +3606,13 @@ $(document).ready(function() {
                                                     </select>
                                                     <input type="number" class="form-control" style="margin-top:2px;font-size:11px;height:24px;" ng-show="customeshow" ng-model="CustomeRate" placeholder="Custom rate" />
                                                 </div>
-                                                <div style="flex:1;min-width:120px;">
+                                                <div style="flex:1;min-width:130px;">
                                                     <span class="bw-jlabel">Account</span>
                                                     <select class="form-control" style="padding:2px 4px;" ng-model="bwSelBizAcc" ng-change="bwPickBizAcc(bwSelBizAcc)">
-                                                        <option value="">— None —</option>
+                                                        <option value="">— Select or type below —</option>
                                                         <option ng-repeat="ba in bwBizAccounts" value="{{ba.id}}">{{ba.name}} ({{ba.id}})</option>
                                                     </select>
+                                                    <input type="text" class="form-control" style="margin-top:2px;font-size:11px;height:24px;" name="accountid" ng-model="account_AccountId" ng-change="bwSyncAccountId()" placeholder="or type Account ID">
                                                     <span ng-show="account_Name_hint" style="font-size:10px;color:#27ae60;display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="fa fa-check-circle"></i> {{account_Name_hint}}</span>
                                                 </div>
                                                 <div style="flex:1;min-width:110px;">
