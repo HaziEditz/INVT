@@ -16726,7 +16726,6 @@ $(document).ready(function() {
             if (!q) { $scope.account_Name_hint = ''; $scope.account_Select_Id = ''; return; }
             var qLow = q.toLowerCase();
             // 1. Search already-loaded Firebase accounts by accountCode (e.g. "001"), push key, or name
-            console.log('[bwSyncAccountId] q=' + q + ' accounts=' + JSON.stringify(($scope.bwBizAccounts||[]).map(function(b){return {id:b.id,name:b.name,accountCode:b.accountCode};})));
             var ba = ($scope.bwBizAccounts || []).find(function(b) {
                 return (b.accountCode && b.accountCode.toLowerCase() === qLow) ||
                        String(b.id) === q ||
@@ -16734,7 +16733,6 @@ $(document).ready(function() {
             });
             if (ba) {
                 $scope.account_Name_hint = ba.name;
-                $scope.account_AccountId = ba.id;   // resolve to Firebase push key
                 $scope.account_Select_Id = ba.id;
                 if (!$scope.account_Name) { $scope.account_Name = ba.name; }
                 return;
