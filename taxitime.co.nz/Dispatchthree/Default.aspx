@@ -8646,10 +8646,12 @@ $(document).ready(function() {
                 u_id:          _u,
                 serviceType:   job.serviceType    || 'taxi',
                 bookingSource: job.BookingSource  || job.bookingSource  || _src || 'Dispatcher',
-                // §109 — pass payment method through to notification payload so driver app
-                // knows card vs cash without a separate sync call.
+                // §109 — pass fare, payment method and status so driver app knows
+                // whether to run the meter, and what payment type/amount to display.
+                fare:          job.EstimatedFare  || job.RideCost || job.CustomeRate || job.Fare || 0,
                 paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
                 paymentType:   job.PaymentType    || job.paymentType    || '',
+                paymentStatus: job.paymentStatus  || job.PaymentStatus  || '',
                 tmVoucherNo:       _tmVoucherNo,
                 tmPassengerName:   job.tmPassengerName   || job.TmPassengerName   || '',
                 tmCardExpiry:      job.tmCardExpiry      || job.TmCardExpiry      || '',
@@ -9807,7 +9809,10 @@ $(document).ready(function() {
                     jobpassengers:  String((_pqJob && (_pqJob.Passengers || _pqJob.PassengersNo)) || 1),
                     jobvehicletype: (_pqJob && _pqJob.VehicleType)  || '',
                     jobinfo:        (_pqJob && _pqJob.EntitiesDetails) || '',
-                    jobFare:        String((_pqJob && (_pqJob.Fare  || _pqJob.jobFare))       || ''),
+                    jobFare:        String((_pqJob && (_pqJob.EstimatedFare || _pqJob.RideCost || _pqJob.CustomeRate || _pqJob.Fare || _pqJob.jobFare)) || ''),
+                    paymentMethod:  (_pqJob && (_pqJob.PaymentMethod || _pqJob.paymentMethod)) || '',
+                    paymentType:    (_pqJob && (_pqJob.PaymentType   || _pqJob.paymentType))   || '',
+                    paymentStatus:  (_pqJob && (_pqJob.paymentStatus || _pqJob.PaymentStatus)) || '',
                     jobCount:       1
                     // NOTE: 'content' field intentionally omitted — suppresses full-screen popup
                 };
@@ -9913,16 +9918,20 @@ $(document).ready(function() {
             }
             if (_notifJob) {
                 writeJobDetailsToFirebase(driverid, vehicle, bookid, {
-                    pickup:      _notifJob.PickAddress    || _notifJob.PickLocation    || '',
-                    dropoff:     _notifJob.DropAddress    || _notifJob.DropLocation    || '',
-                    phone:       _notifJob.PhoneNo        || _notifJob.PassengerId     || '',
-                    name:        _notifJob.Name           || _notifJob.UserFName       || '',
-                    bags:        _notifJob.Bags           || _notifJob.BagsNo          || 0,
-                    passengers:  _notifJob.Passengers     || _notifJob.PassengersNo    || 1,
-                    vehicleType: _notifJob.VehicleType    || '',
-                    rideinfo:    _notifJob.EntitiesDetails|| '',
-                    status:      'Offered',
-                    source:      'Dispatcher'
+                    pickup:        _notifJob.PickAddress    || _notifJob.PickLocation    || '',
+                    dropoff:       _notifJob.DropAddress    || _notifJob.DropLocation    || '',
+                    phone:         _notifJob.PhoneNo        || _notifJob.PassengerId     || '',
+                    name:          _notifJob.Name           || _notifJob.UserFName       || '',
+                    bags:          _notifJob.Bags           || _notifJob.BagsNo          || 0,
+                    passengers:    _notifJob.Passengers     || _notifJob.PassengersNo    || 1,
+                    vehicleType:   _notifJob.VehicleType    || '',
+                    rideinfo:      _notifJob.EntitiesDetails|| '',
+                    status:        'Offered',
+                    source:        'Dispatcher',
+                    fare:          _notifJob.EstimatedFare  || _notifJob.RideCost || _notifJob.CustomeRate || _notifJob.Fare || 0,
+                    paymentMethod: _notifJob.PaymentMethod  || _notifJob.paymentMethod  || '',
+                    paymentType:   _notifJob.PaymentType    || _notifJob.paymentType    || '',
+                    paymentStatus: _notifJob.paymentStatus  || _notifJob.PaymentStatus  || ''
                 });
             } else {
                 Selector1([{ name: 'Id', value: bookid }], 'JobDetails').then(function(jr) {
@@ -9932,16 +9941,20 @@ $(document).ready(function() {
                                   : (_raw && _raw.dt1 && _raw.dt1[0] ? _raw.dt1[0] : null);
                         if (_jrow) {
                             writeJobDetailsToFirebase(driverid, vehicle, bookid, {
-                                pickup:      _jrow.PickAddress    || _jrow.PickLocation    || '',
-                                dropoff:     _jrow.DropAddress    || _jrow.DropLocation    || '',
-                                phone:       _jrow.PhoneNo        || _jrow.PassengerId     || '',
-                                name:        _jrow.Name           || _jrow.UserFName       || '',
-                                bags:        _jrow.Bags           || _jrow.BagsNo          || 0,
-                                passengers:  _jrow.Passengers     || _jrow.PassengersNo    || 1,
-                                vehicleType: _jrow.VehicleType    || '',
-                                rideinfo:    _jrow.EntitiesDetails|| '',
-                                status:      'Offered',
-                                source:      'Dispatcher'
+                                pickup:        _jrow.PickAddress    || _jrow.PickLocation    || '',
+                                dropoff:       _jrow.DropAddress    || _jrow.DropLocation    || '',
+                                phone:         _jrow.PhoneNo        || _jrow.PassengerId     || '',
+                                name:          _jrow.Name           || _jrow.UserFName       || '',
+                                bags:          _jrow.Bags           || _jrow.BagsNo          || 0,
+                                passengers:    _jrow.Passengers     || _jrow.PassengersNo    || 1,
+                                vehicleType:   _jrow.VehicleType    || '',
+                                rideinfo:      _jrow.EntitiesDetails|| '',
+                                status:        'Offered',
+                                source:        'Dispatcher',
+                                fare:          _jrow.EstimatedFare  || _jrow.RideCost || _jrow.CustomeRate || _jrow.Fare || 0,
+                                paymentMethod: _jrow.PaymentMethod  || _jrow.paymentMethod  || '',
+                                paymentType:   _jrow.PaymentType    || _jrow.paymentType    || '',
+                                paymentStatus: _jrow.paymentStatus  || _jrow.PaymentStatus  || ''
                             });
                         }
                     } catch(_je) { console.warn('[acknowledgemethodx] JobDetails fetch parse error:', _je); }
