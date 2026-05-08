@@ -16663,8 +16663,8 @@ $(document).ready(function() {
                 data: { data: [{ name: 'claim_number', value: q }], action: '[searchmulti]' }
             }).then(function(result) {
                 var $res = JSON.parse(result.data.d);
-                if (!features.accEnabled)       { $scope.acc_record_search     = $res['dt1'] || []; }
-                if (!features.businessAccounts) { $scope.account_record_search = $res['dt2'] || []; }
+                $scope.acc_record_search     = $res['dt1'] || [];
+                $scope.account_record_search = $res['dt2'] || [];
                 $scope.passenger_record_search = $res['dt3'] || [];
             }, function() {});
 

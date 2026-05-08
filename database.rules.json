@@ -385,6 +385,27 @@
         ".write": "auth != null"
       }
     },
+    "accClients": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "businessAccounts": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "purchaseOrders": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
     "activeDispatchers": {
       ".read": "auth != null",
       ".write": "auth != null",
