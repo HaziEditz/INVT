@@ -16692,16 +16692,37 @@ $(document).ready(function() {
             $scope.passenger_record_search = [];
         };
         $scope.bwSyncAccountId = function() {
-            $scope.account_Select_Id = $scope.account_AccountId;
             var q = ($scope.account_AccountId || '').trim();
-            if (!q) { $scope.account_Name_hint = ''; return; }
+            if (!q) { $scope.account_Name_hint = ''; $scope.account_Select_Id = ''; return; }
+            var qLow = q.toLowerCase();
+            // 1. Search already-loaded Firebase accounts by accountCode (e.g. "001"), push key, or name
+            var ba = ($scope.bwBizAccounts || []).find(function(b) {
+                return (b.accountCode && b.accountCode.toLowerCase() === qLow) ||
+                       String(b.id) === q ||
+                       b.name.toLowerCase() === qLow;
+            });
+            if (ba) {
+                $scope.account_Name_hint = ba.name;
+                $scope.account_AccountId = ba.id;   // resolve to Firebase push key
+                $scope.account_Select_Id = ba.id;
+                if (!$scope.account_Name) { $scope.account_Name = ba.name; }
+                return;
+            }
+            // 2. Fall back to server search (handles legacy integer IDs and accountCode partial match)
+            $scope.account_Select_Id = q;
             $http({ method: 'POST', url: 'DataManager/Data.aspx/DataSelector',
                 data: { data: [{ name: 'claim_number', value: q }], action: '[searchmulti]' }
             }).then(function(r) {
                 var $res = JSON.parse(r.data.d);
-                var bz = ($res['dt2'] || []).find(function(b) { return String(b.Id) === String(q) || (parseInt(b.Id,10) > 0 && parseInt(b.Id,10) === parseInt(q,10)); });
+                var bz = ($res['dt2'] || []).find(function(b) {
+                    return String(b.Id) === String(q) ||
+                           (b.AccountCode && b.AccountCode.toLowerCase() === qLow) ||
+                           (parseInt(b.Id,10) > 0 && parseInt(b.Id,10) === parseInt(q,10));
+                });
                 if (bz) {
                     $scope.account_Name_hint = bz.Name;
+                    $scope.account_AccountId = String(bz.Id);
+                    $scope.account_Select_Id = String(bz.Id);
                     if (!$scope.account_Name) { $scope.account_Name = bz.Name; }
                 } else { $scope.account_Name_hint = ''; }
             }, function() { $scope.account_Name_hint = ''; });

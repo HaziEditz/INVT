@@ -5649,8 +5649,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               trip_status: activeApp ? activeApp.trip_status : '' };
           });
         const baccResults = businessAccStore
-          .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q) || (parseInt(q,10)>0 && b.id===parseInt(q,10))))
-          .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, Type: 'Account' }));
+          .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q) || (b.accountCode && b.accountCode.toLowerCase().includes(q)) || (parseInt(q,10)>0 && b.id===parseInt(q,10))))
+          .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, AccountCode: b.accountCode||'', Type: 'Account' }));
         const pasResults = passengerStore
           .filter(p => p.companyId===sessionCompanyId && (!q || (p.Name||'').toLowerCase().includes(q) || (p.PhoneNo||'').includes(q) || (p.Email||'').toLowerCase().includes(q)))
           .slice(0, 20).map(p => ({ Id: p.id, Name: p.Name, PhoneNo: p.PhoneNo, Email: p.Email }));
