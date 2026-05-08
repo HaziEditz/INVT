@@ -3608,7 +3608,8 @@ $(document).ready(function() {
                                                 </div>
                                                 <div style="flex:1;min-width:90px;">
                                                     <span class="bw-jlabel">Account ID</span>
-                                                    <input type="text" class="form-control" name="accountid" ng-model="account_AccountId">
+                                                    <input type="text" class="form-control" name="accountid" ng-model="account_AccountId" ng-change="bwSyncAccountId()">
+                                                    <span ng-show="account_Name_hint" style="font-size:10px;color:#27ae60;display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><i class="fa fa-check-circle"></i> {{account_Name_hint}}</span>
                                                 </div>
                                                 <div style="flex:1;min-width:110px;">
                                                     <span class="bw-jlabel">Email</span>
@@ -8552,7 +8553,9 @@ $(document).ready(function() {
                 // §109 — include payment fields so driver app can display correct payment
                 // method (card vs cash) without a separate sync call.
                 paymentMethod: details.paymentMethod || details.paymentType || '',
-                paymentType:   details.paymentType   || details.paymentMethod || ''
+                paymentType:   details.paymentType   || details.paymentMethod || '',
+                jobAccountId:  details.accountId  || '',
+                jobBookingType: details.bookingType || ''
             };
             // TM extras — driver app reads extras.tmVoucherNo to write trips/{cid}/{bookingId}
             if (details.tmVoucherNo) {
@@ -8705,6 +8708,8 @@ $(document).ready(function() {
                 u_id:          _u,
                 serviceType:   job.serviceType    || 'taxi',
                 bookingSource: job.BookingSource  || job.bookingSource  || _src || 'Dispatcher',
+                accountId:    job.Account_id     || job.AccountId      || '',
+                bookingType:  job.BookingType    || job.booking_type   || '',
                 // §109 — pass fare, payment method and status so driver app knows
                 // whether to run the meter, and what payment type/amount to display.
                 fare:          job.EstimatedFare  || job.RideCost || job.CustomeRate || job.Fare || 0,
@@ -16335,6 +16340,7 @@ $(document).ready(function() {
             $scope.account_Name    = '';
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
+            $scope.account_Name_hint = '';
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
             $scope.LocalDropLat = 0 ;
@@ -16453,6 +16459,7 @@ $(document).ready(function() {
             $scope.account_Name    = '';
             $scope.account_Email = '';
             $scope.account_PhoneNo  = '';
+            $scope.account_Name_hint = '';
             $scope.selecteddriver = 0;
             $scope.LocalPickLat = 0;
             $scope.LocalPickLng =  0;
@@ -16588,6 +16595,21 @@ $(document).ready(function() {
                 $scope.account_Email     = '';
             }
         };
+        $scope.bwSyncAccountId = function() {
+            $scope.account_Select_Id = $scope.account_AccountId;
+            var q = ($scope.account_AccountId || '').trim();
+            if (!q) { $scope.account_Name_hint = ''; return; }
+            $http({ method: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                data: { data: [{ name: 'claim_number', value: q }], action: '[searchmulti]' }
+            }).then(function(r) {
+                var $res = JSON.parse(r.data.d);
+                var bz = ($res['dt2'] || []).find(function(b) { return String(b.Id) === String(q); });
+                if (bz) {
+                    $scope.account_Name_hint = bz.Name;
+                    if (!$scope.account_Name) { $scope.account_Name = bz.Name; }
+                } else { $scope.account_Name_hint = ''; }
+            }, function() { $scope.account_Name_hint = ''; });
+        };
         $scope.accountselect = function(arg){
          
           
@@ -16596,6 +16618,7 @@ $(document).ready(function() {
             $scope.account_PhoneNo =   arg.PhoneNo ;
             $scope.account_AccountId =   arg.Id ;
             $scope.account_Email = arg.Email ;
+            $scope.account_Name_hint = arg.Name || '';
 
             $scope.acc_record_search = [];
             $scope.account_record_search = [];
@@ -16644,6 +16667,7 @@ $(document).ready(function() {
             $scope.acc_record_search = [];
             $scope.account_record_search = [];
             $scope.passenger_record_search = [];
+            $scope.account_Name_hint = '';
         }
         $scope.Searchmulti = function() {
             var q = ($scope.searchtext || '').trim();
@@ -21613,6 +21637,8 @@ $(document).ready(function() {
             }
             var html = '';
             items.forEach(function(b) {
+                var safeId   = String(b.id).replace(/'/g,"&#39;");
+                var safeName = (b.name||'').replace(/'/g,"&#39;");
                 html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:7px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;">' +
                     '<div style="flex:1;">' +
                         '<div style="font-weight:700;font-size:13px;color:#1a5276;">' + (b.name||'—') + ' <span style="font-size:10px;font-weight:400;color:#888;margin-left:5px;">ID #' + b.id + '</span></div>' +
@@ -21623,6 +21649,9 @@ $(document).ready(function() {
                         '</div>' +
                         (b.address ? '<div style="font-size:11px;color:#888;margin-top:2px;"><i class="fa fa-map-marker" style="margin-right:4px;"></i>' + b.address + '</div>' : '') +
                         (b.notes ? '<div style="font-size:11px;color:#aaa;margin-top:2px;font-style:italic;">' + b.notes + '</div>' : '') +
+                    '</div>' +
+                    '<div style="margin-left:10px;display:flex;flex-direction:column;gap:5px;">' +
+                        '<button class="btn btn-default btn-xs" onclick="bwAccountInvoice(\'' + safeId + '\',\'' + safeName + '\')" style="white-space:nowrap;font-size:11px;"><i class="fa fa-file-text-o" style="margin-right:3px;color:#1a5276;"></i>Invoice</button>' +
                     '</div>' +
                 '</div>';
             });
@@ -21656,6 +21685,69 @@ $(document).ready(function() {
             } else {
                 toastr.error('Could not save account.', 'Error');
             }
+        });
+    }
+
+    function bwAccountInvoice(accountId, accountName) {
+        var param = [{ name: 'BookingStatus', value: 'all' }, { name: 'FromDate ', value: '' }, { name: 'ToDate', value: '' }, { name: 'VehicleId ', value: '' }, { name: 'DriverId', value: '' }];
+        Selector(param, 'ClosedJobs').then(function(result) {
+            var $res = JSON.parse(result.d);
+            var allJobs = $res['dt1'] || [];
+            var jobs = allJobs.filter(function(j) {
+                return String(j.Account_id || j.AccountId || '') === String(accountId);
+            });
+            if (jobs.length === 0) {
+                toastr.warning('No closed account jobs found for: ' + accountName, 'No Jobs');
+                return;
+            }
+            var doc = new jsPDF();
+            var pageW = doc.internal.pageSize.getWidth();
+            var now = new Date().toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
+            doc.setFontSize(16); doc.setTextColor(26, 82, 118);
+            doc.text('Account Invoice', pageW / 2, 18, { align: 'center' });
+            doc.setFontSize(10); doc.setTextColor(80, 80, 80);
+            doc.text('Account: ' + accountName + '  (ID: ' + accountId + ')', 14, 28);
+            doc.text('Generated: ' + now, 14, 34);
+            doc.setDrawColor(223, 186, 95); doc.setLineWidth(0.5); doc.line(14, 37, pageW - 14, 37);
+            var headers = ['#', 'Date', 'Pickup', 'Drop', 'Passenger', 'Driver', 'Status', 'Claim'];
+            var colW =    [10,   28,     50,       42,     30,          22,       18,        20];
+            var y = 44; var rowH = 7;
+            doc.setFillColor(26, 82, 118); doc.setTextColor(255,255,255); doc.setFontSize(8);
+            var x = 14;
+            headers.forEach(function(h, i) { doc.rect(x, y, colW[i], rowH, 'F'); doc.text(h, x + 1, y + 5); x += colW[i]; });
+            y += rowH;
+            doc.setTextColor(40, 40, 40);
+            jobs.forEach(function(j, idx) {
+                if (y > 270) { doc.addPage(); y = 14; }
+                var bg = idx % 2 === 0 ? [245, 247, 250] : [255, 255, 255];
+                doc.setFillColor(bg[0], bg[1], bg[2]);
+                x = 14;
+                var row = [
+                    String(j.Id || ''),
+                    (j.BookingDateTime || '').substring(0, 10),
+                    (j.PickAddress || '').substring(0, 22),
+                    (j.DropAddress || '').substring(0, 18),
+                    (j.Name || '').substring(0, 14),
+                    (j.drivername || j.UserFName || '').substring(0, 10),
+                    (j.BookingStatus || ''),
+                    (j.Acc_claim_id || '')
+                ];
+                colW.forEach(function(w, i) {
+                    doc.rect(x, y, w, rowH, 'F');
+                    doc.setFontSize(7);
+                    doc.text(String(row[i] || ''), x + 1, y + 5);
+                    x += w;
+                });
+                y += rowH;
+            });
+            y += 4;
+            doc.setDrawColor(223, 186, 95); doc.line(14, y, pageW - 14, y);
+            doc.setFontSize(9); doc.setTextColor(26, 82, 118);
+            doc.text('Total jobs: ' + jobs.length, 14, y + 6);
+            doc.save('Invoice_' + accountName.replace(/\s+/g,'_') + '_' + accountId + '.pdf');
+            toastr.success(jobs.length + ' jobs exported.', 'Invoice Generated');
+        }).catch(function() {
+            toastr.error('Could not load jobs.', 'Invoice Error');
         });
     }
 
@@ -21997,6 +22089,10 @@ $(document).ready(function() {
                             var _rawStatus = $res["dt1"][$i].BookingStatus || '';
                             var _displayStatus = (_rawStatus === 'Dispatched' || _rawStatus === 'Closed') ? 'Completed' : _rawStatus;
                             datas.push("<span>"+_displayStatus+"</span>");
+                            var _accId = $res["dt1"][$i].Account_id || $res["dt1"][$i].AccountId || '';
+                            var _claimId = $res["dt1"][$i].Acc_claim_id || '';
+                            var _accLabel = _accId ? ('<span style="color:#1a5276;font-weight:600;">Acct: ' + _accId + '</span>' + (_claimId ? '<br><span style="color:#888;font-size:10px;">Claim: ' + _claimId + '</span>' : '')) : (_claimId ? '<span style="color:#888;font-size:10px;">Claim: ' + _claimId + '</span>' : '<span style="color:#ccc;">—</span>');
+                            datas.push(_accLabel);
                             datasetx.push(datas);
                         }
           
@@ -22014,7 +22110,8 @@ $(document).ready(function() {
                                 { title: "Vehicle" },
                                 { title: "Driver" },
                                 { title: "Source" },
-                                { title: "Status" }
+                                { title: "Status" },
+                                { title: "Account" }
                             ],
                             dom: 'Bfrtip',
                             buttons: [
