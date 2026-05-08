@@ -16645,7 +16645,7 @@ $(document).ready(function() {
                 data: { data: [{ name: 'claim_number', value: q }], action: '[searchmulti]' }
             }).then(function(r) {
                 var $res = JSON.parse(r.data.d);
-                var bz = ($res['dt2'] || []).find(function(b) { return String(b.Id) === String(q); });
+                var bz = ($res['dt2'] || []).find(function(b) { return String(b.Id) === String(q) || (parseInt(b.Id,10) > 0 && parseInt(b.Id,10) === parseInt(q,10)); });
                 if (bz) {
                     $scope.account_Name_hint = bz.Name;
                     if (!$scope.account_Name) { $scope.account_Name = bz.Name; }
