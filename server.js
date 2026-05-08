@@ -4497,8 +4497,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
-                  await fbRequest(_pjUrl, 'PATCH', { BookingStatus: 'Offered', DriverId: String(incomingDriverId || ''), offeredAt: Date.now() });
-                  console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered`);
+                  await fbRequest(_pjUrl, 'PATCH', { Status: 'Offered', BookingStatus: 'Offered', DriverId: String(incomingDriverId || ''), offeredAt: Date.now() });
+                  console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (Status+BookingStatus)`);
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DP] pendingjobs patch failed:', _e && _e.message); }
             })();
@@ -6272,8 +6272,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
-                  await fbRequest(_pjUrl, 'PATCH', { BookingStatus: 'Offered', DriverId: String(incomingDriverId2 || ''), offeredAt: Date.now() });
-                  console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered`);
+                  await fbRequest(_pjUrl, 'PATCH', { Status: 'Offered', BookingStatus: 'Offered', DriverId: String(incomingDriverId2 || ''), offeredAt: Date.now() });
+                  console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (Status+BookingStatus)`);
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DS] pendingjobs patch failed:', _e && _e.message); }
             })();
