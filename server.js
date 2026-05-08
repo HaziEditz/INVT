@@ -5619,6 +5619,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: driverId }]);
 
+      } else if (action === 'Business_Account_GET') {
+        const baccAll = businessAccStore.filter(b=>b.companyId===sessionCompanyId && b.active!==false);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${baccAll.length} business accounts`);
+        arrayD(res, baccAll);
+
       } else {
         const filePath = resolveFilePath(urlPath);
         if (filePath) {
@@ -7515,7 +7520,14 @@ async function _syncBizAccountsFromFirebase() {
       if (!snap || typeof snap !== 'object') continue;
       Object.entries(snap).forEach(([key, val]) => {
         if (!val || val.active === false) return;
-        if (businessAccStore.find(b => b.id === key && b.companyId === cid)) return;
+        const _existing = businessAccStore.find(b => b.id === key && b.companyId === cid);
+        if (_existing) {
+          // Refresh fields that may have been added after the account was first persisted
+          if (val.accountCode)  _existing.accountCode  = val.accountCode;
+          if (val.paymentTerms) _existing.paymentTerms = val.paymentTerms;
+          if (val.name)         _existing.name         = val.name;
+          return;
+        }
         businessAccStore.push({
           id:           key,
           companyId:    cid,
