@@ -3880,6 +3880,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         if (job) {
           if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]') {
             job.BookingStatus = 'Assigned';
+            job.assignedAt = Date.now();
             job.DriverId = driverId;
             if (driverId > 0) job.VehicleId = driverId;
             const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId);
@@ -4760,6 +4761,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // This protects a dispatcher-assigned job when driver completes a Hail/street pickup.
           const _hasActiveBeforeAvailable = newStatus === 'Available' &&
             allDriverJobs.some(j => j.BookingStatus === 'Active');
+          // §FIX-STALE-AVAIL: pre-compute whether this driver recently completed another job (≤120 s).
+          // Used in the Available+Assigned recall branch to detect stale Available signals
+          // arriving after the driver accepted a new job (completing prior trip ≠ abandoning new one).
+          const _staleAvailNow = Date.now();
+          const _priorCompletedMs = newStatus === 'Available' ? (closedJobStore.find(function(cj) {
+            return String(cj.DriverId || cj.driverId || '') === String(driverId) &&
+                   cj.completedAtMs > 0 && (_staleAvailNow - cj.completedAtMs) < 120000;
+          }) || {}).completedAtMs || 0 : 0;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             // Guard: if job has no driver (orphaned) skip the Assigned transition so
@@ -4781,6 +4790,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
             if (newStatus === 'Assigned' && !TERM.has(job.BookingStatus) && !orphaned) {
               job.BookingStatus = 'Assigned';
+              job.assignedAt = Date.now();
               if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
@@ -4796,6 +4806,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              job.assignedAt = Date.now();
               if (!job.PickingAt) job.PickingAt = new Date().toISOString();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
@@ -4917,6 +4928,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     passengerName: job.Name || job.passengername || '',
                     driverId,
                   };
+                } else if (_priorCompletedMs > 0 && job.assignedAt && (_staleAvailNow - job.assignedAt) < 120000) {
+                  // §FIX-STALE-AVAIL: Available is from completing a prior job (not abandoning this one).
+                  // Driver completed job A, then accepted job B; the Available from finishing A
+                  // must not recall B. Both timestamps must be within 120 s of now.
+                  console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (${prev}) PROTECTED — stale Available (job assigned ${Math.round((_staleAvailNow - job.assignedAt) / 1000)}s ago, prior job completed ${Math.round((_staleAvailNow - _priorCompletedMs) / 1000)}s ago)`);
                 } else {
                   // Driver went Available while still Assigned/Picking (no other Active job)
                   // and no crash-reconnect flag set → treat as deliberate driver recall/cancel.
@@ -5780,6 +5796,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         } else {
           const _pqaDriverId = _pqaJob.DriverId;
           _pqaJob.BookingStatus = 'Assigned';
+          _pqaJob.assignedAt = Date.now();
           _pqaJob.queuedAt = null;
           saveJobStore();
           console.log(`[PromoteQueuedToAssigned] job #${_pqaBookingId} Queued → Assigned (driver ${_pqaDriverId})`);
@@ -6416,6 +6433,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Protect Assigned jobs when driver completes a simultaneous Active (Hail) job.
           const _hasActiveBeforeAvailableDS = newStatus === 'Available' &&
             allDriverJobs.some(j => j.BookingStatus === 'Active');
+          // §FIX-STALE-AVAIL: pre-compute whether this driver recently completed another job (≤120 s).
+          const _staleAvailNowDS = Date.now();
+          const _priorCompletedMsDS = newStatus === 'Available' ? (closedJobStore.find(function(cj) {
+            return String(cj.DriverId || cj.driverId || '') === String(driverId) &&
+                   cj.completedAtMs > 0 && (_staleAvailNowDS - cj.completedAtMs) < 120000;
+          }) || {}).completedAtMs || 0 : 0;
           // Helper: stamp driver name onto a job using param or ZONE_DRIVERS fallback
           function _stampDriverNameDS(j) {
             if (j.UserFName && String(j.UserFName).trim()) return;
@@ -6430,6 +6453,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const orphanedDS = !job.DriverId || String(job.DriverId) === '0';
             if (newStatus === 'Assigned' && !TERMINAL.has(job.BookingStatus) && !orphanedDS) {
               job.BookingStatus = 'Assigned';
+              job.assignedAt = Date.now();
               if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
@@ -6443,6 +6467,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Assigned';
+              job.assignedAt = Date.now();
               if (!job.PickingAt) job.PickingAt = new Date().toISOString();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
@@ -6528,6 +6553,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   const _zdReconDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
                   if (_zdReconDS) _zdReconDS.vehiclestatus = 'Picking';
                   console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (${prev}) PROTECTED — driver ${driverId} reconnected after crash (reconnect-pending flag consumed)`);
+                } else if (_priorCompletedMsDS > 0 && job.assignedAt && (_staleAvailNowDS - job.assignedAt) < 120000) {
+                  // §FIX-STALE-AVAIL: Available is from completing a prior job (not abandoning this one).
+                  // Driver completed job A, then accepted job B; the Available from finishing A
+                  // must not recall B. Both timestamps must be within 120 s of now.
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (${prev}) PROTECTED — stale Available (job assigned ${Math.round((_staleAvailNowDS - job.assignedAt) / 1000)}s ago, prior job completed ${Math.round((_staleAvailNowDS - _priorCompletedMsDS) / 1000)}s ago)`);
                 } else {
                   // Driver went Available while still Assigned/Picking (no other Active job).
                   // This happens when the driver recalls/cancels via the app (status flip, no joback).
