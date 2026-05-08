@@ -8591,6 +8591,22 @@ $(document).ready(function() {
                 notifRef.set(fullPayload)
                     .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', _fbUidNotif, '(sql:', driverId, ') job', bookingId); })
                     .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
+                // Overwrite jobs/{cid}/{vehicleId}/{driverId} with a fresh offer entry.
+                // This clears any stale completed/partial data the driver app left behind
+                // (e.g. offline-synced completions that have no BookingId field).
+                if (vehicleId && SomeSession2) {
+                    firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicleId + '/' + _fbUidNotif).set({
+                        BookingId:  String(bookingId),
+                        Status:     'Offered',
+                        VehicleId:  String(vehicleId),
+                        DriverId:   String(driverId),
+                        offeredAt:  Date.now()
+                    }).then(function() {
+                        console.log('[writeJobDetailsToFirebase] jobs/' + SomeSession2 + '/' + vehicleId + '/' + _fbUidNotif + ' → fresh Offered entry written (clears stale data)');
+                    }).catch(function(e) {
+                        console.warn('[writeJobDetailsToFirebase] jobs node write failed:', e.code || e.message || e);
+                    });
+                }
                 // Also mirror jobpickup/jobdropoff into online/{cid}/{vehicleId}/current so the
                 // driver app's offer screen can read them from its own node (it prefers current/ over notification/).
                 if (vehicleId && SomeSession2) {
@@ -9115,6 +9131,25 @@ $(document).ready(function() {
                 var _jobsListener = _jobsRef.on("value", function(jsnap) {
                     if (settled) { _jobsRef.off("value", _jobsListener); return; }
                     var jd = jsnap.val();
+                    // Detect offline-synced completion: driver completed job while offline,
+                    // then Firebase synced. No BookingId on node = stale pre-offer entry.
+                    // Auto-close the job in dispatch so it stops re-offering.
+                    var _jdStatus = (jd && (jd.Status || jd.jobstatus || jd.status || '')) || '';
+                    var _jdCompleted = /completed|done/i.test(_jdStatus);
+                    if (jd && _jdCompleted) {
+                        settled = true;
+                        _jobsRef.off("value", _jobsListener);
+                        refaz.off("value", listener);
+                        firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                        firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).remove();
+                        $('#Divo'+id).remove();
+                        toastr["success"]('Job ' + id + ' already completed by ' + driverid + ' (offline sync) — closing.', 'Completed!');
+                        console.log('[resolveAfter2Secondsx] jobs node shows Completed for job', id, '— auto-closing');
+                        convertstatus(id, 'Completed', driverid, 'Driver Completed (offline sync)');
+                        var _sc = angular.element(document.getElementById('myangular')).scope();
+                        if (_sc && typeof _sc.getjobs === 'function') _sc.getjobs();
+                        return;
+                    }
                     if (jd && String(jd.BookingId) === String(id) &&
                         (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) {
                         settled = true;
@@ -9378,7 +9413,10 @@ $(document).ready(function() {
                         return;
                     }
 
-                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
+                    // Remove the jobs/{cid}/{vehicleId}/{driverId} node entirely on Unreached
+                    // so stale/completed data from a previous driver session doesn't interfere
+                    // with subsequent offer cycles.
+                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).remove();
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     // §100 — also write Away to current/ so driver app overlay clears correctly.
                     // Also clear all job fields so driver app doesn't skip the NEXT offer screen

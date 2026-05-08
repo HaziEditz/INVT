@@ -7173,9 +7173,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
   console.log(`200: ${req.method} ${urlPath} -> ${filePath.replace(ROOT, '')}`);
   const ext = path.extname(filePath).toLowerCase();
+  // .aspx files embed all JavaScript inline — use no-store so browsers always fetch
+  // fresh code after a server restart rather than running stale cached JS.
+  const _cc = ext === '.aspx' ? 'no-store, must-revalidate' : 'no-cache';
   res.writeHead(200, {
     'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': _cc,
     'Access-Control-Allow-Origin': '*',
   });
   fs.createReadStream(filePath).pipe(res);
