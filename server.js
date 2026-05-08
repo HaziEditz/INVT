@@ -4488,6 +4488,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (_clearDrv) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
+          // Patch Firebase pendingjobs so driver app sees 'Offered' status.
+          // Without this, a stale 'Assigned' entry from a previous session causes
+          // the driver app to skip the offer screen (it thinks the job is already theirs).
+          if (newStatus === 'Offered' && sessionCompanyId) {
+            (async () => {
+              try {
+                const _tok = await getFirebaseServerToken();
+                if (_tok) {
+                  const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
+                  await fbRequest(_pjUrl, 'PATCH', { BookingStatus: 'Offered', DriverId: String(incomingDriverId || ''), offeredAt: Date.now() });
+                  console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered`);
+                }
+              } catch(_e) { console.warn('  [changeriddestatusforoffer/DP] pendingjobs patch failed:', _e && _e.message); }
+            })();
+          }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _newQueueNo });
@@ -6248,6 +6263,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (_clearDrv2) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
+          // Patch Firebase pendingjobs so driver app sees 'Offered' status.
+          // Without this, a stale 'Assigned' entry from a previous session causes
+          // the driver app to skip the offer screen (it thinks the job is already theirs).
+          if (newStatus === 'Offered' && sessionCompanyId) {
+            (async () => {
+              try {
+                const _tok = await getFirebaseServerToken();
+                if (_tok) {
+                  const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
+                  await fbRequest(_pjUrl, 'PATCH', { BookingStatus: 'Offered', DriverId: String(incomingDriverId2 || ''), offeredAt: Date.now() });
+                  console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered`);
+                }
+              } catch(_e) { console.warn('  [changeriddestatusforoffer/DS] pendingjobs patch failed:', _e && _e.message); }
+            })();
+          }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _newQueueNo2 });
