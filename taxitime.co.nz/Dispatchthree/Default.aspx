@@ -16611,7 +16611,7 @@ $(document).ready(function() {
                     $scope.bwBizAccounts = Array.isArray(res) ? res : (res['dt1'] || []);
                     if (!$scope.$$phase) $scope.$digest();
                 } catch(e) { $scope.bwBizAccounts = []; }
-            }).catch(function() { $scope.bwBizAccounts = []; });
+            }, function() { $scope.bwBizAccounts = []; });
         };
         $scope.bwLoadBizAccounts();
         $scope.bwPickBizAcc = function(selId) {
