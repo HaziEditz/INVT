@@ -9463,6 +9463,26 @@ $(document).ready(function() {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                             firebase.database().ref().child("/notification/" + _fbd).remove();
+                            (function(_drvid, _bid) {
+                                var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                                if (_sc2 && _sc2.driverdatarealx) {
+                                    for (var _i2 = 0; _i2 < _sc2.driverdatarealx.length; _i2++) {
+                                        var _d2 = _sc2.driverdatarealx[_i2];
+                                        if (String(_d2.driverid) === String(_drvid)) {
+                                            var _veh2 = _d2.VehicleId || _d2.vehiclenumber || _drvid;
+                                            firebase.database().ref("jobs/" + SomeSession2 + "/" + _veh2 + "/" + _drvid).update({ vehiclestatus: 'Away' });
+                                            firebase.database().ref("online/" + SomeSession2 + "/" + _veh2).update({ vehiclestatus: 'Away' });
+                                            firebase.database().ref("online/" + SomeSession2 + "/" + _veh2 + "/current").update({ vehiclestatus: 'Away' });
+                                            _d2.vehiclestatus = 'Away';
+                                            _sc2.driverlist = _sc2.driverdatarealx;
+                                            if (typeof _sc2.zonetablez === 'function') _sc2.zonetablez();
+                                            if (!_sc2.$$phase) _sc2.$digest();
+                                            break;
+                                        }
+                                    }
+                                }
+                                FnNotifyDriverAway(_drvid, 'reject', _bid);
+                            })(driverid, id);
                             refaz.off("value", listener);
                             $('#Divo'+bookid).remove();
                             _immediateJobPending(id);
@@ -9496,6 +9516,26 @@ $(document).ready(function() {
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                     firebase.database().ref().child("/notification/" + _fbd).remove();
+                                    (function(_drvid, _bid) {
+                                        var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                                        if (_sc2 && _sc2.driverdatarealx) {
+                                            for (var _i2 = 0; _i2 < _sc2.driverdatarealx.length; _i2++) {
+                                                var _d2 = _sc2.driverdatarealx[_i2];
+                                                if (String(_d2.driverid) === String(_drvid)) {
+                                                    var _veh2 = _d2.VehicleId || _d2.vehiclenumber || _drvid;
+                                                    firebase.database().ref("jobs/" + SomeSession2 + "/" + _veh2 + "/" + _drvid).update({ vehiclestatus: 'Away' });
+                                                    firebase.database().ref("online/" + SomeSession2 + "/" + _veh2).update({ vehiclestatus: 'Away' });
+                                                    firebase.database().ref("online/" + SomeSession2 + "/" + _veh2 + "/current").update({ vehiclestatus: 'Away' });
+                                                    _d2.vehiclestatus = 'Away';
+                                                    _sc2.driverlist = _sc2.driverdatarealx;
+                                                    if (typeof _sc2.zonetablez === 'function') _sc2.zonetablez();
+                                                    if (!_sc2.$$phase) _sc2.$digest();
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        FnNotifyDriverAway(_drvid, 'reject', _bid);
+                                    })(driverid, id);
                                     refaz.off("value", listener);
                                     $('#Divo'+bookid).remove();
                                     _immediateJobPending(id);
@@ -9537,9 +9577,29 @@ $(document).ready(function() {
                                 settled2 = true;
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                 firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
+                                firebase.database().ref().child("/notification/" + _fbd).remove();
+                                (function(_drvid, _bid) {
+                                    var _sc2 = angular.element(document.getElementById('myangular')).scope();
+                                    if (_sc2 && _sc2.driverdatarealx) {
+                                        for (var _i2 = 0; _i2 < _sc2.driverdatarealx.length; _i2++) {
+                                            var _d2 = _sc2.driverdatarealx[_i2];
+                                            if (String(_d2.driverid) === String(_drvid)) {
+                                                var _veh2 = _d2.VehicleId || _d2.vehiclenumber || _drvid;
+                                                firebase.database().ref("jobs/" + SomeSession2 + "/" + _veh2 + "/" + _drvid).update({ vehiclestatus: 'Away' });
+                                                firebase.database().ref("online/" + SomeSession2 + "/" + _veh2).update({ vehiclestatus: 'Away' });
+                                                firebase.database().ref("online/" + SomeSession2 + "/" + _veh2 + "/current").update({ vehiclestatus: 'Away' });
+                                                _d2.vehiclestatus = 'Away';
+                                                _sc2.driverlist = _sc2.driverdatarealx;
+                                                if (typeof _sc2.zonetablez === 'function') _sc2.zonetablez();
+                                                if (!_sc2.$$phase) _sc2.$digest();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    FnNotifyDriverAway(_drvid, 'reject', _bid);
+                                })(driverid, id);
                                 refaz.off("value", listener);
                                 $('#Divo'+bookid).remove();
-                                firebase.database().ref().child("/notification/" + _fbd).remove();
                                 _immediateJobPending(id);
                                 convertstatus(id, 'Pending', driverid, 'Driver Rejected');
                                 angular.element(document.getElementById('myangular')).scope().getjobs( );
@@ -9680,10 +9740,8 @@ $(document).ready(function() {
         var _wbRef    = firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv);
         var _wbJobRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicle + '/' + _wbDrv);
         var _wbDone   = false;
-        var _wbTimer  = null; // 5-minute safety timeout
 
         function _wbCleanup() {
-            if (_wbTimer) { clearTimeout(_wbTimer); _wbTimer = null; }
             _wbRef.off('value', _wbListener);
             _wbJobRef.off('value', _wbJobsListener);
             firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv).remove();
@@ -9731,7 +9789,6 @@ $(document).ready(function() {
         window._busyWatcherCleanupMap[_wbBook] = function _wbExternalCancel() {
             if (_wbDone) return;
             _wbDone = true;
-            if (_wbTimer) { clearTimeout(_wbTimer); _wbTimer = null; }
             _wbRef.off('value', _wbListener);
             _wbJobRef.off('value', _wbJobsListener);
             // Note: intentionally NOT calling joback.remove() here so acknowledgemethodx
@@ -9744,29 +9801,7 @@ $(document).ready(function() {
         if (!window._activeBusyWatcherJobs) window._activeBusyWatcherJobs = {};
         window._activeBusyWatcherJobs[_wbBook] = _wbDrv;
 
-        // Safety timeout: after 15s check whether any Available driver exists.
-        // • If yes  → release locks so smartAutoDispatch re-offers to that driver.
-        // • If no   → keep the offer alive for this busy driver and re-check in 15s,
-        //             so the busy driver still sees the pending job in their Offer tab.
-        function _wbCheckAndRetry() {
-            if (_wbDone) return;
-            var hasAvailable = !!(window._driverDataRealx && window._driverDataRealx.some(function(d) {
-                return d.vehiclestatus === 'Available' &&
-                       !window._driverQueueMap[String(d.driverid)];
-            }));
-            if (hasAvailable) {
-                console.warn('[_watchBusyDriverAcceptance] 15s — available driver found, releasing job #' +
-                    bookid + ' from driver ' + driverid);
-                _wbReject();
-            } else {
-                console.log('[_watchBusyDriverAcceptance] 15s — no available drivers, keeping offer for driver ' +
-                    driverid + ' on job #' + bookid + ', retrying in 15s');
-                _wbTimer = setTimeout(_wbCheckAndRetry, 15 * 1000);
-            }
-        }
-        _wbTimer = setTimeout(_wbCheckAndRetry, 15 * 1000);
-
-        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (15s retry loop, releases only when Available driver exists)');
+        console.log('[_watchBusyDriverAcceptance] watching job #' + bookid + ' for driver ' + driverid + ' (no timer — job stays visible until driver accepts, rejects, or auto-dispatch finds an Available driver)');
     }
 
     async function acknowledgemethodx(vehicle , driverid,bookid,status){
