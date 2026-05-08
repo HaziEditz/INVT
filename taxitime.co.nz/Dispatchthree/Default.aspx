@@ -5891,7 +5891,7 @@ $(document).ready(function() {
                 // entry to 'Pending' → child_changed fires → Waiting/Pending branch runs
                 // → dispatcher sees the actionable notification + job appears in Unassigned.
                 var scheduledMs = parseInt(b.ScheduledFor || b.scheduledFor || 0);
-                var timeStr = scheduledMs ? new Date(scheduledMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+                var timeStr = scheduledMs ? new Date(scheduledMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', hour12: false }) : '';
                 _pjAlert((_isWebBk ? '🌐' : '📅') + ' Scheduled booking from ' + _bkSender + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
                 b.ScheduledFor = scheduledMs || null;
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
@@ -6017,7 +6017,7 @@ $(document).ready(function() {
             var _towVeh    = t.vehicleNo    || t.vehicleName || t.vehicleId || '';
             var _towLoc    = t.location     || t.address     || t.pickupAddress || '';
             var _towNote   = t.notes        || t.reason      || '';
-            var _towTime   = t.createdAt    ? new Date(t.createdAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+            var _towTime   = t.createdAt    ? new Date(t.createdAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', hour12: false }) : '';
             var _towMsg    = '🚨 Tow alert from ' + _towName
                            + (_towVeh  ? ' (vehicle ' + _towVeh + ')'  : '')
                            + (_towLoc  ? ' — ' + _towLoc               : '')
@@ -19017,7 +19017,7 @@ $(document).ready(function() {
                 return d.toLocaleString('en-NZ', {
                     timeZone: 'Pacific/Auckland',
                     day: '2-digit', month: 'short', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit', hour12: true
+                    hour: '2-digit', minute: '2-digit', hour12: false
                 });
             };
 
