@@ -4521,9 +4521,42 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   if (_pjDropLL) _pjPatch.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
                   await fbRequest(_pjUrl, 'PATCH', _pjPatch);
                   console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
+                  // Also write jobpickup/jobdropoff to online/{cid}/{vehicleId}/current so
+                  // the driver app can display them in the offer screen.
+                  const _pjVeh = (job.VehicleNo || job.CallSign || '').toString().trim();
+                  if (_pjVeh) {
+                    const _ocUrl = `${FB_DB_URL}/online/${sessionCompanyId}/${_pjVeh}/current.json?auth=${encodeURIComponent(_tok)}`;
+                    await fbRequest(_ocUrl, 'PATCH', {
+                      joboffer:   bookingId,
+                      jobpickup:  job.PickAddress  || '',
+                      jobdropoff: job.DropAddress  || '',
+                      JobphoneNo: job.PhoneNo       || '',
+                      jobname:    job.Name          || job.UserFName || '',
+                      currentJobId: String(bookingId),
+                      jobId:        String(bookingId)
+                    });
+                    console.log(`  [changeriddestatusforoffer/DP] online/${sessionCompanyId}/${_pjVeh}/current → jobpickup/dropoff written`);
+                  }
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DP] pendingjobs patch failed:', _e && _e.message); }
             })();
+          }
+          // When Unreached: clear job fields from online/{cid}/{vehicleId}/current so the
+          // driver app doesn't think the job is still assigned and skips future offer screens.
+          if (newStatus === 'Unreached' && sessionCompanyId) {
+            const _unrVeh = (job.VehicleNo || job.CallSign || '').toString().trim();
+            if (_unrVeh) {
+              (async () => {
+                try {
+                  const _tok2 = await getFirebaseServerToken();
+                  if (_tok2) {
+                    const _ocUrl2 = `${FB_DB_URL}/online/${sessionCompanyId}/${_unrVeh}/current.json?auth=${encodeURIComponent(_tok2)}`;
+                    await fbRequest(_ocUrl2, 'PATCH', { currentJobId: null, jobId: null, joboffer: 0, jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '' });
+                    console.log(`  [changeriddestatusforoffer/DP] online/${sessionCompanyId}/${_unrVeh}/current cleared (Unreached)`);
+                  }
+                } catch(_e2) { console.warn('  [changeriddestatusforoffer/DP] online/current clear failed:', _e2 && _e2.message); }
+              })();
+            }
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
@@ -6318,9 +6351,38 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   if (_pjDropLL2) _pjPatch2.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL2.lat, lng: _pjDropLL2.lng };
                   await fbRequest(_pjUrl, 'PATCH', _pjPatch2);
                   console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
+                  const _pjVeh2 = (job.VehicleNo || job.CallSign || '').toString().trim();
+                  if (_pjVeh2) {
+                    const _ocUrl3 = `${FB_DB_URL}/online/${sessionCompanyId}/${_pjVeh2}/current.json?auth=${encodeURIComponent(_tok)}`;
+                    await fbRequest(_ocUrl3, 'PATCH', {
+                      joboffer:   bookingId,
+                      jobpickup:  job.PickAddress  || '',
+                      jobdropoff: job.DropAddress  || '',
+                      JobphoneNo: job.PhoneNo       || '',
+                      jobname:    job.Name          || job.UserFName || '',
+                      currentJobId: String(bookingId),
+                      jobId:        String(bookingId)
+                    });
+                    console.log(`  [changeriddestatusforoffer/DS] online/${sessionCompanyId}/${_pjVeh2}/current → jobpickup/dropoff written`);
+                  }
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DS] pendingjobs patch failed:', _e && _e.message); }
             })();
+          }
+          if (newStatus === 'Unreached' && sessionCompanyId) {
+            const _unrVeh2 = (job.VehicleNo || job.CallSign || '').toString().trim();
+            if (_unrVeh2) {
+              (async () => {
+                try {
+                  const _tok3 = await getFirebaseServerToken();
+                  if (_tok3) {
+                    const _ocUrl4 = `${FB_DB_URL}/online/${sessionCompanyId}/${_unrVeh2}/current.json?auth=${encodeURIComponent(_tok3)}`;
+                    await fbRequest(_ocUrl4, 'PATCH', { currentJobId: null, jobId: null, joboffer: 0, jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '' });
+                    console.log(`  [changeriddestatusforoffer/DS] online/${sessionCompanyId}/${_unrVeh2}/current cleared (Unreached)`);
+                  }
+                } catch(_e3) { console.warn('  [changeriddestatusforoffer/DS] online/current clear failed:', _e3 && _e3.message); }
+              })();
+            }
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);

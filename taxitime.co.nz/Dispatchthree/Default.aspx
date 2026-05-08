@@ -8591,6 +8591,23 @@ $(document).ready(function() {
                 notifRef.set(fullPayload)
                     .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', _fbUidNotif, '(sql:', driverId, ') job', bookingId); })
                     .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
+                // Also mirror jobpickup/jobdropoff into online/{cid}/{vehicleId}/current so the
+                // driver app's offer screen can read them from its own node (it prefers current/ over notification/).
+                if (vehicleId && SomeSession2) {
+                    firebase.database().ref('online/' + SomeSession2 + '/' + vehicleId + '/current').update({
+                        joboffer:    bookingId,
+                        jobpickup:   fullPayload.jobpickup  || '',
+                        jobdropoff:  fullPayload.jobdropoff || '',
+                        JobphoneNo:  fullPayload.JobphoneNo || '',
+                        jobname:     fullPayload.jobname    || '',
+                        currentJobId: String(bookingId),
+                        jobId:        String(bookingId)
+                    }).then(function() {
+                        console.log('[writeJobDetailsToFirebase] online/' + SomeSession2 + '/' + vehicleId + '/current → jobpickup/dropoff written');
+                    }).catch(function(e) {
+                        console.warn('[writeJobDetailsToFirebase] online/current write failed:', e.code || e.message || e);
+                    });
+                }
             }
 
             _jobsNodeRef.once('value').then(function(jsnap) {
@@ -9363,8 +9380,19 @@ $(document).ready(function() {
 
                     firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
-                    // §100 — also write Away to current/ so driver app overlay clears correctly
-                    firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
+                    // §100 — also write Away to current/ so driver app overlay clears correctly.
+                    // Also clear all job fields so driver app doesn't skip the NEXT offer screen
+                    // because it thinks the same jobId is still assigned.
+                    firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({
+                        vehiclestatus: 'Away',
+                        currentJobId:  null,
+                        jobId:         null,
+                        joboffer:      0,
+                        jobpickup:     '',
+                        jobdropoff:    '',
+                        JobphoneNo:    '',
+                        jobname:       ''
+                    });
                     FnNotifyDriverAway(driverid, 'timeout', id);
                     // Immediately update driver color in the dispatch list — don't wait for Firebase propagation.
                     if (_fbsc && _fbsc.driverdatarealx) {
