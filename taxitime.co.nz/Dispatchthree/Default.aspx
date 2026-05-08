@@ -5872,6 +5872,13 @@ $(document).ready(function() {
             if (!b || typeof b !== 'object') return;
             var status = (b.Status || b.status || '').toString();
             var fbKey  = SomeSession2 + ':' + k;
+            // §104 — booking websites sometimes send Status='Waiting' for all bookings.
+            // Auto-remap to 'Scheduled' if ScheduledFor is >30 min in the future.
+            var _autoSf = parseInt(b.ScheduledFor || b.scheduledFor || b.ScheduledForMs || b.scheduledForMs || 0);
+            if ((status === 'Waiting' || status === 'Pending') && _autoSf && _autoSf > Date.now() + 30 * 60 * 1000) {
+                status = 'Scheduled';
+                b.Status = 'Scheduled';
+            }
 
             if (status === 'Cancelled') {
                 var sc = angular.element(document.getElementById('myangular')).scope();
@@ -5918,6 +5925,12 @@ $(document).ready(function() {
                 // so child_changed fires and the dispatcher gets the actionable alert.
                 var _notifyAtStr = b.NotifyDispatchAt || b.notifyDispatchAt || '';
                 var _notifyAtMs  = _notifyAtStr ? new Date(_notifyAtStr).getTime() : 0;
+                // §104 — if NotifyDispatchAt is absent, default to 15 min before pickup
+                // so the promotion timer always fires automatically.
+                if (!_notifyAtMs && scheduledMs && scheduledMs > Date.now()) {
+                    _notifyAtMs  = scheduledMs - 15 * 60 * 1000;
+                    _notifyAtStr = new Date(_notifyAtMs).toISOString();
+                }
                 var _notifyDelay = _notifyAtMs ? (_notifyAtMs - Date.now()) : 0;
                 if (_notifyAtMs && _notifyDelay > 0) {
                     if (window._bwSchedTimers[k]) clearTimeout(window._bwSchedTimers[k]);

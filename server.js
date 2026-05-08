@@ -6696,8 +6696,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               serviceType: _sn.serviceType, bookingType: _sn.bookingType,
               paymentStatus: _sn.paymentStatus || '',
               DriverId: 0, VehicleId: 0, DispatchTimebefore: _dtb,
-              NotifyDispatchAt: _ipjJob.NotifyDispatchAt || _ipjJob.notifyDispatchAt || null,
-              NotifyDispatchBeforeMinutes: parseInt(_ipjJob.NotifyDispatchBeforeMinutes || _ipjJob.notifyDispatchBeforeMinutes || '15') || 15,
+              NotifyDispatchAt: (function() {
+                const _na = _ipjJob.NotifyDispatchAt || _ipjJob.notifyDispatchAt || '';
+                if (_na) return _na;
+                if (_sMs) return new Date(_sMs - (_estMins || 15) * 60000).toISOString();
+                return null;
+              })(),
+              NotifyDispatchBeforeMinutes: parseInt(_ipjJob.NotifyDispatchBeforeMinutes || _ipjJob.notifyDispatchBeforeMinutes || '0') || _estMins || 15,
             });
             saveJobStore();
             console.log(`[passenger] Scheduled job ${_ipjFbKey} stored as Scheduled (svc=${_sn.serviceType}) — ${_sn.name} from ${_sn.pickAddress}`);
@@ -6728,9 +6733,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // Use the passenger app's own BookingId as our internal Id to avoid
             // collisions with the external ASP.NET system's sequential job IDs.
             const _wId = parseInt(_ipjJobId, 10) || newCompanyJobId(_wCid);
+            // §104 — if ScheduledFor is >30 min in the future, treat as a pre-booked
+            // Scheduled job even when the website sends Status='Waiting' for all bookings.
+            const _wSf = _wn.scheduledFor || 0;
+            const _wTreatSched = _wSf > Date.now() + 30 * 60 * 1000;
+            const _wPickParts  = (_wn.pickLatLng || '0,0').split(',');
+            const _wPickLat    = parseFloat(_wPickParts[0]) || 0;
+            const _wPickLng    = parseFloat(_wPickParts[1]) || 0;
+            const _wEstMins    = _wTreatSched ? _estimateDispatchLeadMins(_wCid, _wPickLat, _wPickLng) : 0;
+            const _wNotifyAt   = _wTreatSched
+              ? (_ipjJob.NotifyDispatchAt || _ipjJob.notifyDispatchAt
+                  || new Date(_wSf - (_wEstMins || 15) * 60000).toISOString())
+              : null;
+            const _wBdt = _wSf ? new Date(_wSf).toISOString() : (_wn.createdAt || new Date().toISOString());
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
-              BookingStatus: 'Pending', BookingSource: _isWebBkW ? 'Website' : 'passenger',
+              BookingStatus: _wTreatSched ? 'Scheduled' : 'Pending',
+              BookingSource: _isWebBkW ? 'Website' : 'passenger',
               Name:          _wn.name,
               PhoneNo:       _wn.phone,
               PickAddress:   _wn.pickAddress,
@@ -6740,14 +6759,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               VehicleType:   _wn.vehicleType,
               PaymentMethod: _wn.paymentMethod,
               EstimatedFare: _wn.estimatedFare,
-              BookingDateTime: _wn.createdAt || new Date().toISOString(),
+              BookingDateTime: _wBdt,
+              ..._wSf ? { ScheduledFor: _wSf } : {},
+              ..._wNotifyAt ? { NotifyDispatchAt: _wNotifyAt, NotifyDispatchBeforeMinutes: _wEstMins || 15 } : {},
               Notes: _wn.notes, Passengers: _wn.passengers,
               serviceType: _wn.serviceType, bookingType: _wn.bookingType,
               paymentStatus: _wn.paymentStatus || '',
-              DriverId: 0, VehicleId: 0, DispatchTimebefore: '0',
+              DriverId: 0, VehicleId: 0, DispatchTimebefore: _wTreatSched ? String(_wEstMins) : '0',
             });
             saveJobStore();
-            console.log(`[passenger] Waiting job ${_ipjFbKey} ingested (svc=${_wn.serviceType}) — ${_wn.name} from ${_wn.pickAddress}`);
+            console.log(`[passenger] ${_wTreatSched ? 'Scheduled' : 'Waiting'} job ${_ipjFbKey} ingested (svc=${_wn.serviceType}) — ${_wn.name} from ${_wn.pickAddress}${_wTreatSched ? ' [auto-promoted to Scheduled, notifyAt=' + _wNotifyAt + ']' : ''}`);
           }
           objectD(res, { ok: true, action: 'pending' });
 
