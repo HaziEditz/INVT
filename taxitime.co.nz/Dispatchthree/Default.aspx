@@ -10033,16 +10033,20 @@ $(document).ready(function() {
             }
             if (_notifJobM) {
                 writeJobDetailsToFirebase(driverid, driverid, bookid, {
-                    pickup:      _notifJobM.PickAddress    || _notifJobM.PickLocation    || '',
-                    dropoff:     _notifJobM.DropAddress    || _notifJobM.DropLocation    || '',
-                    phone:       _notifJobM.PhoneNo        || _notifJobM.PassengerId     || '',
-                    name:        _notifJobM.Name           || _notifJobM.UserFName       || '',
-                    bags:        _notifJobM.Bags           || _notifJobM.BagsNo          || 0,
-                    passengers:  _notifJobM.Passengers     || _notifJobM.PassengersNo    || 1,
-                    vehicleType: _notifJobM.VehicleType    || '',
-                    rideinfo:    _notifJobM.EntitiesDetails|| '',
-                    status:      'Offered',
-                    source:      'Dispatcher'
+                    pickup:        _notifJobM.PickAddress    || _notifJobM.PickLocation    || '',
+                    dropoff:       _notifJobM.DropAddress    || _notifJobM.DropLocation    || '',
+                    phone:         _notifJobM.PhoneNo        || _notifJobM.PassengerId     || '',
+                    name:          _notifJobM.Name           || _notifJobM.UserFName       || '',
+                    bags:          _notifJobM.Bags           || _notifJobM.BagsNo          || 0,
+                    passengers:    _notifJobM.Passengers     || _notifJobM.PassengersNo    || 1,
+                    vehicleType:   _notifJobM.VehicleType    || '',
+                    rideinfo:      _notifJobM.EntitiesDetails|| '',
+                    status:        'Offered',
+                    source:        'Dispatcher',
+                    fare:          _notifJobM.EstimatedFare  || _notifJobM.RideCost || _notifJobM.CustomeRate || _notifJobM.Fare || 0,
+                    paymentMethod: _notifJobM.PaymentMethod  || _notifJobM.paymentMethod  || '',
+                    paymentType:   _notifJobM.PaymentType    || _notifJobM.paymentType    || '',
+                    paymentStatus: _notifJobM.paymentStatus  || _notifJobM.PaymentStatus  || ''
                 });
             }
         } catch(_notifErrM) { console.warn('[acknowledgemethod] notification write error:', _notifErrM && (_notifErrM.code || _notifErrM.message) ? (_notifErrM.code + ': ' + _notifErrM.message) : _notifErrM); }
@@ -13237,17 +13241,21 @@ $(document).ready(function() {
                     var _u   = (_uid && _uid !== '' && _uid !== 'null') ? _uid : '';
                     function _doWrite(job) {
                         writeJobDetailsToFirebase(_vid, _vid, _bid, {
-                            pickup:      job.PickAddress    || job.PickLocation    || '',
-                            dropoff:     job.DropAddress    || job.DropLocation    || '',
-                            phone:       job.PhoneNo        || job.PassengerId     || '',
-                            name:        job.Name           || job.UserFName       || '',
-                            bags:        job.Bags           || job.BagsNo          || 0,
-                            passengers:  job.Passengers     || job.PassengersNo    || 1,
-                            vehicleType: job.VehicleType    || '',
-                            rideinfo:    job.EntitiesDetails|| '',
-                            status:      'Offered',
-                            source:      _src,
-                            u_id:        _u
+                            pickup:        job.PickAddress    || job.PickLocation    || '',
+                            dropoff:       job.DropAddress    || job.DropLocation    || '',
+                            phone:         job.PhoneNo        || job.PassengerId     || '',
+                            name:          job.Name           || job.UserFName       || '',
+                            bags:          job.Bags           || job.BagsNo          || 0,
+                            passengers:    job.Passengers     || job.PassengersNo    || 1,
+                            vehicleType:   job.VehicleType    || '',
+                            rideinfo:      job.EntitiesDetails|| '',
+                            status:        'Offered',
+                            source:        _src,
+                            u_id:          _u,
+                            fare:          job.EstimatedFare  || job.RideCost || job.CustomeRate || job.Fare || 0,
+                            paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
+                            paymentType:   job.PaymentType    || job.paymentType    || '',
+                            paymentStatus: job.paymentStatus  || job.PaymentStatus  || ''
                         });
                     }
                     if (_j) {
@@ -13495,14 +13503,18 @@ $(document).ready(function() {
             ];
             // Snapshot before async call — clearsection() runs synchronously before .then()
             var _usnap = {
-                pickup:      $('#pac-input').val(),
-                dropoff:     $('#pac-inputx').val(),
-                phone:       $scope.account_PhoneNo  || '',
-                name:        $scope.account_Name     || '',
-                bags:        $scope.selectedbeg      || 0,
-                passengers:  $scope.selectedcustomer || 1,
-                vehicleType: $("#VehicleType option:selected").text() || '',
-                rideinfo:    $scope.rideinfo         || ''
+                pickup:        $('#pac-input').val(),
+                dropoff:       $('#pac-inputx').val(),
+                phone:         $scope.account_PhoneNo  || '',
+                name:          $scope.account_Name     || '',
+                bags:          $scope.selectedbeg      || 0,
+                passengers:    $scope.selectedcustomer || 1,
+                vehicleType:   $("#VehicleType option:selected").text() || '',
+                rideinfo:      $scope.rideinfo         || '',
+                fare:          parseFloat($scope.AmmountAddedvaluesend) || 0,
+                paymentMethod: $scope.paymentobtrue ? 'card' : 'cash',
+                paymentType:   $scope.paymentobtrue ? 'card' : 'cash',
+                paymentStatus: $scope.paymentobtrue ? 'paid' : ''
             };
             var proc = "[ProcUpdateJobv6]";
             $http({
@@ -13559,16 +13571,20 @@ $(document).ready(function() {
                             $("#Divo" + BookingIz + "").remove();
                         }else if( DriveId != "0"  && DriveId != "-1" && DriveId != previousdriverid ){
                             writeJobDetailsToFirebase(DriveId, $("#ddlVehicleType").val(), BookingIz, {
-                                pickup:      _usnap.pickup,
-                                dropoff:     _usnap.dropoff,
-                                phone:       _usnap.phone,
-                                name:        _usnap.name,
-                                bags:        _usnap.bags,
-                                passengers:  _usnap.passengers,
-                                vehicleType: _usnap.vehicleType,
-                                rideinfo:    _usnap.rideinfo,
-                                status:      'Offered',
-                                source:      'Dispatcher'
+                                pickup:        _usnap.pickup,
+                                dropoff:       _usnap.dropoff,
+                                phone:         _usnap.phone,
+                                name:          _usnap.name,
+                                bags:          _usnap.bags,
+                                passengers:    _usnap.passengers,
+                                vehicleType:   _usnap.vehicleType,
+                                rideinfo:      _usnap.rideinfo,
+                                status:        'Offered',
+                                source:        'Dispatcher',
+                                fare:          _usnap.fare,
+                                paymentMethod: _usnap.paymentMethod,
+                                paymentType:   _usnap.paymentType,
+                                paymentStatus: _usnap.paymentStatus
                             });
                             FnCancelRide(previousdriverid,  BookingIz ); 
 
@@ -13922,14 +13938,18 @@ $(document).ready(function() {
                 // ── Snapshot BEFORE async call — clearsection() runs synchronously
                 //    before any .then() fires, so DOM reads inside callbacks get ''
                 var _snap = {
-                    pickup:      $('#pac-input').val(),
-                    dropoff:     $('#pac-inputx').val(),
-                    phone:       $scope.account_PhoneNo  || '',
-                    name:        $scope.account_Name     || '',
-                    bags:        $scope.selectedbeg      || 0,
-                    passengers:  $scope.selectedcustomer || 1,
-                    vehicleType: $("#VehicleType option:selected").text() || '',
-                    rideinfo:    $scope.rideinfo         || ''
+                    pickup:        $('#pac-input').val(),
+                    dropoff:       $('#pac-inputx').val(),
+                    phone:         $scope.account_PhoneNo  || '',
+                    name:          $scope.account_Name     || '',
+                    bags:          $scope.selectedbeg      || 0,
+                    passengers:    $scope.selectedcustomer || 1,
+                    vehicleType:   $("#VehicleType option:selected").text() || '',
+                    rideinfo:      $scope.rideinfo         || '',
+                    fare:          parseFloat($scope.AmmountAddedvaluesend) || 0,
+                    paymentMethod: $scope.paymentobtrue ? 'card' : 'cash',
+                    paymentType:   $scope.paymentobtrue ? 'card' : 'cash',
+                    paymentStatus: $scope.paymentobtrue ? 'paid' : ''
                 };
                 console.log(param);
                 if($scope.showdays){
@@ -14157,16 +14177,20 @@ $(document).ready(function() {
                                             console.log($res[0].BookingStatus)
 
                                             writeJobDetailsToFirebase(driverset, extra, $res[0].BookingId, {
-                                                pickup:      _snap.pickup,
-                                                dropoff:     _snap.dropoff,
-                                                phone:       _snap.phone,
-                                                name:        _snap.name,
-                                                bags:        _snap.bags,
-                                                passengers:  _snap.passengers,
-                                                vehicleType: _snap.vehicleType,
-                                                rideinfo:    _snap.rideinfo,
-                                                status:      $res[0].BookingStatus,
-                                                source:      'Dispatcher'
+                                                pickup:        _snap.pickup,
+                                                dropoff:       _snap.dropoff,
+                                                phone:         _snap.phone,
+                                                name:          _snap.name,
+                                                bags:          _snap.bags,
+                                                passengers:    _snap.passengers,
+                                                vehicleType:   _snap.vehicleType,
+                                                rideinfo:      _snap.rideinfo,
+                                                status:        $res[0].BookingStatus,
+                                                source:        'Dispatcher',
+                                                fare:          _snap.fare,
+                                                paymentMethod: _snap.paymentMethod,
+                                                paymentType:   _snap.paymentType,
+                                                paymentStatus: _snap.paymentStatus
                                             });
                                      
                                             acknowledgemethodx(extra, driverset, $res[0].BookingId,"Offered");  
