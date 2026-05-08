@@ -4497,8 +4497,30 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
-                  await fbRequest(_pjUrl, 'PATCH', { Status: 'Offered', BookingStatus: 'Offered', DriverId: String(incomingDriverId || ''), offeredAt: Date.now() });
-                  console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (Status+BookingStatus)`);
+                  const _pjParseLatLng = s => { const p = (s||'').split(','); return p.length===2?{lat:parseFloat(p[0]),lng:parseFloat(p[1])}:null; };
+                  const _pjPickLL = _pjParseLatLng(job.PickLatLng);
+                  const _pjDropLL = _pjParseLatLng(job.DropLatLng);
+                  const _pjPatch = {
+                    BookingId:      String(bookingId),
+                    Status:         'Offered',
+                    BookingStatus:  'Offered',
+                    DriverId:       String(incomingDriverId || ''),
+                    AssignedDriver: String(incomingDriverId || ''),
+                    offeredAt:      Date.now(),
+                    PickAddress:    job.PickAddress  || '',
+                    DropAddress:    job.DropAddress  || '',
+                    PassengerName:  job.Name         || job.UserFName || '',
+                    PassengerPhone: job.PhoneNo      || '',
+                    Fare:           String(job.EstimatedFare || job.RideCost || job.CustomeRate || ''),
+                    CompanyId:      String(sessionCompanyId),
+                    ServiceType:    job.serviceType  || 'taxi',
+                    BookingSource:  job.BookingSource|| 'Dispatch Console',
+                    WebBooking:     false
+                  };
+                  if (_pjPickLL) _pjPatch.pickupLocation  = { address: job.PickAddress || '', lat: _pjPickLL.lat, lng: _pjPickLL.lng };
+                  if (_pjDropLL) _pjPatch.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
+                  await fbRequest(_pjUrl, 'PATCH', _pjPatch);
+                  console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DP] pendingjobs patch failed:', _e && _e.message); }
             })();
@@ -6272,8 +6294,30 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
-                  await fbRequest(_pjUrl, 'PATCH', { Status: 'Offered', BookingStatus: 'Offered', DriverId: String(incomingDriverId2 || ''), offeredAt: Date.now() });
-                  console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (Status+BookingStatus)`);
+                  const _pjParseLatLng2 = s => { const p = (s||'').split(','); return p.length===2?{lat:parseFloat(p[0]),lng:parseFloat(p[1])}:null; };
+                  const _pjPickLL2 = _pjParseLatLng2(job.PickLatLng);
+                  const _pjDropLL2 = _pjParseLatLng2(job.DropLatLng);
+                  const _pjPatch2 = {
+                    BookingId:      String(bookingId),
+                    Status:         'Offered',
+                    BookingStatus:  'Offered',
+                    DriverId:       String(incomingDriverId2 || ''),
+                    AssignedDriver: String(incomingDriverId2 || ''),
+                    offeredAt:      Date.now(),
+                    PickAddress:    job.PickAddress  || '',
+                    DropAddress:    job.DropAddress  || '',
+                    PassengerName:  job.Name         || job.UserFName || '',
+                    PassengerPhone: job.PhoneNo      || '',
+                    Fare:           String(job.EstimatedFare || job.RideCost || job.CustomeRate || ''),
+                    CompanyId:      String(sessionCompanyId),
+                    ServiceType:    job.serviceType  || 'taxi',
+                    BookingSource:  job.BookingSource|| 'Dispatch Console',
+                    WebBooking:     false
+                  };
+                  if (_pjPickLL2) _pjPatch2.pickupLocation  = { address: job.PickAddress || '', lat: _pjPickLL2.lat, lng: _pjPickLL2.lng };
+                  if (_pjDropLL2) _pjPatch2.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL2.lat, lng: _pjDropLL2.lng };
+                  await fbRequest(_pjUrl, 'PATCH', _pjPatch2);
+                  console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DS] pendingjobs patch failed:', _e && _e.message); }
             })();

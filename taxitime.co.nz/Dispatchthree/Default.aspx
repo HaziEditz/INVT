@@ -8582,6 +8582,12 @@ $(document).ready(function() {
                 // even when the payload data is identical to the previous value (e.g. re-offer
                 // of the same job after Unreached), so the driver screen always updates.
                 fullPayload._ts = Date.now();
+                console.log('[writeJobDetailsToFirebase] PAYLOAD for driver', _fbUidNotif, 'job', bookingId,
+                    '| pickup:', fullPayload.jobpickup,
+                    '| dropoff:', fullPayload.jobdropoff,
+                    '| fare:', fullPayload.jobFare,
+                    '| name:', fullPayload.jobname,
+                    '| phone:', fullPayload.JobphoneNo);
                 notifRef.set(fullPayload)
                     .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', _fbUidNotif, '(sql:', driverId, ') job', bookingId); })
                     .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
