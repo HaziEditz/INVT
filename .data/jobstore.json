@@ -1,5 +1,6 @@
 [
   {
+    "_fbKey": "620611:6112605081",
     "Id": 6112605081,
     "AccountId": "",
     "VehicleNo": null,
@@ -44,30 +45,5 @@
     "TarriffType": "Automatic",
     "companyId": "620611",
     "createdAt": 1778202450766
-  },
-  {
-    "_fbKey": "620611:6112605081",
-    "Id": 6112605081,
-    "companyId": "620611",
-    "BookingStatus": "Pending",
-    "BookingSource": "passenger",
-    "Name": "",
-    "PhoneNo": "",
-    "PickAddress": "165 Inglewood Road, Newfield, Invercargill, New Zealand",
-    "PickLatLng": "-46.4164049,168.3842603",
-    "DropAddress": "",
-    "DropLatLng": "0,0",
-    "VehicleType": "Not Specified",
-    "PaymentMethod": "cash",
-    "EstimatedFare": 0,
-    "BookingDateTime": "2026-05-08T01:07:30.766Z",
-    "Notes": "",
-    "Passengers": 1,
-    "serviceType": "taxi",
-    "bookingType": "",
-    "paymentStatus": "",
-    "DriverId": 0,
-    "VehicleId": 0,
-    "DispatchTimebefore": "0"
   }
 ]

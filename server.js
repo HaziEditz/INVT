@@ -6643,8 +6643,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         if (_ipjStatus === 'Scheduled') {
           // Scheduled bookings land directly in the Unassigned queue as Pending.
           // ScheduledFor is preserved so the 📅 Sched badge shows on the job card.
-          const already = jobStore.find(j => j._fbKey === _ipjFbKey);
-          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey);
+          const _ipjNumIdSch = parseInt(_ipjJobId, 10) || 0;
+          const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumIdSch > 0 && j.Id === _ipjNumIdSch));
+          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumIdSch > 0 && j.Id === _ipjNumIdSch));
+          // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
+          if (already && !already._fbKey) already._fbKey = _ipjFbKey;
           if (!already && !alreadyClosed) {
             const _sCid = String(sessionCompanyId);
             const _sn = _normFbJob(_ipjJob);
@@ -6704,8 +6707,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         } else if (_ipjStatus === 'Waiting' || _ipjStatus === 'Pending') {
           // 'Pending' written by some external dispatch apps — treated same as 'Waiting' (book-now).
           // Also fired by the client-side NotifyDispatchAt timer to promote a Scheduled job.
-          const already = jobStore.find(j => j._fbKey === _ipjFbKey);
-          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey);
+          // FIX — also match by numeric Id so dispatch-console jobs (no _fbKey yet) are recognised.
+          const _ipjNumId = parseInt(_ipjJobId, 10) || 0;
+          const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumId > 0 && j.Id === _ipjNumId));
+          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumId > 0 && j.Id === _ipjNumId));
+          // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
+          if (already && !already._fbKey) { already._fbKey = _ipjFbKey; saveJobStore(); }
           // §103 Bug 2 — promote an existing Scheduled job to Pending (NotifyDispatchAt fired).
           // Only if not already manually assigned/offered by a dispatcher.
           if (already && already.BookingStatus === 'Scheduled') {
@@ -6748,7 +6755,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Remove from jobStore only if the job has NOT yet been assigned/dispatched.
           // If a dispatcher has already assigned the job (Assigned/Active/Picking/Offered),
           // the passenger cancel arrives too late — don't silently delete an in-progress trip.
-          const _cIdx = jobStore.findIndex(j => j._fbKey === _ipjFbKey);
+          // FIX — also match by numeric Id so dispatch-console jobs (no _fbKey yet) are found.
+          const _ipjNumIdC = parseInt(_ipjJobId, 10) || 0;
+          const _cIdx = jobStore.findIndex(j => j._fbKey === _ipjFbKey || (_ipjNumIdC > 0 && j.Id === _ipjNumIdC));
           if (_cIdx !== -1) {
             const _cJob = jobStore[_cIdx];
             const _safeToRemove = new Set(['Pending', 'Scheduled', 'No One', 'Unreached', '']);
