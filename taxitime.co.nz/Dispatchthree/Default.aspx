@@ -20289,8 +20289,10 @@ $(document).ready(function() {
     
     }
 
-    // Zoom the map to a job's pickup lat/lng (called by card map-pin button).
+    // Zoom the map to a job's pickup lat/lng and drop a temporary marker pin.
     // latLngStr is the job's PickLatLng field in "lat,lng" format.
+    var _bwZoomMarker = null;
+    var _bwZoomMarkerTimer = null;
     function bwZoomPickup(latLngStr) {
         if (!latLngStr || String(latLngStr).trim() === '' || latLngStr === '0,0') return;
         var parts = String(latLngStr).split(',');
@@ -20299,8 +20301,34 @@ $(document).ready(function() {
         var lng = parseFloat(parts[1].trim());
         if (isNaN(lat) || isNaN(lng)) return;
         try {
-            map.panTo(new google.maps.LatLng(lat, lng));
+            var pos = new google.maps.LatLng(lat, lng);
+            map.panTo(pos);
             map.setZoom(16);
+            // Clear any previous temporary pickup marker
+            if (_bwZoomMarker) { _bwZoomMarker.setMap(null); _bwZoomMarker = null; }
+            if (_bwZoomMarkerTimer) { clearTimeout(_bwZoomMarkerTimer); _bwZoomMarkerTimer = null; }
+            // Drop a green pickup pin with "Pickup" label
+            _bwZoomMarker = new google.maps.Marker({
+                position: pos,
+                map: map,
+                title: 'Pickup',
+                icon: {
+                    path: 'M30.828 1.172c-1.562-1.562-4.095-1.562-5.657 0l-5.379 5.379-3.793-3.793-4.243 4.243 3.326 3.326-14.754 14.754c-0.252 0.252-0.358 0.592-0.322 0.921h-0.008v5c0 0.552 0.448 1 1 1h5c0 0 0.083 0 0.125 0 0.288 0 0.576-0.11 0.795-0.329l14.754-14.754 3.326 3.326 4.243-4.243-3.793-3.793 5.379-5.379c1.562-1.562 1.562-4.095 0-5.657zM5.409 30h-3.409v-3.409l14.674-14.674 3.409 3.409-14.674 14.674z',
+                    scale: 0.5,
+                    fillColor: '#16a34a',
+                    fillOpacity: 1,
+                    strokeWeight: 1,
+                    strokeColor: '#fff',
+                    anchor: new google.maps.Point(0, 5),
+                    labelOrigin: { x: 20, y: -10 }
+                },
+                label: { text: 'Pickup', color: '#16a34a', fontSize: '12px', fontWeight: 'bold' }
+            });
+            // Auto-remove after 6 seconds
+            _bwZoomMarkerTimer = setTimeout(function() {
+                if (_bwZoomMarker) { _bwZoomMarker.setMap(null); _bwZoomMarker = null; }
+                _bwZoomMarkerTimer = null;
+            }, 6000);
         } catch(e) { console.warn('[bwZoomPickup]', e); }
     }
 
