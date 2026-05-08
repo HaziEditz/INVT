@@ -7115,16 +7115,25 @@ setInterval(async () => {
           parseInt(rec.BookingId || rec.bookingId || '', 10) || 0;
 
         // ── Step 3: stale-pending cleanup ──────────────────────────────────
-        // If this pendingjobs key corresponds to a job that is already closed,
-        // delete it so it doesn't permanently block that job slot.
+        // If this pendingjobs key corresponds to a job that is already closed
+        // AND is not currently live in jobStore, delete it so it doesn't
+        // permanently block that slot.  The jobStore check is critical: the
+        // same numeric ID can appear in closedJobStore from a prior session
+        // while a brand-new job with that ID is actively running — in that
+        // case we must not delete the live Firebase entry.
         if (_normIdNum) {
-          const _normClosed = closedJobStore.find(j =>
+          const _normLive = jobStore.find(j =>
             j.Id === _normIdNum && String(j.companyId || '') === cid
           );
-          if (_normClosed) {
-            firebaseDbDelete(`pendingjobs/${cid}/${key}`, token).catch(() => {});
-            console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store)`);
-            continue;
+          if (!_normLive) {
+            const _normClosed = closedJobStore.find(j =>
+              j.Id === _normIdNum && String(j.companyId || '') === cid
+            );
+            if (_normClosed) {
+              firebaseDbDelete(`pendingjobs/${cid}/${key}`, token).catch(() => {});
+              console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store)`);
+              continue;
+            }
           }
         }
 
