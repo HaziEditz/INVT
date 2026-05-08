@@ -8842,16 +8842,28 @@ $(document).ready(function() {
                             var d = JSON.parse(res.d || '{}');
                             var job = d && d.dt1 && d.dt1.length > 0 ? d.dt1[0] : null;
                             if (!job || job.BookingStatus !== 'Offered') {
-                                // Job is no longer Offered — server already reset it (stale-offer watchdog).
-                                // Clean up the orphaned Firebase paths the driver app is still holding.
-                                try {
-                                    if (typeof firebase !== 'undefined') {
-                                        firebase.database().ref('joback/' + jobId + '/' + entry.driverId).remove();
-                                        firebase.database().ref('/notification/' + entry.driverId).remove();
-                                        firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId).remove();
-                                        console.log('[_cleanupOrphanedFirebase] removed Firebase orphan: job #' + jobId + ' driver ' + entry.driverId + ' (status was ' + (job ? job.BookingStatus : 'not found') + ')');
-                                    }
-                                } catch(e) {}
+                                // Job is no longer Offered. Determine whether driver is mid-trip
+                                // before touching any Firebase paths.
+                                var _bwOnTrip = job && (job.BookingStatus === 'Active' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Assigned');
+                                if (!_bwOnTrip) {
+                                    // Genuine orphan (Pending, Cancelled, No One, not found) —
+                                    // stale-offer watchdog already reset the job; remove Firebase paths.
+                                    try {
+                                        if (typeof firebase !== 'undefined') {
+                                            firebase.database().ref('joback/' + jobId + '/' + entry.driverId).remove();
+                                            firebase.database().ref('/notification/' + entry.driverId).remove();
+                                            firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId).remove();
+                                            console.log('[_cleanupOrphanedFirebase] removed Firebase orphan: job #' + jobId + ' driver ' + entry.driverId + ' (status was ' + (job ? job.BookingStatus : 'not found') + ')');
+                                        }
+                                    } catch(e) {}
+                                } else {
+                                    // Driver is actively on this job — do NOT wipe Firebase paths.
+                                    // The offer was accepted; clearing these would allow auto-dispatch
+                                    // to re-offer the driver a second job on top of their active trip.
+                                    console.log('[_cleanupOrphanedFirebase] job #' + jobId + ' is ' + job.BookingStatus + ' — driver on trip, skipping Firebase removal');
+                                }
+                                // In all non-Offered cases, remove the stale localStorage entry.
+                                // The offer phase is complete; no need to re-check on the next reload.
                                 var _ifo2 = JSON.parse(localStorage.getItem('_bwInFlightOffers') || '{}');
                                 delete _ifo2[String(jobId)];
                                 localStorage.setItem('_bwInFlightOffers', JSON.stringify(_ifo2));
