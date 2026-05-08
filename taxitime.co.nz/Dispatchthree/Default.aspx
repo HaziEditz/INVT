@@ -937,7 +937,7 @@
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id ">Account</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -1047,7 +1047,7 @@
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         <span ng-if="avalue.Acc_job_id">ACC</span>
-                                                                        <span ng-if="avalue.Account_id">Account</span>
+                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}}</span>
                                                                         <span ng-if="avalue.Recieve_payment">Paid</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
@@ -1171,7 +1171,7 @@
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                        <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id ">Account</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -4117,7 +4117,7 @@ $(document).ready(function() {
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                     <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id ">Account</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -4247,7 +4247,7 @@ $(document).ready(function() {
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         <span ng-if="avalue.Acc_job_id">ACC</span>
-                                                                        <span ng-if="avalue.Account_id">Account</span>
+                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}}</span>
                                                                         <span ng-if="avalue.Recieve_payment">Paid</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
@@ -4420,7 +4420,7 @@ $(document).ready(function() {
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                        <span ng-if="value.Acc_job_id ">ACC</span>
 
-                                                                    <span ng-if="value.Account_id ">Account</span>
+                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}}</span>
 
                                                                     <span ng-if="value.Recieve_payment  ">Paid</span>
 
@@ -16724,10 +16724,12 @@ $(document).ready(function() {
             $scope.account_record_search  = [];
             $scope.passenger_record_search = [];
         };
+        $scope._bwSyncSeq = 0;
         $scope.bwSyncAccountId = function() {
             var q = ($scope.account_AccountId || '').trim();
             if (!q) { $scope.account_Name_hint = ''; $scope.account_Select_Id = ''; return; }
             var qLow = q.toLowerCase();
+            var seq = ++$scope._bwSyncSeq;
             // 1. Search already-loaded Firebase accounts by accountCode (e.g. "001"), push key, or name
             var ba = ($scope.bwBizAccounts || []).find(function(b) {
                 return (b.accountCode && b.accountCode.toLowerCase() === qLow) ||
@@ -16740,11 +16742,12 @@ $(document).ready(function() {
                 if (!$scope.account_Name) { $scope.account_Name = ba.name; }
                 return;
             }
-            // 2. Fall back to server search (handles legacy integer IDs and accountCode partial match)
+            // 2. Fall back to server search — only apply result if still the latest call
             $scope.account_Select_Id = q;
             $http({ method: 'POST', url: 'DataManager/Data.aspx/DataSelector',
                 data: { data: [{ name: 'claim_number', value: q }], action: '[searchmulti]' }
             }).then(function(r) {
+                if (seq !== $scope._bwSyncSeq) { return; }
                 var $res = JSON.parse(r.data.d);
                 var bz = ($res['dt2'] || []).find(function(b) {
                     return String(b.Id) === String(q) ||
@@ -16757,7 +16760,7 @@ $(document).ready(function() {
                     $scope.account_Select_Id = String(bz.Id);
                     if (!$scope.account_Name) { $scope.account_Name = bz.Name; }
                 } else { $scope.account_Name_hint = ''; }
-            }, function() { $scope.account_Name_hint = ''; });
+            }, function() { if (seq === $scope._bwSyncSeq) { $scope.account_Name_hint = ''; } });
         };
         $scope.bwClearBizAcc = function() {
             $scope.account_Name_hint = '';
