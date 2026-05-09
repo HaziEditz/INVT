@@ -18962,16 +18962,15 @@ $(document).ready(function() {
             $scope.datecreate = function (data, dispatchBefore) {
                 if (!data) return '';
                 var _raw = String(data).trim();
-                var _isAspUtc = _raw.endsWith('.');
                 var clean = _raw.replace(/\.$/, '');
-                var booking = _isAspUtc ? new Date(clean.replace(' ', 'T') + 'Z') : new Date(clean);
-                if (isNaN(booking.getTime())) {
+                var bookingMs = _bwToDateMs(_raw);
+                if (isNaN(bookingMs)) {
                     var p = clean.split(' ');
                     var d = (p[0] || '').split('-');
                     return (d[2] || '') + '-' + (d[1] || '') + ' ' + (p[1] ? p[1].substring(0, 5) : '');
                 }
                 var now = new Date();
-                var _nzt = new Date(booking.toLocaleString('sv', { timeZone: 'Pacific/Auckland' }));
+                var _nzt = new Date(new Date(bookingMs).toLocaleString('sv', { timeZone: 'Pacific/Auckland' }));
                 var h = _nzt.getHours();
                 var mi = _nzt.getMinutes();
                 var timeStr = String(h).padStart(2,'0') + ':' + (mi < 10 ? '0' : '') + mi;
