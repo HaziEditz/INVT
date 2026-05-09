@@ -5742,9 +5742,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;
           const pickupRef = j.Pickingtime || j.BookingDateTime;
           if (dispBefore > 0 && pickupRef) {
-            const pickupMs = new Date(
-              pickupRef.replace(/\.$/, '').trim()
-            ).getTime();
+            const pickupMs = _parseLocalDT(pickupRef, sessionCompanyId);
             if (!isNaN(pickupMs)) {
               const windowOpenMs = pickupMs - dispBefore * 60 * 1000;
               if (Date.now() < windowOpenMs) {
@@ -5766,8 +5764,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (db === 0) return true;
           const ref = _toDateStr(j.Pickingtime || j.BookingDateTime || '');
           if (!ref) return true;
-          const pickupMs = new Date(ref).getTime();
-          return !isNaN(pickupMs) && _nowMs > pickupMs; // pickup passed → treat as ASAP
+          const pickupMs = _parseLocalDT(ref, sessionCompanyId);
+          return pickupMs !== null && _nowMs > pickupMs; // pickup passed → treat as ASAP
         }
         autoJobs.sort((a, b) => {
           const aASAP = _isEffectivelyASAP(a);
@@ -5780,13 +5778,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const refB = _toDateStr(b.Pickingtime || b.BookingDateTime || '');
           if (aASAP && bASAP) {
             // Both effectively ASAP — sort by pickup time ascending (most overdue first)
-            const tA = refA ? new Date(refA).getTime() : _nowMs;
-            const tB = refB ? new Date(refB).getTime() : _nowMs;
+            const tA = refA ? (_parseLocalDT(refA, sessionCompanyId) || _nowMs) : _nowMs;
+            const tB = refB ? (_parseLocalDT(refB, sessionCompanyId) || _nowMs) : _nowMs;
             return tA - tB;
           }
           // Both future pre-books — sort by dispatch window open time (earliest first)
-          const winA = refA ? new Date(refA).getTime() - da * 60000 : Infinity;
-          const winB = refB ? new Date(refB).getTime() - db2 * 60000 : Infinity;
+          const winA = refA ? (_parseLocalDT(refA, sessionCompanyId) || Infinity) - da * 60000 : Infinity;
+          const winB = refB ? (_parseLocalDT(refB, sessionCompanyId) || Infinity) - db2 * 60000 : Infinity;
           return winA - winB;
         });
         const dt1 = autoJobs.map(j => ({

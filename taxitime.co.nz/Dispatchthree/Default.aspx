@@ -15768,7 +15768,7 @@ $(document).ready(function() {
                         if (db <= 0) return true; // ASAP jobs always qualify
                         var bdt = pj.BookingDateTime || pj.bookingDateTime || '';
                         if (!bdt) return true; // no time stored, let it through
-                        var bdtMs = new Date(bdt.replace(' ', 'T')).getTime();
+                        var bdtMs = _bwToDateMs(bdt);
                         if (isNaN(bdtMs)) return true;
                         var windowOpensMs = bdtMs - db * 60000;
                         if (_nowMs >= windowOpensMs) return true;
@@ -17833,18 +17833,18 @@ $(document).ready(function() {
 
                 // Recompute JobMins client-side using the browser's local clock
                 // so countdowns are correct regardless of server timezone
-                var _clientNow = new Date();
+                var _clientNow = Date.now();
                 angular.forEach($scope.unassignedjob_list, function(job) {
-                    var bdt = new Date(_bwToDateStr(job.BookingDateTime));
-                    job.JobMins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
+                    var bdtMs = _bwToDateMs(job.BookingDateTime);
+                    job.JobMins = isNaN(bdtMs) ? 0 : Math.round((bdtMs - _clientNow) / 60000);
                 });
 
                 // Sort: Urgent flag always top, then ASAP/overdue, then future soonest
                 $scope.unassignedjob_list.sort(function(a, b) {
                     function urgencyScore(job) {
                         var db   = parseInt(job.DispatchTimebefore) || 0;
-                        var bdt  = new Date(_bwToDateStr(job.BookingDateTime));
-                        var mins = isNaN(bdt.getTime()) ? 0 : Math.round((bdt - _clientNow) / 60000);
+                        var bdtMs = _bwToDateMs(job.BookingDateTime);
+                        var mins = isNaN(bdtMs) ? 0 : Math.round((bdtMs - _clientNow) / 60000);
                         // Urgent flag → absolute top tier (subtract 999999)
                         var urgentBonus = (job.Urgent === 'Yes') ? -999999 : 0;
                         // ASAP (db=0) OR dispatch window already open → urgent tier
@@ -19000,24 +19000,39 @@ $(document).ready(function() {
                 if (typeof v === 'number') return new Date(v).toISOString();
                 return String(v).replace(/\.$/, '').trim();
             }
+            // Convert a BookingDateTime value to correct UTC milliseconds.
+            // BookingDateTime strings are NZ local time (naive, no offset).
+            // new Date("YYYY-MM-DD HH:mm:ss") in a UTC browser parses as UTC → 12h wrong.
+            // This helper corrects that by computing the NZ→UTC offset via Intl API.
+            function _bwToDateMs(v) {
+                if (!v && v !== 0) return NaN;
+                if (typeof v === 'number') return v;
+                var s = String(v).replace(/\.$/, '').trim();
+                if (!s) return NaN;
+                if (/Z$|[+-]\d{2}:\d{2}$/.test(s)) return new Date(s).getTime();
+                var naiveUtcMs = new Date(s.replace(' ', 'T') + 'Z').getTime();
+                if (isNaN(naiveUtcMs)) return NaN;
+                var nzStr = new Date(naiveUtcMs).toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
+                var nzMs = new Date(nzStr.replace(' ', 'T') + 'Z').getTime();
+                return naiveUtcMs - (nzMs - naiveUtcMs);
+            }
 
             // Returns "Send at H:MM AM/PM" for pre-booked jobs (pickup minus dispatchBefore mins)
             $scope.dispatchAtLabel = function (BookingDateTime, DispatchTimebefore) {
                 var db = parseInt(DispatchTimebefore) || 0;
                 if (db <= 0 || !BookingDateTime) return '';
-                var bdt = new Date(_bwToDateStr(BookingDateTime));
-                if (isNaN(bdt.getTime())) return '';
-                var dispAt = new Date(bdt.getTime() - db * 60000);
-                var h = dispAt.getHours(), mi = dispAt.getMinutes();
-                return '→ ' + String(h).padStart(2,'0') + ':' + (mi < 10 ? '0' : '') + mi;
+                var bdtMs = _bwToDateMs(BookingDateTime);
+                if (isNaN(bdtMs)) return '';
+                var dispAtStr = new Date(bdtMs - db * 60000).toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
+                return '→ ' + dispAtStr.slice(11, 16);
             };
             // Returns true when dispatch window is currently open (now >= pickup - dispatchBefore)
             $scope.dispatchWindowOpen = function (DispatchTimebefore, BookingDateTime) {
                 var db = parseInt(DispatchTimebefore) || 0;
                 if (db <= 0 || !BookingDateTime) return false;
-                var bdt = new Date(_bwToDateStr(BookingDateTime));
-                if (isNaN(bdt.getTime())) return false;
-                return Math.round((bdt - new Date()) / 60000) <= db;
+                var bdtMs = _bwToDateMs(BookingDateTime);
+                if (isNaN(bdtMs)) return false;
+                return Math.round((bdtMs - Date.now()) / 60000) <= db;
             };
             $scope.checklateornow = function (data1, data2) {
                 var jobMins = parseInt(data1) || 0;
@@ -19060,9 +19075,8 @@ $(document).ready(function() {
                         // ASAP No One → always flash amber
                         noOneFlash = true;
                     } else if (BookingDateTime) {
-                        var _c2 = _bwToDateStr(BookingDateTime);
-                        var _b2 = new Date(_c2);
-                        if (!isNaN(_b2.getTime()) && Math.round((_b2 - new Date()) / 60000) <= db) {
+                        var _b2Ms = _bwToDateMs(BookingDateTime);
+                        if (!isNaN(_b2Ms) && Math.round((_b2Ms - Date.now()) / 60000) <= db) {
                             noOneFlash = true;
                         }
                     }
@@ -19075,10 +19089,9 @@ $(document).ready(function() {
                     return 'button-glow';
                 }
                 if (!BookingDateTime) return '';
-                var clean = _bwToDateStr(BookingDateTime);
-                var bdt = new Date(clean);
-                if (isNaN(bdt.getTime())) return '';
-                var minsUntil = Math.round((bdt - new Date()) / 60000);
+                var bdtMs = _bwToDateMs(BookingDateTime);
+                if (isNaN(bdtMs)) return '';
+                var minsUntil = Math.round((bdtMs - Date.now()) / 60000);
                 // Flash as soon as dispatch window opens; keep flashing until job is sent (no cutoff)
                 if (minsUntil <= db) {
                     if (minsUntil >= -60) $scope.playAudio(); // audio only for first 60 min
@@ -19445,13 +19458,12 @@ $(document).ready(function() {
                 if (!BookingDateTime) {
                     return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
-                var clean = _bwToDateStr(BookingDateTime);
-                var bdt = new Date(clean);
-                if (isNaN(bdt.getTime())) {
+                var bdtMs = _bwToDateMs(BookingDateTime);
+                if (isNaN(bdtMs)) {
                     return { background: ASAP_BG, 'border-left': ASAP_BAR };
                 }
                 var db = parseInt(DispatchTimebefore) || 0;
-                var minsUntil = Math.round((bdt - new Date()) / 60000);
+                var minsUntil = Math.round((bdtMs - Date.now()) / 60000);
 
                 if (db === 0) {
                     // ASAP job — light red
