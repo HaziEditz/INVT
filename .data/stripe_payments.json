@@ -43,5 +43,14 @@
     "chargeId": "",
     "paidAt": "2026-05-09T04:17:17.163Z",
     "method": "Stripe"
+  },
+  {
+    "id": 6,
+    "companyId": "620611",
+    "phone": "0275683723",
+    "amount": 38,
+    "chargeId": "",
+    "paidAt": "2026-05-09T16:23:42.213Z",
+    "method": "Stripe"
   }
 ]
