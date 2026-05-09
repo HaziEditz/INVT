@@ -14317,6 +14317,10 @@ $(document).ready(function() {
                                 if ($res[0].Result == "Booking Information Successfully Submitted") {
                                     toastr["success"]("Job #" + $res[0].BookingId + " created.", "Booking Created!");
                                     setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 2000);
+                                    $scope.getjobs();
+                                    $scope.AssignedJobs();
+                                    if (typeof $scope.GetJobsdelivery === 'function') $scope.GetJobsdelivery();
+                                    if (typeof $scope.ActiveJobsdata  === 'function') $scope.ActiveJobsdata();
                                 } else if ($res[0].Error || ($res[0].Result && $res[0].Result.indexOf('Error:') === 0)) {
                                     Swal.fire('Booking Failed', $res[0].Result.replace(/^Error:\s*/,''), 'error');
                                 }
@@ -14407,6 +14411,8 @@ $(document).ready(function() {
                                     }
                                     $scope.getjobs();
                                     $scope.AssignedJobs();
+                                    if (typeof $scope.GetJobsdelivery === 'function') $scope.GetJobsdelivery();
+                                    if (typeof $scope.ActiveJobsdata  === 'function') $scope.ActiveJobsdata();
                                         
                                 }
                             }
@@ -16437,15 +16443,12 @@ $(document).ready(function() {
             $scope.AmmountAddedvaluesend = ''; 
             $scope.AmmountAddedvalue = '';
             $scope.updatex = 0;
-            $scope.ddlLaterMins = '00';
             $scope.LoginDriverdata = [];
             $scope.assign_notice = '0';
-            $scope.ddlLaterHrs = '00';
-            var now = new Date();
-            var day = ("0" + now.getDate()).slice(-2);
-            var month = ("0" + (now.getMonth() + 1)).slice(-2);
-            var todayz = now.getFullYear()+"-"+(month)+"-"+(day) ;
-                                                
+            var _nowNZ = window._tzNow ? window._tzNow() : (function(){ var n=new Date(),d=("0"+n.getDate()).slice(-2),mo=("0"+(n.getMonth()+1)).slice(-2); return {date:n.getFullYear()+"-"+mo+"-"+d,h:("0"+n.getHours()).slice(-2),m:("0"+n.getMinutes()).slice(-2)}; })();
+            var todayz = _nowNZ.date;
+            $scope.ddlLaterHrs = _nowNZ.h;
+            $scope.ddlLaterMins = _nowNZ.m;
             $scope.datetimemain  = new  Date(todayz);
              
             marker.setVisible(false);
@@ -16453,12 +16456,6 @@ $(document).ready(function() {
                 markers[1].setMap(null);
             }
             directionsRenderer.setMap(null);
-            var now = new Date();
-            var day = ("0" + now.getDate()).slice(-2);
-            var month = ("0" + (now.getMonth() + 1)).slice(-2);
-            var todayz = now.getFullYear()+"-"+(month)+"-"+(day) ;
-                                                               
-           
             $("#pac-input").val('');
             $("#pac-inputx").val('');
             $("#laterDate").val(todayz) ;
@@ -16532,6 +16529,10 @@ $(document).ready(function() {
             $scope.client_id =     '';
             $scope.trip_status =     '';
             $scope.acc_select_id =    '';
+
+            if (typeof $scope.bwClearBizAcc === 'function') $scope.bwClearBizAcc();
+            if (typeof $scope.bwClearAccSel === 'function') $scope.bwClearAccSel();
+            if (typeof $scope.clearseacch   === 'function') $scope.clearseacch();
 
         }
 
