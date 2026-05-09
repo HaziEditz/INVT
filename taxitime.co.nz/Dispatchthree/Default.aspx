@@ -16699,11 +16699,7 @@ $(document).ready(function() {
             if (!ba) return;
             $scope.account_Select_Id = String(ba.id);
             $scope.account_AccountId = String(ba.id);
-            $scope.account_Name      = ba.name    || '';
             $scope.account_Name_hint = ba.name    || '';
-            $scope.account_Email     = ba.email   || '';
-            $scope.account_PhoneNo   = ba.phone   || '';
-            $scope.account_Contact   = ba.contact || '';
             $scope.acc_record_search      = [];
             $scope.account_record_search  = [];
             $scope.passenger_record_search = [];
@@ -16723,7 +16719,6 @@ $(document).ready(function() {
             if (ba) {
                 $scope.account_Name_hint = ba.name;
                 $scope.account_Select_Id = ba.id;
-                if (!$scope.account_Name) { $scope.account_Name = ba.name; }
                 return;
             }
             // 2. Fall back to server search — only apply result if still the latest call
@@ -16757,10 +16752,7 @@ $(document).ready(function() {
          
           
             $scope.account_Select_Id =   arg.Id  ;
-            $scope.account_Name =   arg.Name ;
-            $scope.account_PhoneNo =   arg.PhoneNo ;
             $scope.account_AccountId =   arg.Id ;
-            $scope.account_Email = arg.Email ;
             $scope.account_Name_hint = arg.Name || '';
 
             $scope.acc_record_search = [];
