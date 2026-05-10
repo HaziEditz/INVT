@@ -406,6 +406,26 @@
         ".write": "auth != null"
       }
     },
+    "driverQueue": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$driverId": {
+          ".validate": "$driverId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null",
+          "current": {
+            ".validate": "!newData.exists() || newData.hasChildren(['jobId'])"
+          },
+          "queued": {
+            ".validate": "!newData.exists() || newData.hasChildren(['jobId','acceptedAt'])"
+          }
+        }
+      }
+    },
     "activeDispatchers": {
       ".read": "auth != null",
       ".write": "auth != null",

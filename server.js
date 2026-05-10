@@ -5880,7 +5880,19 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const _qBookingId = param('bookingid');
         const _qDriverId  = (param('driverid') || '').toString().trim();
         const _qJob = jobStore.find(j => String(j.Id) === String(_qBookingId));
+        // §QueueCap — enforce max 1 queued job per driver. If the driver already
+        // has another job in 'Queued' state, reject so the driver app can decline
+        // the 2nd offer instead of silently overwriting the first.
+        const _qExisting = jobStore.find(j =>
+          j.BookingStatus === 'Queued' &&
+          String(j.DriverId) === String(_qDriverId) &&
+          String(j.Id) !== String(_qBookingId)
+        );
         if (!_qJob) { objectD(res, { ok: false, msg: 'job not found' }); }
+        else if (_qExisting) {
+          console.log(`[QueueJob] BLOCKED job #${_qBookingId} → driver ${_qDriverId} already has queued job #${_qExisting.Id}`);
+          objectD(res, { ok: false, msg: 'queue full', existingJobId: _qExisting.Id });
+        }
         else if (_qJob.BookingStatus !== 'Offered' && _qJob.BookingStatus !== 'Pending' && _qJob.BookingStatus !== 'No One') {
           objectD(res, { ok: false, msg: `cannot queue job with status ${_qJob.BookingStatus}` });
         } else {

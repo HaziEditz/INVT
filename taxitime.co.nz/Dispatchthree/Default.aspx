@@ -4788,7 +4788,7 @@ $(document).ready(function() {
                                                 </td>
                                               
                                                 <td>
-                                                    <div> <span>{{ driverz.jobCount }}   </span>
+                                                    <div> <span>{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -4871,7 +4871,7 @@ $(document).ready(function() {
                                                 </td>
                                                
                                                 <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}   </span>
+                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -4951,7 +4951,7 @@ $(document).ready(function() {
                                                 </td>
                                               
                                                 <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}   </span>
+                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -5030,7 +5030,7 @@ $(document).ready(function() {
                                                 </td>
                                                  
                                                 <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}   </span>
+                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -6009,6 +6009,37 @@ $(document).ready(function() {
             // by the _pjInit guard — process them now to catch jobs already in Firebase.
             allSnap.forEach(function(child) { _pjIngest(child, false); });
             console.log('[pendingjobs] initial scan complete — ' + allSnap.numChildren() + ' job(s) processed');
+        });
+    })();
+
+    // ── 6a. Firebase /driverQueue/{companyId} listener ───────────────────
+    // Mirrors the per-driver queue (current + queued) from Firebase into the
+    // dispatch console so the UI reflects driver-app writes in real-time without
+    // waiting for the next 5-second [GetQueuedJobs] poll. Driver app writes:
+    //   /driverQueue/{companyId}/{driverId}/current = { jobId, ... }
+    //   /driverQueue/{companyId}/{driverId}/queued  = { jobId, acceptedAt, ... }
+    // When a queued slot appears or disappears we refresh the queuedJobs list so
+    // the amber Pre-Queue strip + driver-row +1 badge stay in sync.
+    (function() {
+        if (!SomeSession2 || !DbRef) return;
+        var _dqRef = DbRef.ref('driverQueue/' + SomeSession2);
+        var _dqInit = false;
+        function _dqRefresh(reason) {
+            if (!_dqInit) return;
+            try {
+                var _dqsc = angular.element(document.getElementById('myangular')).scope();
+                if (_dqsc && typeof _dqsc.getQueuedJobs === 'function') {
+                    _dqsc.getQueuedJobs();
+                    console.log('[driverQueue] ' + reason + ' → refreshed queuedJobs');
+                }
+            } catch(e) {}
+        }
+        _dqRef.on('child_added',   function(snap) { _dqRefresh('add ' + snap.key); }, function(e) { console.warn('[driverQueue] listener error:', e && e.code); });
+        _dqRef.on('child_changed', function(snap) { _dqRefresh('change ' + snap.key); }, function(e) {});
+        _dqRef.on('child_removed', function(snap) { _dqRefresh('remove ' + snap.key); }, function(e) {});
+        _dqRef.once('value', function() {
+            _dqInit = true;
+            console.log('[driverQueue] listener armed for company ' + SomeSession2);
         });
     })();
 
@@ -20042,6 +20073,17 @@ $(document).ready(function() {
                 }
 
                 $scope.queuedJobs = [];
+                // §QueueCap — quick lookup used by the Jobs column in driver tables
+                // to render an amber "+N" badge next to driverz.jobCount.
+                // Returns the count of queued jobs currently held by a given driver.
+                $scope.driverQueuedCount = function(driverid) {
+                    if (!driverid || !$scope.queuedJobs || !$scope.queuedJobs.length) return 0;
+                    var _qcc = 0;
+                    for (var _qci = 0; _qci < $scope.queuedJobs.length; _qci++) {
+                        if (String($scope.queuedJobs[_qci].DriverId) === String(driverid)) _qcc++;
+                    }
+                    return _qcc;
+                };
                 $scope.getQueuedJobs = function() {
                     $http({
                         method: 'POST',
