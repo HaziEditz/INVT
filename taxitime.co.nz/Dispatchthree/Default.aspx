@@ -5521,6 +5521,20 @@ $(document).ready(function() {
     // Declared here (outer scope) so both VehiclesStatus ghost-sweep and the Firebase
     // auth callback can access the same map.
     var _driverLastSeen = {};
+    // Tracks the last vehiclestatus seen per Firebase driver key. Used by child_removed to
+    // detect a clean logout (status was Offline/LoggedOut/...) and skip the 30 s screen-off
+    // delay so the dispatcher board updates immediately when a driver signs out.
+    var _driverLastStatus = {};
+    var _LOGOUT_STATUSES = { 'Offline':1, 'offline':1, 'LoggedOut':1, 'loggedout':1, 'logoff':1, 'LoggedOff':1, 'loggedoff':1 };
+    // Guard: when child_changed has already removed a driver via the clean-logout fast path,
+    // mark the key here so a subsequent child_removed (the driver app then deletes the node)
+    // does not re-filter the scope and double-POST [DriverStatusChanged]=Offline. Auto-expires
+    // after 60 s in case child_removed never fires.
+    var _logoutHandled = {};
+    function _markLogoutHandled(key) {
+        _logoutHandled[key] = true;
+        setTimeout(function() { delete _logoutHandled[key]; }, 60000);
+    }
 
     var timerozjob = new IntervalTimer(function () {
          
@@ -7551,6 +7565,11 @@ $(document).ready(function() {
         }
         // Record first-seen time for ghost-driver staleness detection.
         _driverLastSeen[data.key] = Date.now();
+        // Track latest status so child_removed can decide whether to skip the 30 s delay
+        // (clean-logout fast path).
+        var _caInitStatus = driverData.vehiclestatus ||
+                            (driverData.current && driverData.current.vehiclestatus);
+        if (_caInitStatus) _driverLastStatus[data.key] = _caInitStatus;
         // Handle nested structure: { firebaseUID: { driverid, vehiclenumber, ... } }
         // The outer key IS the Firebase auth UID — capture it as PlayerId before unwrapping.
         // IMPORTANT: only unwrap when the first value is itself an object. Partial updates
@@ -7707,6 +7726,53 @@ $(document).ready(function() {
             driverData.PlayerId = String(driverData.driverid);
         }
         if (!driverData || typeof driverData !== 'object') return;
+        // ── Clean-logout fast path ───────────────────────────────────────────
+        // If the driver app set vehiclestatus to a logout value (Offline/LoggedOut/...)
+        // before removing its Firebase node, treat this as an immediate sign-out:
+        // remove from the dispatcher board NOW (skip the 30 s screen-off delay
+        // applied by child_removed) and tell the server the driver is offline.
+        var _ccStatus = driverData.vehiclestatus ||
+                        (driverData.current && driverData.current.vehiclestatus);
+        if (_ccStatus && _LOGOUT_STATUSES[_ccStatus]) {
+            try {
+                var _ccKey = data.key;
+                if (_disconnectTimers[_ccKey]) { clearTimeout(_disconnectTimers[_ccKey]); delete _disconnectTimers[_ccKey]; }
+                _driverLastStatus[_ccKey] = _ccStatus;
+                if (typeof markers !== 'undefined' && driverData.vehiclenumber && markers[driverData.vehiclenumber]) {
+                    try { markers[driverData.vehiclenumber].setMap(null); } catch(e) {}
+                }
+                var _ccSc = angular.element(document.getElementById('myangular')).scope();
+                if (_ccSc && _ccSc.driverdatarealx) {
+                    _ccSc.driverdatarealx = _ccSc.driverdatarealx.filter(function(d) {
+                        var _byVid = String(d.VehicleId)    === String(_ccKey);
+                        var _byDid = String(d.driverid)     === String(_ccKey);
+                        var _byPid = String(d.PlayerId||'') === String(_ccKey);
+                        var _byNum = driverData.vehiclenumber && d.vehiclenumber === driverData.vehiclenumber;
+                        var _byDD  = driverData.driverid && (String(d.driverid) === String(driverData.driverid) || String(d.VehicleId) === String(driverData.driverid));
+                        return !(_byVid || _byDid || _byPid || _byNum || _byDD);
+                    });
+                    _ccSc.driverlist = _ccSc.driverdatarealx;
+                    if (typeof _ccSc.zonetablez === 'function') _ccSc.zonetablez();
+                    if (!_ccSc.$$phase) _ccSc.$digest();
+                }
+                var _ccId    = String(driverData.driverid || driverData.VehicleId || _ccKey);
+                var _ccVehNo = String(driverData.vehiclenumber || '');
+                jQuery.ajax({
+                    type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                    data: JSON.stringify({ data: [
+                        { name: 'driverid',      Value: _ccId },
+                        { name: 'newstatus',     Value: 'Offline' },
+                        { name: 'vehiclenumber', Value: _ccVehNo }
+                    ], action: '[DriverStatusChanged]' }),
+                    dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
+                });
+                _markLogoutHandled(_ccKey); // suppress duplicate work in child_removed
+                console.log('[clean-logout] driver', _ccId, '(' + _ccVehNo + ') signed out — removed from board immediately');
+            } catch(e) { console.warn('[clean-logout] failed:', e && e.message); }
+            return; // skip marker-color / scope-update branches below
+        }
+        // Track latest status so child_removed can decide whether to skip the 30 s delay.
+        if (_ccStatus) _driverLastStatus[data.key] = _ccStatus;
         // BUG 6 fix: if Owner Portal marks a vehicle inactive, remove it from scope and map
         if (driverData.vehiclestatus === 'inactive') {
             try {
@@ -8155,12 +8221,38 @@ $(document).ready(function() {
      cars_Ref.on('child_removed', function (data) {
         var vehicleKey = data.key;
         var driverData = data.val();
-        // Delay removal for 30 minutes — Firebase disconnects temporarily when the
+        // Delay removal for 30 seconds — Firebase disconnects temporarily when the
         // driver's phone screen turns off. Only remove after prolonged absence.
         // If child_added fires before the timer expires (driver reconnected), the
         // timer is cancelled in the child_added handler above.
         if (_disconnectTimers[vehicleKey]) clearTimeout(_disconnectTimers[vehicleKey]);
         delete _driverLastSeen[vehicleKey]; // node deleted — no longer stale-trackable
+        // If child_changed already cleanly removed this driver via the fast path,
+        // skip everything here — no double filter, no duplicate Offline POST.
+        if (_logoutHandled[vehicleKey]) {
+            delete _logoutHandled[vehicleKey];
+            delete _driverLastStatus[vehicleKey];
+            console.log('[clean-logout] child_removed for', vehicleKey, '— already handled by fast path, skipping');
+            return;
+        }
+        // ── Clean-logout fast path ──────────────────────────────────────────
+        // If the driver app set vehiclestatus to a logout value just before
+        // deleting its node (or the snapshot we received still carries that
+        // status / online:false), this is a real sign-out — not a screen-off
+        // blip. Skip the 30 s delay and remove from the board immediately.
+        var _crLastStatus = _driverLastStatus[vehicleKey];
+        delete _driverLastStatus[vehicleKey];
+        var _crSnapStatus = (driverData && driverData.vehiclestatus) ||
+                            (driverData && driverData.current && driverData.current.vehiclestatus);
+        var _crOnlineFalse = driverData && (
+            driverData.online === false ||
+            (driverData.current && driverData.current.online === false)
+        );
+        var _crIsLogout = (_crLastStatus && _LOGOUT_STATUSES[_crLastStatus]) ||
+                          (_crSnapStatus && _LOGOUT_STATUSES[_crSnapStatus]) ||
+                          _crOnlineFalse;
+        var _crDelay = _crIsLogout ? 0 : 30000;
+        if (_crIsLogout) console.log('[clean-logout] child_removed for', vehicleKey, '— skipping 30 s delay');
         _disconnectTimers[vehicleKey] = setTimeout(function() {
             delete _disconnectTimers[vehicleKey];
             // Remove map marker using the full driver object
@@ -8194,7 +8286,7 @@ $(document).ready(function() {
                 ], action: '[DriverStatusChanged]' }),
                 dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false
             });
-        }, 30000); // 30 s — covers screen-off reconnects (10-30s); dt6 poll handles sign-outs within its own 30-s cycle
+        }, _crDelay); // 0 ms for clean logout, else 30 s — covers screen-off reconnects (10-30s)
     });
     // ── Firebase presence listener ─────────────────────────────────────────
     // Driver app writes to: online/{companyId}/{vehicleId}/current
