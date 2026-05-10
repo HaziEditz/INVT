@@ -5476,11 +5476,26 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.log(`200: POST ${urlPath} [action=${action}] -> []`);
         jsonReply(res, { d: '[]' });
       } else if (action === '[ZonesListUpdate]') {
-        // Real driver zone data comes from Firebase (driverdatarealx).
-        // This fallback is only hit when Firebase has no live drivers,
-        // so return empty — no cars online means no zone queue entries.
-        console.log(`200: POST ${urlPath} [action=${action}] -> 0 drivers (Firebase is source of truth)`);
-        arrayD(res, []);
+        // Fallback for the dispatcher's right-side zone table when its Firebase
+        // listener hasn't populated $scope.driverdatarealx yet (fresh page load,
+        // listener-restart, or zero live drivers in Firebase). Returns the same
+        // shape the client expects: a flat array of driver records that the
+        // client groups by zonename.
+        const _zlu = companyDrivers(ZONE_DRIVERS).map(d => ({
+          driverid:      d.driverid      || '',
+          VehicleId:     d.VehicleId     || '',
+          drivername:    d.drivername    || '',
+          vehiclenumber: d.vehiclenumber || '',
+          vehicletype:   d.vehicletype   || '',
+          vehiclestatus: d.vehiclestatus || '',
+          zonename:      d.zonename      || (getSavedZone(d.driverid) && getSavedZone(d.driverid).zonename) || '',
+          zoneid:        d.zoneid        || (getSavedZone(d.driverid) && getSavedZone(d.driverid).zoneid)   || '',
+          zonequeue:     parseInt(d.zonequeue) || 0,
+          lat:           d.lat || '',
+          lng:           d.lng || '',
+        })).filter(d => d.driverid || d.vehiclenumber || d.drivername);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${_zlu.length} driver(s) from ZONE_DRIVERS`);
+        arrayD(res, _zlu);
 
       } else if (action === '[payment_percentage]') {
         // Payment percentage and per-transaction charge — return zeros (no surcharges)
@@ -6123,7 +6138,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             queuedAt:        j.queuedAt        || 0,
           };
         });
-        console.log(`[GetQueuedJobs] → ${_gqDt1.length} queued job(s)`);
+        // Quiet log spam: only emit when count > 0 OR when count changed from
+        // last poll for this session. The 3 s polling cadence floods the log
+        // with "0 queued job(s)" lines that hide real signal.
+        if (!global._gqLastCountByCid) global._gqLastCountByCid = {};
+        const _gqCidKey = sessionCompanyId || '_';
+        if (_gqDt1.length > 0 || global._gqLastCountByCid[_gqCidKey] !== _gqDt1.length) {
+          console.log(`[GetQueuedJobs] → ${_gqDt1.length} queued job(s)`);
+          global._gqLastCountByCid[_gqCidKey] = _gqDt1.length;
+        }
         objectD(res, { dt1: _gqDt1 });
 
       } else if (action === 'VehiclesStatus') {
@@ -7623,11 +7646,29 @@ async function _seedZoneDriversFromFirebase() {
         // Skip offline / logged-out drivers — they are genuinely not available
         if (!status || _OFFLINE.has(status)) continue;
 
+        const _hasDriverId   = !!(cur.driverid || cur.driverId || node.driverid);
+        const _hasDriverName = !!(cur.drivername || cur.driverName || node.drivername);
+        const _hasVehNum     = !!(cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber);
+        // Skip Firebase records that have no identity fields at all — these are
+        // partial driver-app writes (e.g. only {vehiclestatus, zonequeue}) that
+        // would create blank rows in the dispatcher. Log so the operator can
+        // chase the driver-app team to send the full payload.
+        if (!_hasDriverId && !_hasDriverName && !_hasVehNum) {
+          console.warn(`[seed-drivers] SKIP cid=${cid} vehId=${vehicleId} — Firebase record missing driverid/drivername/vehiclenumber (driver app sent: ${Object.keys(node).join(',') || '(empty)'})`);
+          continue;
+        }
+
         const driverId     = String(cur.driverid  || cur.driverId  || node.driverid  || vehicleId);
         const drivername   = cur.drivername   || cur.driverName   || node.drivername   || '';
         const vehiclenumber= cur.vehiclenumber|| cur.vehicleNumber|| node.vehiclenumber|| vehicleId;
         const vehicletype  = cur.vehicletype  || cur.vehicleType  || node.vehicletype  || '';
-        const zonename     = cur.zonename     || cur.zoneName     || node.zonename     || '';
+        // Zone fallback: prefer Firebase value, then fall back to the driver's
+        // last persisted zone from .data/zone_assignments.json so a returning
+        // driver lands in their previous zone instead of "" until the next
+        // GPS-driven re-detection runs.
+        const _savedZone   = getSavedZone(driverId);
+        const zonename     = cur.zonename     || cur.zoneName     || node.zonename     || (_savedZone && _savedZone.zonename) || '';
+        const zoneid       = cur.zoneid       || cur.zoneId       || node.zoneid       || (_savedZone && _savedZone.zoneid)   || '';
         const zonequeue    = parseInt(cur.zonequeue || cur.zoneQueue || node.zonequeue || '0') || 0;
         const lat          = cur.lat || node.lat || '';
         const lng          = cur.lng || node.lng || '';
@@ -7647,6 +7688,7 @@ async function _seedZoneDriversFromFirebase() {
           vehicletype,
           vehiclestatus: status,
           zonename,
+          zoneid,
           zonequeue:     zonequeue || maxQ + 1,
           queueWaitSince: Date.now(),
           lat,
