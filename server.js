@@ -368,6 +368,118 @@ async function firebaseDbPush(path, value, idToken) {
   return r.body; // { name: "-Os7EhxblNgbMg2B0D6G" }
 }
 
+// ── Firebase cleanup on terminal job state ─────────────────────────────────
+// When a job reaches a terminal state (Completed / Cancelled / Closed) we MUST
+// clear every Firebase path that could resurrect it, otherwise:
+//   - stale /pendingjobs/{cid}/{bookingId} entries with Status='Assigned' get
+//     re-ingested by the dispatcher console on reload
+//   - stale /jobs/{cid}/{vehId}/{drvId} entries trigger the offer watchdog,
+//     which resets the job back to Pending with returnReason="No Response …",
+//     and auto-dispatch immediately re-offers it (= the resurrection bug)
+//   - the driver app keeps the trip card visible because online/{cid}/{vehId}/current
+//     still has jobpickup/jobdropoff populated
+//
+// Called from every site that pushes a job into closedJobStore — covers ALL
+// booking sources (Dispatch console, Website, Passenger app, Rental, ACC,
+// Business Account) and ALL payment types (Cash, Card, Account, TM, Stripe).
+async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus) {
+  try {
+    if (!cid || !bookingId) return;
+    const _cid     = String(cid);
+    const _bId     = String(bookingId);
+    const _vId     = vehId ? String(vehId).trim() : '';
+    const _dId     = drvId ? String(drvId).trim() : '';
+    const _final   = (finalStatus === 'Cancelled') ? 'Cancelled' : 'Completed';
+    const _tag     = `[FBcleanup #${_bId}]`;
+    const tok = await getFirebaseServerToken();
+    if (!tok) { console.warn(`${_tag} no firebase token — skipped`); return; }
+    const auth = encodeURIComponent(tok);
+    const nowIso = new Date().toISOString();
+    const stamp  = (_final === 'Cancelled')
+      ? { cancelledAt: nowIso }
+      : { completedAt: nowIso };
+
+    const tasks = [];
+
+    // 1. /pendingjobs/{cid}/{bookingId} — PATCH to terminal status (kept for
+    //    SA portal + passenger-app trip history). [IngestPassengerJob] only
+    //    re-creates from Scheduled/Waiting/Pending so this prevents resurrection.
+    tasks.push(
+      fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${_bId}.json?auth=${auth}`,
+        'PATCH', Object.assign({ Status: _final, BookingStatus: _final }, stamp))
+        .then(r => console.log(`${_tag} pendingjobs/${_cid}/${_bId} → ${_final} [${r.status}]`))
+        .catch(e => console.warn(`${_tag} pendingjobs PATCH failed: ${e && e.message}`))
+    );
+
+    // 2. /jobs/{cid}/{vehId}/{drvId} — DELETE acceptance/offer listener path.
+    //    This is the path the offer watchdog reads; without removal it can
+    //    reset the job to Pending and auto-dispatch will re-offer it.
+    if (_vId && _dId) {
+      tasks.push(
+        fbRequest(`${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}.json?auth=${auth}`, 'DELETE', null)
+          .then(r => console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} deleted [${r.status}]`))
+          .catch(e => console.warn(`${_tag} jobs DELETE failed: ${e && e.message}`))
+      );
+    }
+
+    // 3. /joback/{bookingId} — DELETE offer-back ack node (driver app offer screen).
+    tasks.push(
+      fbRequest(`${FB_DB_URL}/joback/${_bId}.json?auth=${auth}`, 'DELETE', null)
+        .then(r => console.log(`${_tag} joback/${_bId} deleted [${r.status}]`))
+        .catch(e => console.warn(`${_tag} joback DELETE failed: ${e && e.message}`))
+    );
+
+    // 4. /notification/{drvId} — DELETE only if it still references THIS booking
+    //    (driver may have a newer notification for a different job).
+    if (_dId) {
+      tasks.push((async () => {
+        try {
+          const g = await fbRequest(`${FB_DB_URL}/notification/${_dId}.json?auth=${auth}`, 'GET', null);
+          const n = g.body || {};
+          const refId = String(n.BookingId || n.bookingId || n.jobId || n._jobId || n.Id || '');
+          if (refId && refId === _bId) {
+            const d = await fbRequest(`${FB_DB_URL}/notification/${_dId}.json?auth=${auth}`, 'DELETE', null);
+            console.log(`${_tag} notification/${_dId} deleted [${d.status}]`);
+          } else if (refId) {
+            console.log(`${_tag} notification/${_dId} kept (refs job #${refId}, not #${_bId})`);
+          }
+        } catch(e) { console.warn(`${_tag} notification check failed: ${e && e.message}`); }
+      })());
+    }
+
+    // 5. /online/{cid}/{vehId}/current — PATCH-clear job fields ONLY if currently
+    //    pointing at this booking. Driver stays online.
+    if (_vId) {
+      tasks.push((async () => {
+        try {
+          const g = await fbRequest(`${FB_DB_URL}/online/${_cid}/${_vId}/current.json?auth=${auth}`, 'GET', null);
+          const c = g.body || {};
+          const cur = String(c.currentJobId || c.jobId || c.joboffer || '');
+          if (cur && cur === _bId) {
+            await fbRequest(`${FB_DB_URL}/online/${_cid}/${_vId}/current.json?auth=${auth}`,
+              'PATCH', { currentJobId: null, jobId: null, joboffer: 0,
+                         jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '' });
+            console.log(`${_tag} online/${_cid}/${_vId}/current cleared`);
+          }
+        } catch(e) { console.warn(`${_tag} online clear failed: ${e && e.message}`); }
+      })());
+    }
+
+    // 6. /rideStatus/{cid}/{bookingId} — PATCH terminal status for any consumers.
+    tasks.push(
+      fbRequest(`${FB_DB_URL}/rideStatus/${_cid}/${_bId}.json?auth=${auth}`,
+        'PATCH', Object.assign({ status: _final }, stamp))
+        .then(r => console.log(`${_tag} rideStatus/${_cid}/${_bId} → ${_final} [${r.status}]`))
+        .catch(e => console.warn(`${_tag} rideStatus PATCH failed: ${e && e.message}`))
+    );
+
+    await Promise.allSettled(tasks);
+    console.log(`${_tag} cleanup complete (${_final})`);
+  } catch(e) {
+    console.warn(`[FBcleanup #${bookingId}] cleanup failed: ${e && e.message}`);
+  }
+}
+
 // ─── In-memory job store ──────────────────────────────────────────────────────
 // Legacy booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
 let _idSeqDate = '';
@@ -2796,6 +2908,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       saveJobStore();
       saveClosedJobStore();
       if (_sotJob.BookingStatus === 'Completed') _patchRentalComplete(_sotJob);
+      // §FBcleanup — driver-app offline-sync completion/cancellation.
+      _bwClearJobFromFirebase(_sotJob.companyId || sessionCompanyId, _sotJob.Id,
+        _sotVehId || _sotJob.VehicleNo || _sotJob.CallSign || '',
+        _sotDrvId || _sotJob.DriverId || '', _sotJob.BookingStatus);
       // Release the driver in ZONE_DRIVERS
       const _sotZd = ZONE_DRIVERS.find(d =>
         String(d.driverid) === _sotDrvId || String(d.VehicleId) === _sotDrvId ||
@@ -3647,6 +3763,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
           saveClosedJobStore();
           _patchRentalComplete(job);
+          // §FBcleanup — clear all Firebase paths so the trip cannot be resurrected
+          // by stale entries (pendingjobs, jobs, online/current, joback, notification).
+          _bwClearJobFromFirebase(sessionCompanyId, closeId,
+            job.VehicleNo || job.CallSign || '', closingDriverId || '', 'Completed');
           console.log(`200: POST ${urlPath} [action=UpdateBooking] -> closed job #${closeId}, driver ${closingDriverId} released`);
           arrayD(res, [{ Result: 'Ride Ended Successfully', BookingId: closeId }]);
         } else {
@@ -3880,6 +4000,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           jobStore.splice(idx, 1);
           saveJobStore();
           saveClosedJobStore();
+          // §FBcleanup — clear Firebase paths so cancelled job cannot be resurrected.
+          _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+            job.VehicleNo || job.CallSign || '', job.DriverId || '', 'Cancelled');
           // Sync cancellation back to Firebase for Rental jobs
           if (job.rentalRequestId) {
             const _rKey = job.rentalRequestId, _rId = job.Id;
@@ -4461,6 +4584,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               closedJobStore.push(job);
               saveJobStore();
               saveClosedJobStore();
+              // §FBcleanup
+              _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                job.VehicleNo || job.CallSign || '', _dcDriverId || job.DriverId || '', 'Cancelled');
               console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled at pickup → Available q=${_dcQueueNo})`);
               objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
             } else {
@@ -4957,6 +5083,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveJobStore();
                 saveClosedJobStore();
                 _patchRentalComplete(job);
+                // §FBcleanup
+                _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                  vehiclenumber || job.VehicleNo || job.CallSign || '',
+                  driverId || job.DriverId || '', 'Completed');
                 // Capture for Firebase write by the client
                 // §108d — resolve paymentType correctly for web (card) bookings.
                 // Web booking jobs carry paymentMethod:'card' + paymentStatus:'paid' but
@@ -5090,6 +5220,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     closedJobStore.push(job);
                     saveJobStore();
                     saveClosedJobStore();
+                    // §FBcleanup
+                    _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                      vehiclenumber || job.VehicleNo || job.CallSign || '',
+                      driverId || job.DriverId || '', 'Cancelled');
                     _dscDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dscQueueNo };
                     console.log(`  [DriverStatusChanged/DP] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled at pickup, q=${_dscQueueNo})`);
                   } else {
@@ -5229,6 +5363,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           jobStore.splice(_cjIdx, 1);
           saveJobStore();
           saveClosedJobStore();
+          // §FBcleanup
+          _bwClearJobFromFirebase(sessionCompanyId, _cjJob.Id,
+            _cjJob.VehicleNo || _cjJob.CallSign || '', _cjDriverId || '', 'Cancelled');
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${_cjBookingId}, driver ${_cjDriverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _cjDriverId }]);
@@ -5315,6 +5452,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
           saveClosedJobStore();
           _patchRentalComplete(_fcJob);
+          // §FBcleanup
+          _bwClearJobFromFirebase(sessionCompanyId, _fcJob.Id,
+            _fcJob.VehicleNo || _fcJob.CallSign || '', _fcDrvId || '', 'Completed');
           console.log(`200: POST ${urlPath} [action=${action}] -> job #${_fcJobId} force-completed by dispatcher`);
           objectD(res, { dt1: [{ Result: 'Job force-completed', jobId: _fcJobId }], dt2: [], dt3: [], dt4: [], dt5: [] });
         }
@@ -5615,6 +5755,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           jobStore.splice(idx, 1);
           saveJobStore();
           saveClosedJobStore();
+          // §FBcleanup
+          _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+            job.VehicleNo || job.CallSign || '', driverId || '', 'Cancelled');
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId} -> moved to closedJobStore`);
         arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: driverId }]);
@@ -6699,6 +6842,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveJobStore();
                 saveClosedJobStore();
                 _patchRentalComplete(job);
+                // §FBcleanup
+                _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                  vehiclenumber || job.VehicleNo || job.CallSign || '',
+                  driverId || job.DriverId || '', 'Completed');
                 // §108d — patch allbookings so SA portal gets correct Status and paymentMethod.
                 // Mirror of the DP path fix; without this, DS-path completions showed wrong data.
                 const _cjPayMethodDS = (
@@ -6797,6 +6944,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     closedJobStore.push(job);
                     saveJobStore();
                     saveClosedJobStore();
+                    // §FBcleanup
+                    _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                      vehiclenumber || job.VehicleNo || job.CallSign || '',
+                      driverId || job.DriverId || '', 'Cancelled');
                     _dssDriverCancelled = { jobId: job.Id, driverId, drivername, vehiclenumber, newQueueNo: _dssQueueNo };
                     console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Cancelled (driver cancelled at pickup, q=${_dssQueueNo})`);
                   } else {
