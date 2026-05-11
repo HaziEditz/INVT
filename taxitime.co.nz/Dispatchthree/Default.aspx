@@ -554,7 +554,7 @@
 
     .topnav a {
         float: left;
-        color: black;
+        color: #ffffff;
         text-align: center;
         padding: 14px 16px;
         text-decoration: none;
@@ -563,7 +563,7 @@
 
         .topnav a:hover {
             background-color: #ddd;
-            color: black;
+            color: #ffffff;
         }
 
     .chat-message {
