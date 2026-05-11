@@ -5012,6 +5012,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               });
               saveJobStore();
               console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber}) companyId=${sessionCompanyId} at ${pickAddr}`);
+              // Bootstrap zone for Hail drivers with no zone info — without this
+              // the right-side zone queue groups them under the no-zone bucket,
+              // and the status-bar zone column stays blank.  Use placeholder
+              // "Hail" so the driver is visible until a real zone arrives.
+              if (_hailZd && !_hailZd.zonename) {
+                _hailZd.zonename = 'Hail';
+                _hailZd.zoneid   = _hailZd.zoneid || 'hail';
+                saveZoneAssignment(driverId, 'Hail', _hailZd.zoneid);
+                console.log(`  [DriverStatusChanged] driver ${driverId} bootstrapped to placeholder zone "Hail"`);
+              }
             }
           }
           // Re-query after potential hail insertion so Available can complete a just-created job
@@ -5077,6 +5087,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
+                // Hail-flicker debounce: driver app sometimes rapid-toggles
+                // Busy → Available within a second or two of creating a Hail
+                // job, which churns Active → Completed → new Hail every cycle
+                // and makes the car-map marker flicker.  If this Active job is
+                // a Hail less than 3 s old, treat the Available as a phantom
+                // heartbeat and leave the job Active.  A real completion will
+                // arrive on the next Available after the 3 s window.
+                const _isHailDb = job.BookingSource === 'Hail' || job.booking_type === 'Hail';
+                const _activeAtMsDb = job.ActiveAt ? new Date(job.ActiveAt).getTime() : 0;
+                const _ageMsDb = _activeAtMsDb ? (Date.now() - _activeAtMsDb) : Infinity;
+                if (_isHailDb && _ageMsDb < 3000) {
+                  console.log(`  [DriverStatusChanged] Job #${job.Id} Available IGNORED — Hail debounce (age=${_ageMsDb}ms)`);
+                  return;
+                }
                 // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString();
@@ -6860,6 +6884,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
+                // Hail-flicker debounce: driver app sometimes rapid-toggles
+                // Busy → Available within a second or two of creating a Hail
+                // job, which churns Active → Completed → new Hail every cycle
+                // and makes the car-map marker flicker.  If this Active job is
+                // a Hail less than 3 s old, treat the Available as a phantom
+                // heartbeat and leave the job Active.  A real completion will
+                // arrive on the next Available after the 3 s window.
+                const _isHailDb = job.BookingSource === 'Hail' || job.booking_type === 'Hail';
+                const _activeAtMsDb = job.ActiveAt ? new Date(job.ActiveAt).getTime() : 0;
+                const _ageMsDb = _activeAtMsDb ? (Date.now() - _activeAtMsDb) : Infinity;
+                if (_isHailDb && _ageMsDb < 3000) {
+                  console.log(`  [DriverStatusChanged] Job #${job.Id} Available IGNORED — Hail debounce (age=${_ageMsDb}ms)`);
+                  return;
+                }
                 // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString();
