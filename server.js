@@ -5016,11 +5016,29 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               // the right-side zone queue groups them under the no-zone bucket,
               // and the status-bar zone column stays blank.  Use placeholder
               // "Hail" so the driver is visible until a real zone arrives.
-              if (_hailZd && !_hailZd.zonename) {
-                _hailZd.zonename = 'Hail';
-                _hailZd.zoneid   = _hailZd.zoneid || 'hail';
-                saveZoneAssignment(driverId, 'Hail', _hailZd.zoneid);
-                console.log(`  [DriverStatusChanged] driver ${driverId} bootstrapped to placeholder zone "Hail"`);
+              if (_hailZd) {
+                if (!_hailZd.zonename) {
+                  _hailZd.zonename = 'Hail';
+                  _hailZd.zoneid   = _hailZd.zoneid || 'hail';
+                  saveZoneAssignment(driverId, 'Hail', _hailZd.zoneid);
+                  console.log(`  [DriverStatusChanged] driver ${driverId} bootstrapped to placeholder zone "Hail"`);
+                }
+              } else {
+                // Driver isn't in ZONE_DRIVERS yet (first-sighting was Busy, no
+                // Available ever processed). Insert a placeholder entry so the
+                // right-side zone queue + status-bar zone column show the car
+                // under "Hail" until a real zone arrives.
+                const _maxQH = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+                ZONE_DRIVERS.push({
+                  driverid: driverId, VehicleId: vehiclenumber || driverId,
+                  drivername: _hailFullName, vehiclenumber: vehiclenumber || '',
+                  vehicletype: '', zonename: 'Hail', zoneid: 'hail',
+                  vehiclestatus: 'Busy', zonequeue: _maxQH + 1,
+                  queueWaitSince: Date.now(),
+                  companyId: sessionCompanyId || '',
+                });
+                saveZoneAssignment(driverId, 'Hail', 'hail');
+                console.log(`  [DriverStatusChanged] driver ${driverId} inserted into ZONE_DRIVERS at placeholder zone "Hail"`);
               }
             }
           }
@@ -6837,6 +6855,28 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               });
               saveJobStore();
               console.log(`  [DriverStatusChanged/DS] Hail job #${hailId} for driver ${driverId} (${vehiclenumber}) companyId=${sessionCompanyId} at ${pickAddr}`);
+              // Bootstrap zone for Hail drivers (mirrors DP path) so the
+              // right-side zone queue + status-bar zone column don't go blank.
+              if (_hailZdDS) {
+                if (!_hailZdDS.zonename) {
+                  _hailZdDS.zonename = 'Hail';
+                  _hailZdDS.zoneid   = _hailZdDS.zoneid || 'hail';
+                  saveZoneAssignment(driverId, 'Hail', _hailZdDS.zoneid);
+                  console.log(`  [DriverStatusChanged/DS] driver ${driverId} bootstrapped to placeholder zone "Hail"`);
+                }
+              } else {
+                const _maxQHds = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+                ZONE_DRIVERS.push({
+                  driverid: driverId, VehicleId: vehiclenumber || driverId,
+                  drivername: _hailFullNameDS, vehiclenumber: vehiclenumber || '',
+                  vehicletype: '', zonename: 'Hail', zoneid: 'hail',
+                  vehiclestatus: 'Busy', zonequeue: _maxQHds + 1,
+                  queueWaitSince: Date.now(),
+                  companyId: sessionCompanyId || '',
+                });
+                saveZoneAssignment(driverId, 'Hail', 'hail');
+                console.log(`  [DriverStatusChanged/DS] driver ${driverId} inserted into ZONE_DRIVERS at placeholder zone "Hail"`);
+              }
             }
           }
           const allDriverJobs = jobStore.filter(matchesDriverDS);
