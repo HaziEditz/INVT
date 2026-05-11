@@ -1855,6 +1855,39 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // POST /admin/registrations/:id/set-plan  body: { plan, planLabel?, planPrice? }
+      // Switches a tenant onto a paid plan and clears trial/grace state in one call.
+      // The dispatch-console banner only checks `status`, so promoting plan alone is
+      // not enough — this also flips status to 'active' and nulls trialEnd/graceEnd.
+      if (action === 'set-plan' && req.method === 'POST') {
+        let _spBody = '';
+        req.on('data', c => _spBody += c);
+        req.on('end', () => {
+          let _spPayload = {};
+          try { _spPayload = JSON.parse(_spBody || '{}'); } catch (_) {}
+          const _newPlan = String(_spPayload.plan || '').trim();
+          if (!_newPlan) {
+            jsonReply(res, { error: 'plan is required (e.g. "pro", "starter", "premium")' });
+            return;
+          }
+          // Pull defaults from PLAN_CONFIG if it knows this plan; otherwise use payload.
+          const _cfg = (typeof PLAN_CONFIG !== 'undefined' && PLAN_CONFIG[_newPlan]) || null;
+          reg.plan       = _newPlan;
+          reg.planLabel  = _spPayload.planLabel || (_cfg && _cfg.label)        || _newPlan;
+          reg.planPrice  = (_spPayload.planPrice != null) ? Number(_spPayload.planPrice)
+                          : (_cfg ? _cfg.priceMonthly : reg.planPrice || 0);
+          reg.status     = 'active';
+          reg.trialEnd   = null;
+          reg.graceEnd   = null;
+          reg.trialDays  = 0;
+          saveRegistrations();
+          console.log(`[admin] set-plan ${regId} (${reg.email}) → plan=${reg.plan} status=active`);
+          jsonReply(res, { ok: true, message: `Plan set to ${reg.planLabel}, account active.`,
+                            plan: reg.plan, planLabel: reg.planLabel, planPrice: reg.planPrice, status: reg.status });
+        });
+        return;
+      }
+
       // DELETE /admin/registrations/:id  ─OR─  POST /admin/registrations/:id/delete
       // Permanently removes the company from the store so they can never log in again.
       // Also revokes Firebase adminAccess so the owner can't reach other Repls.
