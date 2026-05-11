@@ -1250,6 +1250,11 @@ const DRIVER_ZONE_MEMORY = {};
 // Call this when they are Available and before they are dispatched.
 function saveDriverHomeState(driverId, zd) {
   if (!driverId || !zd) return;
+  // Skip empty-zone heartbeats — driver app sometimes omits zonename, and
+  // saving "" would overwrite a previously-known-good home zone with garbage.
+  // Without this guard the right-side zone queue collapses every Hail driver
+  // into the no-zone bucket on every status change.
+  if (!zd.zonename) return;
   const id = String(driverId);
   DRIVER_ZONE_MEMORY[id] = Object.assign(DRIVER_ZONE_MEMORY[id] || {}, {
     homeZone:     zd.zonename  || '',
@@ -7001,6 +7006,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 console.log(`  [DriverStatusChanged/DS] driver ${driverId} zone change ${zdAvailDS.zonename} → ${incomingZoneDS}`);
                 zdAvailDS.zonename = incomingZoneDS;
                 if (param('zoneid')) zdAvailDS.zoneid = (param('zoneid') || '').toString().trim();
+              }
+              // Driver app sometimes omits zonename on heartbeats — restore from
+              // the disk-saved assignment so the zone column doesn't go blank.
+              if (!zdAvailDS.zonename) {
+                const _savedZnAvDS = getSavedZone(driverId);
+                if (_savedZnAvDS && _savedZnAvDS.zonename) {
+                  zdAvailDS.zonename = _savedZnAvDS.zonename;
+                  zdAvailDS.zoneid   = zdAvailDS.zoneid || _savedZnAvDS.zoneid || '';
+                  console.log(`  [DriverStatusChanged/DS] driver ${driverId} zone restored from disk: "${zdAvailDS.zonename}"`);
+                }
               }
               const currentZoneDS = zdAvailDS.zonename || '';
               _dssQueueNo = calcRestoredQueue(driverId, currentZoneDS);
