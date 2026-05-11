@@ -350,5 +350,9 @@
   "D001": {
     "zonename": "North",
     "zoneid": ""
+  },
+  "D002": {
+    "zonename": "Hail",
+    "zoneid": "hail"
   }
 }
