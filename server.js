@@ -3069,6 +3069,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
 
     console.log(`200: POST /api/job/create -> reserved job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);
+    try { console.time(`booking-gap-${_cjIdStr}`); } catch(e) {}
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ ok: true, jobId: _cjIdStr, createdAt: _cjCreated }));
     return;
@@ -3557,6 +3558,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       '[InsertPassengerBalance]', '[GetPassengerBalance]',
       // Web / Passenger bookings — all handled locally
       '[IngestPassengerJob]', '[UpdateScheduledLeadTime]',
+      // Booking writes — real backend has no session, proxy attempt just adds 8s of dead wait
+      'InsertBookingv4', '[ProcUpdateJobv6]',
       // ACC / Business Account / Passenger — all local storage, never proxy
       '[searchmulti]',
       'Manager_ACC_ADD', 'Client_ACC_ADD',
@@ -3626,6 +3629,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     if (urlPath.includes('/DataSelectorRide')) {
       if (action === 'InsertBookingv4') {
         const newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
+        try { console.timeEnd(`booking-gap-${newId}`); } catch(e) {}
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
@@ -3823,6 +3827,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     if (urlPath.includes('/DataProcessor')) {
       if (action === 'InsertBookingv4' || action === '[AddBookingConsole]') {
         const newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
+        try { console.timeEnd(`booking-gap-${newId}`); } catch(e) {}
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
         const pickLatLng = param('PickLatLng') || '-46.4120,168.3538';
