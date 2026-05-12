@@ -3,7 +3,7 @@
     "_fbKey": "6112605122",
     "Id": 6112605122,
     "companyId": "620611",
-    "BookingStatus": "Offered",
+    "BookingStatus": "Assigned",
     "BookingSource": "Website",
     "Name": "Safinah Mohammed",
     "PhoneNo": "021304322",
@@ -20,8 +20,8 @@
     "serviceType": "taxi",
     "bookingType": "ASAP",
     "paymentStatus": "paid",
-    "DriverId": "D002",
-    "VehicleId": "D002",
+    "DriverId": -2,
+    "VehicleId": 0,
     "DispatchTimebefore": "0",
     "OfferedAt": "2026-05-12T16:03:48.811Z",
     "offeredAt": 1778602790751,
@@ -29,6 +29,8 @@
     "CallSign": "TAXI02",
     "UserFName": "TestDriver",
     "UserLName": "Two",
-    "returnReason": "No Response – Not Accepted"
+    "returnReason": "Recalled by Driver",
+    "assignedAt": 1778603151435,
+    "AcceptedAt": "2026-05-12T16:19:59.732Z"
   }
 ]
