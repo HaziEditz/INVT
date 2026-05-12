@@ -7722,22 +7722,53 @@ setInterval(async () => {
         // ── Step 3: stale-pending cleanup ──────────────────────────────────
         // If this pendingjobs key corresponds to a job that is already closed
         // AND is not currently live in jobStore, delete it so it doesn't
-        // permanently block that slot.  The jobStore check is critical: the
-        // same numeric ID can appear in closedJobStore from a prior session
-        // while a brand-new job with that ID is actively running — in that
-        // case we must not delete the live Firebase entry.
+        // permanently block that slot.  Two safety checks before deleting:
+        //   (a) jobStore check — same numeric ID can appear in closedJobStore
+        //       from a prior session while a brand-new job with that ID is
+        //       actively running; never delete a live Firebase entry.
+        //   (b) timestamp check — a Website/Console booking can REUSE a
+        //       recycled ID after the previous job with that ID was closed.
+        //       The pending record is fresh (CreatedAt newer than the closed
+        //       job's completion time) — leaving it must NOT be treated as
+        //       stale or the booking silently disappears (operator sees the
+        //       toast but no row in the Unassigned tab).
         if (_normIdNum) {
           const _normLive = jobStore.find(j =>
             j.Id === _normIdNum && String(j.companyId || '') === cid
           );
           if (!_normLive) {
-            const _normClosed = closedJobStore.find(j =>
+            // Compare against the NEWEST closure for this (Id, companyId).
+            // closedJobStore can contain multiple historical entries with the
+            // same numeric Id (ID-recycling across days); using .find() would
+            // return the oldest and misclassify recycle scenarios.
+            const _allClosedMatches = closedJobStore.filter(j =>
               j.Id === _normIdNum && String(j.companyId || '') === cid
             );
-            if (_normClosed) {
-              firebaseDbDelete(`pendingjobs/${cid}/${key}`, token).catch(() => {});
-              console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store)`);
-              continue;
+            if (_allClosedMatches.length) {
+              const _closedAtMs = _allClosedMatches.reduce((max, j) => {
+                const t = Number(j.completedAtMs) ||
+                  (j.JobCompleteTime ? Date.parse(j.JobCompleteTime) : 0) || 0;
+                return t > max ? t : max;
+              }, 0);
+              // Robust pending-creation timestamp: try every known field
+              // before giving up. Some booking sources omit createdAt entirely.
+              const _pendCreatedMs =
+                Number(rec.createdAt) ||
+                (rec.CreatedAt ? Date.parse(rec.CreatedAt) : 0) ||
+                (rec.BookingDateTime ? Date.parse(rec.BookingDateTime) : 0) ||
+                Number(rec.ScheduledForMs) ||
+                (rec.ScheduledFor ? Date.parse(rec.ScheduledFor) : 0) ||
+                0;
+              if (_pendCreatedMs && _closedAtMs && _pendCreatedMs <= _closedAtMs) {
+                firebaseDbDelete(`pendingjobs/${cid}/${key}`, token).catch(() => {});
+                console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store, pendingCreated=${_pendCreatedMs} closedAt=${_closedAtMs})`);
+                continue;
+              }
+              // Fresh booking that reused a recycled ID, OR we cannot compare
+              // timestamps. Safer fallback: KEEP it. Losing a real booking
+              // (the symptom we just fixed) is much worse than letting an
+              // edge-case stale record linger one extra cycle.
+              console.log(`[pendingjobs-normalizer] Kept pendingjobs/${cid}/${key} — pendingCreated=${_pendCreatedMs} vs newest closedAt=${_closedAtMs} (ID reuse or unknown timestamps)`);
             }
           }
         }
