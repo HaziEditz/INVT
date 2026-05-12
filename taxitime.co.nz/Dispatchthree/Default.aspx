@@ -829,7 +829,7 @@
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                 <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
@@ -939,7 +939,7 @@
 
                                                                     <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
+                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
 
                                                                 </span>
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
@@ -1048,7 +1048,7 @@
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         <span ng-if="avalue.Acc_job_id">ACC</span>
                                                                         <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}} &middot; Account Job</span>
-                                                                        <span ng-if="avalue.Recieve_payment">Paid</span>
+                                                                        <span ng-if="avalue.Recieve_payment">Paid</span><span ng-if="(avalue.paymentMethod||avalue.PaymentMethod) && (avalue.paymentMethod||avalue.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(avalue.paymentMethod||avalue.PaymentMethod)|uppercase}}</span><span ng-if="((avalue.paymentStatus||avalue.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
 
@@ -1173,7 +1173,7 @@
 
                                                                     <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
+                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
 
                                                                     </span>
 
@@ -1234,7 +1234,7 @@
 
                                                                     {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                 <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
@@ -1301,7 +1301,7 @@
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                    
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
+                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
 
                                                                 </span>
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
@@ -3912,7 +3912,7 @@ $(document).ready(function() {
                                                             <span class="bw-b" ng-style="{background: value.JobMins<=0 ? '#16a34a' : value.JobMins<=30 ? '#d97706' : '#2563eb', color:'#fff'}">
                                                                 <i class="fa fa-clock-o"></i> {{jobTypeLabel(value.JobMins, value.DispatchTimebefore)}}
                                                             </span>
-                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(value.Pickingtime, value.DispatchTimebefore)}}</span>
+                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)}}</span>
                                                             <span ng-if="value.DispatchTimebefore > 0" class="bw-b bw-dispatch-arrow" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#7c3aed', color:'#fff'}">
                                                                 <i class="fa fa-send"></i> {{dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore)}}
                                                             </span>
@@ -3973,7 +3973,7 @@ $(document).ready(function() {
                                                             <span ng-if="value._preQueueDriver" class="bw-b" style="background:#e67e22;color:#fff;" title="Offered to busy driver: {{value._preQueueDriver}}"><i class="fa fa-clock-o"></i> Busy&#8594;{{value._preQueueDriver}}</span>
                                                             <span ng-if="value.Acc_job_id" class="bw-mc">ACC</span>
                                                             <span ng-if="value.Account_id" class="bw-mc" title="Account ID: {{value.Account_id}}{{value.Acc_claim_id ? ' | Claim: '+value.Acc_claim_id : ''}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || ('Acct #'+value.Account_id)}} &middot; Account Job</span>
-                                                            <span ng-if="value.Recieve_payment" class="bw-mc">Paid</span>
+                                                            <span ng-if="value.Recieve_payment" class="bw-mc">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="bw-mc" style="background:#475569;color:#fff;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="bw-mc" style="background:#16a34a;color:#fff;font-weight:700;" title="Pre-paid online">PAID</span>
                                                             <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
                                                                 <span class="bw-ml" ng-if="value.DispatcherName" style="max-width:55px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{value.DispatcherName}}"><i class="fa fa-headphones"></i> {{value.DispatcherName}}</span>
                                                                 <span class="bw-ml" ng-if="value.BookingSource" title="{{value.BookingSource}}"><i class="fa fa-tag"></i>{{bwSrcShort(value.BookingSource)}}</span>
@@ -4011,7 +4011,7 @@ $(document).ready(function() {
                                                                     <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
                                                                 </span>
 
-                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                 <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                
@@ -4117,7 +4117,7 @@ $(document).ready(function() {
 
                                                                     <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
+                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
 
                                                                 </span>
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
@@ -4246,7 +4246,7 @@ $(document).ready(function() {
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                         <span ng-if="avalue.Acc_job_id">ACC</span>
                                                                         <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}} &middot; Account Job</span>
-                                                                        <span ng-if="avalue.Recieve_payment">Paid</span>
+                                                                        <span ng-if="avalue.Recieve_payment">Paid</span><span ng-if="(avalue.paymentMethod||avalue.PaymentMethod) && (avalue.paymentMethod||avalue.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(avalue.paymentMethod||avalue.PaymentMethod)|uppercase}}</span><span ng-if="((avalue.paymentStatus||avalue.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
                                                                     </span>
                                                                     <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
 
@@ -4420,7 +4420,7 @@ $(document).ready(function() {
 
                                                                     <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
 
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
+                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
 
                                                                     </span>
 
@@ -4483,7 +4483,7 @@ $(document).ready(function() {
 
                                                                     {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
                                                                 </span>
-                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime, value.DispatchTimebefore) }} 
+                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore) }} 
                                                                 </span>
                                                                 <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
                                                                 <div ng-if="value.Passengers > 4" style="padding: 6px;">
@@ -4547,7 +4547,7 @@ $(document).ready(function() {
                                                                 <span class="label label-pill label-primary mt-2">
                                                                     <i style="color: black" class="glyphicon glyphicon-tag"></i>
                                                                    
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span>
+                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
 
                                                                 </span>
                                                                 <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>

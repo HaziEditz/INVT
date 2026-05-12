@@ -4757,7 +4757,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     CompanyId:      String(sessionCompanyId),
                     ServiceType:    job.serviceType  || 'taxi',
                     BookingSource:  job.BookingSource|| 'Dispatch Console',
-                    WebBooking:     false
+                    WebBooking:     false,
+                    // Payment visibility for driver app — covers website Stripe pre-pays,
+                    // passenger-app card/cash, dispatcher card/cash, and account jobs.
+                    paymentMethod:  String(job.paymentMethod || job.PaymentMethod || ''),
+                    paymentStatus:  String(job.paymentStatus || job.PaymentStatus || ''),
+                    PaidAmount:     String(job.PaidAmount || job.Recieve_payment || ''),
+                    AccountId:      String(job.Account_id || job.AccountId || ''),
+                    AccountName:    String(job.Account_Name || job.AccountName || '')
                   };
                   if (_pjPickLL) _pjPatch.pickupLocation  = { address: job.PickAddress || '', lat: _pjPickLL.lat, lng: _pjPickLL.lng };
                   if (_pjDropLL) _pjPatch.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
