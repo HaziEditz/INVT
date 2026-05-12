@@ -1,3 +1,9 @@
+// CRITICAL: must be set BEFORE any Date object is constructed so that all
+// `new Date()` / `toString()` / `toLocaleString()` calls without an explicit
+// timezone argument resolve to NZ local time.  Without this the Replit
+// container runs in UTC and every dispatch timestamp is 12-13 h off.
+process.env.TZ = 'Pacific/Auckland';
+
 // ─── Timezone standards (BookaWaka multi-tenant) ──────────────────────────────
 // Rule: Store timestamps as UTC ISO  →  new Date().toISOString()
 // Rule: "today's date"              →  _tzTodayStr(tz)         (en-CA locale = YYYY-MM-DD)
@@ -7931,8 +7937,87 @@ async function _syncBizAccountsFromFirebase() {
   }
 }
 
+// ─── Hail-staleness reconciler ────────────────────────────────────────────────
+// Defensive janitor for the case where a driver completes a Hail on the driver
+// app but the app fails to write `vehiclestatus = Available` back to Firebase
+// (lost network, crashed, etc.).  Without this, the dispatch HQ Active tab
+// shows the trip indefinitely because the source-of-truth (Firebase) still
+// says "Busy".
+//
+// Logic per tick (every 30 s):
+//   for each Active Hail in jobStore:
+//     read live Firebase vehiclestatus for the driver's vehicle
+//     if vehiclestatus is anything OTHER than Busy/Picking/Assigned:
+//       record first-seen-available timestamp
+//       if first-seen-available is older than 30 s → auto-complete the hail
+//     else: clear any stale first-seen entry (driver still on a trip)
+const _hailStaleFirstSeen = new Map(); // jobId → ms when we first saw an idle status
+let _hailReconRunning = false;          // single-flight guard: skip overlapping ticks
+async function _reconcileStuckHails() {
+  if (_hailReconRunning) return;
+  _hailReconRunning = true;
+  try {
+    const activeHails = jobStore.filter(j =>
+      j.BookingStatus === 'Active' &&
+      (j.BookingSource === 'Hail' || j.booking_type === 'Hail')
+    );
+    if (activeHails.length === 0) { _hailStaleFirstSeen.clear(); return; }
+    const tok = await getFirebaseServerToken().catch(() => null);
+    if (!tok) return;
+    // Explicit allow-list of "driver is free" statuses — anything else (including
+    // null/unknown/transient) is treated as "still on trip" so we never
+    // auto-complete on missing data.
+    const IDLE_STATUSES = new Set(['available','offline','break','idle','off']);
+    for (const job of activeHails) {
+      const cid = job.companyId || '';
+      const vid = job.VehicleId || job.VehicleNo || '';
+      if (!cid || !vid) continue;
+      let cur;
+      try {
+        cur = await firebaseDbGet(`online/${cid}/${vid}/current`, tok);
+      } catch (e) {
+        // Read error → reset first-seen so we require a fresh continuous window
+        _hailStaleFirstSeen.delete(job.Id);
+        continue;
+      }
+      const vs = (cur && cur.vehiclestatus) ? String(cur.vehiclestatus).trim().toLowerCase() : '';
+      if (!IDLE_STATUSES.has(vs)) {
+        // Unknown / Busy / Picking / Assigned / etc. → driver still considered on trip
+        _hailStaleFirstSeen.delete(job.Id);
+        continue;
+      }
+      const firstSeen = _hailStaleFirstSeen.get(job.Id) || Date.now();
+      if (!_hailStaleFirstSeen.has(job.Id)) _hailStaleFirstSeen.set(job.Id, firstSeen);
+      if (Date.now() - firstSeen < 30000) continue;
+      // Idempotency check: another path (DriverStatusChanged completion) may have
+      // already closed this job during our async Firebase read. Re-validate before
+      // mutating closedJobStore, so we never double-close.
+      const stillIdx = jobStore.indexOf(job);
+      if (stillIdx === -1 || job.BookingStatus !== 'Active') {
+        _hailStaleFirstSeen.delete(job.Id);
+        continue;
+      }
+      job.BookingStatus   = 'Completed';
+      job.JobCompleteTime = new Date().toISOString();
+      job.completedAtMs   = Date.now();
+      jobStore.splice(stillIdx, 1);
+      closedJobStore.push(job);
+      saveJobStore(); saveClosedJobStore();
+      _hailStaleFirstSeen.delete(job.Id);
+      _bwClearJobFromFirebase(cid, job.Id, vid, job.DriverId || '', 'Completed');
+      console.log(`[hail-reconciler] auto-completed stuck Hail #${job.Id} (driver ${job.DriverId} ${vid}) — Firebase vehiclestatus="${vs}" for >=30s`);
+    }
+  } catch (e) {
+    console.warn('[hail-reconciler] tick failed:', e && e.message);
+  } finally {
+    _hailReconRunning = false;
+  }
+}
+setInterval(_reconcileStuckHails, 30000);
+
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
+  console.log(`[tz] process.env.TZ=${process.env.TZ} | server local time=${new Date().toString()}`);
   // Seed ZONE_DRIVERS from Firebase so auto-dispatch works immediately after restart,
   // without waiting for each driver app to send its next heartbeat.
   _seedZoneDriversFromFirebase();
