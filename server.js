@@ -7902,7 +7902,40 @@ async function _seedZoneDriversFromFirebase() {
     }
 
     const _OFFLINE = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
-    let seeded = 0;
+    let seeded = 0, recovered = 0, skippedOrphan = 0, skippedStub = 0;
+
+    // Build a per-company {vehicleId → identity} index from the most-recent
+    // closed job for that vehicle. closedJobStore is our persistent source of
+    // truth for driver/vehicle identity — every completed job carries full
+    // DriverId/DriverName/VehicleNo. We use this to recover identity for
+    // Firebase nodes whose `current/` lost identity fields (e.g. driver app
+    // went offline mid-trip and only job/GPS state survived).
+    const _idIndex = {};  // { cid: { vehicleId: { driverid, drivername, vehiclenumber, vehicletype } } }
+    for (let i = closedJobStore.length - 1; i >= 0; i--) {
+      const cj = closedJobStore[i];
+      const _cid = String(cj.companyId || cj.CompanyId || '');
+      // Index by BOTH VehicleNo and VehicleId (legacy jobs sometimes store
+      // the driver-id in VehicleId and the real plate number in VehicleNo;
+      // Firebase online/{cid} keys are the plate number). Indexing both
+      // keys means lookup by either succeeds.
+      const _vno = String(cj.VehicleNo || cj.vehiclenumber || '').trim();
+      const _vid = String(cj.VehicleId || '').trim();
+      const _did = String(cj.DriverId || cj.driverId || '').trim();
+      // Skip jobs with no real driver (placeholder ids -1/-2/0 mean "unassigned")
+      const _BAD_DRV = new Set(['', '0', '-1', '-2', 'undefined', 'null']);
+      if (!_cid || _BAD_DRV.has(_did) || (!_vno && !_vid)) continue;
+      if (!_idIndex[_cid]) _idIndex[_cid] = {};
+      const _entry = {
+        driverid:      _did,
+        // NOTE: do NOT fall back to cj.Name — that is the passenger's name.
+        drivername:    cj.DriverName || cj.drivername || '',
+        vehiclenumber: _vno || _vid,
+        vehicletype:   cj.VehicleType|| cj.vehicletype || '',
+      };
+      // Newest hit wins per key (we iterate newest-first)
+      if (_vno && !_idIndex[_cid][_vno]) _idIndex[_cid][_vno] = _entry;
+      if (_vid && _vid !== _vno && !_idIndex[_cid][_vid]) _idIndex[_cid][_vid] = _entry;
+    }
 
     for (const [cid, vehicles] of Object.entries(r.body)) {
       if (!vehicles || typeof vehicles !== 'object') continue;
@@ -7912,26 +7945,63 @@ async function _seedZoneDriversFromFirebase() {
         // Driver fields may be flat on the node or nested under current/
         const cur = (node.current && typeof node.current === 'object') ? node.current : {};
 
+        // Skip orphan keys: stray writes that used a driverId or "0" as the
+        // key instead of the vehicleId (we've seen `online/{cid}/0` and
+        // `online/{cid}/D002` polluting the tree). To avoid dropping any
+        // tenant that legitimately uses D### as its vehicle key, only treat
+        // the key as orphan when it matches the suspicious pattern AND the
+        // node has no identity AND no top-level vehiclestatus — i.e. it's
+        // a partial stub that couldn't possibly be a real vehicle.
+        const _looksOrphanKey = (vehicleId === '0' || /^D\d+$/i.test(vehicleId));
+        const _hasAnyIdentity = !!(cur.driverid || cur.driverId || cur.drivername || cur.driverName ||
+                                   cur.vehiclenumber || cur.vehicleNumber ||
+                                   node.driverid || node.drivername || node.vehiclenumber);
+        if (_looksOrphanKey && !_hasAnyIdentity && !node.vehiclestatus) {
+          skippedOrphan++;
+          continue;
+        }
+
         const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
         // Skip offline / logged-out drivers — they are genuinely not available
         if (!status || _OFFLINE.has(status)) continue;
 
-        const _hasDriverId   = !!(cur.driverid || cur.driverId || node.driverid);
-        const _hasDriverName = !!(cur.drivername || cur.driverName || node.drivername);
-        const _hasVehNum     = !!(cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber);
-        // Skip Firebase records that have no identity fields at all — these are
-        // partial driver-app writes (e.g. only {vehiclestatus, zonequeue}) that
-        // would create blank rows in the dispatcher. Log so the operator can
-        // chase the driver-app team to send the full payload.
-        if (!_hasDriverId && !_hasDriverName && !_hasVehNum) {
-          console.warn(`[seed-drivers] SKIP cid=${cid} vehId=${vehicleId} — Firebase record missing driverid/drivername/vehiclenumber (driver app sent: ${Object.keys(node).join(',') || '(empty)'})`);
-          continue;
+        let _driverId    = cur.driverid      || cur.driverId      || node.driverid      || '';
+        let _drivername  = cur.drivername    || cur.driverName    || node.drivername    || '';
+        let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber || '';
+        let _vehtype     = cur.vehicletype   || cur.vehicleType   || node.vehicletype   || '';
+
+        // Identity fallback: if Firebase has no identity for this vehicle,
+        // recover it from the most-recent closed job (built above). This
+        // covers the common case where the driver app went offline mid-trip
+        // and only wrote partial state back — closedJobStore still knows who
+        // was driving this vehicle.
+        if (!_driverId && !_drivername && !_vehnum) {
+          const rec = _idIndex[cid] && _idIndex[cid][vehicleId];
+          if (rec && (rec.driverid || rec.drivername)) {
+            _driverId   = rec.driverid;
+            _drivername = rec.drivername;
+            _vehnum     = rec.vehiclenumber;
+            _vehtype    = _vehtype || rec.vehicletype;
+            recovered++;
+            console.log(`[seed-drivers] RECOVERED cid=${cid} vehId=${vehicleId} from closedJobStore — driver=${_driverId} (${_drivername})`);
+          } else {
+            // Genuinely unrecoverable — node has status but no identity
+            // anywhere. Distinguish a real-looking node (has job/GPS state)
+            // from a trivial stale stub.
+            const _looksReal = !!(cur.currentJobId || cur.jobId || cur.lat || cur.lng);
+            if (_looksReal) {
+              console.warn(`[seed-drivers] SKIP cid=${cid} vehId=${vehicleId} — node looks active (status=${status}, has job/GPS) but no identity in Firebase or closedJobStore`);
+            } else {
+              skippedStub++;
+            }
+            continue;
+          }
         }
 
-        const driverId     = String(cur.driverid  || cur.driverId  || node.driverid  || vehicleId);
-        const drivername   = cur.drivername   || cur.driverName   || node.drivername   || '';
-        const vehiclenumber= cur.vehiclenumber|| cur.vehicleNumber|| node.vehiclenumber|| vehicleId;
-        const vehicletype  = cur.vehicletype  || cur.vehicleType  || node.vehicletype  || '';
+        const driverId     = String(_driverId || vehicleId);
+        const drivername   = _drivername || '';
+        const vehiclenumber= _vehnum     || vehicleId;
+        const vehicletype  = _vehtype    || '';
         // Zone fallback: prefer Firebase value, then fall back to the driver's
         // last persisted zone from .data/zone_assignments.json so a returning
         // driver lands in their previous zone instead of "" until the next
@@ -7969,7 +8039,7 @@ async function _seedZoneDriversFromFirebase() {
         seeded++;
       }
     }
-    console.log(`[seed-drivers] seeded ${seeded} driver(s) from Firebase online/ into ZONE_DRIVERS`);
+    console.log(`[seed-drivers] seeded ${seeded} driver(s) from Firebase online/ into ZONE_DRIVERS (recovered=${recovered} skippedOrphan=${skippedOrphan} skippedStub=${skippedStub})`);
   } catch (e) {
     console.warn('[seed-drivers] startup seed failed (non-fatal):', e.message);
   }
