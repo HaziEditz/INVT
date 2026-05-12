@@ -5758,7 +5758,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           Id:           _rvDrv.VehicleId   || _rvDrv.vehiclenumber || _rvDid,
           VehicleNo:    _rvDrv.vehiclenumber || _rvDrv.VehicleId   || _rvDid,
           CallSign:     _rvDrv.vehiclenumber || _rvDrv.VehicleId   || _rvDid,
-          AutoDispatch: '0',
+          AutoDispatch: '1',
         }] : [];
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${_rvDid} ${_rvOut.length ? ('vehicle=' + _rvOut[0].VehicleNo) : 'no live driver'}`);
         arrayD(res, _rvOut);
