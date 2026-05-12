@@ -7243,12 +7243,50 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const _ipjFbKey  = (_ipjJob._fbKey || '').toString().trim();
         const _ipjJobId  = (_ipjJob._jobId || (_ipjFbKey.includes(':') ? _ipjFbKey.split(':').slice(1).join(':') : _ipjFbKey)).toString();
 
+        // §ID-reuse guard — passenger-app bookingIds wrap (~10 digits) and get
+        // recycled. A closed entry with the same numeric Id but an OLDER completion
+        // time than the incoming CreatedAt is a reused ID, NOT a duplicate — must
+        // ingest. Only an exact _fbKey match, OR a closed entry NEWER than the
+        // incoming booking, counts as a true duplicate. Mirrors pendingjobs-normalizer.
+        const _ipjIncomingMs = (function() {
+          const cand = [
+            _ipjJob.CreatedAt, _ipjJob.createdAt,
+            _ipjJob.BookingDateTime, _ipjJob.bookingDateTime,
+            _ipjJob.ScheduledForMs, _ipjJob.scheduledForMs,
+            _ipjJob.ScheduledFor,   _ipjJob.scheduledFor,
+          ];
+          for (const v of cand) {
+            if (v == null || v === '' || v === 0) continue;
+            const n = (typeof v === 'number') ? v : (Number.isFinite(+v) && String(v).length >= 10 ? +v : Date.parse(v));
+            if (n && isFinite(n)) return n;
+          }
+          return 0;
+        })();
+        const _ipjFindClosed = (numId) => {
+          const exactKey = closedJobStore.find(j => j._fbKey && j._fbKey === _ipjFbKey);
+          if (exactKey) return exactKey;
+          if (!(numId > 0)) return null;
+          const newestForId = closedJobStore
+            .filter(j => j.Id === numId)
+            .reduce((best, j) => {
+              const t = j.completedAtMs || Date.parse(j.JobCompleteTime || '') || 0;
+              return (!best || t > best._t) ? Object.assign({_t:t}, j) : best;
+            }, null);
+          if (!newestForId) return null;
+          // If we know the incoming creation time AND the closed entry is OLDER,
+          // treat it as ID-reuse (return null → ingest). Otherwise assume duplicate.
+          if (_ipjIncomingMs > 0 && newestForId._t > 0 && _ipjIncomingMs > newestForId._t) {
+            console.log(`[IngestPassengerJob] ID reuse detected for ${numId} — incoming=${_ipjIncomingMs} > newestClosed=${newestForId._t}, ingesting`);
+            return null;
+          }
+          return newestForId;
+        };
         if (_ipjStatus === 'Scheduled') {
           // Scheduled bookings land directly in the Unassigned queue as Pending.
           // ScheduledFor is preserved so the 📅 Sched badge shows on the job card.
           const _ipjNumIdSch = parseInt(_ipjJobId, 10) || 0;
           const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumIdSch > 0 && j.Id === _ipjNumIdSch));
-          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumIdSch > 0 && j.Id === _ipjNumIdSch));
+          const alreadyClosed = _ipjFindClosed(_ipjNumIdSch);
           // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
           if (already && !already._fbKey) already._fbKey = _ipjFbKey;
           if (!already && !alreadyClosed) {
@@ -7318,7 +7356,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // FIX — also match by numeric Id so dispatch-console jobs (no _fbKey yet) are recognised.
           const _ipjNumId = parseInt(_ipjJobId, 10) || 0;
           const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumId > 0 && j.Id === _ipjNumId));
-          const alreadyClosed = closedJobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumId > 0 && j.Id === _ipjNumId));
+          const alreadyClosed = _ipjFindClosed(_ipjNumId);
           // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
           if (already && !already._fbKey) { already._fbKey = _ipjFbKey; saveJobStore(); }
           // §103 Bug 2 — promote an existing Scheduled job to Pending (NotifyDispatchAt fired).
