@@ -7262,24 +7262,37 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           return 0;
         })();
+        // Tenant-scoped + aligned with pendingjobs-normalizer (server.js ~7785-7810):
+        //   - Exact _fbKey match → duplicate (drop). Strongest signal.
+        //   - Otherwise scan closedJobStore restricted to THIS tenant for matching
+        //     numeric Id, take the NEWEST closure timestamp.
+        //   - If incoming timestamp > newest closedAt → ID reuse, ingest.
+        //   - If timestamps are unknown/incomparable → KEEP (ingest). Losing a real
+        //     booking is worse than letting an edge-case duplicate slip through.
+        const _ipjSCid = String(sessionCompanyId || '');
         const _ipjFindClosed = (numId) => {
           const exactKey = closedJobStore.find(j => j._fbKey && j._fbKey === _ipjFbKey);
           if (exactKey) return exactKey;
           if (!(numId > 0)) return null;
           const newestForId = closedJobStore
-            .filter(j => j.Id === numId)
+            .filter(j => j.Id === numId && String(j.companyId || '') === _ipjSCid)
             .reduce((best, j) => {
-              const t = j.completedAtMs || Date.parse(j.JobCompleteTime || '') || 0;
+              const t = Number(j.completedAtMs) ||
+                (j.JobCompleteTime ? Date.parse(j.JobCompleteTime) : 0) || 0;
               return (!best || t > best._t) ? Object.assign({_t:t}, j) : best;
             }, null);
           if (!newestForId) return null;
-          // If we know the incoming creation time AND the closed entry is OLDER,
-          // treat it as ID-reuse (return null → ingest). Otherwise assume duplicate.
+          // Both timestamps known + incoming is NEWER → ID reuse, ingest.
           if (_ipjIncomingMs > 0 && newestForId._t > 0 && _ipjIncomingMs > newestForId._t) {
-            console.log(`[IngestPassengerJob] ID reuse detected for ${numId} — incoming=${_ipjIncomingMs} > newestClosed=${newestForId._t}, ingesting`);
+            console.log(`[IngestPassengerJob] ID reuse detected for ${numId} (cid=${_ipjSCid}) — incoming=${_ipjIncomingMs} > newestClosed=${newestForId._t}, ingesting`);
             return null;
           }
-          return newestForId;
+          // Both known + incoming is OLDER/EQUAL → true duplicate, drop.
+          if (_ipjIncomingMs > 0 && newestForId._t > 0) return newestForId;
+          // Either timestamp unknown → cannot prove duplicate. KEEP (ingest).
+          // Mirrors normalizer's "safer fallback" policy.
+          console.log(`[IngestPassengerJob] Kept ${numId} (cid=${_ipjSCid}) — incoming=${_ipjIncomingMs} vs newestClosed=${newestForId._t} (unknown timestamps, ingesting)`);
+          return null;
         };
         if (_ipjStatus === 'Scheduled') {
           // Scheduled bookings land directly in the Unassigned queue as Pending.
