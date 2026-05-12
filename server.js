@@ -5026,7 +5026,19 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const hasLive = driverJobs.some(j =>
               ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
-            if (!hasLive) {
+            // Hail-create debounce (mirror of the Available→Completed 3 s debounce):
+            // when the driver app rapid-toggles Busy↔Available it spawns a new hail
+            // every cycle.  If the same driver completed a Hail in the last 3 s,
+            // skip creating a new one — the toggles are heartbeat noise, not a
+            // genuine new pickup.
+            const _recentHailDoneDP = closedJobStore.find(function(cj) {
+              return String(cj.DriverId || cj.driverId || '') === String(driverId) &&
+                (cj.BookingSource === 'Hail' || cj.booking_type === 'Hail') &&
+                cj.completedAtMs && (Date.now() - cj.completedAtMs) < 3000;
+            });
+            if (!hasLive && _recentHailDoneDP) {
+              console.log(`  [DriverStatusChanged] Hail-create SKIPPED for driver ${driverId} — debounce (last hail #${_recentHailDoneDP.Id} completed ${Date.now() - _recentHailDoneDP.completedAtMs}ms ago)`);
+            } else if (!hasLive) {
               const hailId = newCompanyJobId(sessionCompanyId || '000');
               const now = new Date().toISOString();
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
@@ -6890,7 +6902,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const hasLive = driverJobs.some(j =>
               ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
-            if (!hasLive) {
+            // Hail-create debounce — see DP block for rationale
+            const _recentHailDoneDS = closedJobStore.find(function(cj) {
+              return String(cj.DriverId || cj.driverId || '') === String(driverId) &&
+                (cj.BookingSource === 'Hail' || cj.booking_type === 'Hail') &&
+                cj.completedAtMs && (Date.now() - cj.completedAtMs) < 3000;
+            });
+            if (!hasLive && _recentHailDoneDS) {
+              console.log(`  [DriverStatusChanged/DS] Hail-create SKIPPED for driver ${driverId} — debounce (last hail #${_recentHailDoneDS.Id} completed ${Date.now() - _recentHailDoneDS.completedAtMs}ms ago)`);
+            } else if (!hasLive) {
               const hailId = newCompanyJobId(sessionCompanyId || '000');
               const now = new Date().toISOString();
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
@@ -6910,6 +6930,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 DropLatLng: '',
                 BookingDateTime: now, JobCompleteTime: '',
                 BookingSource: 'Hail', booking_type: 'Hail',
+                AcceptedAt: now, ActiveAt: now,
                 JobMins: 0, UserFName: _hailPartsDS[0] || '', UserLName: _hailPartsDS.slice(1).join(' ') || '',
                 Route: '', bookingidx: hailId,
               });
@@ -7001,6 +7022,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 // Trip genuinely finished — mark Completed, move to closedJobStore
                 job.BookingStatus = 'Completed';
                 job.JobCompleteTime = new Date().toISOString();
+                job.completedAtMs   = Date.now();
                 _stampDriverNameDS(job);
                 const _cIdxDS = jobStore.indexOf(job);
                 if (_cIdxDS !== -1) jobStore.splice(_cIdxDS, 1);
