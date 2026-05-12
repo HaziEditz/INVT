@@ -3560,6 +3560,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       '[IngestPassengerJob]', '[UpdateScheduledLeadTime]',
       // Booking writes — real backend has no session, proxy attempt just adds 8s of dead wait
       'InsertBookingv4', '[ProcUpdateJobv6]',
+      // Vehicle lookup for the dispatch form — local handler returns the live driver's
+      // vehicle from ZONE_DRIVERS so the dropdown can't show a stranger's vehicle/callsign
+      '[RetrieveVehicle]',
       // ACC / Business Account / Passenger — all local storage, never proxy
       '[searchmulti]',
       'Manager_ACC_ADD', 'Client_ACC_ADD',
@@ -5740,6 +5743,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${jobId}`);
         arrayD(res, result);
+
+      // ── Vehicle lookup for the dispatch booking form ────────────────────────
+      // Returns the live vehicle record for the selected driver (from ZONE_DRIVERS).
+      // Without this, the action proxies to the real backend and returns a stranger's
+      // vehicle (e.g. "203 ,IT" instead of the live driver's "TAXI02").
+      } else if (action === '[RetrieveVehicle]') {
+        const _rvDid = (param('DriverId') || '').toString().trim();
+        const _rvDrv = ZONE_DRIVERS.find(d =>
+          (!sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId) &&
+          String(d.driverid) === _rvDid
+        );
+        const _rvOut = _rvDrv ? [{
+          Id:           _rvDrv.VehicleId   || _rvDrv.vehiclenumber || _rvDid,
+          VehicleNo:    _rvDrv.vehiclenumber || _rvDrv.VehicleId   || _rvDid,
+          CallSign:     _rvDrv.vehiclenumber || _rvDrv.VehicleId   || _rvDid,
+          AutoDispatch: '0',
+        }] : [];
+        console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${_rvDid} ${_rvOut.length ? ('vehicle=' + _rvOut[0].VehicleNo) : 'no live driver'}`);
+        arrayD(res, _rvOut);
 
       // ── Messaging read actions ───────────────────────────────────────────────
       } else if (action === '[RetrieveMessages]') {
