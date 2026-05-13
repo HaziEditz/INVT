@@ -4613,6 +4613,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             !rr.includes('manually unassigned') &&
             (currentStatus === 'Assigned' || currentStatus === 'Picking') &&
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
+          // §FALSE-RECALL-GUARD: the dispatch UI runs two listeners on the same offer
+          // (new path jobs/{cid}/{vid}/{drvId} + legacy path joback/{id}/{drvId}).
+          // After the driver accepts, the new listener wins and the job becomes
+          // Assigned. The legacy listener can then fire a few hundred ms later on
+          // a stale snapshot and call convertstatus(Pending, 'Driver Rejected'),
+          // which would otherwise pass isDriverPostAcceptCancel and cause a false
+          // "Job Recalled by Driver" notification + rideStatus/Recalled write.
+          // If the job was Assigned within the last 8s, treat any 'Driver Rejected'
+          // downgrade as the spurious legacy race and block it.
+          if (isDriverPostAcceptCancel && currentStatus === 'Assigned' && job.AcceptedAt) {
+            const _ageMs = Date.now() - new Date(job.AcceptedAt).getTime();
+            if (_ageMs >= 0 && _ageMs < 8000) {
+              console.log(`  [changeriddestatusforoffer/DP] BLOCKED false recall: job #${bookingId} accepted ${_ageMs}ms ago — ignoring stale 'Driver Rejected' (driver=${job.DriverId})`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true, falseRecallSuppressed: true });
+              return;
+            }
+          }
           if (isDriverPostAcceptCancel) {
             const _dcDriverId = job.DriverId;
             const _dcZd = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId || d.VehicleId === _dcDriverId);
@@ -4770,24 +4787,49 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   if (_pjDropLL) _pjPatch.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
                   await fbRequest(_pjUrl, 'PATCH', _pjPatch);
                   console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
-                  // Also write jobpickup/jobdropoff to online/{cid}/{vehicleId}/current so
-                  // the driver app can display them in the offer screen.
-                  const _pjVeh = (job.VehicleNo || job.CallSign || '').toString().trim();
-                  if (_pjVeh) {
-                    const _ocUrl = `${FB_DB_URL}/online/${sessionCompanyId}/${_pjVeh}/current.json?auth=${encodeURIComponent(_tok)}`;
-                    await fbRequest(_ocUrl, 'PATCH', {
-                      joboffer:   bookingId,
-                      jobpickup:  job.PickAddress  || '',
-                      jobdropoff: job.DropAddress  || '',
-                      JobphoneNo: job.PhoneNo       || '',
-                      jobname:    job.Name          || job.UserFName || '',
-                      currentJobId: String(bookingId),
-                      jobId:        String(bookingId)
-                    });
-                    console.log(`  [changeriddestatusforoffer/DP] online/${sessionCompanyId}/${_pjVeh}/current → jobpickup/dropoff written`);
-                  }
+                  // §SINGLE-OFFER-CHANNEL: do NOT write jobpickup/jobdropoff/joboffer/etc.
+                  // to online/{cid}/{vid}/current at offer time. The driver app's offer
+                  // popup is driven exclusively by notification/{driverId}. Writing the
+                  // same fields to online/.../current causes the driver app to spawn a
+                  // SECOND popup behind the timer one. Those fields are written only
+                  // once the driver accepts (newStatus === 'Assigned' below).
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DP] pendingjobs patch failed:', _e && _e.message); }
+            })();
+          }
+          // When the driver accepts, write the in-trip fields to online/.../current so
+          // the driver app's "current trip" panel (and any restore-on-reload paths)
+          // can display passenger/pickup/dropoff. Also delete any stale joback/{id}
+          // entries so the legacy joback listener on the dispatch UI cannot fire a
+          // spurious "Driver Rejected" race after the new-path Accept.
+          if (newStatus === 'Assigned' && sessionCompanyId) {
+            (async () => {
+              try {
+                const _tokA = await getFirebaseServerToken();
+                if (_tokA) {
+                  const _aVeh = (job.VehicleNo || job.CallSign || '').toString().trim();
+                  if (_aVeh) {
+                    const _ocUrlA = `${FB_DB_URL}/online/${sessionCompanyId}/${_aVeh}/current.json?auth=${encodeURIComponent(_tokA)}`;
+                    await fbRequest(_ocUrlA, 'PATCH', {
+                      jobpickup:    job.PickAddress  || '',
+                      jobdropoff:   job.DropAddress  || '',
+                      JobphoneNo:   job.PhoneNo      || '',
+                      jobname:      job.Name         || job.UserFName || '',
+                      currentJobId: String(bookingId),
+                      jobId:        String(bookingId),
+                      // joboffer is a "pending offer" signal — clear it on acceptance
+                      // so the driver app stops treating this as an offer screen.
+                      joboffer:     0
+                    });
+                    console.log(`  [changeriddestatusforoffer/DP] online/${sessionCompanyId}/${_aVeh}/current → trip details written (Assigned)`);
+                  }
+                  // Fire-and-forget delete of joback/{bookingId} so the legacy joback
+                  // listener cannot read a stale snapshot and fire 'Driver Rejected'.
+                  fbRequest(`${FB_DB_URL}/joback/${bookingId}.json?auth=${encodeURIComponent(_tokA)}`, 'DELETE', null)
+                    .then(() => console.log(`  [changeriddestatusforoffer/DP] joback/${bookingId} cleared (Assigned)`))
+                    .catch(_je => console.warn(`  [changeriddestatusforoffer/DP] joback clear failed: ${_je && _je.message}`));
+                }
+              } catch(_eA) { console.warn('  [changeriddestatusforoffer/DP] Assigned post-write failed:', _eA && _eA.message); }
             })();
           }
           // When Unreached: clear job fields from online/{cid}/{vehicleId}/current so the
@@ -6610,6 +6652,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             !rr2.includes('manually unassigned') &&
             (currentStatus2 === 'Assigned' || currentStatus2 === 'Picking') &&
             (newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unreached');
+          // §FALSE-RECALL-GUARD (DS): see DP variant above for rationale.
+          if (isDriverPostAcceptCancel2 && currentStatus2 === 'Assigned' && job.AcceptedAt) {
+            const _ageMs2 = Date.now() - new Date(job.AcceptedAt).getTime();
+            if (_ageMs2 >= 0 && _ageMs2 < 8000) {
+              console.log(`  [changeriddestatusforoffer/DS] BLOCKED false recall: job #${bookingId} accepted ${_ageMs2}ms ago — ignoring stale 'Driver Rejected' (driver=${job.DriverId})`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true, falseRecallSuppressed: true });
+              return;
+            }
+          }
           if (isDriverPostAcceptCancel2) {
             const _dcDriverId2 = job.DriverId;
             // Driver recalled the job (cancelled after accepting) — return to unassigned queue as Pending
@@ -6729,22 +6780,40 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   if (_pjDropLL2) _pjPatch2.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL2.lat, lng: _pjDropLL2.lng };
                   await fbRequest(_pjUrl, 'PATCH', _pjPatch2);
                   console.log(`  [changeriddestatusforoffer/DS] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
-                  const _pjVeh2 = (job.VehicleNo || job.CallSign || '').toString().trim();
-                  if (_pjVeh2) {
-                    const _ocUrl3 = `${FB_DB_URL}/online/${sessionCompanyId}/${_pjVeh2}/current.json?auth=${encodeURIComponent(_tok)}`;
-                    await fbRequest(_ocUrl3, 'PATCH', {
-                      joboffer:   bookingId,
-                      jobpickup:  job.PickAddress  || '',
-                      jobdropoff: job.DropAddress  || '',
-                      JobphoneNo: job.PhoneNo       || '',
-                      jobname:    job.Name          || job.UserFName || '',
-                      currentJobId: String(bookingId),
-                      jobId:        String(bookingId)
-                    });
-                    console.log(`  [changeriddestatusforoffer/DS] online/${sessionCompanyId}/${_pjVeh2}/current → jobpickup/dropoff written`);
-                  }
+                  // §SINGLE-OFFER-CHANNEL: see DP variant — offer popup is driven only
+                  // by notification/{driverId}; do NOT also write to online/.../current
+                  // at offer time. In-trip fields are written on Assigned below.
                 }
               } catch(_e) { console.warn('  [changeriddestatusforoffer/DS] pendingjobs patch failed:', _e && _e.message); }
+            })();
+          }
+          // §FALSE-RECALL-GUARD support + §SINGLE-OFFER-CHANNEL: on Assigned, write
+          // in-trip fields to online/.../current AND clear joback/{id} so the legacy
+          // joback listener can't fire a spurious 'Driver Rejected' race.
+          if (newStatus === 'Assigned' && sessionCompanyId) {
+            (async () => {
+              try {
+                const _tokA2 = await getFirebaseServerToken();
+                if (_tokA2) {
+                  const _aVeh2 = (job.VehicleNo || job.CallSign || '').toString().trim();
+                  if (_aVeh2) {
+                    const _ocUrlA2 = `${FB_DB_URL}/online/${sessionCompanyId}/${_aVeh2}/current.json?auth=${encodeURIComponent(_tokA2)}`;
+                    await fbRequest(_ocUrlA2, 'PATCH', {
+                      jobpickup:    job.PickAddress  || '',
+                      jobdropoff:   job.DropAddress  || '',
+                      JobphoneNo:   job.PhoneNo      || '',
+                      jobname:      job.Name         || job.UserFName || '',
+                      currentJobId: String(bookingId),
+                      jobId:        String(bookingId),
+                      joboffer:     0
+                    });
+                    console.log(`  [changeriddestatusforoffer/DS] online/${sessionCompanyId}/${_aVeh2}/current → trip details written (Assigned)`);
+                  }
+                  fbRequest(`${FB_DB_URL}/joback/${bookingId}.json?auth=${encodeURIComponent(_tokA2)}`, 'DELETE', null)
+                    .then(() => console.log(`  [changeriddestatusforoffer/DS] joback/${bookingId} cleared (Assigned)`))
+                    .catch(_je2 => console.warn(`  [changeriddestatusforoffer/DS] joback clear failed: ${_je2 && _je2.message}`));
+                }
+              } catch(_eA2) { console.warn('  [changeriddestatusforoffer/DS] Assigned post-write failed:', _eA2 && _eA2.message); }
             })();
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {
