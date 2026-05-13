@@ -7971,7 +7971,8 @@ async function _seedZoneDriversFromFirebase() {
     }
 
     const _OFFLINE = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
-    let seeded = 0, recovered = 0, skippedOrphan = 0, skippedStub = 0;
+    let seeded = 0, recovered = 0, skippedOrphan = 0, skippedStub = 0, deletedStale = 0;
+    const _toDeleteAtBoot = []; // {cid, vid, reason}
 
     // Build a per-company {vehicleId → identity} index from the most-recent
     // closed job for that vehicle. closedJobStore is our persistent source of
@@ -8026,6 +8027,9 @@ async function _seedZoneDriversFromFirebase() {
                                    cur.vehiclenumber || cur.vehicleNumber ||
                                    node.driverid || node.drivername || node.vehiclenumber);
         if (_looksOrphanKey && !_hasAnyIdentity && !node.vehiclestatus) {
+          // Stray PATCH-write garbage. Schedule for deletion so it can never be
+          // re-seeded and so dispatch UI's child_added can't pick it up either.
+          _toDeleteAtBoot.push({ cid, vid: vehicleId, reason: 'orphan-no-identity' });
           skippedOrphan++;
           continue;
         }
@@ -8033,6 +8037,20 @@ async function _seedZoneDriversFromFirebase() {
         const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
         // Skip offline / logged-out drivers — they are genuinely not available
         if (!status || _OFFLINE.has(status)) continue;
+
+        // Stale-presence guard (ghost driver, see [ghost-presence-sweeper]):
+        // The driver app is supposed to delete its `online/{cid}/{vid}` node on
+        // sign-out, but in practice a stray background heartbeat can resurrect
+        // the node AFTER the deletion fires (with `vehiclestatus=Available` and
+        // a frozen `lastSeen`). The dispatch console then re-shows the driver
+        // forever. If the most-recent `lastSeen` is older than STALE_PRESENCE_MS,
+        // treat the node as a corpse — DON'T seed it, and DELETE it from
+        // Firebase so dispatch UI's child_removed clears the row immediately.
+        const _lastSeen = Number(node.lastSeen || cur.lastSeen || 0);
+        if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
+          _toDeleteAtBoot.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
+          continue;
+        }
 
         let _driverId    = cur.driverid      || cur.driverId      || node.driverid      || '';
         let _drivername  = cur.drivername    || cur.driverName    || node.drivername    || '';
@@ -8108,11 +8126,115 @@ async function _seedZoneDriversFromFirebase() {
         seeded++;
       }
     }
-    console.log(`[seed-drivers] seeded ${seeded} driver(s) from Firebase online/ into ZONE_DRIVERS (recovered=${recovered} skippedOrphan=${skippedOrphan} skippedStub=${skippedStub})`);
+    // Fire-and-forget: delete the stale/orphan presence nodes we identified
+    // above. This makes the cleanup permanent (next boot won't re-find them)
+    // and triggers child_removed on every connected dispatch console so any
+    // ghost rows disappear within seconds.
+    if (_toDeleteAtBoot.length) {
+      const _delAuth = encodeURIComponent(token);
+      for (const { cid, vid, reason } of _toDeleteAtBoot) {
+        fbRequest(`${FB_DB_URL}/online/${cid}/${vid}.json?auth=${_delAuth}`, 'DELETE', null)
+          .then(() => { deletedStale++; console.log(`[seed-drivers] deleted stale online/${cid}/${vid} (${reason})`); })
+          .catch(e => console.warn(`[seed-drivers] DELETE online/${cid}/${vid} failed: ${e && e.message}`));
+      }
+    }
+    console.log(`[seed-drivers] seeded ${seeded} driver(s) from Firebase online/ into ZONE_DRIVERS (recovered=${recovered} skippedOrphan=${skippedOrphan} skippedStub=${skippedStub} scheduledForDelete=${_toDeleteAtBoot.length})`);
   } catch (e) {
     console.warn('[seed-drivers] startup seed failed (non-fatal):', e.message);
   }
 }
+
+// ─── Ghost-presence sweeper ─────────────────────────────────────────────────
+// Permanent fix for "signed-out driver still on dispatch HQ".
+//
+// Root cause: the driver app, on Sign Out, is meant to delete
+// `online/{cid}/{vid}` then stop writing. In practice a stray background
+// task (final GPS, last heartbeat) sometimes re-creates the parent node AFTER
+// the delete, leaving a corpse with `vehiclestatus=Available` and a frozen
+// `lastSeen`. The dispatch console reads that node via cars_Ref and shows
+// the driver. "Sometimes works, sometimes doesn't" = race condition.
+//
+// This sweeper runs every 30s, scans every `online/{cid}/{vid}` node, and
+// DELETES any whose lastSeen is older than STALE_PRESENCE_MS, plus any
+// orphan-pattern keys (`0`, `D###`) with no identity. It also removes the
+// matching ZONE_DRIVERS entry so VehiclesStatus drops them on the next poll.
+//
+// Safe by design: only ever deletes presence/heartbeat data. Never touches
+// jobs, notifications, or driver identity records.
+const STALE_PRESENCE_MS = 90 * 1000;
+
+setInterval(async () => {
+  let token;
+  try { token = await getFirebaseServerToken(); } catch(e) { return; }
+  if (!token) return;
+  let r;
+  try {
+    r = await fbRequest(`${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null);
+  } catch(e) { return; }
+  if (!r || r.status !== 200 || !r.body || typeof r.body !== 'object') return;
+
+  const _OFFLINE_S = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
+  const _toKill = []; // {cid, vid, reason}
+
+  for (const [cid, vehicles] of Object.entries(r.body)) {
+    if (!vehicles || typeof vehicles !== 'object') continue;
+    for (const [vid, node] of Object.entries(vehicles)) {
+      if (!node || typeof node !== 'object') continue;
+      const cur = (node.current && typeof node.current === 'object') ? node.current : {};
+      const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
+
+      // 1) Explicit offline corpse — driver app left the status on the node.
+      if (status && _OFFLINE_S.has(status)) {
+        _toKill.push({ cid, vid, reason: `status=${status}` });
+        continue;
+      }
+
+      // 2) Orphan key (`0` or `D###`) with no identity field anywhere.
+      const _looksOrphanKey = (vid === '0' || /^D\d+$/i.test(vid));
+      const _hasIdentity = !!(cur.driverid || cur.driverId || cur.drivername || cur.driverName ||
+                              cur.vehiclenumber || cur.vehicleNumber ||
+                              node.driverid || node.drivername || node.vehiclenumber);
+      if (_looksOrphanKey && !_hasIdentity) {
+        _toKill.push({ cid, vid, reason: 'orphan-no-identity' });
+        continue;
+      }
+
+      // 3) Ghost: heartbeat exists but is older than threshold. Driver app
+      // crashed/quit without clean sign-out, OR a stray write resurrected
+      // a deleted node. Either way the driver is not actually online.
+      const lastSeen = Number(node.lastSeen || cur.lastSeen || 0);
+      if (lastSeen && (Date.now() - lastSeen) > STALE_PRESENCE_MS) {
+        _toKill.push({ cid, vid, reason: `lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago` });
+      }
+      // Nodes with no lastSeen at all but with identity present are LEFT
+      // ALONE — they are likely a brand-new driver app that hasn't sent its
+      // first heartbeat yet. The next sweep will catch them if they truly
+      // never write a heartbeat.
+    }
+  }
+
+  if (!_toKill.length) return;
+  const _killAuth = encodeURIComponent(token);
+  for (const { cid, vid, reason } of _toKill) {
+    fbRequest(`${FB_DB_URL}/online/${cid}/${vid}.json?auth=${_killAuth}`, 'DELETE', null)
+      .then(() => console.log(`[ghost-presence-sweeper] deleted online/${cid}/${vid} (${reason})`))
+      .catch(e => console.warn(`[ghost-presence-sweeper] DELETE online/${cid}/${vid} failed: ${e && e.message}`));
+    // Also drop from ZONE_DRIVERS so VehiclesStatus.dt6 stops listing them.
+    // CORRECTNESS: match ONLY by VehicleId (the Firebase key in online/{cid}/{vid}
+    // is, by contract, the vehicle id). Matching by `driverid===vid` would
+    // wrongly evict an active driver whose driverid happens to equal an orphan
+    // key — e.g., active driver driverid='D002' on VehicleId='TAXI02' must not
+    // be removed when we delete the stray online/{cid}/D002 orphan node.
+    for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+      const d = ZONE_DRIVERS[i];
+      if ((!d.companyId || String(d.companyId) === String(cid)) &&
+          String(d.VehicleId) === String(vid)) {
+        ZONE_DRIVERS.splice(i, 1);
+      }
+    }
+  }
+  console.log(`[ghost-presence-sweeper] swept ${_toKill.length} stale presence node(s)`);
+}, 30 * 1000);
 
 async function _syncBizAccountsFromFirebase() {
   try {
