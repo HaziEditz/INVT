@@ -165,7 +165,108 @@ function saveRegistrations() {
   fs.writeFile(REGISTRATIONS_FILE, JSON.stringify(registrationStore, null, 2), err => {
     if (err) console.log('[persist] registrations save error:', err.message);
   });
+  // Best-effort mirror to Firebase so the Super Admin portal (separate Replit)
+  // sees signups in real time. Fire-and-forget — failure here must never
+  // break local registration.
+  try { mirrorAllRegistrationsToFirebase(); } catch(_) {}
 }
+
+// ── Firebase mirror: dispatchSignups/{regId} ──────────────────────────────
+// Strips secrets, then writes a public-safe snapshot of each registration so
+// the Super Admin portal in another Replit can subscribe (Firebase realtime)
+// without needing this server's admin API key or URL.
+function _safeSignupSnapshot(r) {
+  if (!r || !r.id) return null;
+  return {
+    id:             r.id,
+    status:         r.status || 'pending',
+    submittedAt:    r.submittedAt || null,
+    company:        r.company || '',
+    name:           r.name || '',
+    email:          r.email || '',
+    phone:          r.phone || '',
+    businessNumber: r.businessNumber || '',
+    fleetSize:      r.fleetSize || '',
+    area:           r.area || '',
+    country:        r.country || '',
+    serviceType:    r.serviceType || '',
+    plan:           r.plan || '',
+    planLabel:      r.planLabel || '',
+    planPrice:      r.planPrice || 0,
+    trialDays:      r.trialDays || 0,
+    companyId:      r.companyId || null,
+    ownerUid:       r.ownerUid || null,
+    approvedAt:     r.approvedAt || null,
+    trialStart:     r.trialStart || null,
+    trialEnd:       r.trialEnd || null,
+    graceEnd:       r.graceEnd || null,
+    rejectedAt:     r.rejectedAt || null,
+    rejectedReason: r.rejectedReason || '',
+    source:         'dispatch',
+    mirroredAt:     Date.now(),
+  };
+}
+// Both reads and writes here are gated by `.read:false`/`.write:false` on
+// dispatchSignups in database.rules.json — that's intentional. Only requests
+// using BW_FIREBASE_SECRET (server token) can touch this node. Without it,
+// the mirror silently fails, so we warn loudly at boot.
+async function mirrorRegistrationToFirebase(reg) {
+  if (!reg || !reg.id) return;
+  if (!process.env.BW_FIREBASE_SECRET) return; // can't bypass rules → nothing to do
+  const snapshot = _safeSignupSnapshot(reg);
+  try {
+    await firebaseDbSet(`dispatchSignups/${reg.id}`, snapshot, null);
+  } catch(e) {
+    console.log(`[saMirror] write dispatchSignups/${reg.id} failed: ${e.message}`);
+  }
+}
+async function deleteRegistrationFromFirebase(regId) {
+  if (!regId) return;
+  if (!process.env.BW_FIREBASE_SECRET) return;
+  try {
+    await firebaseDbDelete(`dispatchSignups/${regId}`, null);
+  } catch(e) {
+    console.log(`[saMirror] delete dispatchSignups/${regId} failed: ${e.message}`);
+  }
+}
+// Mirror every record once — used after every saveRegistrations() and on startup
+// to backfill historical signups created before this mirror existed.
+function mirrorAllRegistrationsToFirebase() {
+  if (!process.env.BW_FIREBASE_SECRET) return;
+  registrationStore.forEach(r => { mirrorRegistrationToFirebase(r); });
+}
+// Startup reconciliation — backfill locals + delete any remote node that no
+// longer exists locally (so a missed delete event eventually heals).
+async function reconcileDispatchSignupsOnBoot() {
+  if (!process.env.BW_FIREBASE_SECRET) {
+    console.log('[saMirror] BW_FIREBASE_SECRET not set — Super Admin mirror disabled. Set the secret to enable.');
+    return;
+  }
+  try {
+    // 1. Backfill locals to Firebase
+    if (registrationStore.length) {
+      console.log(`[saMirror] backfilling ${registrationStore.length} registration(s) to Firebase dispatchSignups/`);
+      mirrorAllRegistrationsToFirebase();
+    }
+    // 2. Reconcile: read remote node, delete any keys whose regId isn't in
+    //    local store. This heals any past delete that didn't reach Firebase.
+    const remote = await firebaseDbGet('dispatchSignups', null);
+    if (remote && typeof remote === 'object') {
+      const localIds = new Set(registrationStore.map(r => r.id));
+      let pruned = 0;
+      for (const remoteId of Object.keys(remote)) {
+        if (!localIds.has(remoteId)) {
+          await deleteRegistrationFromFirebase(remoteId);
+          pruned++;
+        }
+      }
+      if (pruned) console.log(`[saMirror] reconcile: pruned ${pruned} orphan node(s) from dispatchSignups/`);
+    }
+  } catch(e) {
+    console.log(`[saMirror] reconcile failed: ${e.message}`);
+  }
+}
+setTimeout(reconcileDispatchSignupsOnBoot, 3000);
 
 // Run every 10 minutes — expire trials, move to grace period, then deactivate
 setInterval(() => {
@@ -1902,6 +2003,8 @@ const server = http.createServer(async (req, res) => {
         const idx = registrationStore.findIndex(r => r.id === regId);
         if (idx !== -1) registrationStore.splice(idx, 1);
         saveRegistrations();
+        // Remove the Firebase mirror so the Super Admin portal stops showing it
+        deleteRegistrationFromFirebase(regId);
         // Revoke Firebase access asynchronously
         if (reg.ownerUid && reg.companyId && reg._rawPassword) {
           firebaseSignIn(reg.email, reg._rawPassword)

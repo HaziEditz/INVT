@@ -385,6 +385,15 @@
         ".write": "auth != null"
       }
     },
+    "dispatchSignups": {
+      ".read": false,
+      ".write": false,
+      "$regId": {
+        ".validate": "$regId!='null'",
+        ".read": false,
+        ".write": false
+      }
+    },
     "accClients": {
       "$companyId": {
         ".validate": "$companyId!='null'",
