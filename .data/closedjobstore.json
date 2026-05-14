@@ -32200,5 +32200,31 @@
     "Route": "",
     "bookingidx": 6112605134,
     "completedAtMs": 1778653800525
+  },
+  {
+    "Id": 6112605135,
+    "BookingStatus": "Completed",
+    "companyId": "620611",
+    "DriverId": "D002",
+    "VehicleId": "TAXI02",
+    "VehicleNo": "TAXI02",
+    "Name": "Street Pickup",
+    "PhoneNo": "",
+    "PickAddress": "Hail - -46.39623, 168.35130",
+    "DropAddress": "",
+    "PickLatLng": "-46.396232,168.3513019",
+    "DropLatLng": "",
+    "BookingDateTime": "2026-05-13T09:15:51.466Z",
+    "JobCompleteTime": "2026-05-13T09:37:12.857Z",
+    "BookingSource": "Hail",
+    "booking_type": "Hail",
+    "AcceptedAt": "2026-05-13T09:15:51.466Z",
+    "ActiveAt": "2026-05-13T09:15:51.466Z",
+    "JobMins": 0,
+    "UserFName": "TestDriver",
+    "UserLName": "Two",
+    "Route": "",
+    "bookingidx": 6112605135,
+    "completedAtMs": 1778665032857
   }
 ]
