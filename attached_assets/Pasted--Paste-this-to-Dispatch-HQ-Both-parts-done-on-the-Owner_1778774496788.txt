@@ -1,0 +1,20 @@
+📋 Paste this to Dispatch HQ
+Both parts done on the Owner Panel side.
+
+Part 1 — Abdullah's Firebase Auth account is backfilled.
+
+UID: gvqhOrU7zVglwcoJSUFiBQiAspE2 (unchanged — same UID already in dispatchers/620611/, adminAccess/620611/, and users/, so no orphaned records, no duplicates)
+Email registered with Firebase Auth: Abdullahgulnz@gmail.com
+Temporary password: AbdullahDsp@2026
+The dispatcher's passwordHash in the Realtime DB was also synced to SHA-256 of the same password so both stores agree.
+Approach used: instead of creating a brand-new Auth account (which would have produced a new UID and forced us to rewrite all the dispatcher/adminAccess/users nodes), I used the Admin SDK to update the existing Auth user's email from his driver systemEmail (d001.620611@drv.bookawaka.app) to his personal email. UID stays stable, every lookup node continues to point at the right user, no duplicates created.
+
+Part 2 — Path B is fixed for the future.
+
+saveDriver() (the driver→dispatcher promotion path) now calls a server endpoint on every promotion that uses the Admin SDK to register / update the Firebase Auth account under the dispatcher's personal email, not the driver systemEmail.
+The same sync now also runs on saveDispatcher() edit when email or password changes (closes the same desync hole on the standalone Add Dispatcher flow).
+All .catch(function(){}) silent swallows in the promotion path are gone — failures now log to the server console and show an explicit error toast to the admin: "Dispatcher records saved, but Firebase Auth email could not be synced… the dispatcher will NOT be able to log in to Dispatch HQ until this is resolved."
+The authSynced:false case (Admin SDK missing / FIREBASE_SERVICE_ACCOUNT secret not set) is now treated as a real failure, not silent success.
+One known concern flagged for follow-up: the /api/reset-driver-password endpoint is currently unauthenticated. Next sprint we'll add owner-session verification before it goes any further. For now it lives behind the Owner Panel which itself requires Firebase auth at the page level.
+
+Ask Abdullah to log in with Abdullahgulnz@gmail.com / AbdullahDsp@2026 and change the password from inside the console immediately. Confirm it works and we can close this out.
