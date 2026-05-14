@@ -241,76 +241,34 @@ function mirrorAllRegistrationsToFirebase() {
   if (!process.env.BW_FIREBASE_SECRET) return;
   registrationStore.forEach(r => { mirrorRegistrationToFirebase(r); });
 }
-// Startup reconciliation: BACKFILL-ONLY. We do NOT prune Firebase based on
-// what's in local store, because production deployments on Replit autoscale
-// can have ephemeral `.data/` — a restart with a stale bundled
-// registrationRequests.json would otherwise wipe legitimate signups that
-// were written between restarts. Firebase is treated as durable storage;
-// deletions only happen via the explicit admin DELETE endpoint.
-//
-// Additionally, we now PULL from Firebase to repopulate locals on boot —
-// any dispatch-sourced records in Firebase that aren't in our local store
-// get rehydrated, so admin actions (approve, reject, etc.) work even after
-// an ephemeral restart.
+// Startup reconciliation: only PRUNE remote orphans that were written by THIS
+// dispatch server (source='dispatch'). Records written by the SA portal's own
+// onboarding flow (source absent or != 'dispatch', e.g. OB-prefixed IDs) MUST
+// be left untouched — they are not ours to delete.
 async function reconcileDispatchSignupsOnBoot() {
   if (!process.env.BW_FIREBASE_SECRET) {
     console.log('[saMirror] BW_FIREBASE_SECRET not set — Super Admin mirror disabled. Set the secret to enable.');
     return;
   }
   try {
-    // 1. PULL: hydrate any dispatch-sourced records from Firebase into local
-    //    store. This protects against the autoscale ephemeral-disk problem.
-    const remote = await firebaseDbGet('onboardRequests', null);
-    if (remote && typeof remote === 'object') {
-      let hydrated = 0;
-      for (const [remoteId, v] of Object.entries(remote)) {
-        if (!v || v.source !== 'dispatch') continue;       // skip portal records
-        // Re-check the live store on every iteration (not a stale snapshot)
-        // to avoid a duplicate-push race with concurrent /AccountRequest.
-        if (registrationStore.some(r => r.id === remoteId)) continue;
-        // Map Firebase (portal) schema back to local schema
-        registrationStore.push({
-          id:             v.id || remoteId,
-          status:         v.status || 'pending',
-          submittedAt:    v.submittedAt || null,
-          company:        v.businessName || '',
-          name:           v.contactName  || '',
-          email:          v.email || '',
-          phone:          v.phone || '',
-          businessNumber: v.regNo || '',
-          fleetSize:      v.fleetSize || '',
-          area:           v.city  || '',
-          country:        v.country || '',
-          serviceType:    v.serviceType || 'taxi',
-          plan:           v.plan || '',
-          planLabel:      v.planLabel || '',
-          planPrice:      v.planPrice || 0,
-          trialDays:      v.trialDays || 0,
-          companyId:      v.companyId || null,
-          ownerUid:       v.uid || null,
-          approvedAt:     v.approvedAt || null,
-          trialStart:     v.trialStart || null,
-          trialEnd:       v.trialEnd || null,
-          graceEnd:       v.graceEnd || null,
-          rejectedAt:     v.rejectedAt || null,
-          rejectedReason: v.rejectionNote || null,
-          activatedAt:    v.activatedAt || null,
-          deactivatedAt:  v.deactivatedAt || null,
-        });
-        hydrated++;
-      }
-      if (hydrated) {
-        console.log(`[saMirror] hydrated ${hydrated} registration(s) from Firebase into local store`);
-        // Persist locally so admin reads work
-        try { fs.writeFileSync(REGISTRATIONS_FILE, JSON.stringify(registrationStore, null, 2), 'utf8'); } catch(_) {}
-      }
-    }
-    // 2. PUSH: backfill anything local that isn't (yet) in Firebase.
     if (registrationStore.length) {
       console.log(`[saMirror] backfilling ${registrationStore.length} registration(s) to Firebase onboardRequests/`);
       mirrorAllRegistrationsToFirebase();
     }
-    // NOTE: prune step removed. See block comment above.
+    const remote = await firebaseDbGet('onboardRequests', null);
+    if (remote && typeof remote === 'object') {
+      const localIds = new Set(registrationStore.map(r => r.id));
+      let pruned = 0;
+      for (const [remoteId, v] of Object.entries(remote)) {
+        // Only prune nodes we wrote (source==='dispatch'). Leave SA portal's
+        // own onboarding submissions alone.
+        if (v && v.source === 'dispatch' && !localIds.has(remoteId)) {
+          await deleteRegistrationFromFirebase(remoteId);
+          pruned++;
+        }
+      }
+      if (pruned) console.log(`[saMirror] reconcile: pruned ${pruned} dispatch-origin orphan(s) from onboardRequests/`);
+    }
   } catch(e) {
     console.log(`[saMirror] reconcile failed: ${e.message}`);
   }

@@ -1,0 +1,44 @@
+These 4 questions look targeted at the SA portal Replit (different project), but since both portals share the same Firebase, I can answer the data side from here. Here are my answers — paste them to whoever's debugging the SA portal:
+
+1. FIREBASE_DB_URL value
+
+Not set as an env var in this Replit. The URL is hardcoded in server.js (line 17588 and 17618):
+
+https://taxilatest.firebaseio.com
+
+The SA portal should be pointing at the exact same DB URL. If its env var is set to something different (e.g. a …firebasedatabase.app regional URL pointing at a different project), that alone explains the missing record.
+
+2. FIREBASE_DB_SECRET set?
+
+YES — set in this Replit's Secrets.
+
+The SA portal Replit needs the same secret value (under whatever name its code uses — likely FIREBASE_DB_SECRET or BW_FIREBASE_SECRET). If it's missing there, every read returns permission_denied which the SA portal probably renders as an empty list.
+
+3. Read result for onboardRequests/REG-1778751894620
+
+READ RESULT: null
+
+That registration ID does not exist in Firebase. Here are the keys that do exist under onboardRequests/:
+
+[
+  "OB2605045G12I",
+  "REG-1777546306859"
+]
+
+Note: REG-1777546306859 (created ~Oct 30, 2026) is close but not the ID you're searching for. The ID REG-1778751894620 would have been created on ~Nov 14, 2026 if it existed — it doesn't.
+
+4. /api/admin/registrations Network response
+
+That endpoint does not exist on this admin portal — only on the SA portal Replit. You'll need to run the Network-tab check there.
+
+But you can pre-empt that step: since Firebase doesn't have REG-1778751894620 at all, whatever the SA portal returns can only contain the 2 records listed in answer 3. If the SA portal is reading from the same DB URL with the same secret, its /api/admin/registrations response should contain those 2 records and nothing else.
+
+Where the break almost certainly is
+
+The record was never written. The signup flow on whichever portal generated the ID REG-1778751894620 got as far as showing the user the ID, but the actual firebaseRef.set(...) call to onboardRequests/REG-1778751894620 either:
+
+threw an error that was swallowed,
+wrote to a different DB URL,
+wrote with the wrong env var / no auth and got permission_denied,
+or completed against a different Firebase project entirely.
+Ask the signup-side agent to log the result of the write call (not just generate the ID) and to verify its FIREBASE_DB_URL matches https://taxilatest.firebaseio.com.
