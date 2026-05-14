@@ -1,0 +1,73 @@
+Investigation mode — no changes. Let me verify current Firebase state and gather the code locations in parallel:
+
+
+4 actions
+I have everything I need. Here are the 5 answers — investigation only, no code changes.
+
+Answer 1 — Does this Owner Panel have an "Add Dispatcher" feature?
+Yes — TWO different paths exist that both create a dispatcher record:
+
+Path	Trigger	Code location
+A. Standalone "Add Dispatcher" button	#btn-add-dispatcher on the Users → Dispatchers tab → opens openDispatcherModal() → submits via saveDispatcher()	server.js line 5241 (button), 6990 (modal open), 7046 (saveDispatcher)
+B. Driver promotion	"Is Dispatcher" checkbox (#d-is-dispatcher) ticked while adding/editing a driver → handled inside saveDriver()	server.js line 6306 (saveDriver), 6330 (checkbox read), 6444–6480 (dispatcher write block)
+Answer 2 — What does each path write?
+Path A: saveDispatcher() (standalone) — full flow:
+
+dispatchers/{pushKey} ← PATCH full profile (name, email, phone, status, dispatcherCode=DSP00n, companyId, uid, passwordHash, createdAt, updatedAt)
+dispatchers/{companyId}/{uid} ← PUT pushKey ✓
+adminAccess/{companyId}/{uid} ← PUT true ✓
+users/{uid}/companyId ← PUT companyId ✓
+Firebase Auth user ← secondaryFbApp.auth().createUserWithEmailAndPassword(email, password) at line 7176, using the dispatcher's personal email ✓
+All 4 nodes + Firebase Auth account → correct.
+
+Path B: saveDriver() with isDispatcher=true — partial flow (lines 6444–6480):
+
+dispatchers/{pushKey} ← PATCH dispatcher profile (with fromDriverId: <driverKey>) ✓
+dispatchers/{companyId}/{uid} ← PUT pushKey ✓
+adminAccess/{companyId}/{uid} ← PUT true ✓
+users/{uid}/companyId ← PUT companyId ✓
+Firebase Auth user ← NOT created for the dispatcher email. The Auth account that DOES exist was created earlier in saveDriver() at line 6627 using the driver's systemEmail (e.g. d001.620611@drv.bookawaka.app), not the personal email.
+Answer 3 — Was "Add Dispatcher" ever invoked for Abdullah, or only "Add Driver"?
+Only "Add Driver" — via Path B (driver promotion). Hard evidence:
+
+drivers/-OrTCUl3xnft0XEHQNIh.isDispatcher = true (the checkbox was ticked)
+drivers/-OrTCUl3xnft0XEHQNIh.systemEmail = "d001.620611@drv.bookawaka.app" (Auth account email)
+dispatchers/-OrTCUrHltg7x0OI1DfI.fromDriverId = "-OrTCUl3xnft0XEHQNIh" ← this field is only ever written by Path B (line 6448). Path A never sets fromDriverId.
+Answer 4 — Current Firebase state (contradicts what was claimed)
+The diagnostic you were given is stale or wrong. I just re-read Firebase live (paste this back):
+
+Claim in prompt	Actual current state
+❌ Not in dispatchers/620611/{uid}	✅ EXISTS: dispatchers/620611/gvqhOrU7zVglwcoJSUFiBQiAspE2 = "-OrTCUrHltg7x0OI1DfI"
+❌ Not in adminAccess/620611/{uid}	✅ EXISTS: adminAccess/620611/gvqhOrU7zVglwcoJSUFiBQiAspE2 = true
+❌ Not in users/{uid}	✅ EXISTS: users/gvqhOrU7zVglwcoJSUFiBQiAspE2 = {companyId: "620611", name: "Ad", phone: "0275683723"}
+❌ No Firebase Auth account	⚠️ Auth account EXISTS but under the wrong email — see below
+Flat dispatcher record dispatchers/-OrTCUrHltg7x0OI1DfI also exists with dispatcherCode="DSP001", status="active", uid="gvqhOrU7zVglwcoJSUFiBQiAspE2", fromDriverId="-OrTCUl3xnft0XEHQNIh".
+
+(Some of those nodes were backfilled in earlier turns of this session. The standalone-flow saveDispatcher() writes all 4; Path B always wrote them too. So if the user's diagnostic predates this session, the gap they saw was real at that moment but is now closed.)
+
+Answer 5 — The actual root cause of the dispatch login failure
+The 4 nodes are fine. The Firebase Auth account is registered to d001.620611@drv.bookawaka.app, not Abdullahgulnz@gmail.com.
+
+Because Abdullah was created via Path B (driver promotion), saveDriver() only ever called createUserWithEmailAndPassword(systemEmail, …) at line 6627. The personal email Abdullahgulnz@gmail.com was never registered with Firebase Auth.
+
+When Dispatch HQ does firebase.auth().signInWithEmailAndPassword('Abdullahgulnz@gmail.com', '<password>') → Firebase returns auth/user-not-found → Dispatch HQ surfaces it as "Incorrect email or password". The 4 lookup nodes are never even consulted because step 1 (Firebase Auth) already failed.
+
+Bonus — answers to questions 4 & 5 of your original prompt
+If feature exists and should have run but Firebase records missing, any swallowed errors?
+
+Yes, in Path B (saveDriver): line 6477:
+
+adminWrite('dispatchers/' + existingDspKey, 'PATCH', dspProfile).catch(function(){});
+
+And the same .catch(function(){}) swallow on lines 6480–6483 for the 3 lookup-node writes. If any of these had failed silently when Abdullah was originally added, you'd never have known. Same swallow pattern exists for the driver-promotion path's lookup writes.
+
+If there is NO Add Dispatcher feature — say so plainly.
+
+Both Path A and Path B exist. The bug is structural: Path B (promotion) skips Firebase Auth for the personal email. Anyone added via "Add Driver + tick Is Dispatcher" will hit this exact dispatch-login failure.
+
+TL;DR fix (when you give me the go-ahead)
+Path B (saveDriver driver→dispatcher promotion at lines 6444–6480) needs to also call createUserWithEmailAndPassword(personalEmail, password) so the dispatcher can sign in to Dispatch HQ with their personal email. Right now only the driver's systemEmail gets an Auth account.
+
+Or alternatively, Dispatch HQ should be told to accept login via the driver's systemEmail (d001.620611@drv.bookawaka.app) instead of the personal email — but that's worse UX.
+
+Tell me which fix you want and I'll do it.
