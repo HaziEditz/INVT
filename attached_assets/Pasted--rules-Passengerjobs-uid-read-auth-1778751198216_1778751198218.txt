@@ -1,0 +1,560 @@
+{
+    "rules": {
+        "Passengerjobs": {
+            "$uid": {
+                ".read": "auth != null && auth.uid == $uid",
+                ".write": "auth != null && auth.uid == $uid",
+                ".validate": "$uid != 'null'"
+            }
+        },
+        "chat": {
+            "$driverid": {
+                ".read": true,
+                ".write": true
+            }
+        },
+        "chatMessages": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "notification": {
+            "$driverid": {
+                ".validate": "$driverid!='null'",
+                ".read": true,
+                ".write": true
+            }
+        },
+        "online": {
+            ".read": true,
+            ".write": "auth != null",
+            "$companyid": {
+                "$vehicleid": {
+                    "$uid": {
+                        ".write": "$uid === auth.uid"
+                    }
+                }
+            }
+        },
+        "jobs": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "links": {
+            ".read": "auth != null",
+            ".write": false
+        },
+        "tariffZones": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "tariffs": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "zones": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "drivers": {
+            ".read": true,
+            ".write": "auth != null",
+            ".indexOn": [
+                "companyId"
+            ]
+        },
+        "vehicles": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "pendingjobs": {
+            "$companyId": {
+                ".read": true,
+                "$bookingId": {
+                    ".read": true,
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "bookings": {
+            "$companyId": {
+                ".read": "auth != null",
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "allbookings": {
+            "$companyId": {
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "completedJobs": {
+            "$companyId": {
+                ".indexOn": ["bookingId"],
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "rideStatus": {
+            "$companyId": {
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "autodisp": {
+            "$driverId": {
+                ".read": true,
+                ".write": true
+            }
+        },
+        "jobDetails": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "driverQueue": {
+            ".read": "auth != null",
+            ".write": "auth != null",
+            "$companyId": {
+                ".validate": "$companyId!='null'",
+                "$driverId": {
+                    ".validate": "$driverId!='null'",
+                    ".read": "auth != null",
+                    ".write": "auth != null",
+                    "current": {
+                        ".validate": "!data.exists() || newData.hasChildren(['jobId'])"
+                    },
+                    "queued": {
+                        ".validate": "!data.exists() || newData.hasChildren(['jobId','acceptedAt'])"
+                    }
+                }
+            }
+        },
+        "jobCounters": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "suspended": {
+            "$companyId": {
+                "$vehicleId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "driverMsg": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "notifications": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "companyProfiles": {
+            ".read": "auth != null",
+            ".write": false
+        },
+        "users": {
+            "$uid": {
+                ".read": "auth != null && auth.uid === $uid",
+                ".write": "auth != null && auth.uid === $uid"
+            }
+        },
+        "superClients": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "bwConfig": {
+            "appSettings": {
+                ".read": true,
+                ".write": "auth != null"
+            },
+            "paymentMethods": {
+                ".read": true,
+                ".write": "auth != null"
+            },
+            "rental": {
+                ".read": true,
+                ".write": "auth != null"
+            },
+            "towing": {
+                ".read": true,
+                ".write": "auth != null"
+            }
+        },
+        "quickReplies": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "companySettings": {
+            "$companyId": {
+                ".read": true,
+                ".write": "auth != null"
+            }
+        },
+        "tmTariffs": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "tmCards": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "tmConfig": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "tmBatches": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "tmTripStatus": {
+            "$companyId": {
+                "$tripId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "trips": {
+            "$companyId": {
+                "$tripId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "specialTariffs": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "companies": {
+            ".read": false,
+            ".write": false
+        },
+        "lastshifttime": {
+            ".read": false,
+            ".write": false
+        },
+        "adminAccess": {
+            "$companyId": {
+                "$uid": {
+                    ".read": "auth != null && auth.uid == $uid",
+                    ".write": false
+                }
+            }
+        },
+        "joback": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "TotalmobileDiscount": {
+            ".read": false,
+            ".write": false
+        },
+        "locationConfig": {
+            ".read": "auth != null",
+            ".write": false
+        },
+        "ratings": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "driverRatings": {
+            "$companyId": {
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "driverEarnings": {
+            "$type": {
+                "$companyId": {
+                    "$driverId": {
+                        ".read": "auth != null",
+                        ".write": "auth != null"
+                    }
+                }
+            }
+        },
+        "shiftLogs": {
+            "$companyId": {
+                "$driverId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "freightOrders": {
+            "$companyId": {
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "foodOrders": {
+            "$companyId": {
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "fdRestaurants": {
+            "$companyId": {
+                ".read": true,
+                ".write": "auth != null"
+            }
+        },
+        "towingJobs": {
+            "$companyId": {
+                "$jobId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "towingConfig": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "towRequests": {
+            "$refId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "towingJobIndex": {
+            "$jobId": {
+                ".read": true,
+                ".write": "auth != null"
+            }
+        },
+        "towingPortalAccess": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "rentalFleet": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "rentalAvailability": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "rentalPolicy": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "rentalLocations": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "rentalAddons": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "rentalInsurance": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "rentalConfig": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "rentalReservations": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "rentalPortalAccess": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "rentalTaxiRequests": {
+            "$requestId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "rentalBookings": {
+            "$companyId": {
+                "$bookingId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "onboardRequests": {
+            "$refId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "registrations": {
+            "$refId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "contactInquiries": {
+            "$inquiryId": {
+                ".read": "auth != null",
+                ".write": true
+            }
+        },
+        "activeDispatchers": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "saAuditLog": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "superAdmins": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "foodRestaurantAccess": {
+            "$restaurantId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "companyPortalAccess": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "tmCouncilAccess": {
+            "$councilId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "businessAccounts": {
+            "$companyId": {
+                "$accountId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "accClients": {
+            "$companyId": {
+                "$clientId": {
+                    ".read": "auth != null",
+                    ".write": "auth != null"
+                }
+            }
+        },
+        "driverRegistrations": {
+            "$companyId": {
+                ".read": true,
+                ".write": "auth != null"
+            }
+        },
+        "portalSessions": {
+            ".read": false,
+            ".write": false
+        },
+        "emailLog": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "freightAccess": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "freightConfig": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "freightDocuments": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "freightDrivers": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "foodClients": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null"
+            }
+        },
+        "foodMenu": {
+            "$companyId": {
+                ".read": true,
+                ".write": "auth != null"
+            }
+        },
+        "rentalBookingIndex": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "rentalPaymentIntentIndex": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "rentalCancelTokens": {
+            ".read": false,
+            ".write": false
+        },
+        "rentalPromos": {
+            ".read": true,
+            ".write": "auth != null"
+        },
+        "passengerRatings": {
+            "$companyId": {
+                ".read": "auth != null",
+                ".write": "auth != null",
+                "$phoneDigits": {
+                    ".validate": "$phoneDigits.matches(/^[0-9]+$/)"
+                }
+            }
+        }
+    }
+}
