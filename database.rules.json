@@ -385,13 +385,11 @@
         ".write": "auth != null"
       }
     },
-    "dispatchSignups": {
-      ".read": false,
-      ".write": false,
-      "$regId": {
-        ".validate": "$regId!='null'",
-        ".read": false,
-        ".write": false
+    "onboardRequests": {
+      "$refId": {
+        ".validate": "$refId!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     },
     "accClients": {

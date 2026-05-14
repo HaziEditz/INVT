@@ -1,0 +1,76 @@
+1. Which Firebase node?
+onboardRequests/ (root-level node in the taxilatest Realtime DB).
+
+Each record is keyed by a generated request ID like OB2605045G12I or REG-..., and stores one company application.
+
+For reference, the related nodes used downstream are:
+
+superClients/{cid} — created after approval (target of the approve flow)
+companySettings/{cid} — per-company config also written on approval
+But signups / new registrations are read only from onboardRequests/.
+
+2. Where in the code
+Backend (Express, the canonical API): src/routes/sa-admin.ts
+
+Endpoint	Line	What it does
+GET /api/admin/registrations	223–258	Lists all signups. Calls fbReadP('onboardRequests'), maps each entry into a normalized shape, supports ?status= filter, sorts newest first.
+GET /api/admin/registrations/:id	261–277	Returns a single signup: fbReadP('onboardRequests/' + req.params.id).
+POST /api/admin/registrations/:id/approve	305	Reads the same path, then creates superClients/{cid} and PATCHes onboardRequests/{id} → status: 'trial'.
+POST .../reject, .../activate, .../deactivate	361, 372, 391	All PATCH onboardRequests/{id} to update its status field.
+POST /api/public/register	751 (writes at 788)	Public signup endpoint — writes the form payload to onboardRequests/{reqId} via fbWrite('PUT', ...).
+POST /api/submit-onboard-request	802 (writes at 835)	Alternate website-form endpoint, same target.
+Frontend (Home dashboard): taxitime.co.nz/superadmin360taxi/Home.aspx
+
+Function loadOnboardData() at line 595 — fetches /api/admin/registrations and also _fbGet('onboardRequests') directly via the client-side Firebase SDK, then merges both. Runs on page load and every 30 s (setInterval(loadOnboardData, 30000) at line 645). It populates the activity feed and the sb-onboard-badge pending count.
+Frontend (Onboarding page): taxitime.co.nz/superadmin360taxi/SA-Onboard.aspx
+
+Fetches /api/admin/registrations at line 1025 for the table.
+Calls /approve, /reject, /activate, /deactivate, /direct-onboard endpoints from buttons.
+Also writes the status field back directly via the client SDK at lines 661, 813, 913 (db.ref('onboardRequests/'+activeReqId).update({...})) as a belt-and-braces sync alongside the API call.
+3. Data shape the portal expects on each record
+From the GET handler at src/routes/sa-admin.ts:228–254, every onboardRequests/{id} record is read with these fields (all optional — the mapper falls back to '' or 0 if missing):
+
+Field	Type	Notes / fallback
+businessName or name	string	Mapped to company
+contactName	string	→ name
+email	string	
+phone	string	
+city	string	→ area
+country	string	
+message	string	
+tradingName	string	falls back to businessName
+regNo or businessNumber	string	
+fleetSize	string	
+website	string	
+modules	object map	e.g. {taxi:true, towing:true}
+towingFleetSize	string	
+truckTypes	string	
+operatingHours	string	
+afterHours	boolean	
+status	string	defaults to 'pending'. Recognized values: 'pending', 'trial', 'active', 'rejected', 'deactivated'
+submittedAt	number (ms) or ISO string	normalized to a number
+approvedAt	number	
+companyId	string	the CID assigned after approval
+uid	string	Firebase Auth UID after Auth-user is created
+serviceType	string	defaults to 'taxi'; e.g. 'towing', 'all'
+The Home feed (Home.aspx:619, 636-638) additionally reads r.city, r.area, r.companyId for display labels, and branches on status to render the right activity entry (green check / amber globe / red cross).
+
+The status-update PATCHes also stamp these extra fields when set:
+
+approve → status:'trial', companyId, approvedAt, optionally uid
+reject → status:'rejected', rejectedAt, rejectionNote
+activate → status:'active', activatedAt
+deactivate → status:'deactivated', deactivatedAt
+4. How is Firebase authenticated?
+The Firebase Realtime Database legacy database secret — env var FIREBASE_DB_SECRET — passed as a query-string ?auth=<secret> on every HTTPS request to taxilatest.firebaseio.com.
+
+There is no Admin SDK service account in use, and no user idToken flow for these reads. Specifically, from src/firebase.ts:
+
+Line 4: export const DB_SECRET = process.env.FIREBASE_DB_SECRET || '';
+Line 14: every fbRead / fbWrite builds the URL with 'auth=' + encodeURIComponent(DB_SECRET)
+Lines 57, 61: an alternate helper does the same: ${DB_BASE_STRIPE}/${path}.json?auth=${process.env.FIREBASE_DB_SECRET}
+This means the server has full-admin read/write on the Realtime DB regardless of Firebase Rules. The Firebase Web API key (line 6) is only used for Firebase Auth operations (creating users, password resets, lookups via identitytoolkit.googleapis.com) — not for DB reads.
+
+Note on naming: your question asked about BW_FIREBASE_SECRET — that env var name is not used anywhere in this codebase. The actual variable name is FIREBASE_DB_SECRET, and it's already set in your Replit Secrets. BW_ADMIN_KEY (the one we set earlier) is a separate thing — it's for talking to the external Registration Replit's HTTP API, not Firebase.
+
+Frontend caveat: the browser-side reads in Home.aspx (_fbGet('onboardRequests')) and the direct db.ref(...) writes in SA-Onboard.aspx use the client-side Firebase SDK — those are governed by your Firebase Rules, signed in as whichever Firebase Auth user is logged into the SA portal (or anonymously, depending on how the SDK is initialized). They are not using the DB secret. So your Firebase Rules must allow read/write on onboardRequests/ for super-admin users for the frontend portions to work — the backend will always work because it bypasses rules with the DB secret.

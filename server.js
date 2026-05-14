@@ -171,96 +171,103 @@ function saveRegistrations() {
   try { mirrorAllRegistrationsToFirebase(); } catch(_) {}
 }
 
-// ── Firebase mirror: dispatchSignups/{regId} ──────────────────────────────
-// Strips secrets, then writes a public-safe snapshot of each registration so
-// the Super Admin portal in another Replit can subscribe (Firebase realtime)
-// without needing this server's admin API key or URL.
+// ── Firebase mirror: onboardRequests/{regId} ──────────────────────────────
+// The Super Admin portal (separate Replit) reads signups from
+// onboardRequests/{id}, with this field schema:
+//   businessName, contactName, email, phone, city (=area), country, regNo
+//   (=businessNumber), fleetSize, serviceType, plan, planLabel, planPrice,
+//   status, submittedAt, companyId, uid (=ownerUid), approvedAt, trialStart,
+//   trialEnd, rejectedAt, rejectionNote, activatedAt, deactivatedAt
+// Strips _rawPassword and any other secrets — only safe fields are mirrored.
 function _safeSignupSnapshot(r) {
   if (!r || !r.id) return null;
   return {
     id:             r.id,
     status:         r.status || 'pending',
     submittedAt:    r.submittedAt || null,
-    company:        r.company || '',
-    name:           r.name || '',
+    // Portal field names ↓ (renamed from local schema in parentheses)
+    businessName:   r.company || '',          // ← company
+    contactName:    r.name || '',             // ← name
     email:          r.email || '',
     phone:          r.phone || '',
-    businessNumber: r.businessNumber || '',
+    regNo:          r.businessNumber || '',   // ← businessNumber
     fleetSize:      r.fleetSize || '',
-    area:           r.area || '',
+    city:           r.area || '',             // ← area
     country:        r.country || '',
-    serviceType:    r.serviceType || '',
+    serviceType:    r.serviceType || 'taxi',
     plan:           r.plan || '',
     planLabel:      r.planLabel || '',
     planPrice:      r.planPrice || 0,
     trialDays:      r.trialDays || 0,
     companyId:      r.companyId || null,
-    ownerUid:       r.ownerUid || null,
+    uid:            r.ownerUid || null,       // ← ownerUid
     approvedAt:     r.approvedAt || null,
     trialStart:     r.trialStart || null,
     trialEnd:       r.trialEnd || null,
     graceEnd:       r.graceEnd || null,
     rejectedAt:     r.rejectedAt || null,
-    rejectedReason: r.rejectedReason || '',
+    rejectionNote:  r.rejectedReason || '',   // ← rejectedReason
+    activatedAt:    r.activatedAt || null,
+    deactivatedAt:  r.deactivatedAt || null,
     source:         'dispatch',
     mirroredAt:     Date.now(),
   };
 }
-// Both reads and writes here are gated by `.read:false`/`.write:false` on
-// dispatchSignups in database.rules.json — that's intentional. Only requests
-// using BW_FIREBASE_SECRET (server token) can touch this node. Without it,
-// the mirror silently fails, so we warn loudly at boot.
+// Production Firebase rules already allow auth!=null read/write on
+// onboardRequests/{$refId}. Server-side writes use BW_FIREBASE_SECRET (legacy
+// secret) which bypasses rules entirely; without it the mirror silently no-ops
+// and we warn at boot.
 async function mirrorRegistrationToFirebase(reg) {
   if (!reg || !reg.id) return;
-  if (!process.env.BW_FIREBASE_SECRET) return; // can't bypass rules → nothing to do
+  if (!process.env.BW_FIREBASE_SECRET) return;
   const snapshot = _safeSignupSnapshot(reg);
   try {
-    await firebaseDbSet(`dispatchSignups/${reg.id}`, snapshot, null);
+    await firebaseDbSet(`onboardRequests/${reg.id}`, snapshot, null);
   } catch(e) {
-    console.log(`[saMirror] write dispatchSignups/${reg.id} failed: ${e.message}`);
+    console.log(`[saMirror] write onboardRequests/${reg.id} failed: ${e.message}`);
   }
 }
 async function deleteRegistrationFromFirebase(regId) {
   if (!regId) return;
   if (!process.env.BW_FIREBASE_SECRET) return;
   try {
-    await firebaseDbDelete(`dispatchSignups/${regId}`, null);
+    await firebaseDbDelete(`onboardRequests/${regId}`, null);
   } catch(e) {
-    console.log(`[saMirror] delete dispatchSignups/${regId} failed: ${e.message}`);
+    console.log(`[saMirror] delete onboardRequests/${regId} failed: ${e.message}`);
   }
 }
-// Mirror every record once — used after every saveRegistrations() and on startup
-// to backfill historical signups created before this mirror existed.
+// Mirror every record — runs after every saveRegistrations() and at boot.
 function mirrorAllRegistrationsToFirebase() {
   if (!process.env.BW_FIREBASE_SECRET) return;
   registrationStore.forEach(r => { mirrorRegistrationToFirebase(r); });
 }
-// Startup reconciliation — backfill locals + delete any remote node that no
-// longer exists locally (so a missed delete event eventually heals).
+// Startup reconciliation: only PRUNE remote orphans that were written by THIS
+// dispatch server (source='dispatch'). Records written by the SA portal's own
+// onboarding flow (source absent or != 'dispatch', e.g. OB-prefixed IDs) MUST
+// be left untouched — they are not ours to delete.
 async function reconcileDispatchSignupsOnBoot() {
   if (!process.env.BW_FIREBASE_SECRET) {
     console.log('[saMirror] BW_FIREBASE_SECRET not set — Super Admin mirror disabled. Set the secret to enable.');
     return;
   }
   try {
-    // 1. Backfill locals to Firebase
     if (registrationStore.length) {
-      console.log(`[saMirror] backfilling ${registrationStore.length} registration(s) to Firebase dispatchSignups/`);
+      console.log(`[saMirror] backfilling ${registrationStore.length} registration(s) to Firebase onboardRequests/`);
       mirrorAllRegistrationsToFirebase();
     }
-    // 2. Reconcile: read remote node, delete any keys whose regId isn't in
-    //    local store. This heals any past delete that didn't reach Firebase.
-    const remote = await firebaseDbGet('dispatchSignups', null);
+    const remote = await firebaseDbGet('onboardRequests', null);
     if (remote && typeof remote === 'object') {
       const localIds = new Set(registrationStore.map(r => r.id));
       let pruned = 0;
-      for (const remoteId of Object.keys(remote)) {
-        if (!localIds.has(remoteId)) {
+      for (const [remoteId, v] of Object.entries(remote)) {
+        // Only prune nodes we wrote (source==='dispatch'). Leave SA portal's
+        // own onboarding submissions alone.
+        if (v && v.source === 'dispatch' && !localIds.has(remoteId)) {
           await deleteRegistrationFromFirebase(remoteId);
           pruned++;
         }
       }
-      if (pruned) console.log(`[saMirror] reconcile: pruned ${pruned} orphan node(s) from dispatchSignups/`);
+      if (pruned) console.log(`[saMirror] reconcile: pruned ${pruned} dispatch-origin orphan(s) from onboardRequests/`);
     }
   } catch(e) {
     console.log(`[saMirror] reconcile failed: ${e.message}`);
@@ -1938,8 +1945,9 @@ const server = http.createServer(async (req, res) => {
 
       // POST /admin/registrations/:id/activate  (mark as paid / fully active)
       if (action === 'activate' && req.method === 'POST') {
-        reg.status   = 'active';
-        reg.graceEnd = null;
+        reg.status      = 'active';
+        reg.graceEnd    = null;
+        reg.activatedAt = Date.now();
         saveRegistrations();
         console.log(`[admin] activated account ${regId} (${reg.email})`);
         jsonReply(res, { ok: true, message: 'Account activated.' });
@@ -1948,7 +1956,8 @@ const server = http.createServer(async (req, res) => {
 
       // POST /admin/registrations/:id/deactivate
       if (action === 'deactivate' && req.method === 'POST') {
-        reg.status = 'deactivated';
+        reg.status        = 'deactivated';
+        reg.deactivatedAt = Date.now();
         saveRegistrations();
         // Remove Firebase adminAccess node if we have the uid and password
         if (reg.ownerUid && reg.companyId && reg._rawPassword) {
@@ -1983,10 +1992,11 @@ const server = http.createServer(async (req, res) => {
           reg.planLabel  = _spPayload.planLabel || (_cfg && _cfg.label)        || _newPlan;
           reg.planPrice  = (_spPayload.planPrice != null) ? Number(_spPayload.planPrice)
                           : (_cfg ? _cfg.priceMonthly : reg.planPrice || 0);
-          reg.status     = 'active';
-          reg.trialEnd   = null;
-          reg.graceEnd   = null;
-          reg.trialDays  = 0;
+          reg.status      = 'active';
+          reg.trialEnd    = null;
+          reg.graceEnd    = null;
+          reg.trialDays   = 0;
+          reg.activatedAt = Date.now();
           saveRegistrations();
           console.log(`[admin] set-plan ${regId} (${reg.email}) → plan=${reg.plan} status=active`);
           jsonReply(res, { ok: true, message: `Plan set to ${reg.planLabel}, account active.`,
