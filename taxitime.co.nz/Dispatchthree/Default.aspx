@@ -12056,6 +12056,147 @@ $(document).ready(function() {
             return null;
         }
 
+        // §DRIVER-CANCEL-INFERENCE — bridge for driver-app cancel that leaves vehiclestatus stale.
+        // The driver app, when the driver cancels an Assigned/Picking job from the app, clears
+        // jobs/{cid}/{vid}/{drv}, jobpickup, jobdropoff and jobCount in Firebase but does NOT
+        // flip vehiclestatus back to 'Available'. The dispatch board therefore keeps the driver
+        // shown as Busy/blue forever and refuses to dispatch new jobs to them. This helper
+        // detects that "stuck" state on each Firebase online/ update and fires the existing
+        // [DriverStatusChanged] -> driverRecalled / driverCancelled flow so the server moves
+        // the orphaned job back to Pending and frees the driver.
+        // Per-driver bookkeeping:
+        //   _bwStaleAssignedFirstSeen[did]  → first ms we observed the stuck state (grace window)
+        //   _bwStaleAssignedInflight[did]   → ms of last in-flight DriverStatusChanged
+        //   _bwStaleAssignedBackoff[did]    → current backoff window in ms (doubles on no-op)
+        var _bwStaleAssignedFirstSeen = {};
+        var _bwStaleAssignedInflight  = {};
+        var _bwStaleAssignedBackoff   = {};
+        var _BW_STALE_GRACE_MS  = 12000;   // require stuck state to persist this long before firing
+        var _BW_STALE_BACKOFF_MIN = 30000;
+        var _BW_STALE_BACKOFF_MAX = 300000;
+        // Clears all per-driver stale-state bookkeeping. Called on every non-stuck early return
+        // so the grace window represents *continuous* stuck duration and backoff doesn't leak
+        // across state transitions.
+        function _bwClearStaleAssignedState(did) {
+            if (!did) return;
+            delete _bwStaleAssignedFirstSeen[did];
+            delete _bwStaleAssignedInflight[did];
+            delete _bwStaleAssignedBackoff[did];
+        }
+        function _bwCheckStaleAssigned(dc, idx) {
+            try {
+                if (!dc) return;
+                var _didEarly = String(dc.driverid || dc.VehicleId || '');
+                var _vst = dc.vehiclestatus;
+                // Only Assigned/Picking — Busy is legitimate for hail/street-pickup with empty jobpickup.
+                if (_vst !== 'Assigned' && _vst !== 'Picking') { _bwClearStaleAssignedState(_didEarly); return; }
+                if (dc.jobpickup) { _bwClearStaleAssignedState(_didEarly); return; }                    // still has a real job
+                if (dc.jobCount && Number(dc.jobCount) > 0) { _bwClearStaleAssignedState(_didEarly); return; } // jobCount says busy
+                if (dc.joboffer && Number(dc.joboffer) > 0) { _bwClearStaleAssignedState(_didEarly); return; } // mid-offer, don't touch
+                var _did = _didEarly;
+                if (!_did || _did === '0') return;
+                var _now = Date.now();
+                // Race guard: if dispatch is mid-offer to this driver, skip — wait for accept/reject to settle.
+                if (typeof _activeOfferDrivers !== 'undefined' && _activeOfferDrivers[_did]) {
+                    _bwClearStaleAssignedState(_did);
+                    return;
+                }
+                // Grace window — require the stuck state to persist for _BW_STALE_GRACE_MS before
+                // firing. This prevents firing during the brief race where Firebase status arrives
+                // before job fields are populated by the driver app on accept.
+                if (!_bwStaleAssignedFirstSeen[_did]) {
+                    _bwStaleAssignedFirstSeen[_did] = _now;
+                    return;
+                }
+                if ((_now - _bwStaleAssignedFirstSeen[_did]) < _BW_STALE_GRACE_MS) return;
+                // Bounded backoff (starts at 30 s, doubles on no-op up to 5 min).
+                var _bo = _bwStaleAssignedBackoff[_did] || _BW_STALE_BACKOFF_MIN;
+                if (_bwStaleAssignedInflight[_did] && (_now - _bwStaleAssignedInflight[_did]) < _bo) return;
+                _bwStaleAssignedInflight[_did] = _now;
+                console.log('[driver-cancel-inference] driver', _did, 'is', _vst,
+                    'with empty jobpickup/jobCount for', (_now - _bwStaleAssignedFirstSeen[_did]),
+                    'ms — inferring cancel-from-app, firing DriverStatusChanged(Available)');
+                jQuery.ajax({
+                    type: 'POST', url: 'DataManager/Data.aspx/DataSelector',
+                    data: JSON.stringify({ data: [
+                        { name:'driverid',      Value: _did },
+                        { name:'newstatus',     Value: 'Available' },
+                        { name:'vehiclenumber', Value: String(dc.vehiclenumber || dc.VehicleNo || dc.VehicleId || '') },
+                        { name:'drivername',    Value: String(dc.drivername    || '') },
+                        { name:'lat',           Value: String(dc.lat || '') },
+                        { name:'lng',           Value: String(dc.lng || '') },
+                        { name:'zonename',      Value: String(dc.zonename  || '') },
+                        { name:'zonequeue',     Value: String(dc.zonequeue || '0') },
+                        { name:'returnReason',  Value: 'Driver Cancelled from App' }
+                    ], action: '[DriverStatusChanged]' }),
+                    dataType: 'json', contentType: 'application/json; charset=utf-8', cache: false,
+                    success: function(_resp) {
+                        try {
+                            var _r = (_resp && _resp.d) ? JSON.parse(_resp.d) : null;
+                            if (!_r || (!_r.driverRecalled && !_r.driverCancelled)) {
+                                // Server says nothing to clean up — apply bounded exponential backoff
+                                // so we don't hammer the endpoint if the state genuinely stays stuck.
+                                var _prev = _bwStaleAssignedBackoff[_did] || _BW_STALE_BACKOFF_MIN;
+                                _bwStaleAssignedBackoff[_did] = Math.min(_prev * 2, _BW_STALE_BACKOFF_MAX);
+                                return;
+                            }
+                            // Success — clear all bookkeeping so a fresh stuck state (later) starts clean.
+                            delete _bwStaleAssignedFirstSeen[_did];
+                            delete _bwStaleAssignedInflight[_did];
+                            delete _bwStaleAssignedBackoff[_did];
+                            var _jobId = String((_r.driverRecalled && _r.driverRecalled.jobId)
+                                              || (_r.driverCancelled && _r.driverCancelled.jobId) || '');
+                            // Reuse existing recall/cancel post-processing: clear offer locks + tried-driver
+                            // record so smartAutoDispatch can re-offer the recalled job immediately.
+                            if (typeof _activeOfferIds     !== 'undefined' && _jobId) delete _activeOfferIds[_jobId];
+                            if (typeof _activeOfferDrivers !== 'undefined')           delete _activeOfferDrivers[_did];
+                            if (typeof _triedDriversForJob !== 'undefined' && _jobId) delete _triedDriversForJob[_jobId];
+                            // Push vehiclestatus=Available back into Firebase so the driver app and
+                            // other dispatch consoles see the driver as free.
+                            var _vid = String(dc.VehicleId || dc.vehiclenumber || '');
+                            if (_vid && typeof SomeSession2 !== 'undefined' && SomeSession2) {
+                                var _fbUp = { vehiclestatus: 'Available', VehicleStatus: 'Available' };
+                                if (_r.newQueueNo) _fbUp.zonequeue = _r.newQueueNo;
+                                try { firebase.database().ref('online/' + SomeSession2 + '/' + _vid + '/current').update(_fbUp); } catch(e1) {}
+                                try { firebase.database().ref('online/' + SomeSession2 + '/' + _vid).update({ vehiclestatus: 'Available' }); } catch(e2) {}
+                                try { firebase.database().ref('jobs/'   + SomeSession2 + '/' + _vid + '/' + _did).remove(); } catch(e3) {}
+                            }
+                            // Local state + UI refresh
+                            if (typeof idx === 'number' && $scope.driverdatarealx[idx]) {
+                                $scope.driverdatarealx[idx].vehiclestatus = 'Available';
+                                if (_r.newQueueNo) $scope.driverdatarealx[idx].zonequeue = _r.newQueueNo;
+                                $scope.driverlist = $scope.driverdatarealx;
+                                if (typeof $scope.zonetablez === 'function') $scope.zonetablez();
+                            }
+                            if (typeof $scope.getjobs        === 'function') $scope.getjobs();
+                            if (typeof $scope.AssignedJobs   === 'function') $scope.AssignedJobs();
+                            if (typeof $scope.ActiveJobsdata === 'function') $scope.ActiveJobsdata();
+                            if (typeof $scope.ClosedJobsdata === 'function') $scope.ClosedJobsdata();
+                            if (!$scope.$$phase) $scope.$digest();
+                            // For driverRecalled (job returned to Pending) kick smartAutoDispatch so
+                            // the job is re-offered without waiting for the next polling cycle.
+                            if (_r.driverRecalled && typeof _sadTrigger === 'function') {
+                                setTimeout(_sadTrigger, 700);
+                            }
+                            var _msg = _r.driverRecalled
+                                ? ('Driver ' + _did + ' cancelled from app — job returned to Unassigned.')
+                                : ('Driver ' + _did + ' cancelled from app at pickup — job closed.');
+                            if (typeof toastr !== 'undefined') toastr["warning"](_msg, 'Driver Cancel (from app)');
+                        } catch(eIn) {
+                            console.warn('[driver-cancel-inference] response handler error', eIn);
+                            var _prev2 = _bwStaleAssignedBackoff[_did] || _BW_STALE_BACKOFF_MIN;
+                            _bwStaleAssignedBackoff[_did] = Math.min(_prev2 * 2, _BW_STALE_BACKOFF_MAX);
+                        }
+                    },
+                    error: function() {
+                        var _prev3 = _bwStaleAssignedBackoff[_did] || _BW_STALE_BACKOFF_MIN;
+                        _bwStaleAssignedBackoff[_did] = Math.min(_prev3 * 2, _BW_STALE_BACKOFF_MAX);
+                    }
+                });
+            } catch(eOuter) { console.warn('[driver-cancel-inference] outer error', eOuter); }
+        }
+        $scope._bwCheckStaleAssigned = _bwCheckStaleAssigned;
+
         $scope.tallo = function(datacom) {
             // Guard: must have at least driverid or vehiclenumber to be a valid driver entry
             if (!datacom || (typeof datacom !== 'object')) return;
@@ -12472,7 +12613,9 @@ $(document).ready(function() {
                         }
                     }
                     if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
-                       
+                    // §DRIVER-CANCEL-INFERENCE call site (existing driver path)
+                    _bwCheckStaleAssigned(datacom, incs);
+
                 }
                  
          
@@ -12489,6 +12632,9 @@ $(document).ready(function() {
                 $scope.driverlist =  $scope.driverdatarealx;
                 $scope.zonetablez();
                 if (!$scope.$$phase && !(document.activeElement && document.activeElement.tagName === 'SELECT')) { $scope.$digest(); }
+                // §DRIVER-CANCEL-INFERENCE call site (new driver path — catches drivers
+                // who were already stuck Assigned-with-no-job before the page loaded).
+                _bwCheckStaleAssigned(datacom, $scope.driverdatarealx.length - 1);
             }
            
         }
