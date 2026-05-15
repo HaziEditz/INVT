@@ -1,0 +1,90 @@
+Reply to dispatch HQ — Driver app Firebase / offline behaviour
+Hi, driver-app side here. Answers below are from the current production build (ota22ay, runtime 1.5.0). All file/line references are in the driver-app codebase if you want to verify.
+
+1. Reading an assigned job — source of truth
+
+Primary listener is notification/{driverId} (e.g. notification/D002). Backward-compat relay also reads notification/{vehicleId} (e.g. notification/TAXI02) and copies anything found there onto the driver-id path. A third listener watches jobs/{companyId}/{vehicleId}/{driverId} because dispatch double-writes the offer there.
+
+All three paths go through one shared dedup set (seenBookingIdsRef keyed by bookingId). So you can keep writing to all three — the driver will only see one popup per bookingId no matter which arrives first.
+
+online/{companyId}/{vehicleId}/current is not a job-offer source — that node is presence (driver dot on the map + jobpickup/jobdropoff for the dispatcher's live view). The app reads it only to confirm its own previously-written state on cold start.
+
+2. Caching the job locally
+
+Yes. Three layers:
+
+React state (jobs[]) — live, in-memory.
+lib/tripJournal.ts — every trip action (accept, arrived, meterStart, complete, cancel) is appended to AsyncStorage under taxi360.trip.events.{jobId} before any network call. Plus a taxi360.trip.summary.{jobId} once completed.
+lib/offlineQueue.ts — AsyncStorage queue of pending Firebase writes (type: 'gps' | 'jobStatus' | 'jobComplete' | 'chat' | 'presence' | 'hailComplete') that gets flushed when .info/connected flips true.
+Once the driver accepts, the job lives in React state + AsyncStorage. The app does not re-fetch job details from Firebase during the trip. If you delete the jobs/{cid}/{vid}/{drvId} node mid-trip the trip continues fine on the driver side.
+
+Exception: there's a jobs/ listener that watches for the Status field changing to Cancelled (so dispatch can cancel an active trip and the driver app picks it up). If you wipe the whole node, that listener fires child_removed and the app reads the CancelledBy field if present to decide the cancel message; if the node is just gone with no payload, it falls back to a generic "cancelled" message and frees the driver. So: clearing the node mid-trip will end the active trip on the driver side. If you only intend to clear after the driver hits Complete, that's safe — see #3.
+
+3. Going offline mid-trip — when signal returns
+
+On completeJob the driver app does, in this order:
+
+Computes the fare snapshot locally.
+Writes completedJobs/{cid} (push) + allbookings/{cid}/{bookingId} (update) + rideStatus/{cid}/{bookingId}: Completed. If offline, these are enqueued in AsyncStorage with type: 'jobComplete'.
+Fires POST {serverUrl}/api/job/sync-offline-trip with the full fare breakdown (this is the same endpoint your team documented — lib/syncOfflineTrips.ts:64). Trip journal entries + summary are uploaded.
+Calls _freeDriver / writeOnlinePresence to set vehiclestatus: 'Available'.
+On reconnect (.info/connected = true):
+
+flushQueue() replays every queued Firebase write. Failed items are preserved via rewriteQueue(failed) — they do not get dropped (this was the 22av-era pending-uploads fix).
+uploadPendingTrips() (from lib/syncOfflineTrips.ts) re-POSTs any unsent trip journals/summaries.
+Critical answer to your fix: the driver app does NOT re-read jobs/{cid}/{vid}/{drvId} after a trip is accepted. It does not re-read it on reconnect. It only re-reads on a fresh app cold-start (see #7). So your plan to clear those Firebase nodes the moment dispatch marks a job Completed/Cancelled is safe — the offline driver will still POST to /api/job/sync-offline-trip when it reconnects and never expects those nodes to exist.
+
+4. Driver-cancel — vehiclestatus field
+
+When the driver presses Cancel (or Reject on an offer), the app calls _freeDriver(...) which writes both of these in parallel (DriverContext.tsx ~line 3479–3494):
+
+online/{cid}/{vid}/current via writeOnlinePresence('Available') — touches the /current/ heartbeat.
+online/{cid}/{vid} top-level vehiclestatus: 'Available' — explicit update() call.
+So after a driver-cancel the top-level vehiclestatus should read Available. If the dispatch console is consistently seeing it stay at Assigned, that's either:
+
+A stale snapshot read (driver write succeeded but dispatch's value listener hadn't refreshed yet), or
+An older driver-app build that pre-dated this fix.
+Please send me one or two bookingIds where you've seen this happen recently and the approximate timestamp — I'll pull the audit trail. If it really is staying Assigned in current builds (ota22ay onwards), I'll trace it as a driver-app bug. But the code path is there.
+
+5. Hail / street-pickup ID
+
+Server-minted. The driver app calls POST {serverUrl}/api/job/create (lib/centralJobId.ts) with payload { companyId, source: 'hail', driverId, vehicleId, tariffId, passenger, pickup, dropoff } and 3 retries if the network call fails. Whatever jobId the server returns is the canonical ID.
+
+Fallbacks:
+
+If all 3 retries fail with a network error → startHailTrip blocks with an Alert; no trip is created. No local-ID fallback (intentional, to prevent ID collisions per SA portal requirement).
+If the server returns HTTP 404 specifically (endpoint not deployed) → app uses a temporary local ID TEMP-{companyId}-{Date.now()} so the driver can still operate. Once /api/job/create is live and returning 200s this path is never hit.
+Format of the canonical hail jobId is whatever the SA portal returns — the app does not assume any structure.
+
+6. Duplicate job IDs
+
+Two layers of protection:
+
+At the offer stage: seenBookingIdsRef is a single Set keyed by bookingId. If the same ID arrives a second time (from any of the 3 sources in #1), the second arrival is silently ignored. No second popup.
+At the write stage: completion writes use update() on allbookings/{cid}/{bookingId} and set() on rideStatus/{cid}/{bookingId}. A second trip with the same bookingId would overwrite the first record's fare/timing/status fields in Firebase. The first trip's local completedJobs push is a separate record (push key, not bookingId-keyed) so both completed records survive there.
+So if your counter recycles: the live offer flow is safe (second offer is dropped). But if both completions hit allbookings, the first trip's row will be overwritten by the second's. We should fix the counter on your side — recycling within a 24-hour window will create data loss on allbookings.
+
+7. Pickup address on re-opened app
+
+When the driver kills + reopens the app while a trip is active:
+
+The app rehydrates the active job from AsyncStorage (trip journal + last-known React state persisted via context).
+The pickup address shown is whatever was stored at the time of accept — taken from the Firebase offer payload (PickAddress) and cached locally.
+The notification listener and jobs/{cid}/{vid}/{drvId} listener re-subscribe and will merge any updated fields from Firebase into the active job (using bookingId as the merge key). So if dispatch updates the pickup in Firebase between kill and reopen, the new value is picked up.
+Today's complaint (driver 4 km from pickup, still showed "165 Inglewood Road"): that's the original pickup that dispatch wrote — driver app would only update if Firebase's PickAddress was changed at jobs/{cid}/{vid}/{drvId}. If dispatch didn't push a new pickup address to that node, the driver app correctly held the original. This is not a driver-app cache bug — it's reflecting what's still in Firebase. If you want a driver-side "re-fetch latest pickup on reopen" behaviour, easy to add — but tell me which Firebase node is authoritative for "current pickup" after a mid-trip address change.
+
+8. Vehicle status on completion
+
+Driver app writes vehiclestatus: 'Available' itself, in two places (parallel):
+
+online/{cid}/{vid}/current via writeOnlinePresence('Available').
+online/{cid}/{vid} top-level via explicit update() (DriverContext.tsx ~line 3677 for completeJob, similar in _freeDriver).
+Same pattern for online-completion and offline-then-synced completion (the queued jobComplete includes the presence write; if the queued completion replays, presence is rewritten then). The server does not need to do this — but if you also do it server-side as a safety net, no harm.
+
+Summary for your two candidate fixes:
+
+Clearing jobs/{cid}/{vid}/{drvId} the moment a trip is Completed or Cancelled on dispatch → SAFE. The driver app does not re-read it after accept, and the offline sync goes through /api/job/sync-offline-trip, not Firebase.
+Clearing it mid-trip on a still-active job → NOT SAFE. The driver app's jobs/ listener treats child_removed as a cancellation signal and will end the active trip.
+If you also want the driver app to do anything additional (e.g. explicit vehiclestatus: 'Available' on the top level after cancel — already there, but I can audit specific bookingIds, or "re-fetch pickup on app reopen"), tell me which and I'll add it in a single OTA.
+
+Cheers.
