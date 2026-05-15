@@ -1114,7 +1114,7 @@
                                                                 {{acvalue.Id}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="glyphicon glyphicon-time"></i>
-                                                                {{acvalue.BookingDateTime}}
+                                                                {{bwFmtDt(acvalue.BookingDateTime)}}
                                                             </span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-users "></i>
@@ -4367,7 +4367,7 @@ $(document).ready(function() {
                                                                 {{acvalue.Id}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="glyphicon glyphicon-time"></i>
-                                                                {{acvalue.BookingDateTime}}
+                                                                {{bwFmtDt(acvalue.BookingDateTime)}}
                                                             </span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-users "></i>
@@ -22566,13 +22566,21 @@ $(document).ready(function() {
                 var hasMilestone = milestones.some(function(m) { return m.time; });
                 if (!hasMilestone) { $('#jdp-timeline-wrap').hide(); return; }
                 var html = '';
+                function _tlFmtDt(raw) {
+                    if (!raw) return '—';
+                    var d = new Date(String(raw).trim().replace(/\.$/, ''));
+                    if (isNaN(d.getTime())) return raw;
+                    return d.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland',
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                }
                 milestones.forEach(function(m) {
                     if (!m.time) return;
                     html += '<div style="position:relative; margin-bottom:10px; padding-left:18px; min-height:22px;">';
                     html += '<span style="position:absolute; left:-9px; top:3px; width:16px; height:16px; border-radius:50%; background:' + m.color + '; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px #fff;">';
                     html += '<i class="fa ' + m.icon + '" style="font-size:7px; color:#fff;"></i></span>';
                     html += '<div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.4px;">' + m.label + '</div>';
-                    html += '<div style="font-size:12px; color:#333; font-weight:500;">' + m.time + '</div>';
+                    html += '<div style="font-size:12px; color:#333; font-weight:500;">' + _tlFmtDt(m.time) + '</div>';
                     html += '</div>';
                 });
                 $('#jdp-timeline').html(html);
