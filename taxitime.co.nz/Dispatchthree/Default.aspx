@@ -19648,21 +19648,21 @@ $(document).ready(function() {
             $scope.bwFmtDt = function(raw) {
                 if (!raw) return '';
                 var _s = String(raw).trim();
-                // Naive NZ-local datetime (no Z, no offset, no asp '.' suffix) — format verbatim.
-                // BookingDateTime is stored as "2026-05-16T02:16:00" in NZ local time; without
-                // this branch, new Date() parses it as UTC and toLocaleString re-adds +12h.
-                var _naive = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(_s);
+                // Naive NZ-local datetime — format verbatim. The asp backend sends BookingDateTime
+                // as "2026-05-16 02:34:00." (note: trailing dot, sometimes fractional seconds, and
+                // either 'T' or space separator). These are ALREADY NZ local — they have no Z and
+                // no offset. Without this branch, new Date() parses them as UTC and toLocaleString
+                // re-adds +12h, giving the dreaded "16 May 2026, 14:34" bug for an 02:34 booking.
+                var _naive = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d*)?$/.exec(_s);
                 if (_naive) {
                     var _moShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(_naive[2],10)-1];
                     return _naive[3] + ' ' + _moShort + ' ' + _naive[1] + ', ' + _naive[4] + ':' + _naive[5];
                 }
-                var _isAspUtc = _s.endsWith('.');
-                var s = _s.replace(/\.$/, '');
-                var d;
-                if (typeof raw === 'number') { d = new Date(raw); }
-                else if (_isAspUtc) { d = new Date(s.replace(' ', 'T') + 'Z'); }
-                else { d = new Date(s); }
-                if (isNaN(d.getTime())) return s;
+                // Anything else: numeric ms, ISO-with-Z, or ISO-with-offset — let JS Date parse it
+                // and render in NZ. (Trailing dot WITHOUT a date prefix can't happen; the naive
+                // branch above already caught those cases.)
+                var d = (typeof raw === 'number') ? new Date(raw) : new Date(_s);
+                if (isNaN(d.getTime())) return _s;
                 return d.toLocaleString('en-NZ', {
                     timeZone: 'Pacific/Auckland',
                     day: '2-digit', month: 'short', year: 'numeric',
@@ -22425,8 +22425,15 @@ $(document).ready(function() {
                         // Format any date string (ISO UTC or local) to NZ local readable time
                         function _bwFmtDt(raw) {
                             if (!raw) return '';
-                            var s = String(raw).trim().replace(/\.$/, ''); // strip trailing dot
-                            var d = new Date(s);
+                            var _s = String(raw).trim();
+                            // Naive NZ-local (no Z/offset, possibly trailing dot or fractional secs)
+                            // — render verbatim so we don't double-apply the +12h NZ offset.
+                            var _nv = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d*)?$/.exec(_s);
+                            if (_nv) {
+                                return _nv[1] + '/' + _nv[2] + '/' + _nv[3] + ', ' +
+                                       _nv[4] + ':' + _nv[5] + ':' + (_nv[6] || '00');
+                            }
+                            var d = new Date(_s);
                             if (isNaN(d.getTime())) return raw;
                             return d.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland',
                                 year: 'numeric', month: '2-digit', day: '2-digit',
@@ -22722,7 +22729,14 @@ $(document).ready(function() {
                 var html = '';
                 function _tlFmtDt(raw) {
                     if (!raw) return '—';
-                    var d = new Date(String(raw).trim().replace(/\.$/, ''));
+                    var _s = String(raw).trim();
+                    // Naive NZ-local datetime — render verbatim. See bwFmtDt for full rationale.
+                    var _nv = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d*)?$/.exec(_s);
+                    if (_nv) {
+                        return _nv[1] + '/' + _nv[2] + '/' + _nv[3] + ', ' +
+                               _nv[4] + ':' + _nv[5] + ':' + (_nv[6] || '00');
+                    }
+                    var d = new Date(_s);
                     if (isNaN(d.getTime())) return raw;
                     return d.toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland',
                         year: 'numeric', month: '2-digit', day: '2-digit',
