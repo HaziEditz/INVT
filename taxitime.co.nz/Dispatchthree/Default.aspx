@@ -7330,17 +7330,14 @@ $(document).ready(function() {
               "</div>" +
               '<h4 id="firstHeading" class="firstHeading">'+data.drivername +'/'+data.vehiclenumber+'</h4>' +
               '<div id="bodyContent">' +
-              '<h6>App Version:'+data.appver+'</h6>'+
-              '<h6>Vehicle Type:'+data.vehicletype+'</h6>'+
-              '<h6>GPS Status:'+data.GPSstatus+'</h6>'+
+              '<h6>App Version:'+(data.appVersion || data.AppVersion || 'unknown')+'</h6>'+
+              '<h6>Vehicle Type:'+(data.vehicletype || data.VehicleType || 'Not Specified')+'</h6>'+
+              '<h6>GPS Status:'+(data.gpsStatus || data.GpsStatus || 'unknown')+'</h6>'+
 
-              '<h6>Vehicle status:'+data.vehiclestatus+'</h6>'+
-              '<h6>Vehicle Speed:'+data.speed+'</h6>'+
-              '<h6>Zone name:'+data.zonename+'</h6>'+
-    
-    
-    
-              '<h6>Last Update Time:'+data.time+'</h6>'+
+              '<h6>Vehicle status:'+(data.vehiclestatus || data.VehicleStatus || 'unknown')+'</h6>'+
+              '<h6>Vehicle Speed:'+((data.vehicleSpeed != null ? data.vehicleSpeed : (data.Speed != null ? data.Speed : (data.speed != null ? data.speed : '0')))+' km/h')+'</h6>'+
+              '<h6>Zone name:'+(data.zonename || 'Not assigned')+'</h6>'+
+              '<h6>Last Update Time:'+(data.time ? new Date(data.time).toLocaleString('en-NZ',{timeZone:'Pacific/Auckland',hour12:false}) : 'unknown')+'</h6>'+
               "</div>" +
               "</div>";
 
@@ -8106,17 +8103,14 @@ $(document).ready(function() {
                   "</div>" +
                   '<h4 id="firstHeading" class="firstHeading">'+childsnapshot.val().drivername +'/'+childsnapshot.val().vehiclenumber+'</h4>' +
                   '<div id="bodyContent">' +
-                  '<h6>App Version:'+childsnapshot.val().appver+'</h6>'+
-                  '<h6>Vehicle Type:'+childsnapshot.val().vehicletype+'</h6>'+
-                  '<h6>GPS Status:'+childsnapshot.val().GPSstatus+'</h6>'+
+                  '<h6>App Version:'+(childsnapshot.val().appVersion || childsnapshot.val().AppVersion || 'unknown')+'</h6>'+
+                  '<h6>Vehicle Type:'+(childsnapshot.val().vehicletype || childsnapshot.val().VehicleType || 'Not Specified')+'</h6>'+
+                  '<h6>GPS Status:'+(childsnapshot.val().gpsStatus || childsnapshot.val().GpsStatus || 'unknown')+'</h6>'+
 
-                  '<h6>Vehicle status:'+childsnapshot.val().vehiclestatus+'</h6>'+
-                  '<h6>Vehicle Speed:'+childsnapshot.val().speed+'</h6>'+
-                  '<h6>Zone name:'+childsnapshot.val().zonename+'</h6>'+
-    
-    
-    
-                  '<h6>Last Update Time:'+childsnapshot.val().time+'</h6>'+
+                  '<h6>Vehicle status:'+(childsnapshot.val().vehiclestatus || childsnapshot.val().VehicleStatus || 'unknown')+'</h6>'+
+                  '<h6>Vehicle Speed:'+((childsnapshot.val().vehicleSpeed != null ? childsnapshot.val().vehicleSpeed : (childsnapshot.val().Speed != null ? childsnapshot.val().Speed : (childsnapshot.val().speed != null ? childsnapshot.val().speed : '0')))+' km/h')+'</h6>'+
+                  '<h6>Zone name:'+(childsnapshot.val().zonename || 'Not assigned')+'</h6>'+
+                  '<h6>Last Update Time:'+(childsnapshot.val().time ? new Date(childsnapshot.val().time).toLocaleString('en-NZ',{timeZone:'Pacific/Auckland',hour12:false}) : 'unknown')+'</h6>'+
                   "</div>" +
                   "</div>";
                  infowindow[childsnapshot.val().vehiclenumber].setContent(contentString);
