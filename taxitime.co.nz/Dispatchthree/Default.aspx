@@ -19502,6 +19502,14 @@ $(document).ready(function() {
             $scope.bwFmtDt = function(raw) {
                 if (!raw) return '';
                 var _s = String(raw).trim();
+                // Naive NZ-local datetime (no Z, no offset, no asp '.' suffix) — format verbatim.
+                // BookingDateTime is stored as "2026-05-16T02:16:00" in NZ local time; without
+                // this branch, new Date() parses it as UTC and toLocaleString re-adds +12h.
+                var _naive = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(_s);
+                if (_naive) {
+                    var _moShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(_naive[2],10)-1];
+                    return _naive[3] + ' ' + _moShort + ' ' + _naive[1] + ', ' + _naive[4] + ':' + _naive[5];
+                }
                 var _isAspUtc = _s.endsWith('.');
                 var s = _s.replace(/\.$/, '');
                 var d;
