@@ -112,6 +112,7 @@ const ACC_CLIENTS_FILE          = path.join(DATA_DIR, 'acc_clients.json');
 const ACC_APPROVALS_FILE        = path.join(DATA_DIR, 'acc_approvals.json');
 const BUSINESS_ACCOUNTS_FILE    = path.join(DATA_DIR, 'business_accounts.json');
 const PASSENGERS_FILE           = path.join(DATA_DIR, 'passengers.json');
+const COMPANY_JOB_SEQ_FILE      = path.join(DATA_DIR, 'companyJobSeq.json');
 const STRIPE_PAYMENTS_FILE      = path.join(DATA_DIR, 'stripe_payments.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
@@ -421,23 +422,29 @@ async function getFirebaseServerToken() {
   return null;
 }
 
-function fbRequest(url, method, payload) {
+function fbRequest(url, method, payload, extraHeaders) {
   return new Promise((resolve, reject) => {
     const body = payload ? JSON.stringify(payload) : null;
     const parsed = new URL(url);
+    const headers = { 'Content-Type': 'application/json' };
+    if (extraHeaders && typeof extraHeaders === 'object') {
+      Object.keys(extraHeaders).forEach(k => { headers[k] = extraHeaders[k]; });
+    }
     const opts = {
       hostname: parsed.hostname,
       path:     parsed.pathname + parsed.search,
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
     };
     if (body) opts.headers['Content-Length'] = Buffer.byteLength(body);
     const req = https.request(opts, res => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch(e) { resolve({ status: res.statusCode, body: data }); }
+        const out = { status: res.statusCode, headers: res.headers || {} };
+        try { out.body = JSON.parse(data); }
+        catch(e) { out.body = data; }
+        resolve(out);
       });
     });
     req.on('error', reject);
@@ -543,8 +550,35 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
     if (!cid || !bookingId) return;
     const _cid     = String(cid);
     const _bId     = String(bookingId);
-    const _vId     = vehId ? String(vehId).trim() : '';
-    const _dId     = drvId ? String(drvId).trim() : '';
+    let   _vId     = vehId ? String(vehId).trim() : '';
+    let   _dId     = drvId ? String(drvId).trim() : '';
+    // Defensive fallback: if vid/did are missing, look them up from the job
+    // record or ZONE_DRIVERS so the jobs/{cid}/{vid}/{drv} DELETE still fires.
+    // Previously the DELETE was silently skipped when either was empty, leaving
+    // the Firebase node to linger until the frontend orphan-cleanup sweep.
+    if (!_vId || !_dId) {
+      try {
+        const _allStores = (typeof jobStore !== 'undefined' ? jobStore : [])
+          .concat(typeof closedJobStore !== 'undefined' ? closedJobStore : []);
+        const _job = _allStores.find(j => String(j && j.Id) === _bId);
+        if (_job) {
+          if (!_vId) _vId = String(_job.VehicleNo || _job.VehicleId || _job.CallSign || '').trim();
+          if (!_dId) _dId = String(_job.DriverId || _job.driverId || '').trim();
+        }
+        if ((!_vId || !_dId) && typeof ZONE_DRIVERS !== 'undefined') {
+          // Scope to same companyId — global match risks pulling a driver from
+          // another tenant and deleting their active Firebase node.
+          const _zd = ZONE_DRIVERS.find(d =>
+            (!d.companyId || String(d.companyId) === _cid) &&
+            ((_dId && (String(d.driverid) === _dId || String(d.VehicleId) === _dId)) ||
+             (_vId && (String(d.VehicleId) === _vId || String(d.vehiclenumber) === _vId))));
+          if (_zd) {
+            if (!_vId) _vId = String(_zd.VehicleId || _zd.vehiclenumber || '').trim();
+            if (!_dId) _dId = String(_zd.driverid || '').trim();
+          }
+        }
+      } catch(eFb) { /* best-effort lookup */ }
+    }
     const _final   = (finalStatus === 'Cancelled') ? 'Cancelled' : 'Completed';
     const _tag     = `[FBcleanup #${_bId}]`;
     const tok = await getFirebaseServerToken();
@@ -570,12 +604,52 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
     // 2. /jobs/{cid}/{vehId}/{drvId} — DELETE acceptance/offer listener path.
     //    This is the path the offer watchdog reads; without removal it can
     //    reset the job to Pending and auto-dispatch will re-offer it.
+    //    SAFETY: GET first and only DELETE if the node's bookingId actually
+    //    matches _bId. A blind DELETE risks wiping an unrelated NEW job that
+    //    was assigned to the same driver between accept and cleanup —
+    //    driver-app team confirmed mid-trip node removal ends the active trip.
     if (_vId && _dId) {
-      tasks.push(
-        fbRequest(`${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}.json?auth=${auth}`, 'DELETE', null)
-          .then(r => console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} deleted [${r.status}]`))
-          .catch(e => console.warn(`${_tag} jobs DELETE failed: ${e && e.message}`))
-      );
+      tasks.push((async () => {
+        const _url = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}.json?auth=${auth}`;
+        try {
+          // GET with X-Firebase-ETag so the response includes an ETag header
+          // we can use for conditional DELETE (atomic compare-and-swap).
+          const g = await fbRequest(_url, 'GET', null, { 'X-Firebase-ETag': 'true' });
+          const n = g.body || {};
+          // Empty node — nothing to do.
+          if (!n || (typeof n === 'object' && Object.keys(n).length === 0)) {
+            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} already empty`);
+            return;
+          }
+          const nodeBId = String(n.BookingId || n.bookingId || n.jobId || n.Id || n._jobId || '');
+          if (!nodeBId) {
+            // Node has data but no bookingId field we recognise — refuse blind delete.
+            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} kept (no bookingId field — refusing blind delete)`);
+            return;
+          }
+          if (nodeBId !== _bId) {
+            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} kept (refs job #${nodeBId}, not #${_bId})`);
+            return;
+          }
+          // Conditional DELETE: only succeeds if ETag still matches — prevents
+          // a TOCTOU race where a NEW job is written between our GET and DELETE.
+          const etag = g.headers && (g.headers['etag'] || g.headers['ETag']);
+          if (etag) {
+            const d = await fbRequest(_url, 'DELETE', null, { 'if-match': etag });
+            if (d.status === 412) {
+              console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} kept (ETag changed mid-flight — new job arrived)`);
+            } else {
+              console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} deleted [${d.status}] (ETag-guarded)`);
+            }
+          } else {
+            // No ETag available — fall back to unconditional DELETE. The
+            // bookingId check above already eliminates the common mid-trip case;
+            // this is a narrow race window of ms per Firebase REST.
+            const d = await fbRequest(_url, 'DELETE', null);
+            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} deleted [${d.status}] (no ETag)`);
+          }
+        } catch(e) { console.warn(`${_tag} jobs DELETE check failed: ${e && e.message}`); }
+      })());
     }
 
     // 3. /joback/{bookingId} — DELETE offer-back ack node (driver app offer screen).
@@ -655,6 +729,25 @@ function newJobId() {
 // e.g. company 620611 → prefix "611"; 1 May 2026, job 1 → "6112605011" (10 digits)
 // Sequence is per-company per-day, resets at midnight, no zero-padding.
 const _companyJobSeq = {}; // key: "611-260501" → count
+// Load persisted counter from disk so daily sequence survives restarts.
+// Without this the counter starts at 0 every restart and recycles IDs that
+// were already issued today — producing duplicate booking IDs in the store.
+try {
+  if (fs.existsSync(COMPANY_JOB_SEQ_FILE)) {
+    const _persisted = JSON.parse(fs.readFileSync(COMPANY_JOB_SEQ_FILE, 'utf8')) || {};
+    Object.keys(_persisted).forEach(k => {
+      const v = parseInt(_persisted[k], 10);
+      if (!isNaN(v) && v > 0) _companyJobSeq[k] = v;
+    });
+  }
+} catch(e) { console.warn('[companyJobSeq] load failed:', e && e.message); }
+function _saveCompanyJobSeq() {
+  // Async write — best-effort durability. Belt-and-braces alongside
+  // syncCompanyJobSeq() which also seeds from jobStore + closedJobStore.
+  fs.writeFile(COMPANY_JOB_SEQ_FILE, JSON.stringify(_companyJobSeq, null, 2), (err) => {
+    if (err) console.warn('[companyJobSeq] save failed:', err.message);
+  });
+}
 function newCompanyJobId(companyId) {
   const _cidRaw = String(companyId || '').trim();
   // Guard: companyId must be purely numeric (e.g. "620611").
@@ -677,6 +770,7 @@ function newCompanyJobId(companyId) {
   const seqKey = `${prefix}-${yy}${mm}${dd}`;
   _companyJobSeq[seqKey] = (_companyJobSeq[seqKey] || 0) + 1;
   const seq = _companyJobSeq[seqKey];
+  _saveCompanyJobSeq(); // persist after each bump so restart cannot recycle
   return parseInt(`${prefix}${yy}${mm}${dd}${seq}`, 10); // always a number so j.Id === parseInt(...) comparisons work
 }
 
@@ -859,15 +953,17 @@ const jobStore = _savedJobStore;
 
 // Sync _companyJobSeq from saved jobs so new IDs don't collide after restart.
 // New ID format: {last3OfCompanyId}{YY}{MM}{DD}{seq} — e.g. 6112605011
+// Scans BOTH active jobStore AND closedJobStore (completed jobs leave the
+// active store quickly so seeding from jobStore alone misses today's
+// already-issued IDs — that was the duplicate-ID bug).
 (function syncCompanyJobSeq() {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   const datePart = `${yy}${mm}${dd}`; // e.g. "260501"
-  jobStore.forEach(j => {
+  const _scan = (j) => {
     const idStr = String(j.Id || '');
-    // Must be exactly 9+ chars and contain today's datePart at positions 3-8
     if (idStr.length >= 9 && idStr.slice(3, 9) === datePart) {
       const prefix = idStr.slice(0, 3);
       const seq = parseInt(idStr.slice(9), 10);
@@ -876,7 +972,11 @@ const jobStore = _savedJobStore;
         _companyJobSeq[key] = seq;
       }
     }
-  });
+  };
+  jobStore.forEach(_scan);
+  closedJobStore.forEach(_scan);
+  // Persist the merged max so the saved file reflects reality on disk.
+  _saveCompanyJobSeq();
 })();
 
 // Self-heal: remove duplicate job IDs (keep the most-recent duplicate by index).
