@@ -1700,11 +1700,11 @@
                                    <h6>  {{showi.newcompelete}}</h6>
                                      </div>
                                       <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Tarrif Change Counter:</label>
-                                  <h6>   Not Avalible Yet</h6>
+                                    <label  class="label label-pill label-primary mt-2 ng-binding">Tariff Change Counter:</label>
+                                  <h6 title="Mid-trip tariff switches recorded by the driver app">   {{ bwCountObj(showi.tariffChanges || showi.TariffChanges) }}</h6>
                                      </div>  <div class="col-4"   >
                                     <label  class="label label-pill label-primary mt-2 ng-binding">Meter Change Counter:</label>
-                                   <h6>   Not Avalible Yet</h6>
+                                   <h6 title="Meter pause / resume events recorded by the driver app">   {{ bwCountObj(showi.pauseLog || showi.PauseLog) }}</h6>
                                      </div>
 
                                     <div class="col-4"   >
@@ -12790,6 +12790,15 @@ $(document).ready(function() {
             $scope.jobdetailshowing = [];
             $scope.bwShownAccDetail = null;
         }
+        // Count helper for tariffChanges / pauseLog (array or object of events written by driver app).
+        // Returns "0" when missing so the template doesn't show blank.
+        $scope.bwCountObj = function(v) {
+            if (v === null || v === undefined || v === '') return '0';
+            if (Array.isArray(v)) return String(v.length);
+            if (typeof v === 'object') return String(Object.keys(v).length);
+            // Plain number written by driver app — show verbatim
+            return String(v);
+        };
         // Auto-fetch account details from Firebase when a closed job with a businessAccountId is displayed
         $scope.$watch('jobdetailshowing', function(newVal) {
             $scope.bwShownAccDetail = null;
@@ -13171,7 +13180,7 @@ $(document).ready(function() {
             if(  chosen == false){
                 Swal.fire(
                   'Choose Another No Of Passenger!',
-                   "No Car Avalible which Support "+$scope.selectedcustomer+ " Passengers",
+                   "No Car Available which Supports "+$scope.selectedcustomer+ " Passengers",
                    'warning'
               );
           
@@ -13228,7 +13237,7 @@ $(document).ready(function() {
             if(  chosen == false){
                 Swal.fire(
                   'Choose Vehicle Manually!',
-                   "No Wheal Chair Vehicle Avalible which Support "+$scope.selectedwheelchair+ " Passengers",
+                   "No Wheelchair Vehicle Available which Supports "+$scope.selectedwheelchair+ " Passengers",
                    'warning'
               );
                 $scope.selectedwheelchair = 0;
@@ -22594,19 +22603,182 @@ $(document).ready(function() {
   
 
   
+            // Trip Receipt PDF — invoice-style layout pulling from the Angular scope
+            // (sc.jobdetailshowing[0]) rather than scraping DOM. Replaces the old
+            // doc.fromHTML approach which produced unformatted plain text and
+            // mangled UTF-8 on Passenger Name. UTF-8 strings are passed straight to
+            // doc.text() which renders fine for Latin scripts; non-Latin scripts would
+            // need a Unicode font (addFont) — out of scope for this pass.
             function GeneratePDF() {
+                var j = {};
+                try {
+                    var sc = angular.element(document.getElementById('myangular')).scope();
+                    if (sc && sc.jobdetailshowing && sc.jobdetailshowing.length) j = sc.jobdetailshowing[0] || {};
+                } catch(e) {}
 
-                var doc = new jsPDF();
-                var specialElementHandlers = {
-                    '#editor': function (element, renderer) {
-                        return true;
-                    }
-                };
-                doc.fromHTML($('#JobsDetailsSection').html(), 20, 20, {
-                    'width': 170,
-                    'elementHandlers': specialElementHandlers
+                function S(v) { return (v === null || v === undefined) ? '' : String(v); }
+                function money(v) {
+                    var n = parseFloat(v);
+                    return (!isNaN(n) && n > 0) ? '$' + n.toFixed(2) : '';
+                }
+                function countObj(v) {
+                    if (v === null || v === undefined || v === '') return null;
+                    if (Array.isArray(v)) return v.length;
+                    if (typeof v === 'object') return Object.keys(v).length;
+                    var n = parseInt(v, 10); return isNaN(n) ? null : n;
+                }
+
+                var doc   = new jsPDF('p', 'mm', 'a4');
+                var pageW = doc.internal.pageSize.getWidth();
+                var pageH = doc.internal.pageSize.getHeight();
+                var margin = 14;
+                var y = 0;
+
+                // ── Header bar ─────────────────────────────────────────────
+                doc.setFillColor(26, 26, 46);
+                doc.rect(0, 0, pageW, 26, 'F');
+                doc.setTextColor(223, 186, 95);
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+                doc.text(S($('#CompanyName').text() || 'BookaWaka'), margin, 13);
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+                doc.setTextColor(255, 255, 255);
+                doc.text('Trip Receipt', margin, 20);
+                doc.setFontSize(11);
+                doc.text('Job #' + S(j.bookingidx || j.Id || ''), pageW - margin, 13, { align: 'right' });
+                doc.setFontSize(8);
+                var _gen = new Date().toLocaleString('en-NZ', {
+                    timeZone: 'Pacific/Auckland', hour12: false,
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit'
                 });
-                doc.save('Job_Detatils.pdf');
+                doc.text('Generated ' + _gen, pageW - margin, 20, { align: 'right' });
+
+                y = 32;
+                doc.setTextColor(40, 40, 40);
+
+                function section(title) {
+                    y += 2;
+                    doc.setFillColor(244, 245, 247);
+                    doc.rect(margin, y, pageW - 2 * margin, 6, 'F');
+                    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+                    doc.setTextColor(26, 26, 46);
+                    doc.text(title.toUpperCase(), margin + 2, y + 4.2);
+                    y += 10;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(40, 40, 40);
+                }
+                function pair(label1, value1, label2, value2) {
+                    var colW = (pageW - 2 * margin) / 2;
+                    doc.setFontSize(7); doc.setTextColor(110, 110, 110);
+                    doc.text(label1.toUpperCase(), margin, y);
+                    if (label2) doc.text(label2.toUpperCase(), margin + colW, y);
+                    doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+                    var v1 = S(value1) || '—', v2 = S(value2) || '—';
+                    // Truncate very long values to keep the two-column layout tidy
+                    var maxLen = Math.floor(colW / 1.9);
+                    if (v1.length > maxLen) v1 = v1.substring(0, maxLen - 1) + '…';
+                    if (v2.length > maxLen) v2 = v2.substring(0, maxLen - 1) + '…';
+                    doc.text(v1, margin, y + 4.5);
+                    if (label2) doc.text(v2, margin + colW, y + 4.5);
+                    y += 9.5;
+                }
+                function wideField(label, value) {
+                    doc.setFontSize(7); doc.setTextColor(110, 110, 110);
+                    doc.text(label.toUpperCase(), margin, y);
+                    doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+                    var w = pageW - 2 * margin;
+                    var lines = doc.splitTextToSize(S(value) || '—', w - 2);
+                    doc.text(lines, margin, y + 4.5);
+                    y += 4.5 + (lines.length * 4.2) + 2;
+                }
+
+                // ── Summary ────────────────────────────────────────────────
+                section('Trip Summary');
+                pair('Status', j.BookingStatus, 'Source', j.BookingSource);
+                pair('Booked', j.BookingDateTime, 'Completed', j.JobCompleteTime || j.newcompelete);
+
+                // ── Passenger ─────────────────────────────────────────────
+                section('Passenger');
+                pair('Name', j.ppname || j.Name, 'Phone', j.AccountId);
+                if (j.Account_id || j.Account_Name) {
+                    pair('Business Account', j.Account_Name || j.Account_id, 'Account ID', j.Account_id);
+                }
+
+                // ── Pickup / Drop ─────────────────────────────────────────
+                section('Pickup & Drop-off');
+                wideField('Pickup',   j.PickAddress);
+                wideField('Drop-off', j.DropAddress);
+                pair('Estimated Distance', (j.EstimatedDistance ? S(j.EstimatedDistance) + ' km' : ''), 'Tariff', j.TarriffType);
+
+                // ── Driver & Vehicle ──────────────────────────────────────
+                section('Driver & Vehicle');
+                var drvName = ((j.UserFName || '') + ' ' + (j.UserLName || '')).trim() || j.drivername || '';
+                pair('Driver', drvName, 'Vehicle', (S(j.CallSign) + (j.VehicleNo ? ' / ' + S(j.VehicleNo) : '')).trim());
+                pair('Vehicle Type', j.VehicleType, 'Pax / Bags / WC',
+                    S(j.Passengers || 0) + ' / ' + S(j.Bags || 0) + ' / ' + S(j.WheelChairs || 0));
+
+                // ── Timeline ──────────────────────────────────────────────
+                section('Timeline (NZ Local)');
+                pair('Dispatched', j.DispatchTime || j.OfferedAt, 'Accepted',  j.jobaccpettime || j.AcceptedAt);
+                pair('On the Way', j.onthewaytime || j.PickingAt, 'Arrived',   j.arrivedtime);
+                pair('Pickup',     j.pickuptime  || j.ActiveAt,   'Completed', j.JobCompleteTime || j.newcompelete);
+
+                // ── Fare table ────────────────────────────────────────────
+                section('Fare Breakdown');
+                var fareX = margin, fareW = pageW - 2 * margin;
+                doc.setDrawColor(220, 222, 228);
+                function fareRow(label, value, bold) {
+                    doc.line(fareX, y, fareX + fareW, y);
+                    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+                    doc.setFontSize(bold ? 11 : 10);
+                    doc.setTextColor(bold ? 26 : 40, bold ? 26 : 40, bold ? 46 : 40);
+                    doc.text(S(label), fareX + 2, y + 6);
+                    doc.text(S(value) || '—', fareX + fareW - 2, y + 6, { align: 'right' });
+                    y += 8;
+                }
+                fareRow('Ride Cost',      money(j.FareBase || j.RideCost));
+                var _wt = j.WaitingTime ? (typeof format === 'function' ? format(j.WaitingTime) : S(j.WaitingTime)) : '';
+                fareRow('Waiting Cost' + (_wt ? '  (' + _wt + ')' : ''), money(j.FareTime || j.WaitingCost));
+                fareRow('Driver Cost',    money(j.DriverCost));
+                fareRow('Estimated Cost', money(j.esti || j.EstimatedCost));
+                if (j.FareExtras) fareRow('Extras', money(j.FareExtras));
+                var totalVal = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || 0) ||
+                    (parseFloat(j.FareBase || j.RideCost || 0) +
+                     parseFloat(j.FareTime || j.WaitingCost || 0) +
+                     parseFloat(j.FareExtras || 0) +
+                     parseFloat(j.DriverCost || 0));
+                fareRow('TOTAL', totalVal > 0 ? '$' + totalVal.toFixed(2) : '—', true);
+                doc.line(fareX, y, fareX + fareW, y);
+                y += 4;
+                doc.setFont('helvetica', 'normal');
+
+                pair('Payment',  j.Payment || j.paymentMethod || j.PaymentMethod, 'Paid Amount', money(j.Recieve_payment));
+                if (j.TotalTime) pair('Total Ride Time', j.TotalTime, '', '');
+
+                // ── Trip events (tariff changes / meter pauses) ──────────
+                var tcc = countObj(j.tariffChanges || j.TariffChanges);
+                var mcc = countObj(j.pauseLog      || j.PauseLog);
+                if (tcc !== null || mcc !== null) {
+                    section('Trip Events');
+                    pair('Tariff Changes', tcc !== null ? String(tcc) : '—',
+                         'Meter Pauses',   mcc !== null ? String(mcc) : '—');
+                }
+
+                if (j.Acc_claim_id) {
+                    section('ACC');
+                    pair('Claim ID', j.Acc_claim_id, '', '');
+                }
+
+                // ── Footer ───────────────────────────────────────────────
+                var footerY = pageH - 12;
+                doc.setDrawColor(220, 222, 228);
+                doc.line(margin, footerY, pageW - margin, footerY);
+                doc.setFontSize(7); doc.setTextColor(140, 140, 140);
+                doc.text('BookaWaka Dispatch · Generated automatically · Pacific/Auckland time',
+                    margin, footerY + 5);
+
+                var bid = S(j.bookingidx || j.Id || 'trip');
+                doc.save('Trip_Receipt_' + bid + '.pdf');
             }
             function SearchCustomer() {
                 var param = [{ "name": "SearchDetails", "value": $("#TxtCustomerSearch").val() }];
@@ -23044,6 +23216,11 @@ $(document).ready(function() {
                                         if (!fb.DropAddress  && fb.dropAddress)      fb.DropAddress   = fb.dropAddress;
                                         if (!fb.RoutePolyline&& fb.route_polyline)   fb.RoutePolyline = fb.route_polyline;
                                         if (!fb.RoutePolyline&& fb.routePolyline)    fb.RoutePolyline = fb.routePolyline;
+                                        // Fare component aliases (driver-app offline sync uses FareBase/FareTime)
+                                        if (!fb.RideCost     && fb.FareBase != null)  fb.RideCost     = fb.FareBase;
+                                        if (!fb.WaitingCost  && fb.FareTime != null)  fb.WaitingCost  = fb.FareTime;
+                                        if (!fb.Payment      && (fb.paymentMethod || fb.PaymentMethod))
+                                            fb.Payment = fb.paymentMethod || fb.PaymentMethod;
                                         // Merge: Firebase base, then overlay non-empty in-memory record
                                         var _merged = {};
                                         Object.keys(fb).forEach(function(k) { _merged[k] = fb[k]; });
@@ -23067,6 +23244,21 @@ $(document).ready(function() {
                                         }
                                         jdpBuildFare(_merged);
                                         jdpBuildTimeline(_merged);
+                                        // Push Firebase-enriched fields back onto the Angular scope so the
+                                        // legacy showi.* template (and the PDF generator) see fare, payment,
+                                        // tariffChanges, pauseLog, etc. Only fill blanks — never overwrite
+                                        // SQL data that's already there.
+                                        try {
+                                            var sc2 = angular.element(document.getElementById('myangular')).scope();
+                                            if (sc2 && sc2.jobdetailshowing && sc2.jobdetailshowing.length) {
+                                                var _show = sc2.jobdetailshowing[0];
+                                                Object.keys(_merged).forEach(function(k) {
+                                                    var cur = _show[k];
+                                                    if (cur === undefined || cur === null || cur === '') _show[k] = _merged[k];
+                                                });
+                                                if (!sc2.$$phase) sc2.$digest();
+                                            }
+                                        } catch(_eEnrich) {}
                                     }
 
                                     if (fbJob) {
