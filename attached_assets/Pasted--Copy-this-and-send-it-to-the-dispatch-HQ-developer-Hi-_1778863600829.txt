@@ -1,0 +1,53 @@
+
+Copy this and send it to the dispatch HQ developer
+Hi — we've got two issues with the completed-trip detail page and the PDF export on the SA portal. Driver-app side is the Bookawaka Driver Expo app (current build ota22ay, runtime 1.5.0, companyId 620611). My Replit dev (working on the driver app) needs to coordinate with you.
+
+Issue 1 — Trip detail page is missing fields that the PDF has.
+Job #6112605163 (16 May 2026, 02:16) — the on-screen trip detail card shows pickup/drop/passenger/driver/timeline, but does not show: Fare, Waiting Cost, Estimated Cost, Payment Type, Ride Cost, Driver Cost, Total Ride Time, Tariff name, Tariff Change Counter, Meter Change Counter. All those fields exist on the PDF export of the same job. Please add them to the on-screen trip detail page so the dispatcher doesn't have to open the PDF to see them.
+
+Issue 2 — The PDF style needs a clean-up.
+Same job's PDF has these problems:
+
+Layout is unformatted plain text — labels on their own line, values on the next, no table or grid.
+Passenger Name shows mojibake characters (bý) instead of real text — looks like a UTF-8 / encoding bug in the PDF generator.
+Several fields render blank: Waiting Cost, Estimated Cost, Payment, Ride Cost, Driver Cost, Total Ride Time.
+Two fields say "Not Available Yet": Tarrif Change Counter, Meter Change Counter.
+Typo: "Tarrif" should be "Tariff", "Avalible" should be "Available".
+Please redesign the PDF to look like a proper invoice/receipt (header with logo, table for fare breakdown, footer) and fix the encoding issue on Passenger Name.
+
+What I need back from you so my driver-app dev can finish his side:
+
+For the on-screen trip detail page AND for the PDF, please send the exact Firebase field names each card/row reads from. Specifically tell me which Firebase path (allbookings/{companyId}/{bookingId}, completedJobs/{companyId}/{bookingId}, trips/{companyId}/{tripId}, or something else) and which exact property name is read for each of these:
+
+Fare (total)
+Waiting Cost
+Waiting Time
+Estimated Cost / Ride Cost / Driver Cost — what's the difference and which does each come from?
+Payment Type (cash / card / TM / ACC / account / gift card)
+Tariff name + Tariff ID
+Tariff Change Counter (list of mid-trip tariff switches)
+Meter Change Counter (meter start/pause events)
+Total Ride Time (seconds or "mm:ss"?)
+Estimated Distance (km or metres?)
+Pick / Drop Address (which property name — PickAddress, pickup.address, pickupAddress, etc.?)
+Passenger Name + Phone (and what character encoding is the PDF generator expecting?)
+job accept time / Arrived time / pickup time / On the way time / Job Complete Time — what property names, and ISO string or epoch ms?
+Once I know the exact field names the portal reads, the driver app can write them in the matching format, and all the blank fields will populate automatically on the very next trip.
+
+Thanks.
+
+Then come back to me with:
+Their reply — even a screenshot of their answer or a list of field names is enough.
+The Replit URL or project name of the SA portal repo if they're happy for me to look at the code directly (faster than them typing out 13 field names).
+What I'll do as soon as I get either of those:
+Audit what the driver app currently writes on dispatch trip completion (completeJob in DriverContext.tsx) and hail trip completion (completeHailTrip) into allbookings and completedJobs.
+Compare field-by-field against what dispatch HQ told me they read.
+For every mismatch, add a write so the field shows up under the name the portal expects. This is roughly the same kind of fix I did in 22au (where I enriched the hail completion write with WaitingCost, FareBase, FareTime, FareDistance, TariffName, and lowercase SA-portal aliases).
+Ship one OTA that fixes all the missing fields in one go — not five small ones.
+Things HQ should fix on their side (not mine to do):
+The trip detail page layout — adding fare/waiting/payment cards to the screen. Driver app cannot affect this.
+The PDF visual style (logo header, table, footer, fonts).
+The mojibake encoding bug on Passenger Name (likely a Buffer.from(str, 'latin1').toString('utf8') issue or similar — that's their PDF generator code, not the driver app).
+The "Tarrif" / "Avalible" spelling typos.
+Whether to keep the "Tarrif Change Counter" / "Meter Change Counter" labels as "Not Available Yet" forever, or pull the values from Firebase (driver app already writes tariffChanges and pauseLog arrays in tripJournal; HQ just needs to read them).
+Send the message, get the reply, and forward it to me. I'll do my half the same day.
