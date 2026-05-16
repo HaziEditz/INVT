@@ -11980,6 +11980,45 @@ $(document).ready(function() {
                                                     }
                                                 }
                                             }
+                                            // §FIX-G — Popup contract for Busy→Available re-offer.
+                                            // The silent pre-queue badge left a payload at /notification/{driverId}
+                                            // WITHOUT the `content` field. If we call acknowledgemethodx → writeJobDetailsToFirebase
+                                            // and that .set() lands while the driver app still has the silent payload cached,
+                                            // some app builds dedupe on identical-ish shapes and the popup never fires.
+                                            // Explicitly nuke /notification/{driverId} first, wait 200ms for Firebase to
+                                            // propagate null, then re-offer. The driver app sees a clean null→data transition.
+                                            var _reofferPopup = function() {
+                                                // §FIX-G compare-and-delete guard: only remove the notification node if it
+                                                // still looks like the stale silent pre-queue payload for THIS job
+                                                // (joboffer matches the stale pre-queue job id AND content field is absent).
+                                                // This prevents clobbering a different in-flight offer that may have been
+                                                // written to /notification/{driverId} by another tab or a concurrent dispatch.
+                                                var _doReoffer = function() {
+                                                    toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
+                                                    acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                };
+                                                try {
+                                                    var _nref = firebase.database().ref('/notification/' + driverId);
+                                                    _nref.once('value').then(function(snap) {
+                                                        var cur = snap.val();
+                                                        var _isStaleSilent = cur && !cur.content && String(cur.joboffer || '') === String(_stalePQJob);
+                                                        if (_isStaleSilent) {
+                                                            return _nref.remove().then(function() {
+                                                                setTimeout(_doReoffer, 200);
+                                                            });
+                                                        }
+                                                        // Either node is empty or holds an unrelated/active offer — don't touch it,
+                                                        // just re-offer; writeJobDetailsToFirebase will .set() over it normally.
+                                                        _doReoffer();
+                                                    }).catch(function(e) {
+                                                        console.warn('[changedata Busy→Available] pre-popup guard read failed:', e);
+                                                        _doReoffer();
+                                                    });
+                                                } catch(e) {
+                                                    console.warn('[changedata Busy→Available] pre-popup guard error:', e);
+                                                    _doReoffer();
+                                                }
+                                            };
                                             // Before re-offering with popup, check if the job was already
                                             // auto-assigned via the _resolveAcceptance Available path (race fix).
                                             // If Assigned to this driver, skip the popup entirely.
@@ -12001,17 +12040,14 @@ $(document).ready(function() {
                                                                 if (typeof _askSc.getQueuedJobs === 'function') _askSc.getQueuedJobs();
                                                             }
                                                         } else {
-                                                            toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
-                                                            acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                            _reofferPopup();
                                                         }
                                                     } catch(e) {
-                                                        toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
-                                                        acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                        _reofferPopup();
                                                     }
                                                 },
                                                 error: function() {
-                                                    toastr['info'](driverId + ' is now Available — re-offering job #' + _stalePQJob, 'Pre-Queue');
-                                                    acknowledgemethodx(_cdVehS, String(driverId), _stalePQJob, 'Pending');
+                                                    _reofferPopup();
                                                 }
                                             });
                                         }

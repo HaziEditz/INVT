@@ -4638,6 +4638,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             job.BookingStatus = prevDriverId > 0 ? 'No One' : 'Pending';
             job.DriverId = 0;
             job.VehicleId = 0;
+            // §FIX-G — release cooldown (only when a driver was actually released).
+            // AutoDispatchVehiclesallride skips Pending jobs whose releasedAt is within 30s,
+            // so even if another handler accidentally flips status back to Pending, the
+            // auto-loop won't immediately re-offer. Skipped when prevDriverId=0 so brand-new
+            // never-assigned jobs aren't delayed by 30s on first dispatch.
+            if (prevDriverId > 0) job.releasedAt = Date.now();
             const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
             if (zd) {
               const _restoreQ = calcRestoredQueue(prevDriverId, zd.zonename);
@@ -5623,8 +5629,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const driverJobs = jobStore.filter(matchesDriver);
           // Hail / street pickup: driver went Busy with no pre-booked live job
           if (newStatus === 'Busy') {
+            // §FIX-G — hail-active visibility. Previously this excluded creation of a
+            // Hail job when ANY Pending job was associated with the driver. But Pending
+            // means uncommitted (in the unassigned queue), so a driver picking up a
+            // hail passenger while a Pending job is in the system should still produce
+            // a visible Active row. Only block hail-create on truly-committed states.
             const hasLive = driverJobs.some(j =>
-              ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
+              ['Offered','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
             // Hail-create debounce (mirror of the Available→Completed 3 s debounce):
             // when the driver app rapid-toggles Busy↔Available it spawns a new hail
@@ -6010,6 +6021,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             _qsnJob.BookingStatus = 'No One';
             _qsnJob.DriverId  = 0;
             _qsnJob.VehicleId = 0;
+            _qsnJob.releasedAt = Date.now(); // §FIX-G — release cooldown (see AutoDispatch filter)
             if (_qsnPrevDrv > 0) {
               const _qsnZd = ZONE_DRIVERS.find(d => d.driverid === _qsnPrevDrv || d.VehicleId === _qsnPrevDrv);
               if (_qsnZd) {
@@ -6436,6 +6448,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             job.BookingStatus = 'No One';
             job.DriverId  = 0;
             job.VehicleId = 0;
+            job.releasedAt = Date.now(); // §FIX-G — release cooldown (see AutoDispatch filter)
             if (prevDriverId > 0) {
               const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
               if (zd) {
@@ -6641,6 +6654,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // Jobs with DispatchTimebefore == 0 (or missing) are treated as "dispatch immediately".
         const autoJobs = jobStore.filter(j => {
           if (j.BookingStatus !== 'Pending') return false;
+          // §FIX-G — release cooldown. If this job was just released by a dispatcher
+          // (UnAssign / QuickSetNoOne), skip it for 30s so the auto-loop can't immediately
+          // re-offer the same job to the same driver even if some other handler accidentally
+          // flips status back to Pending. Belt-and-braces protection on top of the 'No One'
+          // status set by §FIX-F.
+          if (j.releasedAt && (Date.now() - j.releasedAt) < 30000) {
+            return false;
+          }
           const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;
           const pickupRef = j.Pickingtime || j.BookingDateTime;
           if (dispBefore > 0 && pickupRef) {
@@ -7558,8 +7579,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const driverJobs = jobStore.filter(matchesDriverDS);
           // Hail / street pickup: driver went Busy with no pre-booked live job
           if (newStatus === 'Busy') {
+            // §FIX-G — see DP block: only block hail-create on truly-committed states.
+            // Pending = uncommitted (in unassigned queue), should NOT block hail-active.
             const hasLive = driverJobs.some(j =>
-              ['Offered','Pending','Assigned','Picking','Active'].includes(j.BookingStatus)
+              ['Offered','Assigned','Picking','Active'].includes(j.BookingStatus)
             );
             // Hail-create debounce — see DP block for rationale
             const _recentHailDoneDS = closedJobStore.find(function(cj) {
