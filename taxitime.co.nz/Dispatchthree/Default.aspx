@@ -1933,6 +1933,28 @@
                                 <div id="jdp-fare-tariff-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Tariff</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-tariff"></div></div>
                                 <div id="jdp-fare-payment-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Paid By</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-payment"></div></div>
                                 <div id="jdp-fare-source-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Source</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-source"></div></div>
+                                <div id="jdp-fare-waittime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waittime"></div></div>
+                                <div id="jdp-fare-booking-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Booking Type</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-booking"></div></div>
+                            </div>
+                            <div id="jdp-fare-tariff-log-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
+                                <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Tariff Changes</div>
+                                <div style="font-size:12px; color:#444;" id="jdp-fare-tariff-log"></div>
+                            </div>
+                            <div id="jdp-fare-payment-details-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
+                                <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Payment Details</div>
+                                <div style="font-size:12px; color:#444;" id="jdp-fare-payment-details"></div>
+                            </div>
+                            <div id="jdp-fare-override-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
+                                <div style="font-size:10px; color:#e67e22; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; font-weight:700;"><i class="fa fa-exclamation-triangle"></i> Fare Override</div>
+                                <div style="font-size:12px; color:#444;" id="jdp-fare-override"></div>
+                            </div>
+                            <div id="jdp-fare-driver-note-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
+                                <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Driver Note</div>
+                                <div style="font-size:12px; color:#333; font-style:italic;" id="jdp-fare-driver-note"></div>
+                            </div>
+                            <div id="jdp-fare-issue-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
+                                <div style="font-size:10px; color:#c0392b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; font-weight:700;"><i class="fa fa-flag"></i> Trip Issue</div>
+                                <div style="font-size:12px; color:#333;" id="jdp-fare-issue"></div>
                             </div>
                             <div id="jdp-fare-total-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:2px solid #f0f0f0;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -23198,7 +23220,7 @@ $(document).ready(function() {
 
             function jdpBuildFare(j) {
                 var hasFare = false;
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
                 // Distance: prefer actual trip distance; also accept Firebase camelCase field names.
                 // Show even when 0 so the user sees that distance WAS computed (just zero on this hail trip).
                 var distRaw = j.JobDistance != null ? j.JobDistance
@@ -23237,12 +23259,79 @@ $(document).ready(function() {
                 if (pm) {
                     var pmLabel = pm.charAt(0).toUpperCase() + pm.slice(1);
                     var paid = (j.paymentStatus === 'paid' || j.PaymentStatus === 'paid');
-                    $('#jdp-fare-payment').html(pmLabel + (paid ? ' <span style="color:#27ae60; font-size:11px; font-weight:700;">&#10003; Paid</span>' : ''));
+                    // §FIX-R/sec — escape pmLabel (driver-supplied) before concatenating into innerHTML
+                    var pmLabelEsc = $('<div>').text(pmLabel).html();
+                    $('#jdp-fare-payment').html(pmLabelEsc + (paid ? ' <span style="color:#27ae60; font-size:11px; font-weight:700;">&#10003; Paid</span>' : ''));
                     $('#jdp-fare-payment-wrap').show(); hasFare = true;
                 }
                 // Source / Job type — Hail, Dispatch, ACC, Account, etc.
                 var src = j.BookingSource || j.booking_type || '';
                 if (src) { $('#jdp-fare-source').text(src); $('#jdp-fare-source-wrap').show(); hasFare = true; }
+                // ── §FIX-R audit-payload rendering (OTA 22be) ────────────────────────
+                // Waiting time (minutes) — separate from the existing Waiting Cost row
+                var wMin = parseFloat(j.WaitingTime != null ? j.WaitingTime : (j.waitingMinutes != null ? j.waitingMinutes : null));
+                if (!isNaN(wMin) && wMin > 0) {
+                    var wIvs = Array.isArray(j.WaitingIntervals) ? j.WaitingIntervals : (Array.isArray(j.waitingIntervals) ? j.waitingIntervals : null);
+                    var wTxt = wMin.toFixed(1) + ' min' + (wIvs ? ' · ' + wIvs.length + ' tap' + (wIvs.length === 1 ? '' : 's') : '');
+                    $('#jdp-fare-waittime').text(wTxt); $('#jdp-fare-waittime-wrap').show(); hasFare = true;
+                }
+                // Booking type (Normal Ride / ACC Ride / Account Ride / Total Mobility / Gift Card / etc.)
+                var bk = j.BookingType || j.bookingType || '';
+                if (bk) { $('#jdp-fare-booking').text(bk); $('#jdp-fare-booking-wrap').show(); hasFare = true; }
+                // Tariff-change log (chronological list of switches)
+                var tLog = Array.isArray(j.TariffLog) ? j.TariffLog : (Array.isArray(j.tariffLog) ? j.tariffLog : (Array.isArray(j.tariffChanges) ? j.tariffChanges : null));
+                if (tLog && tLog.length) {
+                    var tHtml = tLog.map(function(ev) {
+                        var when = ev.at || ev.timestamp || ev.time || '';
+                        var name = ev.tariffName || ev.name || ev.tariffId || ev.id || '';
+                        var whenTxt = when ? (function(){ try { return new Date(when).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); } catch(_){ return String(when); } })() : '';
+                        // §FIX-R/sec — escape whenTxt (falls back to raw driver-supplied string when Date parse fails)
+                        var whenEsc = $('<div>').text(whenTxt || '—').html();
+                        return '<div style="padding:3px 0; border-bottom:1px dotted #eee;"><span style="color:#888;">' + whenEsc + '</span> &nbsp; <strong>' + $('<div>').text(name || '?').html() + '</strong></div>';
+                    }).join('');
+                    $('#jdp-fare-tariff-log').html(tHtml); $('#jdp-fare-tariff-log-wrap').show(); hasFare = true;
+                }
+                // Payment details — TM voucher / ACC claim / gift card code / Stripe intent / card last-4 / receipt#
+                var pdParts = [];
+                if (j.TmVoucherNo)  pdParts.push('<div><span style="color:#888;">TM voucher:</span> <strong>' + $('<div>').text(j.TmVoucherNo).html()  + '</strong></div>');
+                if (j.AccClaimNo)   pdParts.push('<div><span style="color:#888;">ACC claim:</span> <strong>'  + $('<div>').text(j.AccClaimNo).html()   + '</strong></div>');
+                if (j.GiftCardCode) pdParts.push('<div><span style="color:#888;">Gift card:</span> <strong>'  + $('<div>').text(j.GiftCardCode).html() + '</strong></div>');
+                if (j.StripeIntent) pdParts.push('<div><span style="color:#888;">Stripe:</span> <strong>'     + $('<div>').text(j.StripeIntent).html() + '</strong></div>');
+                if (j.CardLast4)    pdParts.push('<div><span style="color:#888;">Card ****</span><strong>'    + $('<div>').text(j.CardLast4).html()    + '</strong></div>');
+                if (j.ReceiptNo)    pdParts.push('<div><span style="color:#888;">Receipt:</span> <strong>'    + $('<div>').text(j.ReceiptNo).html()    + '</strong></div>');
+                if (j.PaymentSettled === true)  pdParts.push('<div style="color:#27ae60;"><i class="fa fa-check-circle"></i> Settled with driver in vehicle</div>');
+                if (j.PaymentSettled === false) pdParts.push('<div style="color:#c0392b;"><i class="fa fa-exclamation-circle"></i> Not yet settled</div>');
+                if (Array.isArray(j.PaymentSplits) && j.PaymentSplits.length) {
+                    var splTxt = j.PaymentSplits.map(function(s) {
+                        var mm = (s.method || s.type || '?').toString();
+                        var amt = parseFloat(s.amount != null ? s.amount : s.value);
+                        return $('<div>').text(mm).html() + (isNaN(amt) ? '' : ' $' + amt.toFixed(2));
+                    }).join(' + ');
+                    pdParts.push('<div><span style="color:#888;">Split:</span> ' + splTxt + '</div>');
+                }
+                if (pdParts.length) {
+                    $('#jdp-fare-payment-details').html(pdParts.join('')); $('#jdp-fare-payment-details-wrap').show(); hasFare = true;
+                }
+                // Fixed-fare / custom-total override
+                var cTot = parseFloat(j.CustomTotal != null ? j.CustomTotal : null);
+                if ((j.FixedPrice === true) || (!isNaN(cTot) && cTot > 0)) {
+                    var ovr = [];
+                    if (j.FixedPrice === true) ovr.push('<div><strong>Fixed flat fare</strong></div>');
+                    if (!isNaN(cTot) && cTot > 0) ovr.push('<div>Custom total: <strong>$' + cTot.toFixed(2) + '</strong></div>');
+                    if (j.PriceOverrideReason) ovr.push('<div><span style="color:#888;">Reason:</span> ' + $('<div>').text(j.PriceOverrideReason).html() + '</div>');
+                    if (j.PriceOverrideNote)   ovr.push('<div><span style="color:#888;">Note:</span> '   + $('<div>').text(j.PriceOverrideNote).html()   + '</div>');
+                    $('#jdp-fare-override').html(ovr.join('')); $('#jdp-fare-override-wrap').show(); hasFare = true;
+                }
+                // Driver note (free text from the driver app)
+                if (j.DriverNote) {
+                    $('#jdp-fare-driver-note').text(j.DriverNote); $('#jdp-fare-driver-note-wrap').show(); hasFare = true;
+                }
+                // Trip-issue flag + optional note (vomit / damage / no-show / refused / other)
+                if (j.TripIssueFlag) {
+                    var issTxt = j.TripIssueFlag + (j.TripIssueNote ? ' — ' + j.TripIssueNote : '');
+                    $('#jdp-fare-issue').text(issTxt); $('#jdp-fare-issue-wrap').show(); hasFare = true;
+                }
+                // ── end §FIX-R rendering ─────────────────────────────────────────────
                 // Total: TotalFare (offline sync) > totalFare/fare (Firebase camelCase) > Fare > Cost, then sum components
                 var total = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || '0') ||
                     (parseFloat(j.FareBase||j.RideCost||'0') + parseFloat(j.FareTime||j.WaitingCost||'0') +
@@ -23435,7 +23524,13 @@ $(document).ready(function() {
                             else if (j.cashPayment) _pmStr = 'cash';
                             else if (j.BookingSource === 'Hail') _pmStr = 'cash';
                         }
-                        var _settledOnSpot = (_pmStr === 'cash' || _pmStr === 'account');
+                        // §FIX-R — explicit PaymentSettled flag from driver app wins.
+                        // Driver-app OTA 22be sends settledInCar=true for any payment
+                        // method that was finalised on the spot (cash / account / TM /
+                        // ACC / gift card / eftpos), so we hide Take Payment when the
+                        // flag says settled, regardless of method.
+                        var _settledOnSpot = (j.PaymentSettled === true) ||
+                                             ((j.PaymentSettled !== false) && (_pmStr === 'cash' || _pmStr === 'account' || _pmStr === 'tm' || _pmStr === 'acc' || _pmStr === 'gift' || _pmStr === 'eftpos'));
                         if (_isClosedNoFare) {
                             $('#jdp-take-payment-wrap').hide();
                         } else if (_paidAlready) {

@@ -56,6 +56,15 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-R — OTA-22be audit payload consumed (May 2026)
+
+- `_sotExtractAuditFields(summary)` in `server.js` (~line 3996) defensively pulls the new HQ fields out of every `/api/syncOfflineTrip` POST: `WaitingTime` / `WaitingCost` / `WaitingIntervals`, `TariffLog` + `CurrentTariffId/Name`, `pauseLog`, `BookingType`, `TripSource`, `DriverNote`, `TripIssueFlag/Note`, `FixedPrice` / `CustomTotal` / `PriceOverride*`, payment sub-fields (`TmVoucherNo`, `AccClaimNo`, `GiftCardCode`, `StripeIntent`, `PaymentSettled`, `PaymentSplits`).
+- Helper called from both syncOfflineTrip paths (live + `§FIX-L` late-merge) — live path stamps wins, late-merge fills-if-empty.
+- Root-level `runtimeVersion` / `groupId` / `platform` are persisted as `AppVersion` / `AppBuild` / `Platform` so HQ's "which OTA?" questions resolve from the closed-job record.
+- Diagnostic log `[§FIX-R/diag] summary keys=[…] payment keys=[…]` fires on every sync so unknown HQ field names surface in workflow logs.
+- Frontend `Default.aspx` `jdpBuildFare` (~23224) renders new rows: Waiting Time, Booking Type, Tariff Changes (chronological), Payment Details (voucher / claim / gift / Stripe / settled badge / splits), Fare Override, Driver Note, Trip Issue.
+- Take Payment button hide logic (`§FIX-P`) now honours `j.PaymentSettled === true` regardless of payment method.
+
 ## User preferences
 
 - _Populate as you build_

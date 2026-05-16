@@ -3982,6 +3982,68 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── §FIX-R — Extract the OTA-22be audit payload from a trip summary ─────────
+  // HQ confirmed sync-offline-trip now carries: payment method (with TM
+  // voucher / ACC claim / gift-card / Stripe intent / settled-in-car flag),
+  // waiting minutes + intervals + dollars, tariff change log, pause log,
+  // active tariff id/name, booking type, trip source, plus reserved-but-
+  // safe-defaulted split-payment / fixed-fare-override / driver-note /
+  // trip-issue fields. We pick each field defensively (multiple alias
+  // casings) so HQ can tweak names without breaking us.
+  function _sotExtractAuditFields(s) {
+    const out = {};
+    if (!s || typeof s !== 'object') return out;
+    function _str(v) { return (v == null || v === '') ? null : String(v); }
+    function _num(v) { var n = Number(v); return (isFinite(n) && n > 0) ? n : null; }
+    function _arr(v) { return Array.isArray(v) ? v : null; }
+    // Waiting (minutes / dollars / per-tap intervals)
+    var wMin  = _num(s.waitingMinutes != null ? s.waitingMinutes
+              : s.waitingMin   != null ? s.waitingMin
+              : s.waitingTime  != null ? s.waitingTime : null);
+    var wCost = _num(s.waitingDollars != null ? s.waitingDollars
+              : s.waitingCost  != null ? s.waitingCost
+              : s.waiting_cost != null ? s.waiting_cost : null);
+    if (wMin  != null) out.WaitingTime = wMin;
+    if (wCost != null) out.WaitingCost = wCost;
+    var wIvs = _arr(s.waitingIntervals) || _arr(s.WaitingIntervals);
+    if (wIvs) out.WaitingIntervals = wIvs;
+    // Tariff log + live tariff
+    var tLog = _arr(s.tariffChanges) || _arr(s.tariffLog) || _arr(s.TariffLog);
+    if (tLog) out.TariffLog = tLog;
+    if (_str(s.currentTariffId))   out.CurrentTariffId   = _str(s.currentTariffId);
+    if (_str(s.currentTariffName)) out.CurrentTariffName = _str(s.currentTariffName);
+    // Pause log (frontend already renders pauseLog / PauseLog in the timeline)
+    var pLog = _arr(s.pauseLog) || _arr(s.PauseLog);
+    if (pLog) out.pauseLog = pLog;
+    // Booking-type / trip-source classification
+    if (_str(s.bookingType)) out.BookingType = _str(s.bookingType);
+    if (_str(s.tripSource))  out.TripSource  = _str(s.tripSource);
+    // Driver notes + trip-issue category
+    if (_str(s.driverNote)) out.DriverNote = _str(s.driverNote);
+    var tiFlag = _str(s.tripIssueFlag);
+    if (tiFlag && tiFlag.toLowerCase() !== 'none') out.TripIssueFlag = tiFlag;
+    if (_str(s.tripIssueNote)) out.TripIssueNote = _str(s.tripIssueNote);
+    // Fixed-fare / custom-total override
+    if (s.fixedPrice === true || s.fixedPrice === 'true') out.FixedPrice = true;
+    if (_num(s.customTotal) != null) out.CustomTotal = _num(s.customTotal);
+    if (_str(s.priceOverrideReason)) out.PriceOverrideReason = _str(s.priceOverrideReason);
+    if (_str(s.priceOverrideNote))   out.PriceOverrideNote   = _str(s.priceOverrideNote);
+    // Payment sub-fields (the "Paid By" detail row + Take-Payment-button gate)
+    if (s.payment && typeof s.payment === 'object') {
+      var p = s.payment;
+      if (_str(p.tmVoucherNo))  out.TmVoucherNo  = _str(p.tmVoucherNo);
+      if (_str(p.accClaimNo))   out.AccClaimNo   = _str(p.accClaimNo);
+      if (_str(p.giftCardCode)) out.GiftCardCode = _str(p.giftCardCode);
+      if (_str(p.stripeIntent)) out.StripeIntent = _str(p.stripeIntent);
+      if (p.settledInCar === true  || p.settledInCar === 'true')  out.PaymentSettled = true;
+      if (p.settledInCar === false || p.settledInCar === 'false') out.PaymentSettled = false;
+      var pSplits = _arr(p.splits);
+      if (pSplits) out.PaymentSplits = pSplits;
+    }
+    return out;
+  }
+  // ─── end §FIX-R helper ────────────────────────────────────────────────────────
+
   // ── POST /api/syncOfflineTrip — driver app uploads offline trip data ────────
   // Called by the driver app when it reconnects after completing a job offline.
   // Accepts a full event journal + trip summary, runs all status transitions in
@@ -4017,8 +4079,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       j.Id === _sotJobId &&
       (String(j.companyId || j.CompanyId || '') === _sotCid || _sotCid === 'test')
     );
+    // §FIX-R/sec — Tenant-isolation guard. Without a companyId match, a
+    // collision on Id (or a malformed driver-app POST) could merge one
+    // tenant's offline sync into another tenant's closed record. Mirror
+    // the same guard the live `jobStore.find` above uses.
     const _sotAlreadyClosed = !_sotJob &&
-      closedJobStore.find(j => j.Id === _sotJobId);
+      closedJobStore.find(j =>
+        j.Id === _sotJobId &&
+        (String(j.companyId || j.CompanyId || '') === _sotCid || _sotCid === 'test'));
 
     if (_sotAlreadyClosed) {
       // ─── §FIX-L — merge late syncOfflineTrip into already-closed record ─────
@@ -4081,6 +4149,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         if (_pmL === 'account' && !_sotHas(_sotC.accountPayment)) _sotFill('accountPayment', true);
         if (_pmL === 'cash' && !_sotHas(_sotC.cashPayment))       _sotFill('cashPayment', true);
       }
+      // §FIX-R — OTA-22be audit fields (waiting, tariff log, pause log,
+      // payment sub-fields, booking/trip-source classification, fixed-fare
+      // overrides, driver note, trip-issue category). Fill-if-empty so an
+      // earlier truth (e.g. dispatch-entered note) is never clobbered.
+      var _sotAuditL = _sotExtractAuditFields(_sotSummary);
+      var _sotAuditKeysL = Object.keys(_sotAuditL);
+      _sotAuditKeysL.forEach(function(k) { _sotFill(k, _sotAuditL[k]); });
+      if (_sotAuditKeysL.length) {
+        console.log('  [§FIX-R/late] audit fields merged: ' + _sotAuditKeysL.join(','));
+      }
+      // §FIX-R — runtime fingerprint (fill-if-empty so we don't overwrite an
+      // earlier stamp). Mirrors the live path so HQ's OTA-version question
+      // is answerable for jobs that closed via DriverStatusChanged first.
+      if (_sotData.runtimeVersion || _sotData.runtime_version) {
+        _sotFill('AppVersion', String(_sotData.runtimeVersion || _sotData.runtime_version));
+      }
+      if (_sotData.groupId || _sotData.group_id || _sotData.otaGroup) {
+        _sotFill('AppBuild', String(_sotData.groupId || _sotData.group_id || _sotData.otaGroup));
+      }
+      if (_sotData.platform) _sotFill('Platform', String(_sotData.platform));
+      // Diagnostic — surface every tripSummary key so unknown HQ field names
+      // appear in workflow logs whether we hit the live or late-merge path.
+      try {
+        var _sumKL = Object.keys(_sotSummary || {});
+        var _payKL = (_sotSummary && _sotSummary.payment && typeof _sotSummary.payment === 'object')
+                   ? Object.keys(_sotSummary.payment) : [];
+        console.log('  [§FIX-R/diag/late] #' + _sotJobId + ' summary keys=[' + _sumKL.join(',') +
+                    '] payment keys=[' + _payKL.join(',') + ']');
+      } catch(_eL) {}
       // Stamp provenance + persist
       _sotC.OfflineSynced   = true;
       _sotC.OfflineSyncedAt = new Date().toISOString();
@@ -4178,6 +4275,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       _sotJob.ReceiptNo       = _p.receiptNo  || '';
       if (_p.cardLast4)       _sotJob.CardLast4 = _p.cardLast4;
     }
+    // §FIX-R — OTA-22be audit fields. Live path: assign every non-undefined
+    // value (a fresh sync wins). Mirror the same diagnostic log as the late
+    // path so HQ field-name discrepancies surface immediately in logs.
+    var _sotAuditLive = _sotExtractAuditFields(_sotSummary);
+    var _sotAuditKeys = Object.keys(_sotAuditLive);
+    _sotAuditKeys.forEach(function(k) { _sotJob[k] = _sotAuditLive[k]; });
+    if (_sotAuditKeys.length) {
+      console.log('[§FIX-R] audit fields stamped on #' + _sotJobId + ': ' + _sotAuditKeys.join(','));
+    }
+    // §FIX-R — runtime fingerprint of the driver app that sent this trip.
+    // Lets us answer HQ's "which OTA version was D002 on?" questions without
+    // pinging the driver. The driver app posts these at the root of the
+    // payload (HQ confirmed OTA 22be carries runtimeVersion + groupId).
+    if (_sotData.runtimeVersion || _sotData.runtime_version) {
+      _sotJob.AppVersion = String(_sotData.runtimeVersion || _sotData.runtime_version);
+    }
+    if (_sotData.groupId || _sotData.group_id || _sotData.otaGroup) {
+      _sotJob.AppBuild = String(_sotData.groupId || _sotData.group_id || _sotData.otaGroup);
+    }
+    if (_sotData.platform) _sotJob.Platform = String(_sotData.platform);
+    // Diagnostic: surface every tripSummary key so we can spot unknown ones
+    // the helper didn't pick up (HQ might rename fields without warning).
+    try {
+      var _sumKeys = Object.keys(_sotSummary || {});
+      var _payKeys = (_sotSummary && _sotSummary.payment && typeof _sotSummary.payment === 'object')
+                   ? Object.keys(_sotSummary.payment) : [];
+      console.log('[§FIX-R/diag] #' + _sotJobId + ' summary keys=[' + _sumKeys.join(',') +
+                  '] payment keys=[' + _payKeys.join(',') + ']');
+    } catch(_e) {}
     _sotJob.driverId         = _sotJob.driverId      || _sotDrvId;
     _sotJob.VehicleId        = _sotJob.VehicleId     || _sotVehId;
     _sotJob.OfflineSynced    = true;
