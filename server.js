@@ -1050,6 +1050,144 @@ function saveClosedJobStore() {
   });
 }
 
+// ─── §FIX-H — Enrich closed-job record from allbookings (driver-app truth) ────
+// The driver app writes trip-completion data (fare breakdown, distance, addresses,
+// payment, timeline, TM/card fields) to allbookings/{cid}/{bookingId} at the end
+// of a trip. Our [DriverStatusChanged]→Completed path runs before/around the same
+// time, but only knows what the dispatcher seeded into jobStore when the job was
+// created — so the closed-job history shows empty fare/distance/payment columns
+// (especially for Hail jobs created server-side).
+//
+// This helper does a fire-and-forget Firebase read of allbookings/{cid}/{jobId},
+// then merges any NON-EMPTY values into the closed-job record. It NEVER overwrites
+// a populated local value with an empty Firebase value (the HQ-doc warning about
+// stray update({field:''}) calls wiping data — we are the reader, not the writer,
+// but we apply the same defensive rule).
+//
+// Safe to call repeatedly; safe if Firebase is unreachable; safe if the node is
+// missing. On a successful merge it calls saveClosedJobStore() so the disk file
+// reflects the enriched record.
+function _enrichClosedJobFromAllbookings(cid, job, attempt) {
+  if (!cid || !job || !job.Id) return;
+  attempt = attempt || 0;
+  // Retry ladder: tries 0,1,2,3 → 5s, 15s, 30s gaps (max 4 attempts total).
+  var RETRY_DELAYS_MS = [5000, 15000, 30000];
+  function _scheduleRetry() {
+    if (attempt >= RETRY_DELAYS_MS.length) return false;
+    setTimeout(function() { _enrichClosedJobFromAllbookings(cid, job, attempt + 1); }, RETRY_DELAYS_MS[attempt]);
+    return true;
+  }
+  // Helper: true if value is "useful" to copy in (non-empty, non-zero for numeric).
+  function _hasVal(v) {
+    if (v == null) return false;
+    if (typeof v === 'string') return v.trim() !== '';
+    if (typeof v === 'number') return !isNaN(v) && v !== 0;
+    if (typeof v === 'boolean') return true;
+    return true;
+  }
+  // Should we replace the existing job field with the new value?
+  // YES if local field is empty/zero AND fb value is useful — never wipe local truth.
+  function _shouldCopy(local, fb) {
+    if (!_hasVal(fb)) return false;
+    if (local == null) return true;
+    if (typeof local === 'string' && local.trim() === '') return true;
+    if (typeof local === 'number' && (isNaN(local) || local === 0)) return true;
+    return false;
+  }
+  // Apply a {jobField: fbValue} dict to `job` via _shouldCopy; returns merge count.
+  function _applyMerge(dict) {
+    var n = 0;
+    Object.keys(dict).forEach(function(jf) {
+      if (_shouldCopy(job[jf], dict[jf])) { job[jf] = dict[jf]; n++; }
+    });
+    return n;
+  }
+  // Done if the three "must-have" history fields are populated — stops retry early.
+  function _isComplete() {
+    return _hasVal(job.TotalFare) && _hasVal(job.JobDistance) &&
+           (_hasVal(job.PaymentStatus) || _hasVal(job.cashPayment) ||
+            _hasVal(job.cardPayment) || _hasVal(job.accountPayment));
+  }
+
+  var _tok = null;
+  getFirebaseServerToken().then(function(tok) {
+    if (!tok) throw new Error('no firebase token');
+    _tok = tok;
+    // ── Path 1 — allbookings/{cid}/{bookingId}  (driver-app PascalCase truth) ──
+    return firebaseDbGet(`allbookings/${cid}/${job.Id}`, tok).catch(function() { return null; });
+  }).then(function(fb1) {
+    var changed = 0;
+    if (fb1 && typeof fb1 === 'object') {
+      var p1 = {};
+      [
+        // Addresses + geo
+        'PickAddress', 'DropAddress', 'PickLatLng', 'DropLatLng',
+        // Fare breakdown
+        'TotalFare', 'FareBase', 'FareTime', 'FareDistance', 'FareExtras',
+        'FareCurrency', 'DriverCost',
+        // Distance / tariff
+        'JobDistance', 'TarriffType', 'TarriffId',
+        // Passenger
+        'ppname', 'AccountId',
+        // Payment
+        'cashPayment', 'cardPayment', 'accountPayment',
+        'Recieve_payment', 'PaymentStatus',
+        // TM
+        'TmSubsidy', 'TmPassengerPays', 'TmPassengerName',
+        'TmTripCategory', 'TmVoucherNo',
+        // Card
+        'CardLastFour', 'CardHolder', 'CardExpiry', 'CardBrand', 'StripePaymentIntentId',
+        // Timeline
+        'CompletedAt', 'completedAt_ISO', 'ActiveAt', 'JobCompleteTime',
+        'newcompelete', 'TotalTime',
+      ].forEach(function(f) { if (f in fb1) p1[f] = fb1[f]; });
+      changed += _applyMerge(p1);
+    }
+    // ── Path 2 — completedJobs/{cid}/{tripId}  (SA-MasterReport schema fallback)
+    // Only fetch if Path 1 didn't fully populate the must-have history fields.
+    if (_isComplete() || !_tok) return { changed: changed };
+    return firebaseDbGet(`completedJobs/${cid}/${job.Id}`, _tok).catch(function() { return null; })
+      .then(function(fb2) {
+        if (!fb2 || typeof fb2 !== 'object') return { changed: changed };
+        // Map lowercase SA-MasterReport fields → PascalCase history fields.
+        var p2 = {
+          PickAddress:     fb2.pickupAddress || fb2.pickup,
+          DropAddress:     fb2.dropAddress   || fb2.dropoff,
+          TotalFare:       fb2.fare,
+          JobDistance:     fb2.distanceKm,
+          PaymentStatus:   fb2.paymentStatus,
+          completedAt_ISO: fb2.completedAt_ISO ||
+                           (fb2.completedAt ? new Date(fb2.completedAt).toISOString() : undefined),
+          TmSubsidy:       fb2.tmSubsidy,
+          TmPassengerPays: fb2.tmPassengerPays,
+        };
+        // Payment-method → cash/card/account boolean (legacy fields).
+        var pm = (fb2.paymentType || fb2.paymentMethod || '').toLowerCase();
+        if (pm === 'cash')                 p2.cashPayment    = p2.cashPayment    || true;
+        else if (pm === 'card')            p2.cardPayment    = p2.cardPayment    || true;
+        else if (pm === 'account')         p2.accountPayment = p2.accountPayment || true;
+        else if (pm === 'total_mobility')  p2.cardPayment    = p2.cardPayment    || true;
+        changed += _applyMerge(p2);
+        return { changed: changed };
+      });
+  }).then(function(res) {
+    var changed = (res && res.changed) || 0;
+    if (changed > 0) {
+      saveClosedJobStore();
+      console.log(`  [§FIX-H] closedJob #${job.Id} enriched (${changed} field(s), attempt=${attempt})`);
+    }
+    if (_isComplete()) return; // success — stop retrying
+    if (!_scheduleRetry() && attempt > 0) {
+      console.warn(`  [§FIX-H] closedJob #${job.Id} still incomplete after ${attempt + 1} attempts`);
+    }
+  }).catch(function(e) {
+    // Network / auth — silent, but keep retrying within ladder.
+    if (!_scheduleRetry()) {
+      console.warn(`  [§FIX-H] closedJob #${job.Id} enrichment failed:`, (e && e.message) || e);
+    }
+  });
+}
+
 // ─── Rental completion patch ──────────────────────────────────────────────────
 // Patches rentalTaxiRequests/{key} to status:'completed' when any completion path
 // fires for a rental-sourced job. Retries once after 4 s so a transient network
@@ -5793,6 +5931,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 closedJobStore.push(job);
                 saveJobStore();
                 saveClosedJobStore();
+                // §FIX-H — pull driver-app completion truth (fare, distance, payment,
+                // addresses, timeline) from Firebase allbookings into the closed record
+                // so the dispatch history isn't blank. Fire-and-forget with internal retry.
+                _enrichClosedJobFromAllbookings(sessionCompanyId, job);
                 _patchRentalComplete(job);
                 // §FBcleanup
                 _bwClearJobFromFirebase(sessionCompanyId, job.Id,
@@ -7711,6 +7853,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 closedJobStore.push(job);
                 saveJobStore();
                 saveClosedJobStore();
+                // §FIX-H — see DP path: enrich closed-job record from allbookings.
+                _enrichClosedJobFromAllbookings(sessionCompanyId, job);
                 _patchRentalComplete(job);
                 // §FBcleanup
                 _bwClearJobFromFirebase(sessionCompanyId, job.Id,
