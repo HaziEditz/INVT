@@ -1320,6 +1320,40 @@ function _resolveHailAddressFromFirebase(cid, job) {
   });
 }
 
+// ─── §FIX-K — capture driver AppVersion on completed jobs ─────────────────────
+// At job completion, read online/{cid}/{vid}/current.AppVersion and stamp it
+// onto the closed-job record + the allbookings node so the dispatch history
+// and SA portal can answer "what driver-app build did this job run on?"
+// without going back to HQ. Fire-and-forget, scoped to closed-job records.
+function _captureDriverAppVersion(cid, vid, job) {
+  if (!cid || !vid || !job || !job.Id) return;
+  getFirebaseServerToken().then(function(tok) {
+    if (!tok) return;
+    return firebaseDbGet(`online/${cid}/${vid}/current`, tok).then(function(cur) {
+      if (!cur || typeof cur !== 'object') return;
+      var ver = cur.AppVersion || cur.appVersion || cur.appversion || '';
+      var bld = cur.AppBuild   || cur.appBuild   || cur.appbuild   || '';
+      var plt = cur.Platform   || cur.platform   || '';
+      if (!ver && !bld) {
+        console.log(`  [§FIX-K/diag] job #${job.Id} no AppVersion in online/${cid}/${vid}/current`);
+        return;
+      }
+      job.DriverAppVersion = String(ver || '');
+      if (bld) job.DriverAppBuild = String(bld);
+      if (plt) job.DriverAppPlatform = String(plt);
+      saveClosedJobStore();
+      var _abPatch = { DriverAppVersion: job.DriverAppVersion };
+      if (bld) _abPatch.DriverAppBuild = job.DriverAppBuild;
+      if (plt) _abPatch.DriverAppPlatform = job.DriverAppPlatform;
+      return firebaseDbPatch(`allbookings/${cid}/${job.Id}`, _abPatch, tok).then(function() {
+        console.log(`  [§FIX-K] job #${job.Id} AppVersion="${job.DriverAppVersion}"${bld ? ' build=' + bld : ''}${plt ? ' platform=' + plt : ''}`);
+      });
+    });
+  }).catch(function(e) {
+    console.warn(`  [§FIX-K] job #${job && job.Id} capture failed:`, (e && e.message) || e);
+  });
+}
+
 // ─── Rental completion patch ──────────────────────────────────────────────────
 // Patches rentalTaxiRequests/{key} to status:'completed' when any completion path
 // fires for a rental-sourced job. Retries once after 4 s so a transient network
@@ -6067,6 +6101,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 // addresses, timeline) from Firebase allbookings into the closed record
                 // so the dispatch history isn't blank. Fire-and-forget with internal retry.
                 _enrichClosedJobFromAllbookings(sessionCompanyId, job);
+                // §FIX-K — capture driver AppVersion at completion (fire-and-forget).
+                _captureDriverAppVersion(sessionCompanyId,
+                  vehiclenumber || job.VehicleNo || job.VehicleId, job);
                 _patchRentalComplete(job);
                 // §FBcleanup
                 _bwClearJobFromFirebase(sessionCompanyId, job.Id,
@@ -7994,6 +8031,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveClosedJobStore();
                 // §FIX-H — see DP path: enrich closed-job record from allbookings.
                 _enrichClosedJobFromAllbookings(sessionCompanyId, job);
+                // §FIX-K — capture driver AppVersion at completion (fire-and-forget).
+                _captureDriverAppVersion(sessionCompanyId,
+                  vehiclenumber || job.VehicleNo || job.VehicleId, job);
                 _patchRentalComplete(job);
                 // §FBcleanup
                 _bwClearJobFromFirebase(sessionCompanyId, job.Id,
