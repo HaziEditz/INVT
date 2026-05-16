@@ -1085,20 +1085,43 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
     if (typeof v === 'boolean') return true;
     return true;
   }
+  // Recognise hail-time placeholder strings that should be treated as empty
+  // so a real resolved address from allbookings can replace them. Examples:
+  //   "Hail - -46.39618, 168.35128"
+  //   "Hail Pickup (-46.39618, 168.35128)"
+  //   "Hail / Street Pickup"
+  //   "Street Pickup (no destination)"
+  function _isHailPlaceholder(s) {
+    if (typeof s !== 'string') return false;
+    var t = s.trim();
+    if (!t) return false;
+    return /^Hail - /i.test(t) ||
+           /^Hail Pickup \(/i.test(t) ||
+           /^Hail \/ Street Pickup$/i.test(t) ||
+           /^Street Pickup \(no destination\)$/i.test(t);
+  }
   // Should we replace the existing job field with the new value?
   // YES if local field is empty/zero AND fb value is useful — never wipe local truth.
-  function _shouldCopy(local, fb) {
+  // Also YES if local is a known hail placeholder and fb is a real resolved string.
+  function _shouldCopy(local, fb, fieldName) {
     if (!_hasVal(fb)) return false;
     if (local == null) return true;
     if (typeof local === 'string' && local.trim() === '') return true;
     if (typeof local === 'number' && (isNaN(local) || local === 0)) return true;
+    // Hail-placeholder override: only for the address fields, only when
+    // fb has a real string and local is a recognised placeholder.
+    if ((fieldName === 'PickAddress' || fieldName === 'DropAddress') &&
+        typeof fb === 'string' && fb.trim() !== '' && !_isHailPlaceholder(fb) &&
+        _isHailPlaceholder(local)) {
+      return true;
+    }
     return false;
   }
   // Apply a {jobField: fbValue} dict to `job` via _shouldCopy; returns array of merged field names.
   function _applyMerge(dict) {
     var merged = [];
     Object.keys(dict).forEach(function(jf) {
-      if (_shouldCopy(job[jf], dict[jf])) { job[jf] = dict[jf]; merged.push(jf); }
+      if (_shouldCopy(job[jf], dict[jf], jf)) { job[jf] = dict[jf]; merged.push(jf); }
     });
     return merged;
   }
