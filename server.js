@@ -1249,39 +1249,74 @@ function _resolveHailAddressFromFirebase(cid, job) {
     const oldestKey = _hailResolveLast.keys().next().value;
     if (oldestKey) _hailResolveLast.delete(oldestKey);
   }
+  function _isPlaceholder(s) {
+    if (typeof s !== 'string') return true;
+    var t = s.trim();
+    if (!t) return true;
+    return /^Hail - /i.test(t) || /^Hail Pickup \(/i.test(t) ||
+           /^Hail \/ Street Pickup$/i.test(t) ||
+           /^Street Pickup \(no destination\)$/i.test(t);
+  }
+  var _tok = null;
   getFirebaseServerToken().then(function(tok) {
-    if (!tok) { _hailResolveInflight.delete(jid); return; }
-    return firebaseDbGet(`allbookings/${cid}/${job.Id}`, tok);
-  }).then(function(fb) {
+    if (!tok) { _hailResolveInflight.delete(jid); return null; }
+    _tok = tok;
+    // Path 1: allbookings/{cid}/{id}  (truth at completion)
+    return firebaseDbGet(`allbookings/${cid}/${job.Id}`, tok).catch(function() { return null; });
+  }).then(function(fb1) {
+    var resolvedPick = (fb1 && typeof fb1 === 'object' &&
+                       typeof fb1.PickAddress === 'string' && !_isPlaceholder(fb1.PickAddress))
+                       ? fb1.PickAddress : null;
+    var resolvedDrop = (fb1 && typeof fb1 === 'object' &&
+                       typeof fb1.DropAddress === 'string' && !_isPlaceholder(fb1.DropAddress))
+                       ? fb1.DropAddress : null;
+    var resolvedName = (fb1 && typeof fb1 === 'object')
+                       ? (fb1.PassengerName || fb1.ppname || fb1.Name || null) : null;
+    // Path 2 (fallback for live trips): online/{cid}/{vid}/current  — driver
+    // app writes jobpickup/jobdropoff there throughout the trip.
+    if (!resolvedPick && _tok && (job.VehicleNo || job.VehicleId)) {
+      var vid = String(job.VehicleNo || job.VehicleId);
+      return firebaseDbGet(`online/${cid}/${vid}/current`, _tok).catch(function() { return null; })
+        .then(function(fb2) {
+          if (fb2 && typeof fb2 === 'object') {
+            // Guard: only accept jobpickup/jobdropoff if online/current still
+            // points to THIS booking. Otherwise the driver may have switched
+            // jobs between our poll and the Firebase read.
+            var onlineJid = String(fb2.currentJobId || fb2.jobId || fb2.joboffer || '');
+            var sameJob = onlineJid && onlineJid === String(job.Id);
+            if (sameJob) {
+              if (typeof fb2.jobpickup === 'string' && !_isPlaceholder(fb2.jobpickup)) resolvedPick = fb2.jobpickup;
+              if (typeof fb2.jobdropoff === 'string' && fb2.jobdropoff.trim() && !_isPlaceholder(fb2.jobdropoff)) resolvedDrop = fb2.jobdropoff;
+            } else if (onlineJid) {
+              console.log(`  [§FIX-J/diag] job #${job.Id} skip online — currentJobId=${onlineJid} != ${job.Id}`);
+            }
+          }
+          return { resolvedPick: resolvedPick, resolvedDrop: resolvedDrop, resolvedName: resolvedName, source: resolvedPick ? 'online' : 'none' };
+        });
+    }
+    return { resolvedPick: resolvedPick, resolvedDrop: resolvedDrop, resolvedName: resolvedName, source: resolvedPick ? 'allbookings' : 'none' };
+  }).then(function(out) {
     _hailResolveInflight.delete(jid);
-    if (!fb || typeof fb !== 'object') return;
-    function _isPlaceholder(s) {
-      if (typeof s !== 'string') return true;
-      var t = s.trim();
-      if (!t) return true;
-      return /^Hail - /i.test(t) || /^Hail Pickup \(/i.test(t) ||
-             /^Hail \/ Street Pickup$/i.test(t) ||
-             /^Street Pickup \(no destination\)$/i.test(t);
-    }
+    if (!out) return;
     var changed = false;
-    if (typeof fb.PickAddress === 'string' && !_isPlaceholder(fb.PickAddress) &&
-        _isPlaceholder(job.PickAddress)) {
-      job.PickAddress = fb.PickAddress; changed = true;
+    if (out.resolvedPick && _isPlaceholder(job.PickAddress)) {
+      job.PickAddress = out.resolvedPick; changed = true;
     }
-    if (typeof fb.DropAddress === 'string' && !_isPlaceholder(fb.DropAddress) &&
-        (_isPlaceholder(job.DropAddress) || !job.DropAddress)) {
-      job.DropAddress = fb.DropAddress; changed = true;
+    if (out.resolvedDrop && (_isPlaceholder(job.DropAddress) || !job.DropAddress)) {
+      job.DropAddress = out.resolvedDrop; changed = true;
     }
-    // Passenger name (Name / ppname / PassengerName) — only fill if local empty
-    var fbName = fb.PassengerName || fb.ppname || fb.Name || '';
-    if (typeof fbName === 'string' && fbName.trim() && !(job.Name && String(job.Name).trim())) {
-      job.Name = fbName; changed = true;
+    if (out.resolvedName && typeof out.resolvedName === 'string' && out.resolvedName.trim() &&
+        !(job.Name && String(job.Name).trim())) {
+      job.Name = out.resolvedName; changed = true;
     }
     if (changed) {
-      console.log(`  [§FIX-J] active job #${job.Id} resolved: PickAddress="${job.PickAddress}" DropAddress="${job.DropAddress || ''}" Name="${job.Name || ''}"`);
+      console.log(`  [§FIX-J] job #${job.Id} resolved (src=${out.source}): PickAddress="${job.PickAddress}" DropAddress="${job.DropAddress || ''}" Name="${job.Name || ''}"`);
+    } else {
+      console.log(`  [§FIX-J/diag] job #${job.Id} no resolution: src=${out.source} fbPick="${out.resolvedPick || ''}" localPick="${job.PickAddress}"`);
     }
-  }).catch(function() {
+  }).catch(function(e) {
     _hailResolveInflight.delete(jid);
+    console.warn(`  [§FIX-J] job #${job.Id} fetch failed:`, (e && e.message) || e);
   });
 }
 
