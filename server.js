@@ -7854,14 +7854,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const _qBookingId = param('bookingid');
         const _qDriverId  = (param('driverid') || '').toString().trim();
         const _qJob = jobStore.find(j => String(j.Id) === String(_qBookingId));
-        // §QueueCap — enforce max 1 queued job per driver. If the driver already
-        // has another job in 'Queued' state, reject so the driver app can decline
-        // the 2nd offer instead of silently overwriting the first.
-        const _qExisting = jobStore.find(j =>
-          j.BookingStatus === 'Queued' &&
-          String(j.DriverId) === String(_qDriverId) &&
-          String(j.Id) !== String(_qBookingId)
-        );
+        // §QueueCap — taxi/TM drivers: max 1 queued job (one passenger at a
+        // time). Food / freight / rental / towing drivers can hold multiple
+        // queued jobs because the driver manages multi-drop load themselves.
+        // Service-type read from the job being offered (defaults to 'taxi'
+        // when missing so legacy hail records keep the strict cap).
+        const _qSvc    = (_qJob && (_qJob.serviceType || _qJob.ServiceType) || 'taxi').toString().toLowerCase();
+        const _qIsTaxi = (_qSvc === 'taxi' || _qSvc === 'tm' || _qSvc === '');
+        const _qExisting = _qIsTaxi
+          ? jobStore.find(j =>
+              j.BookingStatus === 'Queued' &&
+              String(j.DriverId) === String(_qDriverId) &&
+              String(j.Id) !== String(_qBookingId)
+            )
+          : null;
+        if (!_qIsTaxi) {
+          console.log(`[QueueJob] multi-queue allowed for ${_qSvc} job #${_qBookingId} → driver ${_qDriverId}`);
+        }
         if (!_qJob) { objectD(res, { ok: false, msg: 'job not found' }); }
         else if (_qExisting) {
           console.log(`[QueueJob] BLOCKED job #${_qBookingId} → driver ${_qDriverId} already has queued job #${_qExisting.Id}`);
