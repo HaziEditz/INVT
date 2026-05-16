@@ -686,7 +686,7 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
           // clearing the node, so we don't strip meterFare/distance/duration/
           // tariff before the snapshot read captures them.
           try {
-            const _snap = _completionSnapshotInflight && _completionSnapshotInflight.get(_bId);
+            const _snap = _completionSnapshotInflight && _completionSnapshotInflight.get(_snapKey(_cid, _bId));
             if (_snap && typeof _snap.then === 'function') {
               await _snap;
             }
@@ -1441,7 +1441,8 @@ function _resolveHailAddressFromFirebase(cid, job) {
 // _bwClearJobFromFirebase can await it before its PATCH-clear step. This
 // closes the race window where the clear strips the node before our read
 // arrives.
-const _completionSnapshotInflight = new Map(); // jobId -> Promise
+const _completionSnapshotInflight = new Map(); // `cid:jobId` -> Promise (tenant-safe)
+function _snapKey(cid, jobId) { return String(cid) + ':' + String(jobId); }
 
 // Great-circle distance in km between two lat/lng pairs. Straight-line only —
 // road distance would need a Directions API call; we accept the under-estimate
@@ -1455,6 +1456,177 @@ function _haversineKm(lat1, lng1, lat2, lng2) {
           Math.sin(dLng/2) * Math.sin(dLng/2);
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
+
+// ─── §FIX-Q — GPS trail recorder for the closed-job route map ────────────────
+// Driver app continuously writes its Lat/Lng to online/{cid}/{vid}/current
+// every few seconds. While a job is Active we poll that node every 10 s and
+// append samples to an in-memory trail. At completion the trail is encoded as
+// a Google polyline and stamped onto the job as RoutePolyline — which the
+// existing jdpDrawPolyline frontend helper already renders on the closed-job
+// route map. This enables dispute resolution ("what route did the driver
+// take, did they stop, did they detour?") without any driver-app change.
+//
+// Sample dedup rules:
+//   - Push only if moved > 8 m from last sample, OR > 60 s elapsed
+//   - Cap at 600 samples per job (then decimate every-other)
+//   - Auto-stop after 4 hours to prevent leaks if completion is missed
+//   - Skip samples where cur.currentJobId no longer matches our jobId
+//     (driver app already moved on to the next job)
+const _ACTIVE_TRAIL_RECORDERS = new Map(); // jobId -> { cid, vid, started, samples, timer }
+const _TRAIL_POLL_MS  = 10000;
+const _TRAIL_MAX_AGE  = 4 * 60 * 60 * 1000;
+const _TRAIL_MIN_MOVE_M = 8;
+const _TRAIL_MIN_TIME_MS = 60000;
+const _TRAIL_MAX_SAMPLES = 600;
+
+// Google-encoded polyline (algorithm at developers.google.com/maps/documentation/utilities/polylinealgorithm).
+function _encodePolyline(samples) {
+  if (!samples || !samples.length) return '';
+  function _encVal(v) {
+    v = v < 0 ? ~(v << 1) : (v << 1);
+    var out = '';
+    while (v >= 0x20) { out += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; }
+    out += String.fromCharCode(v + 63);
+    return out;
+  }
+  var prevLat = 0, prevLng = 0, result = '';
+  for (var i = 0; i < samples.length; i++) {
+    var lat = Math.round(samples[i].lat * 1e5);
+    var lng = Math.round(samples[i].lng * 1e5);
+    result += _encVal(lat - prevLat) + _encVal(lng - prevLng);
+    prevLat = lat; prevLng = lng;
+  }
+  return result;
+}
+
+// Polyline length in km — sum of haversine distances between consecutive samples.
+function _polylineKm(samples) {
+  if (!samples || samples.length < 2) return 0;
+  var km = 0;
+  for (var i = 1; i < samples.length; i++) {
+    km += _haversineKm(samples[i-1].lat, samples[i-1].lng, samples[i].lat, samples[i].lng);
+  }
+  return Math.round(km * 100) / 100;
+}
+
+function _trailPollOnce(rec) {
+  if (!rec || rec._stopped) return;
+  // Auto-stop after max age.
+  if (Date.now() - rec.started > _TRAIL_MAX_AGE) {
+    console.warn(`  [§FIX-Q] trail recorder for job #${rec.jobId} exceeded max age — auto-stop`);
+    _stopTrailRecorder(rec.cid, rec.jobId);
+    return;
+  }
+  getFirebaseServerToken().then(function(tok) {
+    if (!tok || rec._stopped) return;
+    return firebaseDbGet(`online/${rec.cid}/${rec.vid}/current`, tok).then(function(cur) {
+      if (!cur || rec._stopped) return;
+      // Only sample while the driver is still on this exact job.
+      if (cur.currentJobId && String(cur.currentJobId) !== String(rec.jobId)) return;
+      var lat = Number(cur.Lat || cur.lat || cur.Latitude);
+      var lng = Number(cur.Lng || cur.lng || cur.Longitude);
+      if (!isFinite(lat) || !isFinite(lng) || lat === 0 || lng === 0) return;
+      var now  = Date.now();
+      var last = rec.samples.length ? rec.samples[rec.samples.length - 1] : null;
+      if (last) {
+        var mMoved = _haversineKm(last.lat, last.lng, lat, lng) * 1000;
+        if (mMoved < _TRAIL_MIN_MOVE_M && (now - last.t) < _TRAIL_MIN_TIME_MS) return;
+      }
+      rec.samples.push({ lat: lat, lng: lng, t: now, s: Number(cur.Speed || cur.VehicleSpeed) || 0 });
+      // Decimate if we're approaching the cap — keep every other sample, preserving
+      // first/last. Maintains shape while halving memory.
+      if (rec.samples.length > _TRAIL_MAX_SAMPLES) {
+        var first = rec.samples[0];
+        var lastN = rec.samples[rec.samples.length - 1];
+        var middle = rec.samples.slice(1, -1).filter(function(_, i) { return i % 2 === 0; });
+        rec.samples = [first].concat(middle, [lastN]);
+      }
+    });
+  }).catch(function(e) { /* swallow — next poll will retry */ });
+}
+
+// Recorder Map keys are `cid:jobId` so two tenants with colliding job IDs
+// cannot stomp each other's trails (architect §FIX-Q review item #2).
+function _trailKey(cid, jobId) { return String(cid) + ':' + String(jobId); }
+
+function _startTrailRecorder(cid, vid, jobId) {
+  if (!cid || !vid || !jobId) return;
+  var key = _trailKey(cid, jobId);
+  if (_ACTIVE_TRAIL_RECORDERS.has(key)) return; // already recording
+  var rec = {
+    cid: String(cid), vid: String(vid), jobId: String(jobId), key: key,
+    started: Date.now(), samples: [], _stopped: false,
+    timer: null
+  };
+  rec.timer = setInterval(function() { _trailPollOnce(rec); }, _TRAIL_POLL_MS);
+  _ACTIVE_TRAIL_RECORDERS.set(key, rec);
+  // First poll immediately so we capture pickup-area location, not just dropoff.
+  _trailPollOnce(rec);
+  console.log(`  [§FIX-Q] trail recorder started for job #${jobId} (cid=${cid} vid=${vid})`);
+}
+
+function _stopTrailRecorder(cid, jobId) {
+  if (!cid || !jobId) return null;
+  var key = _trailKey(cid, jobId);
+  var rec = _ACTIVE_TRAIL_RECORDERS.get(key);
+  if (!rec) return null;
+  rec._stopped = true;
+  if (rec.timer) { clearInterval(rec.timer); rec.timer = null; }
+  _ACTIVE_TRAIL_RECORDERS.delete(key);
+  console.log(`  [§FIX-Q] trail recorder stopped for job #${jobId} (${rec.samples.length} sample(s))`);
+  return rec.samples;
+}
+
+// Always-runs trail finalizer. Runs as its own promise INDEPENDENT of the
+// Firebase snapshot capture, so a missing token or absent online/current
+// node never strands an in-memory trail (architect §FIX-Q review item #1).
+// Stamps RoutePolyline + trail-derived distance + trail timestamps, saves
+// the closed-job store, and best-effort mirrors to allbookings.
+function _finalizeTrailIntoJob(cid, jid, job) {
+  if (!cid || !jid || !job) return Promise.resolve(null);
+  var samples;
+  try { samples = _stopTrailRecorder(cid, jid); }
+  catch (e) { console.warn(`  [§FIX-Q] stop failed for job #${jid}:`, (e && e.message) || e); return Promise.resolve(null); }
+  if (!samples || samples.length < 2) return Promise.resolve(null);
+  var stamped = [];
+  try {
+    var poly = _encodePolyline(samples);
+    if (poly) { job.RoutePolyline = poly; stamped.push('RoutePolyline'); }
+    var km = _polylineKm(samples);
+    if (km > 0) {
+      var prev = Number(job.JobDistance) || 0;
+      // Trail-derived km is real road-following haversine sum — override the
+      // §FIX-N straight-line estimate unless trail is degenerate (< 80%).
+      if (km > prev * 0.8) {
+        job.JobDistance = km; stamped.push('JobDistance');
+        var tar = TARIFF_STORE[0];
+        if (tar && Number(tar.DistanceRate) > 0) {
+          job.FareDistance = Math.round(km * Number(tar.DistanceRate) * 100) / 100;
+          stamped.push('FareDistance');
+        }
+      }
+    }
+    job.GpsTrailStart   = new Date(samples[0].t).toISOString();
+    job.GpsTrailEnd     = new Date(samples[samples.length - 1].t).toISOString();
+    job.GpsTrailSamples = samples.length;
+    stamped.push('GpsTrailStart', 'GpsTrailEnd', 'GpsTrailSamples');
+    saveClosedJobStore();
+    console.log(`  [§FIX-Q] job #${jid} trail finalized: ${samples.length} samples, ${km} km`);
+  } catch (e) {
+    console.warn(`  [§FIX-Q] stamp failed for job #${jid}:`, (e && e.message) || e);
+    return Promise.resolve(null);
+  }
+  // Best-effort mirror to allbookings so SA portal & re-queries see the route.
+  return getFirebaseServerToken().then(function(tok) {
+    if (!tok) return null;
+    var patch = {};
+    stamped.forEach(function(f) { if (job[f] !== undefined) patch[f] = job[f]; });
+    return firebaseDbPatch(`allbookings/${cid}/${jid}`, patch, tok)
+      .then(function() { console.log(`  [§FIX-Q] job #${jid} trail mirrored to allbookings (${stamped.length} field(s))`); })
+      .catch(function(e) { console.warn(`  [§FIX-Q] allbookings patch failed for job #${jid}:`, (e && e.message) || e); });
+  }).catch(function() { /* swallow — non-fatal */ });
+}
+// ─── end §FIX-Q ───────────────────────────────────────────────────────────────
 
 function _captureDriverAppVersion(cid, vid, job) {
   if (!cid || !vid || !job || !job.Id) return Promise.resolve();
@@ -1472,7 +1644,20 @@ function _captureDriverAppVersion(cid, vid, job) {
     if (typeof v === 'number') return !isNaN(v) && v !== 0;
     return true;
   }
-  const p = getFirebaseServerToken().then(function(tok) {
+  // §FIX-Q review item #3 — real inflight dedup at entry. If a completion
+  // capture is already running for this jobId, return the same promise so
+  // a second caller sees the same result and we don't double-stamp.
+  const _sKey = _snapKey(cid, jid);
+  if (_completionSnapshotInflight.has(_sKey)) {
+    return _completionSnapshotInflight.get(_sKey);
+  }
+
+  // §FIX-Q — kick off trail finalize IN PARALLEL. Independent of the
+  // online/current snapshot below, so a missing token / missing node
+  // never strands the in-memory trail samples.
+  const _trailP = _finalizeTrailIntoJob(cid, jid, job);
+
+  const _snapP = getFirebaseServerToken().then(function(tok) {
     if (!tok) return null;
     return firebaseDbGet(`online/${cid}/${vid}/current`, tok).then(function(cur) {
       if (!cur || typeof cur !== 'object') {
@@ -1627,6 +1812,9 @@ function _captureDriverAppVersion(cid, vid, job) {
         }
       }
       // ─── end §FIX-N ──────────────────────────────────────────────────────
+      // (GPS trail finalization moved out to _finalizeTrailIntoJob — it now
+      //  runs in parallel with this snapshot capture so a missing online/
+      //  current node never strands an in-memory trail.)
 
       if (!stamped.length) {
         console.log(`  [§FIX-K/diag] job #${jid} snapshot found no useful new fields`);
@@ -1669,10 +1857,14 @@ function _captureDriverAppVersion(cid, vid, job) {
     });
   }).catch(function(e) {
     console.warn(`  [§FIX-K] job #${jid} capture failed:`, (e && e.message) || e);
-  }).then(function() {
-    _completionSnapshotInflight.delete(jid);
   });
-  _completionSnapshotInflight.set(jid, p);
+  // Cleanup waits on BOTH the snapshot capture AND the parallel trail
+  // finalize, so callers awaiting _completionSnapshotInflight see the
+  // route polyline fully stamped before they read the closed-job record.
+  const p = Promise.all([_snapP, _trailP]).then(function() {
+    _completionSnapshotInflight.delete(_sKey);
+  });
+  _completionSnapshotInflight.set(_sKey, p);
   return p;
 }
 
@@ -6941,6 +7133,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
       } else if (action === '[ActiveJobsv3]') {
         const active = companyJobs(jobStore).filter(j => j.BookingStatus === 'Active' || j.BookingStatus === 'Picking');
+        // §FIX-Q — lazily start a GPS trail recorder for any Active/Picking job
+        // that doesn't already have one. Idempotent (no-op if already running),
+        // and works regardless of which DriverStatusChanged path activated the
+        // job (DP, DS, hail auto-activate). Runs once per ActiveJobsv3 poll.
+        active.forEach(function(_aj) {
+          var _vid = String(_aj.VehicleId || '').trim();
+          if (_aj.Id && _vid && _vid !== '0' && sessionCompanyId) {
+            _startTrailRecorder(sessionCompanyId, _vid, _aj.Id);
+          }
+        });
         const activeWithId = active.map(j => {
           const isHail = j.BookingSource === 'Hail' || j.booking_type === 'Hail';
           let pickAddr = j.PickAddress || '';

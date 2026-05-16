@@ -30,6 +30,7 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - `.data/suspended_drivers.json`: Persists suspended driver information across server restarts.
 - `.data/zone_assignments.json`: Persists driver zone assignments across server restarts.
 - `MULTITENANCY_SPEC.md`: Full multi-tenancy specification for related services.
+- `DRIVER_APP_REQUIREMENTS.md`: Field-by-field spec of what the driver app must transmit (waiting cost, tariff changes, payment splits, fixed price, comments, service-type extras) for the closed-job detail panel to render every dispute-resolution data point.
 
 ## Architecture decisions
 
