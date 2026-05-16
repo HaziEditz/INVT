@@ -4279,10 +4279,170 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             job.TarriffType = 'Automatic';
           }
           if (param('Recieve_payment') !== undefined) job.Recieve_payment = String(param('Recieve_payment') || '');
+
+          // ── Fields previously dropped by this handler — now persisted so every
+          // ── booking source (dispatcher console, passenger app, website,
+          // ── taxi/food/freight/rentals/towing) gets the same treatment on edit.
+          if (param('Email') !== undefined)           job.Email           = String(param('Email') || '');
+          if (param('Urgent') !== undefined)          job.Urgent          = String(param('Urgent') || 'No');
+          if (param('CornerAddress') !== undefined)   job.CornerAddress   = String(param('CornerAddress') || '');
+          if (param('Notes') !== undefined)           job.Notes           = String(param('Notes') || '');
+          if (param('VRequired') !== undefined)       job.VehiclesReguired= parseInt(param('VRequired')) || 1;
+          if (param('ZoneId') !== undefined) {
+            const _zid = parseInt(param('ZoneId'));
+            if (!isNaN(_zid)) job.ZoneId = _zid;
+          }
+          if (param('Nextstop') !== undefined)        job.Nextstop        = String(parseInt(param('Nextstop')) || 0);
+          if (param('nextstopdata') !== undefined)    job.nextstopdata    = String(param('nextstopdata') || '');
+          if (param('Distance') !== undefined)        job.EstimatedDistance = String(param('Distance') || '0');
+          if (param('Time') !== undefined)            job.EstimatedTime     = String(param('Time') || '0');
+          if (param('EstimatedCost') !== undefined) {
+            const _ec = String(param('EstimatedCost') || '');
+            job.EstimatedCost = _ec;
+            // Auto-tariff jobs use the estimate as the fare; fixed/custom jobs already
+            // had RideCost/EstimatedFare set above and must not be clobbered.
+            if (!_uCRate && _uTId !== '-1' && (job.TarriffType === 'Automatic' || !job.TarriffType)) {
+              job.EstimatedFare = _ec;
+            }
+          }
+          // Business account link + display name resolution
+          if (param('Account_id') !== undefined) {
+            const _aid = String(param('Account_id') || '').trim();
+            job.Account_id = _aid;
+            job.AccountId  = _aid; // legacy alias
+            if (_aid) {
+              const _ba = businessAccStore.find(b => String(b.id) === _aid && b.companyId === (job.companyId || sessionCompanyId));
+              job.Account_Name = _ba ? (_ba.name || '') : (job.Account_Name || '');
+            } else {
+              job.Account_Name = '';
+            }
+          }
+          // ACC ride fields — all sent by the form, none were being persisted before.
+          if (param('Acc_job_id') !== undefined)       job.Acc_job_id       = String(param('Acc_job_id') || '');
+          if (param('po_id') !== undefined)            job.po_id            = String(param('po_id') || '');
+          if (param('Acc_claim_id') !== undefined)     job.Acc_claim_id     = String(param('Acc_claim_id') || '');
+          if (param('Acc_manager_id') !== undefined)   job.Acc_manager_id   = String(param('Acc_manager_id') || '');
+          if (param('Acc_client_id') !== undefined)    job.Acc_client_id    = String(param('Acc_client_id') || '');
+          if (param('Acc_trip_status') !== undefined)  job.Acc_trip_status  = String(param('Acc_trip_status') || '');
+          // Booking type can flip Normal ↔ Account ↔ ACC when the dispatcher
+          // adds/removes an account or ACC claim — keep it in sync.
+          // Persist BOTH casings: downstream hail/service logic still reads
+          // the snake_case alias `booking_type` in several places.
+          if (param('booking_type') !== undefined) {
+            const _bt = String(param('booking_type') || '');
+            job.bookingType  = _bt;
+            job.booking_type = _bt;
+          }
+
           // Dispatcher explicitly edited this job — always clear any previous offer-attempt reason
           // (e.g. 'No Response', 'Recalled by Driver') so the badge doesn't linger after a re-edit.
           job.returnReason = '';
+          job.updatedAt    = new Date().toISOString();
+          job.updatedBy    = 'dispatcher';
           saveJobStore();
+
+          // ── Firebase mirror: passenger app, driver app, website and any other
+          // ── client that reads from Firebase must see the dispatcher's edit
+          // ── immediately. Covers every service type (taxi / food / freight /
+          // ── rentals / towing) because we patch by job.Id without any
+          // ── serviceType branching.
+          const _euCid = job.companyId || sessionCompanyId || '';
+          const _euVid = job.VehicleNo || job.CallSign || job.VehicleId || '';
+          const _euDid = String(job.DriverId || '');
+          if (_euCid) {
+            // Build the patch from the live job object so every field we just
+            // updated above is mirrored. Only include keys that exist to avoid
+            // overwriting Firebase-only enrichments with `undefined`.
+            const _euPatch = {};
+            const _euMaybe = (k, v) => { if (v !== undefined && v !== null) _euPatch[k] = v; };
+            _euMaybe('PickAddress',        job.PickAddress);
+            _euMaybe('DropAddress',        job.DropAddress);
+            _euMaybe('PickLatLng',         job.PickLatLng);
+            _euMaybe('DropLatLng',         job.DropLatLng);
+            _euMaybe('Name',               job.Name);
+            _euMaybe('PassengerName',      job.Name);
+            _euMaybe('PhoneNo',            job.PhoneNo);
+            _euMaybe('Email',              job.Email);
+            _euMaybe('Passengers',         job.Passengers);
+            _euMaybe('Bags',               job.Bags);
+            _euMaybe('WheelChairs',        job.WheelChairs);
+            _euMaybe('VehiclesReguired',   job.VehiclesReguired);
+            _euMaybe('VehicleType',        job.VehicleType);
+            _euMaybe('EntitiesDetails',    job.EntitiesDetails);
+            _euMaybe('Notes',              job.Notes);
+            _euMaybe('Urgent',             job.Urgent);
+            _euMaybe('CornerAddress',      job.CornerAddress);
+            _euMaybe('Nextstop',           job.Nextstop);
+            _euMaybe('nextstopdata',       job.nextstopdata);
+            _euMaybe('EstimatedDistance',  job.EstimatedDistance);
+            _euMaybe('EstimatedTime',      job.EstimatedTime);
+            _euMaybe('EstimatedCost',      job.EstimatedCost);
+            _euMaybe('EstimatedFare',      job.EstimatedFare);
+            _euMaybe('RideCost',           job.RideCost);
+            _euMaybe('CustomeRate',        job.CustomeRate);
+            _euMaybe('TarriffType',        job.TarriffType);
+            _euMaybe('TariffId',           job.TariffId);
+            _euMaybe('Recieve_payment',    job.Recieve_payment);
+            _euMaybe('BookingDateTime',    job.BookingDateTime);
+            _euMaybe('Pickingtime',        job.Pickingtime);
+            _euMaybe('ScheduledFor',       job.ScheduledFor);
+            _euMaybe('ScheduledForMs',     job.ScheduledFor);
+            _euMaybe('DispatchTimebefore', job.DispatchTimebefore);
+            _euMaybe('ZoneId',             job.ZoneId);
+            _euMaybe('Account_id',         job.Account_id);
+            _euMaybe('AccountId',          job.AccountId);
+            _euMaybe('Account_Name',       job.Account_Name);
+            _euMaybe('Acc_job_id',         job.Acc_job_id);
+            _euMaybe('Acc_claim_id',       job.Acc_claim_id);
+            _euMaybe('Acc_manager_id',     job.Acc_manager_id);
+            _euMaybe('Acc_client_id',      job.Acc_client_id);
+            _euMaybe('Acc_trip_status',    job.Acc_trip_status);
+            _euMaybe('po_id',              job.po_id);
+            _euMaybe('BookingStatus',      job.BookingStatus);
+            _euMaybe('VehicleId',          job.VehicleId);
+            _euMaybe('DriverId',           job.DriverId);
+            _euMaybe('serviceType',        job.serviceType);
+            _euMaybe('ServiceType',        job.serviceType);
+            _euMaybe('bookingType',        job.bookingType);
+            _euMaybe('booking_type',       job.booking_type);
+            // Notification signal: clients listen for jobUpdatedAt change and
+            // can show a "Job updated by dispatcher" toast / refresh local cache.
+            _euPatch.jobUpdatedAt    = Date.now();
+            _euPatch.jobUpdatedAtIso = new Date().toISOString();
+            _euPatch.jobUpdateReason = 'dispatcher_edit';
+
+            const _euLiveStatuses = new Set(['Offered','Assigned','Picking','Active']);
+            const _euJobIsLive    = _euLiveStatuses.has(job.BookingStatus || '');
+            // Live mirror requires a REAL vehicle id (non-empty, not '0', not '-1').
+            // Without this, edits to jobs with placeholder vehicle markers would
+            // create orphan nodes like /jobs/{cid}/0/{did} that the cleanup
+            // logic ignores.
+            const _euVidStr = String(_euVid || '').trim();
+            const _euVidOk  = _euVidStr !== '' && _euVidStr !== '0' && _euVidStr !== '-1';
+
+            getFirebaseServerToken().then(tok => {
+              if (!tok) return Promise.resolve();
+              const _writes = [
+                firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, _euPatch, tok).catch(e => { console.warn(`  [ProcUpdateJobv6] pendingjobs/${_euCid}/${job.Id} patch failed: ${e.message}`); }),
+                firebaseDbPatch(`allbookings/${_euCid}/${job.Id}`, _euPatch, tok).catch(e => { console.warn(`  [ProcUpdateJobv6] allbookings/${_euCid}/${job.Id} patch failed: ${e.message}`); }),
+              ];
+              // Live driver-facing node — only patched when a driver is actually
+              // currently assigned. Patching when no driver is on it would create
+              // orphan nodes the cleanup logic might leave behind.
+              if (_euJobIsLive && _euVidOk && _euDid && _euDid !== '0' && _euDid !== '-1') {
+                _writes.push(
+                  firebaseDbPatch(`jobs/${_euCid}/${_euVid}/${_euDid}`, _euPatch, tok)
+                    .then(() => { console.log(`  [ProcUpdateJobv6] jobs/${_euCid}/${_euVid}/${_euDid} live-update sent (job #${job.Id}, status=${job.BookingStatus})`); })
+                    .catch(e => { console.warn(`  [ProcUpdateJobv6] jobs/${_euCid}/${_euVid}/${_euDid} patch failed: ${e.message}`); })
+                );
+              }
+              return Promise.all(_writes);
+            }).then(() => {
+              console.log(`  [ProcUpdateJobv6] Firebase mirror complete for job #${job.Id} (cid=${_euCid}, status=${job.BookingStatus}, service=${job.serviceType || 'taxi'})`);
+            }).catch(e => {
+              console.warn(`  [ProcUpdateJobv6] Firebase mirror error (non-fatal): ${e.message}`);
+            });
+          }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Booking Details Update Successfully"`);
         successD(res, 'Booking Details Update Successfully');
