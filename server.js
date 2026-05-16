@@ -4162,12 +4162,19 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       // §FIX-R — runtime fingerprint (fill-if-empty so we don't overwrite an
       // earlier stamp). Mirrors the live path so HQ's OTA-version question
       // is answerable for jobs that closed via DriverStatusChanged first.
-      if (_sotData.runtimeVersion || _sotData.runtime_version) {
+      // OTA-22bg: appVersion (native) is distinct from runtimeVersion (Expo).
+      if (_sotData.appVersion || _sotData.app_version) {
+        _sotFill('AppVersion', String(_sotData.appVersion || _sotData.app_version));
+      } else if (_sotData.runtimeVersion || _sotData.runtime_version) {
         _sotFill('AppVersion', String(_sotData.runtimeVersion || _sotData.runtime_version));
+      }
+      if (_sotData.runtimeVersion || _sotData.runtime_version) {
+        _sotFill('RuntimeVersion', String(_sotData.runtimeVersion || _sotData.runtime_version));
       }
       if (_sotData.groupId || _sotData.group_id || _sotData.otaGroup) {
         _sotFill('AppBuild', String(_sotData.groupId || _sotData.group_id || _sotData.otaGroup));
       }
+      if (_sotData.channel) _sotFill('Channel', String(_sotData.channel));
       if (_sotData.platform) _sotFill('Platform', String(_sotData.platform));
       // Diagnostic — surface every tripSummary key so unknown HQ field names
       // appear in workflow logs whether we hit the live or late-merge path.
@@ -4284,16 +4291,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     if (_sotAuditKeys.length) {
       console.log('[§FIX-R] audit fields stamped on #' + _sotJobId + ': ' + _sotAuditKeys.join(','));
     }
-    // §FIX-R — runtime fingerprint of the driver app that sent this trip.
-    // Lets us answer HQ's "which OTA version was D002 on?" questions without
-    // pinging the driver. The driver app posts these at the root of the
-    // payload (HQ confirmed OTA 22be carries runtimeVersion + groupId).
-    if (_sotData.runtimeVersion || _sotData.runtime_version) {
+    // §FIX-R / OTA-22bg — runtime fingerprint of the driver app that sent this
+    // trip. Lets us answer "which OTA version was D002 on?" questions without
+    // pinging the driver. Driver app posts these at the root of the payload:
+    //   appVersion      → native APP_VERSION constant (e.g. "1.5.0")
+    //   runtimeVersion  → Expo runtime version (separate from appVersion)
+    //   groupId         → EAS update group / updateId
+    //   channel         → release channel ("production" / "staging" / …)
+    //   platform        → "android" | "ios"
+    if (_sotData.appVersion || _sotData.app_version) {
+      _sotJob.AppVersion = String(_sotData.appVersion || _sotData.app_version);
+    } else if (_sotData.runtimeVersion || _sotData.runtime_version) {
+      // Fallback for pre-22bg payloads that only sent runtimeVersion.
       _sotJob.AppVersion = String(_sotData.runtimeVersion || _sotData.runtime_version);
+    }
+    if (_sotData.runtimeVersion || _sotData.runtime_version) {
+      _sotJob.RuntimeVersion = String(_sotData.runtimeVersion || _sotData.runtime_version);
     }
     if (_sotData.groupId || _sotData.group_id || _sotData.otaGroup) {
       _sotJob.AppBuild = String(_sotData.groupId || _sotData.group_id || _sotData.otaGroup);
     }
+    if (_sotData.channel) _sotJob.Channel  = String(_sotData.channel);
     if (_sotData.platform) _sotJob.Platform = String(_sotData.platform);
     // Diagnostic: surface every tripSummary key so we can spot unknown ones
     // the helper didn't pick up (HQ might rename fields without warning).

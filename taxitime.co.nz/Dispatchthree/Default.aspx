@@ -4824,7 +4824,7 @@ $(document).ready(function() {
                                                 </td>
                                               
                                                 <td>
-                                                    <div> <span>{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
+                                                    <div> <span>{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -4907,7 +4907,7 @@ $(document).ready(function() {
                                                 </td>
                                                
                                                 <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
+                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -4987,7 +4987,7 @@ $(document).ready(function() {
                                                 </td>
                                               
                                                 <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
+                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
@@ -5066,7 +5066,7 @@ $(document).ready(function() {
                                                 </td>
                                                  
                                                 <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="Driver has 1 queued job lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
+                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
                                                     </div>
 
                                                 </td>
