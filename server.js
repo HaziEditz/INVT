@@ -3606,9 +3606,92 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       closedJobStore.find(j => j.Id === _sotJobId);
 
     if (_sotAlreadyClosed) {
+      // ─── §FIX-L — merge late syncOfflineTrip into already-closed record ─────
+      // For hail trips, DriverStatusChanged → Available almost always wins the
+      // race against /api/syncOfflineTrip (Available fires the instant the
+      // meter stops; syncOfflineTrip takes a round-trip to assemble & POST).
+      // The DriverStatusChanged path moves the job to closedJobStore with no
+      // fare/distance/duration/payment, then this endpoint used to bail —
+      // dropping the actual trip-summary data on the floor.
+      //
+      // Instead, merge the trip summary into the closed record (never
+      // overwriting populated fields), save, and mirror to allbookings so the
+      // dispatch history view fills in.
+      const _sotC = _sotAlreadyClosed;
+      function _sotHas(v) {
+        if (v == null) return false;
+        if (typeof v === 'string') return v.trim() !== '';
+        if (typeof v === 'number') return !isNaN(v) && v !== 0;
+        return true;
+      }
+      const _sotApplied = [];
+      function _sotFill(field, val) {
+        if (val == null) return;
+        if (typeof val === 'string' && !val.trim()) return;
+        if (typeof val === 'number' && (isNaN(val) || val === 0)) return;
+        if (_sotHas(_sotC[field])) return; // never clobber existing truth
+        _sotC[field] = val; _sotApplied.push(field);
+      }
+      // Trip-summary scalars
+      if (_sotSummary.pickupTime)     _sotFill('PickingAt',      _sotSummary.pickupTime);
+      if (_sotSummary.dropoffTime)    _sotFill('JobCompleteTime', _sotSummary.dropoffTime + '.');
+      if (_sotSummary.duration_mins)  _sotFill('JobDuration',    Number(_sotSummary.duration_mins));
+      if (_sotSummary.duration_mins)  _sotFill('JobMins',        Number(_sotSummary.duration_mins));
+      if (_sotSummary.distance_km)    _sotFill('JobDistance',    Number(_sotSummary.distance_km));
+      if (_sotSummary.route_polyline) _sotFill('RoutePolyline',  _sotSummary.route_polyline);
+      // Fare breakdown
+      if (_sotSummary.fare && typeof _sotSummary.fare === 'object') {
+        const _fL = _sotSummary.fare;
+        _sotFill('FareBase',     Number(_fL.base) || 0);
+        _sotFill('FareDistance', Number(_fL.distanceCharge) || 0);
+        _sotFill('FareTime',     Number(_fL.timeCharge) || 0);
+        _sotFill('FareExtras',   Number(_fL.extras) || 0);
+        _sotFill('TotalFare',    Number(_fL.total) || 0);
+        _sotFill('FareCurrency', _fL.currency || 'NZD');
+        _sotFill('Fare',         Number(_fL.total) || 0);
+      }
+      // Payment
+      if (_sotSummary.payment && typeof _sotSummary.payment === 'object') {
+        const _pL = _sotSummary.payment;
+        _sotFill('Recieve_payment', _pL.method || '');
+        _sotFill('PaymentReceived', Number(_pL.received) || 0);
+        _sotFill('PaymentChange',   Number(_pL.change) || 0);
+        _sotFill('ReceiptNo',       _pL.receiptNo || '');
+        if (_pL.cardLast4)  _sotFill('CardLast4', _pL.cardLast4);
+        // Mirror method to paymentMethod boolean flags if not already set.
+        const _pmL = String(_pL.method || '').toLowerCase();
+        if (_pmL && !_sotHas(_sotC.paymentMethod)) _sotFill('paymentMethod', _pmL);
+        if (_pmL && !_sotHas(_sotC.PaymentMethod)) _sotFill('PaymentMethod', _pmL);
+        if (_pmL === 'card' && !_sotHas(_sotC.cardPayment))       _sotFill('cardPayment', true);
+        if (_pmL === 'account' && !_sotHas(_sotC.accountPayment)) _sotFill('accountPayment', true);
+        if (_pmL === 'cash' && !_sotHas(_sotC.cashPayment))       _sotFill('cashPayment', true);
+      }
+      // Stamp provenance + persist
+      _sotC.OfflineSynced   = true;
+      _sotC.OfflineSyncedAt = new Date().toISOString();
+      saveClosedJobStore();
+      console.log(`  [§FIX-L] late syncOfflineTrip merged into closed job #${_sotJobId} (${_sotApplied.length} field(s) [${_sotApplied.join(',')}])`);
+
+      // Mirror to allbookings so SA portal + dispatch history see the truth.
+      if (_sotApplied.length) {
+        (async () => {
+          try {
+            const tok = await getFirebaseServerToken();
+            if (!tok) return;
+            const _abPatch = {};
+            _sotApplied.forEach(function(f) { _abPatch[f] = _sotC[f]; });
+            await firebaseDbPatch(`allbookings/${_sotCid}/${_sotJobId}`, _abPatch, tok);
+            console.log(`  [§FIX-L] allbookings/${_sotCid}/${_sotJobId} patched (${_sotApplied.length} fields)`);
+          } catch (e) {
+            console.warn(`  [§FIX-L] allbookings patch failed for #${_sotJobId}:`, (e && e.message) || e);
+          }
+        })();
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, jobId: _sotJobId, status: 'AlreadyClosed',
-        message: 'Job was already completed — no changes made.' }));
+        message: 'Job was already completed — late trip-summary merged.',
+        fieldsApplied: _sotApplied }));
       return;
     }
     if (!_sotJob) {
