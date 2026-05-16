@@ -1442,6 +1442,20 @@ function _resolveHailAddressFromFirebase(cid, job) {
 // closes the race window where the clear strips the node before our read
 // arrives.
 const _completionSnapshotInflight = new Map(); // jobId -> Promise
+
+// Great-circle distance in km between two lat/lng pairs. Straight-line only —
+// road distance would need a Directions API call; we accept the under-estimate
+// in exchange for zero extra latency / cost. Used by §FIX-N below.
+function _haversineKm(lat1, lng1, lat2, lng2) {
+  var R = 6371;
+  function _r(d) { return d * Math.PI / 180; }
+  var dLat = _r(lat2 - lat1), dLng = _r(lng2 - lng1);
+  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(_r(lat1)) * Math.cos(_r(lat2)) *
+          Math.sin(dLng/2) * Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 function _captureDriverAppVersion(cid, vid, job) {
   if (!cid || !vid || !job || !job.Id) return Promise.resolve();
   const jid = String(job.Id);
@@ -1524,24 +1538,128 @@ function _captureDriverAppVersion(cid, vid, job) {
           else if (_pmLow === 'account')   { job.accountPayment = true; stamped.push('accountPayment'); }
         }
       }
+      // ─── §FIX-N — compute hail-trip estimates from what we DO have ──────
+      // The driver app's hail flow transmits no fare/distance/duration/tariff
+      // anywhere (verified empirically — online/current keys are GPS+presence
+      // only and syncOfflineTrip is never called for hail). Without this the
+      // closed-job detail page is blank. We derive what we can:
+      //   - JobMins/TotalTime: AcceptedAt → JobCompleteTime delta (accurate)
+      //   - TarriffType: from BookingSource for hail (accurate)
+      //   - DropLatLng: driver's final GPS already in `cur` (accurate)
+      //   - DropAddress: reverse-geocode of drop coords (accurate)
+      //   - JobDistance: haversine pickup→dropoff (straight-line, NOT road)
+      //   - TotalFare/FareBase/FareDistance: default tariff × distance (est.)
+      // _stamp() above already refuses to overwrite local truth, so if a
+      // later syncOfflineTrip ever arrives with real meter values they win.
+      // FareEstimated:true marks records that contain derived fare.
+      var _isHail = job.BookingSource === 'Hail' || job.booking_type === 'Hail';
+      if (_isHail) {
+        // 1. Duration from timestamps. Derive JobMins, TotalTime AND JobDuration
+        // independently — any one of them missing triggers a compute, so a
+        // record that already has JobMins+TotalTime but no JobDuration still
+        // gets backfilled correctly.
+        if (!_hasLocal(job.JobMins) || !_hasLocal(job.TotalTime) || !_hasLocal(job.JobDuration)) {
+          var _start = new Date(job.ActiveAt || job.PickingAt || job.AcceptedAt || job.OfferedAt || 0).getTime();
+          var _end   = new Date(job.JobCompleteTime || job.completedAtMs || Date.now()).getTime();
+          if (_start > 0 && _end > _start) {
+            var _durMs = _end - _start;
+            var _mins  = Math.round(_durMs / 60000 * 100) / 100;
+            if (!_hasLocal(job.JobMins))     { job.JobMins     = _mins; stamped.push('JobMins'); }
+            if (!_hasLocal(job.JobDuration)) { job.JobDuration = _mins; stamped.push('JobDuration'); }
+            if (!_hasLocal(job.TotalTime))   {
+              var _mm = Math.floor(_durMs / 60000);
+              var _ss = Math.floor((_durMs % 60000) / 1000);
+              job.TotalTime = String(_mm).padStart(2, '0') + ':' + String(_ss).padStart(2, '0');
+              stamped.push('TotalTime');
+            }
+          }
+        }
+        // 2. TarriffType default for hail
+        if (!_hasLocal(job.TarriffType)) { job.TarriffType = 'Hail'; stamped.push('TarriffType'); }
+        // 3. DropLatLng from driver's final GPS captured in `cur`
+        if (!_hasLocal(job.DropLatLng) || job.DropLatLng === '0,0') {
+          var _dLat = Number(cur.Lat || cur.lat || cur.Latitude);
+          var _dLng = Number(cur.Lng || cur.lng || cur.Longitude);
+          if (isFinite(_dLat) && isFinite(_dLng) && _dLat !== 0 && _dLng !== 0) {
+            job.DropLatLng = _dLat + ',' + _dLng; stamped.push('DropLatLng');
+          }
+        }
+        // 4. JobDistance via haversine pickup→dropoff
+        if (!_hasLocal(job.JobDistance) && job.PickLatLng && job.DropLatLng) {
+          var _pp = String(job.PickLatLng).split(',').map(Number);
+          var _dp = String(job.DropLatLng).split(',').map(Number);
+          if (_pp.length === 2 && _dp.length === 2 &&
+              _pp.every(isFinite) && _dp.every(isFinite) &&
+              !(_pp[0] === 0 && _pp[1] === 0) &&
+              !(_dp[0] === 0 && _dp[1] === 0)) {
+            var _km = _haversineKm(_pp[0], _pp[1], _dp[0], _dp[1]);
+            job.JobDistance = Math.round(_km * 100) / 100;
+            stamped.push('JobDistance');
+          }
+        }
+        // 5. Fare from default tariff
+        if (!_hasLocal(job.TotalFare)) {
+          var _tar = (typeof TARIFF_STORE !== 'undefined' && TARIFF_STORE && TARIFF_STORE[0]) || null;
+          if (_tar && _hasLocal(_tar.StartPrice)) {
+            var _sp   = Number(_tar.StartPrice) || 0;
+            var _dr   = Number(_tar.DistanceRate) || 0;
+            var _dist = Number(job.JobDistance) || 0;
+            var _fb   = _sp;
+            var _fd   = _dr * _dist;
+            var _tot  = _fb + _fd;
+            var _min  = Number(_tar.MinimumFare) || 0;
+            if (_min && _tot < _min) _tot = _min;
+            _tot = Math.round(_tot * 100) / 100;
+            if (!_hasLocal(job.FareBase))     { job.FareBase     = Math.round(_fb * 100) / 100; stamped.push('FareBase'); }
+            // Always stamp FareDistance (including 0) so downstream schema is consistent.
+            if (job.FareDistance == null) { job.FareDistance = Math.round(_fd * 100) / 100; stamped.push('FareDistance'); }
+            job.TotalFare     = _tot; stamped.push('TotalFare');
+            if (!_hasLocal(job.Fare))         { job.Fare         = _tot; stamped.push('Fare'); }
+            if (!_hasLocal(job.FareCurrency)) { job.FareCurrency = _tar.CurrencyName || 'NZD'; stamped.push('FareCurrency'); }
+            if (!_hasLocal(job.DriverCost))   { job.DriverCost   = _tot; stamped.push('DriverCost'); }
+            job.FareEstimated = true; stamped.push('FareEstimated');
+          }
+        }
+      }
+      // ─── end §FIX-N ──────────────────────────────────────────────────────
+
       if (!stamped.length) {
         console.log(`  [§FIX-K/diag] job #${jid} snapshot found no useful new fields`);
         return null;
       }
       saveClosedJobStore();
-      // Mirror into allbookings so SA portal also gets the truth.
-      var _abPatch = {};
-      ['DriverAppVersion','DriverAppBuild','DriverAppPlatform',
-       'TotalFare','FareBase','FareDistance','FareTime','FareExtras','DriverCost',
-       'JobDistance','TotalTime','JobMins','WaitingTime','WaitingCost',
-       'TarriffType','paymentMethod','PaymentMethod',
-       'cashPayment','cardPayment','accountPayment'].forEach(function(f) {
-        if (stamped.indexOf(f) !== -1) _abPatch[f] = job[f];
-      });
-      return firebaseDbPatch(`allbookings/${cid}/${jid}`, _abPatch, tok).then(function() {
-        console.log(`  [§FIX-K] job #${jid} snapshot stamped (${stamped.length} field(s) [${stamped.join(',')}])`);
-      }).catch(function(e) {
-        console.warn(`  [§FIX-K] job #${jid} allbookings patch failed:`, (e && e.message) || e);
+
+      // §FIX-N — reverse-geocode the drop coords if no human-readable
+      // DropAddress yet. Runs after the inline stamping so it can see the
+      // freshly-set DropLatLng. Returns a promise chained before the patch.
+      var _geoP = Promise.resolve();
+      if (job.DropLatLng &&
+          (!_hasLocal(job.DropAddress) || /no destination/i.test(String(job.DropAddress)))) {
+        var _dpg = String(job.DropLatLng).split(',').map(Number);
+        if (_dpg.length === 2 && _dpg.every(isFinite) &&
+            !(_dpg[0] === 0 && _dpg[1] === 0) &&
+            typeof _reverseGeocode === 'function') {
+          _geoP = _reverseGeocode(_dpg[0], _dpg[1]).then(function(addr) {
+            if (addr) {
+              job.DropAddress = addr;
+              stamped.push('DropAddress');
+              saveClosedJobStore();
+            }
+          }).catch(function() { /* non-fatal */ });
+        }
+      }
+
+      return _geoP.then(function() {
+        // Mirror every stamped field into allbookings so SA portal & re-queries see the data.
+        var _abPatch = {};
+        stamped.forEach(function(f) {
+          if (job[f] !== undefined) _abPatch[f] = job[f];
+        });
+        return firebaseDbPatch(`allbookings/${cid}/${jid}`, _abPatch, tok).then(function() {
+          console.log(`  [§FIX-K+N] job #${jid} snapshot+estimates stamped (${stamped.length} field(s) [${stamped.join(',')}])`);
+        }).catch(function(e) {
+          console.warn(`  [§FIX-K+N] job #${jid} allbookings patch failed:`, (e && e.message) || e);
+        });
       });
     });
   }).catch(function(e) {
