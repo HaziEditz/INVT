@@ -1094,13 +1094,13 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
     if (typeof local === 'number' && (isNaN(local) || local === 0)) return true;
     return false;
   }
-  // Apply a {jobField: fbValue} dict to `job` via _shouldCopy; returns merge count.
+  // Apply a {jobField: fbValue} dict to `job` via _shouldCopy; returns array of merged field names.
   function _applyMerge(dict) {
-    var n = 0;
+    var merged = [];
     Object.keys(dict).forEach(function(jf) {
-      if (_shouldCopy(job[jf], dict[jf])) { job[jf] = dict[jf]; n++; }
+      if (_shouldCopy(job[jf], dict[jf])) { job[jf] = dict[jf]; merged.push(jf); }
     });
-    return n;
+    return merged;
   }
   // Done if the three "must-have" history fields are populated — stops retry early.
   function _isComplete() {
@@ -1117,7 +1117,14 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
     return firebaseDbGet(`allbookings/${cid}/${job.Id}`, tok).catch(function() { return null; });
   }).then(function(fb1) {
     var changed = 0;
+    var mergedNames = [];
     if (fb1 && typeof fb1 === 'object') {
+      // Diagnostic: log exactly which keys the driver app wrote — gives a clear
+      // evidence trail when fields are missing (e.g. for HQ pushback per the doc).
+      if (attempt === 0) {
+        console.log(`  [§FIX-H/diag] allbookings/${cid}/${job.Id} keys=`,
+          Object.keys(fb1).sort().join(','));
+      }
       var p1 = {};
       [
         // Addresses + geo
@@ -1132,6 +1139,10 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
         // Payment
         'cashPayment', 'cardPayment', 'accountPayment',
         'Recieve_payment', 'PaymentStatus',
+        // Payment method label (read by closed-job PDF/detail view as
+        // j.Payment || j.paymentMethod || j.PaymentMethod). Driver app
+        // writes these on completion; without them the Payment row is blank.
+        'Payment', 'paymentMethod', 'PaymentMethod', 'PaymentType',
         // TM
         'TmSubsidy', 'TmPassengerPays', 'TmPassengerName',
         'TmTripCategory', 'TmVoucherNo',
@@ -1141,7 +1152,9 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
         'CompletedAt', 'completedAt_ISO', 'ActiveAt', 'JobCompleteTime',
         'newcompelete', 'TotalTime',
       ].forEach(function(f) { if (f in fb1) p1[f] = fb1[f]; });
-      changed += _applyMerge(p1);
+      var m1 = _applyMerge(p1);
+      changed += m1.length;
+      mergedNames = mergedNames.concat(m1);
     }
     // ── Path 2 — completedJobs/{cid}/{tripId}  (SA-MasterReport schema fallback)
     // Only fetch if Path 1 didn't fully populate the must-have history fields.
@@ -1167,14 +1180,17 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
         else if (pm === 'card')            p2.cardPayment    = p2.cardPayment    || true;
         else if (pm === 'account')         p2.accountPayment = p2.accountPayment || true;
         else if (pm === 'total_mobility')  p2.cardPayment    = p2.cardPayment    || true;
-        changed += _applyMerge(p2);
-        return { changed: changed };
+        var m2 = _applyMerge(p2);
+        changed += m2.length;
+        mergedNames = mergedNames.concat(m2);
+        return { changed: changed, mergedNames: mergedNames };
       });
   }).then(function(res) {
     var changed = (res && res.changed) || 0;
+    var names = (res && res.mergedNames) || mergedNames;
     if (changed > 0) {
       saveClosedJobStore();
-      console.log(`  [§FIX-H] closedJob #${job.Id} enriched (${changed} field(s), attempt=${attempt})`);
+      console.log(`  [§FIX-H] closedJob #${job.Id} enriched (${changed} field(s) [${names.join(',')}], attempt=${attempt})`);
     }
     if (_isComplete()) return; // success — stop retrying
     if (!_scheduleRetry() && attempt > 0) {
