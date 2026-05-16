@@ -1930,6 +1930,9 @@
                                 <div id="jdp-fare-ride-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Ride Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-ride"></div></div>
                                 <div id="jdp-fare-waiting-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waiting"></div></div>
                                 <div id="jdp-fare-driver-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Driver Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-driver"></div></div>
+                                <div id="jdp-fare-tariff-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Tariff</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-tariff"></div></div>
+                                <div id="jdp-fare-payment-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Payment Method</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-payment"></div></div>
+                                <div id="jdp-fare-source-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Source</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-source"></div></div>
                             </div>
                             <div id="jdp-fare-total-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:2px solid #f0f0f0;">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -23195,24 +23198,61 @@ $(document).ready(function() {
 
             function jdpBuildFare(j) {
                 var hasFare = false;
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
-                // Distance: prefer actual trip distance; also accept Firebase camelCase field names
-                var dist = j.JobDistance || j.distanceKm || j.EstimatedDistance || j.Distance || j.FareDistance || '';
-                if (dist && String(dist) !== '0') { $('#jdp-fare-distance').text(parseFloat(dist).toFixed(2) + ' km'); $('#jdp-fare-distance-wrap').show(); hasFare = true; }
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap').hide();
+                // Distance: prefer actual trip distance; also accept Firebase camelCase field names.
+                // Show even when 0 so the user sees that distance WAS computed (just zero on this hail trip).
+                var distRaw = j.JobDistance != null ? j.JobDistance
+                            : j.distanceKm != null ? j.distanceKm
+                            : j.EstimatedDistance != null ? j.EstimatedDistance
+                            : j.Distance != null ? j.Distance
+                            : j.FareDistance != null ? j.FareDistance : null;
+                if (distRaw != null && distRaw !== '') {
+                    var distNum = parseFloat(distRaw);
+                    if (!isNaN(distNum)) { $('#jdp-fare-distance').text(distNum.toFixed(2) + ' km'); $('#jdp-fare-distance-wrap').show(); hasFare = true; }
+                }
                 function fmtDollar(v) { var n = parseFloat(v); return (!isNaN(n) && n > 0) ? '$' + n.toFixed(2) : null; }
+                function fmtDollarZ(v) { var n = parseFloat(v); return (!isNaN(n)) ? '$' + n.toFixed(2) : null; }
                 // Ride cost: FareBase (offline sync) or RideCost
                 var ride = fmtDollar(j.FareBase || j.RideCost);
                 if (ride) { $('#jdp-fare-ride').text(ride); $('#jdp-fare-ride-wrap').show(); hasFare = true; }
-                // Waiting/time cost: FareTime (offline sync) or WaitingCost
-                var wait = fmtDollar(j.FareTime || j.WaitingCost);
+                // Waiting/time cost: FareTime (offline sync) or WaitingCost. Show $0.00 if known-zero so the user
+                // doesn't think the field is missing — driver-app hail flow simply doesn't track waiting time.
+                var waitRaw = (j.FareTime != null ? j.FareTime : (j.WaitingCost != null ? j.WaitingCost : null));
+                var wait = (waitRaw != null && waitRaw !== '') ? fmtDollarZ(waitRaw) : null;
                 if (wait) { $('#jdp-fare-waiting').text(wait); $('#jdp-fare-waiting-wrap').show(); hasFare = true; }
                 var drv = fmtDollar(j.DriverCost);
                 if (drv) { $('#jdp-fare-driver').text(drv); $('#jdp-fare-driver-wrap').show(); hasFare = true; }
+                // Tariff badge (also surfaced in modal footer; mirror here so it's visible alongside the fare).
+                var tariffName = j.TarriffType || j.TariffName || j.tarriffname || '';
+                if (tariffName) { $('#jdp-fare-tariff').text(tariffName); $('#jdp-fare-tariff-wrap').show(); hasFare = true; }
+                // Payment method — server stamps cash/card/account at completion. Default 'Cash' for hail records
+                // (cash is the assumed default when the driver app doesn't transmit anything else).
+                var pm = (j.paymentMethod || j.PaymentMethod || j.paymentType || j.PaymentType || '').toString().toLowerCase();
+                if (!pm) {
+                    if (j.cardPayment) pm = 'card';
+                    else if (j.accountPayment) pm = 'account';
+                    else if (j.cashPayment) pm = 'cash';
+                    else if (j.BookingSource === 'Hail') pm = 'cash';
+                }
+                if (pm) {
+                    var pmLabel = pm.charAt(0).toUpperCase() + pm.slice(1);
+                    var paid = (j.paymentStatus === 'paid' || j.PaymentStatus === 'paid');
+                    $('#jdp-fare-payment').html(pmLabel + (paid ? ' <span style="color:#27ae60; font-size:11px; font-weight:700;">&#10003; Paid</span>' : ''));
+                    $('#jdp-fare-payment-wrap').show(); hasFare = true;
+                }
+                // Source / Job type — Hail, Dispatch, ACC, Account, etc.
+                var src = j.BookingSource || j.booking_type || '';
+                if (src) { $('#jdp-fare-source').text(src); $('#jdp-fare-source-wrap').show(); hasFare = true; }
                 // Total: TotalFare (offline sync) > totalFare/fare (Firebase camelCase) > Fare > Cost, then sum components
                 var total = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || '0') ||
                     (parseFloat(j.FareBase||j.RideCost||'0') + parseFloat(j.FareTime||j.WaitingCost||'0') +
                      parseFloat(j.FareExtras||'0') + parseFloat(j.DriverCost||'0'));
-                if (total > 0) { $('#jdp-fare-total').text('$' + total.toFixed(2)); $('#jdp-fare-total-wrap').show(); hasFare = true; }
+                if (total > 0) {
+                    var totHtml = '$' + total.toFixed(2);
+                    // Mark estimated fares with a small subtle "est." tag so users know these are derived.
+                    if (j.FareEstimated) totHtml += ' <span style="font-size:10px; color:#aaa; font-weight:500; letter-spacing:0.3px;">est.</span>';
+                    $('#jdp-fare-total').html(totHtml); $('#jdp-fare-total-wrap').show(); hasFare = true;
+                }
                 if (hasFare) $('#jdp-fare-wrap').show(); else $('#jdp-fare-wrap').hide();
             }
 
