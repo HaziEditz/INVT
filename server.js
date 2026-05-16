@@ -682,6 +682,15 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
     if (_vId) {
       tasks.push((async () => {
         try {
+          // §FIX-K — wait for the completion snapshot (if inflight) before
+          // clearing the node, so we don't strip meterFare/distance/duration/
+          // tariff before the snapshot read captures them.
+          try {
+            const _snap = _completionSnapshotInflight && _completionSnapshotInflight.get(_bId);
+            if (_snap && typeof _snap.then === 'function') {
+              await _snap;
+            }
+          } catch (_eSnap) { /* snapshot best-effort; never block cleanup */ }
           const g = await fbRequest(`${FB_DB_URL}/online/${_cid}/${_vId}/current.json?auth=${auth}`, 'GET', null);
           const c = g.body || {};
           const cur = String(c.currentJobId || c.jobId || c.joboffer || '');
@@ -1320,38 +1329,128 @@ function _resolveHailAddressFromFirebase(cid, job) {
   });
 }
 
-// ─── §FIX-K — capture driver AppVersion on completed jobs ─────────────────────
-// At job completion, read online/{cid}/{vid}/current.AppVersion and stamp it
-// onto the closed-job record + the allbookings node so the dispatch history
-// and SA portal can answer "what driver-app build did this job run on?"
-// without going back to HQ. Fire-and-forget, scoped to closed-job records.
+// ─── §FIX-K — completion snapshot from online/{cid}/{vid}/current ─────────────
+// At job completion, take a one-shot snapshot of the driver app's heartbeat
+// node. The driver app writes the live meter (fare, distance, duration,
+// tariff) plus AppVersion/Platform there throughout the trip. For hail trips
+// the driver app only writes ~5 keys to allbookings at completion, leaving
+// the dispatch history blank — but online/current still has the full data,
+// briefly, before _bwClearJobFromFirebase wipes it.
+//
+// Promise is stashed in _completionSnapshotInflight keyed by jobId so
+// _bwClearJobFromFirebase can await it before its PATCH-clear step. This
+// closes the race window where the clear strips the node before our read
+// arrives.
+const _completionSnapshotInflight = new Map(); // jobId -> Promise
 function _captureDriverAppVersion(cid, vid, job) {
-  if (!cid || !vid || !job || !job.Id) return;
-  getFirebaseServerToken().then(function(tok) {
-    if (!tok) return;
+  if (!cid || !vid || !job || !job.Id) return Promise.resolve();
+  const jid = String(job.Id);
+  // Fields driver app writes to online/{cid}/{vid}/current. We probe multiple
+  // casings because the contract has drifted over OTA versions.
+  function _pickStr() { for (var i = 0; i < arguments.length; i++) {
+    var v = arguments[i]; if (typeof v === 'string' && v.trim() !== '') return v; } return ''; }
+  function _pickNum() { for (var i = 0; i < arguments.length; i++) {
+    var v = arguments[i]; var n = (v == null || v === '') ? NaN : Number(v);
+    if (!isNaN(n) && n !== 0) return n; } return null; }
+  function _hasLocal(v) {
+    if (v == null) return false;
+    if (typeof v === 'string') return v.trim() !== '';
+    if (typeof v === 'number') return !isNaN(v) && v !== 0;
+    return true;
+  }
+  const p = getFirebaseServerToken().then(function(tok) {
+    if (!tok) return null;
     return firebaseDbGet(`online/${cid}/${vid}/current`, tok).then(function(cur) {
-      if (!cur || typeof cur !== 'object') return;
-      var ver = cur.AppVersion || cur.appVersion || cur.appversion || '';
-      var bld = cur.AppBuild   || cur.appBuild   || cur.appbuild   || '';
-      var plt = cur.Platform   || cur.platform   || '';
-      if (!ver && !bld) {
-        console.log(`  [§FIX-K/diag] job #${job.Id} no AppVersion in online/${cid}/${vid}/current`);
-        return;
+      if (!cur || typeof cur !== 'object') {
+        console.log(`  [§FIX-K/diag] job #${jid} no online/${cid}/${vid}/current node`);
+        return null;
       }
-      job.DriverAppVersion = String(ver || '');
-      if (bld) job.DriverAppBuild = String(bld);
-      if (plt) job.DriverAppPlatform = String(plt);
+      // Diagnostic: log which keys are available so future gaps are visible.
+      console.log(`  [§FIX-K/diag] job #${jid} online/current keys=`,
+        Object.keys(cur).sort().join(','));
+      // App version / platform
+      var ver = _pickStr(cur.AppVersion, cur.appVersion, cur.appversion);
+      var bld = _pickStr(cur.AppBuild,   cur.appBuild,   cur.appbuild);
+      var plt = _pickStr(cur.Platform,   cur.platform);
+      // Fare breakdown
+      var totalFare = _pickNum(cur.TotalFare, cur.totalFare, cur.meterFare, cur.fare, cur.Fare, cur.FinalFare, cur.finalFare);
+      var fareBase  = _pickNum(cur.FareBase, cur.fareBase, cur.baseFare,    cur.BaseFare);
+      var fareDist  = _pickNum(cur.FareDistance, cur.fareDistance);
+      var fareTime  = _pickNum(cur.FareTime, cur.fareTime);
+      var fareExtra = _pickNum(cur.FareExtras, cur.fareExtras);
+      var driverCst = _pickNum(cur.DriverCost, cur.driverCost);
+      // Distance / duration
+      var distKm    = _pickNum(cur.JobDistance, cur.jobDistance, cur.distanceKm, cur.distance, cur.Distance);
+      var totalMins = _pickNum(cur.TotalTime, cur.totalTime, cur.JobMins, cur.jobMins, cur.duration, cur.Duration);
+      var waitMins  = _pickNum(cur.WaitingTime, cur.waitingTime);
+      var waitCost  = _pickNum(cur.WaitingCost, cur.waitingCost);
+      // Tariff
+      var tariffNm  = _pickStr(cur.TarriffType, cur.tarriffname, cur.TariffName, cur.tariffName);
+      // Payment
+      var payMethod = _pickStr(cur.paymentMethod, cur.PaymentMethod, cur.paymentType, cur.PaymentType);
+
+      var stamped = [];
+      function _stamp(field, val) {
+        if (val == null) return;
+        if (typeof val === 'string' && !val.trim()) return;
+        if (typeof val === 'number' && (isNaN(val) || val === 0)) return;
+        if (_hasLocal(job[field])) return; // never overwrite local truth
+        job[field] = val; stamped.push(field);
+      }
+      if (ver) { _stamp('DriverAppVersion', String(ver)); }
+      if (bld) { _stamp('DriverAppBuild', String(bld)); }
+      if (plt) { _stamp('DriverAppPlatform', String(plt)); }
+      _stamp('TotalFare', totalFare);
+      _stamp('FareBase', fareBase);
+      _stamp('FareDistance', fareDist);
+      _stamp('FareTime', fareTime);
+      _stamp('FareExtras', fareExtra);
+      _stamp('DriverCost', driverCst);
+      _stamp('JobDistance', distKm);
+      _stamp('TotalTime', totalMins);
+      if (totalMins != null && !_hasLocal(job.JobMins)) { job.JobMins = totalMins; stamped.push('JobMins'); }
+      _stamp('WaitingTime', waitMins);
+      _stamp('WaitingCost', waitCost);
+      _stamp('TarriffType', tariffNm);
+      // Payment label — only fill if local empty (cash default from §108d still wins until driver app says otherwise).
+      if (payMethod && !_hasLocal(job.Payment) && !_hasLocal(job.PaymentType)) {
+        var _pmLow = String(payMethod).toLowerCase();
+        if (!_hasLocal(job.paymentMethod) || job.paymentMethod === 'cash') {
+          job.paymentMethod = _pmLow; stamped.push('paymentMethod');
+          job.PaymentMethod = _pmLow; stamped.push('PaymentMethod');
+          // Legacy boolean flags
+          if (_pmLow === 'cash')           { job.cashPayment    = true; stamped.push('cashPayment'); }
+          else if (_pmLow === 'card')      { job.cardPayment    = true; stamped.push('cardPayment'); }
+          else if (_pmLow === 'account')   { job.accountPayment = true; stamped.push('accountPayment'); }
+        }
+      }
+      if (!stamped.length) {
+        console.log(`  [§FIX-K/diag] job #${jid} snapshot found no useful new fields`);
+        return null;
+      }
       saveClosedJobStore();
-      var _abPatch = { DriverAppVersion: job.DriverAppVersion };
-      if (bld) _abPatch.DriverAppBuild = job.DriverAppBuild;
-      if (plt) _abPatch.DriverAppPlatform = job.DriverAppPlatform;
-      return firebaseDbPatch(`allbookings/${cid}/${job.Id}`, _abPatch, tok).then(function() {
-        console.log(`  [§FIX-K] job #${job.Id} AppVersion="${job.DriverAppVersion}"${bld ? ' build=' + bld : ''}${plt ? ' platform=' + plt : ''}`);
+      // Mirror into allbookings so SA portal also gets the truth.
+      var _abPatch = {};
+      ['DriverAppVersion','DriverAppBuild','DriverAppPlatform',
+       'TotalFare','FareBase','FareDistance','FareTime','FareExtras','DriverCost',
+       'JobDistance','TotalTime','JobMins','WaitingTime','WaitingCost',
+       'TarriffType','paymentMethod','PaymentMethod',
+       'cashPayment','cardPayment','accountPayment'].forEach(function(f) {
+        if (stamped.indexOf(f) !== -1) _abPatch[f] = job[f];
+      });
+      return firebaseDbPatch(`allbookings/${cid}/${jid}`, _abPatch, tok).then(function() {
+        console.log(`  [§FIX-K] job #${jid} snapshot stamped (${stamped.length} field(s) [${stamped.join(',')}])`);
+      }).catch(function(e) {
+        console.warn(`  [§FIX-K] job #${jid} allbookings patch failed:`, (e && e.message) || e);
       });
     });
   }).catch(function(e) {
-    console.warn(`  [§FIX-K] job #${job && job.Id} capture failed:`, (e && e.message) || e);
+    console.warn(`  [§FIX-K] job #${jid} capture failed:`, (e && e.message) || e);
+  }).then(function() {
+    _completionSnapshotInflight.delete(jid);
   });
+  _completionSnapshotInflight.set(jid, p);
+  return p;
 }
 
 // ─── Rental completion patch ──────────────────────────────────────────────────
