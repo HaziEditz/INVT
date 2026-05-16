@@ -1937,6 +1937,15 @@
                                     <span style="font-size:20px; font-weight:700; color:#1a1a2e;" id="jdp-fare-total"></span>
                                 </div>
                             </div>
+                            <!-- Take Payment (Stripe) for an existing job -->
+                            <div id="jdp-take-payment-wrap" style="display:none; margin-top:12px; padding-top:10px; border-top:1px solid #f0f0f0; text-align:center;">
+                                <button type="button" id="jdp-take-payment-btn" class="btn" style="background:#635bff; color:#fff; border:none; padding:8px 22px; border-radius:6px; font-weight:600; letter-spacing:0.3px;">
+                                    <i class="fa fa-credit-card" style="margin-right:6px;"></i>Take Payment
+                                </button>
+                                <div id="jdp-paid-badge" style="display:none; margin-top:6px; color:#27ae60; font-weight:600; font-size:12px;">
+                                    <i class="fa fa-check-circle"></i> Paid
+                                </div>
+                            </div>
                         </div>
                         <!-- Route map -->
                         <div id="jdp-map-wrap" style="display:none; margin-bottom:14px; border-radius:8px; overflow:hidden; border:1px solid #e2e4ea;">
@@ -2997,6 +3006,8 @@
                                     <div class="row">
                                              <span  id="paymentvalueshow"  style="color: red; font-size: 16px;"></span>
                                            <input type="hidden" id="TxAmountfinal"  />
+                                           <!-- Hidden hook so Take Payment from job-detail popup links the charge to an existing job -->
+                                           <input type="hidden" id="TxJobId" value="" />
                                              <label id="textforpayment" style="color: red; font-size: 16px;"> </label>
                                   </div>
 
@@ -14121,6 +14132,9 @@ $(document).ready(function() {
         $scope.carbooking = function(){
 
 
+            // New-booking flow — clear any job link so this charge is not mis-attributed
+            // to a previously opened job-detail Take Payment.
+            $('#TxJobId').val('');
             $('#paymentmodel').modal('show');
 
         }
@@ -14565,47 +14579,56 @@ $(document).ready(function() {
                      {"name" : "quenumber" , "Value" : quenumber},
                     {"name": "Recieve_payment" , "Value" : $scope.AmmountAddedvaluesend },
                     { "name": "PromoId", "Value": '' }];
-                        $http.post('/api/job/create', { source: 'dispatch', companyId: SomeSession2 })
-                        .then(function(preRes) {
-                            if (preRes.data && preRes.data.jobId) {
-                                param = param.filter(function(p){ return p.name !== 'ExternalJobId'; });
-                                param.push({ "name": "ExternalJobId", "Value": String(preRes.data.jobId) });
-                            }
-                            return $http({
-                                method: "POST",
-                                url: "DataManager/Data.aspx/DataSelectorRide",
-                                data: { data: param, action: 'InsertBookingv4' }
-                            });
-                        }).then(function mySuccess(result) {
-                       
-                            if (result.data.d == "Session is experied, please login again") {
-                                alert(result.data.d);
-                                window.location.href = "DispatcherLogin.aspx?";
-                            }
-                            else {
-                                $res = result.data;
-                                $res = JSON.parse($res.d);
-                                        
-                                if ($res[0].Result == "Booking Information Successfully Submitted") {
-                                    toastr["success"]("Job #" + $res[0].BookingId + " created.", "Booking Created!");
-                                    setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 2000);
-                                    $scope.getjobs();
-                                    $scope.AssignedJobs();
-                                    if (typeof $scope.GetJobsdelivery === 'function') $scope.GetJobsdelivery();
-                                    if (typeof $scope.ActiveJobsdata  === 'function') $scope.ActiveJobsdata();
-                                } else if ($res[0].Error || ($res[0].Result && $res[0].Result.indexOf('Error:') === 0)) {
-                                    Swal.fire('Booking Failed', $res[0].Result.replace(/^Error:\s*/,''), 'error');
+                        // Fix repeat-booking closure bug: `var param` is function-scoped, so every
+                        // iteration mutated the SAME `param` array and all async .then() callbacks
+                        // ended up POSTing the LAST iteration's data (with one ExternalJobId reused
+                        // many times). Wrap each iteration's POST chain in an IIFE that captures
+                        // its own copy of param so each repeated booking gets the right date.
+                        (function(paramSnapshot){
+                            $http.post('/api/job/create', { source: 'dispatch', companyId: SomeSession2 })
+                            .then(function(preRes) {
+                                if (preRes.data && preRes.data.jobId) {
+                                    paramSnapshot = paramSnapshot.filter(function(p){ return p.name !== 'ExternalJobId'; });
+                                    paramSnapshot.push({ "name": "ExternalJobId", "Value": String(preRes.data.jobId) });
                                 }
-                            }
+                                return $http({
+                                    method: "POST",
+                                    url: "DataManager/Data.aspx/DataSelectorRide",
+                                    data: { data: paramSnapshot, action: 'InsertBookingv4' }
+                                });
+                            }).then(function mySuccess(result) {
 
-              
-                        }, function myError(response) {
-                            console.log(response);
+                                if (result.data.d == "Session is experied, please login again") {
+                                    alert(result.data.d);
+                                    window.location.href = "DispatcherLogin.aspx?";
+                                }
+                                else {
+                                    $res = result.data;
+                                    $res = JSON.parse($res.d);
+
+                                    if ($res[0].Result == "Booking Information Successfully Submitted") {
+                                        toastr["success"]("Job #" + $res[0].BookingId + " created.", "Repeat Booking");
+                                        setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 2000);
+                                        $scope.getjobs();
+                                        $scope.AssignedJobs();
+                                        if (typeof $scope.GetJobsdelivery === 'function') $scope.GetJobsdelivery();
+                                        if (typeof $scope.ActiveJobsdata  === 'function') $scope.ActiveJobsdata();
+                                    } else if ($res[0].Error || ($res[0].Result && $res[0].Result.indexOf('Error:') === 0)) {
+                                        Swal.fire('Repeat Booking Failed', $res[0].Result.replace(/^Error:\s*/,''), 'error');
+                                    }
+                                }
 
 
-                        });
+                            }, function myError(response) {
+                                console.log(response);
+
+
+                            });
+                        })(param.slice());
                     }
-                    toastr["success"]("Repeated ride created successfully.", 'success!');
+                    // Removed misleading synchronous "Repeated ride created successfully" toast.
+                    // The per-iteration success/failure toasts above tell the truth: only fire
+                    // green for jobs the server actually accepted.
 
                 }
                 else
@@ -19897,10 +19920,15 @@ $(document).ready(function() {
                             $scope.urgentdata  = false;
                           }
                         $scope.noneed = 1;
-                        $scope.selectedtarrif = parseInt($res["dt1"][0].TarriffId);
-                        if ($res["dt1"][0].CustomeRate != 0) {
+                        // Defensive parse — server now aliases TarriffId for us, but fall back to TariffId just in case.
+                        $scope.selectedtarrif = parseInt($res["dt1"][0].TarriffId || $res["dt1"][0].TariffId || 0) || 0;
+                        var _crA = parseInt($res["dt1"][0].CustomeRate || 0) || 0;
+                        if (_crA > 0) {
                             $scope.customeshow = 1;
-                            $scope.CustomeRate =  parseInt($res["dt1"][0].CustomeRate);
+                            $scope.CustomeRate = _crA;
+                        } else {
+                            $scope.customeshow = 0;
+                            $scope.CustomeRate = '';
                         }
                         $scope.account_Select_Id =   $res["dt1"][0].accountiDa  != null ? $res["dt1"][0].accountiDa  : '';  
                         $scope.account_Name =   $res["dt1"][0].Name  != null ? $res["dt1"][0].Name  : '';  
@@ -20715,9 +20743,11 @@ $(document).ready(function() {
                      
                     
                                 $scope.rideinfo = $res["dt1"][0].EntitiesDetails;
-                                $scope.selectedtarrif = parseInt($res["dt1"][0].TarriffId);
+                                // Defensive parse — server now aliases TarriffId for us, but fall back to TariffId just in case.
+                                $scope.selectedtarrif = parseInt($res["dt1"][0].TarriffId || $res["dt1"][0].TariffId || 0) || 0;
                      
-                                if ($res["dt1"][0].CustomeRate != "") {
+                                var _crB = parseInt($res["dt1"][0].CustomeRate || 0) || 0;
+                                if (_crB > 0) {
                                     $scope.customeshow = 1;
                                     $scope.CustomeRate =  parseInt($res["dt1"][0].CustomeRate);
                       
@@ -23070,6 +23100,29 @@ $(document).ready(function() {
             }
             // ────────────────────────────────────────────────────────────────────────
 
+            // Wire Take Payment button once. Uses delegated handler so it works for every
+            // re-open of the job-detail popup. Pre-fills the existing #paymentmodel with
+            // the job's name/phone/email/total fare and stashes the jobId in #TxJobId so
+            // the Stripe charge POST links the payment back to the booking on the server.
+            $(document).off('click.jdpTakePay').on('click.jdpTakePay', '#jdp-take-payment-btn', function() {
+                var snap = $(this).data('job') || {};
+                $('#TxJobId').val(snap.id || '');
+                $('#TxtName').val(snap.name || '');
+                $('#TxMobileNo').val(snap.phone || '');
+                $('#Email').val(snap.email || '');
+                if (snap.total) {
+                    $('#TxAmount').val(snap.total);
+                    // Mirror to Angular scope so any downstream watchers see the value.
+                    try {
+                        var sc2 = angular.element(document.getElementById('myangular')).scope();
+                        if (sc2) { sc2.AmmountAddedvalue = snap.total; if (!sc2.$$phase) sc2.$digest(); }
+                    } catch(e) {}
+                }
+                // Close the job-detail popup so the payment modal is on top with a clean backdrop.
+                $('#job-detail-popup').modal('hide');
+                setTimeout(function(){ $('#paymentmodel').modal('show'); }, 250);
+            });
+
             function ShowJobPopup(jobId) {
                 // Ensure stacked modals backdrop stacks correctly
                 $(document).off('shown.bs.modal.jdp').on('shown.bs.modal.jdp', '#job-detail-popup', function () {
@@ -23141,6 +23194,36 @@ $(document).ready(function() {
                         $('#jdp-tariff').text(j.TarriffType ? 'Tariff: ' + j.TarriffType : '');
                         var notes = j.EntitiesDetails || j.jobinfo || '';
                         if (notes) { $('#jdp-notes').text(notes); $('#jdp-notes-wrap').show(); } else { $('#jdp-notes-wrap').hide(); }
+
+                        // ── Take Payment button — hidden for cancelled/no-show/reject, hidden if already paid ──
+                        var _paidAlready = (j.paymentStatus === 'paid' || j.PaymentStatus === 'paid');
+                        var _isClosedNoFare = (st === 'Cancel' || st === 'No Show' || st === 'Reject');
+                        if (_isClosedNoFare) {
+                            $('#jdp-take-payment-wrap').hide();
+                        } else if (_paidAlready) {
+                            $('#jdp-take-payment-btn').hide();
+                            $('#jdp-paid-badge').show();
+                            $('#jdp-take-payment-wrap').show();
+                        } else {
+                            $('#jdp-take-payment-btn').show();
+                            $('#jdp-paid-badge').hide();
+                            $('#jdp-take-payment-wrap').show();
+                        }
+                        // Stash a snapshot for the click handler so we don't have to refetch.
+                        $('#jdp-take-payment-btn').data('job', {
+                            id:    j.Id || j.bookingidx || jobId,
+                            name:  (j.Name || j.passengername || j.PassengerName || ''),
+                            phone: (j.PhoneNo || ''),
+                            email: (j.Email || ''),
+                            total: (function(){
+                                var t = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || '0');
+                                if (!t) {
+                                    t = (parseFloat(j.FareBase||j.RideCost||'0') + parseFloat(j.FareTime||j.WaitingCost||'0') +
+                                         parseFloat(j.FareExtras||'0') + parseFloat(j.DriverCost||'0'));
+                                }
+                                return (!isNaN(t) && t > 0) ? t.toFixed(2) : '';
+                            })()
+                        });
 
                         // --- Timeline ---
                         jdpBuildTimeline(j);

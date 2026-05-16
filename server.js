@@ -2266,6 +2266,17 @@ const server = http.createServer(async (req, res) => {
       const token  = (body.Token  || '').trim();
       const amtStr = (body.Amout  || body.Amount || '0').toString().trim();
       const amountDollars = parseFloat(amtStr) || 0;
+      // Take Payment for an existing job: link the charge back to the booking
+      // so the dispatcher sees a "Paid" badge next time they open the popup,
+      // and so reports (and Firebase) reflect the captured payment.
+      const jobIdRaw = (body.JobId || body.Id || '').toString().trim();
+      const jobIdNum = jobIdRaw ? parseInt(jobIdRaw) : 0;
+      const payerEmail = (body.Email || '').toString().trim();
+      const payerName  = (body.Name  || '').toString().trim();
+      const payerPhone = (body.Phone || '').toString().trim();
+      // Resolve company id for this charge so multi-tenant filtering / mirroring works.
+      const _testCidHeader = process.env.NODE_ENV !== 'production' ? (req.headers['x-bw-test-company'] || '') : '';
+      const sessionCompanyId = _testCidHeader || getSessionCompanyId(req) || null;
       if (!token) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ d: 'error: no token provided' }));
@@ -2282,10 +2293,84 @@ const server = http.createServer(async (req, res) => {
         amount:   amountCents,
         currency: 'nzd',
         source:   token,
-        description: 'BookaWaka taxi fare',
+        description: jobIdNum
+          ? ('BookaWaka taxi fare — Job #' + jobIdNum)
+          : 'BookaWaka taxi fare',
+        metadata: Object.assign(
+          {},
+          jobIdNum ? { jobId: String(jobIdNum) } : {},
+          sessionCompanyId ? { companyId: String(sessionCompanyId) } : {}
+        ),
       });
-      console.log(`[Stripe] charge ${charge.id} ${charge.status} $${amountDollars} NZD`);
+      console.log(`[Stripe] charge ${charge.id} ${charge.status} $${amountDollars} NZD${jobIdNum ? ' job#' + jobIdNum : ''}`);
       const status = charge.status === 'succeeded' ? 'succeeded' : charge.status;
+
+      // On success, link the payment back to the job (jobStore + Firebase mirror)
+      // and record it in stripePaymentStore for reports / audit.
+      if (status === 'succeeded') {
+        try {
+          // 1) Update in-memory jobStore so the popup shows "Paid" next time.
+          if (jobIdNum) {
+            const jobIdx = jobStore.findIndex(j =>
+              j.Id === jobIdNum && (!sessionCompanyId || j.companyId === sessionCompanyId)
+            );
+            if (jobIdx >= 0) {
+              const _jt = new Date().toISOString();
+              jobStore[jobIdx].paymentStatus    = 'paid';
+              jobStore[jobIdx].PaymentStatus    = 'paid';
+              jobStore[jobIdx].paymentMethod    = 'stripe-dispatcher-charge';
+              jobStore[jobIdx].stripeChargeId   = charge.id;
+              jobStore[jobIdx].Recieve_payment  = String(amountDollars);
+              jobStore[jobIdx].paymentCapturedAt = _jt;
+              if (payerEmail && !jobStore[jobIdx].Email) jobStore[jobIdx].Email = payerEmail;
+              try { saveJsonStore(JOB_STORE_FILE, jobStore); } catch(e) {}
+
+              // 2) Mirror to Firebase so any other connected console / driver app sees it live.
+              try {
+                if (typeof firebasePatch === 'function') {
+                  const _cid = jobStore[jobIdx].companyId || sessionCompanyId;
+                  const _vid = jobStore[jobIdx].VehicleId;
+                  const _did = jobStore[jobIdx].DriverId;
+                  if (_cid && _vid && _did) {
+                    firebasePatch(`jobs/${_cid}/${_vid}/${_did}/${jobIdNum}`, {
+                      paymentStatus:    'paid',
+                      paymentMethod:    'stripe-dispatcher-charge',
+                      stripeChargeId:   charge.id,
+                      Recieve_payment:  String(amountDollars),
+                      paymentCapturedAt: _jt,
+                    });
+                  }
+                }
+              } catch (fbErr) {
+                console.log('[Stripe] Firebase mirror failed:', fbErr.message);
+              }
+            } else {
+              console.log(`[Stripe] charge ok but job #${jobIdNum} not found in jobStore — payment recorded only`);
+            }
+          }
+
+          // 3) Record the charge in stripePaymentStore for reporting / refunds.
+          const _spRec = {
+            id:           (typeof stripePayNextId !== 'undefined' ? stripePayNextId++ : Date.now()),
+            companyId:    sessionCompanyId || null,
+            jobId:        jobIdNum || null,
+            chargeId:     charge.id,
+            amount:       amountDollars,
+            currency:     'nzd',
+            status:       'succeeded',
+            payerName:    payerName,
+            payerEmail:   payerEmail,
+            payerPhone:   payerPhone,
+            source:       jobIdNum ? 'dispatch-take-payment' : 'dispatch-walk-up',
+            createdAt:    new Date().toISOString(),
+          };
+          stripePaymentStore.push(_spRec);
+          try { saveJsonStore(STRIPE_PAYMENTS_FILE, stripePaymentStore); } catch(e) {}
+        } catch (linkErr) {
+          console.log('[Stripe] post-charge link failed (charge still succeeded):', linkErr.message);
+        }
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ d: status }));
     } catch (err) {
@@ -3938,7 +4023,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           VehicleId: vehicleId, DriverId: driverId,
           DispatcherName: dispatcherName,
           Nextstop: String(param('nextstop') || '0'), nextstopdata: param('nextstopdata') || '',
-          Passengers: passengers, passengername: '',
+          Passengers: passengers, passengername: name || '', PassengerName: name || '',
           PickLatLng: pickLatLng, DropLatLng: dropLatLng,
           Bags: bags, WheelChairs: wheelchairs, VehiclesReguired: parseInt(param('VRequired') || '1') || 1,
           Acc_job_id: param('Acc_job_id') || '', Account_id: param('Account_id') || '', Acc_claim_id: param('Acc_claim_id') || '',
@@ -4136,7 +4221,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           VehicleId: vehicleId, DriverId: driverId,
           DispatcherName: dispatcherName,
           Nextstop: String(param('nextstop') || '0'), nextstopdata: param('nextstopdata') || '',
-          Passengers: passengers, passengername: '',
+          Passengers: passengers, passengername: name || '', PassengerName: name || '',
           PickLatLng: pickLatLng, DropLatLng: dropLatLng,
           Bags: bags, WheelChairs: wheelchairs, VehiclesReguired: parseInt(param('VRequired') || '1') || 1,
           Acc_job_id: param('Acc_job_id') || '', Account_id: param('Account_id') || '', Acc_claim_id: param('Acc_claim_id') || '',
@@ -4234,7 +4319,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (param('DropLocation'))    job.DropAddress    = param('DropLocation');
           if (param('PickLatLng'))      job.PickLatLng     = param('PickLatLng');
           if (param('DropLatLng'))      job.DropLatLng     = param('DropLatLng');
-          if (param('Name'))            job.Name           = param('Name');
+          if (param('Name')) {
+            job.Name           = param('Name');
+            // List rows render {{value.passengername}}, the driver app reads PassengerName.
+            // Mirror Name into both aliases so all booking types (taxi/food/freight/rentals/towing/ACC/account/web)
+            // show the updated passenger name everywhere after an edit.
+            job.passengername  = param('Name');
+            job.PassengerName  = param('Name');
+          }
           if (param('PassengerId'))     job.PhoneNo        = param('PassengerId');
           if (param('PassengersNo'))    job.Passengers     = parseInt(param('PassengersNo'));
           if (param('BagsNo'))          job.Bags           = parseInt(param('BagsNo')) || 0;
@@ -4361,6 +4453,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             _euMaybe('DropLatLng',         job.DropLatLng);
             _euMaybe('Name',               job.Name);
             _euMaybe('PassengerName',      job.Name);
+            _euMaybe('passengername',      job.Name);
             _euMaybe('PhoneNo',            job.PhoneNo);
             _euMaybe('Email',              job.Email);
             _euMaybe('Passengers',         job.Passengers);
@@ -6424,7 +6517,32 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const idParam = param('Id');
         const jobId = idParam !== undefined ? parseInt(idParam) : 0;
         const job = jobStore.find(j => j.Id === jobId);
-        const jobWithMins = job ? { ...job, JobMins: calcJobMins(job) } : null;
+        // Alias-normalise the edit-load payload so the AngularJS edit form
+        // restores every field correctly regardless of which booking source
+        // (dispatcher, passenger app, website, taxi/food/freight/rentals/towing)
+        // originally created the job. The dispatcher form reads $res.dt1[0].X for:
+        //   TarriffId (double-r) — stored as TariffId / TarriffId / TariffID
+        //   CustomeRate          — must be present (empty string is fine; 0 is also fine)
+        //   PassengerId          — alias for PhoneNo
+        //   AccountId / accountiDa — id of business account on file
+        //   Email / Notes / booking_type — were silently dropped before
+        //   booking_type radio — restored from booking_type | bookingType | BookingType
+        const jobWithMins = job ? (function() {
+          const _aliased = { ...job, JobMins: calcJobMins(job) };
+          _aliased.TarriffId    = job.TarriffId || job.TariffId || job.TariffID || '0';
+          _aliased.CustomeRate  = (job.CustomeRate !== undefined && job.CustomeRate !== null) ? String(job.CustomeRate) : '';
+          _aliased.PassengerId  = job.PhoneNo || job.PassengerId || '';
+          _aliased.AccountId    = job.Account_id || job.AccountId || '';
+          _aliased.accountiDa   = job.Account_id || job.AccountId || job.accountiDa || '';
+          _aliased.Email        = job.Email || '';
+          _aliased.Notes        = job.Notes || '';
+          _aliased.booking_type = job.booking_type || job.bookingType || job.BookingType || '';
+          _aliased.bookingType  = _aliased.booking_type;
+          // Name aliases for any consumer that reads passengername instead of Name
+          _aliased.passengername= job.passengername || job.PassengerName || job.Name || '';
+          _aliased.PassengerName= _aliased.passengername;
+          return _aliased;
+        })() : null;
         const resp = {
           dt1: jobWithMins ? [jobWithMins] : [],
           dt2: [{ AssignedCount: 0 }],

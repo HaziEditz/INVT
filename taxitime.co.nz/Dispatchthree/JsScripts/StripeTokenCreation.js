@@ -61,13 +61,23 @@ $(document).ready(function () {
                     $('#paymentmodel').modal('hide');
                     document.getElementById('btnPay').style.display = 'block';
                  //alert(transeadd);
+                    // Include jobId/email/name so the server can persist payment status
+                    // back to the booking when this charge is for an existing job
+                    // (Take Payment from the job-detail popup). For walk-up payments
+                    // (Take Payment modal with no job selected) JobId will be blank
+                    // and the server simply records the charge without touching jobStore.
+                    var _jobIdForCharge = ($('#TxJobId').val() || '').toString().trim();
                     $.ajax({
                         url: "Default.aspx/DispatchChargeing",
                         type: "POST",
                          datatype: "json",
                         data: JSON.stringify({
                             "Token": token,
-                            "Amout": fulls.toString()
+                            "Amout": fulls.toString(),
+                            "JobId": _jobIdForCharge,
+                            "Email": ($('#Email').val() || '').toString(),
+                            "Name":  ($('#TxtName').val() || '').toString(),
+                            "Phone": ($('#TxMobileNo').val() || '').toString()
                         }),
                       contentType: "application/json;charset/=utf-8",
                         success: FnSuccessPayment,
