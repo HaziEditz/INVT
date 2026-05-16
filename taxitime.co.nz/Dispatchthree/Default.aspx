@@ -14137,10 +14137,11 @@ $(document).ready(function() {
                                          && String(previousdriverid) !== '0' && String(previousdriverid) !== '-1'
                                          && String(previousdriverid).toLowerCase() !== 'null'
                                          && String(previousdriverid).toLowerCase() !== 'undefined';
-                        if ((DriveId == "0" || DriveId == "-1") && _liveEdit && _prevValid) {
-                            console.log('[updateride] §FIX-B: skipping FnCancelRide — empty dropdown on live ' +
-                                        'job (' + BookingIz + ', previousDriver=' + previousdriverid + '); preserving assignment.');
-                        } else if ((DriveId == "0" || DriveId == "-1") && !_prevValid) {
+                        if (DriveId == "0" && _liveEdit && _prevValid) {
+                            console.log('[updateride] §FIX-B: skipping FnCancelRide — empty dropdown (DriveId=0) on live ' +
+                                        'job (' + BookingIz + ', previousDriver=' + previousdriverid + '); preserving assignment. ' +
+                                        '(DriveId=-1 "No One" is treated as explicit unassign and IS cancelled.)');
+                        } else if (DriveId == "0" && !_prevValid) {
                             console.log('[updateride] §FIX-B: skipping FnCancelRide — no valid previous driver to cancel (job ' + BookingIz + ').');
                         } else if (DriveId == "0" || DriveId == "-1") {
                             FnCancelRide(previousdriverid, BookingIz );
@@ -14168,7 +14169,32 @@ $(document).ready(function() {
                             //$scope.quenumberq;
                             $("#Divo" + BookingIz + "").remove();
                         }else if( DriveId != "0"  && DriveId != "-1" && DriveId != previousdriverid ){
-                            writeJobDetailsToFirebase(DriveId, $("#ddlVehicleType").val(), BookingIz, {
+                            // §FIX-E — #ddlVehicleType.val() is the vehicle Id (numeric), not the
+                            // VehicleNo (e.g. "TAXI02") used as the Firebase jobs/{cid}/{vehicleNo}
+                            // path segment. Resolve the real VehicleNo from driverdatarealx by
+                            // DriveId so the offer lands on the node the driver app listens to.
+                            var _editVeh = (function(){
+                                try {
+                                    var _sc = angular.element(document.getElementById('myangular')).scope();
+                                    var _ddr = ($scope && $scope.driverdatarealx && $scope.driverdatarealx.length)
+                                               ? $scope.driverdatarealx
+                                               : (_sc && _sc.driverdatarealx ? _sc.driverdatarealx : []);
+                                    for (var _i = 0; _i < _ddr.length; _i++) {
+                                        if (String(_ddr[_i].driverid) === String(DriveId)) {
+                                            var _vn = String(_ddr[_i].VehicleNo || _ddr[_i].vehicleno || _ddr[_i].CallSign || '').trim();
+                                            if (_vn && _vn !== String(DriveId).toUpperCase()) return _vn;
+                                        }
+                                    }
+                                } catch(_e) {}
+                                return null;
+                            })();
+                            if (!_editVeh) {
+                                console.warn('[updateride] §FIX-E: could not resolve VehicleNo for driver ' +
+                                             DriveId + ' on job ' + BookingIz +
+                                             ' — skipping Firebase write to avoid wrong-node bug. ' +
+                                             'Server-side assignment still persists; rest of cleanup runs normally.');
+                            } else {
+                            writeJobDetailsToFirebase(DriveId, _editVeh, BookingIz, {
                                 pickup:        _usnap.pickup,
                                 dropoff:       _usnap.dropoff,
                                 phone:         _usnap.phone,
@@ -14188,6 +14214,7 @@ $(document).ready(function() {
                                 customRate:    _usnap.customRate,
                                 accountName:   _usnap.accountName
                             });
+                            }
                             FnCancelRide(previousdriverid,  BookingIz ); 
 
                             //var chceck = false;

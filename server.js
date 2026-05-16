@@ -4359,15 +4359,28 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (_editedMs) job.ScheduledFor = _editedMs; else delete job.ScheduledFor;
           }
           // Only change status and driver assignment for jobs that are still in a pre-dispatch state.
-          // Never overwrite DriverId/VehicleId/BookingStatus for Assigned/Active/Picking jobs —
-          // the edit form sends DId:-1 (no driver selected) which would corrupt a live assignment.
+          // Never overwrite DriverId/VehicleId/BookingStatus for Assigned/Active/Picking jobs UNLESS
+          // the dispatcher explicitly selected "No One" (DId=-1 + bookstatus="No One") in the edit
+          // form, which is an intentional unassign action — the job should leave the live state and
+          // return to Unassigned tagged as 'No One' so dispatchers can see it was manually released.
           const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);
+          const _clientBookstatus = String(param('bookstatus') || '').trim();
+          const _explicitNoOne = (driverId === -1) && (_clientBookstatus === 'No One');
           if (editableStatuses.has(job.BookingStatus || '')) {
             job.VehicleId = vehicleId;
             job.DriverId  = driverId;
             if (driverId > 0)       job.BookingStatus = 'Offered';
             else if (driverId === -1) job.BookingStatus = 'No One';
             else                     job.BookingStatus = 'Pending';
+          } else if (_explicitNoOne) {
+            // §FIX-D — dispatcher explicitly chose "No One" while editing a live (Assigned/Picking/
+            // Active) job. Honor the manual unassign so the job moves to Unassigned as 'No One'
+            // (not 'Pending'). FnCancelRide on the client clears the driver's screen.
+            console.log(`  [ProcUpdateJobv6] §FIX-D: explicit "No One" on live job #${job.Id} ` +
+                        `(was ${job.BookingStatus}, driver ${job.DriverId}) — unassigning to No One`);
+            job.VehicleId      = 0;
+            job.DriverId       = -1;
+            job.BookingStatus  = 'No One';
           }
           // Tariff and custom price
           const _uTId   = String(param('TarriffId')   || '').trim();
