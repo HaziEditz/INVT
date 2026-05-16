@@ -43,7 +43,7 @@
     "DispatchNotes": "",
     "EstimatedDistance": "26.8 km",
     "EstimatedTime": "26 mins",
-    "TarriffType": "Tarrif 1",
+    "TarriffType": "Fixed",
     "companyId": "620611",
     "createdAt": 1778908821509,
     "_fbKey": "620611:61126051613",
@@ -51,14 +51,17 @@
     "ScheduledFor": 1778913300000,
     "TariffId": "1",
     "Email": "",
-    "EstimatedCost": "129",
+    "EstimatedCost": "",
     "po_id": "",
     "Acc_manager_id": "",
     "Acc_client_id": "",
     "Acc_trip_status": "",
     "bookingType": "Normal Ride",
     "booking_type": "Normal Ride",
-    "updatedAt": "2026-05-16T05:36:53.144Z",
-    "updatedBy": "dispatcher"
+    "updatedAt": "2026-05-16T05:42:14.904Z",
+    "updatedBy": "dispatcher",
+    "CustomeRate": "125",
+    "RideCost": "125",
+    "EstimatedFare": "125"
   }
 ]
