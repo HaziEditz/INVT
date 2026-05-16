@@ -1,0 +1,44 @@
+To: HQ dev team — fields the driver app writes on trip completion
+
+Path 1 — allbookings/{companyId}/{bookingId} (update(), primary source of truth):
+
+PickAddress       (string)   - pickup address text
+DropAddress       (string)   - drop-off address text
+PickLatLng        (string)   - "lat,lng"
+DropLatLng        (string)   - "lat,lng"
+TotalFare         (number)   - final fare $
+FareBase          (number)   - flag fall component
+FareTime          (number)   - waiting cost component
+FareDistance      (number)   - distance cost component
+FareExtras        (number)   - 0 today
+JobDistance       (number)   - km
+FareCurrency      "NZD"
+TarriffType       (string)   - tariff name  (double-r, matches your legacy SQL column)
+TarriffId         (string)   - tariff id    (double-r)
+DriverCost        (number)   - = TotalFare unless explicitly different
+ppname            (string)   - passenger name (legacy column)
+AccountId         (string)   - passenger phone (legacy column)
+cashPayment / cardPayment / accountPayment   (booleans)
+Recieve_payment   (string)   - payment label
+PaymentStatus     (string)
+TmSubsidy / TmPassengerPays / TmPassengerName / TmTripCategory / TmVoucherNo   (TM trips only)
+CardLastFour / CardHolder / CardExpiry / CardBrand / StripePaymentIntentId     (card trips only)
+CompletedAt       (string, NZ display)
+completedAt_ISO   (string, ISO)
+ActiveAt / JobCompleteTime / newcompelete   (timeline)
+TotalTime         "mm:ss"
+
+Path 2 — completedJobs/{companyId} (push() — used as fallback when path 1 is missing). Same record carries:
+
+bookingId, companyId, driverId, vehicleId,
+PickAddress, DropAddress, pickupAddress, dropAddress,
+fare, paymentType, distanceKm, durationSecs,
+status: "Completed", completedAt_ISO, source: "dispatch" | "hail"
+
+What to ask HQ to do:
+
+Confirm ShowJobPopup reads PascalCase first — PickAddress / DropAddress (not pickAddress / pickup_address). If theirs reads Pickaddress or PickupAddress or anything else, they need to alias to ours OR tell me which spelling to write.
+Confirm the fare-breakdown section reads TotalFare / FareBase / FareTime / FareDistance / JobDistance — not Fare, not total_fare, not Charges.*. Same: tell me their expected names if different and I'll alias them.
+Check that nothing in their write-back code (status changes, signature capture, PDF generator, whatever) is update()-ing the same record with PickAddress: '' / TotalFare: 0 after we write. Firebase update() with empty strings will wipe our values. This is the most common cause of "data was there a second ago and now it's gone."
+Send me one screenshot of the allbookings/{cid}/{bookingId} node in Firebase console for a trip that looked blank in HQ. If PickAddress and TotalFare are present in the database, the bug is 100% in their reader. If they're missing, something on their side cleared them and I can show them what to stop doing.
+Tell me what HQ replies and I'll wire whatever aliases they want. If point 3 (their code wiping our values) is the cause, only HQ can fix it — I can't defend the data after the fact from this side.
