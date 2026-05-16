@@ -1,0 +1,19 @@
+Reply to HQ:
+
+Thanks for the detailed log. The driver app has been writing the full field set you listed since OTA 22au (shipped earlier this week), and OTA 22az added the legacy SQL aliases (TarriffType, ppname, AccountId, Recieve_payment, etc). The code path is completeHailTrip → update(ref('allbookings/{cid}/{hailBookingId}'), {...60+ fields}) — same schema as the dispatcher-completion path.
+
+Two questions to localise the regression — both can be answered in a couple of minutes:
+
+Q1 — When were trips 6112605171 and 6112605173 completed? If they were completed on a driver-app build older than OTA 22au (≈3 days ago), the missing fields are expected — please re-test against a fresh hail trip completed on OTA 22bb (shipped today). The build label is visible at the bottom of the driver-app login screen and on the Profile tab.
+
+Q2 — Is anything on the dispatch / SA-portal side calling firebase.set() on allbookings/{cid}/{bookingId} when it detects Status: "Completed"? Your log shows a key PaymentMethod (capital P, capital M). The driver app does not write that key anywhere — we only read it as a backwards-compat fallback. So something on your side is writing that node. If the writer is using set() instead of update(), it will wipe every field we just wrote. If it's using update() but only with those 5 keys, our 60 fields would still be present — which suggests set().
+
+Quickest test: pull a fresh hail trip on OTA 22bb, then take two snapshots of allbookings/620611/{bookingId} from the Firebase console — one immediately after the driver taps "End Trip", and one 30 seconds later. If snapshot #1 has all 60 fields and snapshot #2 only has 5, you've got a server-side set() wiping us. If snapshot #1 already only has 5 fields, our write isn't landing — send me the snapshot and I'll dig into auth/rules.
+
+If you'd like the dispatch-side writer to keep using set() for legacy reasons, switch it to update() (same call, different verb in firebase-admin) and the data will stop being wiped. Anything driver-only — fare breakdown, addresses, payment method, timeline — has to survive on the driver-app's write because dispatch has no way to know those values.
+
+Build labels live in app/login.tsx and app/(tabs)/profile.tsx. Current OTA = 22bb. Runtime version = 1.5.0.
+
+Thanks — let us know which of Q1 / Q2 it is and we'll close this out.
+
+Bottom line: nothing further to do on the driver-app side right now. The fields are written. The next move is HQ's — confirm test build version and check whether their server is wiping our writes with set(). Once they answer, I'll act on whatever they find.
