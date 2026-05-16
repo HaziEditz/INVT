@@ -1236,6 +1236,60 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
   });
 }
 
+// ─── §FIX-M — server-side reverse geocoder (Google Maps Geocoding API) ───────
+// Fallback used by §FIX-J when neither allbookings nor online/current have a
+// resolved hail PickAddress. The driver app sometimes never writes a street
+// address (the hail flow only writes the lat/lng placeholder), leaving the
+// dispatch console showing "Hail - -46.39, 168.35" forever. We resolve the
+// coordinates ourselves here. Results cached by rounded lat/lng (4 dp ≈ 11 m).
+const _geocodeCache = new Map(); // "lat,lng" -> address string
+const _geocodeInflight = new Map(); // "lat,lng" -> Promise
+const GOOGLE_MAPS_GEOCODE_KEY = process.env.GOOGLE_MAPS_API_KEY ||
+  'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
+function _reverseGeocode(lat, lng) {
+  const _lat = Number(lat), _lng = Number(lng);
+  if (!isFinite(_lat) || !isFinite(_lng)) return Promise.resolve(null);
+  const key = _lat.toFixed(4) + ',' + _lng.toFixed(4);
+  if (_geocodeCache.has(key)) return Promise.resolve(_geocodeCache.get(key));
+  if (_geocodeInflight.has(key)) return _geocodeInflight.get(key);
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${_lat},${_lng}&key=${GOOGLE_MAPS_GEOCODE_KEY}`;
+  const p = new Promise(function(resolve) {
+    const req = https.get(url, function(resp) {
+      let buf = '';
+      resp.on('data', function(c) { buf += c; });
+      resp.on('end', function() {
+        try {
+          const json = JSON.parse(buf);
+          if (json && json.status === 'OK' && Array.isArray(json.results) && json.results.length) {
+            const addr = String(json.results[0].formatted_address || '').trim();
+            if (addr) {
+              if (_geocodeCache.size > 1000) {
+                const oldest = _geocodeCache.keys().next().value;
+                if (oldest) _geocodeCache.delete(oldest);
+              }
+              _geocodeCache.set(key, addr);
+              console.log(`  [§FIX-M] geocoded ${key} → "${addr}"`);
+              return resolve(addr);
+            }
+          }
+          console.warn(`  [§FIX-M] geocode ${key} status=${json && json.status} no results`);
+          resolve(null);
+        } catch (e) {
+          console.warn(`  [§FIX-M] geocode ${key} parse failed:`, e.message);
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', function(e) {
+      console.warn(`  [§FIX-M] geocode ${key} request failed:`, e.message);
+      resolve(null);
+    });
+    req.setTimeout(5000, function() { req.destroy(); resolve(null); });
+  }).then(function(v) { _geocodeInflight.delete(key); return v; });
+  _geocodeInflight.set(key, p);
+  return p;
+}
+
 // ─── §FIX-J — lazy-resolve hail addresses on the active in-memory jobStore ────
 // When [ActiveJobsv3] / [JobDetails] sees a hail job whose local PickAddress
 // is still "Hail - <lat,lng>" (the placeholder we set at hail-start), kick off
@@ -1305,6 +1359,24 @@ function _resolveHailAddressFromFirebase(cid, job) {
     }
     return { resolvedPick: resolvedPick, resolvedDrop: resolvedDrop, resolvedName: resolvedName, source: resolvedPick ? 'allbookings' : 'none' };
   }).then(function(out) {
+    // §FIX-M — Path 3: if Firebase yielded nothing, parse the local
+    // "Hail - <lat>, <lng>" placeholder and reverse-geocode it ourselves.
+    if (out && !out.resolvedPick) {
+      var _local = String(job.PickAddress || '').trim();
+      var _m = _local.match(/^Hail\s*-\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
+      if (!_m && job.PickLatLng) {
+        var _p = String(job.PickLatLng).split(',');
+        if (_p.length === 2) _m = [null, _p[0].trim(), _p[1].trim()];
+      }
+      if (_m) {
+        return _reverseGeocode(_m[1], _m[2]).then(function(addr) {
+          if (addr) { out.resolvedPick = addr; out.source = 'geocode'; }
+          return out;
+        });
+      }
+    }
+    return out;
+  }).then(function(out) {
     _hailResolveInflight.delete(jid);
     if (!out) return;
     var changed = false;
@@ -1320,6 +1392,34 @@ function _resolveHailAddressFromFirebase(cid, job) {
     }
     if (changed) {
       console.log(`  [§FIX-J] job #${job.Id} resolved (src=${out.source}): PickAddress="${job.PickAddress}" DropAddress="${job.DropAddress || ''}" Name="${job.Name || ''}"`);
+      // §FIX-M — when we resolved by reverse-geocoding (or pulled from Firebase
+      // when allbookings was previously blank), persist the resolved address
+      // back to allbookings/{cid}/{id} so the closed-job detail page and SA
+      // portal can see it on their next read. Also save closedJobStore if
+      // this job has already been moved there.
+      if (out.source === 'geocode' || out.source === 'allbookings' || out.source === 'online') {
+        if (_tok) {
+          var _abP = {};
+          if (out.resolvedPick) _abP.PickAddress = job.PickAddress;
+          if (out.resolvedDrop) _abP.DropAddress = job.DropAddress;
+          if (out.resolvedName) _abP.PassengerName = job.Name;
+          firebaseDbPatch(`allbookings/${cid}/${job.Id}`, _abP, _tok).catch(function(e) {
+            console.warn(`  [§FIX-J] allbookings patch failed for #${job.Id}:`, (e && e.message) || e);
+          });
+        }
+        // If the job is already in closedJobStore, persist on disk too.
+        try {
+          if (typeof closedJobStore !== 'undefined' && Array.isArray(closedJobStore)) {
+            var _cj = closedJobStore.find(function(j) { return j && j.Id === job.Id; });
+            if (_cj) {
+              if (out.resolvedPick && _isPlaceholder(_cj.PickAddress)) _cj.PickAddress = job.PickAddress;
+              if (out.resolvedDrop && (_isPlaceholder(_cj.DropAddress) || !_cj.DropAddress)) _cj.DropAddress = job.DropAddress;
+              if (out.resolvedName && !(_cj.Name && String(_cj.Name).trim())) _cj.Name = job.Name;
+              if (typeof saveClosedJobStore === 'function') saveClosedJobStore();
+            }
+          }
+        } catch (_eCj) { /* persist best-effort */ }
+      }
     } else {
       console.log(`  [§FIX-J/diag] job #${job.Id} no resolution: src=${out.source} fbPick="${out.resolvedPick || ''}" localPick="${job.PickAddress}"`);
     }
