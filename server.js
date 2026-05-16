@@ -1227,6 +1227,64 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
   });
 }
 
+// ─── §FIX-J — lazy-resolve hail addresses on the active in-memory jobStore ────
+// When [ActiveJobsv3] / [JobDetails] sees a hail job whose local PickAddress
+// is still "Hail - <lat,lng>" (the placeholder we set at hail-start), kick off
+// a fire-and-forget Firebase read of allbookings/{cid}/{bookingId} and copy
+// the resolved PickAddress / DropAddress / passenger name into the in-memory
+// job. Throttled per-job so polling does not hammer Firebase.
+const _hailResolveLast = new Map();   // jobId -> ts of last fetch
+const _hailResolveInflight = new Set(); // jobIds currently being fetched
+const HAIL_RESOLVE_MIN_INTERVAL_MS = 8000;
+function _resolveHailAddressFromFirebase(cid, job) {
+  if (!cid || !job || !job.Id) return;
+  const jid = String(job.Id);
+  if (_hailResolveInflight.has(jid)) return;
+  const last = _hailResolveLast.get(jid) || 0;
+  if (Date.now() - last < HAIL_RESOLVE_MIN_INTERVAL_MS) return;
+  _hailResolveInflight.add(jid);
+  _hailResolveLast.set(jid, Date.now());
+  // Bound the throttle cache so it can't grow unbounded across long uptimes.
+  if (_hailResolveLast.size > 500) {
+    const oldestKey = _hailResolveLast.keys().next().value;
+    if (oldestKey) _hailResolveLast.delete(oldestKey);
+  }
+  getFirebaseServerToken().then(function(tok) {
+    if (!tok) { _hailResolveInflight.delete(jid); return; }
+    return firebaseDbGet(`allbookings/${cid}/${job.Id}`, tok);
+  }).then(function(fb) {
+    _hailResolveInflight.delete(jid);
+    if (!fb || typeof fb !== 'object') return;
+    function _isPlaceholder(s) {
+      if (typeof s !== 'string') return true;
+      var t = s.trim();
+      if (!t) return true;
+      return /^Hail - /i.test(t) || /^Hail Pickup \(/i.test(t) ||
+             /^Hail \/ Street Pickup$/i.test(t) ||
+             /^Street Pickup \(no destination\)$/i.test(t);
+    }
+    var changed = false;
+    if (typeof fb.PickAddress === 'string' && !_isPlaceholder(fb.PickAddress) &&
+        _isPlaceholder(job.PickAddress)) {
+      job.PickAddress = fb.PickAddress; changed = true;
+    }
+    if (typeof fb.DropAddress === 'string' && !_isPlaceholder(fb.DropAddress) &&
+        (_isPlaceholder(job.DropAddress) || !job.DropAddress)) {
+      job.DropAddress = fb.DropAddress; changed = true;
+    }
+    // Passenger name (Name / ppname / PassengerName) — only fill if local empty
+    var fbName = fb.PassengerName || fb.ppname || fb.Name || '';
+    if (typeof fbName === 'string' && fbName.trim() && !(job.Name && String(job.Name).trim())) {
+      job.Name = fbName; changed = true;
+    }
+    if (changed) {
+      console.log(`  [§FIX-J] active job #${job.Id} resolved: PickAddress="${job.PickAddress}" DropAddress="${job.DropAddress || ''}" Name="${job.Name || ''}"`);
+    }
+  }).catch(function() {
+    _hailResolveInflight.delete(jid);
+  });
+}
+
 // ─── Rental completion patch ──────────────────────────────────────────────────
 // Patches rentalTaxiRequests/{key} to status:'completed' when any completion path
 // fires for a rental-sourced job. Retries once after 4 s so a transient network
@@ -6411,6 +6469,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           let pickAddr = j.PickAddress || '';
           if (isHail) {
             if (pickAddr.startsWith('Hail - ')) {
+              // §FIX-J — lazy-fetch the resolved address from allbookings.
+              // Driver app (OTA 22au+) writes PickAddress/DropAddress/Name as it
+              // resolves them; we copy them back into the in-memory job so the
+              // next poll returns the real address instead of "Hail Pickup (lat,lng)".
+              _resolveHailAddressFromFirebase(sessionCompanyId, j);
               pickAddr = 'Hail Pickup (' + pickAddr.slice('Hail - '.length).trim() + ')';
             } else if (!pickAddr || pickAddr === 'Hail / Street Pickup') {
               pickAddr = 'Hail / Street Pickup';
@@ -6497,6 +6560,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           let dropAddr = job.DropAddress || '';
           if (isHail) {
             if (pickAddr.startsWith('Hail - ')) {
+              // §FIX-J — same lazy-resolve as ActiveJobsv3
+              _resolveHailAddressFromFirebase(sessionCompanyId, job);
               pickAddr = 'Hail Pickup (' + pickAddr.slice('Hail - '.length).trim() + ')';
             } else if (!pickAddr) {
               pickAddr = 'Hail / Street Pickup';
