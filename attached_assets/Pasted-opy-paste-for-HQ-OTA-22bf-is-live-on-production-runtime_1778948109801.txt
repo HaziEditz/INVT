@@ -1,0 +1,20 @@
+opy-paste for HQ:
+
+OTA 22bf is live on production (runtime 1.5.0, group a0fff251-4b7f-422f-8f61-469ca840efbf). The false "You already have a job queued" error is fixed. Root cause was the Firebase transaction on driverQueue/{cid}/{driverId}/queued aborting on any non-null slot — including stale slots from prior sessions and slots held by the same bookingId being re-accepted. After abort, the function returned without writing DriverAccepted, dispatch's window expired, and the job bounced back to UA. That matches the tester's experience exactly.
+
+Fixed:
+
+Transaction now treats current.bookingId === job.bookingId as success (idempotent re-accept).
+If the transaction still aborts but no local 'queued' job exists for that driver, the stale slot is cleared automatically and the accept proceeds — no alert.
+Driver login now sweeps driverQueue/{cid}/{driverId}/queued: if no matching local queued job, slot is cleared.
+Kicked + cancelled notification handlers now clear driverQueue/{cid}/{driverId}/queued when the affected job was queued/offered (was leaking the slot before).
+Confirmed: active job (status: current) is never counted as "queued" — only status: queued is. The local guard already had this right.
+Policy confirmation for your server-side cap:
+
+Taxi / Total Mobility: 1 queued job at a time (current driver-app behaviour — enforced both locally and by the Firebase transaction).
+Food / freight / rental / towing: multiple queued jobs — not yet implemented in the driver app. The current local guard and Firebase transaction both enforce 1-at-a-time for ALL job types. If you want to relax this for food/freight, I'll need a separate change to gate the check by job.jobType / vehicleType. Let me know the exact job-type strings dispatch will send and I'll wire it in the next OTA.
+Outstanding:
+
+Multi-queue for food/freight/rental/towing — awaiting HQ confirmation on job-type strings before implementation
+D002's OTA version for trips 6112605171/6112605173 — still pending your reply
+Split-payment UI, fixed-fare-override UI, driver-note UI, trip-issue-category UI — all reserved in wire format
