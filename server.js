@@ -4627,9 +4627,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zd.jobCount   = 1;
             }
           } else {
-            // Unassign — restore driver to Available at their original queue position
+            // Unassign — restore driver to Available at their original queue position.
+            // §FIX-F — When the job actually had a driver (Offered/Assigned/Picking), mark it
+            // 'No One' instead of 'Pending' so AutoDispatchVehiclesallride (which only picks
+            // 'Pending' — see ~line 6637) does NOT immediately re-offer the same job to the
+            // same driver on the next tick. The job stays visible in the Unassigned tab
+            // (UnAssigned filter includes 'No One' — see ~line 1588). Jobs that never had a
+            // driver fall back to 'Pending' so normal dispatch can still pick them up.
             const prevDriverId = job.DriverId || 0;
-            job.BookingStatus = 'Pending';
+            job.BookingStatus = prevDriverId > 0 ? 'No One' : 'Pending';
             job.DriverId = 0;
             job.VehicleId = 0;
             const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
