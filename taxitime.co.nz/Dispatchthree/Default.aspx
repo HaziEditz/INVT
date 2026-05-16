@@ -22896,6 +22896,42 @@ $(document).ready(function() {
                     { label: 'Meter Start',      time: j.ActiveAt,                             icon: 'fa-play-circle',     color: '#e67e22' },
                     { label: 'Completed',        time: j.JobCompleteTime || j.newcompelete,    icon: 'fa-flag-checkered',  color: '#dfba5f' },
                 ];
+                // Driver-app in-trip events: tariffChanges + pauseLog (arrays/objects of {at|timestamp|time|ts, ...}).
+                // Supports both array and Firebase-object-of-pushkeys shapes.
+                function _toEventList(src) {
+                    if (!src) return [];
+                    if (Array.isArray(src)) return src.slice();
+                    if (typeof src === 'object') return Object.keys(src).map(function(k) { return src[k]; });
+                    return [];
+                }
+                function _evTime(ev) {
+                    if (!ev || typeof ev !== 'object') return null;
+                    return ev.at || ev.timestamp || ev.time || ev.ts || ev.At || ev.Time || null;
+                }
+                _toEventList(j.tariffChanges || j.TariffChanges).forEach(function(ev) {
+                    if (!ev || typeof ev !== 'object') return;
+                    var t = _evTime(ev);
+                    var from = ev.from || ev.fromName || ev.fromTariff || ev.previous || '';
+                    var to   = ev.to   || ev.toName   || ev.toTariff   || ev.next     || ev.tariffName || '';
+                    var lbl  = 'Tariff Changed' + (from && to ? ' (' + from + ' → ' + to + ')' : (to ? ' (→ ' + to + ')' : ''));
+                    milestones.push({ label: lbl, time: t, icon: 'fa-exchange', color: '#9b59b6', small: true });
+                });
+                _toEventList(j.pauseLog || j.PauseLog).forEach(function(ev) {
+                    if (!ev || typeof ev !== 'object') return;
+                    var t = _evTime(ev);
+                    var typ = String(ev.type || ev.event || ev.action || '').toLowerCase();
+                    var lbl = typ.indexOf('resume') >= 0 ? 'Meter Resumed' :
+                              typ.indexOf('pause')  >= 0 ? 'Meter Paused'  :
+                              'Meter Event';
+                    milestones.push({ label: lbl, time: t, icon: typ.indexOf('resume') >= 0 ? 'fa-play' : 'fa-pause', color: '#c0392b', small: true });
+                });
+                // Sort by parseable time so events slot between milestones in chronological order.
+                // Entries with no time stay in original push order at the end.
+                milestones = milestones.filter(function(m) { return m.time; }).sort(function(a, b) {
+                    var ta = new Date(a.time).getTime(); if (isNaN(ta)) ta = 0;
+                    var tb = new Date(b.time).getTime(); if (isNaN(tb)) tb = 0;
+                    return ta - tb;
+                }).concat(milestones.filter(function(m) { return !m.time; }));
                 var hasMilestone = milestones.some(function(m) { return m.time; });
                 if (!hasMilestone) { $('#jdp-timeline-wrap').hide(); return; }
                 var html = '';
@@ -22916,11 +22952,14 @@ $(document).ready(function() {
                 }
                 milestones.forEach(function(m) {
                     if (!m.time) return;
-                    html += '<div style="position:relative; margin-bottom:10px; padding-left:18px; min-height:22px;">';
-                    html += '<span style="position:absolute; left:-9px; top:3px; width:16px; height:16px; border-radius:50%; background:' + m.color + '; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px #fff;">';
-                    html += '<i class="fa ' + m.icon + '" style="font-size:7px; color:#fff;"></i></span>';
-                    html += '<div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.4px;">' + m.label + '</div>';
-                    html += '<div style="font-size:12px; color:#333; font-weight:500;">' + _tlFmtDt(m.time) + '</div>';
+                    var dot = m.small ? 12 : 16;
+                    var off = m.small ? -7 : -9;
+                    var icoSz = m.small ? 6 : 7;
+                    html += '<div style="position:relative; margin-bottom:' + (m.small ? 6 : 10) + 'px; padding-left:18px; min-height:' + (m.small ? 16 : 22) + 'px;">';
+                    html += '<span style="position:absolute; left:' + off + 'px; top:3px; width:' + dot + 'px; height:' + dot + 'px; border-radius:50%; background:' + m.color + '; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px #fff;">';
+                    html += '<i class="fa ' + m.icon + '" style="font-size:' + icoSz + 'px; color:#fff;"></i></span>';
+                    html += '<div style="font-size:' + (m.small ? 9 : 10) + 'px; color:' + (m.small ? '#888' : '#aaa') + '; text-transform:uppercase; letter-spacing:0.4px;">' + m.label + '</div>';
+                    html += '<div style="font-size:' + (m.small ? 11 : 12) + 'px; color:#333; font-weight:' + (m.small ? 400 : 500) + ';">' + _tlFmtDt(m.time) + '</div>';
                     html += '</div>';
                 });
                 $('#jdp-timeline').html(html);
