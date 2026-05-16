@@ -22629,8 +22629,12 @@ $(document).ready(function() {
                 }
 
                 var doc   = new jsPDF('p', 'mm', 'a4');
-                var pageW = doc.internal.pageSize.getWidth();
-                var pageH = doc.internal.pageSize.getHeight();
+                // jsPDF v1.x exposes page size as width/height PROPERTIES;
+                // v2.x added getWidth()/getHeight() METHODS. Support both
+                // so we don't crash on whichever build is loaded.
+                var _ps   = doc.internal.pageSize;
+                var pageW = (typeof _ps.getWidth  === 'function') ? _ps.getWidth()  : _ps.width;
+                var pageH = (typeof _ps.getHeight === 'function') ? _ps.getHeight() : _ps.height;
                 var margin = 14;
                 var y = 0;
 
