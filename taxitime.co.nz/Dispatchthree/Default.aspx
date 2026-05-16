@@ -1931,7 +1931,7 @@
                                 <div id="jdp-fare-waiting-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waiting"></div></div>
                                 <div id="jdp-fare-driver-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Driver Cost</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-driver"></div></div>
                                 <div id="jdp-fare-tariff-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Tariff</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-tariff"></div></div>
-                                <div id="jdp-fare-payment-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Payment Method</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-payment"></div></div>
+                                <div id="jdp-fare-payment-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Paid By</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-payment"></div></div>
                                 <div id="jdp-fare-source-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Source</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-source"></div></div>
                             </div>
                             <div id="jdp-fare-total-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:2px solid #f0f0f0;">
@@ -23419,15 +23419,32 @@ $(document).ready(function() {
                         var notes = j.EntitiesDetails || j.jobinfo || '';
                         if (notes) { $('#jdp-notes').text(notes); $('#jdp-notes-wrap').show(); } else { $('#jdp-notes-wrap').hide(); }
 
-                        // ── Take Payment button — hidden for cancelled/no-show/reject, hidden if already paid ──
+                        // ── Take Payment button ──
+                        // Hidden for cancelled/no-show/reject (no fare to charge).
+                        // Hidden for cash/account hail trips — those are settled with the
+                        // driver on-the-spot in the vehicle, the dispatcher doesn't need
+                        // to take a card payment for them.
+                        // Hidden if already marked paid (shows green "Paid" badge instead).
+                        // Visible only when fare exists AND payment is unsettled card.
                         var _paidAlready = (j.paymentStatus === 'paid' || j.PaymentStatus === 'paid');
                         var _isClosedNoFare = (st === 'Cancel' || st === 'No Show' || st === 'Reject');
+                        var _pmStr = (j.paymentMethod || j.PaymentMethod || j.paymentType || j.PaymentType || '').toString().toLowerCase();
+                        if (!_pmStr) {
+                            if (j.cardPayment) _pmStr = 'card';
+                            else if (j.accountPayment) _pmStr = 'account';
+                            else if (j.cashPayment) _pmStr = 'cash';
+                            else if (j.BookingSource === 'Hail') _pmStr = 'cash';
+                        }
+                        var _settledOnSpot = (_pmStr === 'cash' || _pmStr === 'account');
                         if (_isClosedNoFare) {
                             $('#jdp-take-payment-wrap').hide();
                         } else if (_paidAlready) {
                             $('#jdp-take-payment-btn').hide();
                             $('#jdp-paid-badge').show();
                             $('#jdp-take-payment-wrap').show();
+                        } else if (_settledOnSpot) {
+                            // Already paid to the driver — no card-charge needed. Hide the button entirely.
+                            $('#jdp-take-payment-wrap').hide();
                         } else {
                             $('#jdp-take-payment-btn').show();
                             $('#jdp-paid-badge').hide();

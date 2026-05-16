@@ -1611,8 +1611,13 @@ function _captureDriverAppVersion(cid, vid, job) {
             if (_min && _tot < _min) _tot = _min;
             _tot = Math.round(_tot * 100) / 100;
             if (!_hasLocal(job.FareBase))     { job.FareBase     = Math.round(_fb * 100) / 100; stamped.push('FareBase'); }
-            // Always stamp FareDistance (including 0) so downstream schema is consistent.
+            // Always stamp FareDistance + FareTime + WaitingCost (including 0) so the
+            // closed-job UI can render the complete breakdown grid. Driver app's hail
+            // flow doesn't track waiting time, so 0 is the honest value.
             if (job.FareDistance == null) { job.FareDistance = Math.round(_fd * 100) / 100; stamped.push('FareDistance'); }
+            if (job.FareTime    == null)  { job.FareTime     = 0; stamped.push('FareTime'); }
+            if (job.WaitingCost == null)  { job.WaitingCost  = 0; stamped.push('WaitingCost'); }
+            if (job.WaitingTime == null)  { job.WaitingTime  = 0; stamped.push('WaitingTime'); }
             job.TotalFare     = _tot; stamped.push('TotalFare');
             if (!_hasLocal(job.Fare))         { job.Fare         = _tot; stamped.push('Fare'); }
             if (!_hasLocal(job.FareCurrency)) { job.FareCurrency = _tar.CurrencyName || 'NZD'; stamped.push('FareCurrency'); }
