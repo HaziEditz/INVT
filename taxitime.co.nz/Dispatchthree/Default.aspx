@@ -8715,7 +8715,20 @@ $(document).ready(function() {
                 paymentMethod: details.paymentMethod || details.paymentType || '',
                 paymentType:   details.paymentType   || details.paymentMethod || '',
                 jobAccountId:  details.accountId  || '',
-                jobBookingType: details.bookingType || ''
+                jobAccountName: details.accountName || '',
+                jobBookingType: details.bookingType || '',
+                // §FIXED-PRICE — driver app reads these to suppress the meter when
+                // the job has a fixed/custom price. Sent under several aliases so
+                // the driver app can read whichever key it expects.
+                pickupTime:    details.pickupTime   || '',
+                Pickingtime:   details.pickupTime   || '',
+                scheduledFor:  details.pickupTime   || '',
+                tarriffType:   details.tarriffType  || '',
+                TarriffType:   details.tarriffType  || '',
+                fareType:      (String(details.tarriffType||'').toLowerCase() === 'fixed') ? 'fixed' : (details.tarriffType ? 'metered' : ''),
+                isFixed:       String(details.tarriffType||'').toLowerCase() === 'fixed',
+                customRate:    details.customRate   || '',
+                CustomeRate:   details.customRate   || ''
             };
             // TM extras — driver app reads extras.tmVoucherNo to write trips/{cid}/{bookingId}
             if (details.tmVoucherNo) {
@@ -8876,6 +8889,10 @@ $(document).ready(function() {
                 paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
                 paymentType:   job.PaymentType    || job.paymentType    || '',
                 paymentStatus: job.paymentStatus  || job.PaymentStatus  || '',
+                pickupTime:    job.Pickingtime    || job.PickingTime    || '',
+                tarriffType:   job.TarriffType    || '',
+                customRate:    job.CustomeRate    || '',
+                accountName:   job.Account_Name   || job.AccountName    || '',
                 tmVoucherNo:       _tmVoucherNo,
                 tmPassengerName:   job.tmPassengerName   || job.TmPassengerName   || '',
                 tmCardExpiry:      job.tmCardExpiry      || job.TmCardExpiry      || '',
@@ -10137,6 +10154,13 @@ $(document).ready(function() {
                     paymentMethod:  (_pqJob && (_pqJob.PaymentMethod || _pqJob.paymentMethod)) || '',
                     paymentType:    (_pqJob && (_pqJob.PaymentType   || _pqJob.paymentType))   || '',
                     paymentStatus:  (_pqJob && (_pqJob.paymentStatus || _pqJob.PaymentStatus)) || '',
+                    pickupTime:     (_pqJob && (_pqJob.Pickingtime   || _pqJob.PickingTime))   || '',
+                    Pickingtime:    (_pqJob && (_pqJob.Pickingtime   || _pqJob.PickingTime))   || '',
+                    tarriffType:    (_pqJob && _pqJob.TarriffType)   || '',
+                    TarriffType:    (_pqJob && _pqJob.TarriffType)   || '',
+                    isFixed:        !!(_pqJob && String(_pqJob.TarriffType||'').toLowerCase() === 'fixed'),
+                    customRate:     (_pqJob && _pqJob.CustomeRate)   || '',
+                    accountName:    (_pqJob && (_pqJob.Account_Name  || _pqJob.AccountName))   || '',
                     jobCount:       1
                     // NOTE: 'content' field intentionally omitted — suppresses full-screen popup
                 };
@@ -10255,7 +10279,11 @@ $(document).ready(function() {
                     fare:          _notifJob.EstimatedFare  || _notifJob.RideCost || _notifJob.CustomeRate || _notifJob.Fare || 0,
                     paymentMethod: _notifJob.PaymentMethod  || _notifJob.paymentMethod  || '',
                     paymentType:   _notifJob.PaymentType    || _notifJob.paymentType    || '',
-                    paymentStatus: _notifJob.paymentStatus  || _notifJob.PaymentStatus  || ''
+                    paymentStatus: _notifJob.paymentStatus  || _notifJob.PaymentStatus  || '',
+                    pickupTime:    _notifJob.Pickingtime    || _notifJob.PickingTime    || '',
+                    tarriffType:   _notifJob.TarriffType    || '',
+                    customRate:    _notifJob.CustomeRate    || '',
+                    accountName:   _notifJob.Account_Name   || _notifJob.AccountName    || ''
                 });
             } else {
                 Selector1([{ name: 'Id', value: bookid }], 'JobDetails').then(function(jr) {
@@ -10278,7 +10306,11 @@ $(document).ready(function() {
                                 fare:          _jrow.EstimatedFare  || _jrow.RideCost || _jrow.CustomeRate || _jrow.Fare || 0,
                                 paymentMethod: _jrow.PaymentMethod  || _jrow.paymentMethod  || '',
                                 paymentType:   _jrow.PaymentType    || _jrow.paymentType    || '',
-                                paymentStatus: _jrow.paymentStatus  || _jrow.PaymentStatus  || ''
+                                paymentStatus: _jrow.paymentStatus  || _jrow.PaymentStatus  || '',
+                                pickupTime:    _jrow.Pickingtime    || _jrow.PickingTime    || '',
+                                tarriffType:   _jrow.TarriffType    || '',
+                                customRate:    _jrow.CustomeRate    || '',
+                                accountName:   _jrow.Account_Name   || _jrow.AccountName    || ''
                             });
                         }
                     } catch(_je) { console.warn('[acknowledgemethodx] JobDetails fetch parse error:', _je); }
@@ -10356,7 +10388,39 @@ $(document).ready(function() {
                 }
             }
             if (_notifJobM) {
-                writeJobDetailsToFirebase(driverid, driverid, bookid, {
+                // §FIX-A — legacy path passed driverid as vehicleId, which wrote to the
+                // wrong Firebase node (jobs/{cid}/{driverid}/{driverid}). Resolve the real
+                // vehicle number (e.g. TAXI02) from driverdatarealx so the offer lands on
+                // the node the driver app actually listens on.
+                var _legVeh = (function() {
+                    try {
+                        if (_notifJobM.VehicleNo)    return String(_notifJobM.VehicleNo);
+                        if (_notifJobM.CallSign)     return String(_notifJobM.CallSign);
+                        // Also try the broader scope if the local one isn't populated yet.
+                        var _scopeForVeh = (_notifScopeM && _notifScopeM.driverdatarealx && _notifScopeM.driverdatarealx.length)
+                            ? _notifScopeM
+                            : (function() {
+                                try { return angular.element(document.getElementById('myangular')).scope(); } catch(_) { return null; }
+                            })();
+                        if (_scopeForVeh && _scopeForVeh.driverdatarealx) {
+                            for (var _di = 0; _di < _scopeForVeh.driverdatarealx.length; _di++) {
+                                var _dd = _scopeForVeh.driverdatarealx[_di];
+                                if (String(_dd.driverid) === String(driverid)) {
+                                    var _vn = String(_dd.vehiclenumber || _dd.VehicleNo || _dd.VehicleId || '').toUpperCase();
+                                    if (_vn && _vn !== String(driverid).toUpperCase()) return _vn;
+                                }
+                            }
+                        }
+                    } catch(_le) {}
+                    return null; // fail-closed — caller will skip the wrong-node write
+                })();
+                if (!_legVeh) {
+                    console.warn('[acknowledgemethod] §FIX-A: could not resolve vehicle for driver ' +
+                                 driverid + ' on job ' + bookid + ' — skipping Firebase write to avoid' +
+                                 ' wrong-node bug. Modern acknowledgemethodx path will handle this offer.');
+                    return;
+                }
+                writeJobDetailsToFirebase(driverid, _legVeh, bookid, {
                     pickup:        _notifJobM.PickAddress    || _notifJobM.PickLocation    || '',
                     dropoff:       _notifJobM.DropAddress    || _notifJobM.DropLocation    || '',
                     phone:         _notifJobM.PhoneNo        || _notifJobM.PassengerId     || '',
@@ -10370,7 +10434,11 @@ $(document).ready(function() {
                     fare:          _notifJobM.EstimatedFare  || _notifJobM.RideCost || _notifJobM.CustomeRate || _notifJobM.Fare || 0,
                     paymentMethod: _notifJobM.PaymentMethod  || _notifJobM.paymentMethod  || '',
                     paymentType:   _notifJobM.PaymentType    || _notifJobM.paymentType    || '',
-                    paymentStatus: _notifJobM.paymentStatus  || _notifJobM.PaymentStatus  || ''
+                    paymentStatus: _notifJobM.paymentStatus  || _notifJobM.PaymentStatus  || '',
+                    pickupTime:    _notifJobM.Pickingtime    || _notifJobM.PickingTime    || '',
+                    tarriffType:   _notifJobM.TarriffType    || '',
+                    customRate:    _notifJobM.CustomeRate    || '',
+                    accountName:   _notifJobM.Account_Name   || _notifJobM.AccountName    || ''
                 });
             }
         } catch(_notifErrM) { console.warn('[acknowledgemethod] notification write error:', _notifErrM && (_notifErrM.code || _notifErrM.message) ? (_notifErrM.code + ': ' + _notifErrM.message) : _notifErrM); }
@@ -13750,7 +13818,11 @@ $(document).ready(function() {
                             fare:          job.EstimatedFare  || job.RideCost || job.CustomeRate || job.Fare || 0,
                             paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
                             paymentType:   job.PaymentType    || job.paymentType    || '',
-                            paymentStatus: job.paymentStatus  || job.PaymentStatus  || ''
+                            paymentStatus: job.paymentStatus  || job.PaymentStatus  || '',
+                            pickupTime:    job.Pickingtime    || job.PickingTime    || '',
+                            tarriffType:   job.TarriffType    || '',
+                            customRate:    job.CustomeRate    || '',
+                            accountName:   job.Account_Name   || job.AccountName    || ''
                         });
                     }
                     if (_j) {
@@ -14003,7 +14075,11 @@ $(document).ready(function() {
                 fare:          parseFloat($scope.AmmountAddedvaluesend) || 0,
                 paymentMethod: $scope.paymentobtrue ? 'card' : 'cash',
                 paymentType:   $scope.paymentobtrue ? 'card' : 'cash',
-                paymentStatus: $scope.paymentobtrue ? 'paid' : ''
+                paymentStatus: $scope.paymentobtrue ? 'paid' : '',
+                pickupTime:    laterchecking == 1 ? BookingDateTime : '',
+                tarriffType:   (typeof $scope.TarriffType !== 'undefined') ? ($scope.TarriffType || '') : '',
+                customRate:    (typeof $scope.CustomeRate !== 'undefined') ? ($scope.CustomeRate || '') : '',
+                accountName:   $scope.account_Name || ''
             };
             var proc = "[ProcUpdateJobv6]";
             $http({
@@ -14033,7 +14109,40 @@ $(document).ready(function() {
                         // pre-booked job reappears correctly in the Unassigned panel.
                         setTimeout(function(){ if(typeof changerefresh==='function') changerefresh(); }, 1500);
                     }else{
-                        if (DriveId == "0" || DriveId == "-1") {
+                        // §FIX-B — when the edit form's driver dropdown is empty (DriveId 0/-1)
+                        // on a job that is currently live (Assigned/Picking/Active), this used
+                        // to call FnCancelRide(previousdriverid) which wrote Cancel/empty into
+                        // the driver's Firebase node and wiped the job from the driver's screen,
+                        // even though the server (server.js editableStatuses guard) correctly
+                        // kept the job assigned. Result: dispatch console + driver app diverged.
+                        // Fix: skip FnCancelRide when the job is still live and the dispatcher
+                        // didn't actually pick a different driver (empty dropdown = "no change").
+                        var _liveEdit = false;
+                        try {
+                            var _liveLists = [].concat($scope.data1||[], $scope.data2||[], $scope.data3||[], $scope.tstst||[]);
+                            for (var _li = 0; _li < _liveLists.length; _li++) {
+                                var _lj = _liveLists[_li];
+                                if (_lj && (String(_lj.Id||_lj.BookingId) === String(BookingIz))) {
+                                    var _ls = String(_lj.BookingStatus||_lj.Status||'').trim();
+                                    if (_ls === 'Assigned' || _ls === 'Picking' || _ls === 'Active') _liveEdit = true;
+                                    break;
+                                }
+                            }
+                        } catch(_lex) {}
+                        // Also defensively skip FnCancelRide when previousdriverid is missing —
+                        // calling it with an undefined/null driver writes Cancel/empty to an
+                        // unintended Firebase node and the original cancel behaviour didn't
+                        // guard for it either.
+                        var _prevValid = previousdriverid != null && String(previousdriverid).trim() !== ''
+                                         && String(previousdriverid) !== '0' && String(previousdriverid) !== '-1'
+                                         && String(previousdriverid).toLowerCase() !== 'null'
+                                         && String(previousdriverid).toLowerCase() !== 'undefined';
+                        if ((DriveId == "0" || DriveId == "-1") && _liveEdit && _prevValid) {
+                            console.log('[updateride] §FIX-B: skipping FnCancelRide — empty dropdown on live ' +
+                                        'job (' + BookingIz + ', previousDriver=' + previousdriverid + '); preserving assignment.');
+                        } else if ((DriveId == "0" || DriveId == "-1") && !_prevValid) {
+                            console.log('[updateride] §FIX-B: skipping FnCancelRide — no valid previous driver to cancel (job ' + BookingIz + ').');
+                        } else if (DriveId == "0" || DriveId == "-1") {
                             FnCancelRide(previousdriverid, BookingIz );
  
 
@@ -14073,7 +14182,11 @@ $(document).ready(function() {
                                 fare:          _usnap.fare,
                                 paymentMethod: _usnap.paymentMethod,
                                 paymentType:   _usnap.paymentType,
-                                paymentStatus: _usnap.paymentStatus
+                                paymentStatus: _usnap.paymentStatus,
+                                pickupTime:    _usnap.pickupTime,
+                                tarriffType:   _usnap.tarriffType,
+                                customRate:    _usnap.customRate,
+                                accountName:   _usnap.accountName
                             });
                             FnCancelRide(previousdriverid,  BookingIz ); 
 
@@ -14435,7 +14548,11 @@ $(document).ready(function() {
                     fare:          parseFloat($scope.AmmountAddedvaluesend) || 0,
                     paymentMethod: $scope.paymentobtrue ? 'card' : 'cash',
                     paymentType:   $scope.paymentobtrue ? 'card' : 'cash',
-                    paymentStatus: $scope.paymentobtrue ? 'paid' : ''
+                    paymentStatus: $scope.paymentobtrue ? 'paid' : '',
+                    pickupTime:    laterchecking == 1 ? BookingDateTime : '',
+                    tarriffType:   (typeof $scope.TarriffType !== 'undefined') ? ($scope.TarriffType || '') : '',
+                    customRate:    (typeof $scope.CustomeRate !== 'undefined') ? ($scope.CustomeRate || '') : '',
+                    accountName:   $scope.account_Name || ''
                 };
                 console.log(param);
                 if($scope.showdays){
@@ -14689,7 +14806,11 @@ $(document).ready(function() {
                                                 fare:          _snap.fare,
                                                 paymentMethod: _snap.paymentMethod,
                                                 paymentType:   _snap.paymentType,
-                                                paymentStatus: _snap.paymentStatus
+                                                paymentStatus: _snap.paymentStatus,
+                                                pickupTime:    _snap.pickupTime,
+                                                tarriffType:   _snap.tarriffType,
+                                                customRate:    _snap.customRate,
+                                                accountName:   _snap.accountName
                                             });
                                      
                                             acknowledgemethodx(extra, driverset, $res[0].BookingId,"Offered");  

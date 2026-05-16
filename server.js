@@ -4093,6 +4093,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             createdAt:        newJob.createdAt,
             CreatedAt:        new Date(newJob.createdAt).toISOString(),
             WebBooking:       false,
+            // §FIXED-PRICE / pickup-time / account name — driver app reads these
+            // to suppress the meter on fixed-price jobs and display scheduled pickup.
+            Pickingtime:      String(newJob.BookingDateTime || ''),
+            TarriffType:      String(newJob.TarriffType || ''),
+            CustomeRate:      String(newJob.CustomeRate || ''),
+            Account_Name:     String(newJob.Account_Name || ''),
           };
           getFirebaseServerToken().then(tok => {
             if (!tok) return;
@@ -4291,6 +4297,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             createdAt:        newJob.createdAt,
             CreatedAt:        new Date(newJob.createdAt).toISOString(),
             WebBooking:       false,
+            // §FIXED-PRICE / pickup-time / account name — driver app reads these
+            // to suppress the meter on fixed-price jobs and display scheduled pickup.
+            Pickingtime:      String(newJob.BookingDateTime || ''),
+            TarriffType:      String(newJob.TarriffType || ''),
+            CustomeRate:      String(newJob.CustomeRate || ''),
+            Account_Name:     String(newJob.Account_Name || ''),
           };
           getFirebaseServerToken().then(tok => {
             if (!tok) return;
@@ -5289,7 +5301,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     paymentStatus:  String(job.paymentStatus || job.PaymentStatus || ''),
                     PaidAmount:     String(job.PaidAmount || job.Recieve_payment || ''),
                     AccountId:      String(job.Account_id || job.AccountId || ''),
-                    AccountName:    String(job.Account_Name || job.AccountName || '')
+                    AccountName:    String(job.Account_Name || job.AccountName || ''),
+                    // §FIXED-PRICE / pickup-time — driver app reads these to suppress the
+                    // meter on fixed-price jobs and display the scheduled pickup time.
+                    Pickingtime:    String(job.BookingDateTime || job.Pickingtime || ''),
+                    TarriffType:    String(job.TarriffType || ''),
+                    CustomeRate:    String(job.CustomeRate || ''),
+                    Account_Name:   String(job.Account_Name || job.AccountName || '')
                   };
                   if (_pjPickLL) _pjPatch.pickupLocation  = { address: job.PickAddress || '', lat: _pjPickLL.lat, lng: _pjPickLL.lng };
                   if (_pjDropLL) _pjPatch.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
@@ -7307,7 +7325,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     CompanyId:      String(sessionCompanyId),
                     ServiceType:    job.serviceType  || 'taxi',
                     BookingSource:  job.BookingSource|| 'Dispatch Console',
-                    WebBooking:     false
+                    WebBooking:     false,
+                    // §FIXED-PRICE / pickup-time / account name — driver app reads these
+                    // to suppress the meter on fixed-price jobs and display scheduled pickup.
+                    Pickingtime:    String(job.BookingDateTime || job.Pickingtime || ''),
+                    TarriffType:    String(job.TarriffType || ''),
+                    CustomeRate:    String(job.CustomeRate || ''),
+                    Account_Name:   String(job.Account_Name || job.AccountName || ''),
+                    AccountName:    String(job.Account_Name || job.AccountName || '')
                   };
                   if (_pjPickLL2) _pjPatch2.pickupLocation  = { address: job.PickAddress || '', lat: _pjPickLL2.lat, lng: _pjPickLL2.lng };
                   if (_pjDropLL2) _pjPatch2.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL2.lat, lng: _pjDropLL2.lng };
