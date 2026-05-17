@@ -7951,6 +7951,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const age = j.offeredAt ? (now - j.offeredAt) : STALE_OFFER_MS + 1;
             if (age > STALE_OFFER_MS) {
               console.log(`  [AutoDispatch] stale-offer watchdog: resetting job #${j.Id} (offered to driver ${j.DriverId}, age ${Math.round(age/1000)}s) → Pending`);
+              console.log(`[§FIX-AcceptTrace/staleOfferWatchdog-AD] *** SERVER WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — NOTE: this handler does NOT push a clear to jobs/{cid}/{vid}/{did} (driver-app node), so driver app may still show the offer.`);
               j.BookingStatus = 'Pending';
               j.offeredAt = null;
               j.DriverId = 0;
@@ -9740,6 +9741,7 @@ setInterval(() => {
     const age = j.offeredAt ? (now - j.offeredAt) : STALE_MS + 1;
     if (age > STALE_MS) {
       console.log(`[stale-offer watchdog] job #${j.Id} stuck as Offered for ${Math.round(age/1000)}s (driver ${j.DriverId}) — resetting to Pending`);
+      console.log(`[§FIX-AcceptTrace/staleOfferWatchdog-90s] *** SERVER 90s WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — NOTE: does NOT push a clear to jobs/{cid}/{vid}/{did}.`);
       j.BookingStatus = 'Pending';
       j.offeredAt     = null;
       j.DriverId      = 0;

@@ -9349,6 +9349,12 @@ $(document).ready(function() {
                 var _jobsListener = _jobsRef.on("value", function(jsnap) {
                     if (settled) { _jobsRef.off("value", _jobsListener); return; }
                     var jd = jsnap.val();
+                    try {
+                        console.log('[§FIX-AcceptTrace/jobsListener] path=jobs/' + SomeSession2 + '/' + vehivle + '/' + _fbd
+                            + ' bookingId=' + id + ' rawJd=' + JSON.stringify(jd)
+                            + ' jd.Status=' + (jd && jd.Status) + ' jd.jobstatus=' + (jd && jd.jobstatus)
+                            + ' jd.status=' + (jd && jd.status) + ' jd.BookingId=' + (jd && jd.BookingId));
+                    } catch(_e) { console.log('[§FIX-AcceptTrace/jobsListener] log err', _e && _e.message); }
                     // Detect offline-synced completion: driver completed job while offline,
                     // then Firebase synced. No BookingId on node = stale pre-offer entry.
                     // Auto-close the job in dispatch so it stops re-offering.
@@ -9603,6 +9609,24 @@ $(document).ready(function() {
                     //   online/ → dispatch console reads this via tallo listener
                     // Driver must manually press Available on their app to come back online.
                     firebase.database().ref().child("/notification/" + _fbd).remove();
+
+                    // [§FIX-AcceptTrace/27sTimeout] — log full state right before kicking job back to Pending.
+                    // Reads BOTH legacy joback/{id}/{drv} and new jobs/{cid}/{veh}/{drv} paths so we can see
+                    // exactly what (if anything) the driver app wrote during the 27-s offer window.
+                    try {
+                        var _diagJobackRef = firebase.database().ref("joback/" + id + "/" + _fbd);
+                        var _diagJobsRef   = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd);
+                        Promise.all([
+                            _diagJobackRef.once('value').then(function(s){ return s.val(); }).catch(function(e){ return '__err:'+(e&&e.message); }),
+                            _diagJobsRef.once('value').then(function(s){ return s.val(); }).catch(function(e){ return '__err:'+(e&&e.message); })
+                        ]).then(function(_vals) {
+                            console.log('[§FIX-AcceptTrace/27sTimeout] *** 27s NO-RESPONSE FIRING *** bookingId=' + id
+                                + ' vehicle=' + vehivle + ' driverid(SQL)=' + driverid + ' _fbd=' + _fbd
+                                + ' jobackVal=' + JSON.stringify(_vals[0])
+                                + ' jobsNodeVal=' + JSON.stringify(_vals[1])
+                                + ' — if driver tapped Accept on app, one of these should show DriverAccepted/Assigned/Active');
+                        }).catch(function(_e){ console.log('[§FIX-AcceptTrace/27sTimeout] diag read failed', _e && _e.message); });
+                    } catch(_e) { console.log('[§FIX-AcceptTrace/27sTimeout] outer err', _e && _e.message); }
 
                     // Race-condition guard: two jobs offered simultaneously — driver accepts one,
                     // then the other job's timeout fires. Don't set Away if the driver is already
