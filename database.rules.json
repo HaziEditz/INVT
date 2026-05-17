@@ -399,6 +399,17 @@
         ".write": "auth != null"
       }
     },
+    "driverContactLog": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null",
+        "$bookingId": {
+          ".validate": "$bookingId!='null'",
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    },
     "businessAccounts": {
       "$companyId": {
         ".validate": "$companyId!='null'",

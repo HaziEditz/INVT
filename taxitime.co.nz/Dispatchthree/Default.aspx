@@ -1934,6 +1934,7 @@
                                 <div id="jdp-fare-payment-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Paid By</div><div style="font-size:13px; font-weight:600; color:#333; text-transform:capitalize;" id="jdp-fare-payment"></div></div>
                                 <div id="jdp-fare-source-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Source</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-source"></div></div>
                                 <div id="jdp-fare-waittime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waittime"></div></div>
+                                <div id="jdp-fare-extras-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Extras</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-extras"></div></div>
                                 <div id="jdp-fare-booking-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Booking Type</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-booking"></div></div>
                                 <div id="jdp-fare-ridetime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Ride Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-ridetime" title="Pickup → drop-off duration"></div></div>
                                 <div id="jdp-fare-meterwindow-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Meter Window</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-meterwindow" title="MeterOn → MeterOff (charging window)"></div></div>
@@ -23137,10 +23138,30 @@ $(document).ready(function() {
                     { label: 'Booked',          time: j.BookingDateTime,                      icon: 'fa-calendar',        color: '#888' },
                     { label: 'Dispatched',       time: j.OfferedAt,                            icon: 'fa-paper-plane',     color: '#5f9ea0' },
                     { label: 'Driver Accepted',  time: j.AcceptedAt,                           icon: 'fa-check-circle',    color: '#27ae60' },
-                    { label: 'Driver On Way',    time: j.PickingAt,                            icon: 'fa-car',             color: '#2980b9' },
+                    // §FIX-22bn — OTA-22bn explicit OnTheWay tap. Falls back to legacy
+                    // PickingAt (set by EnRoute or PickedUp events) so older jobs still render.
+                    { label: 'Driver On Way',    time: j.OnTheWayAt || j.PickingAt,            icon: 'fa-car',             color: '#2980b9' },
+                    { label: 'Arrived at Pickup', time: j.ArrivedAt,                           icon: 'fa-map-marker',      color: '#16a085' },
+                    { label: 'Customer On Board', time: j.OnBoardAt,                           icon: 'fa-user',            color: '#8e44ad' },
                     { label: 'Meter Start',      time: j.ActiveAt,                             icon: 'fa-play-circle',     color: '#e67e22' },
                     { label: 'Completed',        time: j.JobCompleteTime || j.newcompelete,    icon: 'fa-flag-checkered',  color: '#dfba5f' },
                 ];
+                // §FIX-22bn — driverContactLog: every Call/Text the driver makes to the
+                // passenger during a job. Critical for no-show dispute resolution — if the
+                // driver didn't actually try to contact the passenger, the no-show flag
+                // is questionable. Same _toEventList pattern as tariffChanges / pauseLog.
+                _toEventList(j.DriverContactLog || j.driverContactLog).forEach(function(ev) {
+                    if (!ev || typeof ev !== 'object') return;
+                    var t  = _evTime(ev);
+                    var k  = String(ev.kind || ev.type || '').toLowerCase();
+                    var tpl = ev.template ? ' — ' + ev.template : '';
+                    var ph  = ev.phone ? ' (' + ev.phone + ')' : '';
+                    var lbl = (k === 'sms' || k === 'text') ? ('Driver Texted Passenger' + tpl + ph)
+                            : (k === 'call')                ? ('Driver Called Passenger' + ph)
+                            :                                  ('Driver Contacted Passenger' + tpl + ph);
+                    var ico = (k === 'sms' || k === 'text') ? 'fa-comment' : 'fa-phone';
+                    milestones.push({ label: lbl, time: t, icon: ico, color: '#2980b9', small: true });
+                });
                 // Driver-app in-trip events: tariffChanges + pauseLog (arrays/objects of {at|timestamp|time|ts, ...}).
                 // Supports both array and Firebase-object-of-pushkeys shapes.
                 function _toEventList(src) {
@@ -23222,7 +23243,7 @@ $(document).ready(function() {
 
             function jdpBuildFare(j) {
                 var hasFare = false;
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-meterwindow-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-extras-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-meterwindow-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
                 // Distance: prefer actual trip distance; also accept Firebase camelCase field names.
                 // Show even when 0 so the user sees that distance WAS computed (just zero on this hail trip).
                 var distRaw = j.JobDistance != null ? j.JobDistance
@@ -23448,6 +23469,28 @@ $(document).ready(function() {
                     var issTxt = j.TripIssueFlag + (j.TripIssueNote ? ' — ' + j.TripIssueNote : '');
                     $('#jdp-fare-issue').text(issTxt); $('#jdp-fare-issue-wrap').show(); hasFare = true;
                 }
+                // §FIX-22bn — Extras breakdown row. Accepts both the structured
+                // ExtrasItems[] array (Airport, Bike, Bag, EFTPOS surcharge, Cleaning,
+                // Other) with explicit ExtrasTotal AND the legacy single-number
+                // FareExtras fallback. Shows the total prominently and lists each
+                // item underneath as a bullet line so dispute resolution can see
+                // exactly what the driver charged extra for.
+                var _xTot = parseFloat(j.ExtrasTotal != null ? j.ExtrasTotal
+                                                             : (j.FareExtras != null ? j.FareExtras : 0)) || 0;
+                var _xItems = Array.isArray(j.ExtrasItems) ? j.ExtrasItems : null;
+                if (_xTot > 0 || (_xItems && _xItems.length)) {
+                    var _xHtml = '<div>$' + _xTot.toFixed(2) + '</div>';
+                    if (_xItems && _xItems.length) {
+                        _xHtml += '<div style="font-size:11px; font-weight:400; color:#666; margin-top:2px;">';
+                        _xHtml += _xItems.map(function(it) {
+                            var _lbl = $('<div>').text(it.label || it.name || it.type || 'Extra').html();
+                            var _amt = parseFloat(it.amount != null ? it.amount : it.value);
+                            return _lbl + (isNaN(_amt) ? '' : ' $' + _amt.toFixed(2));
+                        }).join(' • ');
+                        _xHtml += '</div>';
+                    }
+                    $('#jdp-fare-extras').html(_xHtml); $('#jdp-fare-extras-wrap').show(); hasFare = true;
+                }
                 // ── end §FIX-R rendering ─────────────────────────────────────────────
                 // Total: TotalFare (offline sync) > totalFare/fare (Firebase camelCase) > Fare > Cost, then sum components
                 var total = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || '0') ||
@@ -23568,7 +23611,7 @@ $(document).ready(function() {
                 $('#jdp-notfound').hide();
                 $('#jdp-timeline-wrap,#jdp-fare-wrap,#jdp-map-wrap,#jdp-notes-wrap,#jdp-tm-wrap').hide();
                 $('#jdp-duration-accept-wrap,#jdp-duration-ride-wrap,#jdp-duration-total-wrap').hide();
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-meterwindow-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap,#jdp-fare-extras-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-meterwindow-wrap').hide();
                 $('#jdp-timeline').empty();
                 $('#job-detail-popup').modal('show');
 
@@ -23679,6 +23722,22 @@ $(document).ready(function() {
                         });
 
                         // --- Timeline ---
+                        // §FIX-22bn — fetch driverContactLog/{cid}/{bookingId} in parallel
+                        // and merge into j before rendering. Falls back silently to empty
+                        // (legacy trips have no contact log). Node is auth-only, same as
+                        // jobDetails — DbRef is already initialised when this code runs.
+                        (function() {
+                            try {
+                                var _cidCL = (j.companyId || j.CompanyId || window.SomeSession2 || '').toString();
+                                var _jidCL = (j.Id || j.bookingidx || jobId || '').toString();
+                                if (_cidCL && _jidCL && typeof DbRef !== 'undefined' && DbRef && DbRef.ref) {
+                                    DbRef.ref('driverContactLog/' + _cidCL + '/' + _jidCL).once('value', function(_snapCL) {
+                                        var _vCL = _snapCL && _snapCL.val();
+                                        if (_vCL) { j.DriverContactLog = _vCL; jdpBuildTimeline(j); }
+                                    }, function(_eCL) { /* permission_denied → leave timeline as-is */ });
+                                }
+                            } catch (_eCLOuter) {}
+                        })();
                         jdpBuildTimeline(j);
 
                         // --- Fare breakdown ---

@@ -4239,6 +4239,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // (already-canonicalised payloads).
     if (_str(s.meterOnAt  || s.MeterOnAt))  out.MeterOnAt  = _str(s.meterOnAt  || s.MeterOnAt);
     if (_str(s.meterOffAt || s.MeterOffAt)) out.MeterOffAt = _str(s.meterOffAt || s.MeterOffAt);
+    // §FIX-22bn — OTA-22bn/22bo: per-trip extras breakdown + trip-stage
+    // timestamps. Driver app now stamps each lifecycle leg as it happens
+    // (OnTheWay tap, Arrive at pickup tap, Customer On Board tap) so HQ
+    // can KPI on response/arrival/board times distinct from the legacy
+    // PickingAt/ActiveAt fields. Extras come as a structured array of
+    // {label,amount} (Airport, Bike, Bag, EFTPOS surcharge, Cleaning, …)
+    // with a precomputed ExtrasTotal — if only the total arrives we still
+    // accept that (mirrors existing FareExtras path).
+    var xItems = _arr(s.extrasItems) || _arr(s.extras_items) || _arr(s.ExtrasItems);
+    if (xItems) out.ExtrasItems = xItems;
+    var xTot = _num(s.extrasTotal != null ? s.extrasTotal
+              : s.extras_total != null ? s.extras_total
+              : s.ExtrasTotal  != null ? s.ExtrasTotal : null);
+    if (xTot != null) out.ExtrasTotal = xTot;
+    if (_str(s.onTheWayAt || s.OnTheWayAt)) out.OnTheWayAt = _str(s.onTheWayAt || s.OnTheWayAt);
+    if (_str(s.arrivedAt  || s.ArrivedAt))  out.ArrivedAt  = _str(s.arrivedAt  || s.ArrivedAt);
+    if (_str(s.onBoardAt  || s.OnBoardAt))  out.OnBoardAt  = _str(s.onBoardAt  || s.OnBoardAt);
     // Driver notes + trip-issue category
     if (_str(s.driverNote)) out.DriverNote = _str(s.driverNote);
     var tiFlag = _str(s.tripIssueFlag);
@@ -4395,6 +4412,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (_sotData.groupId || _sotData.group_id || _sotData.otaGroup) {
         _sotFill('AppBuild', String(_sotData.groupId || _sotData.group_id || _sotData.otaGroup));
       }
+      // §FIX-22bn — native build id (distinct from Expo OTA group). HQ
+      // needs both for incident triage when a native crash is suspected.
+      if (_sotData.buildId || _sotData.build_id || _sotData.nativeBuildId) {
+        _sotFill('BuildId', String(_sotData.buildId || _sotData.build_id || _sotData.nativeBuildId));
+      }
       if (_sotData.channel) _sotFill('Channel', String(_sotData.channel));
       if (_sotData.platform) _sotFill('Platform', String(_sotData.platform));
       // Diagnostic — surface every tripSummary key so unknown HQ field names
@@ -4451,6 +4473,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (_evType === 'Accepted'  && _sotJob.BookingStatus === 'Pending')   _sotJob.BookingStatus = 'Assigned';
       if (_evType === 'EnRoute'   && _sotJob.BookingStatus === 'Pending')   _sotJob.BookingStatus = 'Assigned';
       if (_evType === 'Arrived'   && !_sotJob.ArrivedAt)    _sotJob.ArrivedAt    = _evTs;
+      // §FIX-22bn — OTA-22bn lifecycle taps. EnRoute is the legacy event
+      // type and OnTheWay is the new explicit one; either stamps OnTheWayAt
+      // if not already set (event loop is chronological so first wins).
+      if ((_evType === 'OnTheWay' || _evType === 'EnRoute') && !_sotJob.OnTheWayAt) _sotJob.OnTheWayAt = _evTs;
+      if ((_evType === 'OnBoard'  || _evType === 'Boarded') && !_sotJob.OnBoardAt)  _sotJob.OnBoardAt  = _evTs;
       if (_evType === 'PickedUp'  || _evType === 'MeterOn') {
         if (!_sotPickupTime) _sotPickupTime = _evTs;
         if (!_sotJob.PickingAt) _sotJob.PickingAt = _evTs;
@@ -4531,6 +4558,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     if (_sotData.groupId || _sotData.group_id || _sotData.otaGroup) {
       _sotJob.AppBuild = String(_sotData.groupId || _sotData.group_id || _sotData.otaGroup);
+    }
+    // §FIX-22bn — native build id (distinct from Expo OTA group)
+    if (_sotData.buildId || _sotData.build_id || _sotData.nativeBuildId) {
+      _sotJob.BuildId = String(_sotData.buildId || _sotData.build_id || _sotData.nativeBuildId);
     }
     if (_sotData.channel) _sotJob.Channel  = String(_sotData.channel);
     if (_sotData.platform) _sotJob.Platform = String(_sotData.platform);
