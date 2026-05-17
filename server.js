@@ -5951,7 +5951,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // (UnAssigned filter includes 'No One' — see ~line 1588). Jobs that never had a
             // driver fall back to 'Pending' so normal dispatch can still pick them up.
             const prevDriverId = job.DriverId || 0;
-            job.BookingStatus = prevDriverId > 0 ? 'No One' : 'Pending';
+            // §FIX-F2 — DriverId is a string for many tenants (e.g. "D002"), so a numeric
+            // `prevDriverId > 0` check coerces "D002" to NaN and silently falls through to
+            // 'Pending' — letting auto-dispatch immediately re-offer the same job to the
+            // same driver. Treat any non-empty, non-'0', non-'-1' DriverId as "had a driver".
+            const _prevDrvStr = String(prevDriverId).trim();
+            const _hadDriver = _prevDrvStr !== '' && _prevDrvStr !== '0' && _prevDrvStr !== '-1';
+            job.BookingStatus = _hadDriver ? 'No One' : 'Pending';
             job.DriverId = 0;
             job.VehicleId = 0;
             // §FIX-G — release cooldown (only when a driver was actually released).
@@ -5959,7 +5965,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // so even if another handler accidentally flips status back to Pending, the
             // auto-loop won't immediately re-offer. Skipped when prevDriverId=0 so brand-new
             // never-assigned jobs aren't delayed by 30s on first dispatch.
-            if (prevDriverId > 0) job.releasedAt = Date.now();
+            if (_hadDriver) job.releasedAt = Date.now();
+            console.log(`  [UnAssignJobStatusFromJobList] §FIX-F2 job#${bookingId} prevDriverId='${_prevDrvStr}' hadDriver=${_hadDriver} → BookingStatus='${job.BookingStatus}'`);
             const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
             if (zd) {
               const _restoreQ = calcRestoredQueue(prevDriverId, zd.zonename);

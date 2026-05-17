@@ -56,6 +56,12 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-F2 — Assign-tab "No One" used string-vs-number coercion (May 2026)
+
+- Root cause: `[UnAssignJobStatusFromJobList]` (`server.js` ~5953) used `const prevDriverId = job.DriverId || 0; job.BookingStatus = prevDriverId > 0 ? 'No One' : 'Pending';`. For tenants whose `DriverId` is a string like `"D002"`, `"D002" > 0` coerces to `NaN > 0 === false`, so the handler demoted Assigned jobs to `Pending` (not `No One`) on dispatcher "take to No One". Auto-dispatch then immediately re-offered the same job to the same driver. The §FIX-G `releasedAt` cooldown was gated on the same broken check and never armed.
+- Fix (~5957-5972): stringify+trim `prevDriverId`; set `_hadDriver = _prevDrvStr !== '' && _prevDrvStr !== '0' && _prevDrvStr !== '-1'`; gate both `BookingStatus = 'No One'` and the `releasedAt` cooldown on `_hadDriver`. Added diagnostic `[UnAssignJobStatusFromJobList] §FIX-F2 ... hadDriver=... → BookingStatus='...'`.
+- Numeric IDs still work: `5` and `'5'` both yield `hadDriver=true`; `0/'0'/-1/'-1'/''` yield `hadDriver=false`.
+
 ## §FIX-A — No One → Pending silent demote blocked (May 2026)
 
 - Root cause: dispatch console Edit form (`Default.aspx` `updateride` ~13966) emits malformed reassign POSTs to `ProcUpdateJobv6` in two observed shapes: (1) `DId=-2` + `bookstatus='Pending'` (when `$scope.selecteddriver === -2`), (2) `DId` missing/`0` + `bookstatus='Offered'` (when `$scope.selecteddriver === 0` or undefined). Server parsed both as `driverId=0`, fell into the `editableStatuses` branch's `else` arm, and set `BookingStatus='Pending'` — silently demoting `No One` jobs.
