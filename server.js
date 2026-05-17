@@ -4231,6 +4231,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // Booking-type / trip-source classification
     if (_str(s.bookingType)) out.BookingType = _str(s.bookingType);
     if (_str(s.tripSource))  out.TripSource  = _str(s.tripSource);
+    // §FIX-METER — OTA-22bj: meter charging window distinct from
+    // customer window (pickup→dropoff). Driver app now stamps meterOnAt
+    // when startMeter fires and meterOffAt when stopMeter fires. Persist
+    // both so the dispute panel can show pickup→dropoff vs meter→meter
+    // side-by-side. Accept both camelCase (driver app) and PascalCase
+    // (already-canonicalised payloads).
+    if (_str(s.meterOnAt  || s.MeterOnAt))  out.MeterOnAt  = _str(s.meterOnAt  || s.MeterOnAt);
+    if (_str(s.meterOffAt || s.MeterOffAt)) out.MeterOffAt = _str(s.meterOffAt || s.MeterOffAt);
     // Driver notes + trip-issue category
     if (_str(s.driverNote)) out.DriverNote = _str(s.driverNote);
     var tiFlag = _str(s.tripIssueFlag);

@@ -36875,6 +36875,10 @@
     "CompletedBy": "Reconciler (Firebase)",
     "_rehydratedFromFirebase": true,
     "_rehydratedAt": "2026-05-17T05:37:56.837Z",
-    "_rehydrationSource": "completedJobs/620611/-Osffq3izpS1InkswEbG"
+    "_rehydrationSource": "completedJobs/620611/-Osffq3izpS1InkswEbG",
+    "PickingAt": "2026-05-17T05:14:00.000Z",
+    "MeterOnAt": "2026-05-17T05:15:30.000Z",
+    "MeterOffAt": "2026-05-17T05:32:45.000Z",
+    "OfflineSyncedAt": "2026-05-17T05:48:22.361Z"
   }
 ]

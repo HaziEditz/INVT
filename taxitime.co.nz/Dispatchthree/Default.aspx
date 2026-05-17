@@ -1936,6 +1936,7 @@
                                 <div id="jdp-fare-waittime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waittime"></div></div>
                                 <div id="jdp-fare-booking-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Booking Type</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-booking"></div></div>
                                 <div id="jdp-fare-ridetime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Ride Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-ridetime" title="Pickup → drop-off duration"></div></div>
+                                <div id="jdp-fare-meterwindow-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Meter Window</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-meterwindow" title="MeterOn → MeterOff (charging window)"></div></div>
                             </div>
                             <div id="jdp-fare-tariff-log-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
                                 <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Tariff Changes</div>
@@ -23221,7 +23222,7 @@ $(document).ready(function() {
 
             function jdpBuildFare(j) {
                 var hasFare = false;
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-meterwindow-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
                 // Distance: prefer actual trip distance; also accept Firebase camelCase field names.
                 // Show even when 0 so the user sees that distance WAS computed (just zero on this hail trip).
                 var distRaw = j.JobDistance != null ? j.JobDistance
@@ -23362,6 +23363,34 @@ $(document).ready(function() {
                         $('#jdp-fare-ridetime-wrap').show();
                         hasFare = true;
                     }
+                })();
+                // §FIX-METER — OTA-22bj: Meter charging window (MeterOnAt →
+                // MeterOffAt). Distinct from Ride Time (pickup → drop-off) so
+                // disputes can see whether the meter ran longer/shorter than
+                // the customer window. Only render when both timestamps are
+                // present; stays hidden for legacy trips that lack them.
+                (function() {
+                    var mOn  = j.MeterOnAt  || j.meterOnAt  || null;
+                    var mOff = j.MeterOffAt || j.meterOffAt || null;
+                    if (!mOn || !mOff) return;
+                    var onMs  = Date.parse(mOn);
+                    var offMs = Date.parse(mOff);
+                    if (isNaN(onMs) || isNaN(offMs) || offMs <= onMs) return;
+                    var totalSec = Math.round((offMs - onMs) / 1000);
+                    var mm = Math.floor(totalSec / 60);
+                    var ss = totalSec % 60;
+                    var dur = mm + ' min ' + (ss < 10 ? '0' : '') + ss + ' sec';
+                    function _hms(ms) {
+                        try { return new Date(ms).toLocaleTimeString('en-NZ', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
+                        catch (_) { return ''; }
+                    }
+                    var stamps = _hms(onMs) + ' → ' + _hms(offMs);
+                    var stampsEsc = $('<div>').text(stamps).html();
+                    var html = $('<div>').text(dur).html() +
+                               ' <span style="font-size:10px; color:#aaa; font-weight:500;">(' + stampsEsc + ')</span>';
+                    $('#jdp-fare-meterwindow').html(html);
+                    $('#jdp-fare-meterwindow-wrap').show();
+                    hasFare = true;
                 })();
                 // Booking type (Normal Ride / ACC Ride / Account Ride / Total Mobility / Gift Card / etc.)
                 var bk = j.BookingType || j.bookingType || '';
@@ -23539,7 +23568,7 @@ $(document).ready(function() {
                 $('#jdp-notfound').hide();
                 $('#jdp-timeline-wrap,#jdp-fare-wrap,#jdp-map-wrap,#jdp-notes-wrap,#jdp-tm-wrap').hide();
                 $('#jdp-duration-accept-wrap,#jdp-duration-ride-wrap,#jdp-duration-total-wrap').hide();
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap,#jdp-fare-ridetime-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-meterwindow-wrap').hide();
                 $('#jdp-timeline').empty();
                 $('#job-detail-popup').modal('show');
 
