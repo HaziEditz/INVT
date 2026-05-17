@@ -1,0 +1,37 @@
+Copy-paste for HQ:
+
+22bi shipped. Two things in:
+
+1. Surfaced the silent sync-POST failure (root cause of today's missing trips). Your hypothesis #2 was right. Both /api/job/sync-offline-trip call sites (dispatch trips in completeJob AND hail trips in completeHailTrip) were wrapped in .catch(() => {}) — that swallowed every network error and every non-2xx response with no log, no Sentry event, nothing. 22bh did not touch sync at all (only the QueueJob catch); the silent catch has been there for a while and today is the first time it bit hard enough to notice. Both sites now go through a shared postSyncOfflineTrip() helper that:
+
+Checks res.ok and fires Sentry.addBreadcrumb + Sentry.captureMessage(..., 'warning') on non-2xx with { bookingId, driverId, serviceType, httpStatus, errorMsg, tripCloseTime } — exactly the payload you spec'd.
+Catches network/AbortError throws with httpStatus: "timeout" or "network_error" and the same breadcrumb.
+Same code path for dispatch and hail. From the next trip onwards, any failed POST will land in your Sentry issues view within seconds with serviceType so you can correlate immediately.
+The trips already lost to today's silent window are unrecoverable on the driver side (no AsyncStorage retry queue for the sync POST itself — only for the Firebase write). They're complete in allbookings/completedJobs/{cid} though, so your §FIX-L late-merge pulling from Firebase should hydrate them retroactively. Let me know if you'd like me to also wire an AsyncStorage retry queue for the sync POST itself in 22bj — would mean even outright network outages don't lose dispatch-side audit.
+
+2. Lifecycle timestamps + canonical duration on every payload. All six fields now go on both dispatch and hail trips at the JSON root:
+
+PickupTime    ISO 8601 UTC with Z (extras.pickedUpAt for dispatch, meta.startedAt for hail)
+DropoffTime   ISO 8601 UTC with Z (trip-completion timestamp)
+MeterOnAt     ISO 8601 UTC with Z (same as PickupTime currently)
+MeterOffAt    ISO 8601 UTC with Z (same as DropoffTime currently)
+TotalTime     "mm:ss" (or "hh:mm:ss" if ≥ 1h)
+JobDuration   decimal minutes (e.g. 13.86)
+
+Notes on accuracy:
+
+For dispatch trips, PickupTime comes from extras.pickedUpAt set when the driver taps "I've Arrived"/meter-on — so it's the real meter-on moment, not Accept time. Falls back to extras.arrivedAt or the completion stamp if neither was captured.
+For hail trips, PickupTime = meta.startedAt set when the driver taps "Start Meter" in MeterPanel.
+MeterOnAt/MeterOffAt currently mirror PickupTime/DropoffTime exactly — for taxi those are the same moment. If you want them to track a meter-pause window separately from the "picked up" / "dropped off" UI events, flag me and I'll feed them from the meter's own start/stop refs instead.
+Food/freight extras (OrderReadyAt, DeliveryAt, LoadedAt, UnloadedAt, WaitingAtPickupMin, WaitingAtDropoffMin) — not wired yet. Food/freight don't currently have driver-app UI to capture those moments (driver only has Accept → meter-on → meter-off). I can add a "Mark Ready/Loaded" intermediate tap if you want — say the word.
+All timestamps are new Date().toISOString() so already UTC with Z suffix per spec.
+
+Outstanding:
+
+Split-payment / fixed-fare-override / driver-note / trip-issue editable UIs — driver side, not started
+Rentals/towing serviceType strings — awaiting HQ
+D002 OTA for trips 6112605171/6112605173 — unrecoverable
+Today's missing-since-12:45 hail trips — root-caused + fixed forward in 22bi; late-merge from Firebase should rehydrate them
+Food/freight intermediate-step timestamps — pending your call on whether the driver should tap "Ready"/"Loaded" mid-trip
+Optional: AsyncStorage retry queue for the sync POST so network outages don't lose dispatch-side audit either
+Ball back in HQ's court.
