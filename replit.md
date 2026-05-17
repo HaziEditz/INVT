@@ -62,10 +62,11 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Fix (~5957-5972): stringify+trim `prevDriverId`; set `_hadDriver = _prevDrvStr !== '' && _prevDrvStr !== '0' && _prevDrvStr !== '-1'`; gate both `BookingStatus = 'No One'` and the `releasedAt` cooldown on `_hadDriver`. Added diagnostic `[UnAssignJobStatusFromJobList] §FIX-F2 ... hadDriver=... → BookingStatus='...'`.
 - Numeric IDs still work: `5` and `'5'` both yield `hadDriver=true`; `0/'0'/-1/'-1'/''` yield `hadDriver=false`.
 
-## §FIX-U — Unreached timeout parks job as "No One", not "Pending" (May 2026)
+## §FIX-U2 — Unreached timeout → Pending + releasedAt cooldown (May 2026)
 
-- Bug: when the 27 s no-response timeout fired, the dispatch console sent `newStatus='Unreached'` to `[changeriddestatusforoffer]`. The server mapped it to `BookingStatus='Pending'` (server.js ~6560 / ~8659), which made `AutoDispatchVehiclesallride` (filters `BookingStatus==='Pending'` at ~8021) immediately re-offer the same job to the same driver who just failed to respond. Result: endless re-offer loop until the driver app or dispatcher manually interrupted.
-- Fix (`server.js` ~6566 + ~8668): `effectiveStatus = newStatus === 'Unreached' ? 'No One' : newStatus`. Job parks in UA as **No One** with `returnReason='No Response'`. `releaseStatuses` set still includes `'Unreached'`, so the driver still goes Away and `_clearDrv` still clears `DriverId/VehicleId` — only the displayed status differs. Auto-dispatch skips `No One`, so re-offer requires a manual dispatcher action.
+- Reverted policy: the original §FIX-U made Unreached → 'No One', which broke the auto-dispatch retry loop. Correct behaviour: Unreached on an auto-dispatched job should go back to 'Pending' so auto-dispatch can offer to the **next** driver; the existing §FIX-G `releasedAt` 30 s cooldown (server.js ~8030 — `if (Date.now() - j.releasedAt) < 30000) return false`) prevents the same driver being re-offered immediately.
+- Fix (`server.js` ~6567 + ~8673): `effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus`, and when `newStatus === 'Unreached'` also stamp `job.releasedAt = Date.now()` with diagnostic `[§FIX-U2/...] Unreached → Pending + releasedAt stamped`.
+- Manual-dispatcher "take to No One" path is unchanged — it still routes through `[UnAssignJobStatusFromJobList]` (§FIX-F2) which sets `BookingStatus='No One'`. So: auto-timeout → Pending+cooldown (auto retries other drivers); manual unassign → No One (dispatcher controls).
 
 ## §FIX-V — Manual reassign now writes to correct Firebase path (May 2026)
 
