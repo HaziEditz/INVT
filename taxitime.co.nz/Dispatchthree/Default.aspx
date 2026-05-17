@@ -13885,8 +13885,34 @@ $(document).ready(function() {
                 ], "[AssignJobStatusFromJobListv2]");
               
                 FnCancelRide(driverId, BookingId);
+                // §FIX-V — resolve actual driverId + vehicleId from scope.driverdatarealx.
+                // The dropdown value `JobVehicleId` carries either the driverId (e.g. "D002")
+                // or the vehicleId (e.g. "TAXI02") depending on tenant. The previous code
+                // wrote `jobs/{cid}/{_vid}/{_vid}` which for string-ID tenants becomes
+                // `jobs/620611/D002/D002` instead of `jobs/620611/TAXI02/D002`, so the
+                // driver app — which listens on `jobs/{cid}/{vehicleId}/{driverId}` — never
+                // saw the offer and the 27 s timeout fired.
+                var _resolvedDrv = JobVehicleId, _resolvedVeh = JobVehicleId;
+                (function() {
+                    var _sc0 = angular.element(document.getElementById('myangular')).scope();
+                    var _list = (_sc0 && _sc0.driverdatarealx) || [];
+                    for (var _li = 0; _li < _list.length; _li++) {
+                        var _d = _list[_li];
+                        if (_d && String(_d.driverid) === String(JobVehicleId)) {
+                            _resolvedDrv = _d.driverid;
+                            _resolvedVeh = _d.VehicleId || _d.vehiclenumber || _d.CallSign || JobVehicleId;
+                            break;
+                        }
+                        if (_d && String(_d.VehicleId) === String(JobVehicleId)) {
+                            _resolvedVeh = _d.VehicleId;
+                            _resolvedDrv = _d.driverid || JobVehicleId;
+                            break;
+                        }
+                    }
+                    console.log('[§FIX-V/AssignJobFromJobList] dropdown="' + JobVehicleId + '" → driver="' + _resolvedDrv + '" vehicle="' + _resolvedVeh + '"');
+                })();
                 // Single atomic Firebase write — includes bookingid+content+all detail fields
-                (function(_bid, _vid, _uid) {
+                (function(_bid, _drv, _veh, _uid) {
                     var _sc = angular.element(document.getElementById('myangular')).scope();
                     var _all = [].concat(_sc && _sc.data1 ? _sc.data1 : [])
                                  .concat(_sc && _sc.data2 ? _sc.data2 : [])
@@ -13899,7 +13925,7 @@ $(document).ready(function() {
                     var _src = (_uid && _uid !== '' && _uid !== 'null') ? 'android' : 'Dispatcher';
                     var _u   = (_uid && _uid !== '' && _uid !== 'null') ? _uid : '';
                     function _doWrite(job) {
-                        writeJobDetailsToFirebase(_vid, _vid, _bid, {
+                        writeJobDetailsToFirebase(_drv, _veh, _bid, {
                             pickup:        job.PickAddress    || job.PickLocation    || '',
                             dropoff:       job.DropAddress    || job.DropLocation    || '',
                             phone:         job.PhoneNo        || job.PassengerId     || '',
@@ -13932,12 +13958,13 @@ $(document).ready(function() {
                             } catch(e) { _doWrite({}); }
                         }).fail(function() { _doWrite({}); });
                     }
-                })(BookingId, JobVehicleId, U_id);
+                })(BookingId, _resolvedDrv, _resolvedVeh, U_id);
                 // Start a 27 s no-response watcher so the job returns to Unassigned
                 // automatically if the driver never accepts or rejects.
                 // Use acknowledgemethodx (patched path) — carries driverid=0 on timeout,
                 // _immediateJobPending, and all fix-#115 improvements.
-                acknowledgemethodx(JobVehicleId, JobVehicleId, BookingId, "Offered");
+                // §FIX-V — signature is (vehicle, driverid, …); pass resolved IDs not the dropdown value twice.
+                acknowledgemethodx(_resolvedVeh, _resolvedDrv, BookingId, "Offered");
                 var _sc9265 = angular.element(document.getElementById('myangular')).scope();
                 if (_sc9265 && typeof _sc9265.AssignedJobs === 'function') _sc9265.AssignedJobs();
             }

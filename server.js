@@ -6555,9 +6555,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
           // won't misread the driver's resulting Available heartbeat as a driver-initiated cancel.
           if (rr.includes('manually unassigned') && bookingId > 0) markDispatcherRecalled(bookingId);
-          // Unreached (no response timeout) → skip the holding state, land straight on Pending
-          // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
-          const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
+          // §FIX-U — Unreached (no-response 27 s timeout) lands on 'No One', not 'Pending'.
+          // Rationale: parking the job in UA as 'No One' means AutoDispatchVehiclesallride
+          // (~line 8021 filters BookingStatus==='Pending') will NOT immediately re-offer the
+          // same job to the same driver who just failed to respond. Dispatcher sees "No One"
+          // badge + "No Response" returnReason and can decide whether to re-offer manually.
+          const effectiveStatus = newStatus === 'Unreached' ? 'No One' : newStatus;
           job.BookingStatus = effectiveStatus;
           if (returnReason) job.returnReason = returnReason;
           { const _ts = new Date().toISOString();
@@ -8654,9 +8657,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
           // won't misread the driver's resulting Available heartbeat as a driver-initiated cancel.
           if (rr2.includes('manually unassigned') && bookingId > 0) markDispatcherRecalled(bookingId);
-          // Unreached (no response timeout) → skip the holding state, land straight on Pending
-          // so the job is immediately re-dispatchable. returnReason badge still shows "No Response".
-          const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
+          // §FIX-U — Unreached (no-response 27 s timeout) lands on 'No One', not 'Pending'.
+          // Rationale: parking the job in UA as 'No One' means AutoDispatchVehiclesallride
+          // (~line 8021 filters BookingStatus==='Pending') will NOT immediately re-offer the
+          // same job to the same driver who just failed to respond. Dispatcher sees "No One"
+          // badge + "No Response" returnReason and can decide whether to re-offer manually.
+          const effectiveStatus2 = newStatus === 'Unreached' ? 'No One' : newStatus;
           job.BookingStatus = effectiveStatus2;
           if (returnReason) job.returnReason = returnReason;
           { const _ts2 = new Date().toISOString();

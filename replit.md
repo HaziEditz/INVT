@@ -62,6 +62,16 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Fix (~5957-5972): stringify+trim `prevDriverId`; set `_hadDriver = _prevDrvStr !== '' && _prevDrvStr !== '0' && _prevDrvStr !== '-1'`; gate both `BookingStatus = 'No One'` and the `releasedAt` cooldown on `_hadDriver`. Added diagnostic `[UnAssignJobStatusFromJobList] §FIX-F2 ... hadDriver=... → BookingStatus='...'`.
 - Numeric IDs still work: `5` and `'5'` both yield `hadDriver=true`; `0/'0'/-1/'-1'/''` yield `hadDriver=false`.
 
+## §FIX-U — Unreached timeout parks job as "No One", not "Pending" (May 2026)
+
+- Bug: when the 27 s no-response timeout fired, the dispatch console sent `newStatus='Unreached'` to `[changeriddestatusforoffer]`. The server mapped it to `BookingStatus='Pending'` (server.js ~6560 / ~8659), which made `AutoDispatchVehiclesallride` (filters `BookingStatus==='Pending'` at ~8021) immediately re-offer the same job to the same driver who just failed to respond. Result: endless re-offer loop until the driver app or dispatcher manually interrupted.
+- Fix (`server.js` ~6566 + ~8668): `effectiveStatus = newStatus === 'Unreached' ? 'No One' : newStatus`. Job parks in UA as **No One** with `returnReason='No Response'`. `releaseStatuses` set still includes `'Unreached'`, so the driver still goes Away and `_clearDrv` still clears `DriverId/VehicleId` — only the displayed status differs. Auto-dispatch skips `No One`, so re-offer requires a manual dispatcher action.
+
+## §FIX-V — Manual reassign now writes to correct Firebase path (May 2026)
+
+- Bug: `$scope.AssignJobFromJobList` (`Default.aspx` ~13889) called `writeJobDetailsToFirebase(_vid, _vid, _bid, …)` and `acknowledgemethodx(JobVehicleId, JobVehicleId, …)` — passing the dropdown value as **both** driverId and vehicleId. For string-ID tenants (dropdown returns `D002`), this wrote the Offered payload to `jobs/620611/D002/D002` while the driver app listens on `jobs/620611/TAXI02/D002`. Driver popup never showed → 27 s timeout → §FIX-U-or-Pending demote → loop.
+- Fix (`Default.aspx` ~13891-13970): pre-resolve `_resolvedDrv` / `_resolvedVeh` by scanning `scope.driverdatarealx` for a row whose `driverid` OR `VehicleId` matches the dropdown value. Pass the correct pair to both helpers in the documented argument order (`writeJobDetailsToFirebase(driverId, vehicleId, …)` and `acknowledgemethodx(vehicle, driverid, …)`). Falls back to `JobVehicleId` as both when no match is found, so numeric-tenant behaviour is preserved. Diagnostic log `[§FIX-V/AssignJobFromJobList] dropdown=… → driver=… vehicle=…` surfaces the resolution.
+
 ## §FIX-A2 — Edit-form "back to Pending" path restored (May 2026)
 
 - Bug: `§FIX-A` accidentally blocked the dispatcher's legitimate Edit-form action of sending a No-One job back to `Pending` (Edit dropdown sends `DriveId='0'` + `bookstatus='Pending'` when `$scope.selecteddriver === -2`).
