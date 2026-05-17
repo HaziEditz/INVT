@@ -1,0 +1,41 @@
+eply to dispatch team — re: D002 / Booking #6112605171 / "no Accept popup":
+
+Found it. This is a JS-level crash on the driver app that I diagnosed and shipped a fix for ~35 minutes ago. Sentry has the smoking gun.
+
+Root cause (Sentry event 70052493, OTA 22bn / 22bo, device SM-F966B):
+ReferenceError: Property 'driver' doesn't exist inside JobOfferModal in app/(tabs)/home.tsx. When OTA 22bn shipped the new Call/Text contact buttons, I referenced driver?.companyId / driver?.id / driver?.name inside the modal, but JobOfferModal is a memoised component defined outside HomeScreen — so driver from useDriver() was never in its scope. The moment the modal tried to render, Hermes threw, the tab error boundary caught it, and the modal silently disappeared. That's exactly your observed symptom: offer landed, no popup, no Accept write, dispatch timeout, driver flipped to Away.
+
+Going through your checklist:
+
+Does the app subscribe to jobs/{cid}/{vid}/{driverSqlId}? Yes — DriverContext.tsx line 2874, attached on every shift via useEffect keyed on driver.companyId && driver.vehicleId && driver.id. Wiring was never the problem.
+
+Crash on parse? Yes — but not in the offer-payload handler. The handler ran fine, setIncomingJob(newJob) fired, modal mounted, modal crashed on render. Sentry captured the full stack with file/line.
+
+Where does Accept write? Exactly what you expect — confirmed in code:
+
+jobs/{cid}/{vid}/{driverId} → Status: 'DriverAccepted', AcceptedAt, AcceptedAt_ISO, BookingId (DriverContext line 3535)
+online/{cid}/{vid}/current → currentJobId: bookingId, joboffer: 0, plus top-level vehiclestatus: 'Assigned'
+rideStatus/{cid}/{bookingId} → status: 'Assigned'
+Passengerjobs/{deviceUid}/status → 'DriverAccepted'
+dispatchPost API call → FnDispatchJobStatus (catch'd if API is offline as you mentioned)
+So no path-mismatch on our side. Accept handler is correct — it just never ran because the user couldn't tap a button that wasn't on screen.
+
+Build / OTA on D002 right now: D002's device was on OTA group 0f5f7547-4698-4a88-811a-9c4e5b32d97e (22bo) or earlier 22bn 1aeddbbf-be2a-46cd-8b9b-d28901327cdd. The fix is OTA group c4669873-5597-4c24-a0d4-e1dde1d6d6d3 (22bo-fix2), production channel, runtime 1.5.0. Ask D002 to force-close and reopen the app — the OTA installer will pick up the fix within a few seconds.
+
+Foreground / background? Doesn't matter for this bug. Crash happens on modal render in both states.
+
+Listener attachment timing: Attached on driver load (companyId + vehicleId + driverId all populated after sign-in), not on "Available" tap. So a fresh login session does NOT miss offers — the listener is live before the driver ever sees the home screen. Not the issue here.
+
+Stale offer guard: Already in place — seenBookingIdsRef dedups across both the notification/{driverId} listener AND the jobs/{cid}/{vid}/{driverId} listener so the modal can't double-pop for the same bookingId.
+
+On your fail-safe idea (clear-offer write to online/{cid}/{vid}/current after 25s): Good defensive measure regardless. Driver app already reads joboffer: 0 and ignores stale offer state, so if you set that on timeout we'll honour it. Go ahead.
+
+Net of all this:
+
+Driver-app wiring is correct end-to-end.
+The crash that made it look broken is patched in c4669873-… (22bo-fix2).
+D002 just needs to force-close + reopen to pick up the OTA.
+Please re-run the minimum repro after that — should see the popup, the accept write to jobs/{cid}/{vid}/{driverId} with Status: 'DriverAccepted', all within a couple of seconds.
+If you still see no Accept popup after the OTA installs, send me the new Sentry event ID and I'll dig further. Otherwise this should close itself out.
+
+Sorry for the embarrassment on this one — adding driver references inside a component defined outside the screen was a real miss in 22bn. The architect review for 22bo flagged adjacent issues but didn't catch the scope bug because it only reviewed the diff, not the surrounding component-definition context. I've made a mental note for next time: when adding driver/useDriver() refs to any component, grep upward to confirm it's inside the same function scope, not a sibling memo'd component.

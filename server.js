@@ -7951,7 +7951,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const age = j.offeredAt ? (now - j.offeredAt) : STALE_OFFER_MS + 1;
             if (age > STALE_OFFER_MS) {
               console.log(`  [AutoDispatch] stale-offer watchdog: resetting job #${j.Id} (offered to driver ${j.DriverId}, age ${Math.round(age/1000)}s) → Pending`);
-              console.log(`[§FIX-AcceptTrace/staleOfferWatchdog-AD] *** SERVER WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — NOTE: this handler does NOT push a clear to jobs/{cid}/{vid}/{did} (driver-app node), so driver app may still show the offer.`);
+              console.log(`[§FIX-OfferClear/staleOfferWatchdog-AD] *** SERVER WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — pushing clear-offer to driver-app Firebase nodes.`);
+              // §FIX-OfferClear — push clear-offer to driver-app Firebase nodes so a recovered
+              // (post-crash) driver app drops the stale Accept popup instead of acting on it.
+              // Use j.companyId (not sessionCompanyId) — jobStore is global across tenants
+              // and the AD watchdog iterates all jobs, so cross-tenant clears must be avoided.
+              clearOfferOnFirebase(j.companyId, j.VehicleId, j.DriverId, j.Id, 'staleOfferWatchdog-AD');
               j.BookingStatus = 'Pending';
               j.offeredAt = null;
               j.DriverId = 0;
@@ -9727,6 +9732,108 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// §FIX-OfferClear — server-side fail-safe for "driver app crashed mid-offer".
+// When a stale-offer watchdog fires, the dispatch console's 27-s frontend timer
+// may not have run (e.g. console closed, page refreshed). Push the same clear-
+// offer writes the frontend would have made, so a recovered driver app drops
+// the stale Accept popup and doesn't act on a job dispatch already abandoned.
+//   - PATCH online/{cid}/{vid}/current  → nulls jobId/joboffer/pickup/dropoff/etc + Away
+//   - DELETE jobs/{cid}/{vid}/{driverId}      (offer envelope)
+//   - DELETE joback/{bookingId}                (legacy ack path)
+//   - DELETE notification/{driverId}           (push payload)
+// All writes are fire-and-forget; failures log but never throw.
+function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
+  if (!process.env.BW_FIREBASE_SECRET) {
+    console.log(`[§FIX-OfferClear/${sourceTag}] BW_FIREBASE_SECRET not set — skipping driver-app clear`);
+    return;
+  }
+  if (!cid || !vid || (!did && did !== 0)) {
+    console.log(`[§FIX-OfferClear/${sourceTag}] missing cid=${cid} vid=${vid} did=${did} — skipping`);
+    return;
+  }
+  (async () => {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (!tok) {
+        console.warn(`[§FIX-OfferClear/${sourceTag}] no Firebase token — skipping`);
+        return;
+      }
+      const auth = encodeURIComponent(tok);
+      const bookingIdStr = String(bookingId);
+      // §FIX-OfferClear/race-guard — verify-before-clear. Between the watchdog firing
+      // and these async writes, smartAutoDispatch may have written a FRESH offer to the
+      // same paths. Read each node first; if it no longer references THIS bookingId,
+      // skip the clear — the new offer must survive.
+      // NOTE: fbRequest returns { status, headers, body } — payload is at .body.
+      // A failed GET (non-200) is treated as "unknown state, do not destroy" — safer to
+      // leave the node alone than to risk wiping a fresh offer.
+      // 1. jobs/{cid}/{vid}/{driverId} — the Offered envelope.
+      try {
+        const resp = await fbRequest(`${FB_DB_URL}/jobs/${cid}/${vid}/${did}.json?auth=${auth}`, 'GET', null);
+        if (!resp || resp.status !== 200) {
+          console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} GET status=${resp && resp.status} — skip (safe)`);
+        } else {
+          const cur = resp.body;
+          const curBid = cur && (cur.BookingId || cur.bookingId) ? String(cur.BookingId || cur.bookingId) : '';
+          if (cur === null || cur === undefined) {
+            console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} already empty — skip`);
+          } else if (curBid && curBid !== bookingIdStr) {
+            console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} now holds bookingId=${curBid} (fresh offer) — skip clear of stale ${bookingIdStr}`);
+          } else {
+            await fbRequest(`${FB_DB_URL}/jobs/${cid}/${vid}/${did}.json?auth=${auth}`, 'DELETE', null);
+            console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} deleted (job#${bookingId})`);
+          }
+        }
+      } catch (e2) { console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ guarded-DELETE failed:`, e2 && e2.message); }
+      // 2. online/{cid}/{vid}/current — only clear if it still references THIS booking.
+      try {
+        const resp = await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}/current.json?auth=${auth}`, 'GET', null);
+        if (!resp || resp.status !== 200) {
+          console.warn(`[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid}/current GET status=${resp && resp.status} — skip (safe)`);
+        } else {
+          const oc = resp.body;
+          const ocBid = oc ? String(oc.currentJobId || oc.jobId || '') : '';
+          if (oc === null || oc === undefined) {
+            console.log(`[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid}/current empty — skip`);
+          } else if (ocBid && ocBid !== bookingIdStr) {
+            console.log(`[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid}/current now holds jobId=${ocBid} (fresh offer) — skip clear of stale ${bookingIdStr}`);
+          } else {
+            await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}/current.json?auth=${auth}`, 'PATCH', {
+              currentJobId: null, jobId: null, joboffer: 0,
+              jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '',
+              vehiclestatus: 'Away'
+            });
+            console.log(`[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid}/current cleared (job#${bookingId})`);
+          }
+        }
+      } catch (e1) { console.warn(`[§FIX-OfferClear/${sourceTag}] online/current guarded-PATCH failed:`, e1 && e1.message); }
+      // 3. joback/{bookingId} — keyed by bookingId so no race risk; safe to delete.
+      try {
+        await fbRequest(`${FB_DB_URL}/joback/${bookingId}.json?auth=${auth}`, 'DELETE', null);
+      } catch (e3) { console.warn(`[§FIX-OfferClear/${sourceTag}] joback/ DELETE failed:`, e3 && e3.message); }
+      // 4. notification/{driverId} — guarded: only delete if it still references THIS booking.
+      try {
+        const resp = await fbRequest(`${FB_DB_URL}/notification/${did}.json?auth=${auth}`, 'GET', null);
+        if (!resp || resp.status !== 200) {
+          console.warn(`[§FIX-OfferClear/${sourceTag}] notification/${did} GET status=${resp && resp.status} — skip (safe)`);
+        } else {
+          const nb = resp.body;
+          const nbBid = nb ? String(nb.bookingId || nb.BookingId || nb.jobId || nb.JobId || '') : '';
+          if (nb === null || nb === undefined) {
+            // empty — nothing to do
+          } else if (nbBid && nbBid !== bookingIdStr) {
+            console.log(`[§FIX-OfferClear/${sourceTag}] notification/${did} now holds bookingId=${nbBid} (fresh offer) — skip clear of stale ${bookingIdStr}`);
+          } else {
+            await fbRequest(`${FB_DB_URL}/notification/${did}.json?auth=${auth}`, 'DELETE', null);
+          }
+        }
+      } catch (e4) { console.warn(`[§FIX-OfferClear/${sourceTag}] notification/ guarded-DELETE failed:`, e4 && e4.message); }
+    } catch (eOuter) {
+      console.warn(`[§FIX-OfferClear/${sourceTag}] outer failure:`, eOuter && eOuter.message);
+    }
+  })();
+}
+
 // Independent stale-offer watchdog — runs every 90 s regardless of whether
 // AutoDispatchVehiclesallride is being polled (e.g. tab closed mid-offer).
 // If a job has been stuck in Offered for > 2 minutes, the 27-s browser timer
@@ -9741,7 +9848,10 @@ setInterval(() => {
     const age = j.offeredAt ? (now - j.offeredAt) : STALE_MS + 1;
     if (age > STALE_MS) {
       console.log(`[stale-offer watchdog] job #${j.Id} stuck as Offered for ${Math.round(age/1000)}s (driver ${j.DriverId}) — resetting to Pending`);
-      console.log(`[§FIX-AcceptTrace/staleOfferWatchdog-90s] *** SERVER 90s WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — NOTE: does NOT push a clear to jobs/{cid}/{vid}/{did}.`);
+      console.log(`[§FIX-OfferClear/staleOfferWatchdog-90s] *** SERVER 90s WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — pushing clear-offer to driver-app Firebase nodes.`);
+      // §FIX-OfferClear — push clear-offer so a recovered driver app drops the stale Accept popup.
+      // j.companyId is stamped at intake by IngestPassengerJob / ProcUpdateJobv6.
+      clearOfferOnFirebase(j.companyId, j.VehicleId, j.DriverId, j.Id, 'staleOfferWatchdog-90s');
       j.BookingStatus = 'Pending';
       j.offeredAt     = null;
       j.DriverId      = 0;
