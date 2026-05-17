@@ -5939,6 +5939,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             job.assignedAt = Date.now();
             job.DriverId = driverId;
             if (driverId > 0) job.VehicleId = driverId;
+            // §FIX-M — flag this as a dispatcher-driven manual offer so that if the driver
+            // does not accept within 27 s and the Unreached timeout fires, §FIX-U2 lands the
+            // job as 'No One' (dispatcher decides next) instead of 'Pending' (auto-dispatch
+            // retries). Auto-dispatch offers do NOT set this flag, so their timeout path is
+            // unchanged. The flag is cleared on first use in §FIX-U2 below.
+            job.manualOffer = true;
+            job.manualOfferAt = Date.now();
+            console.log(`  [§FIX-M/${action}] manualOffer=true stamped for job#${bookingId} driver=${driverId}`);
             const zd = ZONE_DRIVERS.find(d => d.driverid === driverId || d.VehicleId === driverId);
             if (zd) {
               // Save home zone/queue BEFORE the driver is taken off the queue
@@ -5978,7 +5986,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // auto-loop won't immediately re-offer. Skipped when prevDriverId=0 so brand-new
             // never-assigned jobs aren't delayed by 30s on first dispatch.
             if (_hadDriver) job.releasedAt = Date.now();
-            console.log(`  [UnAssignJobStatusFromJobList] §FIX-F2 job#${bookingId} prevDriverId='${_prevDrvStr}' hadDriver=${_hadDriver} → BookingStatus='${job.BookingStatus}'`);
+            // §FIX-M — clear any stale manualOffer flag so a future auto-dispatch retry on
+            // this job isn't wrongly demoted to 'No One' on its Unreached timeout.
+            job.manualOffer = false;
+            console.log(`  [UnAssignJobStatusFromJobList] §FIX-F2 job#${bookingId} prevDriverId='${_prevDrvStr}' hadDriver=${_hadDriver} → BookingStatus='${job.BookingStatus}' (manualOffer cleared)`);
             const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
             if (zd) {
               const _restoreQ = calcRestoredQueue(prevDriverId, zd.zonename);
@@ -6561,11 +6572,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // the SAME driver who just failed to respond. After 30 s, if no other driver picked
           // up, auto-dispatch may retry; the dispatcher can also manually unassign sooner.
           // (Previous §FIX-U parked as 'No One' which broke the auto-dispatch retry loop.)
-          const effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus;
+          // §FIX-M — if this was a dispatcher-driven manual offer (AssignJobStatusFromJobList*),
+          // a 27 s no-response should park as 'No One' (dispatcher decides next), not Pending
+          // (auto-dispatch retries). Flag is consumed on first use. Auto-dispatch offers leave
+          // manualOffer unset → keep the legacy §FIX-U2 Pending+cooldown behaviour.
+          const _wasManualOffer = newStatus === 'Unreached' && job.manualOffer === true;
+          const effectiveStatus = newStatus === 'Unreached'
+            ? (_wasManualOffer ? 'No One' : 'Pending')
+            : newStatus;
           job.BookingStatus = effectiveStatus;
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
-            console.log(`  [§FIX-U2/changeriddestatusforoffer/DP] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+            if (_wasManualOffer) {
+              job.manualOffer = false;
+              job.DriverId = 0;
+              job.VehicleId = 0;
+              console.log(`  [§FIX-M/changeriddestatusforoffer/DP] job #${bookingId} manual-offer Unreached → No One (cleared manualOffer, driver/vehicle reset)`);
+            } else {
+              console.log(`  [§FIX-U2/changeriddestatusforoffer/DP] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+            }
           }
           if (returnReason) job.returnReason = returnReason;
           { const _ts = new Date().toISOString();
@@ -6589,6 +6614,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
           if (effectiveStatus === 'Assigned') {
+            // §FIX-M — driver accepted, clear manualOffer so any later unrelated retry on
+            // this job isn't wrongly demoted to 'No One' on its Unreached timeout.
+            job.manualOffer = false;
             // incomingDriverId already parsed above (handles both '1212' and 'D001' string IDs)
             if (incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
               job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
@@ -8668,11 +8696,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // (~line 8030) prevents the auto-loop from immediately re-offering the SAME job to
           // the SAME driver who just failed to respond. After 30 s, if no other driver picked
           // up, auto-dispatch may retry; the dispatcher can also manually unassign sooner.
-          const effectiveStatus2 = newStatus === 'Unreached' ? 'Pending' : newStatus;
+          // §FIX-M — see DP-site comment. Manual-offer timeout → No One; auto-offer → Pending+cooldown.
+          const _wasManualOffer2 = newStatus === 'Unreached' && job.manualOffer === true;
+          const effectiveStatus2 = newStatus === 'Unreached'
+            ? (_wasManualOffer2 ? 'No One' : 'Pending')
+            : newStatus;
           job.BookingStatus = effectiveStatus2;
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
-            console.log(`  [§FIX-U2/changeriddestatusforoffer/DS] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+            if (_wasManualOffer2) {
+              job.manualOffer = false;
+              job.DriverId = 0;
+              job.VehicleId = 0;
+              console.log(`  [§FIX-M/changeriddestatusforoffer/DS] job #${bookingId} manual-offer Unreached → No One (cleared manualOffer, driver/vehicle reset)`);
+            } else {
+              console.log(`  [§FIX-U2/changeriddestatusforoffer/DS] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+            }
           }
           if (returnReason) job.returnReason = returnReason;
           { const _ts2 = new Date().toISOString();
@@ -8689,6 +8728,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
           if (effectiveStatus2 === 'Assigned') {
+            // §FIX-M — driver accepted, clear manualOffer (see DP-site comment).
+            job.manualOffer = false;
             // BUG11 — preserve string driver IDs (e.g. 'D001') instead of parseInt→0
             const _rawAcceptId2 = (param('driverid') || '').toString().trim();
             const acceptDriverId2 = parseInt(_rawAcceptId2) > 0 ? parseInt(_rawAcceptId2) : (_rawAcceptId2 || 0);

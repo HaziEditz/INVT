@@ -62,6 +62,16 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Fix (~5957-5972): stringify+trim `prevDriverId`; set `_hadDriver = _prevDrvStr !== '' && _prevDrvStr !== '0' && _prevDrvStr !== '-1'`; gate both `BookingStatus = 'No One'` and the `releasedAt` cooldown on `_hadDriver`. Added diagnostic `[UnAssignJobStatusFromJobList] §FIX-F2 ... hadDriver=... → BookingStatus='...'`.
 - Numeric IDs still work: `5` and `'5'` both yield `hadDriver=true`; `0/'0'/-1/'-1'/''` yield `hadDriver=false`.
 
+## §FIX-M — Manual-offer Unreached → No One (May 2026)
+
+- Symptom: dispatcher manually picks driver from UA-tab dropdown → driver does NOT accept within 27 s → job parked as **Pending** and bounced back into auto-dispatch retry pool. User expects manual picks that time out to park as **No One** so the dispatcher decides next.
+- Root cause: §FIX-U2 demoted every `Unreached` to `Pending` regardless of whether the offer was dispatcher-driven or auto-dispatched. There was no flag distinguishing the two.
+- Fix:
+  1. `[AssignJobStatusFromJobList]` / `[AssignJobStatusFromJobListv2]` handler (`server.js` ~5950): stamp `job.manualOffer = true` + `job.manualOfferAt = Date.now()` on the job when dispatcher manually assigns.
+  2. Both §FIX-U2 sites (`server.js` ~6579 DP and ~8697 DS): if `newStatus === 'Unreached' && job.manualOffer === true`, set `BookingStatus = 'No One'`, clear `DriverId/VehicleId`, and consume the flag (`job.manualOffer = false`). Otherwise keep legacy Pending+`releasedAt` cooldown behaviour for auto-dispatch.
+  3. Diagnostic `[§FIX-M/...] job #N manual-offer Unreached → No One (cleared manualOffer, driver/vehicle reset)`.
+- Auto-dispatch path unchanged: smartAutoDispatch never sets `manualOffer`, so its Unreached timeouts still go to Pending and the cooldown still arms.
+
 ## §FIX-U2 — Unreached timeout → Pending + releasedAt cooldown (May 2026)
 
 - Reverted policy: the original §FIX-U made Unreached → 'No One', which broke the auto-dispatch retry loop. Correct behaviour: Unreached on an auto-dispatched job should go back to 'Pending' so auto-dispatch can offer to the **next** driver; the existing §FIX-G `releasedAt` 30 s cooldown (server.js ~8030 — `if (Date.now() - j.releasedAt) < 30000) return false`) prevents the same driver being re-offered immediately.
