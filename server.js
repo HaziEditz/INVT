@@ -8027,12 +8027,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // Jobs with DispatchTimebefore == 0 (or missing) are treated as "dispatch immediately".
         const autoJobs = jobStore.filter(j => {
           if (j.BookingStatus !== 'Pending') return false;
-          // §FIX-G — release cooldown. If this job was just released by a dispatcher
-          // (UnAssign / QuickSetNoOne), skip it for 30s so the auto-loop can't immediately
-          // re-offer the same job to the same driver even if some other handler accidentally
-          // flips status back to Pending. Belt-and-braces protection on top of the 'No One'
-          // status set by §FIX-F.
-          if (j.releasedAt && (Date.now() - j.releasedAt) < 30000) {
+          // §FIX-G — release cooldown (shortened to 10 s per user request 2026-05-18).
+          // If this job was just released (auto-dispatch timeout / dispatcher UnAssign /
+          // QuickSetNoOne), skip it for 10 s so the auto-loop can't immediately re-offer
+          // the same job to the same driver who just failed to respond. Short enough that
+          // other drivers (or the same driver, if he's the only one available) get the job
+          // back quickly. Belt-and-braces on top of §FIX-F (No One) and §FIX-U2 (Pending).
+          if (j.releasedAt && (Date.now() - j.releasedAt) < 10000) {
             return false;
           }
           const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;

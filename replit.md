@@ -66,6 +66,7 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 
 - Reverted policy: the original §FIX-U made Unreached → 'No One', which broke the auto-dispatch retry loop. Correct behaviour: Unreached on an auto-dispatched job should go back to 'Pending' so auto-dispatch can offer to the **next** driver; the existing §FIX-G `releasedAt` 30 s cooldown (server.js ~8030 — `if (Date.now() - j.releasedAt) < 30000) return false`) prevents the same driver being re-offered immediately.
 - Fix (`server.js` ~6567 + ~8673): `effectiveStatus = newStatus === 'Unreached' ? 'Pending' : newStatus`, and when `newStatus === 'Unreached'` also stamp `job.releasedAt = Date.now()` with diagnostic `[§FIX-U2/...] Unreached → Pending + releasedAt stamped`.
+- Cooldown window shortened from 30 s to **10 s** (`server.js` ~8035) per user request — long enough to skip the just-failed driver in the very next auto-dispatch tick, short enough that on a single-driver tenant the same driver gets the offer again quickly.
 - Manual-dispatcher "take to No One" path is unchanged — it still routes through `[UnAssignJobStatusFromJobList]` (§FIX-F2) which sets `BookingStatus='No One'`. So: auto-timeout → Pending+cooldown (auto retries other drivers); manual unassign → No One (dispatcher controls).
 
 ## §FIX-V — Manual reassign now writes to correct Firebase path (May 2026)
