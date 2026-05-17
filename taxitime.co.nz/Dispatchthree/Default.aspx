@@ -8712,6 +8712,35 @@ $(document).ready(function() {
                 console.warn('[writeJobDetailsToFirebase] invalid driverId:', driverId, '— aborting write');
                 return;
             }
+            // §FIX-W — defensive vehicle resolver (catches ALL call sites). Several legacy
+            // callers pass the driver-dropdown value as BOTH driverId and vehicleId, which on
+            // string-ID tenants (e.g. D002) writes the offer to jobs/{cid}/D002/D002 instead
+            // of jobs/{cid}/TAXI02/D002. The driver app listens on the {vehicleId}/{driverId}
+            // path and never sees the offer. Here we detect the bad input (vehicleId missing,
+            // 0, equal to driverId, or 'null'/'undefined') and resolve the real vehicle from
+            // scope.driverdatarealx by matching driverId. Falls through unchanged when input
+            // is already correct or when no match is found (no regression for numeric tenants).
+            try {
+                var _vidStr = String(vehicleId == null ? '' : vehicleId).trim();
+                var _didStr = String(driverId).trim();
+                var _needsResolve = (_vidStr === '' || _vidStr === '0' || _vidStr === 'null' ||
+                                     _vidStr === 'undefined' || _vidStr === _didStr);
+                if (_needsResolve) {
+                    var _wjSc = angular.element(document.getElementById('myangular')).scope();
+                    var _wjArr = (_wjSc && _wjSc.driverdatarealx) ? _wjSc.driverdatarealx : [];
+                    for (var _wji = 0; _wji < _wjArr.length; _wji++) {
+                        var _wjD = _wjArr[_wji];
+                        if (_wjD && String(_wjD.driverid).trim() === _didStr &&
+                            _wjD.VehicleId && String(_wjD.VehicleId).trim() !== '' &&
+                            String(_wjD.VehicleId).trim() !== _didStr) {
+                            console.log('[§FIX-W/writeJobDetailsToFirebase] vehicle resolved: driver="' + _didStr +
+                                        '" vehicleIn="' + _vidStr + '" → vehicleOut="' + _wjD.VehicleId + '"');
+                            vehicleId = _wjD.VehicleId;
+                            break;
+                        }
+                    }
+                }
+            } catch(_wjE) { console.warn('[§FIX-W/writeJobDetailsToFirebase] resolver error:', _wjE && _wjE.message); }
             var _user = firebase.auth().currentUser;
             if (!_user) {
                 console.warn('[writeJobDetailsToFirebase] no Firebase auth user — queuing write after sign-in');
