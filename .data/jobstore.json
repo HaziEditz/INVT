@@ -2,8 +2,8 @@
   {
     "Id": 6112605181,
     "AccountId": "",
-    "VehicleNo": null,
-    "CallSign": null,
+    "VehicleNo": "TAXI02",
+    "CallSign": "TAXI02",
     "useremail": null,
     "usertype": null,
     "webstatus": "0",
@@ -13,8 +13,8 @@
     "Pickingtime": "2026-05-18 02:39:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": "0",
-    "DriverId": 0,
+    "VehicleId": "D002",
+    "DriverId": "D002",
     "DispatcherName": "safinah",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -35,7 +35,7 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Pending",
+    "BookingStatus": "Offered",
     "VehicleType": "Not Specified",
     "serviceType": "taxi",
     "Urgent": "No",
@@ -47,6 +47,13 @@
     "TarriffType": "Automatic",
     "companyId": "620611",
     "createdAt": 1779028772131,
-    "_fbKey": "620611:6112605181"
+    "_fbKey": "620611:6112605181",
+    "assignedAt": 1779029057565,
+    "manualOffer": true,
+    "manualOfferAt": 1779029057565,
+    "OfferedAt": "2026-05-17T14:44:17.576Z",
+    "offeredAt": 1779029057576,
+    "UserFName": "TestDriver",
+    "UserLName": "Two"
   }
 ]
