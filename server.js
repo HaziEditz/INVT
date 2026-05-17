@@ -9305,12 +9305,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           console.log(`[IngestPassengerJob] Kept ${numId} (cid=${_ipjSCid}) — incoming=${_ipjIncomingMs} vs newestClosed=${newestForId._t} (unknown timestamps, ingesting)`);
           return null;
         };
+        // §FIX-UA-DIAG — always log the decision branch so silent drops are visible.
+        console.log(`[IngestPassengerJob/diag] status='${_ipjStatus}' fbKey='${_ipjFbKey}' jobId='${_ipjJobId}' incomingMs=${_ipjIncomingMs} cid=${_ipjSCid}`);
+
         if (_ipjStatus === 'Scheduled') {
           // Scheduled bookings land directly in the Unassigned queue as Pending.
           // ScheduledFor is preserved so the 📅 Sched badge shows on the job card.
           const _ipjNumIdSch = parseInt(_ipjJobId, 10) || 0;
           const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumIdSch > 0 && j.Id === _ipjNumIdSch));
           const alreadyClosed = _ipjFindClosed(_ipjNumIdSch);
+          console.log(`[IngestPassengerJob/diag] Scheduled branch — already=${already ? 'job#'+already.Id+'/'+already.BookingStatus : 'no'} alreadyClosed=${alreadyClosed ? 'closed#'+alreadyClosed.Id : 'no'}`);
           // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
           if (already && !already._fbKey) already._fbKey = _ipjFbKey;
           if (!already && !alreadyClosed) {
@@ -9381,6 +9385,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const _ipjNumId = parseInt(_ipjJobId, 10) || 0;
           const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumId > 0 && j.Id === _ipjNumId));
           const alreadyClosed = _ipjFindClosed(_ipjNumId);
+          console.log(`[IngestPassengerJob/diag] Waiting/Pending branch — already=${already ? 'job#'+already.Id+'/'+already.BookingStatus : 'no'} alreadyClosed=${alreadyClosed ? 'closed#'+alreadyClosed.Id+'/completedAtMs='+(alreadyClosed.completedAtMs||0) : 'no'}`);
           // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
           if (already && !already._fbKey) { already._fbKey = _ipjFbKey; saveJobStore(); }
           // §103 Bug 2 — promote an existing Scheduled job to Pending (NotifyDispatchAt fired).

@@ -6001,11 +6001,15 @@ $(document).ready(function() {
                 var timeStr = scheduledMs ? new Date(scheduledMs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', hour12: false }) : '';
                 _pjAlert((_isWebBk ? '🌐' : '📅') + ' Scheduled booking from ' + _bkSender + (timeStr ? ' for ' + timeStr : '') + '!', 20000);
                 b.ScheduledFor = scheduledMs || null;
+                console.log('[pendingjobs/diag] POST IngestPassengerJob (Scheduled) →', k);
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
                     contentType:'application/json; charset=utf-8', dataType:'json',
                     data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify(b) }], action:'[IngestPassengerJob]' })
-                }).done(function() {
+                }).done(function(resp) {
+                    console.log('[pendingjobs/diag] Scheduled POST ok →', k, resp);
                     if (sc2 && typeof sc2.getjobs === 'function') sc2.getjobs();
+                }).fail(function(xhr, status, err) {
+                    console.warn('[pendingjobs/diag] Scheduled POST FAILED →', k, 'http=' + xhr.status, status, err);
                 });
                 // §103 Bug 2 — arm NotifyDispatchAt timer: promote to Pending in Firebase
                 // so child_changed fires and the dispatcher gets the actionable alert.
@@ -6036,11 +6040,15 @@ $(document).ready(function() {
                 // 'Pending'  = some dispatch apps write this instead of 'Waiting' for
                 //              a ready-to-dispatch job. Treat identically — ingest immediately.
                 _pjAlert((_isWebBk ? '🌐' : '📱') + ' New booking from ' + _bkSender + (b.pickupAddress ? ' — ' + b.pickupAddress : '') + '!', 15000);
+                console.log('[pendingjobs/diag] POST IngestPassengerJob (' + status + ') →', k);
                 jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
                     contentType:'application/json; charset=utf-8', dataType:'json',
                     data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify(b) }], action:'[IngestPassengerJob]' })
-                }).done(function() {
+                }).done(function(resp) {
+                    console.log('[pendingjobs/diag] ' + status + ' POST ok →', k, resp);
                     if (sc2 && typeof sc2.getjobs === 'function') sc2.getjobs();
+                }).fail(function(xhr, st, err) {
+                    console.warn('[pendingjobs/diag] ' + status + ' POST FAILED →', k, 'http=' + xhr.status, st, err);
                 });
                 console.log('[pendingjobs] ' + status + ' (book-now) booking received:', k, b);
             }
