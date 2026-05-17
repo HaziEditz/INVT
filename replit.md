@@ -56,6 +56,13 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-A — No One → Pending silent demote blocked (May 2026)
+
+- Root cause: dispatch console Edit form (`Default.aspx` `updateride` ~13966) emits malformed reassign POSTs to `ProcUpdateJobv6` in two observed shapes: (1) `DId=-2` + `bookstatus='Pending'` (when `$scope.selecteddriver === -2`), (2) `DId` missing/`0` + `bookstatus='Offered'` (when `$scope.selecteddriver === 0` or undefined). Server parsed both as `driverId=0`, fell into the `editableStatuses` branch's `else` arm, and set `BookingStatus='Pending'` — silently demoting `No One` jobs.
+- Fix lives entirely server-side at `server.js` ~5671-5693. New guard: if `prevStatus === 'No One' && parsedDriverId <= 0 && !_explicitNoOne`, leave `BookingStatus / DriverId / VehicleId` unchanged and log `[§FIX-A/ProcUpdateJobv6] *** BLOCKED No One → Pending demote ***` with the incoming payload. Other edit fields (Name, Notes, DateTime, Pick/Drop, tariff, etc.) still apply normally.
+- Legitimate paths preserved: explicit unassign (`DId=-1 + bookstatus='No One'`) still hits the existing `driverId === -1 => 'No One'` arm; real driver pick (`driverId > 0`) still goes through the `'Offered'` arm.
+- Frontend left untouched: four `DId`-emitting sites in `Default.aspx` (updateride 14118, addjob 14617, addjob2 14782, updateride2 20372) have multiple entry points (ASAP / later / ACC / account / web). The server guard catches all of them and the BLOCKED log surfaces which frontend path triggers each malformed POST for follow-up.
+
 ## §FIX-R — OTA-22be audit payload consumed (May 2026)
 
 - `_sotExtractAuditFields(summary)` in `server.js` (~line 3996) defensively pulls the new HQ fields out of every `/api/syncOfflineTrip` POST: `WaitingTime` / `WaitingCost` / `WaitingIntervals`, `TariffLog` + `CurrentTariffId/Name`, `pauseLog`, `BookingType`, `TripSource`, `DriverNote`, `TripIssueFlag/Note`, `FixedPrice` / `CustomTotal` / `PriceOverride*`, payment sub-fields (`TmVoucherNo`, `AccClaimNo`, `GiftCardCode`, `StripeIntent`, `PaymentSettled`, `PaymentSplits`).

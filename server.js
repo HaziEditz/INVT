@@ -5666,13 +5666,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const _prevBStatus_diag = job.BookingStatus || '';
           console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] job#${jobId} prevStatus='${_prevBStatus_diag}' incomingDId=${_rawDId3} parsedDriverId=${driverId} clientBookstatus='${_clientBookstatus}' editable=${editableStatuses.has(_prevBStatus_diag)} explicitNoOne=${_explicitNoOne} bookingSource='${job.BookingSource || ''}' referer='${(req.headers && req.headers.referer) || ''}'`);
           if (editableStatuses.has(job.BookingStatus || '')) {
-            job.VehicleId = vehicleId;
-            job.DriverId  = driverId;
-            if (driverId > 0)       job.BookingStatus = 'Offered';
-            else if (driverId === -1) job.BookingStatus = 'No One';
-            else                     job.BookingStatus = 'Pending';
-            if (_prevBStatus_diag === 'No One' && job.BookingStatus === 'Pending') {
-              console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] *** SMOKING GUN *** job#${jobId} FLIPPED No One → Pending (driverId=${driverId}). Stack:\n${new Error().stack}`);
+            // §FIX-A — Bug A guard. Two observed malformed reassign POSTs from the dispatch
+            // console Edit form (incomingDId=-2 with bookstatus='Pending'; incomingDId=undefined
+            // with bookstatus='Offered') were silently demoting "No One" → "Pending". A No-One
+            // job must only leave "No One" when (a) the dispatcher explicitly picked a real
+            // driver (driverId > 0) or (b) explicitly re-confirmed "No One" via the unassign
+            // action (handled in the _explicitNoOne branch below). Any other ambiguous payload
+            // is treated as a malformed UI submit — keep the prior status, log, and respond OK
+            // so the UI doesn't spin.
+            if (_prevBStatus_diag === 'No One' && driverId <= 0 && !_explicitNoOne) {
+              console.log(`[§FIX-A/ProcUpdateJobv6] *** BLOCKED No One → Pending demote *** job#${jobId} incomingDId=${_rawDId3} parsedDriverId=${driverId} clientBookstatus='${_clientBookstatus}' — keeping No One, ignoring driver/vehicle/status assignment from this POST.`);
+              // Leave job.BookingStatus / DriverId / VehicleId unchanged.
+            } else {
+              job.VehicleId = vehicleId;
+              job.DriverId  = driverId;
+              if (driverId > 0)       job.BookingStatus = 'Offered';
+              else if (driverId === -1) job.BookingStatus = 'No One';
+              else                     job.BookingStatus = 'Pending';
+              if (_prevBStatus_diag === 'No One' && job.BookingStatus === 'Pending') {
+                // Defence-in-depth: this branch should now be unreachable for No-One jobs.
+                console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] *** SMOKING GUN *** job#${jobId} FLIPPED No One → Pending (driverId=${driverId}). Stack:\n${new Error().stack}`);
+              }
             }
           } else if (_explicitNoOne) {
             // §FIX-D — dispatcher explicitly chose "No One" while editing a live (Assigned/Picking/
