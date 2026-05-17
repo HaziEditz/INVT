@@ -5662,7 +5662,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // return to Unassigned tagged as 'No One' so dispatchers can see it was manually released.
           const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);
           const _clientBookstatus = String(param('bookstatus') || '').trim();
-          const _explicitNoOne = (driverId === -1) && (_clientBookstatus === 'No One');
+          const _explicitNoOne   = (driverId === -1) && (_clientBookstatus === 'No One');
+          // §FIX-A2 — dispatcher explicitly chose "Pending" in the Edit form's driver dropdown
+          // (frontend sets DriveId='0' + bookstatus='Pending' when $scope.selecteddriver === -2).
+          // This is an intentional "send back to Pending" action and must bypass the §FIX-A
+          // No-One guard below. We require driverId <= 0 to avoid accidentally honouring
+          // 'Pending' alongside a real driver pick.
+          const _explicitPending = (driverId <= 0) && (_clientBookstatus === 'Pending');
           const _prevBStatus_diag = job.BookingStatus || '';
           console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] job#${jobId} prevStatus='${_prevBStatus_diag}' incomingDId=${_rawDId3} parsedDriverId=${driverId} clientBookstatus='${_clientBookstatus}' editable=${editableStatuses.has(_prevBStatus_diag)} explicitNoOne=${_explicitNoOne} bookingSource='${job.BookingSource || ''}' referer='${(req.headers && req.headers.referer) || ''}'`);
           if (editableStatuses.has(job.BookingStatus || '')) {
@@ -5674,9 +5680,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // action (handled in the _explicitNoOne branch below). Any other ambiguous payload
             // is treated as a malformed UI submit — keep the prior status, log, and respond OK
             // so the UI doesn't spin.
-            if (_prevBStatus_diag === 'No One' && driverId <= 0 && !_explicitNoOne) {
+            if (_prevBStatus_diag === 'No One' && driverId <= 0 && !_explicitNoOne && !_explicitPending) {
               console.log(`[§FIX-A/ProcUpdateJobv6] *** BLOCKED No One → Pending demote *** job#${jobId} incomingDId=${_rawDId3} parsedDriverId=${driverId} clientBookstatus='${_clientBookstatus}' — keeping No One, ignoring driver/vehicle/status assignment from this POST.`);
               // Leave job.BookingStatus / DriverId / VehicleId unchanged.
+            } else if (_explicitPending) {
+              // §FIX-A2 — honour explicit Pending choice. Clear driver/vehicle and set Pending.
+              console.log(`[§FIX-A2/ProcUpdateJobv6] explicit Pending: job#${jobId} prevStatus='${_prevBStatus_diag}' incomingDId=${_rawDId3} clientBookstatus='Pending' — setting BookingStatus='Pending', clearing driver/vehicle.`);
+              job.VehicleId     = 0;
+              job.DriverId      = 0;
+              job.BookingStatus = 'Pending';
             } else {
               job.VehicleId = vehicleId;
               job.DriverId  = driverId;

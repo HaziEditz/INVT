@@ -62,6 +62,12 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Fix (~5957-5972): stringify+trim `prevDriverId`; set `_hadDriver = _prevDrvStr !== '' && _prevDrvStr !== '0' && _prevDrvStr !== '-1'`; gate both `BookingStatus = 'No One'` and the `releasedAt` cooldown on `_hadDriver`. Added diagnostic `[UnAssignJobStatusFromJobList] §FIX-F2 ... hadDriver=... → BookingStatus='...'`.
 - Numeric IDs still work: `5` and `'5'` both yield `hadDriver=true`; `0/'0'/-1/'-1'/''` yield `hadDriver=false`.
 
+## §FIX-A2 — Edit-form "back to Pending" path restored (May 2026)
+
+- Bug: `§FIX-A` accidentally blocked the dispatcher's legitimate Edit-form action of sending a No-One job back to `Pending` (Edit dropdown sends `DriveId='0'` + `bookstatus='Pending'` when `$scope.selecteddriver === -2`).
+- Fix (`server.js` ~5669-5694): new `_explicitPending = (driverId <= 0) && (_clientBookstatus === 'Pending')` flag added to the §FIX-A guard whitelist (`!_explicitNoOne && !_explicitPending`), plus a new explicit-Pending branch that sets `VehicleId=0`, `DriverId=0`, `BookingStatus='Pending'` with a `§FIX-A2` diagnostic log.
+- `_explicitPending` is gated on `driverId <= 0`, so a payload with a real driver picked (`driverId > 0`) and `bookstatus='Pending'` still falls into the normal `Offered` arm — the driver pick wins. Malformed `DId=0 + bookstatus='Offered'` is still BLOCKED by §FIX-A.
+
 ## §FIX-A — No One → Pending silent demote blocked (May 2026)
 
 - Root cause: dispatch console Edit form (`Default.aspx` `updateride` ~13966) emits malformed reassign POSTs to `ProcUpdateJobv6` in two observed shapes: (1) `DId=-2` + `bookstatus='Pending'` (when `$scope.selecteddriver === -2`), (2) `DId` missing/`0` + `bookstatus='Offered'` (when `$scope.selecteddriver === 0` or undefined). Server parsed both as `driverId=0`, fell into the `editableStatuses` branch's `else` arm, and set `BookingStatus='Pending'` — silently demoting `No One` jobs.
