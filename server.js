@@ -5663,12 +5663,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const editableStatuses = new Set(['Pending','Offered','Unreached','No One','']);
           const _clientBookstatus = String(param('bookstatus') || '').trim();
           const _explicitNoOne = (driverId === -1) && (_clientBookstatus === 'No One');
+          const _prevBStatus_diag = job.BookingStatus || '';
+          console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] job#${jobId} prevStatus='${_prevBStatus_diag}' incomingDId=${_rawDId3} parsedDriverId=${driverId} clientBookstatus='${_clientBookstatus}' editable=${editableStatuses.has(_prevBStatus_diag)} explicitNoOne=${_explicitNoOne} bookingSource='${job.BookingSource || ''}' referer='${(req.headers && req.headers.referer) || ''}'`);
           if (editableStatuses.has(job.BookingStatus || '')) {
             job.VehicleId = vehicleId;
             job.DriverId  = driverId;
             if (driverId > 0)       job.BookingStatus = 'Offered';
             else if (driverId === -1) job.BookingStatus = 'No One';
             else                     job.BookingStatus = 'Pending';
+            if (_prevBStatus_diag === 'No One' && job.BookingStatus === 'Pending') {
+              console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] *** SMOKING GUN *** job#${jobId} FLIPPED No One → Pending (driverId=${driverId}). Stack:\n${new Error().stack}`);
+            }
           } else if (_explicitNoOne) {
             // §FIX-D — dispatcher explicitly chose "No One" while editing a live (Assigned/Picking/
             // Active) job. Honor the manual unassign so the job moves to Unassigned as 'No One'
@@ -9388,6 +9393,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           console.log(`[IngestPassengerJob/diag] Waiting/Pending branch — already=${already ? 'job#'+already.Id+'/'+already.BookingStatus : 'no'} alreadyClosed=${alreadyClosed ? 'closed#'+alreadyClosed.Id+'/completedAtMs='+(alreadyClosed.completedAtMs||0) : 'no'}`);
           // Stamp _fbKey onto an existing dispatch-console job so future lookups hit by key too.
           if (already && !already._fbKey) { already._fbKey = _ipjFbKey; saveJobStore(); }
+          if (already && already.BookingStatus === 'No One') {
+            console.log(`[§FIX-NoOneTrace/IngestPassengerJob] *** RE-INGEST ON NO ONE *** job#${already.Id} fbKey='${_ipjFbKey}' incomingStatus='${_ipjStatus}' incomingMs=${_ipjIncomingMs} — passenger app/poller is re-publishing a job that dispatcher set to No One. Status NOT changed by this branch, but check ProcUpdateJobv6 trace for follow-on flips.`);
+          }
           // §103 Bug 2 — promote an existing Scheduled job to Pending (NotifyDispatchAt fired).
           // Only if not already manually assigned/offered by a dispatcher.
           if (already && already.BookingStatus === 'Scheduled') {
