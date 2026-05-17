@@ -1059,6 +1059,205 @@ function saveClosedJobStore() {
   });
 }
 
+// ─── §FIX-S — Defense-in-depth Firebase reconciler (post-22bi safety net) ────
+//
+// 22bi fixed the silent-catch on the driver-app side and 22bj will add an
+// AsyncStorage retry queue. This reconciler is the dispatch-side belt-and-
+// braces equivalent: it periodically walks Firebase `allbookings/{cid}` for
+// every known tenant, finds Completed trips that never made it into our
+// closedJobStore (regardless of cause — silent driver-app failure, network
+// outage, server restart during a sync, future regression), and ingests them.
+//
+// Idempotent: only adds rows that aren't already in closedJobStore by
+// (Id, companyId). Never overwrites populated fields on existing rows.
+// Bounded look-back (default 7 days) so we don't re-scan ancient history.
+//
+// Triggers:
+//   • 45s after boot (rehydrate anything missed while the server was down,
+//     including the May-17 silent-window incident)
+//   • Every 15 minutes thereafter
+//   • Manual: POST /admin/reconcileClosedJobs (X-Admin-Key gated)
+//
+// This is the layer that ensures a silent-window incident can never recur —
+// even if a future OTA re-introduces a silent-catch bug and Sentry is muted,
+// dispatch backfills itself within 15 minutes.
+const _FIXS_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+const _FIXS_INTERVAL_MS = 15 * 60 * 1000;
+let   _FIXS_RUNNING     = false;
+let   _FIXS_LAST_REPORT = null;
+
+function _fixsCollectCompanyIds() {
+  const set = new Set();
+  try {
+    // Include every operational status — trial/grace/deactivated tenants
+    // can still have historical Firebase trips that need backfilling after
+    // a server restart or local data loss. Any non-empty companyId qualifies.
+    (registrationStore || []).forEach(r => {
+      if (r && r.companyId &&
+          ['approved','active','trial','grace','deactivated'].includes(r.status))
+        set.add(String(r.companyId));
+    });
+  } catch (_) {}
+  try {
+    (closedJobStore || []).forEach(j => {
+      if (j && (j.companyId || j.CompanyId)) set.add(String(j.companyId || j.CompanyId));
+    });
+  } catch (_) {}
+  try {
+    (jobStore || []).forEach(j => {
+      if (j && (j.companyId || j.CompanyId)) set.add(String(j.companyId || j.CompanyId));
+    });
+  } catch (_) {}
+  return Array.from(set).filter(Boolean);
+}
+
+function _fixsTripTimestampMs(b) {
+  // Pick the best "trip closed at" timestamp from the Firebase record.
+  const raw = b && (b.newcompelete || b.JobCompleteTime || b.MeterOffAt || b.DropoffTime
+                  || b.completedAt || b.closeT || b.closedAt);
+  if (raw == null) return 0;
+  if (typeof raw === 'number') return raw < 1e12 ? raw * 1000 : raw;
+  const ms = Date.parse(String(raw));
+  return isNaN(ms) ? 0 : ms;
+}
+
+// Normalise a /completedJobs/{cid}/{bid} record (lowercase SA-MasterReport
+// schema) into the PascalCase shape dispatch's closedJobStore expects.
+function _fixsNormalizeCompletedJob(c, cid, bid) {
+  if (!c || typeof c !== 'object') return null;
+  const numId = parseInt(c.bookingId != null ? c.bookingId
+                       : (c.BookingId != null ? c.BookingId
+                       : (c.Id != null ? c.Id : bid)));
+  if (!numId) return null;
+  const out = Object.assign({}, c);
+  out.Id            = numId;
+  // Path-authoritative tenant: trust the Firebase path /completedJobs/{cid}
+  // over any companyId field inside the payload. Prevents a malformed or
+  // cross-tagged record from being filed under the wrong tenant in-memory.
+  out.companyId     = String(cid);
+  out.BookingStatus = c.BookingStatus || c.status || 'Completed';
+  // Field-name mapping (lowercase → PascalCase)
+  if (c.completedAt && !out.JobCompleteTime) out.JobCompleteTime = c.completedAt;
+  if (c.distanceKm  != null && out.JobDistance == null) out.JobDistance = c.distanceKm;
+  if (c.fare        != null && out.TotalFare   == null) out.TotalFare   = c.fare;
+  if (c.pickupAddress && !out.PickupAddress) out.PickupAddress = c.pickupAddress;
+  if (c.dropAddress   && !out.DropAddress)   out.DropAddress   = c.dropAddress;
+  if (c.paymentMethod && !out.PaymentMethod) out.PaymentMethod = c.paymentMethod;
+  if (c.paymentType   && !out.PaymentType)   out.PaymentType   = c.paymentType;
+  if (c.source        && !out.TripSource)    out.TripSource    = c.source;
+  if (c.driverId      && !out.driverId)      out.driverId      = c.driverId;
+  if (c.vehicleId     && !out.VehicleId)     out.VehicleId     = c.vehicleId;
+  return out;
+}
+
+async function reconcileClosedJobsFromFirebase(opts) {
+  opts = opts || {};
+  const verbose = opts.verbose !== false;
+  if (_FIXS_RUNNING) {
+    if (verbose) console.log('[§FIX-S/reconciler] previous run still in flight — skipping');
+    return { skipped: true, reason: 'in_flight' };
+  }
+  if (!process.env.BW_FIREBASE_SECRET) {
+    if (verbose) console.log('[§FIX-S/reconciler] BW_FIREBASE_SECRET not set — reconciler disabled');
+    return { skipped: true, reason: 'no_secret' };
+  }
+  _FIXS_RUNNING = true;
+  const startedAt = Date.now();
+  const cutoffMs  = Date.now() - _FIXS_LOOKBACK_MS;
+  const tok       = process.env.BW_FIREBASE_SECRET;
+  const cids      = _fixsCollectCompanyIds();
+  const report    = { startedAt: new Date(startedAt).toISOString(),
+                      tenants: cids.length, scanned: 0, hydrated: 0,
+                      perTenant: {}, perPath: { allbookings: 0, completedJobs: 0 } };
+
+  // Defines the two canonical write paths the driver app uses, so the
+  // reconciler scans EVERY place a completed trip might land.
+  //   • allbookings/{cid}/{bid}   — PascalCase, full audit payload
+  //   • completedJobs/{cid}/{bid} — lowercase SA-MasterReport schema
+  // Each path has its own normalizer so the merged record stamps in the
+  // PascalCase shape closedJobStore + the closed-job detail panel expect.
+  const _paths = [
+    { name: 'allbookings',   normalize: (b, cid, bid) => {
+        if (!b || typeof b !== 'object') return null;
+        const numId = parseInt(b.Id != null ? b.Id : bid);
+        if (!numId) return null;
+        return Object.assign({}, b, { Id: numId, companyId: String(cid) });
+    } },
+    { name: 'completedJobs', normalize: _fixsNormalizeCompletedJob },
+  ];
+
+  try {
+    for (let i = 0; i < cids.length; i++) {
+      const cid = cids[i];
+      report.perTenant[cid] = { scanned: 0, hydrated: 0, ids: [] };
+      for (let pi = 0; pi < _paths.length; pi++) {
+        const pInfo = _paths[pi];
+        let bookings = null;
+        try {
+          bookings = await firebaseDbGet(pInfo.name + '/' + cid, tok);
+        } catch (e) {
+          if (verbose) console.log(`[§FIX-S/reconciler] ${pInfo.name}/${cid} read failed: ${(e && e.message) || e}`);
+          continue;
+        }
+        if (!bookings || typeof bookings !== 'object') continue;
+        const ids = Object.keys(bookings);
+        for (let k = 0; k < ids.length; k++) {
+          const bid = ids[k];
+          const raw = bookings[bid];
+          if (!raw || typeof raw !== 'object') continue;
+          report.scanned++;
+          report.perTenant[cid].scanned++;
+          const status = String(raw.BookingStatus || raw.bookingStatus || raw.status || '').toLowerCase();
+          if (status !== 'completed' && status !== 'cancelled') continue;
+          const tripMs = _fixsTripTimestampMs(raw);
+          if (!tripMs || tripMs < cutoffMs) continue;
+          const rec = pInfo.normalize(raw, cid, bid);
+          if (!rec || !rec.Id) continue;
+          // Tenant-isolated dedupe (mirrors §FIX-R/sec guard).
+          const exists = closedJobStore.some(j =>
+            j && j.Id === rec.Id &&
+            String(j.companyId || j.CompanyId || '') === String(cid));
+          if (exists) continue;
+          // Stamp tenant/provenance so the row is traceable.
+          rec.BookingStatus            = rec.BookingStatus || 'Completed';
+          rec.OfflineSynced            = true;
+          rec.CompletedBy              = rec.CompletedBy || 'Reconciler (Firebase)';
+          rec._rehydratedFromFirebase  = true;
+          rec._rehydratedAt            = new Date(startedAt).toISOString();
+          rec._rehydrationSource       = pInfo.name + '/' + cid + '/' + bid;
+          closedJobStore.push(rec);
+          report.hydrated++;
+          report.perPath[pInfo.name]++;
+          report.perTenant[cid].hydrated++;
+          report.perTenant[cid].ids.push(rec.Id);
+          if (verbose) console.log(`[§FIX-S/reconciler] hydrated trip #${rec.Id} cid=${cid} path=${pInfo.name} (status=${rec.BookingStatus}, closedAt=${new Date(tripMs).toISOString()})`);
+        }
+      }
+    }
+    if (report.hydrated > 0) {
+      saveClosedJobStore();
+      if (verbose) console.log(`[§FIX-S/reconciler] ✔ ${report.hydrated} trip(s) rehydrated across ${cids.length} tenant(s) in ${Date.now() - startedAt}ms`);
+    } else if (verbose) {
+      console.log(`[§FIX-S/reconciler] no gaps — scanned ${report.scanned} bookings across ${cids.length} tenant(s) in ${Date.now() - startedAt}ms`);
+    }
+    report.durationMs = Date.now() - startedAt;
+    _FIXS_LAST_REPORT = report;
+    return report;
+  } finally {
+    _FIXS_RUNNING = false;
+  }
+}
+
+// Boot run (45s delay so Firebase/network is warm) + periodic every 15 min.
+setTimeout(() => {
+  reconcileClosedJobsFromFirebase().catch(e =>
+    console.warn('[§FIX-S/reconciler] boot run failed:', (e && e.message) || e));
+}, 45000);
+setInterval(() => {
+  reconcileClosedJobsFromFirebase().catch(e =>
+    console.warn('[§FIX-S/reconciler] periodic run failed:', (e && e.message) || e));
+}, _FIXS_INTERVAL_MS);
+
 // ─── §FIX-H — Enrich closed-job record from allbookings (driver-app truth) ────
 // The driver app writes trip-completion data (fare breakdown, distance, addresses,
 // payment, timeline, TM/card fields) to allbookings/{cid}/{bookingId} at the end
@@ -3037,6 +3236,20 @@ const server = http.createServer(async (req, res) => {
         jsonReply(res, { ok: !fbError, companyId: reg.companyId, uid, fbError: fbError || undefined });
         return;
       }
+    }
+
+    // POST /admin/reconcileClosedJobs — manually trigger §FIX-S reconciler
+    // Used by ops/HQ to force-rehydrate any trips missing from closedJobStore
+    // (e.g. after a confirmed silent-window incident). Idempotent.
+    // Sits under the /admin/ prefix gate above so X-Admin-Key is enforced.
+    if (urlPath === '/admin/reconcileClosedJobs' && req.method === 'POST') {
+      try {
+        const _rcReport = await reconcileClosedJobsFromFirebase({ verbose: true });
+        jsonReply(res, { ok: true, report: _rcReport, last: _FIXS_LAST_REPORT });
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
     }
 
     // POST /admin/deploy-firebase-rules — push database.rules.json to Firebase RTDB
