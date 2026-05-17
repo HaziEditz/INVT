@@ -1935,6 +1935,7 @@
                                 <div id="jdp-fare-source-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Source</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-source"></div></div>
                                 <div id="jdp-fare-waittime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Waiting Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-waittime"></div></div>
                                 <div id="jdp-fare-booking-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Booking Type</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-booking"></div></div>
+                                <div id="jdp-fare-ridetime-wrap" style="display:none;"><div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px;">Ride Time</div><div style="font-size:13px; font-weight:600; color:#333;" id="jdp-fare-ridetime" title="Pickup → drop-off duration"></div></div>
                             </div>
                             <div id="jdp-fare-tariff-log-wrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0;">
                                 <div style="font-size:10px; color:#aaa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Tariff Changes</div>
@@ -23220,7 +23221,7 @@ $(document).ready(function() {
 
             function jdpBuildFare(j) {
                 var hasFare = false;
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-tariff-wrap,#jdp-fare-payment-wrap,#jdp-fare-source-wrap,#jdp-fare-total-wrap,#jdp-fare-waittime-wrap,#jdp-fare-ridetime-wrap,#jdp-fare-booking-wrap,#jdp-fare-tariff-log-wrap,#jdp-fare-payment-details-wrap,#jdp-fare-override-wrap,#jdp-fare-driver-note-wrap,#jdp-fare-issue-wrap').hide();
                 // Distance: prefer actual trip distance; also accept Firebase camelCase field names.
                 // Show even when 0 so the user sees that distance WAS computed (just zero on this hail trip).
                 var distRaw = j.JobDistance != null ? j.JobDistance
@@ -23314,6 +23315,54 @@ $(document).ready(function() {
                     var wTxt = wMin.toFixed(1) + ' min' + (wIvs ? ' · ' + wIvs.length + ' tap' + (wIvs.length === 1 ? '' : 's') : '');
                     $('#jdp-fare-waittime').text(wTxt); $('#jdp-fare-waittime-wrap').show(); hasFare = true;
                 }
+                // §FIX-RIDETIME — Ride duration (pickup → drop-off). Prefer the
+                // driver-app supplied total (TotalTime "mm:ss" or JobDuration in
+                // minutes). Fall back to deriving from event timestamps so a
+                // value still renders for legacy payloads that only stamp the
+                // canonical lifecycle fields.
+                (function() {
+                    var rideTxt = null, rideSrc = null;
+                    // 1. Explicit string "mm:ss" from driver app
+                    if (j.TotalTime && /^\d+:\d{2}/.test(String(j.TotalTime))) {
+                        rideTxt = String(j.TotalTime); rideSrc = 'driver';
+                    }
+                    // 2. Numeric minutes (JobDuration / duration_mins / TripDurationMins)
+                    if (!rideTxt) {
+                        var mins = parseFloat(j.JobDuration != null ? j.JobDuration
+                                            : (j.duration_mins != null ? j.duration_mins
+                                            : (j.TripDurationMins != null ? j.TripDurationMins : NaN)));
+                        if (!isNaN(mins) && mins > 0) {
+                            var mm = Math.floor(mins);
+                            var ss = Math.round((mins - mm) * 60);
+                            if (ss === 60) { mm += 1; ss = 0; }
+                            rideTxt = mm + ' min ' + (ss < 10 ? '0' : '') + ss + ' sec';
+                            rideSrc = 'driver';
+                        }
+                    }
+                    // 3. Derive from event timestamps: pickup → drop-off
+                    if (!rideTxt) {
+                        var startRaw = j.PickupTime || j.MeterOnAt || j.PickingAt || j.ActiveAt || j.activeAt || null;
+                        var endRaw   = j.DropoffTime || j.MeterOffAt || j.JobCompleteTime || j.newcompelete || j.completedAt || null;
+                        var sMs = startRaw ? Date.parse(startRaw) : NaN;
+                        var eMs = endRaw   ? Date.parse(endRaw)   : NaN;
+                        if (!isNaN(sMs) && !isNaN(eMs) && eMs > sMs) {
+                            var totalSec = Math.round((eMs - sMs) / 1000);
+                            var mm2 = Math.floor(totalSec / 60);
+                            var ss2 = totalSec % 60;
+                            rideTxt = mm2 + ' min ' + (ss2 < 10 ? '0' : '') + ss2 + ' sec';
+                            rideSrc = 'derived';
+                        }
+                    }
+                    if (rideTxt) {
+                        var html = $('<div>').text(rideTxt).html();
+                        if (rideSrc === 'derived') {
+                            html += ' <span style="font-size:10px; color:#aaa; font-weight:500;">(derived)</span>';
+                        }
+                        $('#jdp-fare-ridetime').html(html);
+                        $('#jdp-fare-ridetime-wrap').show();
+                        hasFare = true;
+                    }
+                })();
                 // Booking type (Normal Ride / ACC Ride / Account Ride / Total Mobility / Gift Card / etc.)
                 var bk = j.BookingType || j.bookingType || '';
                 if (bk) { $('#jdp-fare-booking').text(bk); $('#jdp-fare-booking-wrap').show(); hasFare = true; }
@@ -23490,7 +23539,7 @@ $(document).ready(function() {
                 $('#jdp-notfound').hide();
                 $('#jdp-timeline-wrap,#jdp-fare-wrap,#jdp-map-wrap,#jdp-notes-wrap,#jdp-tm-wrap').hide();
                 $('#jdp-duration-accept-wrap,#jdp-duration-ride-wrap,#jdp-duration-total-wrap').hide();
-                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap').hide();
+                $('#jdp-fare-distance-wrap,#jdp-fare-ride-wrap,#jdp-fare-waiting-wrap,#jdp-fare-driver-wrap,#jdp-fare-total-wrap,#jdp-fare-ridetime-wrap').hide();
                 $('#jdp-timeline').empty();
                 $('#job-detail-popup').modal('show');
 
