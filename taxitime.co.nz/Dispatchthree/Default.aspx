@@ -23234,16 +23234,55 @@ $(document).ready(function() {
                 }
                 function fmtDollar(v) { var n = parseFloat(v); return (!isNaN(n) && n > 0) ? '$' + n.toFixed(2) : null; }
                 function fmtDollarZ(v) { var n = parseFloat(v); return (!isNaN(n)) ? '$' + n.toFixed(2) : null; }
-                // Ride cost: FareBase (offline sync) or RideCost
-                var ride = fmtDollar(j.FareBase || j.RideCost);
-                if (ride) { $('#jdp-fare-ride').text(ride); $('#jdp-fare-ride-wrap').show(); hasFare = true; }
-                // Waiting/time cost: FareTime (offline sync) or WaitingCost. Show $0.00 if known-zero so the user
-                // doesn't think the field is missing — driver-app hail flow simply doesn't track waiting time.
+                // §FIX-FARE — make Ride Cost / Waiting Cost / Extras add up to Total.
+                // Driver-app payload often only sends FareBase (flagfall) + TotalFare,
+                // with no FareDistance row. Previously we showed FareBase as "Ride
+                // Cost" so a $5 flagfall on a $31.54 meter total looked like a math
+                // error. Now we derive a proper ride-cost number:
+                //   ride = FareBase + FareDistance   when both present
+                //        | RideCost                  legacy backend field
+                //        | TotalFare − waiting − extras   fallback
+                // so the displayed components reconcile with Total.
+                var _fbN = parseFloat(j.FareBase     != null ? j.FareBase     : 0) || 0;
+                var _fdN = parseFloat(j.FareDistance != null ? j.FareDistance : 0) || 0;
+                var _ftN = parseFloat(j.FareTime != null ? j.FareTime
+                                    : (j.WaitingCost != null ? j.WaitingCost : 0)) || 0;
+                var _feN = parseFloat(j.FareExtras   != null ? j.FareExtras   : 0) || 0;
+                var _totN = parseFloat(j.TotalFare || j.totalFare || j.fare || j.Fare || j.Cost || 0) || 0;
+                var _rcN  = parseFloat(j.RideCost    != null ? j.RideCost    : 0) || 0;
+                var _rideDisp = (_fbN + _fdN) > 0 ? (_fbN + _fdN)
+                              : (_rcN > 0)        ? _rcN
+                              : (_totN > 0)       ? Math.max(0, _totN - _ftN - _feN)
+                              : 0;
+                if (_rideDisp > 0) {
+                    var _rideHtml = '$' + _rideDisp.toFixed(2);
+                    // Annotate with "flagfall + distance" breakdown when we know both,
+                    // so the user can see what the ride cost is made of.
+                    if (_fbN > 0 && _fdN > 0) {
+                        _rideHtml += ' <span style="font-size:10px; color:#888; font-weight:500;">(flagfall $' + _fbN.toFixed(2) + ' + distance $' + _fdN.toFixed(2) + ')</span>';
+                    } else if (_fbN > 0 && _rideDisp > _fbN) {
+                        _rideHtml += ' <span style="font-size:10px; color:#888; font-weight:500;">(incl. $' + _fbN.toFixed(2) + ' flagfall)</span>';
+                    }
+                    $('#jdp-fare-ride').html(_rideHtml);
+                    $('#jdp-fare-ride-wrap').show();
+                    hasFare = true;
+                }
+                // Waiting/time cost. Show $0.00 if known-zero so the user doesn't
+                // think the field is missing — hail flow simply doesn't track it.
                 var waitRaw = (j.FareTime != null ? j.FareTime : (j.WaitingCost != null ? j.WaitingCost : null));
                 var wait = (waitRaw != null && waitRaw !== '') ? fmtDollarZ(waitRaw) : null;
                 if (wait) { $('#jdp-fare-waiting').text(wait); $('#jdp-fare-waiting-wrap').show(); hasFare = true; }
-                var drv = fmtDollar(j.DriverCost);
-                if (drv) { $('#jdp-fare-driver').text(drv); $('#jdp-fare-driver-wrap').show(); hasFare = true; }
+                // §FIX-FARE — only show "Driver Cost" when it differs from the
+                // customer total (e.g. real-backend trips where the driver's
+                // earned share is split out from commission). On hail trips
+                // DriverCost == TotalFare, so showing it duplicates the total
+                // and made the breakdown look like it didn't add up.
+                var _drvN = parseFloat(j.DriverCost != null ? j.DriverCost : 0) || 0;
+                if (_drvN > 0 && (_totN === 0 || Math.abs(_drvN - _totN) > 0.005)) {
+                    $('#jdp-fare-driver').text('$' + _drvN.toFixed(2));
+                    $('#jdp-fare-driver-wrap').show();
+                    hasFare = true;
+                }
                 // Tariff badge (also surfaced in modal footer; mirror here so it's visible alongside the fare).
                 var tariffName = j.TarriffType || j.TariffName || j.tarriffname || '';
                 if (tariffName) { $('#jdp-fare-tariff').text(tariffName); $('#jdp-fare-tariff-wrap').show(); hasFare = true; }
