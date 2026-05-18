@@ -56,6 +56,25 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-CMD — Unified `/api/job/command` + state machine + assign/complete helpers (May 2026)
+
+- Backend tasks 1.1 + 1.2 + 1.7 from the dev-team task map. Single new front door for every booking lifecycle verb so external apps (passenger, driver, integrations) only have to integrate one URL. Backward-safe — all existing endpoints (`/api/cancel`, `/api/booking/update`, `/api/driver/active-bookings`, legacy DataProcessor `[AssignJob]` / `[ProcUpdateJobv6]` / etc.) keep working unchanged.
+- **1.2 State machine** — `_BOOKING_STATE_MACHINE` table at server.js ~975 + `_canTransition(currentStatus, command)` validator. Allowed transitions: `Pending→Assigned/Cancelled`, `Offered→Assigned/Cancelled/recalled-to-Pending`, `Assigned→Cancelled/recalled-to-Pending/Completed`, `Picking|OnTrip|Active→Cancelled/Completed`, `Queued→Cancelled`, `No One→Assigned/Cancelled`. Terminal `Completed`/`Cancelled` only allow idempotent re-runs.
+- **1.7 Idempotency** — new `assignBooking({bookingId, driverId, vehicleId, by})` at ~1001 and `completeBooking({bookingId, fare, distance, by})` at ~1080. `cancelBooking` was already idempotent (§FIX-CB). Each helper:
+  - Validates current state via `_canTransition`
+  - Returns `{ok:true, idempotent:true}` on terminal re-run (Assigned-to-same-driver / already Completed)
+  - Bumps `updateSeq` and stamps `lastUpdatedAt`
+  - Emits `bookingEvents/{cid}/{bookingId}` record (`OfferSent` / `BookingCompleted`)
+  - `completeBooking` calls `_maybeRestoreDriverState` (respects §FIX-CB remaining-assignments rule) + `_bwClearJobFromFirebase` (per §FIX-DA-G2/C2 writes `eventType:'completed'` then `remove()`)
+  - `assignBooking` publishes `notification/{drv}` hint with `eventType:'new_offer'`
+- **1.1 `/api/job/command` endpoint** at server.js ~5479. Body `{bookingId, command, payload?, ifSeq?, by?}` where `command ∈ {assign, cancel, recall, update, complete}` and `by ∈ {dispatcher, driver, passenger, website}`. Auth: dispatcher uses BW_SID, others X-Admin-Key (same model as `/api/cancel`). Cross-tenant 403 enforced. Routes internally:
+  - `cancel` → `cancelBooking({recallToPending:false})`
+  - `recall` → `cancelBooking({recallToPending:true})`
+  - `update` → `updateBooking()` (stale `ifSeq` → 409, closed → 410)
+  - `assign` → `assignBooking()` (409 if state disallows)
+  - `complete` → `completeBooking()` (409 if state disallows)
+- Phase 2 (deferred): Dispatch UI (`Default.aspx`) button refactor — assign/cancel/recall/edit handlers still hit legacy DataProcessor endpoints. New `/api/job/command` is exposed for the driver app + passenger app + future SDKs to consume; UI cutover is a larger Default.aspx pass.
+
 ## §FIX-DA-G2 — Booking-keyed `jobs/{cid}/{vid}/{drv}/{bookingId}` children (May 2026)
 
 - Final piece of the driver-app contract. Old shape was `jobs/{cid}/{vid}/{drv}` — a single-slot envelope keyed by driver, which meant any write touching that node could clobber a sibling booking the same driver was holding. Every cancel/edit/clear site needed a TOCTOU/ETag dance to refuse cross-booking overwrites (§FIX-Q, §FIX-D/Q, §FIX-UB's pre-read guard, `_bwClearJobFromFirebase`'s ETag-conditional DELETE, `§FIX-OfferClear`'s GET-then-DELETE).

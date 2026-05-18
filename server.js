@@ -957,6 +957,208 @@ function cancelBooking(opts) {
   };
 }
 
+// ─── §FIX-CMD — State machine + assign/complete helpers + /api/job/command ───
+// Backend tasks 1.1 (unified command endpoint), 1.2 (state machine validator),
+// 1.7 (idempotency for assign+complete). Backward-safe — every existing
+// endpoint and handler keeps working; the new endpoint is an additional front
+// door that wraps the existing helpers (cancelBooking, updateBooking) and
+// adds new minimal helpers (assignBooking, completeBooking) for the two
+// remaining lifecycle verbs.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// §FIX-CMD/1.2 — Booking state machine. Maps current status → allowed commands.
+// `update` is allowed in every active state; terminal states only allow no-op
+// idempotent re-runs of the command that produced them.
+const _BOOKING_STATE_MACHINE = {
+  'Pending':   { assign: 'Assigned', cancel: 'Cancelled', update: 'Pending' },
+  'Offered':   { assign: 'Assigned', cancel: 'Cancelled', update: 'Offered', recall: 'Pending' },
+  'Assigned':  { cancel: 'Cancelled', recall: 'Pending', update: 'Assigned', complete: 'Completed' },
+  'Picking':   { cancel: 'Cancelled', update: 'Picking', complete: 'Completed' },
+  'OnTrip':    { cancel: 'Cancelled', update: 'OnTrip', complete: 'Completed' },
+  'Active':    { cancel: 'Cancelled', update: 'Active',  complete: 'Completed' },
+  'Queued':    { cancel: 'Cancelled', update: 'Queued' },
+  'Completed': { complete: 'Completed' },   // idempotent
+  'Cancelled': { cancel: 'Cancelled' },     // idempotent
+  'No One':    { assign: 'Assigned', update: 'No One', cancel: 'Cancelled' }
+};
+
+// Returns { ok:true, nextStatus } or { ok:false, error }
+function _canTransition(currentStatus, command) {
+  const _s = String(currentStatus || 'Pending');
+  const _c = String(command || '').toLowerCase();
+  const row = _BOOKING_STATE_MACHINE[_s];
+  if (!row) return { ok: false, error: `unknown booking status "${_s}"` };
+  if (!(_c in row)) return { ok: false, error: `command "${_c}" not allowed from status "${_s}"` };
+  return { ok: true, nextStatus: row[_c] };
+}
+
+// §FIX-CMD/1.7 — Idempotent assign. If the booking is already Assigned to the
+// requested driver, returns {idempotent:true}. Otherwise validates state,
+// mutates the job, bumps version, emits bookingEvents + driver notification.
+function assignBooking(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId  || '').trim();
+  const vehicleId = String(opts.vehicleId || '').trim();
+  const by        = String(opts.by || 'dispatcher').toLowerCase();
+  const source    = opts.source || 'assignBooking';
+  if (!bookingId || !driverId) return { ok: false, error: 'bookingId and driverId required' };
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) {
+    // Maybe already completed/cancelled — check closed store for idempotency.
+    const _cl = closedJobStore.find(j => j && j.Id === bookingId);
+    if (_cl) return { ok: false, closed: true, error: `job is ${_cl.BookingStatus}` };
+    return { ok: false, error: 'job not found' };
+  }
+  const job = jobStore[idx];
+  const _curStatus = job.BookingStatus || 'Pending';
+  const _curDrv    = String(job.DriverId || '').trim();
+
+  // Idempotency — already assigned to the same driver
+  if (_curStatus === 'Assigned' && _curDrv === driverId) {
+    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Assigned to driver ${driverId}`);
+    return { ok: true, idempotent: true, status: 'Assigned', driverId, vehicleId: String(job.VehicleNo || job.CallSign || '') };
+  }
+  const _trans = _canTransition(_curStatus, 'assign');
+  if (!_trans.ok) {
+    console.warn(`  [${source}] §FIX-CMD assign rejected: ${_trans.error} (job #${bookingId})`);
+    return { ok: false, error: _trans.error, currentStatus: _curStatus };
+  }
+  // Apply mutation.
+  const _seqBefore = parseInt(job.updateSeq) || 0;
+  job.BookingStatus = 'Assigned';
+  job.DriverId      = driverId;
+  if (vehicleId) {
+    job.VehicleId  = vehicleId;
+    job.VehicleNo  = vehicleId;
+    job.CallSign   = vehicleId;
+  }
+  job.updateSeq      = _seqBefore + 1;
+  job.lastUpdatedAt  = Date.now();
+  job.lastUpdatedBy  = by;
+  job.AssignedAt     = new Date().toISOString();
+  job.AssignedDriverId  = driverId;
+  job.AssignedVehicleId = vehicleId || String(job.VehicleNo || job.CallSign || '');
+  // Preserve legacy "Take to No One" timeout protection — dispatcher-initiated
+  // assigns are flagged so the auto-dispatch / Unreached timeout treats them
+  // as manual offers (same semantics as the legacy [AssignJob] handler).
+  if (by === 'dispatcher' && opts.manualOffer !== false) {
+    job.manualOffer = true;
+  } else if (opts.manualOffer === true) {
+    job.manualOffer = true;
+  }
+  saveJobStore();
+
+  const _cid = String(job.companyId || '');
+  // Emit OfferSent bookingEvent (driver app sees lifecycle on same stream as edits).
+  if (_cid) {
+    _writeBookingEvent(_cid, bookingId, 'OfferSent',
+      { from: _curStatus, to: 'Assigned', driverId, vehicleId: job.VehicleNo || '' },
+      by, job.updateSeq).catch(() => {});
+  }
+  // Driver notification — new_offer hint. The actual Firebase offer write
+  // (jobs/{cid}/{vid}/{drv}/{bookingId}) is still handled by the legacy
+  // dispatch flow when invoked from Default.aspx. When the API is called
+  // headlessly (passenger app server-to-server), we additionally publish a
+  // notification/{drv} hint so the driver app re-reads via
+  // GET /api/driver/active-bookings.
+  if (_cid && driverId) {
+    (async () => {
+      try {
+        const _tok = await getFirebaseServerToken();
+        if (!_tok) return;
+        await firebaseDbSet(`notification/${driverId}`, {
+          bookingid: `${bookingId},New Offer,${driverId},Server,${by}`,
+          content:   'New Offer',
+          eventType: 'new_offer',
+          version:   job.updateSeq,
+          updatedAt: _FB_SERVER_TIMESTAMP,
+          bookingId: bookingId
+        }, _tok);
+      } catch (e) { console.warn(`  [${source}] notification write failed: ${e && e.message}`); }
+    })();
+  }
+  console.log(`  [${source}] §FIX-CMD assign job #${bookingId} (${_curStatus}→Assigned) → driver ${driverId} veh ${vehicleId} seq=${job.updateSeq}`);
+  return { ok: true, idempotent: false, status: 'Assigned', driverId, vehicleId, version: job.updateSeq };
+}
+
+// §FIX-CMD/1.7 — Idempotent complete. Moves job to closedJobStore, restores
+// driver state via _maybeRestoreDriverState (respects remaining-assignments
+// rule), emits BookingCompleted event + 'completed' eventType to driver.
+function completeBooking(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const by        = String(opts.by || 'driver').toLowerCase();
+  const source    = opts.source || 'completeBooking';
+  const fare      = opts.fare;
+  const distance  = opts.distance;
+  if (!bookingId) return { ok: false, error: 'bookingId required' };
+
+  // Idempotency — already in closedJobStore as Completed?
+  const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Completed');
+  if (_closed) {
+    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Completed`);
+    return { ok: true, idempotent: true, status: 'Completed',
+             driverId: _closed.AssignedDriverId || String(_closed.DriverId || ''),
+             vehicleId: _closed.AssignedVehicleId || '' };
+  }
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error: 'job not found' };
+  const job = jobStore[idx];
+  const _curStatus = job.BookingStatus || '';
+  const _trans = _canTransition(_curStatus, 'complete');
+  if (!_trans.ok) {
+    console.warn(`  [${source}] §FIX-CMD complete rejected: ${_trans.error} (job #${bookingId})`);
+    return { ok: false, error: _trans.error, currentStatus: _curStatus };
+  }
+  const _cid    = String(job.companyId || '');
+  const _drvId  = String(job.DriverId || '').trim();
+  const _vehId  = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+  const _nowIso = new Date().toISOString();
+
+  const _seqBefore   = parseInt(job.updateSeq) || 0;
+  job.updateSeq      = _seqBefore + 1;
+  job.BookingStatus  = 'Completed';
+  job.JobCompleteTime = _nowIso;
+  if (fare !== undefined && fare !== null && fare !== '') {
+    job.TotalFare    = fare;
+    job.FareSnapshot = fare;
+  }
+  if (distance !== undefined && distance !== null && distance !== '') {
+    job.distance         = distance;
+    job.DistanceSnapshot = distance;
+  }
+  job.AssignedDriverId  = _drvId;
+  job.AssignedVehicleId = _vehId;
+
+  closedJobStore.push(job);
+  jobStore.splice(idx, 1);
+  saveJobStore();
+  saveClosedJobStore();
+
+  if (_cid) {
+    _writeBookingEvent(_cid, bookingId, 'BookingCompleted',
+      { from: _curStatus, to: 'Completed', fare: job.TotalFare || '', distance: job.distance || '' },
+      by, job.updateSeq).catch(() => {});
+  }
+  // Firebase cleanup — booking-scoped child remove with eventType:'completed'
+  // (per §FIX-DA-G2/C2). _bwClearJobFromFirebase already handles this.
+  if (_cid && _drvId) {
+    _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Completed');
+  }
+  // Driver state restore — respects remainingAssignments rule.
+  const _ds = _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, false, source);
+  console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
+  return {
+    ok: true, idempotent: false, status: 'Completed',
+    driverId: _drvId, vehicleId: _vehId,
+    fare: job.TotalFare || null, distance: job.distance || null,
+    driverFreed: _ds.driverFreed, driverState: _ds.driverState, queueNo: _ds.queueNo,
+    version: job.updateSeq
+  };
+}
+
 // ─── §FIX-UB — Unified booking update lifecycle ───────────────────────────────
 // Counterpart to §FIX-CB. Single helper for every booking edit. Diff-based,
 // per-booking, with explicit event classification so the driver app can react
@@ -5269,6 +5471,110 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       fetchedAt: Date.now()
     }));
     console.log(`200: GET /api/driver/active-bookings driver=${_g6Drv} cid=${_g6Cid} → ${_g6Rows.length} booking(s)`);
+    return;
+  }
+
+  // ── POST /api/job/command — §FIX-CMD unified lifecycle front door ───────────
+  // Body: { bookingId, command: assign|cancel|recall|update|complete,
+  //         payload?: {...}, ifSeq?, by?: dispatcher|driver|passenger|website }
+  // Dispatcher source uses BW_SID session cookie; others require X-Admin-Key.
+  // Routes internally to assignBooking / cancelBooking / updateBooking /
+  // completeBooking. All commands are idempotent — re-running with the same
+  // terminal state returns { idempotent: true }.
+  if (urlPath === '/api/job/command' && req.method === 'POST') {
+    const _cmdBody = await readBody(req);
+    let _cmd = {};
+    try { _cmd = JSON.parse(_cmdBody); } catch(e) {}
+    const _cmdBooking = parseInt(_cmd.bookingId || _cmd.BookingId || 0) || 0;
+    const _cmdName    = String(_cmd.command || '').toLowerCase().trim();
+    const _cmdBy      = String(_cmd.by || _cmd.cancelledBy || _cmd.updatedBy || 'dispatcher').toLowerCase().trim();
+    const _cmdPayload = (_cmd.payload && typeof _cmd.payload === 'object') ? _cmd.payload : {};
+    const _cmdIfSeq   = (_cmd.ifSeq !== undefined && _cmd.ifSeq !== null) ? parseInt(_cmd.ifSeq) : null;
+    const _cmdAllowed = new Set(['assign', 'cancel', 'recall', 'update', 'complete']);
+    const _cmdBySet   = new Set(['dispatcher', 'driver', 'passenger', 'website']);
+    if (!_cmdBooking || !_cmdAllowed.has(_cmdName) || !_cmdBySet.has(_cmdBy)) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId, command ∈ {assign,cancel,recall,update,complete}, by ∈ {dispatcher,driver,passenger,website} required' }));
+      return;
+    }
+    // Auth — dispatcher uses session cookie, others require admin key.
+    let _cmdCid = '';
+    if (_cmdBy === 'dispatcher') {
+      _cmdCid = getSessionCompanyId(req) || '';
+      if (!_cmdCid) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+        return;
+      }
+      const _cmdJobT = jobStore.find(j => j && j.Id === _cmdBooking) || closedJobStore.find(j => j && j.Id === _cmdBooking);
+      if (_cmdJobT && _cmdJobT.companyId && String(_cmdJobT.companyId) !== String(_cmdCid)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'cross-tenant command forbidden' }));
+        return;
+      }
+    } else {
+      const _cmdKey = req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '';
+      if (!process.env.BW_ADMIN_KEY || _cmdKey !== process.env.BW_ADMIN_KEY) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'X-Admin-Key required for ' + _cmdBy + ' source' }));
+        return;
+      }
+      const _cmdJob = jobStore.find(j => j && j.Id === _cmdBooking) || closedJobStore.find(j => j && j.Id === _cmdBooking);
+      _cmdCid = _cmdJob ? String(_cmdJob.companyId || '') : '';
+    }
+
+    // Dispatch by command verb.
+    let _result, _status = 200;
+    const _logSrc = 'api/job/command/' + _cmdName + '/' + _cmdBy;
+    try {
+      if (_cmdName === 'cancel') {
+        _result = cancelBooking({
+          bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
+          driverFault: !!_cmdPayload.driverFault, recallToPending: false,
+          companyId: _cmdCid, source: _logSrc
+        });
+        if (!_result.ok) _status = _result.closed ? 410 : 404;
+      } else if (_cmdName === 'recall') {
+        _result = cancelBooking({
+          bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
+          driverFault: !!_cmdPayload.driverFault, recallToPending: true,
+          companyId: _cmdCid, source: _logSrc
+        });
+        if (!_result.ok) _status = 404;
+      } else if (_cmdName === 'update') {
+        const _changes = (_cmdPayload.changes && typeof _cmdPayload.changes === 'object') ? _cmdPayload.changes : _cmdPayload;
+        _result = updateBooking({
+          bookingId: _cmdBooking, changes: _changes,
+          by: _cmdBy, ifSeq: _cmdIfSeq, source: _logSrc
+        });
+        if (_result.stale)       _status = 409;
+        else if (_result.closed) _status = 410;
+        else if (!_result.ok)    _status = 404;
+      } else if (_cmdName === 'assign') {
+        _result = assignBooking({
+          bookingId: _cmdBooking,
+          driverId:  _cmdPayload.driverId  || _cmdPayload.DriverId,
+          vehicleId: _cmdPayload.vehicleId || _cmdPayload.VehicleId,
+          by: _cmdBy, source: _logSrc
+        });
+        if (!_result.ok) _status = _result.closed ? 410 : (_result.currentStatus ? 409 : 404);
+      } else if (_cmdName === 'complete') {
+        _result = completeBooking({
+          bookingId: _cmdBooking,
+          fare:     _cmdPayload.fare,
+          distance: _cmdPayload.distance,
+          by: _cmdBy, source: _logSrc
+        });
+        if (!_result.ok) _status = (_result.currentStatus ? 409 : 404);
+      }
+    } catch (e) {
+      console.warn(`[/api/job/command] ${_cmdName} failed: ${e && e.message}`);
+      _result = { ok: false, error: e && e.message };
+      _status = 500;
+    }
+    console.log(`${_status}: POST /api/job/command [${_cmdName}] #${_cmdBooking} by=${_cmdBy} -> ${JSON.stringify({ ok: _result.ok, idempotent: _result.idempotent, status: _result.status || _result.cancelStage, version: _result.version })}`);
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
     return;
   }
 
