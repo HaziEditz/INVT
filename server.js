@@ -634,55 +634,19 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
         .catch(e => console.warn(`${_tag} pendingjobs PATCH failed: ${e && e.message}`))
     );
 
-    // 2. /jobs/{cid}/{vehId}/{drvId} — DELETE acceptance/offer listener path.
-    //    This is the path the offer watchdog reads; without removal it can
-    //    reset the job to Pending and auto-dispatch will re-offer it.
-    //    SAFETY: GET first and only DELETE if the node's bookingId actually
-    //    matches _bId. A blind DELETE risks wiping an unrelated NEW job that
-    //    was assigned to the same driver between accept and cleanup —
-    //    driver-app team confirmed mid-trip node removal ends the active trip.
+    // 2. /jobs/{cid}/{vehId}/{drvId}/{bookingId} — DELETE acceptance/offer
+    //    child node. §FIX-DA-G2: booking-keyed children mean each cancel only
+    //    touches its own child, so the cross-booking TOCTOU/ETag dance that
+    //    used to live here is gone. Other active bookings on this driver are
+    //    untouched. Q5 (driver-app team): terminal transitions = remove() the
+    //    child node; driver app reacts on onChildRemoved.
     if (_vId && _dId) {
-      tasks.push((async () => {
-        const _url = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}.json?auth=${auth}`;
-        try {
-          // GET with X-Firebase-ETag so the response includes an ETag header
-          // we can use for conditional DELETE (atomic compare-and-swap).
-          const g = await fbRequest(_url, 'GET', null, { 'X-Firebase-ETag': 'true' });
-          const n = g.body || {};
-          // Empty node — nothing to do.
-          if (!n || (typeof n === 'object' && Object.keys(n).length === 0)) {
-            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} already empty`);
-            return;
-          }
-          const nodeBId = String(n.BookingId || n.bookingId || n.jobId || n.Id || n._jobId || '');
-          if (!nodeBId) {
-            // Node has data but no bookingId field we recognise — refuse blind delete.
-            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} kept (no bookingId field — refusing blind delete)`);
-            return;
-          }
-          if (nodeBId !== _bId) {
-            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} kept (refs job #${nodeBId}, not #${_bId})`);
-            return;
-          }
-          // Conditional DELETE: only succeeds if ETag still matches — prevents
-          // a TOCTOU race where a NEW job is written between our GET and DELETE.
-          const etag = g.headers && (g.headers['etag'] || g.headers['ETag']);
-          if (etag) {
-            const d = await fbRequest(_url, 'DELETE', null, { 'if-match': etag });
-            if (d.status === 412) {
-              console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} kept (ETag changed mid-flight — new job arrived)`);
-            } else {
-              console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} deleted [${d.status}] (ETag-guarded)`);
-            }
-          } else {
-            // No ETag available — fall back to unconditional DELETE. The
-            // bookingId check above already eliminates the common mid-trip case;
-            // this is a narrow race window of ms per Firebase REST.
-            const d = await fbRequest(_url, 'DELETE', null);
-            console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId} deleted [${d.status}] (no ETag)`);
-          }
-        } catch(e) { console.warn(`${_tag} jobs DELETE check failed: ${e && e.message}`); }
-      })());
+      const _url = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}/${_bId}.json?auth=${auth}`;
+      tasks.push(
+        fbRequest(_url, 'DELETE', null)
+          .then(d => console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId}/${_bId} deleted [${d && d.status}]`))
+          .catch(e => console.warn(`${_tag} jobs child DELETE failed: ${e && e.message}`))
+      );
     }
 
     // 3. /joback/{bookingId} — DELETE offer-back ack node (driver app offer screen).
@@ -804,10 +768,13 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
       .then(() => console.log(`  [CancelNotify #${bookingId}] notification/${drvId} → Job Cancel (by ${_srcPretty})`))
       .catch(e => console.warn(`  [CancelNotify #${bookingId}] notification write failed: ${e && e.message}`));
     if (vehId) {
-      fbCompareAndSet(`jobs/${cid}/${vehId}/${drvId}`, String(bookingId),
-        { Status: 'Cancelled', BookingId: String(bookingId) }, _tok)
-        .then(r => console.log(`  [CancelNotify #${bookingId}] jobs/${cid}/${vehId}/${drvId} → ${r}`))
-        .catch(e => console.warn(`  [CancelNotify #${bookingId}] jobs/ CAS failed: ${e && e.message}`));
+      // §FIX-DA-G2 — booking-keyed children: cancel removes the child node;
+      // sibling bookings on the same driver are untouched. Driver app reacts
+      // on onChildRemoved + the eventType:'cancelled'|'recalled' notification.
+      const _delUrl = `${FB_DB_URL}/jobs/${cid}/${vehId}/${drvId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
+      fbRequest(_delUrl, 'DELETE', null)
+        .then(d => console.log(`  [CancelNotify #${bookingId}] jobs/${cid}/${vehId}/${drvId}/${bookingId} removed [${d && d.status}]`))
+        .catch(e => console.warn(`  [CancelNotify #${bookingId}] jobs child remove failed: ${e && e.message}`));
     }
   } catch(e) { console.warn(`  [CancelNotify #${bookingId}] failed: ${e && e.message}`); }
 }
@@ -1197,18 +1164,14 @@ function updateBooking(opts) {
         if (!_tok) return;
         await firebaseDbPatch(`pendingjobs/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB pendingjobs patch failed: ${_e.message}`); });
         await firebaseDbPatch(`allbookings/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB allbookings patch failed: ${_e.message}`); });
-        // Live driver-keyed node — only PATCH if it currently refs THIS booking.
+        // §FIX-DA-G2 — booking-keyed child: patch jobs/{cid}/{vid}/{drv}/{bookingId}
+        // directly. The pre-read + cross-booking guard from §FIX-UB is no longer
+        // needed: an edit to booking B can never clobber booking A because they
+        // live in separate children of the driver node.
         if (_visible && _vid && _vid !== '0' && _vid !== '-1' && _drv) {
-          const _liveUrl = `${FB_DB_URL}/jobs/${_cid}/${_vid}/${_drv}.json?auth=${encodeURIComponent(_tok)}`;
-          const _cur = await fbRequest(_liveUrl, 'GET');
-          const _curBody = (_cur && _cur.status === 200) ? _cur.body : null;
-          const _curBid = _curBody && (_curBody.BookingId || _curBody.bookingId || _curBody.Id);
-          if (!_curBody || _curBid === undefined || _curBid === null || String(_curBid) === String(bookingId)) {
-            await firebaseDbPatch(`jobs/${_cid}/${_vid}/${_drv}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB jobs live-patch failed: ${_e.message}`); });
-            console.log(`  [${source}] §FIX-UB jobs/${_cid}/${_vid}/${_drv} live-patched (booking ${bookingId})`);
-          } else {
-            console.log(`  [${source}] §FIX-UB jobs/${_cid}/${_vid}/${_drv} SKIPPED — refs different booking #${_curBid} (this=${bookingId})`);
-          }
+          await firebaseDbPatch(`jobs/${_cid}/${_vid}/${_drv}/${bookingId}`, _fbChanged, _tok)
+            .then(() => console.log(`  [${source}] §FIX-UB jobs/${_cid}/${_vid}/${_drv}/${bookingId} live-patched`))
+            .catch(_e => { console.warn(`  [${source}] §FIX-UB jobs live-patch failed: ${_e.message}`); });
         }
       } catch (_e) {
         console.warn(`  [${source}] §FIX-UB Firebase fanout error: ${_e && _e.message}`);
@@ -6504,11 +6467,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     // [UnAssignJobStatusFromJobList] for the full rationale.
                     const _drvForFbD = String(_prevDrvD || '').trim();
                     if (_drvForFbD && _drvForFbD !== '0' && _drvForFbD !== '-1') {
-                      const _jobsPathD = `jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}`;
-                      fbCompareAndSet(_jobsPathD, job.Id,
-                        { Status: 'Cancelled', BookingId: String(job.Id) }, _tok)
-                        .then(_r => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD} → ${_r.action}${_r.refBid ? ` (refs #${_r.refBid})` : ''}`))
-                        .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs compare-and-set failed: ${e.message}`));
+                      // §FIX-DA-G2 — booking-keyed child remove.
+                      const _delUrl = `${FB_DB_URL}/jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}/${job.Id}.json?auth=${encodeURIComponent(_tok)}`;
+                      fbRequest(_delUrl, 'DELETE', null)
+                        .then(_r => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}/${job.Id} removed [${_r && _r.status}]`))
+                        .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs child remove failed: ${e.message}`));
                       firebaseDbSet(`notification/${_drvForFbD}`, {
                         bookingid: `${job.Id},Job Cancel,${_drvForFbD},Server,Dispatcher`,
                         content:   'Passenger Cancel',
@@ -6694,10 +6657,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               // currently assigned. Patching when no driver is on it would create
               // orphan nodes the cleanup logic might leave behind.
               if (_euJobIsLive && _euVidOk && _euDid && _euDid !== '0' && _euDid !== '-1') {
+                // §FIX-DA-G2 — booking-keyed child PATCH.
                 _writes.push(
-                  firebaseDbPatch(`jobs/${_euCid}/${_euVid}/${_euDid}`, _euPatch, tok)
-                    .then(() => { console.log(`  [ProcUpdateJobv6] jobs/${_euCid}/${_euVid}/${_euDid} live-update sent (job #${job.Id}, status=${job.BookingStatus})`); })
-                    .catch(e => { console.warn(`  [ProcUpdateJobv6] jobs/${_euCid}/${_euVid}/${_euDid} patch failed: ${e.message}`); })
+                  firebaseDbPatch(`jobs/${_euCid}/${_euVid}/${_euDid}/${job.Id}`, _euPatch, tok)
+                    .then(() => { console.log(`  [ProcUpdateJobv6] jobs/${_euCid}/${_euVid}/${_euDid}/${job.Id} live-update sent (status=${job.BookingStatus})`); })
+                    .catch(e => { console.warn(`  [ProcUpdateJobv6] jobs/${_euCid}/${_euVid}/${_euDid}/${job.Id} patch failed: ${e.message}`); })
                 );
               }
               return Promise.all(_writes);
@@ -6913,11 +6877,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   // BookingId (a new job arrived between unassign and this write).
                   const _drvForFb = String(_prevDrvStr || '').trim();
                   if (_drvForFb) {
-                    const _jobsPath = `jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}`;
-                    fbCompareAndSet(_jobsPath, bookingId,
-                      { Status: 'Cancelled', BookingId: String(bookingId) }, _tok)
-                      .then(_r => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb} → ${_r.action}${_r.refBid ? ` (refs #${_r.refBid})` : ''}`))
-                      .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs compare-and-set failed: ${e.message}`));
+                    // §FIX-DA-G2 — booking-keyed child remove.
+                    const _delUrl = `${FB_DB_URL}/jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
+                    fbRequest(_delUrl, 'DELETE', null)
+                      .then(_r => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}/${bookingId} removed [${_r && _r.status}]`))
+                      .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs child remove failed: ${e.message}`));
                     firebaseDbSet(`notification/${_drvForFb}`, {
                       bookingid: `${bookingId},Job Cancel,${_drvForFb},Server,Dispatcher`,
                       content:   'Passenger Cancel',
@@ -10757,24 +10721,14 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
       // NOTE: fbRequest returns { status, headers, body } — payload is at .body.
       // A failed GET (non-200) is treated as "unknown state, do not destroy" — safer to
       // leave the node alone than to risk wiping a fresh offer.
-      // 1. jobs/{cid}/{vid}/{driverId} — the Offered envelope.
+      // 1. jobs/{cid}/{vid}/{driverId}/{bookingId} — the Offered envelope.
+      // §FIX-DA-G2 — booking-keyed children: direct child DELETE. The
+      // sibling-booking guard that used to live here is no longer needed —
+      // a different booking's offer would live under a different child key.
       try {
-        const resp = await fbRequest(`${FB_DB_URL}/jobs/${cid}/${vid}/${did}.json?auth=${auth}`, 'GET', null);
-        if (!resp || resp.status !== 200) {
-          console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} GET status=${resp && resp.status} — skip (safe)`);
-        } else {
-          const cur = resp.body;
-          const curBid = cur && (cur.BookingId || cur.bookingId) ? String(cur.BookingId || cur.bookingId) : '';
-          if (cur === null || cur === undefined) {
-            console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} already empty — skip`);
-          } else if (curBid && curBid !== bookingIdStr) {
-            console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} now holds bookingId=${curBid} (fresh offer) — skip clear of stale ${bookingIdStr}`);
-          } else {
-            await fbRequest(`${FB_DB_URL}/jobs/${cid}/${vid}/${did}.json?auth=${auth}`, 'DELETE', null);
-            console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did} deleted (job#${bookingId})`);
-          }
-        }
-      } catch (e2) { console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ guarded-DELETE failed:`, e2 && e2.message); }
+        const _delResp = await fbRequest(`${FB_DB_URL}/jobs/${cid}/${vid}/${did}/${bookingIdStr}.json?auth=${auth}`, 'DELETE', null);
+        console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingIdStr} deleted [${_delResp && _delResp.status}]`);
+      } catch (e2) { console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child DELETE failed:`, e2 && e2.message); }
       // 2. online/{cid}/{vid}/current — only clear if it still references THIS booking.
       try {
         const resp = await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}/current.json?auth=${auth}`, 'GET', null);

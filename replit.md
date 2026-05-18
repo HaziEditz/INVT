@@ -56,6 +56,27 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-DA-G2 — Booking-keyed `jobs/{cid}/{vid}/{drv}/{bookingId}` children (May 2026)
+
+- Final piece of the driver-app contract. Old shape was `jobs/{cid}/{vid}/{drv}` — a single-slot envelope keyed by driver, which meant any write touching that node could clobber a sibling booking the same driver was holding. Every cancel/edit/clear site needed a TOCTOU/ETag dance to refuse cross-booking overwrites (§FIX-Q, §FIX-D/Q, §FIX-UB's pre-read guard, `_bwClearJobFromFirebase`'s ETag-conditional DELETE, `§FIX-OfferClear`'s GET-then-DELETE).
+- Direct cutover — no install base to dual-write for (just owner's two test phones on cid 620611). New shape: each booking lives under its own child key `jobs/{cid}/{vid}/{drv}/{bookingId}`.
+- Driver-app contract (answers to their 5 G2 questions):
+  - Q1 path = `jobs/{cid}/{vid}/{drv}/{bookingId}` (booking-keyed children of the driver node).
+  - Q2 flag = none (direct cutover).
+  - Q3 window = none (direct cutover).
+  - Q4 atomicity = dispatch only ever writes a single child node — never rewrites the parent. Driver app's `onChildChanged` fires once per real change.
+  - Q5 terminal transitions = `remove()` the child node; driver app reacts on `onChildRemoved`. No `Status:Cancelled`/`Status:Completed` tombstones on the active jobs node — terminal state is communicated by `notification/{drv}.eventType` instead. `bookingEvents/{cid}/{bookingId}` is the audit trail.
+- 7 server.js sites converted, all the cross-booking guards deleted:
+  - `_bwClearJobFromFirebase()` (~640) — ~40-line ETag-guarded GET/DELETE collapsed to a direct child DELETE.
+  - `_writeCancelNotify()` (~774) — `fbCompareAndSet` replaced with direct child DELETE.
+  - `updateBooking()` §FIX-UB live-patch (~1170) — pre-read + cross-booking guard removed; direct child PATCH.
+  - `[ProcUpdateJobv6]` §FIX-D/Q cancel-notify (~6473) — `fbCompareAndSet` replaced with child DELETE.
+  - `[ProcUpdateJobv6]` mirror PATCH (~6665) — parent PATCH replaced with child PATCH.
+  - `[UnAssignJobStatusFromJobList]` §FIX-Q (~6883) — `fbCompareAndSet` replaced with child DELETE.
+  - `§FIX-OfferClear` (~10727) — GET-then-DELETE replaced with direct child DELETE.
+- `fbCompareAndSet` helper is still defined but no longer called for the `jobs/` path — kept in case any future need arises but effectively obsolete with G2 in place.
+- Driver-app side: same cutover day. Driver app must (a) attach `onChildAdded`/`onChildChanged`/`onChildRemoved` listeners on `jobs/{cid}/{vid}/{drv}` (parent node), (b) treat `onChildRemoved` as the terminal-state signal, (c) drop any logic that relied on a single-slot envelope.
+
 ## §FIX-DA — Driver-app public contract (G4 + G5 + G6) (May 2026)
 
 - Companion to §FIX-UB / §FIX-CB. The internal `bookingEvents/{cid}/{bookingId}` stream + rich `type` enum stays untouched; this fix ADDS a thinner, stable public contract that the driver app subscribes to. G2 (`pendingjobs` dual-write to keep legacy `book_now/cancel/sendmessage` paths alive) is deferred.
