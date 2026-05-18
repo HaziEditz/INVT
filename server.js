@@ -845,7 +845,7 @@ function cancelBooking(opts) {
 
   if (!bookingId) {
     console.warn(`  [${source}] §FIX-CB rejected — no bookingId`);
-    return { ok: false, error: 'bookingId required' };
+    return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
   }
 
   // Idempotency — already in closedJobStore as Cancelled?
@@ -853,7 +853,8 @@ function cancelBooking(opts) {
   if (_closed) {
     console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already Cancelled (by ${_closed.CancelledBy || '?'}) — no-op`);
     return { ok: true, idempotent: true, cancelStage: _closed.CancelStage || 'unknown',
-             cancelledBy: _closed.CancelledBy || '', driverFreed: false, driverState: 'unchanged' };
+             cancelledBy: _closed.CancelledBy || '', driverFreed: false, driverState: 'unchanged',
+             version: parseInt(_closed.updateSeq) || 0, booking: _publicBooking(_closed) };
   }
 
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
@@ -867,14 +868,18 @@ function cancelBooking(opts) {
       console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already recalled (Pending+Recalled by Driver, ${Math.floor((Date.now()-_j.releasedAt)/1000)}s ago) — no-op`);
       return { ok: true, idempotent: true, cancelStage: _j.CancelStage || 'unknown',
                cancelledBy: _j.CancelledBy || '', driverFreed: false, driverState: 'unchanged',
-               recalled: true };
+               recalled: true,
+               version: parseInt(_j.updateSeq) || 0, booking: _publicBooking(_j) };
     }
   }
   if (idx === -1) {
     console.warn(`  [${source}] §FIX-CB job #${bookingId} not found in jobStore`);
-    return { ok: false, error: 'job not found' };
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
   }
   const job = jobStore[idx];
+  // Optional ifVersion precondition (§FIX-CMD).
+  const _cbVc = _checkIfVersion(job, opts.ifVersion);
+  if (_cbVc) return _cbVc;
   const _cid    = companyId || String(job.companyId || '');
   const _drvId  = (job.DriverId === 0 || job.DriverId === '0' || job.DriverId === -1 || job.DriverId === -2)
                     ? '' : String(job.DriverId || '').trim();
@@ -953,7 +958,9 @@ function cancelBooking(opts) {
     driverId: _drvId,
     vehicleId: _vehId,
     driverFreed, driverState, queueNo,
-    recalled: recallToPending
+    recalled: recallToPending,
+    version: job.updateSeq,
+    booking: _publicBooking(job)
   };
 }
 
@@ -971,8 +978,8 @@ function cancelBooking(opts) {
 // idempotent re-runs of the command that produced them.
 const _BOOKING_STATE_MACHINE = {
   'Pending':   { assign: 'Assigned', cancel: 'Cancelled', update: 'Pending' },
-  'Offered':   { assign: 'Assigned', cancel: 'Cancelled', update: 'Offered', recall: 'Pending' },
-  'Assigned':  { cancel: 'Cancelled', recall: 'Pending', update: 'Assigned', complete: 'Completed' },
+  'Offered':   { assign: 'Assigned', accept: 'Assigned', cancel: 'Cancelled', update: 'Offered', recall: 'Pending' },
+  'Assigned':  { accept: 'Assigned', cancel: 'Cancelled', recall: 'Pending', update: 'Assigned', complete: 'Completed' },
   'Picking':   { cancel: 'Cancelled', update: 'Picking', complete: 'Completed' },
   'OnTrip':    { cancel: 'Cancelled', update: 'OnTrip', complete: 'Completed' },
   'Active':    { cancel: 'Cancelled', update: 'Active',  complete: 'Completed' },
@@ -981,6 +988,74 @@ const _BOOKING_STATE_MACHINE = {
   'Cancelled': { cancel: 'Cancelled' },     // idempotent
   'No One':    { assign: 'Assigned', update: 'No One', cancel: 'Cancelled' }
 };
+
+// §FIX-CMD/1.7 — clientRequestId idempotency cache. Drivers tap on flaky 4G;
+// the same tap may POST twice. Cache the response keyed by clientRequestId
+// (or Idempotency-Key header) for 10 minutes so the retry returns the same
+// payload instead of re-running the command.
+const _CMD_DEDUP = new Map(); // key → { at: ms, status: number, response: obj }
+const _CMD_DEDUP_TTL_MS = 10 * 60 * 1000;
+function _cmdDedupGet(key) {
+  if (!key) return null;
+  const _hit = _CMD_DEDUP.get(key);
+  if (!_hit) return null;
+  if (Date.now() - _hit.at > _CMD_DEDUP_TTL_MS) {
+    _CMD_DEDUP.delete(key);
+    return null;
+  }
+  return _hit;
+}
+function _cmdDedupSet(key, status, response) {
+  if (!key) return;
+  _CMD_DEDUP.set(key, { at: Date.now(), status, response });
+  // Opportunistic cleanup if the cache grows past a soft ceiling.
+  if (_CMD_DEDUP.size > 5000) {
+    const _cutoff = Date.now() - _CMD_DEDUP_TTL_MS;
+    for (const [k, v] of _CMD_DEDUP) {
+      if (v.at < _cutoff) _CMD_DEDUP.delete(k);
+    }
+  }
+}
+
+// Build the public booking echo for command responses. Strips internal fields
+// that the driver app should not depend on (auto-dispatch flags, etc.).
+function _publicBooking(job) {
+  if (!job) return null;
+  return {
+    bookingId:       job.Id,
+    status:          job.BookingStatus || '',
+    version:         parseInt(job.updateSeq) || 0,
+    updatedAt:       job.lastUpdatedAt || null,
+    driverId:        String(job.DriverId || '').trim(),
+    vehicleId:       String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim(),
+    passengerName:   job.UserFName || job.Name || '',
+    passengerPhone:  job.PhoneNo || job.UserPhone || '',
+    pickupAddress:   job.PickAddress || job.PickupAddress || job.jobpickup || '',
+    dropAddress:     job.DropAddress || job.DropLocation || job.jobdropoff || '',
+    fare:            job.TotalFare || job.EstimatedFare || job.FareSnapshot || null,
+    distance:        job.distance || job.DistanceSnapshot || null,
+    paymentMethod:   job.PaymentMethod || job.paymentMethod || '',
+    notes:           job.Notes || job.notes || '',
+    bookingSource:   job.BookingSource || job.bookingSource || ''
+  };
+}
+
+// Check optional ifVersion precondition. Returns null if OK, or a stale-response
+// object if the booking's updateSeq doesn't match the caller's expectation.
+function _checkIfVersion(job, ifVersion) {
+  if (ifVersion === undefined || ifVersion === null) return null;
+  const _cur = parseInt(job.updateSeq) || 0;
+  const _exp = parseInt(ifVersion);
+  if (_cur !== _exp) {
+    return {
+      ok: false, stale: true, error_code: 'version_conflict',
+      error: `version mismatch (sent ${_exp}, current ${_cur})`,
+      currentVersion: _cur,
+      booking: _publicBooking(job)
+    };
+  }
+  return null;
+}
 
 // Returns { ok:true, nextStatus } or { ok:false, error }
 function _canTransition(currentStatus, command) {
@@ -1008,22 +1083,24 @@ function assignBooking(opts) {
   if (idx === -1) {
     // Maybe already completed/cancelled — check closed store for idempotency.
     const _cl = closedJobStore.find(j => j && j.Id === bookingId);
-    if (_cl) return { ok: false, closed: true, error: `job is ${_cl.BookingStatus}` };
-    return { ok: false, error: 'job not found' };
+    if (_cl) return { ok: false, closed: true, error_code: 'already_terminal', error: `job is ${_cl.BookingStatus}`, booking: _publicBooking(_cl) };
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
   }
   const job = jobStore[idx];
   const _curStatus = job.BookingStatus || 'Pending';
   const _curDrv    = String(job.DriverId || '').trim();
-
+  // Optional ifVersion precondition.
+  const _vc = _checkIfVersion(job, opts.ifVersion);
+  if (_vc) return _vc;
   // Idempotency — already assigned to the same driver
   if (_curStatus === 'Assigned' && _curDrv === driverId) {
     console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Assigned to driver ${driverId}`);
-    return { ok: true, idempotent: true, status: 'Assigned', driverId, vehicleId: String(job.VehicleNo || job.CallSign || '') };
+    return { ok: true, idempotent: true, status: 'Assigned', driverId, vehicleId: String(job.VehicleNo || job.CallSign || ''), version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job) };
   }
   const _trans = _canTransition(_curStatus, 'assign');
   if (!_trans.ok) {
     console.warn(`  [${source}] §FIX-CMD assign rejected: ${_trans.error} (job #${bookingId})`);
-    return { ok: false, error: _trans.error, currentStatus: _curStatus };
+    return { ok: false, error_code: 'invalid_transition', error: _trans.error, currentStatus: _curStatus, booking: _publicBooking(job) };
   }
   // Apply mutation.
   const _seqBefore = parseInt(job.updateSeq) || 0;
@@ -1093,7 +1170,7 @@ function completeBooking(opts) {
   const source    = opts.source || 'completeBooking';
   const fare      = opts.fare;
   const distance  = opts.distance;
-  if (!bookingId) return { ok: false, error: 'bookingId required' };
+  if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
 
   // Idempotency — already in closedJobStore as Completed?
   const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Completed');
@@ -1101,16 +1178,21 @@ function completeBooking(opts) {
     console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Completed`);
     return { ok: true, idempotent: true, status: 'Completed',
              driverId: _closed.AssignedDriverId || String(_closed.DriverId || ''),
-             vehicleId: _closed.AssignedVehicleId || '' };
+             vehicleId: _closed.AssignedVehicleId || '',
+             version: parseInt(_closed.updateSeq) || 0,
+             booking: _publicBooking(_closed) };
   }
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
-  if (idx === -1) return { ok: false, error: 'job not found' };
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
   const _curStatus = job.BookingStatus || '';
+  // Optional ifVersion precondition.
+  const _vc = _checkIfVersion(job, opts.ifVersion);
+  if (_vc) return _vc;
   const _trans = _canTransition(_curStatus, 'complete');
   if (!_trans.ok) {
     console.warn(`  [${source}] §FIX-CMD complete rejected: ${_trans.error} (job #${bookingId})`);
-    return { ok: false, error: _trans.error, currentStatus: _curStatus };
+    return { ok: false, error_code: 'invalid_transition', error: _trans.error, currentStatus: _curStatus, booking: _publicBooking(job) };
   }
   const _cid    = String(job.companyId || '');
   const _drvId  = String(job.DriverId || '').trim();
@@ -1131,6 +1213,31 @@ function completeBooking(opts) {
   }
   job.AssignedDriverId  = _drvId;
   job.AssignedVehicleId = _vehId;
+  // §FIX-CMD/1.7 — full complete payload pass-through. Driver app sends
+  // ~30 fare/tariff/extras fields on trip completion. Whitelisted to prevent
+  // arbitrary writes; unknown fields are ignored (logged once).
+  const _completeFields = [
+    'tariffId', 'tariffName', 'tariffChangedAt',
+    'waitingCost', 'waitingTimeMinutes',
+    'extras', 'extrasTotal',                       // service-type chips
+    'voucherCode', 'voucherDiscount', 'tmVoucher', // TM voucher payload
+    'accClientId', 'accApprovalNo', 'accClaimNo',  // ACC workflow fields
+    'paymentMethod', 'paymentSplit',               // split-payment rows
+    'stripeChargeId', 'stripePaymentIntentId',
+    'startTime', 'endTime', 'duration',
+    'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
+    'finalDropAddress',                            // when driver deviates from booking
+    'driverComments', 'meterReading',
+    'fixedPrice', 'fixedPriceReason',
+    'gst', 'tipAmount', 'tollFee', 'parkingFee'
+  ];
+  if (opts.payload && typeof opts.payload === 'object') {
+    for (const _k of _completeFields) {
+      if (opts.payload[_k] !== undefined && opts.payload[_k] !== null) {
+        job[_k] = opts.payload[_k];
+      }
+    }
+  }
 
   closedJobStore.push(job);
   jobStore.splice(idx, 1);
@@ -1155,7 +1262,73 @@ function completeBooking(opts) {
     driverId: _drvId, vehicleId: _vehId,
     fare: job.TotalFare || null, distance: job.distance || null,
     driverFreed: _ds.driverFreed, driverState: _ds.driverState, queueNo: _ds.queueNo,
-    version: job.updateSeq
+    version: job.updateSeq,
+    booking: _publicBooking(job)
+  };
+}
+
+// §FIX-CMD/1.7 — Driver-acceptance ack. When a driver taps Accept on an
+// offered booking, this verb stamps DriverAcceptedAt + bumps updateSeq +
+// emits an OfferAccepted bookingEvent. The booking is already 'Assigned'
+// from assignBooking (dispatcher-initiated offer); this just confirms the
+// driver took the call. Idempotent — re-tapping returns the same payload.
+function acceptBooking(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId || '').trim();
+  const by        = String(opts.by || 'driver').toLowerCase();
+  const source    = opts.source || 'acceptBooking';
+  if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) {
+    const _cl = closedJobStore.find(j => j && j.Id === bookingId);
+    if (_cl) return { ok: false, closed: true, error_code: 'already_terminal', error: `job is ${_cl.BookingStatus}`, booking: _publicBooking(_cl) };
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
+  }
+  const job = jobStore[idx];
+  const _curStatus = job.BookingStatus || '';
+  const _jobDrv    = String(job.DriverId || '').trim();
+
+  // Driver-attribution check — the accept must come from the driver the
+  // booking was offered to. (When called via /api/job/command from the
+  // driver app, driverId is derived from the X-User-Key auth context, so
+  // this is a server-side identity check, not a client claim.)
+  if (driverId && _jobDrv && driverId !== _jobDrv) {
+    return { ok: false, error_code: 'forbidden', error: `booking offered to driver ${_jobDrv}, not ${driverId}`, booking: _publicBooking(job) };
+  }
+  const _vc = _checkIfVersion(job, opts.ifVersion);
+  if (_vc) return _vc;
+  const _trans = _canTransition(_curStatus, 'accept');
+  if (!_trans.ok) {
+    return { ok: false, error_code: 'invalid_transition', error: _trans.error, currentStatus: _curStatus, booking: _publicBooking(job) };
+  }
+  // Idempotency — already accepted (DriverAcceptedAt stamped and status Assigned).
+  if (job.DriverAcceptedAt && _curStatus === 'Assigned') {
+    return { ok: true, idempotent: true, status: 'Assigned',
+             driverId: _jobDrv, vehicleId: String(job.VehicleNo || job.CallSign || ''),
+             version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job) };
+  }
+  const _seqBefore = parseInt(job.updateSeq) || 0;
+  job.BookingStatus     = 'Assigned';
+  job.DriverAcceptedAt  = new Date().toISOString();
+  job.updateSeq         = _seqBefore + 1;
+  job.lastUpdatedAt     = Date.now();
+  job.lastUpdatedBy     = by;
+  saveJobStore();
+
+  const _cid = String(job.companyId || '');
+  if (_cid) {
+    _writeBookingEvent(_cid, bookingId, 'OfferAccepted',
+      { from: _curStatus, to: 'Assigned', driverId: _jobDrv },
+      by, job.updateSeq).catch(() => {});
+  }
+  console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_jobDrv} seq=${job.updateSeq}`);
+  return {
+    ok: true, idempotent: false, status: 'Assigned',
+    driverId: _jobDrv, vehicleId: String(job.VehicleNo || job.CallSign || ''),
+    version: job.updateSeq,
+    booking: _publicBooking(job)
   };
 }
 
@@ -5489,34 +5662,87 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cmdName    = String(_cmd.command || '').toLowerCase().trim();
     const _cmdBy      = String(_cmd.by || _cmd.cancelledBy || _cmd.updatedBy || 'dispatcher').toLowerCase().trim();
     const _cmdPayload = (_cmd.payload && typeof _cmd.payload === 'object') ? _cmd.payload : {};
-    const _cmdIfSeq   = (_cmd.ifSeq !== undefined && _cmd.ifSeq !== null) ? parseInt(_cmd.ifSeq) : null;
-    const _cmdAllowed = new Set(['assign', 'cancel', 'recall', 'update', 'complete']);
+    // ifSeq (legacy) and ifVersion (new) are interchangeable.
+    const _cmdIfVerRaw = (_cmd.ifVersion !== undefined && _cmd.ifVersion !== null) ? _cmd.ifVersion
+                       : (_cmd.ifSeq    !== undefined && _cmd.ifSeq    !== null) ? _cmd.ifSeq : null;
+    const _cmdIfVer    = _cmdIfVerRaw === null ? null : parseInt(_cmdIfVerRaw);
+    // clientRequestId (body) or Idempotency-Key (header) — same purpose.
+    const _cmdReqId   = String(_cmd.clientRequestId || req.headers['idempotency-key'] || req.headers['Idempotency-Key'] || '').trim();
+    const _cmdAllowed = new Set(['assign', 'accept', 'cancel', 'recall', 'update', 'complete']);
     const _cmdBySet   = new Set(['dispatcher', 'driver', 'passenger', 'website']);
     if (!_cmdBooking || !_cmdAllowed.has(_cmdName) || !_cmdBySet.has(_cmdBy)) {
       res.writeHead(400, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: false, error: 'bookingId, command ∈ {assign,cancel,recall,update,complete}, by ∈ {dispatcher,driver,passenger,website} required' }));
+      res.end(JSON.stringify({ ok: false, error_code: 'bad_request', error: 'bookingId, command ∈ {assign,accept,cancel,recall,update,complete}, by ∈ {dispatcher,driver,passenger,website} required' }));
       return;
     }
-    // Auth — dispatcher uses session cookie, others require admin key.
+    // clientRequestId dedup — return cached response on retry.
+    const _cmdDedupKey = _cmdReqId ? `${_cmdBy}:${_cmdBooking}:${_cmdName}:${_cmdReqId}` : '';
+    if (_cmdDedupKey) {
+      const _hit = _cmdDedupGet(_cmdDedupKey);
+      if (_hit) {
+        console.log(`[/api/job/command] dedup hit reqId=${_cmdReqId} → replaying cached response (status=${_hit.status})`);
+        res.writeHead(_hit.status, JSON_HEADERS);
+        res.end(JSON.stringify(Object.assign({}, _hit.response, { dedup: true })));
+        return;
+      }
+    }
+    // Auth — three identities:
+    //   dispatcher → BW_SID session cookie
+    //   driver     → X-User-Key (driver's passforlink) matched in ZONE_DRIVERS
+    //                (server derives driverId + companyId; client cannot spoof)
+    //   passenger/website → X-Admin-Key (server-to-server)
     let _cmdCid = '';
+    let _cmdAuthDriverId = '';   // server-derived driverId when by==='driver'
+    let _cmdAuthVehicleId = '';
     if (_cmdBy === 'dispatcher') {
       _cmdCid = getSessionCompanyId(req) || '';
       if (!_cmdCid) {
         res.writeHead(401, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+        res.end(JSON.stringify({ ok: false, error_code: 'auth_failed', error: 'dispatcher session required' }));
         return;
       }
       const _cmdJobT = jobStore.find(j => j && j.Id === _cmdBooking) || closedJobStore.find(j => j && j.Id === _cmdBooking);
       if (_cmdJobT && _cmdJobT.companyId && String(_cmdJobT.companyId) !== String(_cmdCid)) {
         res.writeHead(403, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'cross-tenant command forbidden' }));
+        res.end(JSON.stringify({ ok: false, error_code: 'forbidden', error: 'cross-tenant command forbidden' }));
+        return;
+      }
+    } else if (_cmdBy === 'driver') {
+      const _userKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+      const _adminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+      let _drvRec = null;
+      if (_userKey) {
+        _drvRec = ZONE_DRIVERS.find(d => d && (
+          String(d.passforlink || '').trim() === _userKey ||
+          String(d.userKey      || '').trim() === _userKey ||
+          String(d.UserKey      || '').trim() === _userKey
+        )) || null;
+      }
+      // Fallback: admin key + driverId in payload (server-to-server / testing).
+      if (!_drvRec && _adminKey && process.env.BW_ADMIN_KEY && _adminKey === process.env.BW_ADMIN_KEY) {
+        const _fbDrvId = String(_cmdPayload.driverId || _cmd.driverId || '').trim();
+        if (_fbDrvId) _drvRec = ZONE_DRIVERS.find(d => d && (String(d.driverid).trim() === _fbDrvId || String(d.VehicleId).trim() === _fbDrvId)) || null;
+      }
+      if (!_drvRec) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error_code: 'auth_failed', error: 'driver source requires X-User-Key (or X-Admin-Key + driverId)' }));
+        return;
+      }
+      _cmdAuthDriverId  = String(_drvRec.driverid  || '').trim();
+      _cmdAuthVehicleId = String(_drvRec.VehicleId || '').trim();
+      _cmdCid           = String(_drvRec.companyId || '').trim();
+      // Cross-tenant check: driver can only command bookings in their own company.
+      const _cmdJobT = jobStore.find(j => j && j.Id === _cmdBooking) || closedJobStore.find(j => j && j.Id === _cmdBooking);
+      if (_cmdJobT && _cmdJobT.companyId && _cmdCid && String(_cmdJobT.companyId) !== _cmdCid) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error_code: 'forbidden', error: 'cross-tenant command forbidden' }));
         return;
       }
     } else {
       const _cmdKey = req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '';
       if (!process.env.BW_ADMIN_KEY || _cmdKey !== process.env.BW_ADMIN_KEY) {
         res.writeHead(401, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'X-Admin-Key required for ' + _cmdBy + ' source' }));
+        res.end(JSON.stringify({ ok: false, error_code: 'auth_failed', error: 'X-Admin-Key required for ' + _cmdBy + ' source' }));
         return;
       }
       const _cmdJob = jobStore.find(j => j && j.Id === _cmdBooking) || closedJobStore.find(j => j && j.Id === _cmdBooking);
@@ -5531,48 +5757,72 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         _result = cancelBooking({
           bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
           driverFault: !!_cmdPayload.driverFault, recallToPending: false,
+          ifVersion: _cmdIfVer,
           companyId: _cmdCid, source: _logSrc
         });
-        if (!_result.ok) _status = _result.closed ? 410 : 404;
       } else if (_cmdName === 'recall') {
         _result = cancelBooking({
           bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
           driverFault: !!_cmdPayload.driverFault, recallToPending: true,
+          ifVersion: _cmdIfVer,
           companyId: _cmdCid, source: _logSrc
         });
-        if (!_result.ok) _status = 404;
       } else if (_cmdName === 'update') {
         const _changes = (_cmdPayload.changes && typeof _cmdPayload.changes === 'object') ? _cmdPayload.changes : _cmdPayload;
         _result = updateBooking({
           bookingId: _cmdBooking, changes: _changes,
-          by: _cmdBy, ifSeq: _cmdIfSeq, source: _logSrc
+          by: _cmdBy, ifSeq: _cmdIfVer, source: _logSrc
         });
-        if (_result.stale)       _status = 409;
-        else if (_result.closed) _status = 410;
-        else if (!_result.ok)    _status = 404;
       } else if (_cmdName === 'assign') {
         _result = assignBooking({
           bookingId: _cmdBooking,
           driverId:  _cmdPayload.driverId  || _cmdPayload.DriverId,
           vehicleId: _cmdPayload.vehicleId || _cmdPayload.VehicleId,
+          ifVersion: _cmdIfVer,
           by: _cmdBy, source: _logSrc
         });
-        if (!_result.ok) _status = _result.closed ? 410 : (_result.currentStatus ? 409 : 404);
+      } else if (_cmdName === 'accept') {
+        _result = acceptBooking({
+          bookingId: _cmdBooking,
+          driverId:  _cmdAuthDriverId || _cmdPayload.driverId || _cmdPayload.DriverId,
+          ifVersion: _cmdIfVer,
+          by: _cmdBy, source: _logSrc
+        });
       } else if (_cmdName === 'complete') {
         _result = completeBooking({
           bookingId: _cmdBooking,
           fare:     _cmdPayload.fare,
           distance: _cmdPayload.distance,
+          payload:  _cmdPayload,
+          ifVersion: _cmdIfVer,
           by: _cmdBy, source: _logSrc
         });
-        if (!_result.ok) _status = (_result.currentStatus ? 409 : 404);
       }
     } catch (e) {
       console.warn(`[/api/job/command] ${_cmdName} failed: ${e && e.message}`);
-      _result = { ok: false, error: e && e.message };
+      _result = { ok: false, error_code: 'server_error', error: e && e.message };
       _status = 500;
     }
-    console.log(`${_status}: POST /api/job/command [${_cmdName}] #${_cmdBooking} by=${_cmdBy} -> ${JSON.stringify({ ok: _result.ok, idempotent: _result.idempotent, status: _result.status || _result.cancelStage, version: _result.version })}`);
+    // HTTP status mapping based on error_code (uniform across verbs).
+    if (_result && _result.ok === false) {
+      const _ec = _result.error_code || '';
+      if      (_ec === 'version_conflict')   _status = 409;
+      else if (_ec === 'invalid_transition') _status = 409;
+      else if (_ec === 'already_terminal')   _status = 410;
+      else if (_ec === 'not_found')          _status = 404;
+      else if (_ec === 'forbidden')          _status = 403;
+      else if (_ec === 'auth_failed')        _status = 401;
+      else if (_ec === 'bad_request')        _status = 400;
+      else if (_result.stale)                _status = 409;
+      else if (_result.closed)               _status = 410;
+      else                                   _status = 500;
+    }
+    // Cache successful + idempotent-conflict responses for retry safety.
+    // (4xx auth/forbidden/bad_request are NOT cached — those should re-evaluate.)
+    if (_cmdDedupKey && (_status === 200 || _status === 409 || _status === 410)) {
+      _cmdDedupSet(_cmdDedupKey, _status, _result);
+    }
+    console.log(`${_status}: POST /api/job/command [${_cmdName}] #${_cmdBooking} by=${_cmdBy} -> ${JSON.stringify({ ok: _result.ok, idempotent: _result.idempotent, error_code: _result.error_code, status: _result.status || _result.cancelStage, version: _result.version })}`);
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_result));
     return;

@@ -1,0 +1,34 @@
+Reply to dispatch dev
+Locked. Plan is workable.
+
+Confirming my read-back so we don't drift:
+
+G2 ships as originally scoped — onChildAdded/Changed/Removed on jobs/{cid}/{vid}/{drv} parent, eventType off the snapshot, terminal = remove().
+Lifecycle commands move to POST /api/job/command — Accept, Decline (cancel/by-driver), Complete. Stop writing DriverAccepted / DriverDeclined / completedJobs/{cid} direct. Legacy /api/syncOfflineTrip retained for offline-queue replay.
+Presence stays direct-Firebase — online/{cid}/{vid}/current for status/location/in-trip lifecycle (OnTheWay/Arrived/MeterOn). No change.
+Optimistic UI — local flip immediately on tap, POST in background, rollback toast on non-2xx, roll-forward when server version > local version.
+bookingEvents subscription deferred — keep §6a's phase-2 label. Not in 22c.
+One thing missing — full /api/job/command contract. You referenced it twice but haven't sent me the shape. I need:
+
+URL — confirmed POST /api/job/command? Or under /api/driver/...?
+Headers — same X-User-Key auth as /api/driver/active-bookings?
+Request body — confirm exact shape:
+{ bookingId, command, by, payload?, version, clientRequestId }
+
+Is version required (for optimistic concurrency)? What's the server response on version mismatch — 409? With what body?
+Is clientRequestId (UUID) accepted for idempotent retries? Drivers will tap on flaky 4G — same tap may POST twice. I need the server to dedup or I need to dedup client-side.
+Full command list — confirm exact strings:
+accept — accept offer
+cancel with by:'driver', payload:{reason:'declined'} — decline offer
+cancel with by:'driver', payload:{reason:'cancelled_by_driver'} — cancel after accepting (rare — passenger no-show, breakdown)
+complete with payload:{fare, distance, duration, paymentBreakdown, dropAddress, ...} — what's the FULL payload schema? Today completedJobs/{cid} carries ~30 fields (tariffId, waiting cost, extras chips, TM voucher data, ACC details, split-payment rows, Stripe charge ID, etc). Do all of those live in payload now?
+acknowledge_arrival / start_meter — or do these stay as direct writes to online/ per Q4?
+Success response shape — { ok: true, version: 7, booking: {...} } so I can roll-forward optimistic state?
+Error response shape — distinguish "version conflict, here's the new state" vs "auth fail" vs "booking already terminal" vs "server error". Each needs a different driver-side reaction.
+Offline behaviour — if the POST fails (no signal), the driver app queues to AsyncStorage and retries on .info/connected. Confirm the server is idempotent on retry-with-same-clientRequestId.
+Send me that spec and 22c build starts the same day.
+
+Cutover proposal: Aiming Monday 25 May → Wednesday 27 May. I publish 22c Monday morning, soak Mon afternoon + Tuesday on the 2 test phones, you flip jobs/ to per-bookingId children Wednesday AM if soak is clean. Push back if that's tight.
+
+My honest read
+This is now ship-able. The only real blocker is /api/job/command shape — without it I'd be inventing a request body and we'd hit a 400 on first tap. One short reply from dispatch dev and I can start.
