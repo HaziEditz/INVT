@@ -56,6 +56,14 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-O — Explicit "back to Pending" via Edit form delayed by stale releasedAt cooldown (May 2026)
+
+- Symptom: dispatcher takes an Assigned job to No One (Assign-tab quick action), then ~2 s later opens the Edit form, picks "Pending" from the driver dropdown (`$scope.selecteddriver === -2`), Save. Job moves to the Pending tab but auto-dispatch never picks it up — even with a single Available driver. Workaround was driver app logout/login, but that only worked because it masked a separate driver-app dedup bug (see hand-off notes); the underlying server-side delay was still real.
+- Root cause: `[UnAssignJobStatusFromJobList]` (§FIX-F2 ~5957) stamps `job.releasedAt = Date.now()` on the Assigned → No One transition (§FIX-G 10 s cooldown — `server.js` ~8075). The follow-up `ProcUpdateJobv6` explicit-Pending path (§FIX-A2 ~5689) cleared `BookingStatus / DriverId / VehicleId` but did NOT clear `releasedAt`. AutoDispatchVehiclesallride therefore skipped the job for the remaining ~8 s of the cooldown window even though the dispatcher had deliberately reset it.
+- Fix (`server.js` ~5689 §FIX-A2 branch): also set `job.releasedAt = null` and `job.manualOffer = false` whenever the dispatcher explicitly chooses "Pending" from the Edit form. Diagnostic updated to `[§FIX-A2/ProcUpdateJobv6] §FIX-O explicit Pending: ... clearing driver/vehicle/releasedAt/manualOffer`.
+- Rationale: the §FIX-G cooldown exists to stop auto-dispatch immediately re-offering a just-timed-out job to the same driver. When the dispatcher manually intervenes via the Edit form, that intent overrides the cooldown — the dispatcher has already decided the job should be dispatchable. `manualOffer` is cleared for symmetry so a future Unreached timeout is treated as the normal auto-dispatch path (§FIX-U2 → Pending+cooldown), not as a manual-pick (§FIX-M → No One).
+- Driver-app side still has its own bookingId-only dedup bug (re-offers of the same bookingId silently swallowed) and stale `online/{cid}/{vid}/current` heartbeat — both handed off to the driver-app team. `§FIX-O` makes the dispatch server clean; the popup-not-firing symptom is purely driver-app once they ship dedup-by-`bookingId+offeredAt`.
+
 ## §FIX-N — Driver-app late ack silently flipped No One → Pending (May 2026)
 
 - Symptom: dispatcher takes an Assigned job to No One via `[UnAssignJobStatusFromJobList]` (UI works, driver phone shows "job cancelled"). A second later the job in UA quietly changes from **No One** to **Pending** and auto-dispatch immediately re-offers the same job to the same driver — driver popup never fires because of the (separate) driver-app bookingId dedup bug.

@@ -5685,10 +5685,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               // Leave job.BookingStatus / DriverId / VehicleId unchanged.
             } else if (_explicitPending) {
               // §FIX-A2 — honour explicit Pending choice. Clear driver/vehicle and set Pending.
-              console.log(`[§FIX-A2/ProcUpdateJobv6] explicit Pending: job#${jobId} prevStatus='${_prevBStatus_diag}' incomingDId=${_rawDId3} clientBookstatus='Pending' — setting BookingStatus='Pending', clearing driver/vehicle.`);
+              // §FIX-O — also clear releasedAt + manualOffer. The dispatcher's explicit "back to
+              // Pending" is a deliberate decision; the §FIX-G 10s releasedAt cooldown (stamped by
+              // a prior UnAssignJobStatusFromJobList) would otherwise hide this job from
+              // auto-dispatch for up to 10 s after the Edit save, even though the dispatcher
+              // wants it dispatched immediately. manualOffer is cleared so any future Unreached
+              // timeout (§FIX-M) is treated as a normal auto-dispatch failure, not a manual-pick.
+              console.log(`[§FIX-A2/ProcUpdateJobv6] §FIX-O explicit Pending: job#${jobId} prevStatus='${_prevBStatus_diag}' incomingDId=${_rawDId3} clientBookstatus='Pending' — setting BookingStatus='Pending', clearing driver/vehicle/releasedAt/manualOffer.`);
               job.VehicleId     = 0;
               job.DriverId      = 0;
               job.BookingStatus = 'Pending';
+              job.releasedAt    = null;
+              job.manualOffer   = false;
             } else {
               job.VehicleId = vehicleId;
               job.DriverId  = driverId;
