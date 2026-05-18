@@ -1,0 +1,45 @@
+Message to send back to dispatch dev
+Got 3.1–3.6. Three of them are already shipped in 22bp (3.2 version filter, 3.5 reconnect reconcile, partially 3.3 + 3.4). Two are not (3.1 event-only, 3.6 no-local-override) and represent a much larger refactor than G2 as currently scoped.
+
+Five things to confirm before I open the IDE — they're load-bearing:
+
+Q1 — bookingEvents is now mandatory, not optional? Your earlier spec (§6a, signed off three messages back) said bookingEvents was "out of scope, deferred to a future polish OTA". Requirement 3.1 reverses that. Confirm: bookingEvents is the new single source of truth, jobs/ node is for dispatch internal use only, driver app stops reading jobs/ entirely?
+
+Q2 — G2 per-bookingId child listeners are obsolete? If 3.1 stands, the whole G2 plan (subscribing to jobs/{cid}/{vid}/{drv}/{bookingId} with onChildAdded/Changed/Removed) is wasted work — driver app shouldn't be listening on jobs/ at all under event-only. Confirm we skip G2 and go straight to bookingEvents subscription.
+
+Q3 — bookingEvents shape, full contract. I have the per-field diff hint from §6a (PickupChanged, DropoffChanged, FareChanged, StopAdded, PassengerNoteChanged). I now need the FULL event-type list and the data shape per event. Specifically:
+
+What event types signal offer arrival? (OfferCreated? Dispatched?)
+What event types signal accept vs decline? (Or are those driver→server only, never replayed back?)
+What event types signal trip lifecycle? (OnTheWay, Arrived, MeterOn, Completed?)
+What event types signal terminal? (Cancelled, Completed, Recalled, Reassigned?)
+Event data shape: { eventType, bookingId, version, updatedAt, payload: { ... } } or different?
+Does each event carry the full current booking state (snapshot per event) or just the delta (driver must rebuild state from event history)?
+Q4 — "No local state override" — clarify scope. Three concrete cases:
+
+(a) Driver taps "Make Me Available" button after going Away — does the driver app POST to your API (you flip status server-side, event comes back), or does the driver app still write Available to online/{cid}/{vid} directly?
+(b) Driver taps "Decline" on an offer — POST to API, or write DriverDeclined to Firebase?
+(c) Driver completes a trip — POST to API, or write to completedJobs/{cid} directly?
+Today the driver does all three locally. If 3.6 means "all three become API POSTs and we wait for the event to come back to update local state", that's an architecture change roughly the same size as the bookingEvents subscription — and it needs new server endpoints (set-available, decline-offer, complete-trip).
+
+Q5 — Local state during the event round-trip. Under strict event-only, when a driver taps Accept:
+
+0ms: tap registers
+0ms: POST /api/accept-offer
+~300ms: server processes, writes OfferAccepted event to bookingEvents
+~300ms: Firebase replays event to driver
+~500ms: driver app reacts, sets job to 'current'
+That's a 500ms blank stare after tapping Accept. Acceptable, or do we want optimistic local update + server reconciliation (driver app sets local state immediately, server event later either confirms or rolls back)? My strong recommendation is optimistic — drivers will rage at a half-second freeze after every tap. But that means SOME local state mutation stays, just bracketed by an "awaiting confirmation" flag.
+
+Answer those five and I'll scope the actual OTA (this is no longer 22bs — call it 22c since it's a major version bump architecturally). Realistic ETA from "answers locked" → OTA in production: 5–7 days of dev + 2 days soak, not the half-day we were sizing for G2.
+
+In the meantime 22bp stays in production. Nothing currently broken.
+
+My honest read
+This is dispatch dev getting more ambitious mid-flight. Three of their 6 requirements are already in 22bp — they may not have noticed because we just shipped it yesterday. The other two represent a fundamental re-architecture of the driver app from "Firebase mirror" to "API + event log".
+
+Worth doing in the long run — it's a more correct architecture and removes whole classes of bugs (the ghost-job replays we just patched were symptoms of the mirror model). But it's not a 22bs-sized OTA. It's two weeks minimum.
+
+I'm not going to start building until those 5 questions come back, otherwise I'll waste days building the wrong listener shape again. 22bp is solid in prod right now — nothing's on fire while we wait.
+
+Want me to send the message above as-is to dispatch dev? Or trim it?
