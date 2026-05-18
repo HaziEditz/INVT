@@ -783,16 +783,23 @@ function driverHasRemainingAssignments(driverId, excludeBookingId, companyId) {
 
 // §FIX-Q-style booking-specific driver notify. Fires `notification/{drv}` Job
 // Cancel payload + ETag-guarded `jobs/{cid}/{vid}/{drv}` → Cancelled.
-async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy) {
+async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opts) {
   try {
     if (!cid || !drvId || !bookingId) return;
     const _tok = await getFirebaseServerToken();
     if (!_tok) { console.warn(`  [CancelNotify #${bookingId}] no firebase token — skipped`); return; }
     const _src = String(cancelledBy || 'dispatcher');
     const _srcPretty = _src.charAt(0).toUpperCase() + _src.slice(1);
+    // §FIX-DA-G4/G5 — driver-app public contract on the cancel notification.
+    const _pubType = (opts && opts.recalled) ? 'recalled' : 'cancelled';
+    const _ver     = (opts && opts.version != null) ? opts.version : 0;
     firebaseDbSet(`notification/${drvId}`, {
       bookingid: `${bookingId},Job Cancel,${drvId},Server,${_srcPretty}`,
-      content: 'Passenger Cancel'
+      content: 'Passenger Cancel',
+      eventType: _pubType,
+      version:   _ver,
+      updatedAt: _FB_SERVER_TIMESTAMP,
+      bookingId: bookingId
     }, _tok)
       .then(() => console.log(`  [CancelNotify #${bookingId}] notification/${drvId} → Job Cancel (by ${_srcPretty})`))
       .catch(e => console.warn(`  [CancelNotify #${bookingId}] notification write failed: ${e && e.message}`));
@@ -957,7 +964,8 @@ function cancelBooking(opts) {
     _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Cancelled');
     // 2. Driver cancel notification — only when not driver-initiated (driver-initiated already cleared their own UI).
     if (cancelledBy !== 'driver') {
-      _writeCancelNotify(_cid, _vehId, _drvId, bookingId, _cancelledByPretty);
+      _writeCancelNotify(_cid, _vehId, _drvId, bookingId, _cancelledByPretty,
+        { recalled: !!recallToPending, version: job.updateSeq });
     }
     // 3. Driver state — restore only if no remaining active assignments.
     const _ds = _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, driverFault, source);
@@ -1085,6 +1093,27 @@ function _classifyDiff(diff) {
   return Array.from(_events);
 }
 
+// §FIX-DA-G4 — map internal event types (rich) to the driver-app's 6-value
+// public enum. Driver-app subscribes to `eventType` on notification/{drv} and
+// allbookings/{cid}/{bookingId}; the richer `type` stream stays on
+// bookingEvents/{cid}/{bookingId} for HQ/audit consumers.
+function _ubMapEventType(internalType) {
+  const _t = String(internalType || '').trim();
+  if (_t === 'BookingCancelled')  return 'cancelled';
+  if (_t === 'BookingRecalled')   return 'recalled';
+  if (_t === 'BookingReassigned') return 'reassigned';
+  if (_t === 'BookingCompleted')  return 'completed';
+  if (_t === 'JobOffered' || _t === 'NewOffer') return 'new_offer';
+  // All field-level changes (PickupChanged / DropoffChanged / FareChanged /
+  // ScheduleChanged / StopAdded / PassengerNoteChanged / PassengerInfoChanged
+  // / JobUpdated) collapse to a single public type.
+  return 'updated';
+}
+
+// §FIX-DA-G5 — Firebase RTDB serverTimestamp sentinel. Resolves to the
+// authoritative server clock at write time (defeats device clock skew).
+const _FB_SERVER_TIMESTAMP = { '.sv': 'timestamp' };
+
 // Statuses where the booking is currently visible inside the driver app.
 const _UB_DRIVER_VISIBLE = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
 
@@ -1157,6 +1186,11 @@ function updateBooking(opts) {
     _fbChanged._seq            = _newSeq;
     _fbChanged.jobUpdatedAt    = Date.now();
     _fbChanged.jobUpdatedAtIso = new Date().toISOString();
+    // §FIX-DA-G5/G4 — driver-app public contract: version + serverTimestamp
+    // + 6-value eventType on every booking write.
+    _fbChanged.version         = _newSeq;
+    _fbChanged.updatedAt       = _FB_SERVER_TIMESTAMP;
+    _fbChanged.eventType       = _ubMapEventType(_eventTypes[0] || 'JobUpdated');
     (async () => {
       try {
         const _tok = await getFirebaseServerToken();
@@ -1195,12 +1229,17 @@ function updateBooking(opts) {
         const _tok = await getFirebaseServerToken();
         if (!_tok) return;
         const _primaryType = _eventTypes[0] || 'JobUpdated';
+        const _pubType     = _ubMapEventType(_primaryType);
         const _payload = {
           bookingid: `${bookingId},${_primaryType},${_drv},${by},Dispatcher`,
           content:   `Booking ${_primaryType}`,
           type:      _primaryType,
           seq:       _newSeq,
-          bookingId: bookingId
+          bookingId: bookingId,
+          // §FIX-DA-G4/G5 — driver-app public contract.
+          eventType: _pubType,
+          version:   _newSeq,
+          updatedAt: _FB_SERVER_TIMESTAMP
         };
         await firebaseDbPatch(`notification/${_drv}`, _payload, _tok);
         console.log(`  [${source}] §FIX-UB notification/${_drv} → ${_primaryType} seq=${_newSeq}`);
@@ -5183,6 +5222,88 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── GET /api/driver/active-bookings — §FIX-DA-G6 reconnect rebuild ──────────
+  // Driver-app calls this on every Firebase .info/connected → true transition
+  // to reconcile its in-memory jobs[] against the dispatch source of truth.
+  // Auth: X-User-Key header (driver's passforlink) OR X-Admin-Key for
+  // server-to-server. cid+vid are derived from the driver record, never trusted
+  // from query params (prevents a leaked key from cidA probing cidB).
+  if (urlPath === '/api/driver/active-bookings' && req.method === 'GET') {
+    const _g6Q = url.parse(req.url, true).query || {};
+    const _g6DriverIdQ = String(_g6Q.driverId || _g6Q.driverid || '').trim();
+    const _g6UserKey   = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _g6AdminKey  = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _g6Driver = null;
+    if (_g6UserKey) {
+      // Look up by passforlink (the driver-app's UserKey). Match against any
+      // plausible field name the driver record may carry.
+      _g6Driver = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _g6UserKey ||
+        String(d.userKey      || '').trim() === _g6UserKey ||
+        String(d.UserKey      || '').trim() === _g6UserKey
+      )) || null;
+    }
+    if (!_g6Driver && _g6AdminKey && process.env.BW_ADMIN_KEY && _g6AdminKey === process.env.BW_ADMIN_KEY && _g6DriverIdQ) {
+      _g6Driver = ZONE_DRIVERS.find(d => d &&
+        (String(d.driverid).trim() === _g6DriverIdQ || String(d.VehicleId).trim() === _g6DriverIdQ)
+      ) || null;
+    }
+    if (!_g6Driver) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'unknown driver (provide X-User-Key, or X-Admin-Key + ?driverId=)' }));
+      return;
+    }
+    const _g6Cid  = String(_g6Driver.companyId || '').trim();
+    const _g6Drv  = String(_g6Driver.driverid  || '').trim();
+    const _g6Vid  = String(_g6Driver.VehicleId || '').trim();
+    // Reject ambiguous-tenant matches — without a companyId we'd cross-leak.
+    if (!_g6Cid) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
+      return;
+    }
+    const _g6Active = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
+    const _g6StatusMap = (s) => {
+      const _bs = String(s || '');
+      if (_bs === 'Offered')  return 'offered';
+      if (_bs === 'Queued')   return 'queued';
+      if (_bs === 'Assigned' || _bs === 'Picking' || _bs === 'OnTrip' || _bs === 'Active') return 'current';
+      return _bs.toLowerCase();
+    };
+    const _g6Rows = jobStore.filter(j => j &&
+      _g6Active.has(j.BookingStatus) &&
+      String(j.companyId || '') === _g6Cid &&
+      (String(j.DriverId || '').trim() === _g6Drv ||
+       String(j.AssignedDriverId || '').trim() === _g6Drv)
+    ).map(j => ({
+      bookingId:       j.Id,
+      status:          _g6StatusMap(j.BookingStatus),
+      version:         parseInt(j.updateSeq) || 0,
+      updatedAt:       j.lastUpdatedAt || j.JobCreatedTime || null,
+      jobBookingSrc:   j.jobBookingSrc || j.BookingSource || j.bookingSource || j.source || 'dispatch',
+      passengerName:   j.UserFName || j.Name || '',
+      passengerPhone:  j.PhoneNo || j.UserPhone || j.Phone || j.JobphoneNo || '',
+      pickupAddress:   j.PickAddress || j.PickupAddress || j.PickLocation || j.jobpickup || '',
+      dropAddress:     j.DropAddress  || j.DropLocation || j.jobdropoff || '',
+      fare:            j.EstimatedFare || j.RideCost || j.CustomeRate || null,
+      paymentType:     j.PaymentMethod || j.paymentMethod || '',
+      wheelchair:      !!(j.Wheelchair || j.wheelchair),
+      passengers:      parseInt(j.NoOfPassengers || j.Passengers || 1) || 1,
+      notes:           j.Notes || j.notes || ''
+    }));
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({
+      ok: true,
+      driverId:  _g6Drv,
+      companyId: _g6Cid,
+      vehicleId: _g6Vid,
+      bookings:  _g6Rows,
+      fetchedAt: Date.now()
+    }));
+    console.log(`200: GET /api/driver/active-bookings driver=${_g6Drv} cid=${_g6Cid} → ${_g6Rows.length} booking(s)`);
+    return;
+  }
+
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
   // Body: { bookingId, cancelledBy: passenger|driver|dispatcher|website, reason? }
   // Dispatcher source requires BW_SID session cookie; passenger/website/driver
@@ -6390,7 +6511,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                         .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs compare-and-set failed: ${e.message}`));
                       firebaseDbSet(`notification/${_drvForFbD}`, {
                         bookingid: `${job.Id},Job Cancel,${_drvForFbD},Server,Dispatcher`,
-                        content:   'Passenger Cancel'
+                        content:   'Passenger Cancel',
+                        // §FIX-DA-G4/G5 — driver-app public contract.
+                        eventType: 'cancelled',
+                        version:   parseInt(job.updateSeq) || 0,
+                        updatedAt: _FB_SERVER_TIMESTAMP,
+                        bookingId: job.Id
                       }, _tok)
                         .then(() => console.log(`  [ProcUpdateJobv6] §FIX-D/Q notification/${_drvForFbD} → Job Cancel written`))
                         .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q notification write failed: ${e.message}`));
@@ -6603,11 +6729,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               // Also stamp _seq onto the booking-scoped Firebase mirror so the
               // driver app can use it for race detection (matches updateBooking()).
               if (_euCid && job.Id) {
+                // §FIX-DA-G4/G5 — public contract: version + serverTimestamp + 6-value eventType.
+                const _ubMirrorPatch = {
+                  _seq:      _ubNewSeq,
+                  version:   _ubNewSeq,
+                  updatedAt: _FB_SERVER_TIMESTAMP,
+                  eventType: _ubMapEventType(_ubTypes[0] || 'JobUpdated')
+                };
                 getFirebaseServerToken().then(_tok => {
                   if (!_tok) return;
                   return Promise.all([
-                    firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, { _seq: _ubNewSeq }, _tok).catch(() => {}),
-                    firebaseDbPatch(`allbookings/${_euCid}/${job.Id}`, { _seq: _ubNewSeq }, _tok).catch(() => {}),
+                    firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, _ubMirrorPatch, _tok).catch(() => {}),
+                    firebaseDbPatch(`allbookings/${_euCid}/${job.Id}`, _ubMirrorPatch, _tok).catch(() => {}),
                   ]);
                 }).catch(() => {});
                 for (const _t of _ubTypes) {
@@ -6625,7 +6758,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     content:   `Booking ${_pt}`,
                     type:      _pt,
                     seq:       _ubNewSeq,
-                    bookingId: job.Id
+                    bookingId: job.Id,
+                    // §FIX-DA-G4/G5 — driver-app public contract.
+                    eventType: _ubMapEventType(_pt),
+                    version:   _ubNewSeq,
+                    updatedAt: _FB_SERVER_TIMESTAMP
                   }, _tok);
                   console.log(`  [ProcUpdateJobv6] §FIX-UB notification/${_euDid} → ${_pt} seq=${_ubNewSeq}`);
                 } catch (_e) { console.warn(`  [ProcUpdateJobv6] §FIX-UB notify failed: ${_e && _e.message}`); }
@@ -6783,7 +6920,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                       .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs compare-and-set failed: ${e.message}`));
                     firebaseDbSet(`notification/${_drvForFb}`, {
                       bookingid: `${bookingId},Job Cancel,${_drvForFb},Server,Dispatcher`,
-                      content:   'Passenger Cancel'
+                      content:   'Passenger Cancel',
+                      // §FIX-DA-G4/G5 — driver-app public contract.
+                      eventType: 'cancelled',
+                      version:   (function(){ const _j = jobStore.find(j => j && j.Id === bookingId); return _j ? (parseInt(_j.updateSeq) || 0) : 0; })(),
+                      updatedAt: _FB_SERVER_TIMESTAMP,
+                      bookingId: bookingId
                     }, _tok)
                       .then(() => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification/${_drvForFb} → Job Cancel written`))
                       .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification write failed: ${e.message}`));

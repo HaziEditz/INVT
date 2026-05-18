@@ -56,6 +56,19 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-DA — Driver-app public contract (G4 + G5 + G6) (May 2026)
+
+- Companion to §FIX-UB / §FIX-CB. The internal `bookingEvents/{cid}/{bookingId}` stream + rich `type` enum stays untouched; this fix ADDS a thinner, stable public contract that the driver app subscribes to. G2 (`pendingjobs` dual-write to keep legacy `book_now/cancel/sendmessage` paths alive) is deferred.
+- **G4 — 6-value `eventType` enum** (server.js ~1091): new `_ubMapEventType(internalType)` collapses every internal type to one of `new_offer | updated | cancelled | reassigned | completed | recalled`. All field-level change types (`PickupChanged`, `FareChanged`, `StopAdded`, etc.) map to `updated` — driver app re-reads the booking node when it sees this; the rich diff is still on `bookingEvents` for HQ/audit.
+- **G5 — `version` + serverTimestamp `updatedAt`** (server.js ~1108): new `_FB_SERVER_TIMESTAMP = {'.sv':'timestamp'}` sentinel. Every booking write now carries `version` (= `updateSeq`, monotonic per booking) and `updatedAt` (= Firebase server clock, immune to device skew). Applied to:
+  - `updateBooking()` `pendingjobs/{cid}/{bookingId}` + `allbookings/{cid}/{bookingId}` PATCH (~1184).
+  - `updateBooking()` `notification/{drv}` PATCH (~1234).
+  - `_writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opts)` — accepts `{recalled, version}` and emits `eventType: 'recalled'|'cancelled'` (~789). `cancelBooking()` passes `{recalled:!!recallToPending, version:job.updateSeq}` (~970).
+  - `[ProcUpdateJobv6]` §FIX-UB block (~6647 / ~6672) — mirror PATCH + notification both carry the new fields.
+  - Inline §FIX-D/Q cancel-notify in `[ProcUpdateJobv6]` (~6433) and §FIX-Q in `[UnAssignJobStatusFromJobList]` (~6842) — both emit `eventType:'cancelled'` + version + sentinel.
+- **G6 — `GET /api/driver/active-bookings` reconnect endpoint** (server.js ~5234): driver app calls this on every `.info/connected → true` transition to reconcile its in-memory `jobs[]` against dispatch's source of truth. Auth model: `X-User-Key` header (the driver's `passforlink`) matched against `ZONE_DRIVERS[].passforlink|userKey|UserKey`; falls back to `X-Admin-Key` + `?driverId=` for server-to-server / testing. **`companyId` and `vehicleId` are derived from the driver record on the server**, never trusted from query params — prevents a leaked key from probing a different tenant. Returns `{ok, driverId, companyId, vehicleId, bookings:[{bookingId, status, version, updatedAt, jobBookingSrc, passengerName, passengerPhone, pickupAddress, dropAddress, fare, paymentType, wheelchair, passengers, notes}], fetchedAt}`. Status is mapped to the driver-app's 3-bucket enum (`offered | queued | current`).
+- Backward compatibility: internal fields (`type`, `seq`, `_seq`, `lastUpdatedAt`, `bookingEvents`) all remain — public fields are additive. Existing dispatch console listeners are unaffected.
+
 ## §FIX-UB — Unified booking update lifecycle (May 2026)
 
 - Companion to §FIX-CB. Same problem shape on the edit side: `[ProcUpdateJobv6]` blanket-PATCHed every editable field to `pendingjobs/`, `allbookings/`, and `jobs/{cid}/{vid}/{drv}` whenever ANY field changed — driver app couldn't tell what changed, no explicit lifecycle events, no race protection against a concurrent §FIX-CB cancel, and the `jobs/{cid}/{vid}/{drv}` path is keyed by driver (not booking) so an edit to Job B could overwrite Job A's fields when the same driver held both.
