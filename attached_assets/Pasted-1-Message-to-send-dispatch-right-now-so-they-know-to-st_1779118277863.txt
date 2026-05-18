@@ -1,0 +1,19 @@
+1. Message to send dispatch right now (so they know to start watching for verification):
+
+22bp is live on production. Driver app now: drops events with stale version/updatedAt, silently closes the offer popup on eventType=cancelled/recalled/reassigned, and calls GET /api/driver/active-bookings (X-User-Key header) on every Firebase reconnect to reconcile.
+
+Backward-compatible: any write without version or eventType falls through to the old keyword path, so partial rollbacks on your side won't brick anything.
+
+Please keep an eye on your end for: (a) the reconcile endpoint getting hammered on flaky-network drivers — if call volume gets ugly let me know and I'll add a debounce; (b) any drivers reporting offers that should have popped but didn't (would indicate a version-clash false-positive).
+
+Ready to plan G2 (multi-slot jobs path) when you are — five questions below.
+
+2. G2 questions for dispatch (the multi-slot jobs/{cid}/{vid}/{drvId}/{bookingId} refactor):
+
+#	Question	Why I need the answer
+Q1	Exact new path shape — confirm jobs/{cid}/{vid}/{drvId}/{bookingId} (booking-keyed children), or do you want a different structure (e.g. driverJobs/{drvId}/{bookingId})?	Driver app needs to attach onChildAdded / onChildChanged / onChildRemoved on the parent node — path shape locks the listener wiring.
+Q2	Feature flag name + location — where does the flag live (Firebase node, env var, per-company config)? And what's the field name?	Driver app needs to read the flag to decide whether to listen on the new path, the old single-slot, or both. Without this we can't roll out per-company.
+Q3	6-week dual-write start date — what day does dispatch turn the dual-write ON? And what day does it turn the legacy single-slot write OFF?	I need both dates so I can ship the matching driver-side OTA at start-of-window, and a follow-up OTA that drops single-slot fallback at end-of-window.
+Q4	Per-booking child write atomicity — when dispatch updates one booking out of three on a driver, are you writing only that child (update on .../bookingId) or rewriting the whole parent?	Answer changes whether onChildChanged fires correctly. If you rewrite the parent, all three children re-fire and my version-guard does the dedup work.
+Q5	Removal semantics — when a booking is cancelled/completed/reassigned on the new multi-slot path, does dispatch remove() the child node, or just patch Status:Cancelled/Status:Completed?	Determines whether driver app reacts to onChildRemoved or to a child-changed Status field. Either works, just need to know which.
+Send those 5 and they can answer at their leisure — no rush, we're months ahead of the 6-week dual-write window. Stay safe out there.
