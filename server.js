@@ -5712,11 +5712,50 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // §FIX-D — dispatcher explicitly chose "No One" while editing a live (Assigned/Picking/
             // Active) job. Honor the manual unassign so the job moves to Unassigned as 'No One'
             // (not 'Pending'). FnCancelRide on the client clears the driver's screen.
+            const _prevDrvD = job.DriverId;
             console.log(`  [ProcUpdateJobv6] §FIX-D: explicit "No One" on live job #${job.Id} ` +
-                        `(was ${job.BookingStatus}, driver ${job.DriverId}) — unassigning to No One`);
+                        `(was ${job.BookingStatus}, driver ${_prevDrvD}) — unassigning to No One`);
             job.VehicleId      = 0;
             job.DriverId       = -1;
             job.BookingStatus  = 'No One';
+            // §FIX-P — same symmetry as [UnAssignJobStatusFromJobList]: restore the previous
+            // driver to Available in ZONE_DRIVERS and mirror to Firebase so smartAutoDispatch
+            // sees them as Available again. Without this the driver stays Picking/Assigned in
+            // online/{cid}/{vid}/current and is filtered out of auto-dispatch.
+            if (_prevDrvD && String(_prevDrvD) !== '0' && String(_prevDrvD) !== '-1') {
+              const _zdD = ZONE_DRIVERS.find(d => d.driverid === _prevDrvD || d.VehicleId === _prevDrvD);
+              if (_zdD) {
+                const _rqD = (typeof calcRestoredQueue === 'function')
+                  ? calcRestoredQueue(_prevDrvD, _zdD.zonename) : (_zdD.zonequeue || 1);
+                _zdD.zonequeue      = _rqD;
+                _zdD.queueWaitSince = Date.now();
+                _zdD.vehiclestatus  = 'Available';
+                _zdD.JobphoneNo     = '';
+                _zdD.jobpickup      = '';
+                _zdD.jobdropoff     = '';
+                _zdD.jobCount       = 0;
+                console.log(`  [ProcUpdateJobv6] §FIX-D/P driver ${_prevDrvD} → Available q=${_rqD} zone="${_zdD.zonename}"`);
+                const _fbVehD = _zdD.VehicleId || _zdD.vehiclenumber || '';
+                if (sessionCompanyId && _fbVehD) {
+                  getFirebaseServerToken().then(_tok => {
+                    if (!_tok) return;
+                    firebaseDbPatch(`online/${sessionCompanyId}/${_fbVehD}/current`, {
+                      vehiclestatus: 'Available',
+                      jobId:         '',
+                      jobpickup:     '',
+                      jobdropoff:    '',
+                      JobphoneNo:    ''
+                    }, _tok).then(() => {
+                      console.log(`  [ProcUpdateJobv6] §FIX-D/P Firebase online/${sessionCompanyId}/${_fbVehD}/current → Available (mirrored)`);
+                    }).catch(e => {
+                      console.log(`  [ProcUpdateJobv6] §FIX-D/P Firebase patch failed: ${e.message}`);
+                    });
+                  });
+                }
+              }
+              if (typeof clearAwayLock === 'function')        clearAwayLock(_prevDrvD);
+              if (typeof clearDriverHomeState === 'function') clearDriverHomeState(_prevDrvD);
+            }
           }
           // Tariff and custom price
           const _uTId   = String(param('TarriffId')   || '').trim();
@@ -6009,6 +6048,32 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zd.jobdropoff = '';
               zd.jobCount   = 0;
               console.log(`  [UnAssignJobStatusFromJobList] driver ${prevDriverId} → Available q=${_restoreQ} zone="${zd.zonename}"`);
+              // §FIX-P — mirror the driver's Available status back to Firebase.
+              // The dispatch console's client-side `driverdatarealx` (used by smartAutoDispatch
+              // to find Available drivers) is sourced from `online/{cid}/{vid}/current`. Updating
+              // ZONE_DRIVERS in memory is NOT enough — the client reads from Firebase, not the
+              // server's in-memory store. Without this Firebase patch, after an Assigned → No One
+              // unassign the driver still appears as 'Assigned' to smartAutoDispatch and the
+              // freshly-Pending job never gets re-offered. Drivers worked around this by logging
+              // out and back in, which rewrote the presence record.
+              // Fire-and-forget — never block the response.
+              const _fbVehId = zd.VehicleId || zd.vehiclenumber || '';
+              if (sessionCompanyId && _fbVehId) {
+                getFirebaseServerToken().then(_tok => {
+                  if (!_tok) return;
+                  firebaseDbPatch(`online/${sessionCompanyId}/${_fbVehId}/current`, {
+                    vehiclestatus: 'Available',
+                    jobId:         '',
+                    jobpickup:     '',
+                    jobdropoff:    '',
+                    JobphoneNo:    ''
+                  }, _tok).then(() => {
+                    console.log(`  [UnAssignJobStatusFromJobList] §FIX-P Firebase online/${sessionCompanyId}/${_fbVehId}/current → Available (mirrored)`);
+                  }).catch(e => {
+                    console.log(`  [UnAssignJobStatusFromJobList] §FIX-P Firebase patch failed: ${e.message}`);
+                  });
+                });
+              }
             }
             clearAwayLock(prevDriverId);
             clearDriverHomeState(prevDriverId);
