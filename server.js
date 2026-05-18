@@ -5937,10 +5937,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cjCreated = Date.now();
     const _cjNow     = new Date().toISOString();
 
+    // §FIX-HAIL — hail trips arrive driver-attached (the driver is the creator).
+    // When driverId+vehicleId are supplied on a hail create, start the booking
+    // in Assigned with the driver already attached, so completion via
+    // /api/job/command can run the standard Assigned → Completed transition
+    // without an intermediate /api/job/command assign+accept round-trip.
+    const _cjDriverId  = ((_cjData.driverId)  || '').toString().trim();
+    const _cjVehicleId = ((_cjData.vehicleId) || '').toString().trim();
+    const _cjPreAssigned = _cjSource === 'hail' && _cjDriverId && _cjVehicleId;
+    const _cjInitialStatus = _cjPreAssigned ? 'Assigned' : 'Pending';
+
     const _cjJob = {
       Id:                 _cjIdNum,
       companyId:          _cjCid,
-      BookingStatus:      'Pending',
+      BookingStatus:      _cjInitialStatus,
       BookingSource:      _cjSource,
       source:             _cjSource,
       Name:               ((_cjPax.name)   || '').toString().trim(),
@@ -5953,8 +5963,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       Notes:              _cjNotes,
       BookingDateTime:    _cjNow,
       Pickingtime:        _cjPickDT || _cjNow,
-      DriverId:           0,
-      VehicleId:          0,
+      DriverId:           _cjPreAssigned ? _cjDriverId  : 0,
+      VehicleId:          _cjPreAssigned ? _cjVehicleId : 0,
+      AssignedDriverId:   _cjPreAssigned ? _cjDriverId  : undefined,
+      AssignedVehicleId:  _cjPreAssigned ? _cjVehicleId : undefined,
+      DriverAcceptedAt:   _cjPreAssigned ? _cjNow : undefined,
+      updateSeq:          _cjPreAssigned ? 1 : 0,
+      lastUpdatedAt:      _cjCreated,
+      lastUpdatedBy:      _cjPreAssigned ? 'driver' : 'system',
       Passengers:         parseInt(_cjData.passengers || '1') || 1,
       Bags:               parseInt(_cjData.bags       || '0') || 0,
       WheelChairs:        parseInt(_cjData.wheelchairs || '0') || 0,
