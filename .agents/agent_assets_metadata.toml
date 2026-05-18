@@ -6,3 +6,9 @@ id = "gT5H_6cPYiSkaIpgPptiR"
 uri = "file://firebase-rules-merged.json"
 type = "unspecified"
 title = "Firebase Security Rules — full merged version"
+
+[[outputs]]
+id = "Gh57ohIt1knprnHilc7SR"
+uri = "file://.local/PHASE2_UPDATE_PLAN.md"
+type = "text"
+title = "Phase 2 — Unified Booking Update Plan (§FIX-UB)"
