@@ -1,0 +1,126 @@
+Driver App ↔ Dispatch — Unified Booking Lifecycle Spec
+Document owner: Taxi360 / Bookawaka driver-app team Target reader: Dispatch backend / console developer Status: Proposal — needs dispatch-side sign-off before driver-app build starts Driver app baseline: OTA 22bo-fix9, runtime 1.5.0, production channel
+
+1. Background
+Driver app has been refactored to handle bookings per-bookingId rather than as a single global "current job" slot. The remaining gaps require server-side cooperation from dispatch. This document specifies the exact Firebase paths, field names, and HTTP endpoints needed.
+
+Once dispatch implements the four items below, the driver app team will ship matching OTAs against runtime 1.5.0 (no native rebuild required).
+
+2. Items already covered (no dispatch change needed)
+#	Item	Status
+Multiple offers + 1 queued simultaneously	Driver jobs[] array supports offered/current/queued/completed rows in parallel.	✅ Live
+Targeted cancellation	Cancel filters by bookingId, leaves other rows untouched.	✅ Live
+Meter preservation on offer cancel	stopMeter() only fires when the active trip is cancelled.	✅ Live
+Session-end resets (sign-out / suspend / kick)	Five setJobs([]) sites audited — all genuine session-end events.	✅ Live
+Booking-source badge on offer popup	Reads jobBookingSrc / BookingSource / bookingSource / source. Renders DISPATCH / WEBSITE / PASSENGER APP / RE-OFFER / HAIL / ACCOUNT / PREBOOK.	✅ Live (fix8)
+Conditional availability after cancel	If a queued booking remains, stays Assigned; only goes Available when slate is empty.	✅ Live (fix9)
+Full presence re-assert on "Available" tap	vehicletype + PlayerId + lat/lng + lastSeen re-written on every status change.	✅ Live (fix8)
+Prebook visibility	Driver only sees a prebook when dispatcher releases it. Release time stays on dispatch side. Driver receives it as a normal offer.	✅ No change needed — set jobBookingSrc: "prebook" so the badge renders.
+3. Items needing dispatch-side work
+G2 — Per-booking jobs slot (multi-slot)
+Today: jobs/{companyId}/{vehicleId}/{driverId} is a single slot — one booking lives there at a time. Deleting it loses the bookingId context.
+
+Proposed:
+
+jobs/{companyId}/{vehicleId}/{driverId}/{bookingId}
+
+Each active booking gets its own child node under the driver. Dispatch writes/deletes per booking. Driver app listens to the parent path and reacts to per-child add/remove/change events.
+
+Why we need it: when dispatch retracts a queued booking, driver app currently can't tell which booking was retracted (because the single slot only holds one). Multi-slot makes retractions unambiguous.
+
+Migration: can run dual-write (old single slot + new multi-slot) for one release cycle. Driver app will read the multi-slot first and fall back to single slot if multi-slot is empty.
+
+G4 — Structured event types on every booking write
+Today: Driver app guesses event type from message keywords in notification/{driverId}.
+
+Proposed: Every booking-related write (notification AND allbookings/{cid}/{bookingId}) must include a top-level field:
+
+{
+  "eventType": "new_offer" | "updated" | "cancelled" | "reassigned" | "completed" | "recalled",
+  "bookingId": "20042026155",
+  "updatedAt": 1716033845123,
+  "version": 7,
+  ...rest of booking fields
+}
+
+eventType	Meaning	Driver-app UI behaviour
+new_offer	First time this booking is offered to this driver	Pops offer modal with countdown
+updated	Any field on the booking changed (pickup/drop/notes/fare/stops/etc)	Toast: "Trip details updated" — patches in place, never re-pops modal
+cancelled	Booking is terminated	Removes row + shows "Job Cancelled" alert. If active, stops meter.
+reassigned	Booking handed to a different driver	Removes row silently — no alert
+completed	Booking marked done elsewhere (rare — driver-app drives this)	Removes row silently
+recalled	Dispatcher pulled the offer back before driver responded	Closes offer modal + clears dedup so a re-offer of the same bookingId pops the modal again
+G5 — updatedAt + version on every booking write (stale-write protection)
+Why: mobile networks blip. A delayed Firebase write can arrive AFTER a more recent state and resurrect a cancelled or stale booking. Without versioning, driver app has to last-write-wins and gets weird ghost rows.
+
+Proposed contract: every write to allbookings/{cid}/{bookingId} AND every notification payload includes both:
+
+Field	Type	Notes
+updatedAt	int64 ms epoch	Firebase serverTimestamp() preferred over client clock
+version	int monotonic	Increment by 1 on every mutation, never reset
+Driver-app behaviour: keeps a Map<bookingId, {lastVersion, lastUpdatedAt}> in memory. Drops any incoming snapshot where version <= lastVersion (or updatedAt < lastUpdatedAt if version is missing).
+
+This is cheap to implement on dispatch side — single counter increment per booking — and eliminates a whole class of resurrection bugs.
+
+G6 — Reconnect rebuild endpoint
+Why: when a driver's phone reconnects after a network drop, the driver app needs the authoritative list of bookings currently assigned/queued to them — not whatever happens to still be in Firebase listeners' state.
+
+Proposed endpoint:
+
+GET /api/driver/active-bookings?driverId={id}&companyId={cid}&vehicleId={vid}
+
+Response:
+
+{
+  "bookings": [
+    {
+      "bookingId": "20042026155",
+      "status": "current" | "queued" | "offered",
+      "version": 7,
+      "updatedAt": 1716033845123,
+      "jobBookingSrc": "dispatch" | "website" | "app" | "prebook" | "re-offer",
+      "passengerName": "...",
+      "passengerPhone": "...",
+      "pickupAddress": "...",
+      "dropAddress": "...",
+      "fare": 24.50,
+      "paymentType": "cash" | "eftpos" | "card" | "account" | "acc" | "total_mobility" | "gift_card",
+      "wheelchair": false,
+      "passengers": 1,
+      "notes": "..."
+    }
+  ],
+  "fetchedAt": 1716033845999
+}
+
+Driver-app behaviour: on every Firebase .info/connected transition to true, driver app calls this endpoint and reconciles its jobs[] array:
+
+Add missing bookings the driver doesn't have yet
+Remove orphan rows the server no longer claims
+Patch field changes where versions differ
+This single endpoint fixes: offers lost during reconnect, cancelled jobs resurrected by stale Firebase writes, queued jobs that should have promoted but didn't.
+
+4. Future-only (do not build yet)
+These are tracked but out of scope until you're ready to actually dispatch concurrent food/freight jobs.
+
+#	Item	Note
+G10b	Driver handles multiple simultaneous active trips (e.g. courier with 3 deliveries in progress)	Driver-app meter / Dashboard / presence model assumes 1 active trip. Significant refactor — runtime bump (1.6.0). For now, taxi case (1 current + 1 queued) is fully supported.
+5. Suggested implementation order
+G5 first (updatedAt + version everywhere) — smallest dispatch change, unlocks everything else.
+G4 (eventType field) — additive, no path migration.
+G6 (/api/driver/active-bookings) — new endpoint, no migration.
+G2 (per-booking jobs slot) — biggest dispatch change, do last under dual-write.
+Driver-app team will ship one OTA per item as it lands on dispatch side. No native rebuild needed for any of these.
+
+6. Open questions for dispatch dev
+Please reply on these before implementation starts:
+
+Server clock vs client clock for updatedAt — can dispatch use Firebase serverTimestamp() (RTDB sentinel) so clocks are authoritative? If not, the version field becomes load-bearing.
+version initial value — start at 1 on first write, or 0? Driver app will treat undefined as 0.
+eventType on allbookings writes — write under a top-level field, or under a sub-path like allbookings/{cid}/{bookingId}/_meta/eventType? Either works for driver, top-level is simpler.
+Per-booking jobs slot migration window — how long can dispatch dual-write old + new paths? Driver app can read both for ~1 month, then we drop old-path support.
+Auth on /api/driver/active-bookings — driver app will send UserKey (driver's passforlink) in header. Confirm that's the right auth model for SA portal.
+7. Contact
+Driver-app changes land on EAS production channel lovesaf/taxi360-driver, runtime 1.5.0. Each OTA pushes in 2-3 minutes from sign-off. Test device: Samsung Galaxy A04.
+
+Driver app's current presence + lifecycle invariants are documented in replit.md (driver-app repo root) — relevant sections: "Behaviour Notes (Active Invariants)" and "Firebase Paths".
