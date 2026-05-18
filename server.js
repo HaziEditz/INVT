@@ -5937,15 +5937,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cjCreated = Date.now();
     const _cjNow     = new Date().toISOString();
 
-    // §FIX-HAIL — hail trips arrive driver-attached (the driver is the creator).
-    // When driverId+vehicleId are supplied on a hail create, start the booking
-    // in Assigned with the driver already attached, so completion via
-    // /api/job/command can run the standard Assigned → Completed transition
-    // without an intermediate /api/job/command assign+accept round-trip.
+    // §FIX-HAIL — hail trips arrive driver-attached AND mid-trip (meter already
+    // running, passenger already in car — the driver is the creator). When
+    // driverId+vehicleId are supplied on a hail create, start the booking in
+    // 'Active' (in-trip) with the driver already attached, so completion via
+    // /api/job/command runs the standard Active → Completed transition
+    // without any intermediate assign/accept/start-meter round-trips.
     const _cjDriverId  = ((_cjData.driverId)  || '').toString().trim();
     const _cjVehicleId = ((_cjData.vehicleId) || '').toString().trim();
     const _cjPreAssigned = _cjSource === 'hail' && _cjDriverId && _cjVehicleId;
-    const _cjInitialStatus = _cjPreAssigned ? 'Assigned' : 'Pending';
+    const _cjInitialStatus = _cjPreAssigned ? 'Active' : 'Pending';
 
     const _cjJob = {
       Id:                 _cjIdNum,
