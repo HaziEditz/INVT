@@ -167,3 +167,71 @@ hand-off is complete.
 - Dispatch fixes are documented in `replit.md` under `§FIX-A`..`§FIX-Q`.
 - Server log filter for end-to-end trace: `grep "§FIX-\|smartAutoDispatch\|writeJobDetailsToFirebase"`.
 - Real test logs available in workflow `Start application`.
+
+---
+
+## §FIX-UB — Booking update lifecycle (May 2026)
+
+Server now emits granular, per-booking update events. The driver app must
+read them per booking instead of treating any change as a full reset.
+
+### New Firebase path: `bookingEvents/{cid}/{bookingId}`
+
+Append-only event log per booking. Each push-key record contains:
+
+```
+{
+  type:  "PickupChanged" | "DropoffChanged" | "StopAdded" | "PassengerNoteChanged"
+       | "PassengerInfoChanged" | "FareChanged" | "ScheduleChanged" | "JobUpdated"
+       | "BookingCancelled" | "BookingRecalled",
+  diff:  { fieldName: { from, to }, ... },
+  by:    "dispatcher" | "passenger" | "website" | "driver" | "system",
+  at:    "2026-05-18T14:00:00.000Z",
+  atMs:  1779114000000,
+  seq:   <monotonic sequence number>
+}
+```
+
+- Server trims to the last 50 events per booking.
+- Driver app should subscribe (`child_added`) only while the booking is
+  visible (Offered / Assigned / Picking / OnTrip / Active / Queued).
+- Use the `seq` field for ordering and de-duplication — never the push
+  key alone.
+
+### Notification payload shape change
+
+`notification/{drv}` for update events now carries explicit type + seq:
+
+```
+{
+  bookingid: "<id>,<type>,<drv>,<by>,Dispatcher",
+  content:   "Booking <type>",
+  type:      "PickupChanged" (etc.),
+  seq:       <number>,
+  bookingId: <number>
+}
+```
+
+The legacy `Job Cancel` notification (§FIX-Q) is unchanged. New events
+add fields but don't break the existing parser — `bookingid` stays the
+authoritative comma-joined key.
+
+### What the driver app MUST NOT do anymore
+
+- Do not treat an update notification as a session/state reset.
+- Do not clear the active trip when an update lands on a queued/offered
+  sibling booking.
+- Do not assume `pendingjobs/{cid}/{bookingId}` field changes are full
+  rewrites — server only PATCHes changed fields, and `_seq` tracks the
+  version.
+
+### Race-safety contract
+
+- `pendingjobs/{cid}/{bookingId}._seq` is the monotonic source-of-truth
+  sequence number per booking.
+- If the driver app posts back an edit (currently unsupported but planned),
+  it must include the `ifSeq` it saw — stale edits will be rejected by
+  the server with HTTP 409.
+- `BookingCancelled` / `BookingRecalled` always bump `_seq`, so any
+  in-flight edit attempted against a stale `_seq` is automatically
+  refused — this closes the resurrect-cancelled-job race.

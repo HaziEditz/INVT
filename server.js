@@ -916,6 +916,19 @@ function cancelBooking(opts) {
   job.FareSnapshot       = job.EstimatedFare || job.RideCost || job.CustomeRate || '';
   job.DistanceSnapshot   = job.distance || job.Distance || '';
 
+  // §FIX-UB interlock — bump updateSeq so any in-flight updateBooking() PATCH
+  // with a stale ifSeq is rejected, and write a BookingCancelled / BookingRecalled
+  // event so the driver app sees the lifecycle transition on the same per-booking
+  // stream as edits.
+  const _seqBefore = parseInt(job.updateSeq) || 0;
+  job.updateSeq = _seqBefore + 1;
+  if (_cid && bookingId) {
+    _writeBookingEvent(_cid, bookingId,
+      recallToPending ? 'BookingRecalled' : 'BookingCancelled',
+      { CancelledBy: _cancelledByPretty, CancelReason: reason, CancelStage: _cancelStage },
+      cancelledBy, job.updateSeq).catch(() => {});
+  }
+
   if (recallToPending) {
     // Driver recalled an Assigned booking — keep job alive, return to Pending.
     job.BookingStatus = 'Pending';
@@ -961,6 +974,253 @@ function cancelBooking(opts) {
     vehicleId: _vehId,
     driverFreed, driverState, queueNo,
     recalled: recallToPending
+  };
+}
+
+// ─── §FIX-UB — Unified booking update lifecycle ───────────────────────────────
+// Counterpart to §FIX-CB. Single helper for every booking edit. Diff-based,
+// per-booking, with explicit event classification so the driver app can react
+// granularly to pickup-change / stop-add / fare-change / etc. without resetting
+// driver state for other concurrent assignments.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Trim bookingEvents/{cid}/{bookingId} to keep only the most recent N entries.
+async function _trimBookingEvents(cid, bookingId, keep) {
+  try {
+    if (!cid || !bookingId) return;
+    const _tok = await getFirebaseServerToken();
+    if (!_tok) return;
+    const _url = `${FB_DB_URL}/bookingEvents/${cid}/${bookingId}.json?auth=${encodeURIComponent(_tok)}&shallow=false`;
+    const _resp = await fbRequest(_url, 'GET');
+    // fbRequest returns { status, headers, body } — payload is at .body.
+    const _events = (_resp && _resp.status === 200 && _resp.body && typeof _resp.body === 'object') ? _resp.body : null;
+    if (!_events) return;
+    const _keys = Object.keys(_events);
+    if (_keys.length <= keep) return;
+    // Sort by event seq (newer events have higher seq); fall back to push-key order.
+    _keys.sort((a, b) => {
+      const _sa = (_events[a] && _events[a].seq) || 0;
+      const _sb = (_events[b] && _events[b].seq) || 0;
+      if (_sa !== _sb) return _sa - _sb;
+      return a < b ? -1 : 1;
+    });
+    const _drop = _keys.slice(0, _keys.length - keep);
+    for (const _k of _drop) {
+      await fbRequest(`${FB_DB_URL}/bookingEvents/${cid}/${bookingId}/${_k}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
+    }
+  } catch (_e) { /* non-fatal */ }
+}
+
+// Write a single event record under bookingEvents/{cid}/{bookingId}/{push-id}.
+async function _writeBookingEvent(cid, bookingId, eventType, diff, by, seq) {
+  try {
+    if (!cid || !bookingId || !eventType) return;
+    const _tok = await getFirebaseServerToken();
+    if (!_tok) return;
+    const _payload = {
+      type:  eventType,
+      diff:  diff || null,
+      by:    by   || 'system',
+      at:    new Date().toISOString(),
+      atMs:  Date.now(),
+      seq:   seq || 0
+    };
+    const _url = `${FB_DB_URL}/bookingEvents/${cid}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
+    await fbRequest(_url, 'POST', _payload);
+    // Trim to last 50 — fire and forget, race-tolerant.
+    _trimBookingEvents(cid, bookingId, 50).catch(() => {});
+  } catch (_e) {
+    console.warn(`  [bookingEvents] write failed: ${_e && _e.message}`);
+  }
+}
+
+// Diff incoming changes against the live job. Returns {field: {from, to}} for
+// fields that actually changed. Numeric values are string-normalized so
+// "10" vs 10 doesn't count as a change.
+function _diffJobChanges(job, changes) {
+  const _diff = {};
+  if (!job || !changes || typeof changes !== 'object') return _diff;
+  const _norm = v => (v === null || v === undefined) ? '' : String(v).trim();
+  for (const _k of Object.keys(changes)) {
+    const _to   = changes[_k];
+    const _from = job[_k];
+    // Arrays/objects: shallow JSON compare.
+    if ((typeof _to === 'object' && _to !== null) || (typeof _from === 'object' && _from !== null)) {
+      if (JSON.stringify(_to || null) !== JSON.stringify(_from || null)) {
+        _diff[_k] = { from: _from, to: _to };
+      }
+      continue;
+    }
+    if (_norm(_to) !== _norm(_from)) {
+      _diff[_k] = { from: _from, to: _to };
+    }
+  }
+  return _diff;
+}
+
+// Map a diff to one or more semantic event types so the driver app can react
+// granularly. Generic JobUpdated covers anything not in the explicit set.
+function _classifyDiff(diff) {
+  const _events = new Set();
+  if (!diff) return [];
+  const _has = (...keys) => keys.some(k => Object.prototype.hasOwnProperty.call(diff, k));
+  if (_has('PickAddress', 'PickLatLng', 'pickup'))                _events.add('PickupChanged');
+  if (_has('DropAddress', 'DropLatLng', 'dropoff'))               _events.add('DropoffChanged');
+  if (_has('stops', 'Stops', 'extraStops', 'Nextstop'))           _events.add('StopAdded');
+  if (_has('Notes', 'notes', 'comment', 'Comment', 'DriverNote')) _events.add('PassengerNoteChanged');
+  if (_has('Name', 'PhoneNo', 'PassengerName', 'Email'))          _events.add('PassengerInfoChanged');
+  if (_has('EstimatedFare', 'RideCost', 'CustomeRate', 'TarriffType', 'TariffId', 'FixedPrice'))
+                                                                  _events.add('FareChanged');
+  if (_has('BookingDateTime', 'Pickingtime', 'ScheduledFor'))     _events.add('ScheduleChanged');
+  // Anything else (or no explicit match) → generic JobUpdated.
+  const _explicit = new Set([
+    'PickAddress','PickLatLng','pickup','DropAddress','DropLatLng','dropoff',
+    'stops','Stops','extraStops','Nextstop','Notes','notes','comment','Comment','DriverNote',
+    'Name','PhoneNo','PassengerName','Email',
+    'EstimatedFare','RideCost','CustomeRate','TarriffType','TariffId','FixedPrice',
+    'BookingDateTime','Pickingtime','ScheduledFor'
+  ]);
+  const _other = Object.keys(diff).some(k => !_explicit.has(k));
+  if (_other || _events.size === 0) _events.add('JobUpdated');
+  return Array.from(_events);
+}
+
+// Statuses where the booking is currently visible inside the driver app.
+const _UB_DRIVER_VISIBLE = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
+
+// updateBooking({bookingId, changes, by, ifSeq?, source})
+//   - Diff-based, per-booking, race-safe via updateSeq.
+//   - Refuses if job is already closed (Cancelled / Completed / etc.).
+//   - Returns {ok, idempotent?, stale?, currentSeq?, eventTypes, diff, seq, driverNotified}.
+function updateBooking(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const changes   = (opts.changes && typeof opts.changes === 'object') ? opts.changes : {};
+  const by        = String(opts.by || 'dispatcher').toLowerCase();
+  const ifSeq     = (opts.ifSeq !== undefined && opts.ifSeq !== null) ? parseInt(opts.ifSeq) : null;
+  const source    = opts.source || 'updateBooking';
+
+  if (!bookingId) {
+    return { ok: false, error: 'bookingId required' };
+  }
+  // Already closed → refuse. Caller should handle as conflict.
+  const _closed = closedJobStore.find(j => j && j.Id === bookingId);
+  if (_closed) {
+    console.log(`  [${source}] §FIX-UB refused: job #${bookingId} already closed (${_closed.BookingStatus || '?'})`);
+    return { ok: false, closed: true, error: 'job already closed' };
+  }
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) {
+    return { ok: false, error: 'job not found' };
+  }
+  const job = jobStore[idx];
+
+  // Race-safety check.
+  const _curSeq = parseInt(job.updateSeq) || 0;
+  if (ifSeq !== null && ifSeq !== _curSeq) {
+    console.log(`  [${source}] §FIX-UB stale: job #${bookingId} ifSeq=${ifSeq} but currentSeq=${_curSeq}`);
+    return { ok: false, stale: true, currentSeq: _curSeq, error: 'sequence mismatch' };
+  }
+
+  // Diff.
+  const _diff = _diffJobChanges(job, changes);
+  if (Object.keys(_diff).length === 0) {
+    console.log(`  [${source}] §FIX-UB idempotent: job #${bookingId} no field changes (seq=${_curSeq})`);
+    return { ok: true, idempotent: true, eventTypes: [], diff: {}, seq: _curSeq, driverNotified: false };
+  }
+
+  // Apply diff to the in-memory job.
+  for (const _k of Object.keys(_diff)) {
+    job[_k] = _diff[_k].to;
+  }
+  const _newSeq = _curSeq + 1;
+  job.updateSeq      = _newSeq;
+  job.lastUpdatedAt  = new Date().toISOString();
+  job.lastUpdatedBy  = by;
+  saveJobStore();
+
+  const _eventTypes = _classifyDiff(_diff);
+  const _cid = String(job.companyId || '');
+  const _vid = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+  const _drv = (job.DriverId === 0 || job.DriverId === '0' || job.DriverId === -1 || job.DriverId === -2)
+                ? '' : String(job.DriverId || '').trim();
+  const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
+
+  // Booking-scoped Firebase fanout — PATCH changed fields + _seq to
+  // pendingjobs/allbookings so external consumers see the authoritative state.
+  // jobs/{cid}/{vid}/{drv} is driver-keyed (not booking-keyed), so we gate on
+  // a booking-identity check to prevent overwriting Job A's fields when an
+  // edit lands on the same driver's Job B.
+  if (_cid && bookingId) {
+    const _fbChanged = {};
+    for (const _k of Object.keys(_diff)) _fbChanged[_k] = _diff[_k].to;
+    _fbChanged._seq            = _newSeq;
+    _fbChanged.jobUpdatedAt    = Date.now();
+    _fbChanged.jobUpdatedAtIso = new Date().toISOString();
+    (async () => {
+      try {
+        const _tok = await getFirebaseServerToken();
+        if (!_tok) return;
+        await firebaseDbPatch(`pendingjobs/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB pendingjobs patch failed: ${_e.message}`); });
+        await firebaseDbPatch(`allbookings/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB allbookings patch failed: ${_e.message}`); });
+        // Live driver-keyed node — only PATCH if it currently refs THIS booking.
+        if (_visible && _vid && _vid !== '0' && _vid !== '-1' && _drv) {
+          const _liveUrl = `${FB_DB_URL}/jobs/${_cid}/${_vid}/${_drv}.json?auth=${encodeURIComponent(_tok)}`;
+          const _cur = await fbRequest(_liveUrl, 'GET');
+          const _curBody = (_cur && _cur.status === 200) ? _cur.body : null;
+          const _curBid = _curBody && (_curBody.BookingId || _curBody.bookingId || _curBody.Id);
+          if (!_curBody || _curBid === undefined || _curBid === null || String(_curBid) === String(bookingId)) {
+            await firebaseDbPatch(`jobs/${_cid}/${_vid}/${_drv}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB jobs live-patch failed: ${_e.message}`); });
+            console.log(`  [${source}] §FIX-UB jobs/${_cid}/${_vid}/${_drv} live-patched (booking ${bookingId})`);
+          } else {
+            console.log(`  [${source}] §FIX-UB jobs/${_cid}/${_vid}/${_drv} SKIPPED — refs different booking #${_curBid} (this=${bookingId})`);
+          }
+        }
+      } catch (_e) {
+        console.warn(`  [${source}] §FIX-UB Firebase fanout error: ${_e && _e.message}`);
+      }
+    })();
+    for (const _type of _eventTypes) {
+      _writeBookingEvent(_cid, bookingId, _type, _diff, by, _newSeq).catch(() => {});
+    }
+  }
+
+  // Notify the driver app — only when the booking is currently in their UI.
+  // Payload mirrors §FIX-Q's shape but carries type+seq so the driver app can
+  // pull the booking-scoped node and update only that card.
+  let _driverNotified = false;
+  if (_visible && _cid && _drv) {
+    (async () => {
+      try {
+        const _tok = await getFirebaseServerToken();
+        if (!_tok) return;
+        const _primaryType = _eventTypes[0] || 'JobUpdated';
+        const _payload = {
+          bookingid: `${bookingId},${_primaryType},${_drv},${by},Dispatcher`,
+          content:   `Booking ${_primaryType}`,
+          type:      _primaryType,
+          seq:       _newSeq,
+          bookingId: bookingId
+        };
+        await firebaseDbPatch(`notification/${_drv}`, _payload, _tok);
+        console.log(`  [${source}] §FIX-UB notification/${_drv} → ${_primaryType} seq=${_newSeq}`);
+      } catch (_e) {
+        console.warn(`  [${source}] §FIX-UB notification write failed: ${_e && _e.message}`);
+      }
+    })();
+    _driverNotified = true;
+  }
+
+  console.log(`  [${source}] §FIX-UB job #${bookingId} seq ${_curSeq}→${_newSeq} types=[${_eventTypes.join(',')}] by=${by} fields=[${Object.keys(_diff).join(',')}]`);
+  return {
+    ok: true, idempotent: false,
+    eventTypes: _eventTypes,
+    diff: _diff,
+    seq: _newSeq,
+    driverNotified: _driverNotified,
+    visible: _visible,
+    driverId: _drv,
+    vehicleId: _vid
   };
 }
 
@@ -4865,6 +5125,64 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── POST /api/booking/update — §FIX-UB unified update REST endpoint ─────────
+  // Body: { bookingId, changes: {field:value,...}, ifSeq?, by: dispatcher|passenger|website }
+  // Same auth model as /api/cancel: dispatcher uses BW_SID, others X-Admin-Key.
+  // Idempotent (empty-diff returns idempotent:true); stale ifSeq returns 409.
+  if (urlPath === '/api/booking/update' && req.method === 'POST') {
+    const _ubBody = await readBody(req);
+    let _ub = {};
+    try { _ub = JSON.parse(_ubBody); } catch(e) {}
+    const _ubBooking = parseInt(_ub.bookingId || _ub.BookingId || 0) || 0;
+    const _ubBy      = String(_ub.by || _ub.updatedBy || '').toLowerCase().trim();
+    const _ubChanges = (_ub.changes && typeof _ub.changes === 'object') ? _ub.changes : null;
+    const _ubIfSeq   = (_ub.ifSeq !== undefined && _ub.ifSeq !== null) ? parseInt(_ub.ifSeq) : null;
+    const _ubAllowed = new Set(['dispatcher', 'passenger', 'website']);
+    if (!_ubBooking || !_ubAllowed.has(_ubBy) || !_ubChanges) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId, changes:{...} and by ∈ {dispatcher,passenger,website} required' }));
+      return;
+    }
+    if (_ubBy === 'dispatcher') {
+      const _ubCid = getSessionCompanyId(req) || '';
+      if (!_ubCid) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+        return;
+      }
+      // Tenant check across BOTH stores so closed-booking probes don't leak
+      // existence via 410 vs 404 (a dispatcher from cidA cannot tell whether
+      // bookingId exists in cidB at all — always 403 if it does and isn't theirs).
+      const _ubJobT  = jobStore.find(j => j && j.Id === _ubBooking);
+      const _ubClsT  = closedJobStore.find(j => j && j.Id === _ubBooking);
+      const _ubAnyT  = _ubJobT || _ubClsT;
+      if (_ubAnyT && _ubAnyT.companyId && String(_ubAnyT.companyId) !== String(_ubCid)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'cross-tenant update forbidden' }));
+        return;
+      }
+    } else {
+      const _ubKey = req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '';
+      if (!process.env.BW_ADMIN_KEY || _ubKey !== process.env.BW_ADMIN_KEY) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'X-Admin-Key required for ' + _ubBy + ' source' }));
+        return;
+      }
+    }
+    const _ubResult = updateBooking({
+      bookingId: _ubBooking, changes: _ubChanges,
+      by: _ubBy, ifSeq: _ubIfSeq, source: 'api/booking/update/' + _ubBy
+    });
+    console.log(`POST /api/booking/update -> ${JSON.stringify({ ok: _ubResult.ok, idempotent: _ubResult.idempotent, stale: _ubResult.stale, types: _ubResult.eventTypes })}`);
+    let _status = 200;
+    if (_ubResult.stale)  _status = 409;
+    else if (_ubResult.closed) _status = 410;
+    else if (!_ubResult.ok)    _status = 404;
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_ubResult));
+    return;
+  }
+
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
   // Body: { bookingId, cancelledBy: passenger|driver|dispatcher|website, reason? }
   // Dispatcher source requires BW_SID session cookie; passenger/website/driver
@@ -5926,6 +6244,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const jobId = parseInt(param('Id')) || 0;
         const job = jobStore.find(j => j.Id === jobId);
         if (job) {
+          // §FIX-UB — shallow snapshot of job BEFORE any mutation so we can
+          // compute a real field-level diff once the handler has applied the
+          // edit + §FIX-A/A2/D/O status guards.
+          const _ubPreSnapshot = Object.assign({}, job);
           const _rawDId3  = parseInt(param('DId') || '0') || 0;
           const driverId  = (_rawDId3 === -1) ? -1 : Math.max(0, _rawDId3);
           const vehicleId = parseInt(param('VId') || '0') || 0;
@@ -6258,6 +6580,59 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }).catch(e => {
               console.warn(`  [ProcUpdateJobv6] Firebase mirror error (non-fatal): ${e.message}`);
             });
+
+            // §FIX-UB — classify the edit by REAL diff against the pre-edit
+            // snapshot (not synthetic undefined-from). Fire booking-scoped
+            // event stream + targeted driver notification when the booking is
+            // currently in the driver app's UI. The blanket PATCH above stays
+            // as a compatibility shim for legacy listeners.
+            const _ubCandidate = {};
+            for (const _ubK of Object.keys(_euPatch)) {
+              if (_ubK.startsWith('jobUpdate')) continue;          // skip mirror metadata
+              if (_ubK === 'BookingStatus' || _ubK === 'DriverId' || _ubK === 'VehicleId') continue; // status moves are handled by §FIX-A/A2/D/O and §FIX-CB events
+              _ubCandidate[_ubK] = _euPatch[_ubK];
+            }
+            const _ubDiff = _diffJobChanges(_ubPreSnapshot, _ubCandidate);
+            if (Object.keys(_ubDiff).length > 0) {
+              const _ubTypes = _classifyDiff(_ubDiff);
+              const _ubNewSeq = (parseInt(job.updateSeq) || 0) + 1;
+              job.updateSeq     = _ubNewSeq;
+              job.lastUpdatedAt = new Date().toISOString();
+              job.lastUpdatedBy = 'dispatcher';
+              saveJobStore();
+              // Also stamp _seq onto the booking-scoped Firebase mirror so the
+              // driver app can use it for race detection (matches updateBooking()).
+              if (_euCid && job.Id) {
+                getFirebaseServerToken().then(_tok => {
+                  if (!_tok) return;
+                  return Promise.all([
+                    firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, { _seq: _ubNewSeq }, _tok).catch(() => {}),
+                    firebaseDbPatch(`allbookings/${_euCid}/${job.Id}`, { _seq: _ubNewSeq }, _tok).catch(() => {}),
+                  ]);
+                }).catch(() => {});
+                for (const _t of _ubTypes) {
+                  _writeBookingEvent(_euCid, job.Id, _t, _ubDiff, 'dispatcher', _ubNewSeq).catch(() => {});
+                }
+              }
+              if (_UB_DRIVER_VISIBLE.has(job.BookingStatus || '') && _euDid && _euDid !== '0' && _euDid !== '-1') {
+              (async () => {
+                try {
+                  const _tok = await getFirebaseServerToken();
+                  if (!_tok) return;
+                  const _pt = _ubTypes[0] || 'JobUpdated';
+                  await firebaseDbPatch(`notification/${_euDid}`, {
+                    bookingid: `${job.Id},${_pt},${_euDid},dispatcher,Dispatcher`,
+                    content:   `Booking ${_pt}`,
+                    type:      _pt,
+                    seq:       _ubNewSeq,
+                    bookingId: job.Id
+                  }, _tok);
+                  console.log(`  [ProcUpdateJobv6] §FIX-UB notification/${_euDid} → ${_pt} seq=${_ubNewSeq}`);
+                } catch (_e) { console.warn(`  [ProcUpdateJobv6] §FIX-UB notify failed: ${_e && _e.message}`); }
+              })();
+              }
+              console.log(`  [ProcUpdateJobv6] §FIX-UB job #${job.Id} seq→${_ubNewSeq} types=[${_ubTypes.join(',')}] fields=[${Object.keys(_ubDiff).join(',')}]`);
+            }
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> "Booking Details Update Successfully"`);
