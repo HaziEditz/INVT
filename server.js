@@ -634,17 +634,20 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
         .catch(e => console.warn(`${_tag} pendingjobs PATCH failed: ${e && e.message}`))
     );
 
-    // 2. /jobs/{cid}/{vehId}/{drvId}/{bookingId} — DELETE acceptance/offer
-    //    child node. §FIX-DA-G2: booking-keyed children mean each cancel only
-    //    touches its own child, so the cross-booking TOCTOU/ETag dance that
-    //    used to live here is gone. Other active bookings on this driver are
-    //    untouched. Q5 (driver-app team): terminal transitions = remove() the
-    //    child node; driver app reacts on onChildRemoved.
+    // 2. /jobs/{cid}/{vehId}/{drvId}/{bookingId} — write eventType then DELETE.
+    //    §FIX-DA-G2 + C2: driver-app team needs the reason for the terminal
+    //    transition. We PATCH eventType (= 'cancelled' or 'completed') first
+    //    so Firebase's onChildRemoved snapshot carries it, then DELETE the
+    //    child. No cross-listener coordination required. Other active
+    //    bookings on this driver are untouched.
     if (_vId && _dId) {
-      const _url = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}/${_bId}.json?auth=${auth}`;
+      const _url    = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}/${_bId}.json?auth=${auth}`;
+      const _evType = (_final === 'Cancelled') ? 'cancelled' : 'completed';
       tasks.push(
-        fbRequest(_url, 'DELETE', null)
-          .then(d => console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId}/${_bId} deleted [${d && d.status}]`))
+        fbRequest(_url, 'PATCH', { eventType: _evType })
+          .catch(e => console.warn(`${_tag} jobs child eventType PATCH failed: ${e && e.message}`))
+          .then(() => fbRequest(_url, 'DELETE', null))
+          .then(d => console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId}/${_bId} → eventType=${_evType} then deleted [${d && d.status}]`))
           .catch(e => console.warn(`${_tag} jobs child DELETE failed: ${e && e.message}`))
       );
     }
@@ -768,12 +771,14 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
       .then(() => console.log(`  [CancelNotify #${bookingId}] notification/${drvId} → Job Cancel (by ${_srcPretty})`))
       .catch(e => console.warn(`  [CancelNotify #${bookingId}] notification write failed: ${e && e.message}`));
     if (vehId) {
-      // §FIX-DA-G2 — booking-keyed children: cancel removes the child node;
-      // sibling bookings on the same driver are untouched. Driver app reacts
-      // on onChildRemoved + the eventType:'cancelled'|'recalled' notification.
+      // §FIX-DA-G2 + C2 — write eventType into the child first so the driver
+      // app reads it off the onChildRemoved snapshot, then remove the node.
+      // _pubType is 'cancelled' or 'recalled' depending on opts.recalled.
       const _delUrl = `${FB_DB_URL}/jobs/${cid}/${vehId}/${drvId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
-      fbRequest(_delUrl, 'DELETE', null)
-        .then(d => console.log(`  [CancelNotify #${bookingId}] jobs/${cid}/${vehId}/${drvId}/${bookingId} removed [${d && d.status}]`))
+      fbRequest(_delUrl, 'PATCH', { eventType: _pubType })
+        .catch(e => console.warn(`  [CancelNotify #${bookingId}] jobs child eventType PATCH failed: ${e && e.message}`))
+        .then(() => fbRequest(_delUrl, 'DELETE', null))
+        .then(d => console.log(`  [CancelNotify #${bookingId}] jobs/${cid}/${vehId}/${drvId}/${bookingId} → eventType=${_pubType} then removed [${d && d.status}]`))
         .catch(e => console.warn(`  [CancelNotify #${bookingId}] jobs child remove failed: ${e && e.message}`));
     }
   } catch(e) { console.warn(`  [CancelNotify #${bookingId}] failed: ${e && e.message}`); }
@@ -6467,10 +6472,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     // [UnAssignJobStatusFromJobList] for the full rationale.
                     const _drvForFbD = String(_prevDrvD || '').trim();
                     if (_drvForFbD && _drvForFbD !== '0' && _drvForFbD !== '-1') {
-                      // §FIX-DA-G2 — booking-keyed child remove.
+                      // §FIX-DA-G2 + C2 — write eventType then remove child.
                       const _delUrl = `${FB_DB_URL}/jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}/${job.Id}.json?auth=${encodeURIComponent(_tok)}`;
-                      fbRequest(_delUrl, 'DELETE', null)
-                        .then(_r => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}/${job.Id} removed [${_r && _r.status}]`))
+                      fbRequest(_delUrl, 'PATCH', { eventType: 'cancelled' })
+                        .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs child eventType PATCH failed: ${e.message}`))
+                        .then(() => fbRequest(_delUrl, 'DELETE', null))
+                        .then(_r => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}/${job.Id} → eventType=cancelled then removed [${_r && _r.status}]`))
                         .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs child remove failed: ${e.message}`));
                       firebaseDbSet(`notification/${_drvForFbD}`, {
                         bookingid: `${job.Id},Job Cancel,${_drvForFbD},Server,Dispatcher`,
@@ -6877,10 +6884,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   // BookingId (a new job arrived between unassign and this write).
                   const _drvForFb = String(_prevDrvStr || '').trim();
                   if (_drvForFb) {
-                    // §FIX-DA-G2 — booking-keyed child remove.
+                    // §FIX-DA-G2 + C2 — write eventType then remove child.
                     const _delUrl = `${FB_DB_URL}/jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
-                    fbRequest(_delUrl, 'DELETE', null)
-                      .then(_r => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}/${bookingId} removed [${_r && _r.status}]`))
+                    fbRequest(_delUrl, 'PATCH', { eventType: 'cancelled' })
+                      .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs child eventType PATCH failed: ${e.message}`))
+                      .then(() => fbRequest(_delUrl, 'DELETE', null))
+                      .then(_r => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}/${bookingId} → eventType=cancelled then removed [${_r && _r.status}]`))
                       .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs child remove failed: ${e.message}`));
                     firebaseDbSet(`notification/${_drvForFb}`, {
                       bookingid: `${bookingId},Job Cancel,${_drvForFb},Server,Dispatcher`,
@@ -10726,8 +10735,17 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
       // sibling-booking guard that used to live here is no longer needed —
       // a different booking's offer would live under a different child key.
       try {
-        const _delResp = await fbRequest(`${FB_DB_URL}/jobs/${cid}/${vid}/${did}/${bookingIdStr}.json?auth=${auth}`, 'DELETE', null);
-        console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingIdStr} deleted [${_delResp && _delResp.status}]`);
+        // §FIX-DA-G2 + C2 — write eventType into the child as the last update
+        // so the driver app reads it off the onChildRemoved snapshot, then
+        // delete the node. Offer-clear → 'cancelled' (offer no longer valid).
+        const _ocUrl = `${FB_DB_URL}/jobs/${cid}/${vid}/${did}/${bookingIdStr}.json?auth=${auth}`;
+        try {
+          await fbRequest(_ocUrl, 'PATCH', { eventType: 'cancelled' });
+        } catch (ePatch) {
+          console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child eventType PATCH failed:`, ePatch && ePatch.message);
+        }
+        const _delResp = await fbRequest(_ocUrl, 'DELETE', null);
+        console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingIdStr} → eventType=cancelled then deleted [${_delResp && _delResp.status}]`);
       } catch (e2) { console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child DELETE failed:`, e2 && e2.message); }
       // 2. online/{cid}/{vid}/current — only clear if it still references THIS booking.
       try {

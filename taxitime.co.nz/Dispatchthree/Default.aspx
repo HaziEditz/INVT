@@ -8485,16 +8485,19 @@ $(document).ready(function() {
         updates['/notification/' + DriverId] = postData;
         // updates['/user-posts/' + uid + '/' + newPostKey] = postData;
 
-        // §FIX-DA-G2 — booking-keyed children: each driver node now contains
-        // child nodes keyed by bookingId. Cancel = remove() the matching child
-        // (terminal-state signal per Q5). Sibling bookings on the same driver
-        // are untouched.
+        // §FIX-DA-G2 + C2 — booking-keyed children: each driver node now contains
+        // child nodes keyed by bookingId. Cancel = write eventType:'cancelled'
+        // then remove() the matching child so the driver app reads the reason
+        // off the onChildRemoved snapshot. Sibling bookings are untouched.
         firebase.database().ref("jobs/" + SomeSession2).once('value').then(function(snap) {
             snap.forEach(function(vehicleSnap) {
                 vehicleSnap.forEach(function(driverSnap) {
                     var bookingChild = driverSnap.child(String(BookingId));
                     if (bookingChild.exists()) {
-                        bookingChild.ref.remove();
+                        var _bRef = bookingChild.ref;
+                        _bRef.update({ eventType: 'cancelled' })
+                            .catch(function(){ /* best-effort */ })
+                            .then(function(){ return _bRef.remove(); });
                     }
                 });
             });
@@ -9136,8 +9139,13 @@ $(document).ready(function() {
                                         if (typeof firebase !== 'undefined') {
                                             firebase.database().ref('joback/' + jobId + '/' + entry.driverId).remove();
                                             firebase.database().ref('/notification/' + entry.driverId).remove();
-                                            // §FIX-DA-G2 — booking-keyed child remove.
-                                            firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId + '/' + String(jobId)).remove();
+                                            // §FIX-DA-G2 + C2 — eventType then remove.
+                                            (function(){
+                                                var _orRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId + '/' + String(jobId));
+                                                _orRef.update({ eventType: 'cancelled' })
+                                                    .catch(function(){})
+                                                    .then(function(){ return _orRef.remove(); });
+                                            })();
                                             console.log('[_cleanupOrphanedFirebase] removed Firebase orphan: job #' + jobId + ' driver ' + entry.driverId + ' (status was ' + (job ? job.BookingStatus : 'not found') + ')');
                                         }
                                     } catch(e) {}
@@ -9394,8 +9402,14 @@ $(document).ready(function() {
                         _jobsRef.off("value", _jobsListener);
                         refaz.off("value", listener);
                         firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
-                        // §FIX-DA-G2 — booking-keyed child remove.
-                        firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id)).remove();
+                        // §FIX-DA-G2 + C2 — eventType then remove. Offline-sync
+                        // completion → 'completed' so driver app can suppress UI.
+                        (function(){
+                            var _ocRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id));
+                            _ocRef.update({ eventType: 'completed' })
+                                .catch(function(){})
+                                .then(function(){ return _ocRef.remove(); });
+                        })();
                         $('#Divo'+id).remove();
                         toastr["success"]('Job ' + id + ' already completed by ' + driverid + ' (offline sync) — closing.', 'Completed!');
                         console.log('[resolveAfter2Secondsx] jobs node shows Completed for job', id, '— auto-closing');
@@ -9688,10 +9702,15 @@ $(document).ready(function() {
                         return;
                     }
 
-                    // §FIX-DA-G2 — booking-keyed child remove. Only the timed-out
-                    // booking's node is removed; any other active booking on this
-                    // driver stays put.
-                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id)).remove();
+                    // §FIX-DA-G2 + C2 — write eventType then remove. Timeout/
+                    // Unreached is a 'cancelled' terminal for the driver. Only
+                    // the timed-out booking's node is touched.
+                    (function(){
+                        var _toRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id));
+                        _toRef.update({ eventType: 'cancelled' })
+                            .catch(function(){})
+                            .then(function(){ return _toRef.remove(); });
+                    })();
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     // §100 — also write Away to current/ so driver app overlay clears correctly.
                     // Also clear all job fields so driver app doesn't skip the NEXT offer screen

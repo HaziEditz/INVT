@@ -90,6 +90,16 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Driver-app side: same cutover day. Driver app must (a) attach `onChildAdded`/`onChildChanged`/`onChildRemoved` listeners on `jobs/{cid}/{vid}/{drv}` (parent node), (b) treat `onChildRemoved` as the terminal-state signal, (c) drop any logic that relied on a single-slot envelope.
 - Out-of-scope follow-ups (intentionally left): the flat compatibility write at `jobs/{cid}/{bookingId}` (server.js ~3910 / Default.aspx ~9226) is a separate path some older driver-app builds read on restart — leave alone until you confirm no client depends on it. Smoke test for concurrent-offer + stale-cross-driver scanner scoping is not automated yet; covered manually with the two test phones.
 
+### §FIX-DA-G2 / C2 — `eventType` on the onChildRemoved snapshot (May 2026)
+
+- Driver-app team's C2 ask: when dispatch `remove()`s a booking child, the driver needs to know the reason (silent for `completed/recalled/reassigned`, "Job Cancelled" toast for `cancelled`) without cross-listener coordination against `notification/{drv}`. Race-free fix: PATCH `eventType` onto the child node as the very last write before `remove()`. Firebase's `onChildRemoved` fires with the last-known snapshot, so the driver reads `eventType` directly off the removed node. Zero race window.
+- 9 sites converted to PATCH-then-DELETE / `update(eventType)`-then-`remove()`:
+  - **server.js** — `_bwClearJobFromFirebase` (~647: eventType derived from `finalStatus` → `cancelled|completed`); `_writeCancelNotify` (~780: uses `_pubType` → `cancelled|recalled`); `[ProcUpdateJobv6]` §FIX-D/Q cancel-notify (~6479: `cancelled`); `[UnAssignJobStatusFromJobList]` §FIX-Q (~6891: `cancelled`); `§FIX-OfferClear` (~10744: `cancelled`).
+  - **Default.aspx** — `addNotification` scan-all cancel (~8495: `cancelled`); `_cleanupOrphanedFirebase` (~9146: `cancelled`); `resolveAfter2Secondsx` offline-sync completion (~9410: `completed`); 27-s timeout / Unreached (~9711: `cancelled`).
+- Pattern (server.js): `fbRequest(url, 'PATCH', {eventType}).catch(() => {}).then(() => fbRequest(url, 'DELETE', null))`. Pattern (Default.aspx): `ref.update({eventType}).catch(()=>{}).then(()=>ref.remove())`. PATCH errors are swallowed — the DELETE must still fire even if the eventType write fails, because a stale node is worse than a missing reason hint.
+- Driver-app contract: on `onChildRemoved(snap)`, read `snap.val().eventType`. If missing (legacy/edge), fall back to the last `notification/{drv}.eventType` within a small tolerance, but with C2 in place that fallback should almost never fire.
+- C1 + C3 answers locked in same exchange: C1 = **Option A** (driver stops writing to `jobs/` entirely — accept/decline acks via API + `online/` only; the dormant `Status:'DriverAccepted'` scanner at Default.aspx ~9765 becomes obsolete and will be ripped in a follow-up cleanup). C3 = **fine** with onChildAdded burst at initial attach; driver app dedups by `version`.
+
 ## §FIX-DA — Driver-app public contract (G4 + G5 + G6) (May 2026)
 
 - Companion to §FIX-UB / §FIX-CB. The internal `bookingEvents/{cid}/{bookingId}` stream + rich `type` enum stays untouched; this fix ADDS a thinner, stable public contract that the driver app subscribes to. G2 (`pendingjobs` dual-write to keep legacy `book_now/cancel/sendmessage` paths alive) is deferred.
