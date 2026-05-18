@@ -6497,6 +6497,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
+          // §FIX-N — protect 'No One' jobs from being silently flipped to Pending/Unreached/etc.
+          // by the driver app's follow-up Unreached/Cancel ack that arrives AFTER the dispatcher
+          // has unassigned the job via [UnAssignJobStatusFromJobList]. Without this guard, the
+          // Unreached branch below (~line 6580) would set effectiveStatus='Pending' because the
+          // §FIX-M manualOffer flag was already cleared in UnAssignJobStatusFromJobList, and
+          // auto-dispatch would immediately re-offer the same job to the same driver.
+          if (currentStatus === 'No One' && isDowngrade) {
+            console.log(`  [§FIX-N/changeriddestatusforoffer/DP] BLOCKED: job #${bookingId} is No One, refusing to set ${newStatus} (reason: "${returnReason}") — dispatcher must re-pick a driver`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
+            return;
+          }
           // Special case: driver explicitly rejected/cancelled an ACCEPTED (Assigned/Picking) job.
           // This is a driver-initiated cancel, not a pre-acceptance rejection and not a timeout.
           // Move to closed jobs as Cancelled and notify dispatcher.
@@ -8645,6 +8656,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Protect Queued jobs — only [RecallQueuedJob] or [PromoteQueuedToAssigned] may change them.
           if (currentStatus2 === 'Queued') {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED: job #${bookingId} is Queued — only RecallQueuedJob/PromoteQueuedToAssigned may change it (attempted: ${newStatus})`);
+            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
+            return;
+          }
+          // §FIX-N — see DP variant. Protect 'No One' from a driver-app late ack flipping it
+          // to Pending and triggering an immediate auto-dispatch re-offer to the same driver.
+          if (currentStatus2 === 'No One' && isDowngrade2) {
+            console.log(`  [§FIX-N/changeriddestatusforoffer/DS] BLOCKED: job #${bookingId} is No One, refusing to set ${newStatus} (reason: "${returnReason}") — dispatcher must re-pick a driver`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }

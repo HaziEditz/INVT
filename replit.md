@@ -56,6 +56,13 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-N — Driver-app late ack silently flipped No One → Pending (May 2026)
+
+- Symptom: dispatcher takes an Assigned job to No One via `[UnAssignJobStatusFromJobList]` (UI works, driver phone shows "job cancelled"). A second later the job in UA quietly changes from **No One** to **Pending** and auto-dispatch immediately re-offers the same job to the same driver — driver popup never fires because of the (separate) driver-app bookingId dedup bug.
+- Root cause: after the dispatcher unassign, the driver app's follow-up `[changeriddestatusforoffer]` ack (typically `ridestatus='Unreached'`) arrives at the server. The DP/DS Unreached branches (`server.js` ~6580 / ~8700) compute `effectiveStatus = (newStatus === 'Unreached') ? (manualOffer ? 'No One' : 'Pending') : newStatus`. `UnAssignJobStatusFromJobList` (~5991) had just cleared `manualOffer=false`, so the branch falls into the `'Pending'` arm and overwrites the dispatcher's No One state. None of the earlier guards (isAccepted-downgrade, Queued, isDriverPostAcceptCancel) trip because `currentStatus === 'No One'` matches none of them.
+- Fix (`server.js` ~6503 DP + ~8665 DS): new guard immediately after the Queued block — `if (currentStatus === 'No One' && isDowngrade) { BLOCK; return; }` for both variants (`isDowngrade` = Unreached/Pending/Cancelled/Unassigned). Diagnostic `[§FIX-N/changeriddestatusforoffer/{DP|DS}] BLOCKED: job #N is No One, refusing to set <status>`.
+- Legit paths preserved: `Offered`/`Assigned`/`Picking` writes are NOT downgrades so they pass through (e.g. dispatcher re-picks driver → No One → Offered still works via `AssignJobFromJobList` / `ProcUpdateJobv6` §FIX-A2). Only Unreached/Pending/Cancelled/Unassigned from a late driver-app ack are blocked while the job sits in No One.
+
 ## §FIX-F2 — Assign-tab "No One" used string-vs-number coercion (May 2026)
 
 - Root cause: `[UnAssignJobStatusFromJobList]` (`server.js` ~5953) used `const prevDriverId = job.DriverId || 0; job.BookingStatus = prevDriverId > 0 ? 'No One' : 'Pending';`. For tenants whose `DriverId` is a string like `"D002"`, `"D002" > 0` coerces to `NaN > 0 === false`, so the handler demoted Assigned jobs to `Pending` (not `No One`) on dispatcher "take to No One". Auto-dispatch then immediately re-offered the same job to the same driver. The §FIX-G `releasedAt` cooldown was gated on the same broken check and never armed.
