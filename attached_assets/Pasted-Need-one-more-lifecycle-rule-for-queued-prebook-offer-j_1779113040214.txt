@@ -1,0 +1,78 @@
+Need one more lifecycle rule for queued/prebook/offer jobs already visible in the driver app.
+
+If a booking is UPDATED while it exists in the driver Offer tab or active trip state, the update must be handled per BOOKING, not by clearing/replacing the entire driver state.
+
+Examples:
+
+* pickup edited
+* dropoff edited
+* extra stop added
+* notes/comments changed
+* passenger info changed
+* fare estimate updated
+* schedule/prebook time changed
+
+Required behavior:
+
+1. OFFER/PREBOOK/PENDING jobs
+   If booking exists in driver Offer tab:
+
+* update only that booking card/item
+* send booking-specific update notification/event
+* refresh Firebase node only for that booking
+* preserve all other offers and active trips
+* DO NOT clear queue
+* DO NOT reset driver state
+* DO NOT remove active navigation/current trip
+
+2. ACTIVE ASSIGNED/PICKING/ONTRIP jobs
+   If booking is already active:
+
+* update active trip data live
+* driver app should refresh changed fields only
+* preserve trip lifecycle state
+* preserve navigation/session state if possible
+* avoid full screen/job reset unless absolutely required
+
+3. Booking-specific Firebase updates
+   All realtime updates should be scoped to booking level:
+
+* jobs/{cid}/{vid}/{drv}/{bookingId}
+  or equivalent booking-specific path
+
+Avoid global driver-level overwrites/clears because:
+
+* driver may have multiple offers/prebooks
+* driver may have active trip + queued reservations simultaneously
+
+4. Update notifications
+   Need explicit event types:
+
+* JobUpdated
+* StopAdded
+* PickupChanged
+* DropoffChanged
+* PassengerNoteChanged
+  etc.
+
+Not just generic reload/clear events.
+
+5. Race safety
+   If booking is updated while simultaneously:
+
+* cancelled
+* recalled
+* timed out
+* reassigned
+
+Need version/timestamp protection so stale updates do not resurrect cancelled jobs or overwrite newer state.
+
+6. Driver state protection
+   Updating or cancelling one queued/prebook booking must NEVER:
+
+* clear current active trip
+* set driver Available incorrectly
+* restore queue incorrectly
+* wipe unrelated offers
+
+All lifecycle operations must work per booking, not globally per driver.

@@ -1,0 +1,107 @@
+The current analysis looks correct overall. A few important rules need to be preserved in the unified cancel/recall flow.
+
+Main architectural rule:
+Cancellation/recall handling must operate per BOOKING, not blindly per DRIVER.
+
+A driver may now have:
+
+* active trip (Job A)
+* queued/prebook/offered reservation (Job B)
+
+Any cancel/recall flow must check remaining active assignments before changing driver state.
+
+Important correction to existing logic:
+restoreQueue() and setAvailable() should NOT happen automatically anymore just because one booking was cancelled/recalled.
+
+Need logic like:
+
+remainingAssignments = getDriverAssignments(driverId)
+
+if none remain:
+restoreQueue()
+setAvailable()
+else:
+preserve current driver state
+
+Specific notes by flow:
+
+1. Driver recall after Assigned
+   Current behavior:
+
+* job returns to Pending
+* driver restored Available
+* queue restored
+
+Unified behavior should instead:
+
+* return only that booking to Pending
+* stamp releasedAt cooldown
+* clear assignment for that booking only
+* restore queue/set Available ONLY if no other active assignments remain
+
+2. Driver recall after Picking
+   Current behavior:
+
+* trip cancelled/closed
+* queue restored
+* Available
+
+Unified behavior:
+
+* same logic, BUT only restore queue/set Available if no remaining active assignments exist
+
+3. Passenger/website cancel on assigned trip
+   Current gap is real:
+
+* ghost jobs
+* stale Firebase
+* stale driver UI
+* queue inconsistency
+
+Unified flow should:
+
+* clear Firebase booking state
+* send booking-specific cancel notification
+* clear online/current fields only for the affected booking
+* preserve unrelated active bookings
+
+4. No-accept timeout (Unreached)
+   Current Away + awayLock behavior is correct because this is treated as driver-fault.
+
+Keep distinction:
+
+* passenger cancel / dispatcher cancel = no driver fault
+* accepted-trip driver recall / timeout = driver fault
+
+5. Important distinction
+   Need separation between:
+
+* Active trip lifecycle
+  (Assigned / Picking / Arrived / OnTrip)
+  and
+* Offer/prebook/pending reservations
+  (Offer tab items)
+
+Cancelling/removing an Offer-tab booking must NOT destroy active trip state.
+
+6. Firebase cleanup
+   Avoid global driver clears.
+
+All cleanup should be booking-specific:
+
+* jobs/{cid}/{vid}/{drv}
+* notifications for specific booking
+* offer-tab item only
+
+Otherwise cancelling a queued/prebook job can accidentally wipe the driver’s current active trip UI.
+
+7. Idempotency
+   Unified cancelBooking()/recall flow should safely ignore duplicate retries to avoid:
+
+* duplicate queue restore
+* duplicate notifications
+* duplicate payout events
+
+8. Payout logic
+   Dispatcher system should only emit clean cancellation metadata.
+   Payment/payout system handles compensation rules separately.

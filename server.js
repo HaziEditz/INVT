@@ -752,6 +752,218 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
   }
 }
 
+// ─── §FIX-CB — Unified cancellation flow (per-booking, idempotent) ────────────
+// Used by: dispatcher cancel, passenger cancel, website cancel, driver recall
+// (post-accept), and any future caller. Front-door rules:
+//   • Always per-booking — never blindly clears a driver's whole state.
+//   • Idempotent — re-cancelling a cancelled job is a no-op.
+//   • Driver state (queue / Available / Away / awayLock) is touched ONLY when
+//     the driver has no remaining active assignments. Otherwise the driver
+//     keeps their current state so Job A active is never disturbed by Job B
+//     being cancelled.
+//   • Firebase writes are booking-scoped (jobs/{cid}/{vid}/{drv} ETag-guarded,
+//     online/{cid}/{vid}/current cleared only if currentJobId === bookingId).
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Returns true if `driverId` has any other active-state job in jobStore besides
+// the one being cancelled. Active = Offered/Assigned/Picking/OnTrip/Active.
+function driverHasRemainingAssignments(driverId, excludeBookingId, companyId) {
+  if (!driverId) return false;
+  const _drvStr = String(driverId).trim();
+  if (!_drvStr || _drvStr === '0' || _drvStr === '-1' || _drvStr === '-2') return false;
+  const _excl = parseInt(excludeBookingId) || 0;
+  const ACTIVE = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
+  return jobStore.some(j => {
+    if (!j || j.Id === _excl) return false;
+    if (companyId && j.companyId && String(j.companyId) !== String(companyId)) return false;
+    if (String(j.DriverId).trim() !== _drvStr) return false;
+    return ACTIVE.has(j.BookingStatus);
+  });
+}
+
+// §FIX-Q-style booking-specific driver notify. Fires `notification/{drv}` Job
+// Cancel payload + ETag-guarded `jobs/{cid}/{vid}/{drv}` → Cancelled.
+async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy) {
+  try {
+    if (!cid || !drvId || !bookingId) return;
+    const _tok = await getFirebaseServerToken();
+    if (!_tok) { console.warn(`  [CancelNotify #${bookingId}] no firebase token — skipped`); return; }
+    const _src = String(cancelledBy || 'dispatcher');
+    const _srcPretty = _src.charAt(0).toUpperCase() + _src.slice(1);
+    firebaseDbSet(`notification/${drvId}`, {
+      bookingid: `${bookingId},Job Cancel,${drvId},Server,${_srcPretty}`,
+      content: 'Passenger Cancel'
+    }, _tok)
+      .then(() => console.log(`  [CancelNotify #${bookingId}] notification/${drvId} → Job Cancel (by ${_srcPretty})`))
+      .catch(e => console.warn(`  [CancelNotify #${bookingId}] notification write failed: ${e && e.message}`));
+    if (vehId) {
+      fbCompareAndSet(`jobs/${cid}/${vehId}/${drvId}`, String(bookingId),
+        { Status: 'Cancelled', BookingId: String(bookingId) }, _tok)
+        .then(r => console.log(`  [CancelNotify #${bookingId}] jobs/${cid}/${vehId}/${drvId} → ${r}`))
+        .catch(e => console.warn(`  [CancelNotify #${bookingId}] jobs/ CAS failed: ${e && e.message}`));
+    }
+  } catch(e) { console.warn(`  [CancelNotify #${bookingId}] failed: ${e && e.message}`); }
+}
+
+// Decide and apply driver state change after a booking is cancelled/recalled.
+// Returns { driverFreed: bool, driverState: 'Available'|'Away'|'unchanged'|'unknown', queueNo: number|null }
+function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBookingId, driverFault, source) {
+  const _src = source || 'cancelBooking';
+  if (!driverId || String(driverId).trim() === '' || String(driverId) === '0') {
+    return { driverFreed: false, driverState: 'unchanged', queueNo: null };
+  }
+  if (driverHasRemainingAssignments(driverId, excludeBookingId, companyId)) {
+    console.log(`  [${_src}] §FIX-CB driver ${driverId} keeps state — has remaining active assignment(s)`);
+    return { driverFreed: false, driverState: 'unchanged', queueNo: null };
+  }
+  const zd = ZONE_DRIVERS.find(d =>
+    String(d.driverid).trim() === String(driverId).trim() ||
+    String(d.VehicleId).trim() === String(driverId).trim());
+  if (!zd) {
+    console.log(`  [${_src}] §FIX-CB driver ${driverId} not in ZONE_DRIVERS — state-change skipped`);
+    return { driverFreed: true, driverState: 'unknown', queueNo: null };
+  }
+  if (driverFault) {
+    zd.vehiclestatus = 'Away';
+    zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+    setAwayLock(driverId);
+    console.log(`  [${_src}] §FIX-CB driver ${driverId} → Away + awayLock (driver-fault, no remaining assignments)`);
+    return { driverFreed: true, driverState: 'Away', queueNo: null };
+  }
+  const _q = calcRestoredQueue(driverId, zd.zonename || '');
+  zd.zonequeue      = _q;
+  zd.queueWaitSince = Date.now();
+  zd.vehiclestatus  = 'Available';
+  zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+  clearAwayLock(driverId);
+  clearDriverHomeState(driverId);
+  if (companyId && vehId) {
+    (async () => {
+      try {
+        const _tok = await getFirebaseServerToken();
+        if (_tok) {
+          await firebaseDbPatch(`online/${companyId}/${vehId}/current`,
+            { vehiclestatus: 'Available', jobId: '', jobpickup: '', jobdropoff: '', JobphoneNo: '' }, _tok);
+          console.log(`  [${_src}] §FIX-CB online/${companyId}/${vehId}/current → Available (mirrored)`);
+        }
+      } catch(e) { console.warn(`  [${_src}] online mirror failed: ${e && e.message}`); }
+    })();
+  }
+  console.log(`  [${_src}] §FIX-CB driver ${driverId} → Available q=${_q} zone="${zd.zonename}" (no remaining assignments)`);
+  return { driverFreed: true, driverState: 'Available', queueNo: _q };
+}
+
+// Unified cancel/recall front door. See big comment block above for rules.
+function cancelBooking(opts) {
+  opts = opts || {};
+  const bookingId       = parseInt(opts.bookingId) || 0;
+  const cancelledBy     = String(opts.cancelledBy || 'dispatcher').toLowerCase();
+  const reason          = String(opts.reason || '');
+  const driverFault     = !!opts.driverFault;
+  const recallToPending = !!opts.recallToPending;
+  const companyId       = opts.companyId ? String(opts.companyId) : '';
+  const source          = opts.source || 'cancelBooking';
+
+  if (!bookingId) {
+    console.warn(`  [${source}] §FIX-CB rejected — no bookingId`);
+    return { ok: false, error: 'bookingId required' };
+  }
+
+  // Idempotency — already in closedJobStore as Cancelled?
+  const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Cancelled');
+  if (_closed) {
+    console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already Cancelled (by ${_closed.CancelledBy || '?'}) — no-op`);
+    return { ok: true, idempotent: true, cancelStage: _closed.CancelStage || 'unknown',
+             cancelledBy: _closed.CancelledBy || '', driverFreed: false, driverState: 'unchanged' };
+  }
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  // Recall idempotency — same booking already parked as Pending+'Recalled by Driver' (within window)?
+  if (recallToPending && idx !== -1) {
+    const _j = jobStore[idx];
+    const _alreadyRecalled = (_j.BookingStatus === 'Pending') &&
+                             (_j.returnReason === 'Recalled by Driver') &&
+                             _j.releasedAt && (Date.now() - _j.releasedAt < 30000);
+    if (_alreadyRecalled) {
+      console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already recalled (Pending+Recalled by Driver, ${Math.floor((Date.now()-_j.releasedAt)/1000)}s ago) — no-op`);
+      return { ok: true, idempotent: true, cancelStage: _j.CancelStage || 'unknown',
+               cancelledBy: _j.CancelledBy || '', driverFreed: false, driverState: 'unchanged',
+               recalled: true };
+    }
+  }
+  if (idx === -1) {
+    console.warn(`  [${source}] §FIX-CB job #${bookingId} not found in jobStore`);
+    return { ok: false, error: 'job not found' };
+  }
+  const job = jobStore[idx];
+  const _cid    = companyId || String(job.companyId || '');
+  const _drvId  = (job.DriverId === 0 || job.DriverId === '0' || job.DriverId === -1 || job.DriverId === -2)
+                    ? '' : String(job.DriverId || '').trim();
+  const _vehId  = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+  const _hasDriver = _drvId !== '';
+  const _cancelStage = job.BookingStatus || 'unknown';
+  const _cancelledByPretty = cancelledBy.charAt(0).toUpperCase() + cancelledBy.slice(1);
+  const _nowIso = new Date().toISOString();
+
+  // Cancellation snapshot fields (for the payout pipeline downstream).
+  job.CancelledBy        = _cancelledByPretty;
+  job.CancelStage        = _cancelStage;
+  job.CancelReason       = reason;
+  job.CancelledAt        = _nowIso;
+  job.PaymentMethod      = job.PaymentMethod || job.paymentMethod || '';
+  job.AssignedDriverId   = _drvId;
+  job.AssignedVehicleId  = _vehId;
+  job.FareSnapshot       = job.EstimatedFare || job.RideCost || job.CustomeRate || '';
+  job.DistanceSnapshot   = job.distance || job.Distance || '';
+
+  if (recallToPending) {
+    // Driver recalled an Assigned booking — keep job alive, return to Pending.
+    job.BookingStatus = 'Pending';
+    job.DriverId      = 0;
+    job.VehicleId     = 0;
+    job.returnReason  = 'Recalled by Driver';
+    job.releasedAt    = Date.now();   // §FIX-G cooldown — prevent immediate re-offer to same driver
+    job.manualOffer   = false;
+    delete job.JobCompleteTime;
+    saveJobStore();
+    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → Pending+releasedAt (recall by ${_cancelledByPretty}, prevDriver=${_drvId || 'none'})`);
+  } else {
+    // Hard cancel — close the job.
+    job.BookingStatus   = 'Cancelled';
+    job.JobCompleteTime = _nowIso;
+    closedJobStore.push(job);
+    jobStore.splice(idx, 1);
+    saveJobStore();
+    saveClosedJobStore();
+    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → Cancelled by ${_cancelledByPretty} (driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
+  }
+
+  let driverFreed = false, driverState = 'unchanged', queueNo = null;
+  if (_hasDriver) {
+    // 1. Per-booking Firebase cleanup (jobs/, pendingjobs/, online/current — booking-scoped via ETag).
+    _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Cancelled');
+    // 2. Driver cancel notification — only when not driver-initiated (driver-initiated already cleared their own UI).
+    if (cancelledBy !== 'driver') {
+      _writeCancelNotify(_cid, _vehId, _drvId, bookingId, _cancelledByPretty);
+    }
+    // 3. Driver state — restore only if no remaining active assignments.
+    const _ds = _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, driverFault, source);
+    driverFreed = _ds.driverFreed;
+    driverState = _ds.driverState;
+    queueNo     = _ds.queueNo;
+  }
+
+  return {
+    ok: true, idempotent: false,
+    cancelStage: _cancelStage,
+    cancelledBy: _cancelledByPretty,
+    driverId: _drvId,
+    vehicleId: _vehId,
+    driverFreed, driverState, queueNo,
+    recalled: recallToPending
+  };
+}
+
 // ─── In-memory job store ──────────────────────────────────────────────────────
 // Legacy booking ID format: DDMMYYYY + 3-digit daily sequence → e.g. 18042026001
 let _idSeqDate = '';
@@ -4653,6 +4865,66 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
+  // Body: { bookingId, cancelledBy: passenger|driver|dispatcher|website, reason? }
+  // Dispatcher source requires BW_SID session cookie; passenger/website/driver
+  // server-to-server requires X-Admin-Key header. Idempotent.
+  if (urlPath === '/api/cancel' && req.method === 'POST') {
+    const _ccBody = await readBody(req);
+    let _cc = {};
+    try { _cc = JSON.parse(_ccBody); } catch(e) {}
+    const _ccBooking = parseInt(_cc.bookingId || _cc.BookingId || 0) || 0;
+    const _ccBy = String(_cc.cancelledBy || _cc.by || '').toLowerCase().trim();
+    const _ccReason = String(_cc.reason || '');
+    const _ccAllowed = new Set(['passenger', 'driver', 'dispatcher', 'website']);
+    if (!_ccBooking || !_ccAllowed.has(_ccBy)) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId and cancelledBy ∈ {passenger,driver,dispatcher,website} required' }));
+      return;
+    }
+    // Auth — dispatcher uses session cookie, others require admin key.
+    let _ccCid = '';
+    if (_ccBy === 'dispatcher') {
+      _ccCid = getSessionCompanyId(req) || '';
+      if (!_ccCid) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+        return;
+      }
+      // Tenant enforcement — dispatcher can only cancel jobs in their own tenant.
+      const _ccJobT = jobStore.find(j => j.Id === _ccBooking) || closedJobStore.find(j => j.Id === _ccBooking);
+      if (_ccJobT && _ccJobT.companyId && String(_ccJobT.companyId) !== String(_ccCid)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'cross-tenant cancel forbidden' }));
+        return;
+      }
+    } else {
+      const _ccKey = req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '';
+      if (!process.env.BW_ADMIN_KEY || _ccKey !== process.env.BW_ADMIN_KEY) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'X-Admin-Key required for ' + _ccBy + ' source' }));
+        return;
+      }
+      // companyId derived from job record (admin key is multi-tenant trusted).
+      const _ccJob = jobStore.find(j => j.Id === _ccBooking) || closedJobStore.find(j => j.Id === _ccBooking);
+      _ccCid = _ccJob ? String(_ccJob.companyId || '') : '';
+    }
+    // For driver-initiated post-accept cancel via REST: assume recall semantics (Assigned).
+    // Picking-state driver cancel from the app should still route via the legacy DataProcessor
+    // endpoint; this REST surface is the simpler passenger/website/dispatcher front door.
+    const _ccDriverFault = (_ccBy === 'driver');
+    const _ccRecall      = (_ccBy === 'driver');
+    const _ccResult = cancelBooking({
+      bookingId: _ccBooking, cancelledBy: _ccBy, reason: _ccReason,
+      driverFault: _ccDriverFault, recallToPending: _ccRecall,
+      companyId: _ccCid, source: 'api/cancel/' + _ccBy
+    });
+    console.log(`200: POST /api/cancel -> ${JSON.stringify(_ccResult)}`);
+    res.writeHead(_ccResult.ok ? 200 : 404, JSON_HEADERS);
+    res.end(JSON.stringify(_ccResult));
+    return;
+  }
+
   // ── POST /api/job/create — central job creation for all apps ───────────────
   // Creates a Pending job in jobStore and returns the canonical job ID.
   // No auth key required — companyId is the tenant identifier.
@@ -6000,31 +6272,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         jsonReply(res, { d: alreadyOffered ? 'false' : 'true' });
 
       } else if (action === '[CancelUnAssignedJobStatusFromJobList]') {
+        // §FIX-CB — unified cancel flow
         const bookingId = parseInt(param('BookingId')) || 0;
-        const idx = jobStore.findIndex(j => j.Id === bookingId);
-        if (idx !== -1) {
-          const job = jobStore[idx];
-          job.BookingStatus = 'Cancelled';
-          job.CancelledBy   = 'Dispatcher';
-          job.JobCompleteTime = new Date().toISOString();
-          closedJobStore.push(job);
-          jobStore.splice(idx, 1);
-          saveJobStore();
-          saveClosedJobStore();
-          // §FBcleanup — clear Firebase paths so cancelled job cannot be resurrected.
-          _bwClearJobFromFirebase(sessionCompanyId, job.Id,
-            job.VehicleNo || job.CallSign || '', job.DriverId || '', 'Cancelled');
-          // Sync cancellation back to Firebase for Rental jobs
-          if (job.rentalRequestId) {
-            const _rKey = job.rentalRequestId, _rId = job.Id;
-            getFirebaseServerToken().then(token => {
-              if (token) firebaseDbPatch(`rentalTaxiRequests/${_rKey}`,
-                { status: 'cancelled', cancelledAt: new Date().toISOString(), jobId: _rId }, token
-              ).catch(() => {});
-            });
-          }
+        const _rentalKey = (jobStore.find(j => j.Id === bookingId) || {}).rentalRequestId || null;
+        const _r = cancelBooking({
+          bookingId, cancelledBy: 'dispatcher', driverFault: false,
+          companyId: sessionCompanyId, source: 'CancelUnAssignedJobStatusFromJobList',
+          reason: param('reason') || ''
+        });
+        if (_rentalKey && _r.ok && !_r.idempotent) {
+          getFirebaseServerToken().then(token => {
+            if (token) firebaseDbPatch(`rentalTaxiRequests/${_rentalKey}`,
+              { status: 'cancelled', cancelledAt: new Date().toISOString(), jobId: bookingId }, token
+            ).catch(() => {});
+          });
         }
-        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId} -> moved to closedJobStore`);
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancel result: ${JSON.stringify(_r)}`);
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]' || action === '[UnAssignJobStatusFromJobList]') {
@@ -6684,44 +6947,26 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
           if (isDriverPostAcceptCancel) {
+            // §FIX-CB — driver-initiated cancel/recall after acceptance. Picking → close;
+            // Assigned → recall to Pending. Driver state restore is gated by
+            // driverHasRemainingAssignments — Job A active stays untouched.
             const _dcDriverId = job.DriverId;
-            const _dcZd = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId || d.VehicleId === _dcDriverId);
-            let _dcQueueNo = null;
-            if (_dcZd) {
-              _dcQueueNo = calcRestoredQueue(_dcDriverId, _dcZd.zonename || '');
-              _dcZd.vehiclestatus  = 'Available';
-              _dcZd.zonequeue      = _dcQueueNo;
-              _dcZd.queueWaitSince = Date.now();
-            }
-            clearAwayLock(_dcDriverId);
-            clearDriverHomeState(_dcDriverId);
-            if (currentStatus === 'Picking') {
-              // Driver cancelled at pickup (arrived, passenger no-show or trip cancelled).
-              // Close the job as Cancelled — do NOT return to Pending for re-dispatch.
-              job.BookingStatus   = 'Cancelled';
-              job.CancelledBy     = 'Driver';
-              job.JobCompleteTime = new Date().toISOString();
-              const _dcIdx = jobStore.indexOf(job);
-              if (_dcIdx !== -1) jobStore.splice(_dcIdx, 1);
-              closedJobStore.push(job);
-              saveJobStore();
-              saveClosedJobStore();
-              // §FBcleanup
-              _bwClearJobFromFirebase(sessionCompanyId, job.Id,
-                job.VehicleNo || job.CallSign || '', _dcDriverId || job.DriverId || '', 'Cancelled');
-              console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Cancelled (driver ${_dcDriverId} cancelled at pickup → Available q=${_dcQueueNo})`);
-              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
+            const _dcIsPicking = currentStatus === 'Picking';
+            const _r = cancelBooking({
+              bookingId: job.Id,
+              cancelledBy: 'driver',
+              driverFault: true,                   // post-accept driver cancel/recall = driver fault
+              recallToPending: !_dcIsPicking,      // Picking → close; Assigned → recall
+              companyId: sessionCompanyId,
+              source: 'changeriddestatusforoffer/DP',
+              reason: returnReason || (_dcIsPicking ? 'Driver Cancelled at Pickup' : 'Driver Recalled')
+            });
+            if (_dcIsPicking) {
+              console.log(`  [changeriddestatusforoffer/DP] §FIX-CB Job #${bookingId} → Cancelled (driver ${_dcDriverId} cancelled at pickup)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _r.queueNo });
             } else {
-              // Assigned state: driver recalled before arriving — return to Pending for re-dispatch.
-              job.BookingStatus = 'Pending';
-              job.DriverId      = -2;
-              job.VehicleId     = 0;
-              job.returnReason  = 'Recalled by Driver';
-              delete job.CancelledBy;
-              delete job.JobCompleteTime;
-              saveJobStore();
-              console.log(`  [changeriddestatusforoffer/DP] Job #${bookingId} -> Pending (driver ${_dcDriverId} recalled after accepting → Available q=${_dcQueueNo})`);
-              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _dcQueueNo });
+              console.log(`  [changeriddestatusforoffer/DP] §FIX-CB Job #${bookingId} → Pending (driver ${_dcDriverId} recalled after accepting)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId }, newQueueNo: _r.queueNo });
             }
             return;
           }
@@ -6800,22 +7045,31 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _driverFault = newStatus === 'Unreached' || isExplicitReject;
             const _cancelByDispatcher = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject;
             const newDriverStatus = (_driverFault && !_cancelByDispatcher) ? 'Away' : 'Available';
-            if (zd) {
-              // For Available returns: calculate smart queue position based on zone rules
-              if (newDriverStatus === 'Available') {
-                _newQueueNo = calcRestoredQueue(_releaseDriverId, zd.zonename);
-                zd.zonequeue = _newQueueNo;
-                zd.queueWaitSince = Date.now();
+            // §FIX-CB — gate driver-side state changes on remaining assignments. If this
+            // driver has another active job (Job A) and we just released Job B, leave the
+            // driver's vehiclestatus / awayLock / jobpickup/jobdropoff untouched so Job A
+            // continues normally. The job-side reset below (_clearDrv) still happens.
+            const _hasOtherDP = driverHasRemainingAssignments(_releaseDriverId, bookingId, sessionCompanyId);
+            if (_hasOtherDP) {
+              console.log(`  [changeriddestatusforoffer/DP] §FIX-CB driver ${_releaseDriverId} keeps state (has remaining active assignment) — release-fanout skipped for newStatus=${newStatus}`);
+            } else {
+              if (zd) {
+                // For Available returns: calculate smart queue position based on zone rules
+                if (newDriverStatus === 'Available') {
+                  _newQueueNo = calcRestoredQueue(_releaseDriverId, zd.zonename);
+                  zd.zonequeue = _newQueueNo;
+                  zd.queueWaitSince = Date.now();
+                }
+                zd.vehiclestatus = newDriverStatus;
+                zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
               }
-              zd.vehiclestatus = newDriverStatus;
-              zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+              if (newDriverStatus === 'Away') setAwayLock(_releaseDriverId);
+              else {
+                clearAwayLock(_releaseDriverId);
+                clearDriverHomeState(_releaseDriverId); // home state consumed
+              }
+              console.log(`  [changeriddestatusforoffer/DP] driver ${_releaseDriverId} → ${newDriverStatus} q=${_newQueueNo || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault})`);
             }
-            if (newDriverStatus === 'Away') setAwayLock(_releaseDriverId);
-            else {
-              clearAwayLock(_releaseDriverId);
-              clearDriverHomeState(_releaseDriverId); // home state consumed
-            }
-            console.log(`  [changeriddestatusforoffer/DP] driver ${_releaseDriverId} → ${newDriverStatus} q=${_newQueueNo || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault})`);
             // Clear job's DriverId when:
             //   (a) client explicitly sends driverid=0 (manual unassign / timeout), OR
             //   (b) newStatus is Unreached (auto-dispatch timeout — job must be re-offerable)
@@ -7585,42 +7839,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[CancelJobStatusFromJobList]') {
+        // §FIX-CB — unified cancel flow (DP variant)
         const _cjBookingId = parseInt(param('BookingId')) || 0;
-        const _cjIdx = jobStore.findIndex(j => j.Id === _cjBookingId);
-        let _cjDriverId = '0';
-        if (_cjIdx !== -1) {
-          const _cjJob = jobStore[_cjIdx];
-          _cjDriverId = String(_cjJob.DriverId || '0');
-          if (_cjJob.DriverId && _cjJob.DriverId > 0) {
-            const _cjDrvId = _cjJob.DriverId;
-            const _cjZd = ZONE_DRIVERS.find(d => d.driverid === _cjDrvId || d.VehicleId === _cjDrvId);
-            if (_cjZd) {
-              const _cjQ = calcRestoredQueue(_cjDrvId, _cjZd.zonename);
-              _cjZd.zonequeue      = _cjQ;
-              _cjZd.queueWaitSince = Date.now();
-              _cjZd.vehiclestatus  = 'Available';
-              _cjZd.JobphoneNo = '';
-              _cjZd.jobpickup  = '';
-              _cjZd.jobdropoff = '';
-              _cjZd.jobCount   = 0;
-              console.log(`  [CancelJobStatusFromJobList/DP] driver ${_cjDrvId} → Available q=${_cjQ} zone="${_cjZd.zonename}"`);
-            }
-            clearAwayLock(_cjDrvId);
-            clearDriverHomeState(_cjDrvId);
-          }
-          _cjJob.BookingStatus = 'Cancelled';
-          _cjJob.CancelledBy   = 'Dispatcher';
-          _cjJob.JobCompleteTime = new Date().toISOString();
-          closedJobStore.push(_cjJob);
-          jobStore.splice(_cjIdx, 1);
-          saveJobStore();
-          saveClosedJobStore();
-          // §FBcleanup
-          _bwClearJobFromFirebase(sessionCompanyId, _cjJob.Id,
-            _cjJob.VehicleNo || _cjJob.CallSign || '', _cjDriverId || '', 'Cancelled');
-        }
-        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${_cjBookingId}, driver ${_cjDriverId} -> moved to closedJobStore`);
-        arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _cjDriverId }]);
+        const _cjPrev = jobStore.find(j => j.Id === _cjBookingId) || closedJobStore.find(j => j.Id === _cjBookingId) || {};
+        const _cjPrevDrv = String(_cjPrev.DriverId || _cjPrev.AssignedDriverId || '0');
+        const _r = cancelBooking({
+          bookingId: _cjBookingId, cancelledBy: 'dispatcher', driverFault: false,
+          companyId: sessionCompanyId, source: 'CancelJobStatusFromJobList/DP',
+          reason: param('reason') || ''
+        });
+        const _cjRespDrv = _r.driverId || _cjPrevDrv;
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancel result: ${JSON.stringify(_r)}`);
+        arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _cjRespDrv }]);
 
       } else if (action === '[InsertPassengerBalance]') {
         // Records a successful Stripe payment against the passenger's phone number.
@@ -8029,42 +8259,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         successD(res, 'Operation Successfully Performed');
 
       } else if (action === '[CancelJobStatusFromJobList]') {
+        // §FIX-CB — unified cancel flow (DS variant)
         const bookingId = parseInt(param('BookingId')) || 0;
-        const idx = jobStore.findIndex(j => j.Id === bookingId);
-        let driverId = '0';
-        if (idx !== -1) {
-          const job = jobStore[idx];
-          driverId = String(job.DriverId || '0');
-          if (job.DriverId && job.DriverId > 0) {
-            const _cancelDriverId = job.DriverId;
-            const zd = ZONE_DRIVERS.find(d => d.driverid === _cancelDriverId || d.VehicleId === _cancelDriverId);
-            if (zd) {
-              const _restoreQ = calcRestoredQueue(_cancelDriverId, zd.zonename);
-              zd.zonequeue      = _restoreQ;
-              zd.queueWaitSince = Date.now();
-              zd.vehiclestatus  = 'Available';
-              zd.JobphoneNo = '';
-              zd.jobpickup  = '';
-              zd.jobdropoff = '';
-              zd.jobCount   = 0;
-              console.log(`  [CancelJobStatusFromJobList] driver ${_cancelDriverId} → Available q=${_restoreQ} zone="${zd.zonename}"`);
-            }
-            clearAwayLock(_cancelDriverId);
-            clearDriverHomeState(_cancelDriverId);
-          }
-          job.BookingStatus = 'Cancelled';
-          job.CancelledBy   = 'Dispatcher';
-          job.JobCompleteTime = new Date().toISOString();
-          closedJobStore.push(job);
-          jobStore.splice(idx, 1);
-          saveJobStore();
-          saveClosedJobStore();
-          // §FBcleanup
-          _bwClearJobFromFirebase(sessionCompanyId, job.Id,
-            job.VehicleNo || job.CallSign || '', driverId || '', 'Cancelled');
-        }
-        console.log(`200: POST ${urlPath} [action=${action}] -> cancelled job #${bookingId}, driver ${driverId} -> moved to closedJobStore`);
-        arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: driverId }]);
+        const _csPrev = jobStore.find(j => j.Id === bookingId) || closedJobStore.find(j => j.Id === bookingId) || {};
+        const _csPrevDrv = String(_csPrev.DriverId || _csPrev.AssignedDriverId || '0');
+        const _r = cancelBooking({
+          bookingId, cancelledBy: 'dispatcher', driverFault: false,
+          companyId: sessionCompanyId, source: 'CancelJobStatusFromJobList/DS',
+          reason: param('reason') || ''
+        });
+        const _csRespDrv = _r.driverId || _csPrevDrv;
+        console.log(`200: POST ${urlPath} [action=${action}] -> cancel result: ${JSON.stringify(_r)}`);
+        arrayD(res, [{ Result: 'Job Cancelled Successfully', DriverId: _csRespDrv }]);
 
       } else if (action === 'Business_Account_GET') {
         const baccAll = businessAccStore.filter(b=>b.companyId===sessionCompanyId && b.active!==false);
@@ -8833,28 +9039,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
           if (isDriverPostAcceptCancel2) {
+            // §FIX-CB — DS twin: see DP variant. Picking → close; Assigned → recall.
             const _dcDriverId2 = job.DriverId;
-            // Driver recalled the job (cancelled after accepting) — return to unassigned queue as Pending
-            job.BookingStatus = 'Pending';
-            job.DriverId      = -2;
-            job.VehicleId     = 0;
-            job.returnReason  = 'Recalled by Driver';
-            delete job.CancelledBy;
-            delete job.JobCompleteTime;
-            // Keep in jobStore so the job can be re-dispatched
-            const _dcZd2 = ZONE_DRIVERS.find(d => d.driverid === _dcDriverId2 || d.VehicleId === _dcDriverId2);
-            let _dcQueueNo2 = null;
-            if (_dcZd2) {
-              _dcQueueNo2 = calcRestoredQueue(_dcDriverId2, _dcZd2.zonename || '');
-              _dcZd2.vehiclestatus = 'Available';
-              _dcZd2.zonequeue     = _dcQueueNo2;
-              _dcZd2.queueWaitSince = Date.now();
+            const _dcIsPicking2 = currentStatus2 === 'Picking';
+            const _r2 = cancelBooking({
+              bookingId: job.Id,
+              cancelledBy: 'driver',
+              driverFault: true,
+              recallToPending: !_dcIsPicking2,
+              companyId: sessionCompanyId,
+              source: 'changeriddestatusforoffer/DS',
+              reason: returnReason || (_dcIsPicking2 ? 'Driver Cancelled at Pickup' : 'Driver Recalled')
+            });
+            if (_dcIsPicking2) {
+              console.log(`  [changeriddestatusforoffer/DS] §FIX-CB Job #${bookingId} → Cancelled (driver ${_dcDriverId2} cancelled at pickup)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverCancelled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _r2.queueNo });
+            } else {
+              console.log(`  [changeriddestatusforoffer/DS] §FIX-CB Job #${bookingId} → Pending (driver ${_dcDriverId2} recalled after accepting)`);
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _r2.queueNo });
             }
-            clearAwayLock(_dcDriverId2);
-            clearDriverHomeState(_dcDriverId2);
-            saveJobStore();
-            console.log(`  [changeriddestatusforoffer/DS] Job #${bookingId} -> Pending (driver ${_dcDriverId2} recalled after accepting → Available q=${_dcQueueNo2})`);
-            objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], driverRecalled: { jobId: bookingId, driverId: _dcDriverId2 }, newQueueNo: _dcQueueNo2 });
             return;
           }
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
@@ -8914,21 +9117,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _driverFault2 = newStatus === 'Unreached' || isExplicitReject2;
             const _cancelByDispatcher2 = (newStatus === 'Cancelled' || newStatus === 'Unassigned') && !isExplicitReject2;
             const newDriverStatus2 = (_driverFault2 && !_cancelByDispatcher2) ? 'Away' : 'Available';
-            if (zd) {
-              if (newDriverStatus2 === 'Available') {
-                _newQueueNo2 = calcRestoredQueue(_releaseDriverId2, zd.zonename);
-                zd.zonequeue = _newQueueNo2;
-                zd.queueWaitSince = Date.now();
+            // §FIX-CB — gate driver-side state changes on remaining assignments (see DP).
+            const _hasOtherDS = driverHasRemainingAssignments(_releaseDriverId2, bookingId, sessionCompanyId);
+            if (_hasOtherDS) {
+              console.log(`  [changeriddestatusforoffer/DS] §FIX-CB driver ${_releaseDriverId2} keeps state (has remaining active assignment) — release-fanout skipped for newStatus=${newStatus}`);
+            } else {
+              if (zd) {
+                if (newDriverStatus2 === 'Available') {
+                  _newQueueNo2 = calcRestoredQueue(_releaseDriverId2, zd.zonename);
+                  zd.zonequeue = _newQueueNo2;
+                  zd.queueWaitSince = Date.now();
+                }
+                zd.vehiclestatus = newDriverStatus2;
+                zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
               }
-              zd.vehiclestatus = newDriverStatus2;
-              zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+              if (newDriverStatus2 === 'Away') setAwayLock(_releaseDriverId2);
+              else {
+                clearAwayLock(_releaseDriverId2);
+                clearDriverHomeState(_releaseDriverId2);
+              }
+              console.log(`  [changeriddestatusforoffer/DS] driver ${_releaseDriverId2} → ${newDriverStatus2} q=${_newQueueNo2 || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault2})`);
             }
-            if (newDriverStatus2 === 'Away') setAwayLock(_releaseDriverId2);
-            else {
-              clearAwayLock(_releaseDriverId2);
-              clearDriverHomeState(_releaseDriverId2);
-            }
-            console.log(`  [changeriddestatusforoffer/DS] driver ${_releaseDriverId2} → ${newDriverStatus2} q=${_newQueueNo2 || '-'} zone="${zd && zd.zonename}" (newStatus=${newStatus} driverFault=${_driverFault2})`);
             // Clear job's DriverId when:
             //   (a) client explicitly sends driverid=0 (manual unassign / timeout), OR
             //   (b) newStatus is Unreached (auto-dispatch timeout — job must be re-offerable)
@@ -9716,22 +9925,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           objectD(res, { ok: true, action: 'pending' });
 
         } else if (_ipjStatus === 'Cancelled') {
-          // Remove from jobStore only if the job has NOT yet been assigned/dispatched.
-          // If a dispatcher has already assigned the job (Assigned/Active/Picking/Offered),
-          // the passenger cancel arrives too late — don't silently delete an in-progress trip.
-          // FIX — also match by numeric Id so dispatch-console jobs (no _fbKey yet) are found.
+          // §FIX-CB — passenger/website cancel now routes through unified flow so that
+          // already-Assigned/Picking trips are properly closed, driver state restored
+          // (gated by remaining assignments), Firebase booking-scope cleaned, and the
+          // driver app is notified via notification/{drv}.
           const _ipjNumIdC = parseInt(_ipjJobId, 10) || 0;
           const _cIdx = jobStore.findIndex(j => j._fbKey === _ipjFbKey || (_ipjNumIdC > 0 && j.Id === _ipjNumIdC));
           if (_cIdx !== -1) {
             const _cJob = jobStore[_cIdx];
-            const _safeToRemove = new Set(['Pending', 'Scheduled', 'No One', 'Unreached', '']);
-            if (_safeToRemove.has(_cJob.BookingStatus || '')) {
-              jobStore.splice(_cIdx, 1);
-              saveJobStore();
-              console.log(`[passenger] Cancelled job ${_ipjFbKey} removed from queue (was ${_cJob.BookingStatus})`);
-            } else {
-              console.log(`[passenger] Cancelled job ${_ipjFbKey} NOT removed — already in state "${_cJob.BookingStatus}" (dispatcher must handle)`);
-            }
+            const _bs  = _cJob.BookingStatus || '';
+            const _src = (_cJob.BookingSource || '').toLowerCase();
+            const _cancelledBy = (_src === 'website' || _src === 'website booking') ? 'website' : 'passenger';
+            // For Scheduled/Pending/No One/Unreached/'' jobs that never had a driver: still
+            // funnel through cancelBooking — it idempotently closes them and snapshots fields.
+            const _r = cancelBooking({
+              bookingId: _cJob.Id, cancelledBy: _cancelledBy, driverFault: false,
+              companyId: sessionCompanyId, source: 'IngestPassengerJob/Cancelled',
+              reason: _ipjJob.cancelReason || _ipjJob.CancelReason || ''
+            });
+            console.log(`[passenger] Cancelled job ${_ipjFbKey} (was ${_bs}, by ${_cancelledBy}) → ${JSON.stringify(_r)}`);
+          } else {
+            console.log(`[passenger] Cancelled job ${_ipjFbKey} not found in jobStore — ignoring`);
           }
           objectD(res, { ok: true, action: 'cancelled' });
 
