@@ -1,0 +1,92 @@
+Main issue is we currently have different cancel behaviors depending on source (dispatcher vs passenger/website), which causes inconsistent driver state, queue state, and Firebase cleanup.
+
+We need ONE shared cancel flow used by:
+
+* dispatcher cancel
+* passenger app cancel
+* website booking cancel
+* future driver cancel
+
+Example:
+cancelBooking()
+
+The cancel source should only change:
+cancelledBy = dispatcher/passenger/driver
+
+If a driver was assigned/offered/picking/on active trip, ALL cancel sources must:
+
+* restore driver queue
+* set driver Available
+* clear Firebase job state
+* clear assignment
+* send driver cancel notification
+* update jobs/{cid}/{vid}/{drv} Status=Cancelled
+
+Passenger/website cancel currently does not properly clean assigned jobs, which leaves ghost trips and stale driver state.
+
+Need idempotent cancel handling and cancellation snapshot fields:
+
+* cancelledBy
+* cancelStage
+* paymentMethod
+* timestamps
+* assignedDriver
+* fare/distance snapshot if available
+Need to handle cancellation per BOOKING, not blindly per DRIVER.
+
+Important edge case:
+
+Driver may have:
+
+* current active trip (Job A)
+  AND
+* future/offered/scheduled booking (Job B)
+
+If passenger or website cancels Job B:
+
+* ONLY remove Job B
+* DO NOT set driver Available
+* DO NOT restore driver queue
+* DO NOT clear active trip state
+* DO NOT remove current trip UI/navigation
+
+Driver must remain busy/on-trip with Job A.
+
+Queue restore and Available status should only happen if driver has NO remaining active/reserved assignments after cancellation.
+
+Need logic similar to:
+
+remainingAssignments = getDriverAssignments(driverId)
+
+if none remain:
+restoreQueue()
+setAvailable()
+else:
+keep current driver state
+
+Also make sure cancel notifications/Firebase updates are booking-specific, not global driver clears, otherwise cancelling a future booking can accidentally remove the driver's current active trip screen.
+
+Dispatcher system should not calculate payout. It should only emit clean cancellation data for the payment/payout system to process.
+Prebookings and pending queued jobs shown in the driver Offer tab should be treated as secondary reservations/offers, not the same as active trip state.
+
+Important rule:
+
+If passenger/website cancels a prebook/pending offer:
+
+* remove only that booking from Offer tab
+* send cancel notification only for that booking
+* clear only that Firebase booking node
+
+But:
+
+* do NOT set driver Available
+* do NOT restore queue
+* do NOT clear current active trip
+* do NOT affect pickup/on-trip state
+
+Queue restore and driver Available should only happen when the driver has NO remaining active trip assignments.
+
+Need clear separation between:
+
+1. Active trip lifecycle (Assigned/Picking/OnTrip)
+2. Offer/prebook/pending reservations shown in Offer tab
