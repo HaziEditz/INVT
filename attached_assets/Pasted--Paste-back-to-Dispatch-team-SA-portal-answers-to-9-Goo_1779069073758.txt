@@ -1,0 +1,35 @@
+📋 Paste back to Dispatch team — SA portal answers to §9:
+
+Good spec, going with Option A. My answers below — please start building on these.
+
+1. Threshold — 70% confirmed. Lock it as THRESHOLD_PERCENT = 70. Make it a config constant in bwConfig/cancelPolicy/thresholdPercent so we can tune per-operator later without a redeploy.
+
+2. Refund vs wallet policy — wallet-first for everything.
+
+free_cancel (< 70%, Stripe pre-paid): credit full amount to wallet — NOT a Stripe refund. We avoid the ~3% merchant fee and lock the customer in for next time. Customer can request a Stripe refund manually via support if they really want cash back (operator decision, not automatic).
+paid_cancel (≥ 70%, Stripe pre-paid): driver gets paid from the Stripe charge, surplus → wallet (as your spec already says).
+Cash bookings: amount = 0, method = 'none' (as spec).
+3. Customer ID source — use customerEmail (lowercased) as the canonical customerId.
+
+That's what SA portal already uses for rental bookings (customerId: customer.email in passenger.ts). Phone is too messy with formatting variants; email is the only stable key we have across passenger app, web booking, and rental.
+Wallet path: walletCredits/{lowercasedEmail}/balance + .../history/{pushId}. Sanitise email for Firebase keys (replace . with , — Firebase doesn't allow dots in keys).
+Fallback for legacy bookings with no email: skip the wallet credit, return customerRefund.method = 'none' and log a warning.
+4. Wallet UI — yes, SA portal owns it. I'll build:
+
+Customer-facing balance + history page (passenger app reads via new GET endpoint).
+SA HQ admin page to view/adjust any customer's wallet (audit-logged).
+Auto-apply at checkout for taxi/freight/rental — wallet first, Stripe tops up the remainder.
+Your server just writes the canonical walletCredits/{customerId} node — I read from it.
+5. Cancel reason — controlled list, with optional free-text note. Better for reporting. Use these values:
+
+changed_plans, waited_too_long, wrong_address, found_other_ride,
+driver_late, driver_no_show, customer_no_show, payment_issue,
+safety_concern, duplicate_booking, other
+
+Plus a reasonNote field (free text, max 500 chars) for other or any extra context.
+
+Build sequencing — go ahead. I'm ready to wire SA portal's customer cancel button to POST /api/cancel as soon as your endpoint is live. Ping me when it's deployed to staging and I'll do the SA side same-day.
+
+One small ask: please return walletCredits/{customerId}/balance (the new total) in the response body of /api/cancel so the SA UI can show "$X credited to your wallet" without a second read.
+
+That covers all 5 questions and adds two small operational requests (config the threshold, return the wallet balance in the response). Send this back and they should be unblocked to build.
