@@ -8485,14 +8485,16 @@ $(document).ready(function() {
         updates['/notification/' + DriverId] = postData;
         // updates['/user-posts/' + uid + '/' + newPostKey] = postData;
 
-        // Also cancel the driver's jobs/ node so the new driver app knows the job is gone.
-        // Scan jobs/{companyId} for any node whose BookingId matches.
+        // §FIX-DA-G2 — booking-keyed children: each driver node now contains
+        // child nodes keyed by bookingId. Cancel = remove() the matching child
+        // (terminal-state signal per Q5). Sibling bookings on the same driver
+        // are untouched.
         firebase.database().ref("jobs/" + SomeSession2).once('value').then(function(snap) {
             snap.forEach(function(vehicleSnap) {
                 vehicleSnap.forEach(function(driverSnap) {
-                    var jd = driverSnap.val();
-                    if (jd && String(jd.BookingId) === String(BookingId)) {
-                        driverSnap.ref.set({ Status: 'Cancelled', BookingId: String(BookingId) });
+                    var bookingChild = driverSnap.child(String(BookingId));
+                    if (bookingChild.exists()) {
+                        bookingChild.ref.remove();
                     }
                 });
             });
@@ -8812,7 +8814,8 @@ $(document).ready(function() {
             // Driver app listens at /notification/{driverId} (SQL driverid) — use directly.
             var _fbUidNotif = driverId;
             var notifRef = db.ref('/notification/' + _fbUidNotif);
-            var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + _fbUidNotif);
+            // §FIX-DA-G2 — booking-keyed child node (jobs/{cid}/{vid}/{drv}/{bookingId}).
+            var _jobsNodeRef = db.ref("jobs/" + SomeSession2 + "/" + vehicleId + "/" + _fbUidNotif + "/" + String(bookingId));
 
             function _doWrite() {
                 // §BUG3-FIX: use set() directly — no remove() first.
@@ -8832,20 +8835,20 @@ $(document).ready(function() {
                 notifRef.set(fullPayload)
                     .then(function() { console.log('[writeJobDetailsToFirebase] notification written for driver', _fbUidNotif, '(sql:', driverId, ') job', bookingId); })
                     .catch(function(e) { console.warn('[writeJobDetailsToFirebase] notification write failed:', e.code || e.message || e); });
-                // Overwrite jobs/{cid}/{vehicleId}/{driverId} with a fresh offer entry.
-                // This clears any stale completed/partial data the driver app left behind
-                // (e.g. offline-synced completions that have no BookingId field).
+                // §FIX-DA-G2 — write fresh offer to booking-keyed child node
+                // jobs/{cid}/{vid}/{drv}/{bookingId}. Driver app's onChildAdded
+                // fires here. Sibling bookings on the same driver are untouched.
                 if (vehicleId && SomeSession2) {
-                    firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicleId + '/' + _fbUidNotif).set({
+                    firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicleId + '/' + _fbUidNotif + '/' + String(bookingId)).set({
                         BookingId:  String(bookingId),
                         Status:     'Offered',
                         VehicleId:  String(vehicleId),
                         DriverId:   String(driverId),
                         offeredAt:  Date.now()
                     }).then(function() {
-                        console.log('[writeJobDetailsToFirebase] jobs/' + SomeSession2 + '/' + vehicleId + '/' + _fbUidNotif + ' → fresh Offered entry written (clears stale data)');
+                        console.log('[writeJobDetailsToFirebase] jobs/' + SomeSession2 + '/' + vehicleId + '/' + _fbUidNotif + '/' + bookingId + ' → Offered child written (§FIX-DA-G2)');
                     }).catch(function(e) {
-                        console.warn('[writeJobDetailsToFirebase] jobs node write failed:', e.code || e.message || e);
+                        console.warn('[writeJobDetailsToFirebase] jobs child write failed:', e.code || e.message || e);
                     });
                 }
                 // Also mirror jobpickup/jobdropoff into online/{cid}/{vehicleId}/current so the
@@ -8867,16 +8870,11 @@ $(document).ready(function() {
                 }
             }
 
-            _jobsNodeRef.once('value').then(function(jsnap) {
-                var jd = jsnap.val();
-                if (jd && jd.BookingId && String(jd.BookingId) !== String(bookingId)) {
-                    toastr["warning"]("Driver may be on another job (BookingId: " + jd.BookingId + "). Proceeding with offer.", 'warning!');
-                    console.warn('[writeJobDetailsToFirebase] driver', driverId, 'has active job', jd.BookingId, '— overriding with', bookingId);
-                }
-                _doWrite();
-            }).catch(function() {
-                _doWrite();
-            });
+            // §FIX-DA-G2 — the old pre-read that warned "driver may be on
+            // another job" is obsolete: each booking now lives in its own
+            // child node, so writing a new offer cannot clobber an existing
+            // active booking on the same driver.
+            _doWrite();
 
             db.ref('/jobDetails/' + SomeSession2 + '/' + bookingId).set(fullPayload)
                 .catch(function(e) { console.warn('[writeJobDetailsToFirebase] jobDetails write failed:', e.code || e.message || e); });
@@ -9138,7 +9136,8 @@ $(document).ready(function() {
                                         if (typeof firebase !== 'undefined') {
                                             firebase.database().ref('joback/' + jobId + '/' + entry.driverId).remove();
                                             firebase.database().ref('/notification/' + entry.driverId).remove();
-                                            firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId).remove();
+                                            // §FIX-DA-G2 — booking-keyed child remove.
+                                            firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId + '/' + String(jobId)).remove();
                                             console.log('[_cleanupOrphanedFirebase] removed Firebase orphan: job #' + jobId + ' driver ' + entry.driverId + ' (status was ' + (job ? job.BookingStatus : 'not found') + ')');
                                         }
                                     } catch(e) {}
@@ -9373,8 +9372,9 @@ $(document).ready(function() {
                 var _connRef = firebase.database().ref('.info/connected');
 
                 // Secondary listener: new driver app writes acceptance to
-                // jobs/{companyId}/{vehicleId}/{firebaseUID}  { Status:"DriverAccepted", BookingId:"..." }
-                var _jobsRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd);
+                // jobs/{companyId}/{vehicleId}/{driverId}/{bookingId}  { Status:"DriverAccepted", BookingId:"..." }
+                // §FIX-DA-G2 — booking-keyed child. Listener fires only on this booking's node.
+                var _jobsRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id));
                 var _jobsListener = _jobsRef.on("value", function(jsnap) {
                     if (settled) { _jobsRef.off("value", _jobsListener); return; }
                     var jd = jsnap.val();
@@ -9394,7 +9394,8 @@ $(document).ready(function() {
                         _jobsRef.off("value", _jobsListener);
                         refaz.off("value", listener);
                         firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
-                        firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).remove();
+                        // §FIX-DA-G2 — booking-keyed child remove.
+                        firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id)).remove();
                         $('#Divo'+id).remove();
                         toastr["success"]('Job ' + id + ' already completed by ' + driverid + ' (offline sync) — closing.', 'Completed!');
                         console.log('[resolveAfter2Secondsx] jobs node shows Completed for job', id, '— auto-closing');
@@ -9449,7 +9450,9 @@ $(document).ready(function() {
                             toastr["error"](driverid + " Reject The Job!", 'error!');
                             firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                             firebase.database().ref().child("/notification/" + _fbd).remove();
-                            firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
+                            // §FIX-DA-G2 — vehiclestatus belongs on online/, not on the
+                            // booking-keyed jobs/ child. The two online/ writes below
+                            // already carry the Away state.
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                             // §100 — also write Away to current/ so driver app overlay clears correctly
                             firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
@@ -9503,7 +9506,7 @@ $(document).ready(function() {
                                     toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                     firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                     firebase.database().ref().child("/notification/" + _fbd).remove();
-                                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
+                                    // §FIX-DA-G2 — vehiclestatus belongs on online/, not jobs/ child.
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                     // §100 — also write Away to current/ so driver app overlay clears correctly
                                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
@@ -9565,7 +9568,7 @@ $(document).ready(function() {
                                 toastr["error"](  driverid + " Reject The Job!  ", 'error!'); 
                                 firebase.database().ref().child("joback/"+id+"/"+_fbd).remove();
                                 firebase.database().ref().child("/notification/" + _fbd).remove();
-                                firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).update({ vehiclestatus: 'Away' });
+                                // §FIX-DA-G2 — vehiclestatus belongs on online/, not jobs/ child.
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                                 // §100 — also write Away to current/ so driver app overlay clears correctly
                                 firebase.database().ref("online/" + SomeSession2 + "/" + vehivle + "/current").update({ vehiclestatus: 'Away' });
@@ -9644,7 +9647,8 @@ $(document).ready(function() {
                     // exactly what (if anything) the driver app wrote during the 27-s offer window.
                     try {
                         var _diagJobackRef = firebase.database().ref("joback/" + id + "/" + _fbd);
-                        var _diagJobsRef   = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd);
+                        // §FIX-DA-G2 — booking-keyed child read.
+                        var _diagJobsRef   = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id));
                         Promise.all([
                             _diagJobackRef.once('value').then(function(s){ return s.val(); }).catch(function(e){ return '__err:'+(e&&e.message); }),
                             _diagJobsRef.once('value').then(function(s){ return s.val(); }).catch(function(e){ return '__err:'+(e&&e.message); })
@@ -9684,10 +9688,10 @@ $(document).ready(function() {
                         return;
                     }
 
-                    // Remove the jobs/{cid}/{vehicleId}/{driverId} node entirely on Unreached
-                    // so stale/completed data from a previous driver session doesn't interfere
-                    // with subsequent offer cycles.
-                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd).remove();
+                    // §FIX-DA-G2 — booking-keyed child remove. Only the timed-out
+                    // booking's node is removed; any other active booking on this
+                    // driver stays put.
+                    firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id)).remove();
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     // §100 — also write Away to current/ so driver app overlay clears correctly.
                     // Also clear all job fields so driver app doesn't skip the NEXT offer screen
@@ -9749,21 +9753,24 @@ $(document).ready(function() {
                 // Connectivity reference — used to distinguish offline vs no-data
                 var _connRef2 = firebase.database().ref('.info/connected');
 
-                // Secondary listener: scan jobs/{companyId} subtree for the new driver app's
-                // acceptance record  { Status:"DriverAccepted"|"Active", BookingId:"..." }
-                // We scan because we may not have the exact vehicleId at this call site.
+                // §FIX-DA-G2 — Secondary listener: scan jobs/{companyId} subtree for
+                // the new driver app's acceptance record on THIS bookingId. Under the
+                // booking-keyed shape, the booking lives at jobs/{cid}/{vid}/{drv}/{id};
+                // we read the child directly via driverSnap.child(id) rather than
+                // iterating a third level. We still need to scan because we may not
+                // have the exact vehicleId/driverId at this call site.
                 var _jobsRootRef = firebase.database().ref("jobs/" + SomeSession2);
                 var _jobsRootListener = _jobsRootRef.on("value", function(jrsnap) {
                     if (settled2) { _jobsRootRef.off("value", _jobsRootListener); return; }
                     jrsnap.forEach(function(vehicleSnap) {
-                        // Only consider the entry for THIS driver — ignore stale DriverAccepted
-                        // entries left by previous drivers so they can't prematurely kill the timer.
-                        if (String(vehicleSnap.key) !== String(driverid)) return;
                         vehicleSnap.forEach(function(driverSnap) {
                             if (settled2) return;
-                            var jd = driverSnap.val();
-                            if (jd && String(jd.BookingId) === String(id) &&
-                                (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) {
+                            // §FIX-DA-G2 — only the offered driver's branch counts.
+                            // Prevents stale DriverAccepted/Active entries on OTHER
+                            // drivers from prematurely settling this offer.
+                            if (String(driverSnap.key) !== String(_fbd)) return;
+                            var jd = driverSnap.child(String(id)).val();
+                            if (jd && (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) {
                                 settled2 = true;
                                 _jobsRootRef.off("value", _jobsRootListener);
                                 refaz.off("value", listener);
@@ -9813,7 +9820,7 @@ $(document).ready(function() {
                                         var _d2 = _sc2.driverdatarealx[_i2];
                                         if (String(_d2.driverid) === String(_drvid)) {
                                             var _veh2 = _d2.VehicleId || _d2.vehiclenumber || _drvid;
-                                            firebase.database().ref("jobs/" + SomeSession2 + "/" + _veh2 + "/" + _drvid).update({ vehiclestatus: 'Away' });
+                                            // §FIX-DA-G2 — vehiclestatus belongs on online/, not jobs/ child.
                                             firebase.database().ref("online/" + SomeSession2 + "/" + _veh2).update({ vehiclestatus: 'Away' });
                                             firebase.database().ref("online/" + SomeSession2 + "/" + _veh2 + "/current").update({ vehiclestatus: 'Away' });
                                             _d2.vehiclestatus = 'Away';
@@ -9866,7 +9873,7 @@ $(document).ready(function() {
                                                 var _d2 = _sc2.driverdatarealx[_i2];
                                                 if (String(_d2.driverid) === String(_drvid)) {
                                                     var _veh2 = _d2.VehicleId || _d2.vehiclenumber || _drvid;
-                                                    firebase.database().ref("jobs/" + SomeSession2 + "/" + _veh2 + "/" + _drvid).update({ vehiclestatus: 'Away' });
+                                                    // §FIX-DA-G2 — vehiclestatus belongs on online/, not jobs/ child.
                                                     firebase.database().ref("online/" + SomeSession2 + "/" + _veh2).update({ vehiclestatus: 'Away' });
                                                     firebase.database().ref("online/" + SomeSession2 + "/" + _veh2 + "/current").update({ vehiclestatus: 'Away' });
                                                     _d2.vehiclestatus = 'Away';
@@ -9928,7 +9935,7 @@ $(document).ready(function() {
                                             var _d2 = _sc2.driverdatarealx[_i2];
                                             if (String(_d2.driverid) === String(_drvid)) {
                                                 var _veh2 = _d2.VehicleId || _d2.vehiclenumber || _drvid;
-                                                firebase.database().ref("jobs/" + SomeSession2 + "/" + _veh2 + "/" + _drvid).update({ vehiclestatus: 'Away' });
+                                                // §FIX-DA-G2 — vehiclestatus belongs on online/, not jobs/ child.
                                                 firebase.database().ref("online/" + SomeSession2 + "/" + _veh2).update({ vehiclestatus: 'Away' });
                                                 firebase.database().ref("online/" + SomeSession2 + "/" + _veh2 + "/current").update({ vehiclestatus: 'Away' });
                                                 _d2.vehiclestatus = 'Away';
@@ -10081,7 +10088,8 @@ $(document).ready(function() {
         var _wbBook   = String(bookid);
         var _wbDrv    = String(driverid);
         var _wbRef    = firebase.database().ref('joback/' + _wbBook + '/' + _wbDrv);
-        var _wbJobRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicle + '/' + _wbDrv);
+        // §FIX-DA-G2 — listen on booking-keyed child node.
+        var _wbJobRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + vehicle + '/' + _wbDrv + '/' + _wbBook);
         var _wbDone   = false;
 
         function _wbCleanup() {
@@ -10120,7 +10128,9 @@ $(document).ready(function() {
         var _wbJobsListener = _wbJobRef.on('value', function(jsnap) {
             if (_wbDone) { _wbJobRef.off('value', _wbJobsListener); return; }
             var jd = jsnap.val();
-            if (jd && String(jd.BookingId) === _wbBook && (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) { _wbAccept(); }
+            // §FIX-DA-G2 — listener path is already bookingId-scoped; no need to
+            // compare BookingId on the payload.
+            if (jd && (jd.Status === 'DriverAccepted' || jd.Status === 'Active')) { _wbAccept(); }
         });
 
         // Register an external kill-switch so changedata(Busy→Available) can cancel this
@@ -10747,9 +10757,8 @@ $(document).ready(function() {
                                           var _fbCvt = { zonequeue: _rCvt.newQueueNo };
                                           if (_rCvt.queueWaitSince) _fbCvt.queueWaitSince = _rCvt.queueWaitSince;
                                           firebase.database().ref("online/" + SomeSession2 + "/" + _vidCvt).update(_fbCvt);
-                                          if (_uidCvt !== _vidCvt) {
-                                              firebase.database().ref("jobs/" + SomeSession2 + "/" + _vidCvt + "/" + _uidCvt).update(_fbCvt);
-                                          }
+                                          // §FIX-DA-G2 — zonequeue is a driver-level field and lives on online/;
+                                          // never write driver-level state onto a booking-keyed jobs/ child.
                                           if (_drCvt) _drCvt.zonequeue = _rCvt.newQueueNo;
                                       }
                                       // Driver recalled an accepted job — alert dispatcher + refresh unassigned list
@@ -12363,7 +12372,10 @@ $(document).ready(function() {
                                 if (_r.newQueueNo) _fbUp.zonequeue = _r.newQueueNo;
                                 try { firebase.database().ref('online/' + SomeSession2 + '/' + _vid + '/current').update(_fbUp); } catch(e1) {}
                                 try { firebase.database().ref('online/' + SomeSession2 + '/' + _vid).update({ vehiclestatus: 'Available' }); } catch(e2) {}
-                                try { firebase.database().ref('jobs/'   + SomeSession2 + '/' + _vid + '/' + _did).remove(); } catch(e3) {}
+                                // §FIX-DA-G2 — driver going Available must NOT remove the
+                                // booking-keyed jobs children. Each booking has its own
+                                // lifecycle (cancel/complete/timeout removes its own child).
+                                // Removing the parent here would clobber every active booking.
                             }
                             // Local state + UI refresh
                             if (typeof idx === 'number' && $scope.driverdatarealx[idx]) {
@@ -12593,9 +12605,8 @@ $(document).ready(function() {
                                             var _fbQueue = { zonequeue: _r.newQueueNo };
                                             if (_r.queueWaitSince) _fbQueue.queueWaitSince = _r.queueWaitSince;
                                             firebase.database().ref("online/" + SomeSession2 + "/" + _capVid).update(_fbQueue);
-                                            if (_capDid && _capDid !== _capVid) {
-                                                firebase.database().ref("jobs/" + SomeSession2 + "/" + _capVid + "/" + _capDid).update(_fbQueue);
-                                            }
+                                            // §FIX-DA-G2 — zonequeue is a driver-level field and lives on online/;
+                                            // never write driver-level state onto a booking-keyed jobs/ child.
                                             // Also update local driver data so the dispatch board reflects it
                                             var _scQ = angular.element(document.getElementById('myangular')).scope();
                                             if (_scQ && _scQ.driverdatarealx && _capIncs !== undefined) {

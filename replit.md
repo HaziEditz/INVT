@@ -74,8 +74,21 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
   - `[ProcUpdateJobv6]` mirror PATCH (~6665) — parent PATCH replaced with child PATCH.
   - `[UnAssignJobStatusFromJobList]` §FIX-Q (~6883) — `fbCompareAndSet` replaced with child DELETE.
   - `§FIX-OfferClear` (~10727) — GET-then-DELETE replaced with direct child DELETE.
+- 9 Default.aspx (dispatch console UI) sites converted in same pass:
+  - `addNotification` scan-all cancel (~8490) — `set({Status:'Cancelled'})` replaced with `child(BookingId).remove()` per Q5.
+  - `writeJobDetailsToFirebase` offer write (~8821/8845) — `set()` now targets `jobs/{cid}/{vid}/{drv}/{bookingId}`; the obsolete "driver may be on another job" pre-read warning was deleted (booking-keyed children make it impossible to clobber).
+  - `_cleanupOrphanedFirebase` (~9143) — orphan `remove()` targets the booking child.
+  - `resolveAfter2Secondsx` listener (~9380) — `.on('value')` now listens on the booking child directly.
+  - `resolveAfter2Secondsx` offline-sync complete (~9401) — `remove()` targets the booking child.
+  - `resolveAfter2Secondsx` 27-s timeout diag (~9654) + Unreached remove (~9697) — both target the booking child.
+  - `resolveAfter2Seconds` (twin handler) root scanner (~9765) — uses `driverSnap.child(bookingId).val()` instead of treating the driver node as the booking object; also gated on `driverSnap.key === _fbd` so stale DriverAccepted entries on OTHER drivers can no longer prematurely settle this offer.
+  - `_watchBusyDriverAcceptance` pre-queue listener (~10092) — now listens on the booking child; payload `BookingId` comparison dropped (path already booking-scoped).
+- Stripped driver-level state writes off the `jobs/` path entirely (they were never supposed to be there — duplicate of `online/`):
+  - 5 sites (~9824/9877/9939 reject branches, ~10760 zonequeue cvt, ~12608 zonequeue Available) — deleted `update({vehiclestatus:'Away'})` / `update({zonequeue:N})` on the jobs path.
+  - 1 site (~12378) — deleted `remove()` of `jobs/{cid}/{vid}/{drv}` when driver goes Available (would have clobbered every booking child).
 - `fbCompareAndSet` helper is still defined but no longer called for the `jobs/` path — kept in case any future need arises but effectively obsolete with G2 in place.
 - Driver-app side: same cutover day. Driver app must (a) attach `onChildAdded`/`onChildChanged`/`onChildRemoved` listeners on `jobs/{cid}/{vid}/{drv}` (parent node), (b) treat `onChildRemoved` as the terminal-state signal, (c) drop any logic that relied on a single-slot envelope.
+- Out-of-scope follow-ups (intentionally left): the flat compatibility write at `jobs/{cid}/{bookingId}` (server.js ~3910 / Default.aspx ~9226) is a separate path some older driver-app builds read on restart — leave alone until you confirm no client depends on it. Smoke test for concurrent-offer + stale-cross-driver scanner scoping is not automated yet; covered manually with the two test phones.
 
 ## §FIX-DA — Driver-app public contract (G4 + G5 + G6) (May 2026)
 
