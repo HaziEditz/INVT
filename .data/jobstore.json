@@ -13,8 +13,8 @@
     "Pickingtime": "2026-05-18 16:13:00.",
     "Recieve_payment": "",
     "DispatchTimebefore": "0",
-    "VehicleId": "D002",
-    "DriverId": "D002",
+    "VehicleId": 0,
+    "DriverId": 0,
     "DispatcherName": "safinah",
     "Nextstop": "0",
     "nextstopdata": "",
@@ -35,7 +35,7 @@
     "EntitiesDetails": "",
     "U_id": null,
     "BookingSource": "Dispatch Console",
-    "BookingStatus": "Assigned",
+    "BookingStatus": "Pending",
     "VehicleType": "Not Specified",
     "serviceType": "taxi",
     "Urgent": "No",
@@ -65,7 +65,7 @@
     "bookingType": "Normal Ride",
     "booking_type": "Normal Ride",
     "returnReason": "",
-    "updatedAt": "2026-05-18T07:16:01.864Z",
+    "updatedAt": "2026-05-18T07:27:01.363Z",
     "updatedBy": "dispatcher"
   }
 ]
