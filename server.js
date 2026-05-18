@@ -504,6 +504,39 @@ async function firebaseDbDelete(path, idToken) {
   return true;
 }
 
+// §FIX-Q helper — ETag-guarded conditional SET. Used by the unassign cancel
+// notification path so we don't overwrite a NEW offer that arrived to the same
+// driver between our GET and SET. If the node is empty or refs `expectBookingId`,
+// we PUT `value` with `If-Match: <etag>`. Firebase returns 412 if the ETag has
+// changed (race lost — a newer write happened) and we skip silently. Returns
+// an action tag for logging: 'set', 'kept-different', 'kept-changed', 'empty-set'.
+async function fbCompareAndSet(path, expectBookingId, value, idToken) {
+  const url = `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`;
+  const g = await fbRequest(url, 'GET', null, { 'X-Firebase-ETag': 'true' });
+  const n = g.body || {};
+  const etag = g.headers && (g.headers['etag'] || g.headers['ETag']);
+  const isEmpty = !n || (typeof n === 'object' && Object.keys(n).length === 0);
+  const refBid = (!isEmpty) ? String(n.BookingId || n.bookingId || n.jobId || n._jobId || '') : '';
+  if (!isEmpty && refBid && refBid !== String(expectBookingId)) {
+    return { action: 'kept-different', refBid };
+  }
+  // Defensive: non-empty node but no recognised bookingId field — refuse blind
+  // overwrite (schema may have drifted, or a foreign writer placed data here).
+  if (!isEmpty && !refBid) {
+    return { action: 'kept-unknown-schema', refBid: '' };
+  }
+  // Defensive: no ETag returned — we can't guarantee race safety, so skip the
+  // PUT rather than fall back to unconditional write. The notification/ write
+  // still goes through and surfaces "Job Cancel" to the driver app.
+  if (!etag) {
+    return { action: 'kept-no-etag', refBid };
+  }
+  const p = await fbRequest(url, 'PUT', value, { 'if-match': etag });
+  if (p.status === 412) return { action: 'kept-changed', refBid };
+  if (p.status !== 200) throw new Error(`fbCompareAndSet PUT failed: status=${p.status} body=${JSON.stringify(p.body)}`);
+  return { action: isEmpty ? 'empty-set' : 'set', refBid };
+}
+
 async function firebaseDbPatch(path, value, idToken) {
   const r = await fbRequest(
     `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
@@ -5750,6 +5783,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     }).catch(e => {
                       console.log(`  [ProcUpdateJobv6] §FIX-D/P Firebase patch failed: ${e.message}`);
                     });
+                    // §FIX-Q — symmetric with the [UnAssignJobStatusFromJobList] site:
+                    // notify the driver app that the job has been pulled so it clears
+                    // the screen and stops heart-beating Assigned. See block in
+                    // [UnAssignJobStatusFromJobList] for the full rationale.
+                    const _drvForFbD = String(_prevDrvD || '').trim();
+                    if (_drvForFbD && _drvForFbD !== '0' && _drvForFbD !== '-1') {
+                      const _jobsPathD = `jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD}`;
+                      fbCompareAndSet(_jobsPathD, job.Id,
+                        { Status: 'Cancelled', BookingId: String(job.Id) }, _tok)
+                        .then(_r => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs/${sessionCompanyId}/${_fbVehD}/${_drvForFbD} → ${_r.action}${_r.refBid ? ` (refs #${_r.refBid})` : ''}`))
+                        .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q jobs compare-and-set failed: ${e.message}`));
+                      firebaseDbSet(`notification/${_drvForFbD}`, {
+                        bookingid: `${job.Id},Job Cancel,${_drvForFbD},Server,Dispatcher`,
+                        content:   'Passenger Cancel'
+                      }, _tok)
+                        .then(() => console.log(`  [ProcUpdateJobv6] §FIX-D/Q notification/${_drvForFbD} → Job Cancel written`))
+                        .catch(e => console.log(`  [ProcUpdateJobv6] §FIX-D/Q notification write failed: ${e.message}`));
+                    }
                   });
                 }
               }
@@ -6072,6 +6123,33 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   }).catch(e => {
                     console.log(`  [UnAssignJobStatusFromJobList] §FIX-P Firebase patch failed: ${e.message}`);
                   });
+                  // §FIX-Q — replicate FnCancelRide server-side so the driver app
+                  // gets the "Job Cancel" message and clears its screen. Without
+                  // this the driver app keeps showing the job and keeps heart-
+                  // beating vehiclestatus='Assigned' to online/{cid}/{vid}/current,
+                  // stomping the §FIX-P Available write within ~1-2 s.
+                  // (a) jobs/{cid}/{vid}/{drv}: SET to {Status:'Cancelled', BookingId:<id>}
+                  //     — mirrors Default.aspx FnCancelRide line 8493-8499. The driver
+                  //     app's jobs/ listener treats this as a cancellation.
+                  // (b) notification/{drv}: write the cancel payload — mirrors
+                  //     FnCancelRide line 8479-8488. Driver app shows toast/sound.
+                  // Conditional jobs/ write — only overwrite the node when it
+                  // actually references THIS booking; refuse if it has a different
+                  // BookingId (a new job arrived between unassign and this write).
+                  const _drvForFb = String(_prevDrvStr || '').trim();
+                  if (_drvForFb) {
+                    const _jobsPath = `jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}`;
+                    fbCompareAndSet(_jobsPath, bookingId,
+                      { Status: 'Cancelled', BookingId: String(bookingId) }, _tok)
+                      .then(_r => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb} → ${_r.action}${_r.refBid ? ` (refs #${_r.refBid})` : ''}`))
+                      .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs compare-and-set failed: ${e.message}`));
+                    firebaseDbSet(`notification/${_drvForFb}`, {
+                      bookingid: `${bookingId},Job Cancel,${_drvForFb},Server,Dispatcher`,
+                      content:   'Passenger Cancel'
+                    }, _tok)
+                      .then(() => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification/${_drvForFb} → Job Cancel written`))
+                      .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification write failed: ${e.message}`));
+                  }
                 });
               }
             }
