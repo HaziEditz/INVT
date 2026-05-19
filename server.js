@@ -5937,18 +5937,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cjCreated = Date.now();
     const _cjNow     = new Date().toISOString();
 
-    // §FIX-HAIL — REVERTED 2026-05-19. The forward-looking "start hail in Active
-    // with driver pre-attached" behaviour ships with driver-app 22c, NOT before.
-    // The current (pre-22c) driver app sends driverId/vehicleId on hail create
-    // but its complete flow still uses legacy /api/job/sync-offline-trip, which
-    // expects the booking in 'Pending'. Shipping the new behaviour ahead of 22c
-    // caused complete to hang and the booking to resurface as an offer popup
-    // after a force-close. Keep the legacy Pending start until 22c is in the
-    // field, then re-enable behind an explicit opt-in flag on the create call.
+    // §FIX-HAIL — hail trips arrive driver-attached AND mid-trip (meter already
+    // running, passenger already in car — the driver is the creator). When
+    // driverId+vehicleId are supplied on a hail create, start the booking in
+    // 'Active' (in-trip) with the driver already attached, so completion via
+    // /api/job/command runs the standard Active → Completed transition
+    // without any intermediate assign/accept/start-meter round-trips.
+    //
+    // Driver-app contract: hail complete MUST use POST /api/job/command with
+    // {command:'complete', by:'driver', bookingId, ifVersion:1, payload:{...}}.
+    // The legacy /api/job/sync-offline-trip path will NOT find this booking in
+    // the expected 'Pending' shape and will silently fail. Driver-app teams:
+    // migrate your hail complete handler before next test run.
+    const _cjDriverId  = ((_cjData.driverId)  || '').toString().trim();
+    const _cjVehicleId = ((_cjData.vehicleId) || '').toString().trim();
+    const _cjPreAssigned = _cjSource === 'hail' && _cjDriverId && _cjVehicleId;
+    const _cjInitialStatus = _cjPreAssigned ? 'Active' : 'Pending';
+
     const _cjJob = {
       Id:                 _cjIdNum,
       companyId:          _cjCid,
-      BookingStatus:      'Pending',
+      BookingStatus:      _cjInitialStatus,
       BookingSource:      _cjSource,
       source:             _cjSource,
       Name:               ((_cjPax.name)   || '').toString().trim(),
@@ -5961,8 +5970,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       Notes:              _cjNotes,
       BookingDateTime:    _cjNow,
       Pickingtime:        _cjPickDT || _cjNow,
-      DriverId:           0,
-      VehicleId:          0,
+      DriverId:           _cjPreAssigned ? _cjDriverId  : 0,
+      VehicleId:          _cjPreAssigned ? _cjVehicleId : 0,
+      AssignedDriverId:   _cjPreAssigned ? _cjDriverId  : undefined,
+      AssignedVehicleId:  _cjPreAssigned ? _cjVehicleId : undefined,
+      DriverAcceptedAt:   _cjPreAssigned ? _cjNow : undefined,
+      updateSeq:          _cjPreAssigned ? 1 : 0,
+      lastUpdatedAt:      _cjCreated,
+      lastUpdatedBy:      _cjPreAssigned ? 'driver' : 'system',
       Passengers:         parseInt(_cjData.passengers || '1') || 1,
       Bags:               parseInt(_cjData.bags       || '0') || 0,
       WheelChairs:        parseInt(_cjData.wheelchairs || '0') || 0,
