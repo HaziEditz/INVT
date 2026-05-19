@@ -1,0 +1,16 @@
+Message you can send dispatch HQ
+Heads up for cutover Mon 25 → Wed 27 May — driver app behaviour changes:
+
+"Ghost Active" trips should stop appearing. When a driver completes a trip on their phone, that booking is now locally marked as done. Even if dispatch hasn't seen the sync yet and tries to re-broadcast or re-offer the same booking ID, the driver app will silently ignore it. If you previously saw the same booking bouncing back as Active after a driver completed it, that should now stop.
+
+Drivers can't sign out mid-trip anymore (when online). If a driver has an Assigned, Active or running hail meter, the Sign Out button will refuse and tell them to complete the trip first. This is to stop the "driver signs out, trip stays Active in HQ forever" problem. Offline sign-out is still allowed because they can't complete a trip without network anyway — the trip will reconcile when they next log in.
+
+Crashed / force-closed apps now recover the meter automatically. If a driver's phone reboots, the app force-closes, or Android kills it mid-trip, when they re-open the app the meter resumes exactly where it was (fare, distance, time) with a drift adjustment capped at 30 minutes. They'll see a "Trip resumed" pop-up. Previously these trips just disappeared from the driver side and stayed Active in HQ.
+
+Offline-completed trips are more reliable to sync. Trips completed while the driver had no signal are now queued more robustly and re-uploaded as soon as connection returns. Dispatch should see fewer trips arriving hours late or missing entirely.
+
+What to watch on the HQ side during cutover:
+
+Any booking IDs that dispatch tries to re-issue to a driver after the driver has already completed them — the driver app will not respond. If HQ genuinely needs to re-assign the same booking, it must be created as a NEW booking ID.
+The Active list in HQ should shrink and stop accumulating ghosts. If you still see one, ask the driver to open the app — the cold-start resume + offline queue flush should clear it within seconds.
+Stuck trips that already exist in HQ from before this OTA won't auto-clean; they need to be cleared manually one last time.
