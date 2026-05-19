@@ -57,6 +57,15 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §STUCK-ACTIVE — Pre-cutover sweeper (May 2026)
+
+One-time admin endpoints for clearing "ghost Active" trips before driver-app 22c cutover (Mon 25 May). The new driver app silently ignores re-broadcasts of completed bookingIds, so pre-OTA stuck Active/Picking/OnTrip trips in HQ won't auto-clean — they must be cleared manually.
+
+- `GET  /admin/stuck-active?cid=620611&olderThanHours=4` — lists in-flight bookings older than threshold (default 4h, min 0.5h). Returns `{ok, count, stuck:[{bookingId, status, companyId, driverId, vehicleId, driverName, callSign, passenger, phone, pickup, dropoff, bookingTime, acceptedAt, ageHours}]}`. Age uses `DriverAcceptedAt` (preferred) then `BookingDateTime`. Cross-tenant safe (no `cid` filter = all companies).
+- `POST /admin/stuck-active/clear` body `{bookingId, companyId?, reason?}` — clears one stuck trip via `cancelBooking({cancelledBy:'dispatcher', source:'admin/stuck-active/clear'})`. Idempotent (already-Cancelled returns `{ok:true, idempotent:true}`). `companyId` is optional; if provided it must match the booking's companyId or the request is rejected.
+- Both endpoints gated by `X-Admin-Key: <BW_ADMIN_KEY>` under the existing `/admin/` prefix.
+- server.js ~4145. Uses the existing §FIX-CB `cancelBooking()` helper — no new lifecycle logic.
+
 ## §FIX-HAIL — Pre-assigned hail bookings (May 2026)
 
 Hail trips are created mid-trip by the driver (meter already running, passenger in car). When `/api/job/create` receives `source:'hail'` + `driverId` + `vehicleId`, the booking lands in `BookingStatus:'Active'` with driver pre-attached, `updateSeq=1`, `DriverAcceptedAt` stamped, `VehicleNo`/`CallSign` set to vehicleId. Skips Pending→Offered→Assigned.

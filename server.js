@@ -4139,6 +4139,93 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET  /admin/stuck-active?cid=620611&olderThanHours=4
+    // POST /admin/stuck-active/clear  body: {bookingId, companyId, reason?}
+    //
+    // §STUCK-ACTIVE (May 2026, pre driver-app 22c cutover Mon 25 May)
+    // Lists in-flight bookings (Active / Picking / OnTrip) that have been
+    // sitting too long with no completion — the "ghost Active" trips that
+    // the new driver app build will silently ignore if dispatch tries to
+    // re-broadcast. Dispatch HQ should clear these manually before cutover
+    // so the Active list is clean when the OTA ships.
+    //
+    // The 22c driver app marks completed trips locally and ignores re-offers
+    // of the same bookingId — but pre-OTA stuck trips in HQ won't auto-clean.
+    // This endpoint is the one-time sweeper.
+    if (urlPath === '/admin/stuck-active' && req.method === 'GET') {
+      try {
+        const _saQs    = new URL('http://x' + req.url).searchParams;
+        const _saCid   = (_saQs.get('cid') || '').trim();
+        const _saHours = Math.max(0.5, parseFloat(_saQs.get('olderThanHours') || '4'));
+        const _saCutoffMs = Date.now() - (_saHours * 3600 * 1000);
+        const _saStuckStatuses = new Set(['Active','Picking','OnTrip']);
+        const _saAgeMs = (j) => {
+          const t1 = j.DriverAcceptedAt ? new Date(j.DriverAcceptedAt).getTime() : 0;
+          const t2 = j.BookingDateTime  ? new Date(_toDateStr(j.BookingDateTime)).getTime() : 0;
+          return t1 || t2 || 0;
+        };
+        const _saList = jobStore
+          .filter(j => j && _saStuckStatuses.has(j.BookingStatus))
+          .filter(j => !_saCid || String(j.companyId) === _saCid)
+          .map(j => ({
+            bookingId:    j.Id,
+            status:       j.BookingStatus,
+            companyId:    j.companyId || '',
+            driverId:     j.DriverId  || 0,
+            vehicleId:    j.VehicleId || 0,
+            driverName:   j.DriverName || j.drivername || '',
+            callSign:     j.CallSign  || j.VehicleNo || '',
+            passenger:    j.JobName   || j.PassengerName || '',
+            phone:        j.JobphoneNo || j.PassengerPhone || '',
+            pickup:       j.jobpickup  || j.PickupAddress  || '',
+            dropoff:      j.jobdropoff || j.DropAddress    || '',
+            bookingTime:  j.BookingDateTime || '',
+            acceptedAt:   j.DriverAcceptedAt || '',
+            ageHours:     +(((Date.now() - _saAgeMs(j)) / 3600000) || 0).toFixed(2),
+            ageMs:        Date.now() - _saAgeMs(j),
+            stale:        _saAgeMs(j) > 0 && _saAgeMs(j) < _saCutoffMs,
+          }))
+          .filter(r => r.stale)
+          .sort((a,b) => b.ageMs - a.ageMs);
+        jsonReply(res, { ok: true, count: _saList.length, olderThanHours: _saHours, cid: _saCid || null, stuck: _saList });
+      } catch(e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    if (urlPath === '/admin/stuck-active/clear' && req.method === 'POST') {
+      let _scBody = '';
+      req.on('data', c => _scBody += c);
+      req.on('end', () => {
+        try {
+          const _scIn = JSON.parse(_scBody || '{}');
+          const _scBid = parseInt(_scIn.bookingId) || 0;
+          const _scCid = String(_scIn.companyId || '').trim();
+          const _scReason = String(_scIn.reason || 'Pre-cutover cleanup (stuck Active)');
+          if (!_scBid) { jsonReply(res, { ok:false, error:'bookingId required' }); return; }
+          const _scJob = jobStore.find(j => j && j.Id === _scBid);
+          if (!_scJob) { jsonReply(res, { ok:false, error:'booking not found in jobStore (may already be closed)' }); return; }
+          if (_scCid && String(_scJob.companyId) !== _scCid) {
+            jsonReply(res, { ok:false, error:'companyId mismatch — refusing to clear' }); return;
+          }
+          const _scResult = cancelBooking({
+            bookingId:    _scBid,
+            cancelledBy:  'dispatcher',
+            reason:       _scReason,
+            driverFault:  false,
+            recallToPending: false,
+            companyId:    _scJob.companyId,
+            source:       'admin/stuck-active/clear',
+          });
+          jsonReply(res, _scResult);
+        } catch(e) {
+          jsonReply(res, { ok:false, error: (e && e.message) || String(e) });
+        }
+      });
+      return;
+    }
+
     // POST /admin/deploy-firebase-rules — push database.rules.json to Firebase RTDB
     // Requires BW_FIREBASE_SECRET to be set.  Call once after adding the secret.
     if (urlPath === '/admin/deploy-firebase-rules' && req.method === 'POST') {
