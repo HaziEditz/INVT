@@ -17605,24 +17605,30 @@ $(document).ready(function() {
             
 
         }
+        // §UI-CONTRAST — professional pastel palette for driver-status rows.
+        // Was using saturated lightgreen / orange / #fb0404 / #3333ff / #00bcd4
+        // which made row text (driver name, vehicle, status, jobs) unreadable —
+        // especially the bright blue #3333ff for Assigned/Picking. New palette
+        // uses soft tinted backgrounds that keep dark row text legible while
+        // still giving each status a distinct, scannable colour cue.
         $scope.showcolor = function (VehicleStatus){
             if( VehicleStatus == 'Available' ){
-                return "lightgreen";
+                return "#d6f5dd";   // soft mint — Available
             }
             else if ( VehicleStatus == 'Away'  ){
-                return "orange";
+                return "#ffe2b8";   // soft amber — Away
             }
             else if ( VehicleStatus  == 'Busy' ){
-                return "#fb0404";
+                return "#ffd6d6";   // soft rose — Busy
             }
             else if ( VehicleStatus == 'Picking' || VehicleStatus == 'Assigned' ){
-                return "#3333ff";
+                return "#dbe6ff";   // soft slate-blue — Picking / Assigned
             }
             else if ( VehicleStatus == 'Arrived' ){
-                return "#00bcd4";
+                return "#c8f0f7";   // soft cyan — Arrived
             }
             else if(VehicleStatus == 'manualreject'){
-                return "lightgreen";
+                return "#d6f5dd";   // soft mint
             }
         }
         

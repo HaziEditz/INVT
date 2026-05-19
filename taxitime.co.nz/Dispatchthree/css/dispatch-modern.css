@@ -227,26 +227,34 @@ html, body {
   overflow: visible !important;
   margin-left: auto !important;
 }
-/* §UI-CONTRAST — top nav text was rgba(139,150,168,0.85) on the dark header
-   bar which is unreadable. Bumped to near-white at higher weight + size with
-   a subtle shadow so labels stay legible against the dark header in both
-   modes. Light-mode override below also forced to match (it was #374151,
-   even worse on the dark bar). */
+/* §UI-CONTRAST/2 — top nav: clean, professional look. Crisp near-white text,
+   moderate weight, slight uppercase tracking, generous hover state with a
+   thin accent underline so active sections feel intentional rather than
+   washed out. Header bar is dark in both modes, so light text is correct. */
 .topnav a {
-  color: rgba(255,255,255,0.92) !important;
-  font-size: 13px !important;
+  color: #f3f5f9 !important;
+  font-size: 12.5px !important;
   font-weight: 600 !important;
-  padding: 6px 11px !important;
+  padding: 8px 12px !important;
   border-radius: 6px !important;
   text-decoration: none !important;
   white-space: nowrap !important;
-  transition: background 0.12s, color 0.12s !important;
-  letter-spacing: 0.2px !important;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.55) !important;
+  transition: background 0.15s ease, color 0.15s ease !important;
+  letter-spacing: 0.35px !important;
+  text-transform: uppercase !important;
+  position: relative !important;
 }
 .topnav a:hover {
-  background: rgba(255,255,255,0.14) !important;
+  background: rgba(255,255,255,0.08) !important;
   color: #ffffff !important;
+}
+.topnav a:hover::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 12px; right: 12px; bottom: 3px;
+  height: 2px;
+  background: var(--bw-accent, #4f8bff) !important;
+  border-radius: 2px;
 }
 .topnav a.active {
   color: var(--bw-accent) !important;
@@ -1674,14 +1682,13 @@ html[data-bw-mode="light"] .dataTables_info,
 html[data-bw-mode="light"] .dataTables_filter label,
 html[data-bw-mode="light"] .dataTables_length label { color: #4b5563 !important; }
 
-/* ── Top nav links ── §UI-CONTRAST: header bar is dark even in light mode,
-   so nav links must stay near-white for readability (was #374151 → invisible). */
+/* ── Top nav links ── §UI-CONTRAST/2: header bar is dark even in light mode,
+   so nav links stay near-white. Matches the base .topnav a rule above. */
 html[data-bw-mode="light"] .topnav a {
-  color: rgba(255,255,255,0.92) !important;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.55) !important;
+  color: #f3f5f9 !important;
 }
 html[data-bw-mode="light"] .topnav a:hover {
-  background: rgba(255,255,255,0.14) !important;
+  background: rgba(255,255,255,0.08) !important;
   color: #ffffff !important;
 }
 html[data-bw-mode="light"] .topnav a[onclick*="Logout"] {
