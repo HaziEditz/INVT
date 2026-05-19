@@ -549,21 +549,29 @@
     }
 
     .topnav a {
-        font-weight: 500;
+        font-weight: 700;
     }
 
+    /* §UI-CONTRAST — top nav legibility fix. Items were rendering as low-contrast
+       grey on the black/navy bar (Filter / Search Jobs / Closed Jobs / ACC /
+       Alarms / Message). Force bright white, slightly larger, with a subtle
+       shadow so labels stay readable regardless of background tint. */
     .topnav a {
         float: left;
-        color: #ffffff;
+        color: #ffffff !important;
         text-align: center;
-        padding: 14px 16px;
+        padding: 14px 14px;
         text-decoration: none;
-        font-size: 12px;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.6);
     }
 
         .topnav a:hover {
-            background-color: #ddd;
-            color: #ffffff;
+            background-color: rgba(255,255,255,0.12);
+            color: #ffffff !important;
+            text-decoration: none;
         }
 
     .chat-message {
