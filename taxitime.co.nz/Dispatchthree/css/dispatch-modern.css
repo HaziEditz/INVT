@@ -227,20 +227,26 @@ html, body {
   overflow: visible !important;
   margin-left: auto !important;
 }
+/* §UI-CONTRAST — top nav text was rgba(139,150,168,0.85) on the dark header
+   bar which is unreadable. Bumped to near-white at higher weight + size with
+   a subtle shadow so labels stay legible against the dark header in both
+   modes. Light-mode override below also forced to match (it was #374151,
+   even worse on the dark bar). */
 .topnav a {
-  color: rgba(139,150,168,0.85) !important;
-  font-size: 11.5px !important;
-  font-weight: 500 !important;
-  padding: 5px 10px !important;
+  color: rgba(255,255,255,0.92) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  padding: 6px 11px !important;
   border-radius: 6px !important;
   text-decoration: none !important;
   white-space: nowrap !important;
   transition: background 0.12s, color 0.12s !important;
-  letter-spacing: 0.1px !important;
+  letter-spacing: 0.2px !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.55) !important;
 }
 .topnav a:hover {
-  background: rgba(255,255,255,0.07) !important;
-  color: var(--bw-text1) !important;
+  background: rgba(255,255,255,0.14) !important;
+  color: #ffffff !important;
 }
 .topnav a.active {
   color: var(--bw-accent) !important;
@@ -1668,13 +1674,15 @@ html[data-bw-mode="light"] .dataTables_info,
 html[data-bw-mode="light"] .dataTables_filter label,
 html[data-bw-mode="light"] .dataTables_length label { color: #4b5563 !important; }
 
-/* ── Top nav links ── */
+/* ── Top nav links ── §UI-CONTRAST: header bar is dark even in light mode,
+   so nav links must stay near-white for readability (was #374151 → invisible). */
 html[data-bw-mode="light"] .topnav a {
-  color: #374151 !important;
+  color: rgba(255,255,255,0.92) !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.55) !important;
 }
 html[data-bw-mode="light"] .topnav a:hover {
-  background: rgba(0,0,0,0.05) !important;
-  color: #111827 !important;
+  background: rgba(255,255,255,0.14) !important;
+  color: #ffffff !important;
 }
 html[data-bw-mode="light"] .topnav a[onclick*="Logout"] {
   color: rgba(220,38,38,0.75) !important;
