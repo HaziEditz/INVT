@@ -5986,8 +5986,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       EstimatedDistance:  ((_cjData.distance) || '0').toString(),
       EstimatedTime:      ((_cjData.duration) || '0').toString(),
       AccountId:          '',
-      VehicleNo:          null,
-      CallSign:           null,
+      VehicleNo:          _cjPreAssigned ? _cjVehicleId : null,
+      CallSign:           _cjPreAssigned ? _cjVehicleId : null,
       webstatus:          '0',
       createdAt:          _cjCreated,
       createdVia:         '/api/job/create',
@@ -6000,6 +6000,107 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     if (_cjSource !== 'dispatch') {
       jobStore.push(_cjJob);
       saveJobStore();
+    }
+
+    // §FIX-HAIL/2 — when a hail booking arrives driver-attached + Active, fan out
+    // to the same Firebase paths a normal Assigned booking would touch, plus the
+    // in-memory ZONE_DRIVERS record, so the dispatch console's driver popover
+    // and pendingjobs board immediately reflect the in-progress trip. Without
+    // this, the zone summary counts the job but the popover Vehicle / BookingId
+    // / Location fields stay blank.
+    if (_cjPreAssigned) {
+      const _hCid = _cjCid;
+      const _hVid = _cjVehicleId;
+      const _hDrv = _cjDriverId;
+      const _hBid = _cjIdNum;
+
+      // 1) ZONE_DRIVERS in-memory — popover reads BookingId/jobpickup/jobdropoff/jobCount/JobphoneNo from here.
+      try {
+        const _zdH = ZONE_DRIVERS.find(d =>
+          (String(d.driverid).trim() === String(_hDrv).trim() ||
+           String(d.VehicleId).trim() === String(_hVid).trim()) &&
+          (!d.companyId || String(d.companyId) === String(_hCid)));
+        if (_zdH) {
+          // Idempotency guard — only increment jobCount if this BookingId wasn't
+          // already attached to the driver (retry-safe; create endpoint has no
+          // clientRequestId dedup yet).
+          const _alreadyAttached = String(_zdH.BookingId || '') === String(_hBid);
+          _zdH.BookingId    = String(_hBid);
+          _zdH.jobpickup    = _cjJob.PickAddress || '';
+          _zdH.jobdropoff   = _cjJob.DropAddress || '';
+          _zdH.JobphoneNo   = _cjJob.PhoneNo     || '';
+          _zdH.jobname      = _cjJob.Name        || '';
+          if (!_alreadyAttached) {
+            _zdH.jobCount   = (parseInt(_zdH.jobCount) || 0) + 1;
+          }
+          _zdH.vehiclestatus = 'Busy';
+          console.log(`  [/api/job/create] §FIX-HAIL/2 ZONE_DRIVERS ${_hDrv} → BookingId=${_hBid} status=Busy jobCount=${_zdH.jobCount}${_alreadyAttached ? ' (idempotent)' : ''}`);
+        } else {
+          console.log(`  [/api/job/create] §FIX-HAIL/2 driver ${_hDrv} not in ZONE_DRIVERS — popover sync skipped`);
+        }
+      } catch (_e) {
+        console.warn(`  [/api/job/create] §FIX-HAIL/2 ZONE_DRIVERS update failed: ${_e && _e.message}`);
+      }
+
+      // 2) Firebase fanout — fire-and-forget so we don't block the response.
+      (async () => {
+        try {
+          const _tokH = await getFirebaseServerToken();
+          if (!_tokH) {
+            console.warn(`  [/api/job/create] §FIX-HAIL/2 no Firebase token — fanout skipped for #${_hBid}`);
+            return;
+          }
+          const _fbBooking = {
+            bookingId:       String(_hBid),
+            status:          'Active',
+            BookingStatus:   'Active',
+            companyId:       _hCid,
+            driverId:        _hDrv,
+            vehicleId:       _hVid,
+            DriverId:        _hDrv,
+            VehicleNo:       _hVid,
+            CallSign:        _hVid,
+            name:            _cjJob.Name        || '',
+            PassengerName:   _cjJob.Name        || '',
+            phoneNo:         _cjJob.PhoneNo     || '',
+            PhoneNo:         _cjJob.PhoneNo     || '',
+            pickAddress:     _cjJob.PickAddress || '',
+            PickAddress:     _cjJob.PickAddress || '',
+            pickLatLng:      _cjJob.PickLatLng  || '',
+            dropAddress:     _cjJob.DropAddress || '',
+            DropAddress:     _cjJob.DropAddress || '',
+            dropLatLng:      _cjJob.DropLatLng  || '',
+            paymentMethod:   (_cjData && _cjData.paymentMethod) || '',
+            bookingSource:   _cjSource,
+            createdAt:       _cjCreated,
+            DriverAcceptedAt: _cjNow,
+            updateSeq:       1
+          };
+          await Promise.all([
+            firebaseDbSet(`pendingjobs/${_hCid}/${_hBid}`, _fbBooking, _tokH)
+              .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 pendingjobs write failed: ${e && e.message}`)),
+            firebaseDbSet(`allbookings/${_hCid}/${_hBid}`, _fbBooking, _tokH)
+              .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 allbookings write failed: ${e && e.message}`)),
+            firebaseDbPatch(`online/${_hCid}/${_hVid}/current`, {
+              currentJobId: String(_hBid),
+              jobId:        String(_hBid),
+              joboffer:     0,
+              jobpickup:    _cjJob.PickAddress || '',
+              jobdropoff:   _cjJob.DropAddress || '',
+              JobphoneNo:   _cjJob.PhoneNo     || '',
+              jobname:      _cjJob.Name        || '',
+              vehiclestatus: 'Busy'
+            }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online/current patch failed: ${e && e.message}`))
+          ]);
+          console.log(`  [/api/job/create] §FIX-HAIL/2 Firebase fanout complete for #${_hBid} (pendingjobs+allbookings+online/${_hVid}/current)`);
+          // Booking lifecycle event so any listeners see the Active create.
+          _writeBookingEvent(_hCid, _hBid, 'BookingCreatedHail',
+            { from: 'New', to: 'Active', driverId: _hDrv, vehicleId: _hVid, source: 'hail' },
+            'driver', 1).catch(() => {});
+        } catch (_e) {
+          console.warn(`  [/api/job/create] §FIX-HAIL/2 fanout failed: ${_e && _e.message}`);
+        }
+      })();
     }
 
     console.log(`200: POST /api/job/create -> reserved job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);

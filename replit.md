@@ -57,6 +57,17 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-HAIL — Pre-assigned hail bookings (May 2026)
+
+Hail trips are created mid-trip by the driver (meter already running, passenger in car). When `/api/job/create` receives `source:'hail'` + `driverId` + `vehicleId`, the booking lands in `BookingStatus:'Active'` with driver pre-attached, `updateSeq=1`, `DriverAcceptedAt` stamped, `VehicleNo`/`CallSign` set to vehicleId. Skips Pending→Offered→Assigned.
+
+**§FIX-HAIL/2 (server.js ~6008):** On hail pre-assigned create, also fan out to the dispatch-visibility paths so the driver popover and pendingjobs board immediately reflect the in-progress trip:
+- `ZONE_DRIVERS` in-memory: `BookingId`, `jobpickup`, `jobdropoff`, `JobphoneNo`, `jobname`, `vehiclestatus='Busy'`, `jobCount++` (guarded: skips increment if same BookingId already attached — retry-safe).
+- Firebase: `pendingjobs/{cid}/{bid}` + `allbookings/{cid}/{bid}` (full booking shape with status='Active'), `online/{cid}/{vid}/current` PATCH (currentJobId, jobId, joboffer:0, jobpickup, jobdropoff, JobphoneNo, jobname, vehiclestatus:'Busy'). Fire-and-forget; logs each write.
+- Emits `BookingCreatedHail` bookingEvent (`{from:'New', to:'Active', source:'hail'}`).
+
+**Driver-app contract:** Hail **complete** MUST use `POST /api/job/command` with `{command:'complete', by:'driver', bookingId, ifVersion:1, payload:{...}}`. Legacy `/api/job/sync-offline-trip` does NOT find Active-state hail bookings and silently fails (app hangs, force-close, ghost-offer popup on relaunch). Driver-app team needs to ship this cutover ahead of the broader 22c lifecycle migration.
+
 ## §FIX-CMD — Unified `/api/job/command` (May 2026)
 
 Single front door for every booking lifecycle verb so external apps (passenger, driver app, integrations) only have to integrate one URL. Backward-safe — all existing endpoints (`/api/cancel`, `/api/booking/update`, `/api/driver/active-bookings`, legacy DataProcessor `[AssignJob]` / `[ProcUpdateJobv6]` / etc.) keep working unchanged.
