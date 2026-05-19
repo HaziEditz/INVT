@@ -57,6 +57,16 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-GHOST — Pendingjobs DELETE on completion (May 2026)
+
+Bug: completed hail trips lingered on the driver's phone as "ghost Active" cards because `pendingjobs/{cid}/{bookingId}` was only PATCHed to `Status:Completed` on terminal close, never DELETEd. The driver app's pendingjobs listener treats record presence (not the Status field) as authoritative, so the ghost card persisted until the driver manually cancelled or logged out + back in.
+
+Repro confirmed for booking `6112605192` (TAXI02 / D002): hail trip created with `_bwClearJobFromFirebase`-style PATCH on completion. closedJobStore had the booking marked Completed correctly. allbookings had the full record. pendingjobs entry stayed `Status:Completed` for hours; pendingjobs-normalizer kept logging "Kept ... (ID reuse or unknown timestamps)" every 30s because `pendingCreated` couldn't be parsed cleanly. Driver phone kept showing the stale card.
+
+**Fix (server.js ~630 in `_bwClearJobFromFirebase`):** After the existing pendingjobs PATCH (stamps `Status:_final` + `completedAt`/`cancelledAt` for any consumer racing cleanup), follow up with a DELETE of the same `pendingjobs/{cid}/{bookingId}` node. PATCH-then-DELETE preserves the terminal-state snapshot for in-flight listeners and removes the record so the driver app clears the card. Trip history is still preserved in `/allbookings/{cid}/{bookingId}` and the server-side `closedJobStore`. `IngestPassengerJob`'s resurrection guard is unaffected (it only re-creates from `Scheduled`/`Waiting`/`Pending` — a deleted record cannot satisfy any of those).
+
+Applies to every completion/cancellation path (hail, passenger, web, dispatch, ACC, business account) because they all funnel through `_bwClearJobFromFirebase`. One-shot manual cleanup of the stuck `6112605192` Firebase entry was performed at the same time so the driver's app would clear immediately without waiting for another action.
+
 ## §STUCK-ACTIVE — Pre-cutover sweeper (May 2026)
 
 One-time admin endpoints for clearing "ghost Active" trips before driver-app 22c cutover (Mon 25 May). The new driver app silently ignores re-broadcasts of completed bookingIds, so pre-OTA stuck Active/Picking/OnTrip trips in HQ won't auto-clean — they must be cleared manually.

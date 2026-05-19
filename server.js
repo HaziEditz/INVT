@@ -624,15 +624,48 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
 
     const tasks = [];
 
-    // 1. /pendingjobs/{cid}/{bookingId} — PATCH to terminal status (kept for
-    //    SA portal + passenger-app trip history). [IngestPassengerJob] only
-    //    re-creates from Scheduled/Waiting/Pending so this prevents resurrection.
-    tasks.push(
-      fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${_bId}.json?auth=${auth}`,
-        'PATCH', Object.assign({ Status: _final, BookingStatus: _final }, stamp))
-        .then(r => console.log(`${_tag} pendingjobs/${_cid}/${_bId} → ${_final} [${r.status}]`))
-        .catch(e => console.warn(`${_tag} pendingjobs PATCH failed: ${e && e.message}`))
-    );
+    // 1. /pendingjobs/{cid}/{bookingId} — PATCH to terminal status THEN DELETE.
+    //    The PATCH stamps Status:Completed/Cancelled + completedAt/cancelledAt
+    //    for any consumer racing the cleanup (SA portal, passenger-app trip
+    //    history listeners) so they see the terminal state on the snapshot
+    //    immediately preceding removal. The DELETE then removes the record so
+    //    the driver app's pendingjobs listener clears its local card — without
+    //    this, completed hail trips lingered as "ghost Active" entries on the
+    //    driver phone because pendingjobs membership (not its Status field) is
+    //    what the driver app uses to decide whether to show the card.
+    //    Trip history is preserved in /allbookings/{cid}/{bookingId} and the
+    //    server-side closedJobStore. IngestPassengerJob's resurrection guard
+    //    is unaffected (it only re-creates from Scheduled/Waiting/Pending; a
+    //    DELETED record cannot satisfy any of those statuses).
+    tasks.push((async () => {
+      try {
+        const _pjUrl = `${FB_DB_URL}/pendingjobs/${_cid}/${_bId}.json?auth=${auth}`;
+        const _p = await fbRequest(_pjUrl, 'PATCH',
+          Object.assign({ Status: _final, BookingStatus: _final }, stamp));
+        console.log(`${_tag} pendingjobs/${_cid}/${_bId} → ${_final} [${_p.status}]`);
+        // Guarded DELETE — only remove the node if it STILL shows our terminal
+        // stamp. Defends against the (very narrow) ID-recycle race where a fresh
+        // booking with the same numeric bookingId could land between our PATCH
+        // and our DELETE; if that happened, Status would no longer be _final
+        // and we MUST NOT wipe the live record. bookingIds are timestamp-
+        // monotonic so this is effectively impossible in practice, but the
+        // GET-then-DELETE check is cheap insurance.
+        const _g = await fbRequest(_pjUrl, 'GET', null);
+        const _cur = _g.body || {};
+        const _curStatus = String(_cur.Status || _cur.BookingStatus || '');
+        if (_curStatus === _final) {
+          const _d = await fbRequest(_pjUrl, 'DELETE', null);
+          console.log(`${_tag} pendingjobs/${_cid}/${_bId} deleted [${_d.status}]`);
+        } else if (_curStatus) {
+          console.warn(`${_tag} pendingjobs/${_cid}/${_bId} DELETE skipped — status now "${_curStatus}" (expected "${_final}", ID-recycle race?)`);
+        } else {
+          // Record already gone (concurrent cleanup, or never existed).
+          console.log(`${_tag} pendingjobs/${_cid}/${_bId} DELETE skipped — node already absent`);
+        }
+      } catch (e) {
+        console.warn(`${_tag} pendingjobs PATCH/DELETE failed: ${e && e.message}`);
+      }
+    })());
 
     // 2. /jobs/{cid}/{vehId}/{drvId}/{bookingId} — write eventType then DELETE.
     //    §FIX-DA-G2 + C2: driver-app team needs the reason for the terminal
