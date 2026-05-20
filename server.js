@@ -938,7 +938,9 @@ function cancelBooking(opts) {
   // event so the driver app sees the lifecycle transition on the same per-booking
   // stream as edits.
   const _seqBefore = parseInt(job.updateSeq) || 0;
-  job.updateSeq = _seqBefore + 1;
+  job.updateSeq      = _seqBefore + 1;
+  job.lastUpdatedAt  = new Date().toISOString();
+  job.lastUpdatedBy  = cancelledBy;
   if (_cid && bookingId) {
     _writeBookingEvent(_cid, bookingId,
       recallToPending ? 'BookingRecalled' : 'BookingCancelled',
@@ -967,6 +969,17 @@ function cancelBooking(opts) {
     saveClosedJobStore();
     console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → Cancelled by ${_cancelledByPretty} (driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
   }
+
+  // §FIX-CMD/ver-fanout — mirror version into Firebase paths the driver app
+  // reads. For recall, the booking stays alive (Pending) — patch both paths.
+  // For hard cancel, _bwClearJobFromFirebase below will DELETE pendingjobs/
+  // — skip pendingjobs patch (isTerminal=true), keep allbookings/ patch.
+  _fanVersionToFirebase(_cid, bookingId, {
+    updateSeq:     job.updateSeq,
+    lastUpdatedAt: job.lastUpdatedAt,
+    lastUpdatedBy: job.lastUpdatedBy,
+    BookingStatus: job.BookingStatus
+  }, !recallToPending);
 
   let driverFreed = false, driverState = 'unchanged', queueNo = null;
   if (_hasDriver) {
@@ -1145,9 +1158,9 @@ function assignBooking(opts) {
     job.CallSign   = vehicleId;
   }
   job.updateSeq      = _seqBefore + 1;
-  job.lastUpdatedAt  = Date.now();
+  job.lastUpdatedAt  = new Date().toISOString();
   job.lastUpdatedBy  = by;
-  job.AssignedAt     = new Date().toISOString();
+  job.AssignedAt     = job.lastUpdatedAt;
   job.AssignedDriverId  = driverId;
   job.AssignedVehicleId = vehicleId || String(job.VehicleNo || job.CallSign || '');
   // Preserve legacy "Take to No One" timeout protection — dispatcher-initiated
@@ -1167,6 +1180,15 @@ function assignBooking(opts) {
       { from: _curStatus, to: 'Assigned', driverId, vehicleId: job.VehicleNo || '' },
       by, job.updateSeq).catch(() => {});
   }
+  // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/.
+  _fanVersionToFirebase(_cid, bookingId, {
+    updateSeq:     job.updateSeq,
+    lastUpdatedAt: job.lastUpdatedAt,
+    lastUpdatedBy: job.lastUpdatedBy,
+    BookingStatus: job.BookingStatus,
+    DriverId:      job.DriverId,
+    VehicleNo:     job.VehicleNo || ''
+  }, false);
   // Driver notification — new_offer hint. The actual Firebase offer write
   // (jobs/{cid}/{vid}/{drv}/{bookingId}) is still handled by the legacy
   // dispatch flow when invoked from Default.aspx. When the API is called
@@ -1234,6 +1256,8 @@ function completeBooking(opts) {
 
   const _seqBefore   = parseInt(job.updateSeq) || 0;
   job.updateSeq      = _seqBefore + 1;
+  job.lastUpdatedAt  = _nowIso;
+  job.lastUpdatedBy  = by;
   job.BookingStatus  = 'Completed';
   job.JobCompleteTime = _nowIso;
   if (fare !== undefined && fare !== null && fare !== '') {
@@ -1282,6 +1306,17 @@ function completeBooking(opts) {
       { from: _curStatus, to: 'Completed', fare: job.TotalFare || '', distance: job.distance || '' },
       by, job.updateSeq).catch(() => {});
   }
+  // §FIX-CMD/ver-fanout — mirror version into allbookings/ before
+  // _bwClearJobFromFirebase DELETEs pendingjobs/. isTerminal=true so we don't
+  // resurrect the pendingjobs/ entry that's about to be removed.
+  _fanVersionToFirebase(_cid, bookingId, {
+    updateSeq:     job.updateSeq,
+    lastUpdatedAt: job.lastUpdatedAt,
+    lastUpdatedBy: job.lastUpdatedBy,
+    BookingStatus: 'Completed',
+    fare:          job.TotalFare || '',
+    distance:      job.distance  || ''
+  }, true);
   // Firebase cleanup — booking-scoped child remove with eventType:'completed'
   // (per §FIX-DA-G2/C2). _bwClearJobFromFirebase already handles this.
   if (_cid && _drvId) {
@@ -1346,7 +1381,7 @@ function acceptBooking(opts) {
   job.BookingStatus     = 'Assigned';
   job.DriverAcceptedAt  = new Date().toISOString();
   job.updateSeq         = _seqBefore + 1;
-  job.lastUpdatedAt     = Date.now();
+  job.lastUpdatedAt     = job.DriverAcceptedAt;
   job.lastUpdatedBy     = by;
   saveJobStore();
 
@@ -1356,6 +1391,15 @@ function acceptBooking(opts) {
       { from: _curStatus, to: 'Assigned', driverId: _jobDrv },
       by, job.updateSeq).catch(() => {});
   }
+  // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/ so
+  // the driver app can read updateSeq from Firebase on cold-start.
+  _fanVersionToFirebase(_cid, bookingId, {
+    updateSeq:        job.updateSeq,
+    lastUpdatedAt:    job.lastUpdatedAt,
+    lastUpdatedBy:    job.lastUpdatedBy,
+    BookingStatus:    job.BookingStatus,
+    DriverAcceptedAt: job.DriverAcceptedAt
+  }, false);
   console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_jobDrv} seq=${job.updateSeq}`);
   return {
     ok: true, idempotent: false, status: 'Assigned',
@@ -1420,6 +1464,32 @@ async function _writeBookingEvent(cid, bookingId, eventType, diff, by, seq) {
   } catch (_e) {
     console.warn(`  [bookingEvents] write failed: ${_e && _e.message}`);
   }
+}
+
+// §FIX-CMD/ver-fanout — Mirror updateSeq + lastUpdatedAt + BookingStatus into
+// the Firebase paths the driver app reads (allbookings/, pendingjobs/) so the
+// phone can recover version on cold-start without replaying bookingEvents.
+//   - allbookings/{cid}/{bid}: always patched (persists for history).
+//   - pendingjobs/{cid}/{bid}: skipped on terminal (Cancelled/Completed) —
+//     _bwClearJobFromFirebase DELETEs that node, so a PATCH would either race
+//     or resurrect a ghost record.
+// Fire-and-forget — never blocks the verb response. Failures logged at warn.
+function _fanVersionToFirebase(cid, bookingId, patch, isTerminal) {
+  if (!cid || !bookingId || !patch) return;
+  (async () => {
+    try {
+      const _tok = await getFirebaseServerToken();
+      if (!_tok) return;
+      await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, _tok)
+        .catch(_e => console.warn(`  [ver-fanout] allbookings/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+      if (!isTerminal) {
+        await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, _tok)
+          .catch(_e => console.warn(`  [ver-fanout] pendingjobs/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+      }
+    } catch (_e) {
+      console.warn(`  [ver-fanout] cid=${cid} bid=${bookingId} failed: ${_e && _e.message}`);
+    }
+  })();
 }
 
 // Diff incoming changes against the live job. Returns {field: {from, to}} for

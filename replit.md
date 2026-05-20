@@ -57,6 +57,20 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-CMD/ver-fanout — updateSeq + lastUpdatedAt fanned into Firebase (May 2026)
+
+Before this fix the driver app could only read booking version (`updateSeq`) from the bookingEvents/ stream — `pendingjobs/{cid}/{bid}` and `allbookings/{cid}/{bid}` had stale or missing version fields. On app cold-start / offline-recovery, the phone had no way to reconcile its local cache with server truth except by replaying every event since last seen.
+
+**Fix:**
+- New helper `_fanVersionToFirebase(cid, bookingId, patch, isTerminal)` at server.js ~1428. Fire-and-forget PATCH of `{updateSeq, lastUpdatedAt, lastUpdatedBy, BookingStatus, ...verb-specific}` into:
+  - `allbookings/{cid}/{bid}` — always (persists for history).
+  - `pendingjobs/{cid}/{bid}` — only when not terminal. For Cancelled/Completed (`isTerminal=true`) we skip pendingjobs/ because `_bwClearJobFromFirebase` DELETEs that node immediately after, and a PATCH would race or resurrect a ghost.
+- Called from all four lifecycle verbs after the `updateSeq` bump + `saveJobStore()`: `assignBooking` (~1186), `acceptBooking` (~1397), `cancelBooking` (~976; `isTerminal = !recallToPending`), `completeBooking` (~1312; isTerminal=true).
+- `lastUpdatedAt` standardised to ISO string across all four helpers (was previously `Date.now()` numeric in assign/accept, ISO string in update — now uniform ISO so `_publicBooking.updatedAt` is consistently typed for the driver app).
+- `lastUpdatedBy` now stamped on every verb (was missing from cancel/complete).
+
+**Driver-app contract:** on cold-start, phone can read `pendingjobs/{cid}/{bid}.updateSeq` (active jobs) or `allbookings/{cid}/{bid}.updateSeq` (history including terminal) and trust it as the authoritative version to seed `ifVersion` for subsequent commands. The `/api/job/command` response remains the primary source of truth — this fanout is for cold-start / cache-rehydration only.
+
 ## §FIX-EDIT-PRESERVE — Metadata-only edits keep driver assignment (May 2026)
 
 Bug: dispatcher edited an already-accepted job (e.g. just changed passenger name / phone) → driver app showed it as Cancelled → job returned to Unassigned → eventually auto-cancelled.
