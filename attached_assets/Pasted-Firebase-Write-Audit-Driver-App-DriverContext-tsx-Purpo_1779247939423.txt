@@ -1,0 +1,111 @@
+Firebase Write Audit — Driver App (DriverContext.tsx)
+Purpose: Categorize every direct Firebase write call in the driver app before the 22c cutover, so the server dev can flag anything ambiguous before we remove it. File: context/DriverContext.tsx.
+
+Categories:
+
+KEEP-presence — driver location / vehiclestatus / OnTheWay/Arrived/MeterOn timestamps. Stays as direct Firebase write per spec.
+KEEP-chat — driverMsg/ + messages/. Stays.
+KEEP-profile — driver identity / push tokens / vehicle profile / shift logs / ratings. Stays.
+KEEP-cleanup — onDisconnect handlers and presence teardown.
+REPLACE — booking state write. Becomes a POST /api/job/command call.
+DELETE — write that becomes redundant because server owns the state (no replacement needed).
+🚩 SERVER-DEV-EYES — borderline cases the server dev asked to review.
+Booking-state writes — to REPLACE / DELETE
+Line	Path	Calling context	Action	Notes
+1228	driverQueue/{cid}/{did}/queued remove	queued-job promotion effect	DELETE	Server owns queue state.
+1575	allbookings/{cid}/{bid} update	activeJob heartbeat	DELETE	Status mirror — server owns.
+2141	pendingjobs/{cid}/{key} remove	cleanup of stale pending	DELETE	Server owns pending state.
+2358	jobs/{cid}/{vid}/{did} remove	post-decline cleanup	REPLACE	Becomes command:"cancel" reason:"declined".
+2432	pendingjobs/{cid}/{bid} set	re-queue on Away	REPLACE	command:"recall".
+2584	jobs/{cid}/{vid}/{did} remove	stale jobs-path purge in notification listener	DELETE	Server-driven only.
+2743	allbookings/{cid}/{bid} update	offer Status:'Offered' / OfferedAt	DELETE	Server stamps this.
+2870	driverQueue remove	kick handler	DELETE	Server owns.
+2991	driverQueue remove	cancel handler	DELETE	Server owns.
+3001	jobs/ remove	cancel handler	DELETE	Server cleans on command:"cancel".
+3507	jobs/ remove	dispatcher-recall handler	DELETE	Server already recalled.
+3540	jobs/ remove	duplicate-recall path	DELETE	Server owns.
+3785	allbookings/{cid}/{bid} update	legacy onValue Status:'Offered'	DELETE	Server stamps.
+3958	allbookings/{cid}/{bid} update	G2 handleNewOffer Status:'Offered'	DELETE	Server stamps.
+4241	jobs/ remove	post-accept cleanup	DELETE	Server clears on accept.
+4320	jobs/ remove	post-acceptToQueue cleanup	DELETE	Server clears.
+4564	jobs/{cid}/{vid}/{did} update	acceptJob — DriverAccepted: true write	REPLACE	This is THE accept write. → command:"accept".
+4577	rideStatus/{cid}/{bid} update Assigned	acceptJob	DELETE	Server stamps rideStatus.
+4597	onDisconnect on jobs path	acceptJob — release on crash	DELETE	Server crash-recovery handles this via presence onDisconnect.
+4603	onDisconnect on bookingDisPath	acceptJob	DELETE	Same.
+4611	Passengerjobs/{deviceUid}/status = 'DriverAccepted'	acceptJob	DELETE	Server fans this out on command:"accept".
+4613	notification/{driverId} remove	acceptJob — clear own notification	KEEP-cleanup	Just clearing the inbox the listener consumed. Not a state change.
+4774	_queuePath set (driverQueue/...)	acceptJobToQueue	REPLACE	Server decides queue on command:"accept".
+7171	jobs/{cid}/{vid}/{did} update Status='Active', MeterOnAt	startMeter	DELETE	🚩 SERVER-DEV-EYES — per spec, MeterOn is a presence stamp. Should move to online/.../current/meterOnAt instead, and the jobs/ status update goes away entirely. Confirm?
+7180	rideStatus update 'OnTrip'	startMeter	DELETE	Server derives from meterOnAt presence.
+7363	jobs/ remove	passenger-cancel handler	DELETE	Server cleans on its own cancel.
+7371	notification/{driverId} set (cancel-back-to-dispatch)	post-cancel	REPLACE	command:"cancel" already notifies dispatch.
+7377	allbookings/{cid}/{bid} update Status='Cancelled'	post-cancel	DELETE	Server stamps.
+7627	jobs/{cid}/{vid}/{did} set (claimHailJob)	claim a posted hail job	REPLACE	command:"accept" against the hail bookingId.
+7806	jobs/{cid}/{vid}/{did} set (startHailTrip)	hail trip start	DELETE	Server-side /api/job/create already created the booking record with Status='Active'. No more driver-side jobs/ writes.
+7837	allbookings/{cid}/{bid} set (hail visibility)	startHailTrip	DELETE	Server's /api/job/create handler writes this.
+7859	rideStatus/{cid}/{bid} update OnTrip (hail)	startHailTrip	DELETE	Server.
+8107	driverQueue remove (hail-complete promotion)	completeHailTrip	DELETE	Server queue.
+8196	completedJobs/{cid} push	completeJob (dispatch)	REPLACE	→ command:"complete".
+8197	trips/{cid}/{tmTripId} update (TM)	completeJob	DELETE	Server writes from command:"complete" payload tmVoucher.
+8198	accClients/{cid}/{accClientId}/trips/{accTripId}	completeJob	DELETE	Server writes from command:"complete" payload accClientId/accClaimNo/accApprovalNo.
+8199	jobs/ remove	completeJob	DELETE	Server cleans.
+8352	allbookings/{cid}/{bid} update (hail complete)	completeHailTrip	REPLACE	→ command:"complete".
+8353	rideStatus/{cid}/{bid} update Completed (hail)	completeHailTrip	DELETE	Server stamps.
+Presence — KEEP as direct Firebase writes
+Line	Path	Calling context	Notes
+1248, 1250	online/{cid}/{vid}/current remove/set on vehicle change	vehicleId-change effect	Presence reset.
+1567	online/.../current update (heartbeat)	heartbeat loop	Location/heading.
+2359	online/.../current update	decline aftermath — set vehiclestatus back to Available	KEEP.
+2766	online/.../current remove (suspend)	suspend handler	KEEP.
+2837	online/.../current remove (kick)	kick handler	KEEP.
+2877	online/.../current update	post-kick state reset	KEEP.
+3002	online/.../current update	post-cancel state reset	KEEP.
+3420	online/.../current update	various status syncs	KEEP.
+3541	online/.../current update	recall aftermath	KEEP.
+4051	online/.../current update	offer state reset	KEEP.
+4242	online/.../current update vehiclestatus='Assigned'	acceptJob post-write	🚩 SERVER-DEV-EYES — spec keeps this as presence. Confirm vehiclestatus transition timing: should the driver app set 'Assigned' optimistically on tap, or wait for the server response to flip it? Currently sets after accept POST returns.
+4321	online/.../current update	acceptToQueue post-write	Same flag as 4242.
+4404	online/.../current update	shift-on	KEEP.
+4540, 4549, 4556	online/.../current / online/.../vehicleId updates	presence batches	KEEP.
+4825	online/.../current update	post-accept state polish	KEEP.
+6444, 6471, 6488, 6495, 6550	online/.../current and online/.../vehicleId	shift toggling, status	KEEP.
+7100	online/.../current update	rating-related presence	KEEP.
+7366	online/.../current update	post-cancel free	KEEP.
+7642	online/.../current update jobpickup/jobdropoff	startHailTrip presence mirror	🚩 SERVER-DEV-EYES — spec calls out jobpickup/jobdropoff mirrors as ambiguous. Keep writing these for hail (driver-supplied pickup), but for dispatch trips the dispatcher already has the addresses — should the driver app mirror them at all?
+7828	online/.../current update	startHailTrip currentJobId	KEEP.
+7883	online/.../current update joboffer=0	startHailTrip cleanup	KEEP.
+8223	online/.../current update	completeJob free	KEEP — reset to Available.
+8527	online/.../current update	completeHailTrip free	KEEP.
+7229, 7231	onDisconnect(jobDisPath).cancel() etc	cleanup	KEEP-cleanup — cancelling pre-registered onDisconnect handlers, no actual write.
+Identity / chat / shift / profile — KEEP
+Line	Path	Notes
+1947	drivers/{cid}/{uid} pushToken	KEEP-profile.
+6685	shiftLogPath set	KEEP-profile.
+6748	vehicles/{cid}/{vid} update	KEEP-profile.
+6824	shiftLogPath end-update	KEEP-profile.
+6827	lastshifttime/{did}	KEEP-profile.
+6759, 6885	jobs/ remove on shift teardown	DELETE — server cleans abandoned bookings. (Listed here because it's in shift code, but it's a booking-state write.)
+6896	vehicles/{cid}/{vid} update	KEEP-profile.
+6934, 6965	breakPath set/update	KEEP-profile.
+7033	driverMsg/{cid} push	KEEP-chat.
+7042	messages/{cid} push	KEEP-chat.
+7458	driverRatings/{cid}/{bid} update	🚩 SERVER-DEV-EYES — driver-side rating record. Spec doesn't mention ratings. Keep as direct write or wrap in command:"update"?
+7460	allbookings/{cid}/{bid} update with rating	🚩 SERVER-DEV-EYES — this writes to a booking node. Should go through command:"update"?
+7470	passengerRatings/{cid}/{phone}/{bid} update	🚩 SERVER-DEV-EYES — same question.
+Pending-jobs creation (driver creating a passenger booking)
+Line	Path	Notes
+7559, 7570	pendingjobs/{cid}/{key} set	Driver "Book a Ride" — separate flow. Should this go through a new endpoint (/api/job/create with source:"driver"?) or stay as direct write? Currently in jobs.tsx flow, not affected by this PR unless server dev wants it migrated too.
+Summary counts
+REPLACE-with-command: 8 sites (5 accept, 1 acceptToQueue, 2 complete, 1 hail-claim, 1 declines, 1 recall, 1 cancel — call sites overlap)
+DELETE: 27 sites (cascading mirror writes the server now owns)
+KEEP-presence: 24 sites
+KEEP-chat/profile: 11 sites
+KEEP-cleanup: 3 sites
+🚩 SERVER-DEV-EYES: 7 sites (flagged above)
+Questions for server dev
+L7171 / startMeter: spec says MeterOn is a presence stamp (online/.../current/meterOnAt). Confirm the jobs/ Status='Active' write goes away entirely?
+L4242 / vehiclestatus='Assigned' after accept: should the driver app set this optimistically on tap, or wait for the command:"accept" server response to drive it?
+L7642 / jobpickup+jobdropoff mirrors: keep for hail (driver-supplied), drop for dispatch (server-supplied)? Or keep both?
+Ratings (L7458, 7460, 7470): still direct Firebase writes, or wrap in command:"update"?
+L7559 / driver-created bookings (pendingjobs/ set from jobs.tsx): out of scope for this cutover? Or also goes through /api/job/create?
+L6759, 6885 / jobs/ remove on shift teardown: safe to remove now that server handles abandoned bookings, correct?
