@@ -57,6 +57,37 @@ A web-based Taxi Dispatch System providing a real-time dispatch console for mana
 - Support for multiple service types (taxi, restaurant, freight).
 - Shared driver identification for drivers working across multiple companies.
 
+## §FIX-EDIT-PRESERVE — Metadata-only edits keep driver assignment (May 2026)
+
+Bug: dispatcher edited an already-accepted job (e.g. just changed passenger name / phone) → driver app showed it as Cancelled → job returned to Unassigned → eventually auto-cancelled.
+
+Root cause: dispatch console's Edit dialog re-uses one POST endpoint (`[ProcUpdateJobv6]`, server.js ~7132) for two very different intents:
+- **Reassign**: dispatcher picks a different driver / "No One" / "Pending". Form posts a real `DId`/`VId`/`bookstatus`.
+- **Metadata edit**: dispatcher only changes passenger name, phone, pickup, dropoff, time, passenger count. Form's driver dropdown is NOT re-populated with the current assignment, so the form posts `DId='0'`/`VId='0'` with no `bookstatus` override.
+
+The handler's pre-existing logic at line 7216 wrote `DriverId/VehicleId` blindly from the POST and set `BookingStatus='Pending'` when no driver was sent. For a job currently `Offered`/`Assigned`/`Picking`/`Active`, this:
+1. Wiped `DriverId`/`VehicleId` on the server.
+2. Browser AngularJS saw the assignment vanish and wrote `rideStatus/Recalled` — driver app started a re-offer loop.
+3. `smartAutoDispatch` re-offered to the same driver as if fresh; driver phone dismissed it; 27s no-response timeout fired; eventually marked Cancelled.
+
+Repro confirmed for booking `6112605206` (TAXI02 / D002, Account Ride): driver accepted at `01:34:50`, dispatcher edited name/phone at `01:35:18`, `AssignedDriverId=""` in closedJobStore, three re-offer cycles followed, cancelled at `01:36:28`.
+
+**Fix (server.js ~7219 inside `[ProcUpdateJobv6]`):** added §FIX-EDIT-PRESERVE guard before the legacy reassignment branch. Treats the POST as metadata-only when ALL of the following hold:
+- `DId` is missing/blank/zero, AND
+- `VId` is missing/blank/zero, AND
+- `bookstatus` (client choice) is empty, AND
+- the job currently has a live driver attached (`DriverId > 0`).
+
+In that case `DriverId`/`VehicleId`/`BookingStatus` are left untouched; only the metadata fields (name/phone/addresses/time/passenger count etc.) — already applied earlier in the handler — persist. The §FIX-UB Firebase fan-out at ~7460 and `JobUpdated` notification at ~7508 deliver those changes to the driver app without disturbing the assignment.
+
+Behaviour matrix after fix:
+- Edit name/phone of Assigned job → driver keeps job, sees updated details (no cancel).
+- Edit + pick a different driver → real reassign, legacy path.
+- Edit + pick "Pending" → §FIX-A2 explicit-Pending branch (unchanged).
+- Edit + pick "No One" → §FIX-D explicit-NoOne branch (unchanged).
+- Cancel button (`[CancelJobStatusFromJobList]`) → §FIX-CB `cancelBooking()` (unchanged).
+- Recall after accept (driver-initiated) → §FIX-CB recall path (unchanged).
+
 ## §FIX-GHOST — Pendingjobs DELETE on completion (May 2026)
 
 Bug: completed hail trips lingered on the driver's phone as "ghost Active" cards because `pendingjobs/{cid}/{bookingId}` was only PATCHed to `Status:Completed` on terminal close, never DELETEd. The driver app's pendingjobs listener treats record presence (not the Status field) as authoritative, so the ghost card persisted until the driver manually cancelled or logged out + back in.

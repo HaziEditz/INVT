@@ -7214,14 +7214,66 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               job.releasedAt    = null;
               job.manualOffer   = false;
             } else {
-              job.VehicleId = vehicleId;
-              job.DriverId  = driverId;
-              if (driverId > 0)       job.BookingStatus = 'Offered';
-              else if (driverId === -1) job.BookingStatus = 'No One';
-              else                     job.BookingStatus = 'Pending';
-              if (_prevBStatus_diag === 'No One' && job.BookingStatus === 'Pending') {
-                // Defence-in-depth: this branch should now be unreachable for No-One jobs.
-                console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] *** SMOKING GUN *** job#${jobId} FLIPPED No One → Pending (driverId=${driverId}). Stack:\n${new Error().stack}`);
+              // §FIX-EDIT-PRESERVE — Metadata-only edit guard.
+              //
+              // The dispatch console's Edit dialog re-uses one POST for two very
+              // different intents:
+              //   (a) Reassignment — dispatcher explicitly picks a different
+              //       driver (or "No One" / "Pending"); the form posts a real
+              //       DId/VId/bookstatus.
+              //   (b) Metadata edit — dispatcher only changes passenger name,
+              //       phone, pickup, dropoff, time, passenger count, etc. The
+              //       Edit dialog's driver dropdown is NOT re-populated with
+              //       the current assignment, so the form posts DId='0'/VId='0'
+              //       with no bookstatus override.
+              //
+              // Without this guard, (b) was misread as "send job back to
+              // Pending with no driver". For a job currently Offered/Assigned/
+              // Picking/Active that flip:
+              //   1. Wiped DriverId/VehicleId on the server (closedJobStore for
+              //      job #6112605206 shows AssignedDriverId="" after a name+
+              //      phone edit while D002 had already accepted).
+              //   2. Browser AngularJS saw the assignment vanish and wrote
+              //      rideStatus/Recalled — driver app started re-offer loop.
+              //   3. smartAutoDispatch re-offered to the same driver as if it
+              //      were a fresh job; driver phone dismissed it; 27s no-
+              //      response timeout fired; eventually marked Cancelled.
+              //
+              // The correct behaviour for (b) is: keep DriverId / VehicleId /
+              // BookingStatus untouched. Only the metadata fields above
+              // (Name, PhoneNo, addresses, time, passenger count) are applied,
+              // and the §FIX-UB Firebase fan-out at ~7460 + the JobUpdated
+              // notification at ~7508 deliver those changes to the driver app
+              // without disturbing the assignment.
+              //
+              // Detection: treat the POST as metadata-only when the client
+              // sent no DId (or DId=0), no VId (or VId=0), AND no explicit
+              // bookstatus override, AND the job currently has a live driver
+              // attached (DriverId > 0). Any one of those three not being
+              // blank indicates a real reassign intent and we fall through to
+              // the legacy behaviour.
+              const _editRawDId      = param('DId');
+              const _editRawVId      = param('VId');
+              const _editDIdMissing  = (_editRawDId === undefined || _editRawDId === '' || _rawDId3 === 0);
+              const _editVIdMissing  = (_editRawVId === undefined || _editRawVId === '' || vehicleId === 0);
+              const _editStatusBlank = (_clientBookstatus === '');
+              const _editHasLiveDrv  = (parseInt(job.DriverId) || 0) > 0;
+              const _editIsMetaOnly  = _editDIdMissing && _editVIdMissing && _editStatusBlank && _editHasLiveDrv;
+              if (_editIsMetaOnly) {
+                console.log(`[§FIX-EDIT-PRESERVE/ProcUpdateJobv6] job#${jobId} prevStatus='${_prevBStatus_diag}' metadata-only edit (DId/VId/bookstatus all blank, current driver=${job.DriverId} vehicle=${job.VehicleId}) — preserving assignment + status, applying only metadata changes.`);
+                // Do NOT touch job.DriverId, job.VehicleId, or job.BookingStatus.
+                // The metadata fields (Name/Phone/addresses/time/etc.) were
+                // already applied at ~7143-7173 above.
+              } else {
+                job.VehicleId = vehicleId;
+                job.DriverId  = driverId;
+                if (driverId > 0)       job.BookingStatus = 'Offered';
+                else if (driverId === -1) job.BookingStatus = 'No One';
+                else                     job.BookingStatus = 'Pending';
+                if (_prevBStatus_diag === 'No One' && job.BookingStatus === 'Pending') {
+                  // Defence-in-depth: this branch should now be unreachable for No-One jobs.
+                  console.log(`[§FIX-NoOneTrace/ProcUpdateJobv6] *** SMOKING GUN *** job#${jobId} FLIPPED No One → Pending (driverId=${driverId}). Stack:\n${new Error().stack}`);
+                }
               }
             }
           } else if (_explicitNoOne) {
