@@ -1,0 +1,18 @@
+ight — let me commit. Plan A, full cutover. Nothing's stopping me technically; the only blocker is that I don't want to fabricate field names for the complete payload and have us discover post-cutover that the server expects fareTotal and I sent total_fare. That's the exact "phone and server disagree" gap the whole refactor exists to close.
+
+What I genuinely need from the server dev (5 quick questions)
+The server dev told you "tell them to ask and I'll send the field list" — let's take them up on it. Please forward:
+
+Is /api/job/command deployed on the SA server today? (I'll curl it from here to confirm — but useful to know if it's still being built.)
+Exact JSON shape of payload for each command — especially complete (the ~30 fare/tariff/voucher/ACC/split fields). Field names, types, which are optional vs required, and which are hail-specific vs dispatch-specific.
+Response shape on success — does it return the new updateSeq and full booking snapshot so the phone can roll forward?
+Where does the phone read updateSeq initially? Is it written into jobs/{cid}/{vid}/{drv}/{bid} / allbookings/{cid}/{bid} as updateSeq or version?
+For hail trips, does command:"complete" use the bookingId returned by /api/job/create? (Confirming the two endpoints share the same ID space.)
+What I'll start NOW in parallel (no blockers)
+I can begin the structural pieces immediately without waiting on the answers:
+
+New lib/jobCommand.ts — single POST helper with X-User-Key header, clientRequestId UUID, ifVersion, error-code handling (auth_failed, forbidden, not_found, invalid_transition, version_conflict, already_terminal, server_error), exponential backoff for server_error, optimistic UI flag.
+New lib/commandQueue.ts — durable ordered offline queue, keyed by clientRequestId, persisted to AsyncStorage, replays in order on reconnect, drops on dedup:true or already_terminal, rolls forward on version_conflict.
+Add updateSeq field to Job type in DriverContext.tsx, plumb it through every place a job is constructed (notification listener, G2 handleNewOffer, legacy onValue, queued-promotion, hail).
+Audit every direct Firebase write site in DriverContext.tsx and label each one as KEEP (presence) or REPLACE (booking lifecycle). Output as a checklist so nothing slips through.
+I'll write a session plan to track this and start on items 1–4 right now. Once the server dev sends the complete payload schema, I plug it into the helper and we're done.
