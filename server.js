@@ -7326,9 +7326,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               const _editRawVId      = param('VId');
               const _editDIdMissing  = (_editRawDId === undefined || _editRawDId === '' || _rawDId3 === 0);
               const _editVIdMissing  = (_editRawVId === undefined || _editRawVId === '' || vehicleId === 0);
+              // §FIX-EDIT-PRESERVE/2 (May 2026) — Edit dialog launched from
+              // the Assign-tab card pre-populates the driver dropdown with
+              // the current driver, so DId/VId arrive populated (not blank).
+              // The original blank-only guard fell through to the legacy
+              // reassign branch and flipped BookingStatus to 'Offered',
+              // making the driver app show Cancel→re-Offer when the
+              // dispatcher only added a dropoff address. Treat "same driver
+              // / same vehicle as currently assigned" as equivalent to
+              // blank — a true reassign comes in with a different driver.
+              const _curDrvStr  = String(job.DriverId  || '').trim();
+              const _curVehStr  = String(job.VehicleId || '').trim();
+              const _postDIdStr = String(_editRawDId   || '').trim();
+              const _postVIdStr = String(_editRawVId   || '').trim();
+              const _editDIdSameOrMissing = _editDIdMissing || (_curDrvStr !== '' && _postDIdStr === _curDrvStr);
+              const _editVIdSameOrMissing = _editVIdMissing || (_curVehStr !== '' && _postVIdStr === _curVehStr);
               const _editStatusBlank = (_clientBookstatus === '');
               const _editHasLiveDrv  = (parseInt(job.DriverId) || 0) > 0;
-              const _editIsMetaOnly  = _editDIdMissing && _editVIdMissing && _editStatusBlank && _editHasLiveDrv;
+              const _editIsMetaOnly  = _editDIdSameOrMissing && _editVIdSameOrMissing && _editStatusBlank && _editHasLiveDrv;
               if (_editIsMetaOnly) {
                 console.log(`[§FIX-EDIT-PRESERVE/ProcUpdateJobv6] job#${jobId} prevStatus='${_prevBStatus_diag}' metadata-only edit (DId/VId/bookstatus all blank, current driver=${job.DriverId} vehicle=${job.VehicleId}) — preserving assignment + status, applying only metadata changes.`);
                 // Do NOT touch job.DriverId, job.VehicleId, or job.BookingStatus.

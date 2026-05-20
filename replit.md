@@ -94,8 +94,11 @@ Repro confirmed for booking `6112605206` (TAXI02 / D002, Account Ride): driver a
 
 In that case `DriverId`/`VehicleId`/`BookingStatus` are left untouched; only the metadata fields (name/phone/addresses/time/passenger count etc.) — already applied earlier in the handler — persist. The §FIX-UB Firebase fan-out at ~7460 and `JobUpdated` notification at ~7508 deliver those changes to the driver app without disturbing the assignment.
 
+**§FIX-EDIT-PRESERVE/2 (May 2026):** original guard required `DId`/`VId` to be blank/zero. But when the dispatcher edits from the **Assign tab card**, the driver dropdown is pre-populated with the current driver, so the form POSTs `DId=<current>`/`VId=<current>` — not blank. Guard fell through to the legacy reassign branch and flipped `BookingStatus` to `'Offered'`, causing the driver app to show Cancel→re-Offer when only a dropoff address was added. Broadened detection at server.js ~7341: now treats `DId`/`VId` as "missing or matching the current assignment" — same driver/vehicle is equivalent to blank for intent-detection purposes. A true reassign always comes in with a *different* driver, which still falls through to the legacy branch.
+
 Behaviour matrix after fix:
 - Edit name/phone of Assigned job → driver keeps job, sees updated details (no cancel).
+- Edit + add dropoff from Assign-tab card (same driver) → driver keeps job, sees updated details (no cancel/re-offer). [§FIX-EDIT-PRESERVE/2]
 - Edit + pick a different driver → real reassign, legacy path.
 - Edit + pick "Pending" → §FIX-A2 explicit-Pending branch (unchanged).
 - Edit + pick "No One" → §FIX-D explicit-NoOne branch (unchanged).
