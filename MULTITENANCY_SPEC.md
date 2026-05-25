@@ -82,8 +82,10 @@ jobStore.push({
 **On every job read**, filter:
 ```js
 function companyJobs(store) {
-  if (!sessionCompanyId) return store; // backward-compat fallback
-  return store.filter(j => !j.companyId || j.companyId === sessionCompanyId);
+  if (!sessionCompanyId) return [];
+  const _cid = String(sessionCompanyId);
+  // Strict — jobs with missing/empty companyId are NEVER returned to any caller.
+  return store.filter(j => j && j.companyId && String(j.companyId) === _cid);
 }
 ```
 

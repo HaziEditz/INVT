@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 // CRITICAL: must be set BEFORE any Date object is constructed so that all
 // `new Date()` / `toString()` / `toLocaleString()` calls without an explicit
 // timezone argument resolve to NZ local time.  Without this the Replit
@@ -394,8 +396,17 @@ function generateCompanyId() {
 }
 
 // ─── Firebase REST helpers ────────────────────────────────────────────────────
-const FB_API_KEY  = 'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
-const FB_DB_URL   = 'https://taxilatest.firebaseio.com';
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDIVSI_GRYG0hCPvc9h80QXZMxwZoejctQ',
+  authDomain: 'bookawaka2026-564e1.firebaseapp.com',
+  databaseURL: 'https://bookawaka2026-564e1-default-rtdb.firebaseio.com',
+  projectId: 'bookawaka2026-564e1',
+  storageBucket: 'bookawaka2026-564e1.firebasestorage.app',
+  messagingSenderId: '909621127467',
+  appId: '1:909621127467:web:504f502a533ca0a216fd6e',
+};
+const FB_API_KEY  = FIREBASE_CONFIG.apiKey;
+const FB_DB_URL   = FIREBASE_CONFIG.databaseURL;
 
 // Server-side Firebase anonymous auth — used for polling pendingjobs when
 // BW_FIREBASE_SECRET is not set. Rules require auth != null; anonymous satisfies this.
@@ -602,7 +613,7 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
           // Scope to same companyId — global match risks pulling a driver from
           // another tenant and deleting their active Firebase node.
           const _zd = ZONE_DRIVERS.find(d =>
-            (!d.companyId || String(d.companyId) === _cid) &&
+            d.companyId && String(d.companyId) === _cid &&
             ((_dId && (String(d.driverid) === _dId || String(d.VehicleId) === _dId)) ||
              (_vId && (String(d.VehicleId) === _vId || String(d.vehiclenumber) === _vId))));
           if (_zd) {
@@ -942,9 +953,15 @@ function cancelBooking(opts) {
   job.lastUpdatedAt  = new Date().toISOString();
   job.lastUpdatedBy  = cancelledBy;
   if (_cid && bookingId) {
-    _writeBookingEvent(_cid, bookingId,
-      recallToPending ? 'BookingRecalled' : 'BookingCancelled',
-      { CancelledBy: _cancelledByPretty, CancelReason: reason, CancelStage: _cancelStage },
+    _writeBookingEvent(_cid, bookingId, 'StatusChanged',
+      {
+        from: recallToPending ? _cancelStage : _cancelStage,
+        to: recallToPending ? 'Pending' : 'Cancelled',
+        action: recallToPending ? 'recall' : 'cancel',
+        CancelledBy: _cancelledByPretty,
+        CancelReason: reason,
+        CancelStage: _cancelStage
+      },
       cancelledBy, job.updateSeq).catch(() => {});
   }
 
@@ -1176,8 +1193,8 @@ function assignBooking(opts) {
   const _cid = String(job.companyId || '');
   // Emit OfferSent bookingEvent (driver app sees lifecycle on same stream as edits).
   if (_cid) {
-    _writeBookingEvent(_cid, bookingId, 'OfferSent',
-      { from: _curStatus, to: 'Assigned', driverId, vehicleId: job.VehicleNo || '' },
+    _writeBookingEvent(_cid, bookingId, 'StatusChanged',
+      { from: _curStatus, to: 'Assigned', driverId, vehicleId: job.VehicleNo || '', action: 'assign' },
       by, job.updateSeq).catch(() => {});
   }
   // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/.
@@ -1302,8 +1319,8 @@ function completeBooking(opts) {
   saveClosedJobStore();
 
   if (_cid) {
-    _writeBookingEvent(_cid, bookingId, 'BookingCompleted',
-      { from: _curStatus, to: 'Completed', fare: job.TotalFare || '', distance: job.distance || '' },
+    _writeBookingEvent(_cid, bookingId, 'StatusChanged',
+      { from: _curStatus, to: 'Completed', fare: job.TotalFare || '', distance: job.distance || '', action: 'complete' },
       by, job.updateSeq).catch(() => {});
   }
   // §FIX-CMD/ver-fanout — mirror version into allbookings/ before
@@ -1387,8 +1404,8 @@ function acceptBooking(opts) {
 
   const _cid = String(job.companyId || '');
   if (_cid) {
-    _writeBookingEvent(_cid, bookingId, 'OfferAccepted',
-      { from: _curStatus, to: 'Assigned', driverId: _jobDrv },
+    _writeBookingEvent(_cid, bookingId, 'StatusChanged',
+      { from: _curStatus, to: 'Assigned', driverId: _jobDrv, action: 'accept' },
       by, job.updateSeq).catch(() => {});
   }
   // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/ so
@@ -1444,26 +1461,66 @@ async function _trimBookingEvents(cid, bookingId, keep) {
 }
 
 // Write a single event record under bookingEvents/{cid}/{bookingId}/{push-id}.
-async function _writeBookingEvent(cid, bookingId, eventType, diff, by, seq) {
+// Public schema for driver-app listeners:
+//   { type, seq, timestamp, data }
+// type is one of: PickupChanged | FareChanged | StopAdded | StatusChanged
+function _canonicalBookingEventType(eventType) {
+  const t = String(eventType || '').trim();
+  if (['PickupChanged', 'FareChanged', 'StopAdded', 'StatusChanged'].includes(t)) return t;
+  if (t === 'DropoffChanged') return 'PickupChanged';
+  // Lifecycle + metadata edits collapse to StatusChanged; original type preserved in data.eventSubtype.
+  return 'StatusChanged';
+}
+
+async function _writeBookingEvent(cid, bookingId, eventType, data, by, seq) {
   try {
     if (!cid || !bookingId || !eventType) return;
     const _tok = await getFirebaseServerToken();
     if (!_tok) return;
+    const _canonical = _canonicalBookingEventType(eventType);
+    const _data = (data && typeof data === 'object') ? { ...data } : {};
+    if (by && !_data.by) _data.by = by;
+    if (eventType !== _canonical && !_data.eventSubtype) _data.eventSubtype = eventType;
     const _payload = {
-      type:  eventType,
-      diff:  diff || null,
-      by:    by   || 'system',
-      at:    new Date().toISOString(),
-      atMs:  Date.now(),
-      seq:   seq || 0
+      type:      _canonical,
+      seq:       seq || 0,
+      timestamp: Date.now(),
+      data:      _data
     };
     const _url = `${FB_DB_URL}/bookingEvents/${cid}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
     await fbRequest(_url, 'POST', _payload);
-    // Trim to last 50 — fire and forget, race-tolerant.
     _trimBookingEvents(cid, bookingId, 50).catch(() => {});
   } catch (_e) {
     console.warn(`  [bookingEvents] write failed: ${_e && _e.message}`);
   }
+}
+
+// Emit StatusChanged when a job's BookingStatus transitions.
+function _emitStatusChanged(job, fromStatus, toStatus, by, seq, extra) {
+  if (!job || !job.Id) return;
+  const cid = String(job.companyId || '');
+  if (!cid || fromStatus === toStatus) return;
+  _writeBookingEvent(cid, job.Id, 'StatusChanged', {
+    from: fromStatus,
+    to:   toStatus,
+    ...(extra || {})
+  }, by || 'system', seq).catch(() => {});
+}
+
+// Bump updateSeq and write StatusChanged — use after mutating job.BookingStatus.
+function _bumpSeqAndEmitStatus(job, previousStatus, by, source, extra) {
+  if (!job || previousStatus === job.BookingStatus) return parseInt(job.updateSeq) || 0;
+  const seq = (parseInt(job.updateSeq) || 0) + 1;
+  job.updateSeq = seq;
+  job.lastUpdatedAt = new Date().toISOString();
+  job.lastUpdatedBy = by || 'system';
+  _emitStatusChanged(job, previousStatus, job.BookingStatus, by, seq, { source, ...(extra || {}) });
+  return seq;
+}
+
+function _afterJobStatusChange(job, previousStatus, by, source) {
+  if (!job || previousStatus === job.BookingStatus) return;
+  _bumpSeqAndEmitStatus(job, previousStatus, by, source);
 }
 
 // §FIX-CMD/ver-fanout — Mirror updateSeq + lastUpdatedAt + BookingStatus into
@@ -1522,24 +1579,16 @@ function _classifyDiff(diff) {
   const _events = new Set();
   if (!diff) return [];
   const _has = (...keys) => keys.some(k => Object.prototype.hasOwnProperty.call(diff, k));
-  if (_has('PickAddress', 'PickLatLng', 'pickup'))                _events.add('PickupChanged');
-  if (_has('DropAddress', 'DropLatLng', 'dropoff'))               _events.add('DropoffChanged');
-  if (_has('stops', 'Stops', 'extraStops', 'Nextstop'))           _events.add('StopAdded');
-  if (_has('Notes', 'notes', 'comment', 'Comment', 'DriverNote')) _events.add('PassengerNoteChanged');
-  if (_has('Name', 'PhoneNo', 'PassengerName', 'Email'))          _events.add('PassengerInfoChanged');
-  if (_has('EstimatedFare', 'RideCost', 'CustomeRate', 'TarriffType', 'TariffId', 'FixedPrice'))
-                                                                  _events.add('FareChanged');
-  if (_has('BookingDateTime', 'Pickingtime', 'ScheduledFor'))     _events.add('ScheduleChanged');
-  // Anything else (or no explicit match) → generic JobUpdated.
-  const _explicit = new Set([
-    'PickAddress','PickLatLng','pickup','DropAddress','DropLatLng','dropoff',
-    'stops','Stops','extraStops','Nextstop','Notes','notes','comment','Comment','DriverNote',
-    'Name','PhoneNo','PassengerName','Email',
-    'EstimatedFare','RideCost','CustomeRate','TarriffType','TariffId','FixedPrice',
-    'BookingDateTime','Pickingtime','ScheduledFor'
-  ]);
-  const _other = Object.keys(diff).some(k => !_explicit.has(k));
-  if (_other || _events.size === 0) _events.add('JobUpdated');
+  if (_has('PickAddress', 'PickLatLng', 'pickup', 'DropAddress', 'DropLatLng', 'dropoff'))
+    _events.add('PickupChanged');
+  if (_has('stops', 'Stops', 'extraStops', 'Nextstop', 'nextstopdata')) _events.add('StopAdded');
+  if (_has('Notes', 'notes', 'comment', 'Comment', 'DriverNote')) _events.add('StatusChanged');
+  if (_has('Name', 'PhoneNo', 'PassengerName', 'Email')) _events.add('StatusChanged');
+  if (_has('EstimatedFare', 'RideCost', 'CustomeRate', 'TarriffType', 'TariffId', 'FixedPrice', 'Fare', 'fare'))
+    _events.add('FareChanged');
+  if (_has('BookingDateTime', 'Pickingtime', 'ScheduledFor', 'ScheduledForMs')) _events.add('StatusChanged');
+  if (_has('BookingStatus', 'Status', 'status')) _events.add('StatusChanged');
+  if (_events.size === 0) _events.add('StatusChanged');
   return Array.from(_events);
 }
 
@@ -1625,6 +1674,16 @@ function updateBooking(opts) {
                 ? '' : String(job.DriverId || '').trim();
   const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
 
+  // Field-level events — data carries { field: { from, to }, ... } per changed field.
+  if (_cid && bookingId) {
+    for (const _type of _eventTypes) {
+      const _eventData = (_type === 'StatusChanged' && _diff.BookingStatus)
+        ? { from: _diff.BookingStatus.from, to: _diff.BookingStatus.to, changes: _diff }
+        : { changes: _diff };
+      _writeBookingEvent(_cid, bookingId, _type, _eventData, by, _newSeq).catch(() => {});
+    }
+  }
+
   // Booking-scoped Firebase fanout — PATCH changed fields + _seq to
   // pendingjobs/allbookings so external consumers see the authoritative state.
   // jobs/{cid}/{vid}/{drv} is driver-keyed (not booking-keyed), so we gate on
@@ -1660,9 +1719,6 @@ function updateBooking(opts) {
         console.warn(`  [${source}] §FIX-UB Firebase fanout error: ${_e && _e.message}`);
       }
     })();
-    for (const _type of _eventTypes) {
-      _writeBookingEvent(_cid, bookingId, _type, _diff, by, _newSeq).catch(() => {});
-    }
   }
 
   // Notify the driver app — only when the booking is currently in their UI.
@@ -1781,7 +1837,7 @@ let nextMsgId = 100;
 const messageStore = [];
 
 function buildDriverChatList(cid) {
-  const drivers = cid ? ZONE_DRIVERS.filter(d => !d.companyId || d.companyId === cid) : ZONE_DRIVERS;
+  const drivers = cid ? ZONE_DRIVERS.filter(d => d.companyId && String(d.companyId) === String(cid)) : ZONE_DRIVERS;
   const msgs    = cid ? messageStore.filter(m => !m.companyId || m.companyId === cid)  : messageStore;
   // Deduplicate: same vehiclenumber OR same drivername means the same physical
   // driver appeared twice in ZONE_DRIVERS (e.g. once from the driver app's
@@ -2433,8 +2489,7 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
 // coordinates ourselves here. Results cached by rounded lat/lng (4 dp ≈ 11 m).
 const _geocodeCache = new Map(); // "lat,lng" -> address string
 const _geocodeInflight = new Map(); // "lat,lng" -> Promise
-const GOOGLE_MAPS_GEOCODE_KEY = process.env.GOOGLE_MAPS_API_KEY ||
-  'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
+const GOOGLE_MAPS_GEOCODE_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 function _reverseGeocode(lat, lng) {
   const _lat = Number(lat), _lng = Number(lng);
   if (!isFinite(_lat) || !isFinite(_lng)) return Promise.resolve(null);
@@ -6019,9 +6074,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   }
 
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
-  // Body: { bookingId, cancelledBy: passenger|driver|dispatcher|website, reason? }
-  // Dispatcher source requires BW_SID session cookie; passenger/website/driver
-  // server-to-server requires X-Admin-Key header. Idempotent.
+  // Body: { bookingId, companyId, reason?, cancelledBy: passenger|driver|dispatcher|website }
+  // Customer Web / server-to-server: X-Admin-Key header (BW_ADMIN_KEY env var).
+  // Dispatcher console: BW_SID session cookie (cancelledBy must be "dispatcher").
+  // Idempotent — re-cancelling returns { idempotent: true }.
   if (urlPath === '/api/cancel' && req.method === 'POST') {
     const _ccBody = await readBody(req);
     let _cc = {};
@@ -6029,42 +6085,48 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _ccBooking = parseInt(_cc.bookingId || _cc.BookingId || 0) || 0;
     const _ccBy = String(_cc.cancelledBy || _cc.by || '').toLowerCase().trim();
     const _ccReason = String(_cc.reason || '');
+    const _ccCidBody = String(_cc.companyId || _cc.cid || '').trim();
     const _ccAllowed = new Set(['passenger', 'driver', 'dispatcher', 'website']);
     if (!_ccBooking || !_ccAllowed.has(_ccBy)) {
       res.writeHead(400, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: false, error: 'bookingId and cancelledBy ∈ {passenger,driver,dispatcher,website} required' }));
+      res.end(JSON.stringify({ ok: false, error_code: 'bad_request', error: 'bookingId and cancelledBy ∈ {passenger,driver,dispatcher,website} required' }));
       return;
     }
-    // Auth — dispatcher uses session cookie, others require admin key.
+    const _ccJob = jobStore.find(j => j && j.Id === _ccBooking) || closedJobStore.find(j => j && j.Id === _ccBooking) || null;
+    // Auth — dispatcher uses session cookie; Customer Web / other callers require X-Admin-Key.
     let _ccCid = '';
     if (_ccBy === 'dispatcher') {
-      _ccCid = getSessionCompanyId(req) || '';
+      _ccCid = getSessionCompanyId(req) || _ccCidBody;
       if (!_ccCid) {
         res.writeHead(401, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+        res.end(JSON.stringify({ ok: false, error_code: 'auth_failed', error: 'dispatcher session required' }));
         return;
       }
-      // Tenant enforcement — dispatcher can only cancel jobs in their own tenant.
-      const _ccJobT = jobStore.find(j => j.Id === _ccBooking) || closedJobStore.find(j => j.Id === _ccBooking);
-      if (_ccJobT && _ccJobT.companyId && String(_ccJobT.companyId) !== String(_ccCid)) {
+      if (_ccJob && _ccJob.companyId && String(_ccJob.companyId) !== String(_ccCid)) {
         res.writeHead(403, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'cross-tenant cancel forbidden' }));
+        res.end(JSON.stringify({ ok: false, error_code: 'forbidden', error: 'cross-tenant cancel forbidden' }));
         return;
       }
     } else {
-      const _ccKey = req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '';
-      if (!process.env.BW_ADMIN_KEY || _ccKey !== process.env.BW_ADMIN_KEY) {
+      const _ccKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+      const _adminSecret = process.env.BW_ADMIN_KEY || ADMIN_KEY;
+      if (!_ccKey || _ccKey !== _adminSecret) {
         res.writeHead(401, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'X-Admin-Key required for ' + _ccBy + ' source' }));
+        res.end(JSON.stringify({ ok: false, error_code: 'auth_failed', error: 'X-Admin-Key header required (BW_ADMIN_KEY)' }));
         return;
       }
-      // companyId derived from job record (admin key is multi-tenant trusted).
-      const _ccJob = jobStore.find(j => j.Id === _ccBooking) || closedJobStore.find(j => j.Id === _ccBooking);
-      _ccCid = _ccJob ? String(_ccJob.companyId || '') : '';
+      _ccCid = _ccCidBody || (_ccJob ? String(_ccJob.companyId || '') : '');
+      if (!_ccCid) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error_code: 'bad_request', error: 'companyId required' }));
+        return;
+      }
+      if (_ccJob && _ccJob.companyId && String(_ccJob.companyId) !== String(_ccCid)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error_code: 'forbidden', error: 'companyId does not match booking tenant' }));
+        return;
+      }
     }
-    // For driver-initiated post-accept cancel via REST: assume recall semantics (Assigned).
-    // Picking-state driver cancel from the app should still route via the legacy DataProcessor
-    // endpoint; this REST surface is the simpler passenger/website/dispatcher front door.
     const _ccDriverFault = (_ccBy === 'driver');
     const _ccRecall      = (_ccBy === 'driver');
     const _ccResult = cancelBooking({
@@ -6072,8 +6134,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       driverFault: _ccDriverFault, recallToPending: _ccRecall,
       companyId: _ccCid, source: 'api/cancel/' + _ccBy
     });
-    console.log(`200: POST /api/cancel -> ${JSON.stringify(_ccResult)}`);
-    res.writeHead(_ccResult.ok ? 200 : 404, JSON_HEADERS);
+    const _ccStatus = _ccResult.ok ? 200 : (_ccResult.error_code === 'not_found' ? 404 : 400);
+    console.log(`${_ccStatus}: POST /api/cancel bookingId=${_ccBooking} cid=${_ccCid} by=${_ccBy} -> ${JSON.stringify({ ok: _ccResult.ok, idempotent: _ccResult.idempotent, error_code: _ccResult.error_code })}`);
+    res.writeHead(_ccStatus, JSON_HEADERS);
     res.end(JSON.stringify(_ccResult));
     return;
   }
@@ -6209,7 +6272,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const _zdH = ZONE_DRIVERS.find(d =>
           (String(d.driverid).trim() === String(_hDrv).trim() ||
            String(d.VehicleId).trim() === String(_hVid).trim()) &&
-          (!d.companyId || String(d.companyId) === String(_hCid)));
+          d.companyId && String(d.companyId) === String(_hCid));
         if (_zdH) {
           // Idempotency guard — only increment jobCount if this BookingId wasn't
           // already attached to the driver (retry-safe; create endpoint has no
@@ -6284,8 +6347,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           ]);
           console.log(`  [/api/job/create] §FIX-HAIL/2 Firebase fanout complete for #${_hBid} (pendingjobs+allbookings+online/${_hVid}/current)`);
           // Booking lifecycle event so any listeners see the Active create.
-          _writeBookingEvent(_hCid, _hBid, 'BookingCreatedHail',
-            { from: 'New', to: 'Active', driverId: _hDrv, vehicleId: _hVid, source: 'hail' },
+          _writeBookingEvent(_hCid, _hBid, 'StatusChanged',
+            { from: null, to: 'Active', driverId: _hDrv, vehicleId: _hVid, action: 'created', source: 'hail' },
             'driver', 1).catch(() => {});
         } catch (_e) {
           console.warn(`  [/api/job/create] §FIX-HAIL/2 fanout failed: ${_e && _e.message}`);
@@ -6702,12 +6765,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // If there is no session, return an empty array so unauthenticated callers get nothing.
     function companyJobs(store) {
       if (!sessionCompanyId) return [];
-      return store.filter(j => j.companyId === sessionCompanyId);
+      const _cid = String(sessionCompanyId);
+      // Strict tenant isolation — jobs with missing/empty companyId are never visible.
+      return store.filter(j => j && j.companyId && String(j.companyId) === _cid);
     }
     // Helper: return only drivers belonging to this company.
     function companyDrivers(store) {
       if (!sessionCompanyId) return [];
-      return store.filter(d => d.companyId === sessionCompanyId);
+      const _cid = String(sessionCompanyId);
+      return store.filter(d => d && d.companyId && String(d.companyId) === _cid);
     }
     // Helper: return only suspended-driver records for this company.
     function companySuspended(store) {
@@ -6921,6 +6987,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
+          updateSeq: 1,
           // §99 — createdAt (Unix ms) so wait-timer formula works: Math.floor((Date.now()-createdAt)/60000)
           createdAt: Date.now(),
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
@@ -6946,6 +7013,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           } }
         jobStore.push(newJob);
         saveJobStore();
+        if (sessionCompanyId) {
+          _writeBookingEvent(sessionCompanyId, newId, 'StatusChanged',
+            { from: null, to: bookstatus, action: 'created', source: 'InsertBookingv4' },
+            'dispatcher', 1).catch(() => {});
+        }
         // §97 — Write to Firebase pendingjobs so the auto-assign engine can find console jobs.
         // Fire-and-forget: do not block the HTTP response on the Firebase write.
         if (sessionCompanyId) {
@@ -7009,6 +7081,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const jobIdx   = jobStore.findIndex(j => j.Id === closeId);
         if (jobIdx !== -1) {
           const job = jobStore[jobIdx];
+          const _closePrevStatus = job.BookingStatus;
           job.BookingStatus = 'Closed';
           if (dropLoc)     job.DropAddress     = dropLoc;
           if (distance)    job.EstimatedDistance = distance;
@@ -7033,6 +7106,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (job.UserFName === undefined) job.UserFName = '';
             if (job.UserLName === undefined) job.UserLName = '';
           }
+          _bumpSeqAndEmitStatus(job, _closePrevStatus, 'dispatcher', 'UpdateBooking', { action: 'complete' });
           // Move to closed store
           closedJobStore.push(job);
           jobStore.splice(jobIdx, 1);
@@ -7125,6 +7199,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EstimatedTime: param('Time') || '0',
           TarriffType: 'Automatic',
           companyId: sessionCompanyId || '',
+          updateSeq: 1,
           // §99 — createdAt (Unix ms) so wait-timer formula works: Math.floor((Date.now()-createdAt)/60000)
           createdAt: Date.now(),
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
@@ -7150,6 +7225,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           } }
         jobStore.push(newJob);
         saveJobStore();
+        if (sessionCompanyId) {
+          _writeBookingEvent(sessionCompanyId, newId, 'StatusChanged',
+            { from: null, to: bookstatus, action: 'created', source: action },
+            'dispatcher', 1).catch(() => {});
+        }
         // §97 — Write to Firebase pendingjobs so the auto-assign engine can find console jobs.
         // Fire-and-forget: do not block the HTTP response on the Firebase write.
         if (sessionCompanyId) {
@@ -7620,6 +7700,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // event stream + targeted driver notification when the booking is
             // currently in the driver app's UI. The blanket PATCH above stays
             // as a compatibility shim for legacy listeners.
+            const _puStatusChanged = _ubPreSnapshot.BookingStatus !== job.BookingStatus;
+            let _puEventSeq = parseInt(job.updateSeq) || 0;
+            if (_puStatusChanged && _euCid && job.Id) {
+              _puEventSeq = _bumpSeqAndEmitStatus(job, _ubPreSnapshot.BookingStatus, 'dispatcher', 'ProcUpdateJobv6');
+              saveJobStore();
+            }
             const _ubCandidate = {};
             for (const _ubK of Object.keys(_euPatch)) {
               if (_ubK.startsWith('jobUpdate')) continue;          // skip mirror metadata
@@ -7629,11 +7715,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _ubDiff = _diffJobChanges(_ubPreSnapshot, _ubCandidate);
             if (Object.keys(_ubDiff).length > 0) {
               const _ubTypes = _classifyDiff(_ubDiff);
-              const _ubNewSeq = (parseInt(job.updateSeq) || 0) + 1;
-              job.updateSeq     = _ubNewSeq;
-              job.lastUpdatedAt = new Date().toISOString();
-              job.lastUpdatedBy = 'dispatcher';
-              saveJobStore();
+              let _ubNewSeq;
+              if (_puStatusChanged) {
+                _ubNewSeq = _puEventSeq;
+              } else {
+                _ubNewSeq = (parseInt(job.updateSeq) || 0) + 1;
+                job.updateSeq     = _ubNewSeq;
+                job.lastUpdatedAt = new Date().toISOString();
+                job.lastUpdatedBy = 'dispatcher';
+                saveJobStore();
+              }
               // Also stamp _seq onto the booking-scoped Firebase mirror so the
               // driver app can use it for race detection (matches updateBooking()).
               if (_euCid && job.Id) {
@@ -7652,7 +7743,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   ]);
                 }).catch(() => {});
                 for (const _t of _ubTypes) {
-                  _writeBookingEvent(_euCid, job.Id, _t, _ubDiff, 'dispatcher', _ubNewSeq).catch(() => {});
+                  const _eventData = (_t === 'StatusChanged' && _ubDiff.BookingStatus)
+                    ? { from: _ubDiff.BookingStatus.from, to: _ubDiff.BookingStatus.to, changes: _ubDiff }
+                    : { changes: _ubDiff };
+                  _writeBookingEvent(_euCid, job.Id, _t, _eventData, 'dispatcher', _ubNewSeq).catch(() => {});
                 }
               }
               if (_UB_DRIVER_VISIBLE.has(job.BookingStatus || '') && _euDid && _euDid !== '0' && _euDid !== '-1') {
@@ -7715,6 +7809,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const job = jobStore.find(j => j.Id === bookingId);
         const driverId = parseInt(param('reternVehicleid') || param('VehicleId') || '0') || 0;
         if (job) {
+          const _assignPrevStatus = job.BookingStatus;
           if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]') {
             job.BookingStatus = 'Assigned';
             job.assignedAt = Date.now();
@@ -7845,6 +7940,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
             clearAwayLock(prevDriverId);
             clearDriverHomeState(prevDriverId);
+          }
+          if (_assignPrevStatus !== job.BookingStatus) {
+            _bumpSeqAndEmitStatus(job, _assignPrevStatus, 'dispatcher', action);
           }
           saveJobStore();
           // Sync assignment back to Firebase for Rental jobs
@@ -8175,7 +8273,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const beforeLen = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
           const _kd = ZONE_DRIVERS[i];
-          if (!sessionCompanyId || !_kd.companyId || _kd.companyId === sessionCompanyId) {
+          if (sessionCompanyId && _kd.companyId && String(_kd.companyId) === String(sessionCompanyId)) {
             if (String(_kd.driverid) === driverId || String(_kd.VehicleId) === vehicleId) {
               ZONE_DRIVERS.splice(i, 1);
             }
@@ -8213,7 +8311,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const beforeLen2 = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
           const d = ZONE_DRIVERS[i];
-          if (!sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId) {
+          if (sessionCompanyId && d.companyId && String(d.companyId) === String(sessionCompanyId)) {
             if (String(d.driverid) === driverId || String(d.VehicleId) === vehicleId ||
                 (vehicleIdNum > 0 && (d.driverid === vehicleIdNum || d.VehicleId === vehicleIdNum))) {
               ZONE_DRIVERS.splice(i, 1);
@@ -8731,7 +8829,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (_logoutStatuses.indexOf(newStatus) !== -1) {
             const _beforeLen = ZONE_DRIVERS.length;
             const _kept = ZONE_DRIVERS.filter(d => {
-              const sameCompany = !sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId;
+              const sameCompany = sessionCompanyId && d.companyId && String(d.companyId) === String(sessionCompanyId);
               if (!sameCompany) return true; // different company — don't touch
               return String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
                 (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber));
@@ -8875,6 +8973,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
                 companyId: sessionCompanyId || '',
+                updateSeq: 1,
                 DriverId: driverId,
                 VehicleId: vehiclenumber || driverId,
                 VehicleNo: vehiclenumber || driverId,
@@ -8889,6 +8988,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
+              if (sessionCompanyId) {
+                _writeBookingEvent(sessionCompanyId, hailId, 'StatusChanged',
+                  { from: null, to: 'Active', driverId, vehicleId: vehiclenumber || driverId, action: 'created', source: 'hail' },
+                  'driver', 1).catch(() => {});
+              }
               console.log(`  [DriverStatusChanged] Hail job #${hailId} created for driver ${driverId} (${vehiclenumber}) companyId=${sessionCompanyId} at ${pickAddr}`);
               // Bootstrap zone for Hail drivers with no zone info — without this
               // the right-side zone queue groups them under the no-zone bucket,
@@ -9173,6 +9277,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 }
               }
               // Offered/Unreached/Pending: driver going Available — leave as-is
+            }
+            if (job.BookingStatus !== prev) {
+              _afterJobStatusChange(job, prev, 'driver', 'DriverStatusChanged');
+              saveJobStore();
             }
           });
           // When driver goes Available: calculate their new queue position and update ZONE_DRIVERS.
@@ -9589,7 +9697,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[RetrieveVehicle]') {
         const _rvDid = (param('DriverId') || '').toString().trim();
         const _rvDrv = ZONE_DRIVERS.find(d =>
-          (!sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId) &&
+          sessionCompanyId && d.companyId && String(d.companyId) === String(sessionCompanyId) &&
           String(d.driverid) === _rvDid
         );
         const _rvOut = _rvDrv ? [{
@@ -10712,8 +10820,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (_logoutStatusesDS.indexOf(newStatus) !== -1) {
             const _beforeLenDS = ZONE_DRIVERS.length;
             const _keptDS = ZONE_DRIVERS.filter(d => {
-              // Only remove entries belonging to this company (by companyId match or if no company set on either side)
-              const sameCompany = !sessionCompanyId || !d.companyId || d.companyId === sessionCompanyId;
+              const sameCompany = sessionCompanyId && d.companyId && String(d.companyId) === String(sessionCompanyId);
               if (!sameCompany) return true; // keep — different company
               return String(d.driverid) !== driverId && String(d.VehicleId) !== driverId &&
                 (!vehiclenumber || (String(d.driverid) !== vehiclenumber && String(d.VehicleId) !== vehiclenumber));
@@ -10839,6 +10946,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               jobStore.push({
                 Id: hailId, BookingStatus: 'Active',
                 companyId: sessionCompanyId || '',
+                updateSeq: 1,
                 DriverId: driverId,
                 VehicleId: vehiclenumber || driverId,
                 VehicleNo: vehiclenumber || driverId,
@@ -10853,6 +10961,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
+              if (sessionCompanyId) {
+                _writeBookingEvent(sessionCompanyId, hailId, 'StatusChanged',
+                  { from: null, to: 'Active', driverId, vehicleId: vehiclenumber || driverId, action: 'created', source: 'hail' },
+                  'driver', 1).catch(() => {});
+              }
               console.log(`  [DriverStatusChanged/DS] Hail job #${hailId} for driver ${driverId} (${vehiclenumber}) companyId=${sessionCompanyId} at ${pickAddr}`);
               // Bootstrap zone for Hail drivers (mirrors DP path) so the
               // right-side zone queue + status-bar zone column don't go blank.
@@ -11077,6 +11190,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               }
               // Offered/Unreached/Pending: driver going Available — leave job as-is
             }
+            if (job.BookingStatus !== prev) {
+              _afterJobStatusChange(job, prev, 'driver', 'DriverStatusChanged');
+              saveJobStore();
+            }
           });
           // When driver goes Available: calculate their new queue position.
           // If the driver isn't in ZONE_DRIVERS yet (first login), add them so dt6 is accurate.
@@ -11256,6 +11373,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
               BookingStatus: 'Scheduled', BookingSource: _isWebBk ? 'Website' : 'passenger',
+              updateSeq: 1,
               Name:          _sn.name,
               PhoneNo:       _sn.phone,
               PickAddress:   _sn.pickAddress,
@@ -11280,6 +11398,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               NotifyDispatchBeforeMinutes: parseInt(_ipjJob.NotifyDispatchBeforeMinutes || _ipjJob.notifyDispatchBeforeMinutes || '0') || _estMins || 15,
             });
             saveJobStore();
+            _writeBookingEvent(_sCid, _sId, 'StatusChanged',
+              { from: null, to: 'Scheduled', action: 'created', source: 'IngestPassengerJob' },
+              'passenger', 1).catch(() => {});
             console.log(`[passenger] Scheduled job ${_ipjFbKey} stored as Scheduled (svc=${_sn.serviceType}) — ${_sn.name} from ${_sn.pickAddress}`);
           }
           objectD(res, { ok: true, action: 'pending' });
@@ -11300,7 +11421,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // §103 Bug 2 — promote an existing Scheduled job to Pending (NotifyDispatchAt fired).
           // Only if not already manually assigned/offered by a dispatcher.
           if (already && already.BookingStatus === 'Scheduled') {
+            const _promotePrev = already.BookingStatus;
             already.BookingStatus = 'Pending';
+            _bumpSeqAndEmitStatus(already, _promotePrev, 'passenger', 'IngestPassengerJob', { action: 'promote' });
             saveJobStore();
             console.log(`[passenger] Scheduled job ${_ipjFbKey} promoted → Pending (NotifyDispatchAt)`);
             // fall through to the objectD below
@@ -11325,10 +11448,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   || new Date(_wSf - (_wEstMins || 15) * 60000).toISOString())
               : null;
             const _wBdt = _wSf ? new Date(_wSf).toISOString() : (_wn.createdAt || new Date().toISOString());
+            const _wStatus = _wTreatSched ? 'Scheduled' : 'Pending';
             jobStore.push({
               _fbKey: _ipjFbKey, Id: _wId, companyId: _wCid,
-              BookingStatus: _wTreatSched ? 'Scheduled' : 'Pending',
+              BookingStatus: _wStatus,
               BookingSource: _isWebBkW ? 'Website' : 'passenger',
+              updateSeq: 1,
               Name:          _wn.name,
               PhoneNo:       _wn.phone,
               PickAddress:   _wn.pickAddress,
@@ -11347,6 +11472,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               DriverId: 0, VehicleId: 0, DispatchTimebefore: _wTreatSched ? String(_wEstMins) : '0',
             });
             saveJobStore();
+            _writeBookingEvent(_wCid, _wId, 'StatusChanged',
+              { from: null, to: _wStatus, action: 'created', source: 'IngestPassengerJob' },
+              'passenger', 1).catch(() => {});
             console.log(`[passenger] ${_wTreatSched ? 'Scheduled' : 'Waiting'} job ${_ipjFbKey} ingested (svc=${_wn.serviceType}) — ${_wn.name} from ${_wn.pickAddress}${_wTreatSched ? ' [auto-promoted to Scheduled, notifyAt=' + _wNotifyAt + ']' : ''}`);
           }
           objectD(res, { ok: true, action: 'pending' });
@@ -12186,7 +12314,7 @@ setInterval(async () => {
     // be removed when we delete the stray online/{cid}/D002 orphan node.
     for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
       const d = ZONE_DRIVERS[i];
-      if ((!d.companyId || String(d.companyId) === String(cid)) &&
+      if (cid && d.companyId && String(d.companyId) === String(cid) &&
           String(d.VehicleId) === String(vid)) {
         ZONE_DRIVERS.splice(i, 1);
       }

@@ -5590,12 +5590,13 @@ $(document).ready(function() {
     },30000);
 
     var config = {
-        apiKey: "AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA",
-        authDomain: "taxilatest.firebaseapp.com",
-        databaseURL: "https://taxilatest.firebaseio.com",
-        projectId: "taxilatest",
-        storageBucket: "taxilatest.appspot.com",
-        messagingSenderId: "986098722414"
+        apiKey: "AIzaSyDIVSI_GRYG0hCPvc9h80QXZMxwZoejctQ",
+        authDomain: "bookawaka2026-564e1.firebaseapp.com",
+        databaseURL: "https://bookawaka2026-564e1-default-rtdb.firebaseio.com",
+        projectId: "bookawaka2026-564e1",
+        storageBucket: "bookawaka2026-564e1.firebasestorage.app",
+        messagingSenderId: "909621127467",
+        appId: "1:909621127467:web:504f502a533ca0a216fd6e"
     };
     firebase.initializeApp(config);
 
@@ -5980,10 +5981,24 @@ $(document).ready(function() {
                     sc.scheduledjob_list = sc.scheduledjob_list.filter(function(j) { return j._fbKey !== fbKey; });
                     if (!sc.$$phase) { try { sc.$digest(); } catch(e) {} }
                 }
-                jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
-                    contentType:'application/json; charset=utf-8', dataType:'json',
-                    data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify({ Status:'Cancelled', _fbKey: fbKey }) }], action:'[IngestPassengerJob]' })
-                });
+                var _cancelId = parseInt(b.Id || b.id || b.bookingId || k, 10) || 0;
+                var _cancelReason = b.cancelReason || b.CancelReason || 'Cancelled by passenger';
+                if (_cancelId && typeof window.cancelBooking === 'function') {
+                    window.cancelBooking(_cancelId, SomeSession2, _cancelReason, {
+                        u_id: b.deviceUid || b.u_id || b.U_id || ''
+                    }).catch(function(e) {
+                        console.warn('[pendingjobs] cancelBooking failed, falling back to IngestPassengerJob:', e);
+                        jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
+                            contentType:'application/json; charset=utf-8', dataType:'json',
+                            data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify({ Status:'Cancelled', _fbKey: fbKey }) }], action:'[IngestPassengerJob]' })
+                        });
+                    });
+                } else {
+                    jQuery.ajax({ type:'POST', url:'DataManager/Data.aspx/DataSelector',
+                        contentType:'application/json; charset=utf-8', dataType:'json',
+                        data: JSON.stringify({ data:[{ name:'job', Value: JSON.stringify({ Status:'Cancelled', _fbKey: fbKey }) }], action:'[IngestPassengerJob]' })
+                    });
+                }
                 return;
             }
 
@@ -8480,38 +8495,184 @@ $(document).ready(function() {
              $("#PushMessage").trigger('click');
          }
      });
-    function FnCancelRide(DriverId, BookingId) {
-       // A post entry.
+    // ── Unified cancellation — all terminal cancel paths must use this ──────────
+    // Server: POST /api/job/command { command:'cancel' } updates jobStore + driver state.
+    // Client: _cancelBookingFirebaseSync mirrors allbookings, pendingjobs, online/current,
+    // rideStatus, and driver notification consistently for every path.
+    function _sendDriverCancelNotification(driverId, bookingId) {
+        if (!driverId || !bookingId) return Promise.resolve();
         var postData = {
-            bookingid: BookingId + ",Job Cancel," + DriverId + "," + $("#UId").text() + ",Dispatcher",
-            content: "Passenger Cancel",
-          };
-        var newPostKey = firebase.database().ref().child('notification').push().key;
+            bookingid: bookingId + ',Job Cancel,' + driverId + ',' + ($('#UId').text() || 'Dispatcher') + ',Dispatcher',
+            content: 'Passenger Cancel',
+            eventType: 'cancelled',
+            bookingId: String(bookingId)
+        };
+        return DbRef.ref('notification/' + driverId).set(postData).catch(function(e) {
+            console.warn('[cancelBooking] notification failed:', e);
+        });
+    }
 
-        // Write the new post's data simultaneously in the posts list and the user's post list.
-        var updates = {};
-        updates['/notification/' + DriverId] = postData;
-        // updates['/user-posts/' + uid + '/' + newPostKey] = postData;
-
-        // §FIX-DA-G2 + C2 — booking-keyed children: each driver node now contains
-        // child nodes keyed by bookingId. Cancel = write eventType:'cancelled'
-        // then remove() the matching child so the driver app reads the reason
-        // off the onChildRemoved snapshot. Sibling bookings are untouched.
-        firebase.database().ref("jobs/" + SomeSession2).once('value').then(function(snap) {
+    function _removeDriverJobsChild(bookingId, driverId, vehicleId) {
+        var bid = String(bookingId);
+        if (vehicleId && driverId) {
+            var jRef = DbRef.ref('jobs/' + SomeSession2 + '/' + vehicleId + '/' + driverId + '/' + bid);
+            return jRef.update({ eventType: 'cancelled' })
+                .catch(function() {})
+                .then(function() { return jRef.remove(); });
+        }
+        return DbRef.ref('jobs/' + SomeSession2).once('value').then(function(snap) {
+            var tasks = [];
             snap.forEach(function(vehicleSnap) {
                 vehicleSnap.forEach(function(driverSnap) {
-                    var bookingChild = driverSnap.child(String(BookingId));
+                    if (driverId && String(driverSnap.key) !== String(driverId)) return;
+                    var bookingChild = driverSnap.child(bid);
                     if (bookingChild.exists()) {
-                        var _bRef = bookingChild.ref;
-                        _bRef.update({ eventType: 'cancelled' })
-                            .catch(function(){ /* best-effort */ })
-                            .then(function(){ return _bRef.remove(); });
+                        tasks.push(
+                            bookingChild.ref.update({ eventType: 'cancelled' })
+                                .catch(function() {})
+                                .then(function() { return bookingChild.ref.remove(); })
+                        );
                     }
                 });
             });
+            return Promise.all(tasks);
+        });
+    }
+
+    function _cancelBookingFirebaseSync(bookingId, companyId, reason, driverId, vehicleId) {
+        var bid = String(bookingId);
+        var cid = String(companyId || SomeSession2);
+        var now = new Date().toISOString();
+        var patch = { Status: 'Cancelled', BookingStatus: 'Cancelled', cancelledAt: now, cancelReason: reason || '' };
+
+        var p1 = DbRef.ref('allbookings/' + cid + '/' + bid).update(patch)
+            .catch(function(e) { console.warn('[cancelBooking] allbookings failed:', e); });
+
+        var pjRef = DbRef.ref('pendingjobs/' + cid + '/' + bid);
+        var p2 = pjRef.update(patch).then(function() {
+            return pjRef.once('value').then(function(snap) {
+                var cur = snap.val() || {};
+                if (String(cur.Status || cur.BookingStatus || '') === 'Cancelled') {
+                    return pjRef.remove();
+                }
+            });
+        }).catch(function(e) { console.warn('[cancelBooking] pendingjobs failed:', e); });
+
+        var p5 = DbRef.ref('rideStatus/' + cid + '/' + bid).update({
+            status: 'Cancelled', Cancelled: true, cancelledAt: now, cancelReason: reason || ''
+        }).catch(function(e) { console.warn('[cancelBooking] rideStatus failed:', e); });
+
+        var _drv = String(driverId || '').trim();
+        var _veh = String(vehicleId || '').trim();
+        var pFindVeh = Promise.resolve();
+        if (!_veh && _drv) {
+            pFindVeh = DbRef.ref('online/' + cid).once('value').then(function(snap) {
+                snap.forEach(function(vSnap) {
+                    if (_veh) return;
+                    var cur = vSnap.child('current').val() || {};
+                    if (String(cur.currentJobId || cur.jobId || '') === bid) _veh = vSnap.key;
+                });
+            });
+        }
+
+        var pOnline = pFindVeh.then(function() {
+            if (!_veh) return;
+            return DbRef.ref('online/' + cid + '/' + _veh + '/current').once('value').then(function(snap) {
+                var cur = snap.val() || {};
+                var curJob = String(cur.currentJobId || cur.jobId || cur.joboffer || '');
+                if (curJob && curJob !== bid) return;
+                return snap.ref.update({
+                    vehiclestatus: 'Available',
+                    currentJobId: null, jobId: null, joboffer: 0,
+                    jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: ''
+                });
+            }).then(function() {
+                return DbRef.ref('online/' + cid + '/' + _veh).update({ vehiclestatus: 'Available' });
+            }).catch(function(e) { console.warn('[cancelBooking] online/current failed:', e); });
         });
 
-        return firebase.database().ref().update(updates);
+        var pNotify = Promise.resolve();
+        if (_drv) {
+            pNotify = _sendDriverCancelNotification(_drv, bid)
+                .then(function() { return _removeDriverJobsChild(bid, _drv, _veh); });
+        }
+
+        return Promise.all([p1, p2, p5, pOnline, pNotify]);
+    }
+
+    window.cancelBooking = function cancelBooking(bookingId, companyId, reason, opts) {
+        opts = opts || {};
+        var bid = String(bookingId || '').trim();
+        var cid = String(companyId || SomeSession2 || '').trim();
+        var why = String(reason || opts.reason || 'Cancelled by dispatcher').trim();
+        if (!bid) return Promise.reject(new Error('cancelBooking: bookingId required'));
+        if (!cid) return Promise.reject(new Error('cancelBooking: companyId required'));
+        var _bidNum = parseInt(bid, 10) || bid;
+
+        function _finish(resp, driverId, vehicleId) {
+            return _cancelBookingFirebaseSync(bid, cid, why, driverId, vehicleId).then(function() {
+                var uid = opts.u_id || opts.deviceUid || '';
+                if (uid && uid !== 'null' && uid !== '') {
+                    DbRef.ref('Passengerjobs/' + uid).update({ status: 'cancel' })
+                        .catch(function(e) { console.warn('[cancelBooking] Passengerjobs failed:', e); });
+                }
+                if (opts.quenumber != null && driverId && typeof FnMoveQueueNo1 === 'function') {
+                    try { FnMoveQueueNo1(driverId, opts.quenumber); } catch(e) {}
+                }
+                return resp || { ok: true, driverId: driverId };
+            });
+        }
+
+        return new Promise(function(resolve, reject) {
+            jQuery.ajax({
+                type: 'POST',
+                url: '/api/job/command',
+                contentType: 'application/json; charset=utf-8',
+                dataType: 'json',
+                xhrFields: { withCredentials: true },
+                data: JSON.stringify({
+                    bookingId: _bidNum,
+                    command: 'cancel',
+                    by: 'dispatcher',
+                    payload: { reason: why }
+                })
+            }).done(function(resp) {
+                var _drv = (resp && (resp.driverId || (resp.booking && resp.booking.DriverId))) || opts.driverId || '';
+                var _veh = (resp && resp.vehicleId) || opts.vehicleId || '';
+                _finish(resp, _drv, _veh).then(resolve).catch(reject);
+            }).fail(function() {
+                jQuery.ajax({
+                    type: 'POST',
+                    url: 'DataManager/Data.aspx/DataProcessor',
+                    contentType: 'application/json; charset=utf-8',
+                    dataType: 'json',
+                    data: JSON.stringify({
+                        data: [
+                            { name: 'BookingId', Value: _bidNum },
+                            { name: 'reason', Value: why }
+                        ],
+                        action: '[CancelJobStatusFromJobList]'
+                    })
+                }).done(function(res) {
+                    var _drv = opts.driverId || '';
+                    try {
+                        var parsed = JSON.parse(res.d || '[]');
+                        if (parsed[0] && parsed[0].DriverId) _drv = String(parsed[0].DriverId);
+                    } catch(e) {}
+                    _finish({ ok: true, driverId: _drv, legacy: true }, _drv, opts.vehicleId).then(resolve).catch(reject);
+                }).fail(function(xhr) {
+                    _finish({ ok: false, legacy: true }, opts.driverId, opts.vehicleId)
+                        .then(function(r) { resolve(r); })
+                        .catch(reject);
+                });
+            });
+        });
+    };
+
+    // Withdraw a live offer from a driver without cancelling the booking (reassign/unassign).
+    function FnCancelRide(DriverId, BookingId) {
+        _sendDriverCancelNotification(DriverId, BookingId);
+        return _removeDriverJobsChild(BookingId, DriverId, null);
     }
     function JobEidtPost(DriverId, BookingId) {
        
@@ -8532,8 +8693,8 @@ $(document).ready(function() {
     }
 
     function FnCancelRidez(DriverId, BookingId, JobStatus, u_id) {
-        if (u_id) {
-            firebase.database().ref().child("/Passengerjobs/" + u_id).update({ status: "cancel" });
+        if (u_id && u_id !== 'null') {
+            DbRef.ref('Passengerjobs/' + u_id).update({ status: 'cancel' });
         }
     }
     // Sends a visible notification to the driver app explaining why they are Away.
@@ -8719,6 +8880,35 @@ $(document).ready(function() {
         return String(anyId);
     }
 
+    // Resolve PaymentType for driver-app notification payloads.
+    // Card-prepaid bookings (isPrePaid or paymentMethod === 'card') → 'card'.
+    // All others → normalised from the booking's payment fields.
+    function resolveOfferPaymentType(src) {
+        src = src || {};
+        var pm = String(src.paymentMethod || src.PaymentMethod || '').toLowerCase().trim();
+        var isPrePaid = !!(src.isPrePaid || src.isPrepaid || src.IsPrePaid || src.prepaid || src.Prepaid);
+        if (isPrePaid || pm === 'card') return 'card';
+
+        var explicit = String(
+            src.PaymentType || src.paymentType || src.AccountType || src.accountType ||
+            src.tmPaymentMethod || src.TmPaymentMethod || ''
+        ).trim();
+        if (!explicit) {
+            explicit = String(src.PaymentMethod || src.paymentMethod || '').trim();
+        }
+        if (!explicit) return 'cash';
+
+        var low = explicit.toLowerCase();
+        if (low.indexOf('eftpos') >= 0) return 'eftpos';
+        if (low.indexOf('credit') >= 0 || low === 'card') return 'card';
+        if (low === 'acc' || low.indexOf('accident') >= 0) return 'acc';
+        if (low === 'account' || low === 'acct') return 'account';
+        if (low.indexOf('mobility') >= 0 || low === 'tm' || low.indexOf('voucher') >= 0 || low === 'total_mobility') return 'total_mobility';
+        if (low.indexOf('gift') >= 0) return 'gift_card';
+        if (low.indexOf('split') >= 0) return 'split';
+        return 'cash';
+    }
+
     function writeJobDetailsToFirebase(driverId, vehicleId, bookingId, details) {
         try {
             if (!driverId || String(driverId) === 'null' || String(driverId) === 'undefined') {
@@ -8769,6 +8959,7 @@ $(document).ready(function() {
             var _src   = details.source || 'Dispatcher';
             var _stat  = details.status || 'Offered';
             var _bookingidStr = bookingId + ',' + _stat + ',' + driverId + ',' + _uid + ',' + _src;
+            var _resolvedPayType = resolveOfferPaymentType(details);
             var fullPayload = {
                 type:          'job_offer',
                 bookingid:     _bookingidStr,
@@ -8790,8 +8981,12 @@ $(document).ready(function() {
                 companyId:     String(SomeSession2 || ''),
                 // §109 — include payment fields so driver app can display correct payment
                 // method (card vs cash) without a separate sync call.
-                paymentMethod: details.paymentMethod || details.paymentType || '',
-                paymentType:   details.paymentType   || details.paymentMethod || '',
+                PaymentType:   _resolvedPayType,
+                paymentType:   _resolvedPayType,
+                PaymentMethod: details.paymentMethod || details.paymentType || details.PaymentMethod || '',
+                paymentMethod: details.paymentMethod || details.paymentType || details.PaymentMethod || '',
+                paymentStatus: details.paymentStatus || details.PaymentStatus || '',
+                isPrePaid:     !!(details.isPrePaid || details.isPrepaid || details.IsPrePaid || details.prepaid || details.Prepaid),
                 jobAccountId:  details.accountId  || '',
                 jobAccountName: details.accountName || '',
                 jobBookingType: details.bookingType || '',
@@ -8963,6 +9158,7 @@ $(document).ready(function() {
                 paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
                 paymentType:   job.PaymentType    || job.paymentType    || '',
                 paymentStatus: job.paymentStatus  || job.PaymentStatus  || '',
+                isPrePaid:     !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid || job.prepaid || job.Prepaid),
                 pickupTime:    job.Pickingtime    || job.PickingTime    || '',
                 tarriffType:   job.TarriffType    || '',
                 customRate:    job.CustomeRate    || '',
@@ -9147,13 +9343,9 @@ $(document).ready(function() {
                                         if (typeof firebase !== 'undefined') {
                                             firebase.database().ref('joback/' + jobId + '/' + entry.driverId).remove();
                                             firebase.database().ref('/notification/' + entry.driverId).remove();
-                                            // §FIX-DA-G2 + C2 — eventType then remove.
-                                            (function(){
-                                                var _orRef = firebase.database().ref('jobs/' + SomeSession2 + '/' + entry.vehicleId + '/' + entry.driverId + '/' + String(jobId));
-                                                _orRef.update({ eventType: 'cancelled' })
-                                                    .catch(function(){})
-                                                    .then(function(){ return _orRef.remove(); });
-                                            })();
+                                            if (typeof _removeDriverJobsChild === 'function') {
+                                                _removeDriverJobsChild(jobId, entry.driverId, entry.vehicleId);
+                                            }
                                             console.log('[_cleanupOrphanedFirebase] removed Firebase orphan: job #' + jobId + ' driver ' + entry.driverId + ' (status was ' + (job ? job.BookingStatus : 'not found') + ')');
                                         }
                                     } catch(e) {}
@@ -9713,12 +9905,9 @@ $(document).ready(function() {
                     // §FIX-DA-G2 + C2 — write eventType then remove. Timeout/
                     // Unreached is a 'cancelled' terminal for the driver. Only
                     // the timed-out booking's node is touched.
-                    (function(){
-                        var _toRef = firebase.database().ref("jobs/" + SomeSession2 + "/" + vehivle + "/" + _fbd + "/" + String(id));
-                        _toRef.update({ eventType: 'cancelled' })
-                            .catch(function(){})
-                            .then(function(){ return _toRef.remove(); });
-                    })();
+                    if (typeof _removeDriverJobsChild === 'function') {
+                        _removeDriverJobsChild(id, _fbd, vehivle);
+                    }
                     firebase.database().ref("online/" + SomeSession2 + "/" + vehivle).update({ vehiclestatus: 'Away' });
                     // §100 — also write Away to current/ so driver app overlay clears correctly.
                     // Also clear all job fields so driver app doesn't skip the NEXT offer screen
@@ -10265,6 +10454,7 @@ $(document).ready(function() {
                 }
                 var _pqUid = $("#UId").text() || '';
                 var _pqBidStr = String(bookid) + ',Pending,' + String(driverid) + ',' + _pqUid + ',Dispatcher';
+                var _pqPayType = resolveOfferPaymentType(_pqJob || {});
                 var _silentPayload = {
                     bookingid:      _pqBidStr,
                     joboffer:       String(bookid),
@@ -10277,9 +10467,12 @@ $(document).ready(function() {
                     jobvehicletype: (_pqJob && _pqJob.VehicleType)  || '',
                     jobinfo:        (_pqJob && _pqJob.EntitiesDetails) || '',
                     jobFare:        String((_pqJob && (_pqJob.EstimatedFare || _pqJob.RideCost || _pqJob.CustomeRate || _pqJob.Fare || _pqJob.jobFare)) || ''),
+                    PaymentType:    _pqPayType,
+                    paymentType:    _pqPayType,
+                    PaymentMethod:  (_pqJob && (_pqJob.PaymentMethod || _pqJob.paymentMethod)) || '',
                     paymentMethod:  (_pqJob && (_pqJob.PaymentMethod || _pqJob.paymentMethod)) || '',
-                    paymentType:    (_pqJob && (_pqJob.PaymentType   || _pqJob.paymentType))   || '',
                     paymentStatus:  (_pqJob && (_pqJob.paymentStatus || _pqJob.PaymentStatus)) || '',
+                    isPrePaid:      !!(_pqJob && (_pqJob.isPrePaid || _pqJob.isPrepaid || _pqJob.IsPrePaid || _pqJob.prepaid || _pqJob.Prepaid)),
                     pickupTime:     (_pqJob && (_pqJob.Pickingtime   || _pqJob.PickingTime))   || '',
                     Pickingtime:    (_pqJob && (_pqJob.Pickingtime   || _pqJob.PickingTime))   || '',
                     tarriffType:    (_pqJob && _pqJob.TarriffType)   || '',
@@ -10406,6 +10599,7 @@ $(document).ready(function() {
                     paymentMethod: _notifJob.PaymentMethod  || _notifJob.paymentMethod  || '',
                     paymentType:   _notifJob.PaymentType    || _notifJob.paymentType    || '',
                     paymentStatus: _notifJob.paymentStatus  || _notifJob.PaymentStatus  || '',
+                    isPrePaid:     !!(_notifJob.isPrePaid || _notifJob.isPrepaid || _notifJob.IsPrePaid || _notifJob.prepaid || _notifJob.Prepaid),
                     pickupTime:    _notifJob.Pickingtime    || _notifJob.PickingTime    || '',
                     tarriffType:   _notifJob.TarriffType    || '',
                     customRate:    _notifJob.CustomeRate    || '',
@@ -10433,6 +10627,7 @@ $(document).ready(function() {
                                 paymentMethod: _jrow.PaymentMethod  || _jrow.paymentMethod  || '',
                                 paymentType:   _jrow.PaymentType    || _jrow.paymentType    || '',
                                 paymentStatus: _jrow.paymentStatus  || _jrow.PaymentStatus  || '',
+                                isPrePaid:     !!(_jrow.isPrePaid || _jrow.isPrepaid || _jrow.IsPrePaid || _jrow.prepaid || _jrow.Prepaid),
                                 pickupTime:    _jrow.Pickingtime    || _jrow.PickingTime    || '',
                                 tarriffType:   _jrow.TarriffType    || '',
                                 customRate:    _jrow.CustomeRate    || '',
@@ -10561,6 +10756,7 @@ $(document).ready(function() {
                     paymentMethod: _notifJobM.PaymentMethod  || _notifJobM.paymentMethod  || '',
                     paymentType:   _notifJobM.PaymentType    || _notifJobM.paymentType    || '',
                     paymentStatus: _notifJobM.paymentStatus  || _notifJobM.PaymentStatus  || '',
+                    isPrePaid:     !!(_notifJobM.isPrePaid || _notifJobM.isPrepaid || _notifJobM.IsPrePaid || _notifJobM.prepaid || _notifJobM.Prepaid),
                     pickupTime:    _notifJobM.Pickingtime    || _notifJobM.PickingTime    || '',
                     tarriffType:   _notifJobM.TarriffType    || '',
                     customRate:    _notifJobM.CustomeRate    || '',
@@ -11066,7 +11262,7 @@ $(document).ready(function() {
 
  
          // Replace with your own API key
-         var API_KEY = 'AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA';
+         var API_KEY = 'AIzaSyAg5Q5LyM2Bv0xpeHz4gPRG1MwMh71klis';
 
          // Icons for markers
          var RED_MARKER = 'https://maps.google.com/mapfiles/ms/icons/red-dot.png';
@@ -14008,6 +14204,7 @@ $(document).ready(function() {
                             paymentMethod: job.PaymentMethod  || job.paymentMethod  || '',
                             paymentType:   job.PaymentType    || job.paymentType    || '',
                             paymentStatus: job.paymentStatus  || job.PaymentStatus  || '',
+                            isPrePaid:     !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid || job.prepaid || job.Prepaid),
                             pickupTime:    job.Pickingtime    || job.PickingTime    || '',
                             tarriffType:   job.TarriffType    || '',
                             customRate:    job.CustomeRate    || '',
@@ -21174,50 +21371,19 @@ $(document).ready(function() {
 
 
                     $scope.CancelJob = function(BookingId , U_id , zoneid , quenumber) {
-
-
-
-
-                        if (confirm('Do you want to cancel the job?')) {
-                            $("#Divo" + BookingId + "").remove();
-                            var param = [{ "name": "BookingId", "Value": BookingId }];
-                            var proc = '[CancelJobStatusFromJobList]';
-                            Selector1(param, proc).then(function (result) {
-                                if (result.d == "Session is experied, please login again") {
-                       
-                                    window.location.href = "DispatcherLogin.aspx?";
-                                }
-                                else {
-                                    $res = JSON.parse(result.d);
-                                    if ($res[0].Result != "Operation Not Successfully Performed") {
-                                        $("#Divo" + BookingId + "").remove();
-                                        if ($res[0].DriverId != "0") {
-
-                                            FnCancelRide($res[0].DriverId, BookingId);
-                                            FnMoveQueueNo1($res[0].DriverId,quenumber);
-                                            angular.element(document.getElementById('myangular')).scope().AssignedJobs();
-                                           }
-                                        if(U_id == 'null' || U_id == ''){
-                   
-         
-                                        }else{
-                                            FnCancelRidez('234', BookingId, "Offered" , U_id);
-                                        }
-                           
-                                        toastr["success"]( $res[0].Result, 'success!');
-                                    }
-                                    else {
-                                        toastr["warning"]( $res[0].Result, 'warning!');
-                                   
-                                    }
-
-                                }
-                            });
-                        }
-                        else {
-
-                        }
-           
+                        if (!confirm('Do you want to cancel the job?')) return;
+                        $("#Divo" + BookingId + "").remove();
+                        window.cancelBooking(BookingId, SomeSession2, 'Cancelled from assigned list', {
+                            u_id: U_id, quenumber: quenumber
+                        }).then(function(res) {
+                            if (res && res.driverId && String(res.driverId) !== '0') {
+                                $scope.AssignedJobs();
+                            }
+                            $scope.getjobs();
+                            toastr['success']('Job cancelled successfully', 'Done');
+                        }).catch(function() {
+                            toastr['warning']('Could not cancel job #' + BookingId, 'Warning');
+                        });
                     }
  
                     $scope.AssignedJobs( );
@@ -21225,45 +21391,15 @@ $(document).ready(function() {
                     $scope.UnAssignedJobsCancelng = function (BookingId, U_Id) {
                         $("#Divo" + BookingId + "").remove();
                         refreshjob = 0;
-                        console.log(refreshjob);
-                        if (confirm('Do you want to cancel the job?')) {
-              
-                            $scope.param = [ { "name": "BookingId", "Value": BookingId }];
-                            $scope.proc = "[CancelUnAssignedJobStatusFromJobList]";
-                
-                            $http({
-
-                                method: "POST",
-
-                                url: "DataManager/Data.aspx/DataProcessor",
-
-                                data: {
-                                    data: $scope.param,
-                                    action: $scope.proc
-                                }
-
-                            }).then(function mySuccess(response) {
-                                $("#Divo" + BookingId + "").remove();
-                                $scope.getjobs();
-                                if (U_Id == 'null' || U_Id == '') {
-
-
-                                } else {
-                                    FnCancelRidez('234', BookingId, "Offered", U_Id);
-                                }
-                   
-                            }, function myError(response) {
-                     
-                            });
-
- 
-                        } else {
-                            return "no";
-                        }
-
-
-
-             
+                        if (!confirm('Do you want to cancel the job?')) return 'no';
+                        window.cancelBooking(BookingId, SomeSession2, 'Cancelled from unassigned list', {
+                            u_id: U_Id
+                        }).then(function() {
+                            $("#Divo" + BookingId + "").remove();
+                            $scope.getjobs();
+                        }).catch(function() {
+                            toastr['warning']('Could not cancel job #' + BookingId, 'Warning');
+                        });
                     }
                 });
 </script>
@@ -24301,7 +24437,7 @@ $(document).ready(function() {
  
 <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js"></script>
 
- <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBhcA7J8ZefAwlzhuYUNDIf_W3Yzy_16gA&libraries=places,geometry&callback=initMap"
+ <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAg5Q5LyM2Bv0xpeHz4gPRG1MwMh71klis&libraries=places,geometry&callback=initMap"
             async defer></script> 
      <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script> 
 <script src="https://cdn.rawgit.com/googlemaps/v3-utility-library/master/markerwithlabel/src/markerwithlabel.js"></script>

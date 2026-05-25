@@ -194,6 +194,17 @@
         }
       }
     },
+    "bookingEvents": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$bookingId": {
+          ".validate": "$bookingId!='null'",
+          ".read": "auth != null",
+          ".write": false,
+          ".indexOn": ["seq", "timestamp"]
+        }
+      }
+    },
     "pendingjobs": {
       "$companyId": {
         ".read": true,
