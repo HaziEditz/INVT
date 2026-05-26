@@ -244,6 +244,148 @@ function mirrorAllRegistrationsToFirebase() {
   if (!process.env.BW_FIREBASE_SECRET) return;
   registrationStore.forEach(r => { mirrorRegistrationToFirebase(r); });
 }
+
+const ONBOARD_SYNC_STATUSES = new Set(['trial', 'active', 'grace']);
+
+function mapOnboardRequestToRegistration(remoteId, v) {
+  return {
+    id:             v.id || remoteId,
+    status:         v.status || 'pending',
+    submittedAt:    v.submittedAt || null,
+    company:        v.businessName || v.companyName || '',
+    name:           v.contactName || v.ownerName || '',
+    email:          v.email || '',
+    phone:          v.phone || '',
+    businessNumber: v.regNo || '',
+    fleetSize:      v.fleetSize || '',
+    area:           v.city  || '',
+    country:        v.country || '',
+    serviceType:    v.serviceType || 'taxi',
+    plan:           v.plan || '',
+    planLabel:      v.planLabel || '',
+    planPrice:      v.planPrice || 0,
+    trialDays:      v.trialDays || 0,
+    companyId:      v.companyId ? String(v.companyId) : null,
+    ownerUid:       v.uid || v.authUid || null,
+    approvedAt:     v.approvedAt || null,
+    trialStart:     v.trialStart || null,
+    trialEnd:       v.trialEnd || null,
+    graceEnd:       v.graceEnd || null,
+    rejectedAt:     v.rejectedAt || null,
+    rejectedReason: v.rejectionNote || null,
+    activatedAt:    v.activatedAt || null,
+    deactivatedAt:  v.deactivatedAt || null,
+  };
+}
+
+function upsertRegistrationFromOnboard(remoteId, v) {
+  if (!v || typeof v !== 'object') return false;
+  const companyId = v.companyId ? String(v.companyId) : '';
+  if (!companyId || !ONBOARD_SYNC_STATUSES.has(v.status)) return false;
+
+  const mapped = mapOnboardRequestToRegistration(remoteId, v);
+  let idx = registrationStore.findIndex(r => r.id === remoteId);
+  if (idx === -1) idx = registrationStore.findIndex(r => r.companyId === companyId);
+
+  if (idx === -1) {
+    registrationStore.push(mapped);
+    return true;
+  }
+
+  const existing = registrationStore[idx];
+  let changed = false;
+  for (const [key, val] of Object.entries(mapped)) {
+    if (val != null && val !== '' && existing[key] !== val) {
+      existing[key] = val;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function syncApprovedOnboardRequests(remote) {
+  if (!remote || typeof remote !== 'object') return 0;
+  let updated = 0;
+  for (const [remoteId, v] of Object.entries(remote)) {
+    if (upsertRegistrationFromOnboard(remoteId, v)) updated++;
+  }
+  if (updated) {
+    try { fs.writeFileSync(REGISTRATIONS_FILE, JSON.stringify(registrationStore, null, 2), 'utf8'); } catch(_) {}
+    console.log(`[onboard-sync] synced ${updated} approved registration(s) from onboardRequests`);
+  }
+  return updated;
+}
+
+function handleOnboardStreamEvent(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  const p = payload.path || '/';
+  const data = payload.data;
+
+  if (p === '/' && data && typeof data === 'object') {
+    syncApprovedOnboardRequests(data);
+    return;
+  }
+
+  const match = String(p).match(/^\/([^/]+)$/);
+  if (match && data && typeof data === 'object') {
+    if (upsertRegistrationFromOnboard(match[1], data)) saveRegistrations();
+  }
+}
+
+async function connectOnboardRequestsStream() {
+  let token = process.env.BW_FIREBASE_SECRET || null;
+  if (!token) {
+    try { token = await getFirebaseServerToken(); } catch (_) { token = null; }
+  }
+  if (!token) {
+    console.warn('[onboard-sync] no Firebase auth token — onboardRequests listener disabled');
+    return;
+  }
+
+  const url = new URL(`${FB_DB_URL}/onboardRequests.json`);
+  url.searchParams.set('auth', token);
+
+  const req = https.request(url, { method: 'GET', headers: { Accept: 'text/event-stream' } }, (res) => {
+    if (res.statusCode !== 200) {
+      console.warn(`[onboard-sync] stream HTTP ${res.statusCode} — retry in 30s`);
+      res.resume();
+      setTimeout(connectOnboardRequestsStream, 30000);
+      return;
+    }
+    console.log('[onboard-sync] listening to onboardRequests (Firebase REST stream)');
+    let buf = '';
+    res.on('data', (chunk) => {
+      buf += chunk.toString();
+      const parts = buf.split('\n\n');
+      buf = parts.pop() || '';
+      for (const part of parts) {
+        const dataMatch = part.match(/data:\s*(.+)/);
+        if (!dataMatch) continue;
+        try {
+          handleOnboardStreamEvent(JSON.parse(dataMatch[1]));
+        } catch (e) {
+          console.warn('[onboard-sync] stream parse error:', e.message);
+        }
+      }
+    });
+    res.on('end', () => {
+      console.log('[onboard-sync] stream ended — reconnecting in 5s');
+      setTimeout(connectOnboardRequestsStream, 5000);
+    });
+  });
+  req.on('error', (err) => {
+    console.warn('[onboard-sync] stream error:', err.message, '— retry in 30s');
+    setTimeout(connectOnboardRequestsStream, 30000);
+  });
+  req.end();
+}
+
+function startOnboardRequestsListener() {
+  connectOnboardRequestsStream().catch((err) => {
+    console.warn('[onboard-sync] listener start failed:', err.message);
+    setTimeout(startOnboardRequestsListener, 30000);
+  });
+}
 // Startup reconciliation: BACKFILL-ONLY. We do NOT prune Firebase based on
 // what's in local store, because production deployments on Replit autoscale
 // can have ephemeral `.data/` — a restart with a stale bundled
@@ -251,10 +393,8 @@ function mirrorAllRegistrationsToFirebase() {
 // were written between restarts. Firebase is treated as durable storage;
 // deletions only happen via the explicit admin DELETE endpoint.
 //
-// Additionally, we now PULL from Firebase to repopulate locals on boot —
-// any dispatch-sourced records in Firebase that aren't in our local store
-// get rehydrated, so admin actions (approve, reject, etc.) work even after
-// an ephemeral restart.
+// Additionally, we now PULL approved onboardRequests from Firebase on boot and
+// via a live REST stream listener so SA/website approvals sync into registrationStore.
 async function reconcileDispatchSignupsOnBoot() {
   if (!process.env.BW_FIREBASE_SECRET) {
     console.log('[saMirror] BW_FIREBASE_SECRET not set — Super Admin mirror disabled. Set the secret to enable.');
@@ -265,48 +405,7 @@ async function reconcileDispatchSignupsOnBoot() {
     //    store. This protects against the autoscale ephemeral-disk problem.
     const remote = await firebaseDbGet('onboardRequests', null);
     if (remote && typeof remote === 'object') {
-      let hydrated = 0;
-      for (const [remoteId, v] of Object.entries(remote)) {
-        if (!v || v.source !== 'dispatch') continue;       // skip portal records
-        // Re-check the live store on every iteration (not a stale snapshot)
-        // to avoid a duplicate-push race with concurrent /AccountRequest.
-        if (registrationStore.some(r => r.id === remoteId)) continue;
-        // Map Firebase (portal) schema back to local schema
-        registrationStore.push({
-          id:             v.id || remoteId,
-          status:         v.status || 'pending',
-          submittedAt:    v.submittedAt || null,
-          company:        v.businessName || '',
-          name:           v.contactName  || '',
-          email:          v.email || '',
-          phone:          v.phone || '',
-          businessNumber: v.regNo || '',
-          fleetSize:      v.fleetSize || '',
-          area:           v.city  || '',
-          country:        v.country || '',
-          serviceType:    v.serviceType || 'taxi',
-          plan:           v.plan || '',
-          planLabel:      v.planLabel || '',
-          planPrice:      v.planPrice || 0,
-          trialDays:      v.trialDays || 0,
-          companyId:      v.companyId || null,
-          ownerUid:       v.uid || null,
-          approvedAt:     v.approvedAt || null,
-          trialStart:     v.trialStart || null,
-          trialEnd:       v.trialEnd || null,
-          graceEnd:       v.graceEnd || null,
-          rejectedAt:     v.rejectedAt || null,
-          rejectedReason: v.rejectionNote || null,
-          activatedAt:    v.activatedAt || null,
-          deactivatedAt:  v.deactivatedAt || null,
-        });
-        hydrated++;
-      }
-      if (hydrated) {
-        console.log(`[saMirror] hydrated ${hydrated} registration(s) from Firebase into local store`);
-        // Persist locally so admin reads work
-        try { fs.writeFileSync(REGISTRATIONS_FILE, JSON.stringify(registrationStore, null, 2), 'utf8'); } catch(_) {}
-      }
+      syncApprovedOnboardRequests(remote);
     }
     // 2. PUSH: backfill anything local that isn't (yet) in Firebase.
     if (registrationStore.length) {
@@ -319,6 +418,7 @@ async function reconcileDispatchSignupsOnBoot() {
   }
 }
 setTimeout(reconcileDispatchSignupsOnBoot, 3000);
+setTimeout(startOnboardRequestsListener, 5000);
 
 // Run every 10 minutes — expire trials, move to grace period, then deactivate
 setInterval(() => {
