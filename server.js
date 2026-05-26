@@ -75,7 +75,7 @@ function getStripe() {
 }
 const STRIPE_PK = process.env.STRIPE_PUBLISHABLE_KEY || '';
 
-const PORT = 5000;
+const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 const ROOT = path.join(__dirname, 'taxitime.co.nz', 'Dispatchthree');
 
