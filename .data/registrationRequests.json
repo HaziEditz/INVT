@@ -25,5 +25,31 @@
     "graceEnd": null,
     "rejectedAt": null,
     "rejectedReason": null
+  },
+  {
+    "id": "REG-860869",
+    "status": "trial",
+    "submittedAt": 1779667200000,
+    "company": "Invercargill Taxis Southland Limited",
+    "name": "",
+    "email": "hasnat.abdullahcool@gmail.com",
+    "phone": "",
+    "businessNumber": "",
+    "fleetSize": "",
+    "area": "Invercargill",
+    "country": "New Zealand",
+    "serviceType": "taxi",
+    "plan": "free_trial",
+    "planLabel": "Free Trial",
+    "planPrice": 0,
+    "trialDays": 14,
+    "companyId": "860869",
+    "ownerUid": "7STdxXjpo2erI209KMLuil9VqFi2",
+    "approvedAt": 1779667200000,
+    "trialStart": 1779667200000,
+    "trialEnd": 1780876800000,
+    "graceEnd": null,
+    "rejectedAt": null,
+    "rejectedReason": null
   }
 ]
