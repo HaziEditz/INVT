@@ -6725,6 +6725,67 @@ $(document).ready(function() {
     var map;
     var directionsRenderer;
     var directionsService;
+
+    // ── Google Directions API call guard ─────────────────────────────────────
+    // Stops runaway DirectionsService.route calls (ng-mouseover + 10s job polls).
+    window._bwDirectionsGuard = {
+        maxCalls: 120,
+        minIntervalMs: 5000,
+        callCount: 0,
+        lastByKey: {},
+        inflight: {}
+    };
+    window._bwRouteHoverGuard = { key: '', at: 0 };
+
+    function _bwDirectionsRouteKey(request) {
+        try {
+            function _loc(v) {
+                if (!v) return '';
+                if (typeof v === 'string') return v.trim();
+                if (v.lat != null && v.lng != null) return v.lat + ',' + v.lng;
+                if (v.latitude != null && v.longitude != null) return v.latitude + ',' + v.longitude;
+                return JSON.stringify(v);
+            }
+            var w = (request.waypoints || []).length;
+            return _loc(request.origin) + '>' + _loc(request.destination) + ':' + w + ':' + (request.travelMode || '');
+        } catch (e) { return 'k' + Math.random(); }
+    }
+
+    function _bwShouldSkipRouteHover(id, pickup, dropoff, extra) {
+        var key = String(id) + '|' + (pickup || '') + '|' + (dropoff || '') + (extra || '');
+        var now = Date.now();
+        if (window._bwRouteHoverGuard.key === key && (now - window._bwRouteHoverGuard.at) < 8000) return true;
+        window._bwRouteHoverGuard = { key: key, at: now };
+        return false;
+    }
+
+    function _bwPatchDirectionsService(svc) {
+        if (!svc || svc._bwPatched) return svc;
+        var _origRoute = svc.route.bind(svc);
+        svc.route = function (request, callback) {
+            var g = window._bwDirectionsGuard;
+            if (g.callCount >= g.maxCalls) {
+                console.warn('[BW] Directions API session limit reached (' + g.maxCalls + '); request skipped.');
+                if (callback) callback(null, 'OVER_QUERY_LIMIT');
+                return;
+            }
+            var key = _bwDirectionsRouteKey(request);
+            var now = Date.now();
+            if (g.inflight[key]) return;
+            if (g.lastByKey[key] && (now - g.lastByKey[key]) < g.minIntervalMs) return;
+            g.inflight[key] = true;
+            g.callCount++;
+            _origRoute(request, function (response, status) {
+                delete g.inflight[key];
+                if (status === 'OK' || (typeof google !== 'undefined' && google.maps && status === google.maps.DirectionsStatus.OK)) {
+                    g.lastByKey[key] = Date.now();
+                }
+                if (callback) callback(response, status);
+            });
+        };
+        svc._bwPatched = true;
+        return svc;
+    }
     
      
     var timeroz = new IntervalTimer(function () {
@@ -6753,7 +6814,7 @@ $(document).ready(function() {
     var genericlat , genericlng;
     function initMap() {  
         directionsRenderer = new google.maps.DirectionsRenderer;
-        directionsService = new google.maps.DirectionsService;
+        directionsService = _bwPatchDirectionsService(new google.maps.DirectionsService);
         var arr = new Array();
         var bounds = new google.maps.LatLngBounds();
         infowindow = new google.maps.InfoWindow();
@@ -19357,14 +19418,13 @@ $(document).ready(function() {
                 markers[id] = marker;
             }
             $scope.showmakert = function(id, pickup, dropoff){
-           
-            
+                if (_bwShouldSkipRouteHover(id, pickup, dropoff)) return;
                 directionsRenderer.setMap(map);
                 $scope.calculateAndDisplayRoute0(directionsService , directionsRenderer,pickup, dropoff);
                  
             }
             $scope.showmakert3 = function(id, pickup, dropoff , nextstop){
-                console.log(nextstop);
+                if (_bwShouldSkipRouteHover(id, pickup, dropoff, nextstop)) return;
                 directionsRenderer.setMap(map);
                 $scope.calculateAndDisplayRoute44(directionsService , directionsRenderer,pickup, dropoff , nextstop) 
             }
@@ -23785,9 +23845,13 @@ $(document).ready(function() {
                 });
             }
 
-            var _jdpMapObj = null, _jdpDirRenderer = null;
+            var _jdpMapObj = null, _jdpDirRenderer = null, _jdpLastRoute = { key: '', at: 0 };
             function jdpDrawRoute(pickLL, dropLL) {
                 if (typeof google === 'undefined' || !google.maps) { $('#jdp-map-wrap').hide(); return; }
+                var _rKey = (pickLL || '') + '|' + (dropLL || '');
+                var _rNow = Date.now();
+                if (_jdpLastRoute.key === _rKey && (_rNow - _jdpLastRoute.at) < 10000) return;
+                _jdpLastRoute = { key: _rKey, at: _rNow };
                 var pp = pickLL.split(','), dp = dropLL.split(',');
                 var origin = new google.maps.LatLng(parseFloat(pp[0]), parseFloat(pp[1]));
                 var dest   = new google.maps.LatLng(parseFloat(dp[0]), parseFloat(dp[1]));
@@ -23795,7 +23859,8 @@ $(document).ready(function() {
                 _jdpMapObj = new google.maps.Map(mapDiv, { zoom:13, center:origin, mapTypeId:'roadmap', disableDefaultUI:true, zoomControl:true });
                 if (_jdpDirRenderer) _jdpDirRenderer.setMap(null);
                 _jdpDirRenderer = new google.maps.DirectionsRenderer({ map: _jdpMapObj, suppressMarkers: false });
-                new google.maps.DirectionsService().route({ origin:origin, destination:dest, travelMode:'DRIVING' }, function(res, st) {
+                var _jdpDs = directionsService || _bwPatchDirectionsService(new google.maps.DirectionsService());
+                _jdpDs.route({ origin:origin, destination:dest, travelMode:'DRIVING' }, function(res, st) {
                     if (st === 'OK') {
                         _jdpDirRenderer.setDirections(res);
                     } else {
@@ -24437,6 +24502,23 @@ $(document).ready(function() {
  
 <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js"></script>
 
+<script>
+// Suppress Google Maps legacy/deprecation console.warn spam (DirectionsService, DirectionsRenderer, etc.)
+(function () {
+    var _origWarn = console.warn;
+    console.warn = function () {
+        var msg = arguments[0];
+        if (typeof msg === 'string' && (
+            msg.indexOf('google.maps.DirectionsRenderer') >= 0 ||
+            msg.indexOf('google.maps.DirectionsService') >= 0 ||
+            msg.indexOf('google.maps.places') >= 0 ||
+            msg.indexOf('google.maps.Marker') >= 0 ||
+            msg.indexOf('developers.google.com/maps/legacy') >= 0
+        )) return;
+        return _origWarn.apply(console, arguments);
+    };
+})();
+</script>
  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAg5Q5LyM2Bv0xpeHz4gPRG1MwMh71klis&libraries=places,geometry&callback=initMap"
             async defer></script> 
      <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script> 
