@@ -3180,8 +3180,17 @@ $(document).ready(function() {
 <!-- ── Trial / billing notice (bottom banner — never blocks workflow) ── -->
 <div id="bw-trial-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99998;padding:10px 16px;font-family:'Inter',-apple-system,sans-serif;font-size:13px;font-weight:600;align-items:center;justify-content:center;gap:12px;box-shadow:0 -4px 20px rgba(0,0,0,.25);">
   <span id="bw-trial-banner-msg" style="flex:1;text-align:center"></span>
-  <a id="bw-trial-upgrade-link" href="https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;opacity:0.9;white-space:nowrap;font-size:12px;">Upgrade now →</a>
+  <a id="bw-trial-upgrade-link" href="https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;opacity:0.9;white-space:nowrap;font-size:12px;cursor:pointer;">Upgrade now →</a>
   <button id="bw-trial-dismiss" type="button" aria-label="Dismiss" style="background:transparent;border:none;color:inherit;font-size:20px;line-height:1;cursor:pointer;padding:0 4px;opacity:0.75;">×</button>
+</div>
+
+<!-- Upgrade denied for dispatchers (non-owners) -->
+<div id="bw-upgrade-denied-modal" style="display:none;position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;padding:28px 32px;max-width:440px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25);font-family:'Inter',-apple-system,sans-serif;">
+    <div style="font-size:18px;font-weight:700;color:#1565C0;margin-bottom:12px;">Billing &amp; Subscriptions</div>
+    <p style="font-size:14px;color:#444;line-height:1.65;margin:0 0 20px;">To upgrade your plan, please contact your company owner.<br><br>Only the company owner can manage billing and subscriptions.</p>
+    <button type="button" id="bw-upgrade-denied-close" style="padding:10px 22px;background:#1565C0;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">OK</button>
+  </div>
 </div>
 
 <!-- Locked overlay removed — subscription expiry blocks login only, not in-console workflow -->
@@ -3207,6 +3216,10 @@ $(document).ready(function() {
   var _bwBanner  = document.getElementById('bw-trial-banner');
   var _bwDismiss = document.getElementById('bw-trial-dismiss');
   var _bwUpgrade = document.getElementById('bw-trial-upgrade-link');
+  var _bwUpgradeDeniedModal = document.getElementById('bw-upgrade-denied-modal');
+  var _bwUpgradeDeniedClose = document.getElementById('bw-upgrade-denied-close');
+  var _bwCachedRole = null;
+  var _bwPendingUpgradeUrl = '';
   var OWNER_BILLING_BASE = 'https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx';
 
   function _dismissKey(cid) { return 'bw_billing_dismiss_' + (cid || 'x'); }
@@ -3219,6 +3232,63 @@ $(document).ready(function() {
     return OWNER_BILLING_BASE + (cid ? ('?cid=' + encodeURIComponent(cid)) : '');
   }
 
+  function _bwShowUpgradeDeniedModal() {
+    if (!_bwUpgradeDeniedModal) return;
+    _bwUpgradeDeniedModal.style.display = 'flex';
+  }
+
+  function _bwHideUpgradeDeniedModal() {
+    if (_bwUpgradeDeniedModal) _bwUpgradeDeniedModal.style.display = 'none';
+  }
+
+  function _bwResolveUserRole(cid, uid) {
+    if (!uid) return Promise.resolve('dispatcher');
+    if (_bwCachedRole) return Promise.resolve(_bwCachedRole);
+    var db;
+    try { db = firebase.database(); } catch (e) { return Promise.resolve('dispatcher'); }
+    return Promise.all([
+      db.ref('users/' + uid + '/role').once('value').then(function(s) { return s.val(); }),
+      cid ? db.ref('drivers/' + cid + '/' + uid + '/role').once('value').then(function(s) { return s.val(); }) : null,
+      cid ? db.ref('companySettings/' + cid + '/staff/' + uid + '/role').once('value').then(function(s) { return s.val(); }) : null,
+      cid ? db.ref('superClients/' + cid + '/ownerUid').once('value').then(function(s) { return s.val(); }) : null
+    ]).then(function(results) {
+      var userRole = results[0];
+      var driverRole = results[1];
+      var staffRole = results[2];
+      var ownerUid = results[3];
+      if (String(userRole || '').toLowerCase() === 'owner') { _bwCachedRole = 'owner'; return 'owner'; }
+      if (String(driverRole || '').toLowerCase() === 'owner') { _bwCachedRole = 'owner'; return 'owner'; }
+      if (String(staffRole || '').toLowerCase() === 'owner') { _bwCachedRole = 'owner'; return 'owner'; }
+      if (ownerUid && String(ownerUid) === String(uid)) { _bwCachedRole = 'owner'; return 'owner'; }
+      if (String(userRole || driverRole || staffRole || '').toLowerCase() === 'dispatcher') {
+        _bwCachedRole = 'dispatcher';
+        return 'dispatcher';
+      }
+      return db.ref('dispatchers/' + cid + '/' + uid).once('value').then(function(s) {
+        _bwCachedRole = s.exists() ? 'dispatcher' : 'owner';
+        return _bwCachedRole;
+      });
+    }).catch(function() { return 'dispatcher'; });
+  }
+
+  function _bwConfigureUpgradeAction(cid, url) {
+    if (!_bwUpgrade) return;
+    _bwPendingUpgradeUrl = url || _upgradeUrl(cid);
+    var uid = '';
+    try { var u = firebase.auth().currentUser; if (u) uid = u.uid; } catch (e) {}
+    _bwResolveUserRole(cid, uid).then(function(role) {
+      if (role === 'owner') {
+        _bwUpgrade.textContent = 'Upgrade now →';
+        _bwUpgrade.href = _bwPendingUpgradeUrl;
+        _bwUpgrade.removeAttribute('data-dispatcher-only');
+      } else {
+        _bwUpgrade.textContent = 'Contact your owner to upgrade';
+        _bwUpgrade.href = '#';
+        _bwUpgrade.setAttribute('data-dispatcher-only', '1');
+      }
+    });
+  }
+
   function _bwShowBanner(state, msg, cid, customUrl) {
     if (!_bwBanner) return;
     if (sessionStorage.getItem(_dismissKey(cid)) === '1') {
@@ -3228,7 +3298,7 @@ $(document).ready(function() {
     _bwBanner.setAttribute('data-state', state);
     var msgEl = document.getElementById('bw-trial-banner-msg');
     if (msgEl) msgEl.textContent = msg;
-    if (_bwUpgrade) _bwUpgrade.href = customUrl || _upgradeUrl(cid);
+    _bwConfigureUpgradeAction(cid, customUrl || _upgradeUrl(cid));
     _bwBanner.style.display = 'flex';
   }
 
@@ -3273,6 +3343,32 @@ $(document).ready(function() {
       var cid = localStorage.getItem('TT_CId') || '';
       sessionStorage.setItem(_dismissKey(cid), '1');
       _bwHideBanner();
+    });
+  }
+
+  if (_bwUpgrade) {
+    _bwUpgrade.addEventListener('click', function(e) {
+      e.preventDefault();
+      var cid = localStorage.getItem('TT_CId') || '';
+      var uid = '';
+      try { var u = firebase.auth().currentUser; if (u) uid = u.uid; } catch (ex) {}
+      var url = _bwPendingUpgradeUrl || _upgradeUrl(cid);
+      _bwResolveUserRole(cid, uid).then(function(role) {
+        if (role === 'owner') {
+          window.open(url, '_blank', 'noopener');
+        } else {
+          _bwShowUpgradeDeniedModal();
+        }
+      });
+    });
+  }
+
+  if (_bwUpgradeDeniedClose) {
+    _bwUpgradeDeniedClose.addEventListener('click', _bwHideUpgradeDeniedModal);
+  }
+  if (_bwUpgradeDeniedModal) {
+    _bwUpgradeDeniedModal.addEventListener('click', function(e) {
+      if (e.target === _bwUpgradeDeniedModal) _bwHideUpgradeDeniedModal();
     });
   }
 
