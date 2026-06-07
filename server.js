@@ -1393,7 +1393,10 @@ function assignBooking(opts) {
           eventType: 'new_offer',
           version:   job.updateSeq,
           updatedAt: _FB_SERVER_TIMESTAMP,
-          bookingId: bookingId
+          bookingId: bookingId,
+          joboffer:  String(bookingId),
+          jobpickup: String(job.PickAddress || job.PickupAddress || job.jobpickup || ''),
+          jobdropoff: String(job.DropAddress || job.DropLocation || job.jobdropoff || ''),
         }, _tok);
       } catch (e) { console.warn(`  [${source}] notification write failed: ${e && e.message}`); }
     })();
