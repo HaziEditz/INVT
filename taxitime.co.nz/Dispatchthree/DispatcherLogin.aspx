@@ -1586,7 +1586,9 @@
       }
 
       // Errors / notices from server redirects
-      if (reason === 'account_inactive') {
+      if (reason === 'subscription_expired') {
+        showError('Your subscription has expired. Please contact your administrator to renew.');
+      } else if (reason === 'account_inactive') {
         showError('This account has been deactivated or deleted. Please contact BookaWaka support.');
       } else if (reason === 'session_revoked') {
         showError('Your session was ended by an administrator. Please sign in again.');

@@ -122,6 +122,9 @@ if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }
 // status: pending | approved | rejected | trial | active | grace | deactivated
 // plan:   free_trial | starter | pro
 // serviceType: taxi | restaurant | freight | all
+const DEFAULT_GRACE_PERIOD_DAYS = 7;
+const SUBSCRIPTION_EXPIRED_MSG = 'Your subscription has expired. Please contact your administrator to renew.';
+
 let registrationStore = [];
 try {
   if (fs.existsSync(REGISTRATIONS_FILE)) {
@@ -593,6 +596,73 @@ async function firebaseSignIn(email, password) {
 // If BW_FIREBASE_SECRET env var is set, use it as admin token (bypasses rules).
 // Get it from: Firebase Console → Project Settings → Service Accounts → Database Secrets.
 // Otherwise falls back to the user's own ID token (requires rules to be deployed).
+async function readCompanySettingsNode(companyId) {
+  if (!companyId) return null;
+  try {
+    const tok = await getFirebaseServerToken();
+    return await firebaseDbGet(`companySettings/${companyId}`, tok);
+  } catch (e) {
+    console.warn(`[billing] read companySettings/${companyId} failed:`, e.message);
+    return null;
+  }
+}
+
+/** Merge registration record with Firebase companySettings plan/billing for access decisions. */
+function resolveCompanyAccess(reg, settings) {
+  const now = Date.now();
+  const plan = (settings && settings.plan) || {};
+  const billing = (settings && settings.billing) || {};
+  const graceDays = Math.max(0, Number(billing.gracePeriodDays ?? billing.graceDays ?? DEFAULT_GRACE_PERIOD_DAYS) || DEFAULT_GRACE_PERIOD_DAYS);
+  const extensionDays = Math.max(0, Number(billing.extensionDays ?? 0) || 0);
+  const trialEnd = Number(plan.trialEnd || reg.trialEnd || 0) || null;
+  const planStatus = String(plan.status || billing.status || reg.status || 'active').toLowerCase();
+  const accessUntil = trialEnd ? trialEnd + (graceDays + extensionDays) * 86400000 : null;
+  const pastGrace = !!(accessUntil && now > accessUntil);
+  const loginBlocked = pastGrace || planStatus === 'deactivated' || planStatus === 'suspended' || planStatus === 'deleted';
+  const showBanner = !pastGrace && (
+    planStatus === 'trial' || planStatus === 'overdue' || planStatus === 'grace' ||
+    reg.status === 'trial' || reg.status === 'grace' ||
+    (trialEnd && now >= trialEnd && accessUntil && now < accessUntil)
+  );
+  const daysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / 86400000)) : null;
+  const daysUntilBlock = accessUntil ? Math.max(0, Math.ceil((accessUntil - now) / 86400000)) : null;
+
+  return {
+    status: planStatus || reg.status,
+    regStatus: reg.status,
+    trialEnd,
+    gracePeriodDays: graceDays,
+    extensionDays,
+    accessUntil,
+    daysLeft,
+    daysUntilBlock,
+    showBanner,
+    loginBlocked,
+    blockMessage: SUBSCRIPTION_EXPIRED_MSG,
+    canAccess: !loginBlocked,
+    planName: plan.name || plan.planLabel || reg.planLabel || '',
+  };
+}
+
+async function resolveCompanyAccessAsync(reg) {
+  if (!reg || !reg.companyId) return { loginBlocked: true, blockMessage: SUBSCRIPTION_EXPIRED_MSG };
+  const settings = await readCompanySettingsNode(reg.companyId);
+  return resolveCompanyAccess(reg, settings);
+}
+
+async function syncCompanySettingsBilling(companyId, planPatch, billingPatch) {
+  if (!companyId) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const now = Date.now();
+    if (planPatch) await firebaseDbPatch(`companySettings/${companyId}/plan`, Object.assign({}, planPatch, { updatedAt: now }), tok);
+    if (billingPatch) await firebaseDbPatch(`companySettings/${companyId}/billing`, Object.assign({}, billingPatch, { updatedAt: now }), tok);
+  } catch (e) {
+    console.warn(`[billing] sync companySettings/${companyId} failed:`, e.message);
+  }
+}
+
 function fbAuthToken(idToken) {
   return process.env.BW_FIREBASE_SECRET || idToken;
 }
@@ -3989,12 +4059,12 @@ const server = http.createServer(async (req, res) => {
     }
     // Also check the company's current status — deactivated/deleted companies must not load the console
     const _gateReg = registrationStore.find(r => r.companyId === companyId);
-    const _gateAllowed = ['trial', 'active', 'grace'];
-    if (!_gateReg || !_gateAllowed.includes(_gateReg.status)) {
+    const _gateAccess = _gateReg ? await resolveCompanyAccessAsync(_gateReg) : { loginBlocked: true };
+    if (!_gateReg || _gateAccess.loginBlocked) {
       console.log(`[gate] Default.aspx blocked: companyId=${companyId} status=${_gateReg ? _gateReg.status : 'not found'}`);
-      // Expire the cookie so the browser won't re-use it
+      const reason = _gateAccess.blockMessage === SUBSCRIPTION_EXPIRED_MSG ? 'subscription_expired' : 'account_inactive';
       res.writeHead(302, {
-        Location: '/DispatcherLogin.aspx?reason=account_inactive',
+        Location: `/DispatcherLogin.aspx?reason=${reason}`,
         'Set-Cookie': 'BW_SID=; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=0',
       });
       res.end();
@@ -4223,6 +4293,16 @@ const server = http.createServer(async (req, res) => {
         reg.trialEnd   = trialDays > 0 ? now + trialDays * 24 * 60 * 60 * 1000 : null;
         reg.graceEnd   = null;
         saveRegistrations();
+        void syncCompanySettingsBilling(companyId, {
+          type: reg.plan || 'free_trial',
+          name: reg.planLabel || 'Free Trial',
+          status: 'trial',
+          trialEnd: reg.trialEnd,
+        }, {
+          status: 'trial',
+          gracePeriodDays: DEFAULT_GRACE_PERIOD_DAYS,
+          extensionDays: 0,
+        });
         console.log(`[admin] approved registration ${regId} → companyId=${companyId}, uid=${ownerUid}, plan=${reg.plan || 'free_trial'}, trial until ${reg.trialEnd ? new Date(reg.trialEnd).toISOString() : 'n/a'}`);
         jsonReply(res, {
           ok: true, companyId, ownerUid, trialEnd: reg.trialEnd,
@@ -4253,6 +4333,7 @@ const server = http.createServer(async (req, res) => {
         reg.graceEnd    = null;
         reg.activatedAt = Date.now();
         saveRegistrations();
+        void syncCompanySettingsBilling(reg.companyId, { status: 'active', trialEnd: null }, { status: 'active' });
         console.log(`[admin] activated account ${regId} (${reg.email})`);
         jsonReply(res, { ok: true, message: 'Account activated.' });
         return;
@@ -4302,6 +4383,13 @@ const server = http.createServer(async (req, res) => {
           reg.trialDays   = 0;
           reg.activatedAt = Date.now();
           saveRegistrations();
+          void syncCompanySettingsBilling(reg.companyId, {
+            type: reg.plan,
+            name: reg.planLabel,
+            status: 'active',
+            trialEnd: null,
+            rate: reg.planPrice || 0,
+          }, { status: 'active', extensionDays: 0 });
           console.log(`[admin] set-plan ${regId} (${reg.email}) → plan=${reg.plan} status=active`);
           jsonReply(res, { ok: true, message: `Plan set to ${reg.planLabel}, account active.`,
                             plan: reg.plan, planLabel: reg.planLabel, planPrice: reg.planPrice, status: reg.status });
@@ -4817,17 +4905,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Block login for any company that is not currently active
-    const LOGIN_ALLOWED_STATUSES = ['trial', 'active', 'grace'];
-    if (!LOGIN_ALLOWED_STATUSES.includes(reg.status)) {
+    // Block login for pending/rejected/deleted or subscription past grace+extension
+    const access = await resolveCompanyAccessAsync(reg);
+    if (access.loginBlocked) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      const msg = reg.status === 'deactivated' || reg.status === 'deleted'
-        ? 'This account has been deactivated. Please contact BookaWaka support.'
-        : reg.status === 'pending'
-          ? 'This account is awaiting approval.'
-          : reg.status === 'rejected'
-            ? 'This account application was not approved.'
-            : 'Account access is not available.';
+      const msg = access.blockMessage || (
+        reg.status === 'pending' ? 'This account is awaiting approval.' :
+        reg.status === 'rejected' ? 'This account application was not approved.' :
+        'Account access is not available.'
+      );
+      res.end(JSON.stringify({ error: msg, status: reg.status }));
+      console.log(`[session] login BLOCKED: companyId=${companyId} status=${reg.status}`);
+      return;
+    }
+    if (['pending', 'rejected', 'deleted'].includes(reg.status)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      const msg = reg.status === 'pending'
+        ? 'This account is awaiting approval.'
+        : reg.status === 'rejected'
+          ? 'This account application was not approved.'
+          : 'Account access is not available.';
       res.end(JSON.stringify({ error: msg, status: reg.status }));
       console.log(`[session] login BLOCKED: companyId=${companyId} status=${reg.status}`);
       return;
@@ -4961,18 +5058,28 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ found: false, status: null }));
       return;
     }
-    const now = Date.now();
+    const settings = await readCompanySettingsNode(reg.companyId);
+    const access = resolveCompanyAccess(reg, settings);
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({
       found:      true,
-      status:     reg.status,
+      status:     access.status,
+      regStatus:  reg.status,
       companyId:  reg.companyId,
       company:    reg.company,
-      trialEnd:   reg.trialEnd,
+      trialEnd:   access.trialEnd,
       graceEnd:   reg.graceEnd,
-      daysLeft:   reg.trialEnd ? Math.max(0, Math.ceil((reg.trialEnd - now) / 86400000)) : null,
-      hoursLeft:  reg.graceEnd ? Math.max(0, Math.ceil((reg.graceEnd - now) / 3600000))  : null,
-      canAccess:  ['trial','active','grace'].includes(reg.status),
+      daysLeft:   access.daysLeft,
+      daysUntilBlock: access.daysUntilBlock,
+      gracePeriodDays: access.gracePeriodDays,
+      extensionDays: access.extensionDays,
+      accessUntil: access.accessUntil,
+      showBanner: access.showBanner,
+      canAccess:  access.canAccess,
+      loginBlocked: access.loginBlocked,
+      blockMessage: access.blockMessage,
+      planName: access.planName,
+      upgradeUrl: `https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx?cid=${encodeURIComponent(reg.companyId)}`,
     }));
     return;
   }

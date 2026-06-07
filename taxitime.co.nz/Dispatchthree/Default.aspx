@@ -3177,20 +3177,14 @@ $(document).ready(function() {
   </div>
 </div>
 
-<!-- ── Trial / Grace / Locked Banner ─────────────────────────────────── -->
-<div id="bw-trial-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;padding:9px 20px;font-family:'Inter',-apple-system,sans-serif;font-size:13px;font-weight:600;display:none;align-items:center;justify-content:center;gap:12px;">
-  <span id="bw-trial-banner-msg"></span>
-  <a href="mailto:hello@bookawaka.com" style="color:inherit;text-decoration:underline;opacity:0.85;">Upgrade now →</a>
+<!-- ── Trial / billing notice (bottom banner — never blocks workflow) ── -->
+<div id="bw-trial-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:99998;padding:10px 16px;font-family:'Inter',-apple-system,sans-serif;font-size:13px;font-weight:600;align-items:center;justify-content:center;gap:12px;box-shadow:0 -4px 20px rgba(0,0,0,.25);">
+  <span id="bw-trial-banner-msg" style="flex:1;text-align:center"></span>
+  <a id="bw-trial-upgrade-link" href="https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;opacity:0.9;white-space:nowrap;font-size:12px;">Upgrade now →</a>
+  <button id="bw-trial-dismiss" type="button" aria-label="Dismiss" style="background:transparent;border:none;color:inherit;font-size:20px;line-height:1;cursor:pointer;padding:0 4px;opacity:0.75;">×</button>
 </div>
 
-<!-- ── Locked Screen Overlay ─────────────────────────────────────────── -->
-<div id="bw-locked-screen" style="display:none;position:fixed;inset:0;z-index:999990;background:rgba(7,9,14,0.96);backdrop-filter:blur(8px);display:none;flex-direction:column;align-items:center;justify-content:center;font-family:'Inter',-apple-system,sans-serif;color:#fff;text-align:center;padding:40px;">
-  <div style="font-size:56px;margin-bottom:20px;">🔒</div>
-  <div style="font-size:24px;font-weight:800;margin-bottom:10px;">Your trial has ended</div>
-  <div id="bw-locked-msg" style="font-size:15px;color:#94a3b8;max-width:400px;line-height:1.7;margin-bottom:28px;">To continue using BookaWaka, please upgrade your account. Contact our team and we'll get you set up on a paid plan.</div>
-  <a href="mailto:hello@bookawaka.com" style="display:inline-block;padding:13px 30px;background:#f5be1e;color:#1a1100;font-weight:700;font-size:15px;border-radius:10px;text-decoration:none;">Contact us to upgrade</a>
-  <div style="margin-top:20px;font-size:12px;color:#475569;">Or call your BookaWaka account manager</div>
-</div>
+<!-- Locked overlay removed — subscription expiry blocks login only, not in-console workflow -->
 
 <!-- ── Update Required Overlay ────────────────────────────────────────── -->
 <div id="bw-update-screen" style="display:none;position:fixed;inset:0;z-index:999995;background:rgba(7,9,14,0.97);backdrop-filter:blur(10px);flex-direction:column;align-items:center;justify-content:center;font-family:'Inter',-apple-system,sans-serif;color:#fff;text-align:center;padding:40px;">
@@ -3202,62 +3196,84 @@ $(document).ready(function() {
 </div>
 
 <style>
-/* Trial banner colours */
-#bw-trial-banner[data-state="trial"]  { background:#1a2e12; color:#86efac; border-bottom:1px solid #166534; }
-#bw-trial-banner[data-state="grace"]  { background:#2d1a06; color:#fbbf24; border-bottom:1px solid #92400e; }
+/* Trial banner colours (bottom of screen) */
+#bw-trial-banner[data-state="trial"]  { background:#1a2e12; color:#86efac; border-top:1px solid #166534; }
+#bw-trial-banner[data-state="grace"]  { background:#2d1a06; color:#fbbf24; border-top:1px solid #92400e; }
+#bw-trial-banner[data-state="overdue"] { background:#2d1a06; color:#fbbf24; border-top:1px solid #92400e; }
 </style>
 
 <script>
 (function() {
   var _bwBanner  = document.getElementById('bw-trial-banner');
-  var _bwLocked  = document.getElementById('bw-locked-screen');
+  var _bwDismiss = document.getElementById('bw-trial-dismiss');
+  var _bwUpgrade = document.getElementById('bw-trial-upgrade-link');
+  var OWNER_BILLING_BASE = 'https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx';
+
+  function _dismissKey(cid) { return 'bw_billing_dismiss_' + (cid || 'x'); }
+
+  function _bwHideBanner() {
+    if (_bwBanner) _bwBanner.style.display = 'none';
+  }
+
+  function _upgradeUrl(cid) {
+    return OWNER_BILLING_BASE + (cid ? ('?cid=' + encodeURIComponent(cid)) : '');
+  }
+
+  function _bwShowBanner(state, msg, cid, customUrl) {
+    if (!_bwBanner) return;
+    if (sessionStorage.getItem(_dismissKey(cid)) === '1') {
+      _bwHideBanner();
+      return;
+    }
+    _bwBanner.setAttribute('data-state', state);
+    var msgEl = document.getElementById('bw-trial-banner-msg');
+    if (msgEl) msgEl.textContent = msg;
+    if (_bwUpgrade) _bwUpgrade.href = customUrl || _upgradeUrl(cid);
+    _bwBanner.style.display = 'flex';
+  }
+
+  window._bwApplyBillingNotice = function(data) {
+    if (!data) return;
+    var cid = data.companyId || localStorage.getItem('TT_CId') || '';
+    if (data.showBanner === false) {
+      _bwHideBanner();
+      return;
+    }
+    var status = String(data.status || data.regStatus || '').toLowerCase();
+    var upgradeUrl = data.upgradeUrl || _upgradeUrl(cid);
+
+    if (status === 'overdue') {
+      _bwShowBanner('overdue', '⚠️ Subscription overdue — renew in the Owner Panel to avoid login lockout.', cid, upgradeUrl);
+      return;
+    }
+    if (status === 'grace' || (data.daysLeft === 0 && data.daysUntilBlock > 0)) {
+      var graceDays = data.daysUntilBlock != null ? data.daysUntilBlock : 0;
+      _bwShowBanner('grace', '⚠️ Trial ended — ' + graceDays + ' day' + (graceDays === 1 ? '' : 's') + ' before login is blocked. Company owner can upgrade in Owner Panel.', cid, upgradeUrl);
+      return;
+    }
+    if (status === 'trial' || (data.trialEnd && data.daysLeft != null)) {
+      var d = data.daysLeft != null ? data.daysLeft : Math.max(0, Math.ceil((data.trialEnd - Date.now()) / 86400000));
+      _bwShowBanner('trial', '🕐 Trial: ' + d + ' day' + (d === 1 ? '' : 's') + ' remaining — company owner can upgrade in Owner Panel.', cid, upgradeUrl);
+      return;
+    }
+    if (data.showBanner) {
+      _bwShowBanner('grace', '⚠️ Please review your subscription in the Owner Panel.', cid, upgradeUrl);
+      return;
+    }
+    _bwHideBanner();
+  };
 
   function _bwApplyAccountStatus(data) {
     if (!data || !data.found) return;
-    var status = data.status;
+    window._bwApplyBillingNotice(data);
+  }
 
-    // Locked: trial fully expired and grace also gone
-    if (status === 'deactivated' || (status === 'grace' && data.hoursLeft === 0)) {
-      if (_bwBanner)  _bwBanner.style.display  = 'none';
-      if (_bwLocked) {
-        _bwLocked.style.display = 'flex';
-        var msg = document.getElementById('bw-locked-msg');
-        if (msg) msg.textContent = 'Your account has been deactivated. Please contact BookaWaka to restore access.';
-      }
-      return;
-    }
-
-    // Grace period (trial ended, 24-hr warning)
-    if (status === 'grace') {
-      if (_bwLocked) _bwLocked.style.display = 'none';
-      if (_bwBanner) {
-        var h = data.hoursLeft || 0;
-        _bwBanner.setAttribute('data-state', 'grace');
-        document.getElementById('bw-trial-banner-msg').textContent = '⚠️ Your trial has ended. You have ' + h + ' hour' + (h === 1 ? '' : 's') + ' before access is locked.';
-        _bwBanner.style.display = 'flex';
-      }
-      return;
-    }
-
-    // Trial active — show countdown if ≤ 5 days left
-    if (status === 'trial' && data.trialEnd) {
-      if (_bwLocked) _bwLocked.style.display = 'none';
-      var d = data.daysLeft != null ? data.daysLeft : Math.max(0, Math.ceil((data.trialEnd - Date.now()) / 86400000));
-      if (d <= 5) {
-        if (_bwBanner) {
-          _bwBanner.setAttribute('data-state', 'trial');
-          document.getElementById('bw-trial-banner-msg').textContent = '🕐 Trial: ' + d + ' day' + (d === 1 ? '' : 's') + ' remaining — upgrade to keep access.';
-          _bwBanner.style.display = 'flex';
-        }
-      } else {
-        if (_bwBanner) _bwBanner.style.display = 'none';
-      }
-      return;
-    }
-
-    // Active — no banner needed
-    if (_bwBanner) _bwBanner.style.display = 'none';
-    if (_bwLocked) _bwLocked.style.display = 'none';
+  if (_bwDismiss) {
+    _bwDismiss.addEventListener('click', function() {
+      var cid = localStorage.getItem('TT_CId') || '';
+      sessionStorage.setItem(_dismissKey(cid), '1');
+      _bwHideBanner();
+    });
   }
 
   function _bwFetchAndApply() {
@@ -3271,7 +3287,6 @@ $(document).ready(function() {
       .catch(function() {});
   }
 
-  // Run on load (after a short delay so session is established), then every 5 min
   setTimeout(_bwFetchAndApply, 3000);
   setInterval(_bwFetchAndApply, 5 * 60 * 1000);
 })();
@@ -5819,6 +5834,31 @@ $(document).ready(function() {
                 localStorage.setItem('TT_TZ', _bwTZ);
                 window._companyTZ = _bwTZ;
                 console.log('[bw-settings] timezone set:', _bwTZ);
+            }
+            // Plan / billing — drives bottom trial banner (never blocks console)
+            if ((s.plan || s.billing) && typeof window._bwApplyBillingNotice === 'function') {
+                var plan = s.plan || {};
+                var billing = s.billing || {};
+                var now = Date.now();
+                var trialEnd = Number(plan.trialEnd || 0) || null;
+                var graceDays = Number(billing.gracePeriodDays || billing.graceDays || 7);
+                var extDays = Number(billing.extensionDays || 0);
+                var accessUntil = trialEnd ? trialEnd + (graceDays + extDays) * 86400000 : null;
+                var status = String(plan.status || billing.status || '').toLowerCase();
+                var daysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / 86400000)) : null;
+                var daysUntilBlock = accessUntil ? Math.max(0, Math.ceil((accessUntil - now) / 86400000)) : null;
+                var showBanner = status === 'trial' || status === 'overdue' || status === 'grace' ||
+                    (trialEnd && now >= trialEnd && accessUntil && now < accessUntil);
+                window._bwApplyBillingNotice({
+                    found: true,
+                    companyId: SomeSession2,
+                    status: status,
+                    trialEnd: trialEnd,
+                    daysLeft: daysLeft,
+                    daysUntilBlock: daysUntilBlock,
+                    showBanner: showBanner,
+                    upgradeUrl: 'https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/Billing.aspx?cid=' + encodeURIComponent(SomeSession2)
+                });
             }
         }, function(e) {
             console.warn('[bw-settings] could not read companySettings:', e.code);
