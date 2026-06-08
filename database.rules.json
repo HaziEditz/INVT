@@ -97,6 +97,15 @@
         ".validate": "$companyid!='null'",
         "$vehicleid": {
           ".validate": "$vehicleid!='null'",
+          ".write": "auth != null",
+          "current": {
+            ".read": true,
+            ".write": "auth != null"
+          },
+          "zone": {
+            ".read": true,
+            ".write": "auth != null"
+          },
           "$uid": {
             ".validate": "$uid!='null'",
             ".write": "$uid === auth.uid"
@@ -188,8 +197,9 @@
     },
     "allbookings": {
       "$companyId": {
+        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
         "$bookingId": {
-          ".read": "auth != null",
+          ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists() && (!data.exists() || data.child('DriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('driverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('AssignedDriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('assignedDriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
           ".write": "auth != null"
         }
       }
@@ -233,9 +243,10 @@
     },
     "completedJobs": {
       "$companyId": {
-        ".indexOn": ["bookingId"],
+        ".indexOn": ["bookingId", "driverId"],
+        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
         "$bookingId": {
-          ".read": "auth != null",
+          ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists() && (!data.exists() || data.child('driverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('DriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
           ".write": "auth != null"
         }
       }
