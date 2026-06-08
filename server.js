@@ -3925,6 +3925,50 @@ function _sanitiseCookiesForBrowser(rawCookies) {
   );
 }
 
+function _normTaxiVehicleId(v) {
+  return String(v || '').trim().toUpperCase();
+}
+
+/** Canonical vehicle list from driver profile — assignedVehicles first, legacy allocatedVehicles read-only. */
+function _driverAssignedVehicleList(profile) {
+  const out = [];
+  if (!profile || typeof profile !== 'object') return out;
+  const add = (v) => {
+    const n = _normTaxiVehicleId(v);
+    if (n && !out.includes(n)) out.push(n);
+  };
+  if (Array.isArray(profile.assignedVehicles)) {
+    profile.assignedVehicles.forEach(add);
+  }
+  const legacy = profile.allocatedVehicles;
+  if (!out.length && legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+    Object.keys(legacy).forEach(k => { if (legacy[k]) add(k); });
+  }
+  if (!out.length && profile.allocatedTaxi) add(profile.allocatedTaxi);
+  if (!out.length && profile.vehicleId) add(profile.vehicleId);
+  return out;
+}
+
+function _respondDataManagerProxyError(res, action, reason, detail) {
+  const status = reason === 'session_expired' ? 401 : 502;
+  const message = reason === 'session_expired'
+    ? 'Production dispatch session expired. Please log out and sign in again.'
+    : 'Production dispatch backend unavailable. Please try again shortly.';
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(JSON.stringify({
+    ok: false,
+    error: reason,
+    message,
+    action: action || '',
+    detail: detail || '',
+  }));
+  console.log(`${status}: PROXY FAIL [${action}] — ${reason}${detail ? ': ' + detail : ''}`);
+}
+
 function proxyToRealBackend(urlPath, method, body, incomingCookies) {
   return new Promise((resolve, reject) => {
     const targetPath = REAL_BACKEND_PREFIX + urlPath;
@@ -7120,12 +7164,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           return;
         }
         if (isSessionExpired) {
-          console.log(`proxy ${action}: real backend has no session → falling back to mock`);
-        } else {
-          console.log(`proxy ${action}: status=${proxied.statusCode}, falling back to mock`);
+          _respondDataManagerProxyError(res, action, 'session_expired', bodyText.slice(0, 200));
+          return;
         }
+        _respondDataManagerProxyError(res, action, 'backend_unavailable', `status=${proxied.statusCode}`);
+        return;
       } catch (proxyErr) {
-        console.log(`proxy ${action}: ${proxyErr.message} — falling back to mock`);
+        _respondDataManagerProxyError(res, action, 'backend_unavailable', proxyErr.message);
+        return;
       }
     }
 

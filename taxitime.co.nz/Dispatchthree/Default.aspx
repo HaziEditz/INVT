@@ -6534,6 +6534,25 @@ $(document).ready(function() {
         }
     };
 
+    // Canonical assignedVehicles reader — matches Owner Panel / Driver App contract.
+    window._bwDriverAssignedVehicleList = function(d) {
+        var out = [];
+        if (!d || typeof d !== 'object') return out;
+        function _add(v) {
+            v = String(v || '').trim().toUpperCase();
+            if (v && out.indexOf(v) === -1) out.push(v);
+        }
+        if (Array.isArray(d.assignedVehicles)) {
+            d.assignedVehicles.forEach(_add);
+        }
+        if (!out.length && d.allocatedVehicles && typeof d.allocatedVehicles === 'object' && !Array.isArray(d.allocatedVehicles)) {
+            Object.keys(d.allocatedVehicles).forEach(function(k) { if (d.allocatedVehicles[k]) _add(k); });
+        }
+        if (!out.length && d.allocatedTaxi) _add(d.allocatedTaxi);
+        if (!out.length && d.vehicleId) _add(d.vehicleId);
+        return out;
+    };
+
     // ── 8. Two-layer service filtering ────────────────────────────────────
     // Layer 1 — Company modules: superClients/{companyId}/modules
     //   { taxi, food, freight, tm } booleans — company must have module enabled.
