@@ -149,8 +149,8 @@
     "closedJobs": {
       "$companyId": {
         ".validate": "$companyId!='null'",
-        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
-        ".write": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()"
+        ".read": "auth != null && root.child('drivers').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('drivers').child(auth.uid).exists()"
       }
     },
     "companies": {
@@ -193,7 +193,7 @@
     "tariffs": {
       "$companyId": {
         ".validate": "$companyId!='null'",
-        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
+        ".read": "auth != null && root.child('drivers').child(auth.uid).exists()",
         ".write": "auth != null"
       }
     },
@@ -211,9 +211,9 @@
     },
     "allbookings": {
       "$companyId": {
-        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
+        ".read": "auth != null && root.child('drivers').child(auth.uid).exists()",
         "$bookingId": {
-          ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists() && (!data.exists() || data.child('DriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('driverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('AssignedDriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('assignedDriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
+          ".read": "auth != null && root.child('drivers').child(auth.uid).exists() && (!data.exists() || data.child('DriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('AssignedDriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('assignedDriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
           ".write": "auth != null"
         }
       }
@@ -258,9 +258,9 @@
     "completedJobs": {
       "$companyId": {
         ".indexOn": ["bookingId", "driverId"],
-        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
+        ".read": "auth != null && root.child('drivers').child(auth.uid).exists()",
         "$bookingId": {
-          ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists() && (!data.exists() || data.child('driverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('DriverId').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child($companyId).child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
+          ".read": "auth != null && root.child('drivers').child(auth.uid).exists() && (!data.exists() || data.child('driverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('DriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
           ".write": "auth != null"
         }
       }
@@ -302,8 +302,8 @@
         ".validate": "$companyId!='null'",
         "$uid": {
           ".validate": "$uid!='null'",
-          ".read": "auth != null && auth.uid === $uid && root.child('drivers').child($companyId).child(auth.uid).exists()",
-          ".write": "auth != null && auth.uid === $uid && root.child('drivers').child($companyId).child(auth.uid).exists()",
+          ".read": "auth != null && auth.uid === $uid && root.child('drivers').child(auth.uid).exists()",
+          ".write": "auth != null && auth.uid === $uid && root.child('drivers').child(auth.uid).exists()",
           ".indexOn": ["shiftEndAt"],
           "$logId": {
             ".validate": "$logId!='null'",
@@ -323,7 +323,7 @@
     "companySettings": {
       "$companyId": {
         ".validate": "$companyId!='null'",
-        ".read": "auth != null && (root.child('drivers').child($companyId).child(auth.uid).exists() || root.child('adminAccess').child($companyId).child(auth.uid).exists())",
+        ".read": "auth != null && (root.child('drivers').child(auth.uid).exists() || root.child('adminAccess').child($companyId).child(auth.uid).exists())",
         ".write": "auth != null"
       }
     },
