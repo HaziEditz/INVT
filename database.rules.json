@@ -183,6 +183,13 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "tariffs": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
+        ".write": "auth != null"
+      }
+    },
     "zones": {
       ".read": "auth != null",
       ".write": "auth != null"
@@ -283,6 +290,22 @@
         }
       }
     },
+    "shiftLogs": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        "$uid": {
+          ".validate": "$uid!='null'",
+          ".read": "auth != null && auth.uid === $uid && root.child('drivers').child($companyId).child(auth.uid).exists()",
+          ".write": "auth != null && auth.uid === $uid && root.child('drivers').child($companyId).child(auth.uid).exists()",
+          ".indexOn": ["shiftEndAt"],
+          "$logId": {
+            ".validate": "$logId!='null'",
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      }
+    },
     "superClients": {
       "$companyId": {
         ".validate": "$companyId!='null'",
@@ -293,7 +316,7 @@
     "companySettings": {
       "$companyId": {
         ".validate": "$companyId!='null'",
-        ".read": true,
+        ".read": "auth != null && (root.child('drivers').child($companyId).child(auth.uid).exists() || root.child('adminAccess').child($companyId).child(auth.uid).exists())",
         ".write": "auth != null"
       }
     },
