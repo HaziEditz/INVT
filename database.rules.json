@@ -146,6 +146,13 @@
         ".write": "$uid === auth.uid"
       }
     },
+    "closedJobs": {
+      "$companyId": {
+        ".validate": "$companyId!='null'",
+        ".read": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('drivers').child($companyId).child(auth.uid).exists()"
+      }
+    },
     "companies": {
       ".read": "auth != null",
       ".write": "auth != null",
