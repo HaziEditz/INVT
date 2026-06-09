@@ -7154,7 +7154,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       'Manager_ACC_GET', 'Client_ACC_GET', 'Client_ACC_ALL',
       'Approve_ACC_GET', 'ACC_All_approval',
       'GetStripePayments',
-      // Messaging
+      // Messaging — local handlers; never proxy (avoids 401 when production session expires)
+      'RetrieveAlarms', 'AllAlarms', 'RetrieveAlarts', 'RetrieveAlerts', 'GetAlarms', 'GetAlerts',
+      '[RetrieveMessages]',
       '[MessageInsert]', '[DriverMessageInsert]', '[BroadcastMessage]',
       '[GroupMessage]', '[DeleteMessage]',
       // Admin
@@ -12471,7 +12473,7 @@ async function _seedZoneDriversFromFirebase() {
         // forever. If the most-recent `lastSeen` is older than STALE_PRESENCE_MS,
         // treat the node as a corpse — DON'T seed it, and DELETE it from
         // Firebase so dispatch UI's child_removed clears the row immediately.
-        const _lastSeen = Number(node.lastSeen || cur.lastSeen || 0);
+        const _lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
         if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
           _toDeleteAtBoot.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
           continue;
@@ -12586,7 +12588,14 @@ async function _seedZoneDriversFromFirebase() {
 //
 // Safe by design: only ever deletes presence/heartbeat data. Never touches
 // jobs, notifications, or driver identity records.
-const STALE_PRESENCE_MS = 90 * 1000;
+const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeats can gap during GPS/background
+
+// Driver app writes Date.now() (ms). Legacy nodes may store Unix seconds.
+function _normalizeLastSeenMs(raw) {
+  const n = Number(raw || 0);
+  if (!n || !Number.isFinite(n)) return 0;
+  return n < 1e12 ? n * 1000 : n;
+}
 
 setInterval(async () => {
   let token;
@@ -12627,7 +12636,7 @@ setInterval(async () => {
       // 3) Ghost: heartbeat exists but is older than threshold. Driver app
       // crashed/quit without clean sign-out, OR a stray write resurrected
       // a deleted node. Either way the driver is not actually online.
-      const lastSeen = Number(node.lastSeen || cur.lastSeen || 0);
+      const lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
       if (lastSeen && (Date.now() - lastSeen) > STALE_PRESENCE_MS) {
         _toKill.push({ cid, vid, reason: `lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago` });
       }
