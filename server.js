@@ -637,17 +637,17 @@ function resolveCompanyAccess(reg, settings) {
 
   if (hasFirebaseBilling) {
     const companyActive = settings.active === true;
-    const statusOk = billingStatus === 'active' || billingStatus === 'trial';
     const dueMs = parseBillingDueMs(billing.nextDueDate);
-    let dueOk = true;
+    const dueFuture = dueMs != null && dueMs > now;
+    const duePast = dueMs != null && dueMs <= now;
+    // Allow login if active OR next due date is in the future.
+    // Block only when BOTH active=false AND nextDueDate is past.
+    subscriptionOk = companyActive || dueFuture || !(settings.active === false && duePast);
     if (dueMs != null) {
-      dueOk = dueMs > now;
       accessUntil = dueMs;
     } else if (billingStatus === 'trial' && trialEnd) {
-      dueOk = trialEnd > now;
       accessUntil = trialEnd + (graceDays + extensionDays) * 86400000;
     }
-    subscriptionOk = companyActive && statusOk && dueOk;
   } else {
     accessUntil = trialEnd ? trialEnd + (graceDays + extensionDays) * 86400000 : null;
     const pastGrace = !!(accessUntil && now > accessUntil);
