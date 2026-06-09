@@ -57,10 +57,22 @@
     if (cur) sel.value = cur;
   }
 
+  var OWNER_PANEL_BASE = 'https://invt-admin-production.up.railway.app/taxitime.co.nz/owner/';
+
+  function bwWireAccOwnerLink() {
+    var link = document.getElementById('bw-acc-owner-link');
+    if (!link || link._bwAccWired) return;
+    link._bwAccWired = true;
+    var cid = window.SomeSession2 || localStorage.getItem('TT_CId') || '';
+    link.href = OWNER_PANEL_BASE + 'AccApprovals.aspx' + (cid ? ('?cid=' + encodeURIComponent(cid)) : '');
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     var cid = window.SomeSession2 || localStorage.getItem('TT_CId') || '';
     if (cid) setTimeout(function () { bwCenterMapOnCompanyCity(cid); }, 2500);
     setInterval(bwRefreshGroupZoneSelect, 8000);
+    bwWireAccOwnerLink();
+    setInterval(bwWireAccOwnerLink, 5000);
   });
 
   /** Wire Angular scope helpers once app is ready */
@@ -106,6 +118,20 @@
       if (typeof window.ShowJobPopup === 'function') {
         window.ShowJobPopup(hit.Id);
       }
+    };
+
+    sc.bwAlarmList = sc.bwAlarmList || [];
+    sc.bwDisableAlarm = function (alarmId) {
+      sc.$http({
+        method: 'POST',
+        url: 'DataManager/Data.aspx/DataProcessor',
+        data: { data: [{ name: 'Id', Value: alarmId }], action: '[UpdateAlarm]' }
+      }).then(function () {
+        sc.bwAlarmList = (sc.bwAlarmList || []).filter(function (a) {
+          return String(a.Id) !== String(alarmId);
+        });
+        if (!sc.$$phase) sc.$applyAsync();
+      });
     };
 
     sc.quickSetPending = function (jobId) {

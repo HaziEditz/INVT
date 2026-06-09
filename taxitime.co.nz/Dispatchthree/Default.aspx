@@ -136,6 +136,12 @@
         box-shadow: 0 6px 20px rgba(0,0,0,0.55);
     }
     /* ── Alternating: even=white, odd=very light grey so they differ ── */
+    .bw-modern-table thead tr { background:#f1f5f9; }
+    .bw-modern-table th { padding:10px 8px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#64748b; border-bottom:2px solid #e2e8f0; }
+    .bw-modern-table td { padding:9px 8px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+    .bw-modern-table tbody tr:hover { background:#fffbeb; cursor:pointer; }
+    .dataTables_wrapper .paginate_button { color:#475569 !important; border-radius:4px !important; }
+    .dataTables_wrapper .paginate_button.current { background:#1a73e8 !important; color:#fff !important; border-color:#1a73e8 !important; }
     div.bw-job-card.bw-card-alt, div[id^="singlediv-"].bw-card-alt                { background: #f1f5f9; }
     div.bw-job-card.bw-card-alt, div[id^="singlediv-"].bw-card-alt .bw-card-hd   { background: #e2e8f0; border-bottom-color: #cbd5e1; }
     div.bw-job-card.bw-card-alt, div[id^="singlediv-"].bw-card-alt .bw-assign-row { background: #f1f5f9; }
@@ -1000,10 +1006,7 @@
                                 Results — click a row to view details
                             </div>
                             <div id="SearchedJobsDetails" ng-repeat="searh in searchitem" style="margin-bottom:8px;">
-                                <div ng-click="JobDetails(searh.Id)"
-                                     style="cursor:pointer; background:#fff; border:1px solid #e2e4ea; border-radius:7px; padding:10px 12px; transition:all 0.15s;"
-                                     onmouseover="this.style.background='#fffbf0'; this.style.borderColor='#dfba5f';"
-                                     onmouseout="this.style.background='#fff'; this.style.borderColor='#e2e4ea';">
+                                <div ng-click="(function(id){ $('#search-jobs').modal('hide'); if(window.ShowJobPopup) ShowJobPopup(id); })(searh.Id)"                                     onmouseout="this.style.background='#fff'; this.style.borderColor='#e2e4ea';">
                                     <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                                         <span style="font-size:11px; color:#888;">{{searh.BookingDate}} &nbsp; {{searh.BookingTime}}</span>
                                         <span style="font-size:11px; font-weight:600; color:#555;">{{searh.PassengerId}}</span>
@@ -1024,188 +1027,8 @@
                         </div>
                     </div>
 
-                    <!-- RIGHT: Job Details -->
-                    <div style="flex:1; overflow-y:auto; max-height:82vh; padding:20px; background:#fff;">
-                        <div class="section-left" id="JobsDetailsSection" ng-repeat="showi in jobdetailshowing">
-                                  
-                                <button ng-click="jobsectionempty()"; class="btn btn-warning">Clear</button>
-                                <button onclick="GeneratePDF()" class="btn btn-primary">Make PDF</button>
-                              
-                                
-                                <div class="row" style="overflow: scroll; height: 600px;">
-                                    <div class="col-12">
-                                      </div>
-                                <div class="col-4">
-                                    <label class="label label-pill label-primary mt-2 ng-binding">Booking Id:</label>
-                                    <h6>{{showi.bookingidx}}</h6>
-                                     </div>
-                                 <div class="col-12">
-                                   <label  class="label label-pill label-primary mt-2 ng-binding">Booking Time:</label>
-                                     <h6> {{bwFmtDt(showi.BookingDateTime)}}</h6>
-                                     </div>
-                                 <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Booking Source:</label>
-                                     <h6>{{showi.BookingSource}}</h6>
-                                     </div>
-                                 <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Booking Status:</label>
-                                    <h6>{{showi.BookingStatus}}</h6>
-                                     </div>
-                                 <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Booking Type:</label>
-                                   <h6>  {{showi.BookingType}}</h6>
-                                     </div>
-                                  <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Created By:</label>
-                                    <h6> {{showi.DispatcherName}}</h6>
-                                     </div>
-                                  <div class="col-12">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Dispatch Time:</label>
-                                    <h6> {{showi.DispatchTime}}</h6>
-                                     </div>
-                                     <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Driver Name:</label>
-                                    <h6> {{showi.UserFName}} {{showi.UserLName}}</h6>
-                                     </div>
-                                     <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Vehicle No:</label>
-                                    <h6> {{showi.CallSign}} / {{showi.VehicleNo}}</h6>
-                                     </div>
-                                       <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Passenger Name:</label>
-                                    <h6> {{showi.ppname || '—'}}  </h6>
-                                     </div>
-                                       <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Passenger Phone :</label>
-                                    <h6> {{showi.PhoneNo || showi.passengerPhone || showi.passengerno || showi.Phone || "—"}}</h6>
-                                     </div>
-                                         <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Closed Time:</label>
-                                    <h6> {{showi.JobCompleteTime}}</h6>
-                                     </div>
-                                
-                                     <div class="col-8" ng-if="showi.Account_id">
-                                    <label class="label label-pill label-danger mt-2 ng-binding">Business Account:</label>
-                                    <h6>{{showi.Account_Name || showi.Account_id}}
-                                        <small class="text-muted" style="font-size:10px;">ID: {{showi.Account_id}}</small>
-                                    </h6>
-                                    <div ng-if="bwShownAccDetail" style="font-size:11px;color:#555;margin-top:2px;">
-                                        <span ng-if="bwShownAccDetail.contact"><i class="fa fa-user"></i> {{bwShownAccDetail.contact}} &nbsp;</span>
-                                        <span ng-if="bwShownAccDetail.phone"><i class="fa fa-phone"></i> {{bwShownAccDetail.phone}} &nbsp;</span>
-                                        <span ng-if="bwShownAccDetail.email"><i class="fa fa-envelope"></i> {{bwShownAccDetail.email}} &nbsp;</span>
-                                        <span ng-if="bwShownAccDetail.accountCode"><i class="fa fa-hashtag"></i> {{bwShownAccDetail.accountCode}} &nbsp;</span>
-                                        <span ng-if="bwShownAccDetail.paymentTerms"><i class="fa fa-credit-card"></i> {{bwShownAccDetail.paymentTerms}}</span>
-                                    </div>
-                                     </div>
-                                    <div class="col-4" ng-if="showi.Recieve_payment">
-                                    <label  class="label label-pill label-danger mt-2 ng-binding">Paid Amount:</label>
-                                     <h6>{{showi.Recieve_payment}}</h6>
-                                     </div>
-                                
-                                      <div class="col-4" ng-if="showi.Acc_claim_id">
-                                    <label  class="label label-pill label-danger mt-2 ng-binding">Acc Claim Id:</label>
-                                     <h6>{{showi.Acc_claim_id}}</h6>
-                                     </div>
-                                     <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Total Passengers:</label>
-                                     <h6>{{showi.Passengers}}</h6>
-                                     </div>
-                                  <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Total Bags:</label>
-                                     <h6>{{showi.Bags}}</h6>
-                                     </div>
-                                  <div class="col-4">
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Wheel Chairs:</label>
-                                     <h6>{{showi.WheelChairs}}</h6>
-                                     </div>
-                                
-
-                                 <div class="col-4"  >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Tariff:</label>
-                                    <h6> {{showi.TarriffType}}</h6>
-                                     </div>
-                                  <div class="col-12"  >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">Pick Address:</label>
-                                    <h6     > {{showi.PickAddress}}</h6>
-                                     </div>
-                                  <div class="col-12"  >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">Drop Address:</label>
-                                   <h6>  {{showi.DropAddress}}</h6>
-                                     </div>
-                                
-                                 <div class="col-4"   >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">Vehicle Type:</label>
-                                   <h6>  {{showi.VehicleType}}</h6>
-                                     </div>
-                                
-                                <div class="col-4"   >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">Estimated Distance:</label>
-                                   <h6>  {{showi.EstimatedDistance}}</h6>
-                                     </div>
-                  
-                                <div class="col-12" ng-if="showi.BookingSource == 'Dispatch Console'" >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">job accpet time:</label>
-                                   <h6>  {{showi.jobaccpettime}}</h6>
-                                     </div>
-                                <div class="col-12"   ng-if="showi.BookingSource == 'Dispatch Console'" >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">Arrived time:</label>
-                                   <h6>  {{showi.arrivedtime}}</h6>
-                                     </div>
-                                <div class="col-12"  ng-if="showi.BookingSource == 'Dispatch Console'" >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">pickup time :</label>
-                                   <h6>  {{showi.pickuptime}}</h6>
-                                     </div>
-                                <div class="col-12"    ng-if="showi.BookingSource == 'Dispatch Console'">
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">On the way time:</label>
-                                   <h6>  {{showi.onthewaytime}}</h6>
-                                     </div>
-                                <div class="col-12"   >
-                                    <label  class="label label-pill label-warning mt-2 ng-binding">Job Complete Time:</label>
-                                   <h6>  {{showi.newcompelete}}</h6>
-                                     </div>
-                                      <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Tariff Change Counter:</label>
-                                  <h6 title="Mid-trip tariff switches recorded by the driver app">   {{ bwCountObj(showi.tariffChanges || showi.TariffChanges) }}</h6>
-                                     </div>  <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Meter Change Counter:</label>
-                                   <h6 title="Meter pause / resume events recorded by the driver app">   {{ bwCountObj(showi.pauseLog || showi.PauseLog) }}</h6>
-                                     </div>
-
-                                    <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Waiting Time:</label>
-                                   <h6>  {{format(showi.WaitingTime)}}</h6>
-                                     </div>
-                                    <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Waiting Cost:</label>
-                                   <h6>  {{showi.WaitingCost}}</h6>
-                                     </div>
-                                    <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding"> Estimated Cost:</label>
-                                   <h6>  {{showi.esti}}</h6>
-                                     </div>
-                                    <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Payment:</label>
-                                   <h6>  {{showi.Payment}}</h6>
-                                     </div>
-                                    <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Ride Cost:</label>
-                                   <h6>  {{showi.RideCost}}</h6>
-                                     </div>
-                                    <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Driver Cost:</label>
-                                   <h6>  {{showi.DriverCost}}</h6>
-                                     </div>
-                                     <div class="col-4"   >
-                                    <label  class="label label-pill label-primary mt-2 ng-binding">Total Ride Time:</label>
-                                   <h6>  {{showi.TotalTime}}</h6>
-                                     </div>
-                                
-                            </div>
-
-
-                            </div>
-                            <div id="editor"></div>
-                        </div>
+                                        <div style="flex:1;padding:24px;background:#fff;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:14px;text-align:center;">
+                        <div><i class="fa fa-info-circle" style="font-size:28px;color:#dfba5f;display:block;margin-bottom:10px;"></i>Click a result to open the job detail popup.<br><span style="font-size:12px;color:#94a3b8;">Legacy inline detail panel removed.</span></div>
                     </div>
                 </div>
             </div>
@@ -1238,7 +1061,7 @@
                                 <option value="Pending">Pending</option>
                                 <option value="Offered">Offered</option>
                                 <option value="Cancelled">Cancel</option>
-                                <option value="No Show">No Shown</option>
+                                <option value="No Show">No Show</option>
                             </select>
                         </div>
 
@@ -1304,7 +1127,10 @@
                 <!-- Table -->
                 <div class="modal-body" style="padding:0;">
                     <div class="table-closed-jobs">
-                        <table id="tbleClosedJobs" class="table table-striped table-bordered dt-responsive nowrap" style="border-collapse:collapse; border-spacing:0; width:100%;" width="100%"></table>
+                        <div id="bw-closed-jobs-wrap" style="padding:12px 16px;overflow-x:auto;">
+                        <table id="tbleClosedJobs" class="bw-modern-table" style="width:100%;border-collapse:collapse;font-size:12px;"></table>
+                        <div id="bw-closed-empty" style="display:none;text-align:center;padding:32px;color:#94a3b8;">No closed jobs for this filter.</div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -1663,228 +1489,11 @@
                 <div class="modal-body" style="background:#f9fafb; overflow-y:auto; padding:20px; flex:1;">
 
                             <div class="tab-content">
-                              <div id="manager" class="tab-pane fade">
-                              <div class="col-lg-12">
-                                <div class="col-lg-4">
-                               
-                                <select class="form-control" style="display:none;" id="allmanager_list">
-                                </select>
-                             </div>
-                           </div>
-                                    <button data-toggle="collapse" style="margin-left:45%;" class="btn btn-success" data-target="#add_manager"><i class="fa fa-arrow-down"></i>Create New Manager</button>
-                                    <form id="add_manager" class="form-group collapse"   style="padding: 10px;  box-shadow: 1px 1px 1px 1px #8080802b;">
-                                    <div class="row">
-                                        <div class="col-lg-12">
-                                            <h5 style="    font-size: 18px;  color: green;  border-bottom: 1px solid #8080804a;">Add New Manager</h5>
-                                        </div>
-                                       <div  class=" col-lg-12 row">
-                                            <div class="col-lg-4 col-md-4 col-sm-4">
-                                                <label class="" for="manager_name">Manager Name</label>
-                                                <input type="text" id="manager_name" name="manager_name" placeholder="Enter Manager Name"  class="form-control"/>
-                                                <label class="" for="po_box">PO BOX </label>
-                                                <input type="text" id="mananger_po_box" placeholder="Enter PoBox Number" name="mananger_po_box"  class="form-control"/>
-                                              <label class="" for="manager_registration_date">Registration Date </label>
-                                                <input type="Date" id="manager_registration_date" placeholder="Manager Registration date" name="manager_registration_date"  class="form-control"/>
-                                        </div>  
-                                        <div class="col-lg-4 col-md-4 col-sm-4">
-                                            <label class="" for="manager_branch_code">Manager Brance Code</label>
-                                               <input type="text" id="manager_branch_code" Placeholder="Enter Manager Brance Code" name="manager_branch_code"  class="form-control"/>
-                                                 <label class="" for="manager_country">Country </label>
-                                                <input type="text" id="manager_country" name="manager_country" placeholder="Enter Manager Country"  class="form-control"/>
-                                             <label class="" for="manager_email">Manager Email </label>
-                                                <input type="text" id="manager_email" name="manager_email"  placeholder="Enter Manager Email"  class="form-control"/>
-                                        </div>
-                                       <div class="col-lg-4 col-md-4 col-sm-4">
-                                           <label class="" for="manager_address">Manager Address</label>
-                                            <input type="text" id="manager_address" name="manager_address" placeholder="Enter Manager Address"   class="form-control"/>
-                                           <label class="" for="manager_phone">Manager Phone</label>
-                                            <input type="text" id="manager_phone" name="manager_phone"  class="form-control" placeholder="Enter Manager Phone"/>
-                                           
-                                        </div>
-                                        <div class="col-lg-12" style="margin-top: 6px;">
-                                            <input type="submit" class="btn btn-success" value="Add Manager"></input> 
-                                        </div>
-                                       </div>
-                                    </div>
-
-                                </form>
-                              </div>
-                            <div id="client" class="tab-pane fade">
-                            <div class="col-lg-12">
-                                    <div class="col-lg-4">
-                                    
-                                    <select class="form-control" style="display:none;"  id="added_client_list">
-                                    </select>
-                            </div>
-                            </div>
-                              <button data-toggle="collapse" style="margin-left:45%;" class="btn btn-success" data-target="#add_Client"><i class="fa fa-arrow-down"></i>Create New Client</button>
-                              <form id="add_Client" class="form-group collapse" style="padding: 10px; box-shadow: 1px 1px 1px 1px #8080802b;">
-                                    <div class="row">
-                                        <div class="col-lg-12">
-                                            <h5 style="font-size: 18px; color: green; border-bottom: 1px solid #8080804a;">Add New Client</h5>
-                                        </div>
-                                        <div class="col-lg-12">
-                                         <p> <font style="color:red;"> Note: </font> For Creating New Client You Need to Select Manager First:</p>
-                                            <label>Select Manager</label>
-                                              <select class="form-control" style="width: 32%;" name="selectmanager" id="selectmanager" onchange="selectemc()">
-                                              </select>
-                                        </div>
-                                        <div class="col-sm-12" id="clientadding" style="display:none;">
-                                            <p> <font style="color:red;"> Note: </font> Now Fill the Client Details and Add Client:</p>
-
-                                            <div class="col-lg-4 col-md-4 col-sm-4">
-                                            <label class="" for="client_name">Client Name</label>
-                                            <input type="text" id="client_name" name="client_name" placeholder="Enter Client Name"  class="form-control"/> 
-                                            <label class="" for="client_registration_Date">Registration Date</label>
-                                            <input type="date" id="client_registration_Date" name="client_registration_Date"  class="form-control"/> 
-                                        </div>  
-                                        <div class="col-lg-4 col-md-4 col-sm-4">
-                                            <label class="" for="client_address">Client Address</label>
-                                            <input type="text" id="client_address" placeholder="Enter Client Address" name="client_address"  class="form-control"/> 
-                                        </div>
-                                       <div class="col-lg-4 col-md-4 col-sm-4">
-                                            <label class="" for="client_Phone">Client Phone</label>
-                                            <input type="text" id="client_phone" name="client_phone"  placeholder="Enter Client Phone Number" class="form-control"/> 
-                                        </div>
-                                        <div class="col-lg-12" style="    margin-top: 6px;">
-                                            <input type="submit" class="btn btn-success" value="Add Client"></input> 
-                                        </div>
-                                        </div>
-                                        
-                                    </div>
-
-                                </form>
-                              </div>
-                              <div id="clientride" class="tab-pane fade">
-                                  <div class="">
-                                <form id="add_approval_acc">
-                                        <div class="row">
-                                            <div class="col-lg-12">
-                                               <div class="row">
-                                                 <div class="col-lg-4">
-                                <p> <font style="color:red;"> Note: </font>Please Select Manager Name:</p>
-
-                                               <label>Select Manager</label>
-                                              <select class="form-control" id="approvealmanager" onchange="getclient();">
-                                                <option>Select Manager</option>
-                                              </select>
-                                        </div>
-                                        </div>
-                                        <div class="col-lg-4" id="selected_clientsz" style="display : none;">
-                                    <p> <font style="color:red;"> Note: </font>Please Select Client To Create a ACC Approval:</p>
-                                                <label>Select Client</label>
-                                        <select class="form-control" id="selected_clients" onchange="selectedclientok()" >
-                                            <option>Choose Client</option>
-                                        </select>
-                                        </div>
-                                        </div>
-                                            <div class="col-lg-12" class="" id="addapprovesz" style="display:none;">
-                                                 <p> <font style="color:red;"> Note: </font>Please Enter ACC Approval Details To Create Approval:</p>
-                                    <div class="col-lg-4" >
-                                        <input type="hidden" id="approvalid" />
-                                             <label class="" for="client_ACCID">ACCID</label>
-                                            <input type="text" id="client_ACCID"  name="client_ACCID" placeholder="Enter ACC ID" class="form-control"/>
-                                              <label class="" for="client_Service_code ">Client Service Code</label>
-                                            <input type="text" id="client_Service_code" name="client_Service_code" placeholder="Enter Client Service Code" class="form-control"/>  
-                                             <label class="" for="client_Route_Status ">Route Status</label>
-                                              <select id="client_Route_Status" name="client_Route_Status"  class="form-control" >
-                                                    <option>One Way</option>
-                                                    <option>Round Trip</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-lg-4">
-                                              <label class="" for="client_Claim">Claim Number</label>
-                                            <input type="text" id="client_Claim" name="client_Claim"  placeholder="Enter Claim Number" class="form-control"/> 
-                                              
-                                             <label class="" for="client_trip_from_Date">From</label>
-                                            <input type="date" id="client_trip_from_Date" name="client_trip_from_Date" class="form-control"/> 
-                                             <label class="" for="client_trip_allowed">Qty. Approved</label>
-                                            <input type="number" id="client_trip_allowed"   name="client_trip_allowed" class="form-control"/> 
-                                            </div>
-                                            <div class="col-lg-4">
-                                              <label class="" for="client_purchase_order_number">Purchase order number</label>
-                                            <input type="text" id="client_purchase_order_number" placeholder="Enter Purchase order number" name="client_purchase_order_number"  class="form-control"/>
-                                             
-                                             <label class="" for="client_trip_to_Date">To</label>
-                                            <input type="date" id="client_trip_to_Date" name="client_trip_to_Date" class="form-control"/> 
-                                            </div> 
-                                            <div class="col-lg-6">
-                                                <label class="" for="client_Service_description">Service description</label>
-                                             <textarea id="client_Service_description"  name="client_Service_description" class="form-control"></textarea>
-                                            </div> 
-                                            <div class="col-lg-4" style="    padding: 46px;">
-                                                <input class="btn btn-success" type="submit" value="Add Approval"></input>
-                                           <button class="btn btn-warning" onclick="clearapproval()">Clear</button>
-                                                 </div>
-                                            </div>
-                                   
-
-
-                                        </div>
-                                           
-
-                                    </form>
-                                  </div>
-                                    
-                               </div>
-                               <!-- ── Business Accounts tab ── -->
-                               <div id="bizaccounts" class="tab-pane fade">
-                                 <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-                                   <!-- Add form -->
-                                   <div style="flex:1;min-width:280px;background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,0.08);border:1px solid #e5e7eb;">
-                                     <div style="font-size:13px;font-weight:700;color:#1a5276;margin-bottom:14px;"><i class="fa fa-plus-circle" style="margin-right:6px;color:#dfba5f;"></i>Add Business Account</div>
-                                     <div style="margin-bottom:10px;">
-                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Company Name *</label>
-                                       <input type="text" id="bacc_name" class="form-control" placeholder="e.g. Southland Hospital">
-                                     </div>
-                                     <div style="margin-bottom:10px;">
-                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Contact Name</label>
-                                       <input type="text" id="bacc_contact" class="form-control" placeholder="e.g. Jane Smith">
-                                     </div>
-                                     <div style="display:flex;gap:8px;margin-bottom:10px;">
-                                       <div style="flex:1;">
-                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Phone</label>
-                                         <input type="text" id="bacc_phone" class="form-control" placeholder="03 xxx xxxx">
-                                       </div>
-                                       <div style="flex:1;">
-                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Email</label>
-                                         <input type="text" id="bacc_email" class="form-control" placeholder="billing@company.co.nz">
-                                       </div>
-                                     </div>
-                                     <div style="margin-bottom:10px;">
-                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Address</label>
-                                       <input type="text" id="bacc_address" class="form-control" placeholder="Billing address">
-                                     </div>
-                                     <div style="display:flex;gap:8px;margin-bottom:10px;">
-                                       <div style="flex:1;">
-                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Account Code</label>
-                                         <input type="text" id="bacc_accountCode" class="form-control" placeholder="e.g. 001">
-                                       </div>
-                                       <div style="flex:1;">
-                                         <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Payment Terms</label>
-                                         <input type="text" id="bacc_paymentTerms" class="form-control" placeholder="e.g. Net 30">
-                                       </div>
-                                     </div>
-                                     <div style="margin-bottom:14px;">
-                                       <label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;display:block;">Notes</label>
-                                       <textarea id="bacc_notes" class="form-control" rows="2" placeholder="e.g. Net 30 billing"></textarea>
-                                     </div>
-                                     <button class="btn btn-success btn-sm" style="width:100%;font-weight:700;" onclick="saveBizAccount()"><i class="fa fa-save" style="margin-right:5px;"></i>Save Account</button>
-                                   </div>
-                                   <!-- Account list -->
-                                   <div style="flex:2;min-width:320px;">
-                                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-                                       <span style="font-size:13px;font-weight:700;color:#1a5276;"><i class="fa fa-list" style="margin-right:6px;color:#dfba5f;"></i>Existing Accounts</span>
-                                       <button class="btn btn-default btn-xs" onclick="loadBizAccounts()"><i class="fa fa-refresh"></i> Refresh</button>
-                                     </div>
-                                     <div id="biz_account_list" style="max-height:380px;overflow-y:auto;">
-                                       <p style="color:#aaa;font-size:13px;text-align:center;padding:20px 0;">Loading...</p>
-                                     </div>
-                                   </div>
-                                 </div>
-                               </div>
-
-                               <div id="approvaldetails" class="tab-pane fade in active">
+                              <div style="margin-bottom:14px;display:flex;justify-content:flex-end;">
+                                <a id="bw-acc-owner-link" href="#" target="_blank" rel="noopener" class="btn btn-sm btn-primary" style="background:#1a73e8;border:none;font-weight:600;">
+                                  <i class="fa fa-external-link"></i> Manage ACC in Owner Panel
+                                </a>
+                              </div>                               <div id="approvaldetails" class="tab-pane fade in active">
 
                                    <!-- ── Pending Driver Approvals ── -->
                                    <div style="margin-bottom:18px;">
@@ -1951,7 +1560,13 @@
                 </div>
 
                 <!-- Alarm list -->
-                <div class="modal-body modal-alarm-box" style="height:300px; overflow-y:auto; padding:12px 16px; background:#f9fafb;">
+                <div class="modal-body" style="height:300px; overflow-y:auto; padding:12px 16px; background:#f9fafb;">
+                    <div ng-if="!(bwAlarmList && bwAlarmList.length)" style="text-align:center;color:#94a3b8;padding:24px;">No alarms due right now.</div>
+                    <div ng-repeat="alm in bwAlarmList track by alm.Id" id="AlarmDiv{{alm.Id}}" style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+                        <div style="font-size:13px;color:#334155;margin-bottom:6px;">{{alm.AlarmText}}</div>
+                        <div style="font-size:11px;color:#64748b;margin-bottom:8px;"><i class="fa fa-calendar"></i> {{alm.AlarmDate}} &nbsp; <i class="fa fa-clock-o"></i> {{alm.displayTime || alm.AlarmTime}}</div>
+                        <button class="btn btn-sm btn-warning" ng-click="bwDisableAlarm(alm.Id)" style="font-weight:600;">Disable</button>
+                    </div>
                 </div>
 
                 <!-- New alarm creator -->
@@ -3090,7 +2705,7 @@ $(document).ready(function() {
                                                     </div>
                                                     <div id="searchdatas" style="position:absolute;z-index:200;background:#efe3e3;width:100%;color:grey;top:52px;left:0;border-radius:4px;max-height:130px;overflow-y:auto;box-shadow:0 2px 8px rgba(0,0,0,.15);">
                                                         <h5 ng-click="accselect(acc)" id="testingss" style="cursor:pointer;margin:0;padding:4px 8px;font-size:11px;border-bottom:1px solid #ddd;" ng-repeat="acc in acc_record_search">
-                                                            <label class="label label-success">Calim No: {{acc.claim_number}}</label> | <label class="label label-success">{{acc.client_name}}</label> | <label class="label label-success">{{acc.client_phone}}</label> | <label class="label label-success">ACC</label>
+                                                            <label class="label label-success">Claim No: {{acc.claim_number}}</label> | <label class="label label-success">{{acc.client_name}}</label> | <label class="label label-success">{{acc.client_phone}}</label> | <label class="label label-success">ACC</label>
                                                         </h5>
                                                         <h5 id="testingss" ng-click="accountselect(account)" style="cursor:pointer;margin:0;padding:4px 8px;font-size:11px;border-bottom:1px solid #ddd;" ng-repeat="account in account_record_search">
                                                             <label class="label label-success">Id: {{account.Id}}</label> | <label class="label label-success">{{account.Type}}</label> | <label class="label label-success">{{account.PhoneNo}}</label>
@@ -3572,331 +3187,85 @@ $(document).ready(function() {
 
                                                     <!-- enddiv -->
                                                 </div>
-                                                <div class="tab-pane vowali " id="tab9">
-                                                    <!-- startdiv -->
-                                                    <div id="Divo{{value.Id}}" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv-{{value.Id}}" ng-repeat="(key ,  value) in  oferunassignedjob_list">
-                                                         
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ">
-                                                            <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
+                                                                                                <div class="tab-pane vowali " id="tab9">
 
-                                                                <span   class="label label-pill label-primary mt-2"><i style="color: black;" class="glyphicon glyphicon-tag"></i>
-
-                                                                    {{value.Id}}
-                                                                </span>
-
-                                                                <span class="label label-pill mt-2" ng-style="{background: value.JobMins <= 0 ? '#27ae60' : value.JobMins <= 30 ? '#e67e22' : '#2980b9', color: '#fff', fontWeight: 'bold'}">
-                                                                    <i class="fa fa-clock-o"></i> {{ jobTypeLabel(value.JobMins, value.DispatchTimebefore) }}
-                                                                </span>
-
-                                                                 <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore) }} 
-                                                                </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
-                                                               
-                                                                <div ng-if="value.Passengers > 4" style="padding: 6px;">
-                                                                    <span class="label label-pill label-danger mt-2">V.Job</span>
-                                                                </div>
-                                                                <div ng-if="value.Passengers < 4" style="padding: 6px;">
-                                                                    <span ng-if="value.VehicleType == 'Not Specified'" class="label label-pill label-primary mt-2">Any Vehicle
-                                                                    </span>
-                                                                    <span ng-if="value.VehicleType != 'Not Specified'" class="label label-pill label-primary mt-2">{{value.VehicleType}}
-                                                                    </span>
-
-                                                                </div>
-                                                                <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
-                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
-                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
-                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
-                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
-                                                                    {{value.serviceType | uppercase}}</span>
-
-                                                                <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
-                                                                    <span><i style="color: black;" title="{{value.EntitiesDetails}}" class="glyphicon glyphicon-info-sign"></i>
-                                                                        {{value.EntitiesDetails}}
-                                                                    </span>
-                                                                </div>
-
-
-                                                                <span ng-if="value.PhoneNo" class="label label-pill label-primary mt-2"><i class="fa fa-phone"></i>
-                                                                    {{value.PhoneNo}}
-                                                                </span>
-                                                                <i ng-if="value.DropLatLng != '0,0'" ng-mouseover="showmakert(value.Id,value.PickLatLng,value.DropLatLng)" ng-mouseleave="markerremove(value.Id,value.PickLatLng,value.DropLatLng)" class="fa fa-compass" style="position: absolute; left:-25px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="value.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(value.Id,value.PickLatLng)" ng-mouseleave="markerremove1(value.Id,value.PickLatLng )" class="fa fa-compass" style="position: absolute; left: -25px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="value.DropLatLng !=  '0,0' && value.Nextstop != 0" ng-mouseover="showmakert3(value.Id,value.PickAddress,value.DropAddress,value.nextstopdata)" ng-mouseleave="markerremove3( )" class="fa fa-compass" style="position: absolute; left: -25px; color: #f5002d; font-size: 27px;"></i>
-                                                                
-                                                                  <span class="label label-pill label-danger mt-2"  ng-if="value.usertype == 1" ><i class="fa fa-user">Senior</i></span> 
-                                                                  <span class="label label-pill label-danger mt-2" ng-if="value.usertype == 2" > <i  class="fa fa-user">Disable</i></span> 
-                                                                  <span ng-if="value.returnReason" class="label label-pill mt-2" ng-style="{background: value.returnReason.indexOf('Rejected') >= 0 ? '#c0392b' : (value.returnReason.indexOf('Network') >= 0 ? '#8e44ad' : '#e67e22'), color: '#fff', 'font-weight': 'bold'}"><i class="fa fa-exclamation-triangle"></i> {{value.returnReason}}</span>
-                                                                  <!-- ── Recall badge: ⚠ Recalled — [reason] ── -->
-                                                                  <span ng-if="value.RecallStatus === 'Recalled'" class="label label-pill mt-2" style="background:#c0392b; color:#fff; font-weight:700; letter-spacing:0.3px;">&#9888; Recalled<span ng-if="value.RecallReason"> — {{value.RecallReason}}</span></span>
-                                                                  <!-- ── Sched badge: pre-booked scheduled ride (suppress for ASAP — website sends ScheduledFor=now on ASAP bookings) ── -->
-                                                                  <span ng-if="value.ScheduledFor && value.bookingType !== 'ASAP'" class="label label-pill mt-2" style="background:#1565c0; color:#fff; font-weight:700; letter-spacing:0.3px;">&#128197; Sched</span>
-                                                                  
-                                                                <div ng-if="value.useremail != null">
-                                                                    {{checkconter(value.Id , value.Id ,value.useremail ) }}
-                                                                  <span  ng-show="value.webstatus == 0  "  class="btn btn-success" style="padding: 0px 4px;  font-size: 13px;" ng-click="sendemail(  1  ,  value.useremail  ,  value.Id  ,value.JobMins ,   value.Id )" title="Accept"><i class="fa fa-thumbs-up"></i> </span>
-                                                                    <span ng-show="value.webstatus == 0 " id="close'+$res["dt1"][$i].Id+'" style="padding: 0px 4px;" class="btn btn-warning" ng-click="sendemail(   0  , value.useremail   , value.Id  ,value.JobMins )" title="Reject" > <i class="fa fa-thumbs-down"></i>  </span> 
-                                                                    <img ng-if="value.useremail != ''" style="width:20px;  float: right; padding: 2px; " src="img/alert.gif" style="width:25px;"  /> 
-                                                                    <span ng-show="value.webstatus != 0  "  class="label label-pill label-primary mt-2" >Accepted</span>
- 
-                                                                </div>
-                                                                
-
-
-                                                                
-                                                             </div>
+                                                    <div id="Divo{{value.Id}}" ng-if="true" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 bw-job-card {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm', 'bw-urgent': value.Urgent==='Yes', 'bw-svc-rental': value.BookingSource==='Rental'}" id="singlediv-{{value.Id}}" ng-repeat="(key, value) in oferunassignedjob_list">
+                                                        <div class="bw-card-hd">
+                                                            <span class="bw-jid"><i class="fa fa-hashtag"></i>{{value.Id}}</span>
+                                                            <span class="bw-b" ng-style="{background: value.JobMins<=0 ? '#16a34a' : value.JobMins<=30 ? '#d97706' : '#2563eb', color:'#fff'}"><i class="fa fa-clock-o"></i> {{jobTypeLabel(value.JobMins, value.DispatchTimebefore)}}</span>
+                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)}}</span>
+                                                            <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                            <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="bw-b" ng-style="{background: value.serviceType==='food'?'#16a34a':value.serviceType==='freight'?'#ea580c':'#7c3aed', color:'#fff'}">{{value.serviceType|uppercase}}</span>
+                                                            <span ng-if="value.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled</span>
+                                                            <i ng-if="value.DropLatLng != '0,0'" ng-mouseover="showmakert(value.Id,value.PickLatLng,value.DropLatLng)" ng-mouseleave="markerremove(value.Id,value.PickLatLng,value.DropLatLng)" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
                                                         </div>
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                             >
-                                                           
-                                                            <div class="row nopad col-sm-12 col-md-12 col-xl-12">
-                                                                 <div   style="position:absolute; left : -25px;" class="label label-pill label-primary mt-2"  >
-                                                                    <i class=" fa fa-eye"   aria-hidden="true" style="color:red; font-size:16px;" ng-click="$event.stopPropagation(); showdiv(value.Id)" ></i>
-                                                                </div>
-                                                                <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
-                                                                    <span>
-                                                                        <i class="fa fa-circle" style="color: green;"></i>
-                                                                        {{value.PickAddress}}
-                                                                                                                                
-                                                                    </span>
-                                                                </div>
-                                                                <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
-                                                                    <span>
-                                                                        <i class="fa fa-circle" style="color: red;"></i>
-                                                                        {{value.DropAddress}}
-                                                                                                                                
-                                                                    </span>
-                                                                </div>
-
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i style="color: black" class="fa fa-users "></i>{{value.Name}}
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}" style="background:red!important; color:white!important;">
-                                                                    <i style="color: black" class="glyphicon glyphicon-tag" style="color:white!important;"></i>
-                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-                                                                                                                         
-                                                                </span>
-                                                                <span class="label label-pill mt-2" ng-if="value.BookingStatus=='Pending'" style="background:#7b1fa2;color:white;font-weight:bold;">
-                                                                    <i class="fa fa-bullhorn"></i> Broadcast
-                                                                </span>
-                                                                <span id="spxa{{value.Id}}" style="display:inline-block; vertical-align:middle; margin:2px 0 2px 2px;">
-                                                                  <select id="spx{{value.Id}}" class="form-control" onclick="showwxx()" style="height:26px; font-size:11px; padding:1px 4px;">
-                                                                    <option value="-1" ng-selected="value.BookingStatus == 'No One'" data-zoneq="0" data-doo="0" data-is-noone="true">No One</option>
-                                                                    <option value="0" ng-selected="value.BookingStatus != 'No One' && 0 == checkvalue('spx',value.Id,'0')" data-zoneq="0" data-doo="0">Select Driver</option>
-                                                                    <option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && true == checkjobvehile(value.VehicleType, drivi.vehicletype)" ng-selected="drivi.driverid == checkvalue('spx',value.Id,'0')" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option>
-                                                                  </select>
-                                                                </span><span class="label label-pill label-success mt-2 bw-send-pulse" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;" ng-click="bwConfirmSpx(value.Id)" title="Confirm driver selection"><i class="fa fa-paper-plane" style="color:#1a1a2e;"></i></span><span class="label label-pill label-primary mt-2" style="display:inline-block;vertical-align:middle;margin:2px 2px;cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup"><i class="fa fa-map-marker" style="color:#fff;"></i></span>
-                                                                <span class="label label-pill mt-2" ng-if="value._preQueueDriver" style="background:#e67e22;color:white;font-weight:bold;" title="Silent offer sent to this busy driver — waiting for response">
-                                                                    <i class="fa fa-clock-o"></i> Offered (Busy) &#8594; {{value._preQueueDriver}}
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                    <span ng-if="value.Acc_job_id ">ACC</span>
-
-                                                                    <span ng-if="value.Account_id" class="bw-mc" title="{{value.Account_Name || value.Account_id}}"><i class="fa fa-briefcase"></i> {{value.Account_Name || value.Account_id}} &middot; Account Job</span>
-
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
-
-                                                                </span>
-                                                                <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
+                                                        <div class="bw-card-route">
+                                                            <div class="bw-card-route-row">
+                                                                <span class="bw-rdot bw-rdot-pick"></span>
+                                                                <span class="bw-raddr">{{bwFormatAddress(value.PickAddress, 'Hail Pickup')}}</span>
+                                                                <span class="bw-rmeta"><i class="fa fa-user"></i> {{value.passengername || value.Name || '—'}}</span>
+                                                            </div>
+                                                            <div class="bw-card-route-row" ng-if="value.DropAddress">
+                                                                <span class="bw-rdot bw-rdot-drop"></span>
+                                                                <span class="bw-raddr">{{value.DropAddress}}</span>
+                                                                <span class="bw-rmeta" ng-if="value.PhoneNo"><i class="fa fa-phone"></i> {{value.PhoneNo}}</span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad  col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]" id="datassun{{value.Id}}">
-                                                           <div class="row col-12">
-                                                                <div class="row nopad col-sm-4  col-md-2 col-xl-3">
-                                                                <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
-                                                                    <li>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-users" title="No of Passenger" style="padding: 1px;"></i>
-                                                                            {{value.Passengers}}                                  
-                                                                        </span>
-                                                                    </li>
-                                                                    <span style="padding: 0px 2px;">
-                                                                        <i class="fa fa-shopping-bag" title="No of Bag" style="padding: 1px;"></i>
-                                                                        {{value.Bags}}</span>
-                                                                    <span style="padding: 0px 2px;">
-                                                                        <i class="fa fa-wheelchair" title="No of Wheelchair" style="padding: 1px;"></i>
-                                                                        {{value.WheelChairs}}
-                                                                    </span>
-                            
-                                                                </ul>
-                                                            </div>
-                                                            <div class="row nopad col-sm-9  col-md-9 col-xl-9">
- 
-
-                                                                <span class="label label-pill label-primary mt-2" style="background: {{latealert(value.DispatchTimebefore, value.BookingDateTime )}}"><i style="color: black;" class="fa fa-hourglass-half"></i>
-
-                                                                    {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
-                                                                </span>
-                                                                 <span class="label label-pill label-warning mt-2" ng-click="EditJobunassignedng(value.Id,value.JobMins)">
-                                                                    <i class="  glyphicon glyphicon-edit "></i>
-                                                                </span>
-                                                                <span class="label label-pill label-danger mt-2" ng-click="UnAssignedJobsCancelng(value.Id,value.U_id)">
-                                                                    <i class="  glyphicon glyphicon-trash "></i>
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="  fa fa-headphones "></i>{{value.DispatcherName}}
-                                                                </span>
-
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="  glyphicon glyphicon-tag "></i>{{value.BookingSource}}
-                                                                </span>
-                                                                 <span class="label label-pill label-primary mt-2">
-                                                                    <i class="fa fa-clock-o" id="timer{{value.id}}"></i>{{value.BookingSource}}
-                                                                </span>
-                                                            </div>
-                                                           </div>
+                                                        <div class="bw-assign-row">
+                                                            <span class="bw-b" style="background:#dc2626;color:#fff;font-weight:700;">{{value.BookingStatus}}</span>
+                                                            <span class="bw-b" ng-style="{background: latealert(value.DispatchTimebefore, value.BookingDateTime) || '#475569', color:'#fff'}"><i class="fa fa-hourglass-half"></i> {{checklateornow(value.JobMins, value.DispatchTimebefore)}}</span>
+                                                            <span class="bw-mc" ng-if="value.TotalFare || value.fare"><i class="fa fa-dollar"></i>{{value.TotalFare || value.fare}}</span>
+                                                            <span class="bw-mc" ng-if="value.TripMins != null"><i class="fa fa-clock-o"></i>{{value.TripMins}}m</span>
+                                                            <span class="bw-mc" ng-if="value.drivername || value.VehicleNo"><i class="fa fa-car"></i>{{value.drivername || ''}} {{value.VehicleNo || value.CallSign || ''}}</span>
+                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
+                                                                <span class="bw-ab bw-ab-edit" ng-click="EditJobunassignedng(value.Id, value.JobMins)" title="Edit"><i class="fa fa-pencil"></i></span>
+                                                                <span class="bw-ab bw-ab-del" ng-click="UnAssignedJobsCancelng(value.Id, value.U_id)" title="Cancel"><i class="fa fa-times"></i></span>
+                                                                <span id="spxa{{value.Id}}"><select id="spx{{value.Id}}" class="form-control bw-spx-sel"><option value="-1" ng-selected="value.BookingStatus == 'No One'" data-is-noone="true">No One</option><option value="0">Select Driver</option><option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(value.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && checkjobvehile(value.VehicleType, drivi.vehicletype)" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option></select></span>
+                                                                <span class="bw-b bw-send-pulse" style="background:#16a34a;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="bwConfirmSpx(value.Id)"><i class="fa fa-paper-plane"></i></span></span>
                                                         </div>
                                                     </div>
-
-                                                    <!-- enddiv -->
                                                 </div>
 
-                                                <div class="tab-pane" id="tab6">
-                                                    
+                                                                                                <div class="tab-pane" id="tab6">
 
-                                                    <div class="nopad   col-sm-12 col-md-12 col-xl-12" style="background: rgba(95, 158, 160, 0.19); box-shadow: 1px 1px 1px 1px #00800070; border-radius: 6px;"
-                                                        ng-repeat="(key  , avalue ) in  assignedjob_list">
-                                                        <div class=" row nopad    col-sm-12 col-md-12 col-xl-12" data-toggle="collapse" data-target="#datassass{{key}}">
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-tag"></i>
-                                                                #{{avalue.Id}}</span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-clock-o"></i>
-                                                                {{bwFmtDt(avalue.BookingDateTime)}}</span>
-                                                            <span class="label label-pill label-warning mt-2" ng-if="avalue.WaitMins !== null && avalue.WaitMins !== undefined">
-                                                                <i class="fa fa-hourglass-half"></i>
-                                                                Wait {{avalue.WaitMins}}m</span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-user"></i>
-                                                                {{avalue.passengername || avalue.Name}}</span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-phone"></i>
-                                                                {{avalue.PhoneNo}}</span>
-                                                            <span class="label label-pill label-success mt-2">
-                                                                <i class="fa fa-car"></i>
-                                                                {{avalue.drivername}} {{avalue.VehicleNo}}
-                                                            </span>
-                                                            <span class="label label-pill label-warning mt-2" ng-if="avalue.TarriffType">
-                                                                <i class="fa fa-tag"></i>
-                                                                {{avalue.TarriffType}}
-                                                            </span>
-                                                            <span class="label label-pill label-info mt-2">
-                                                                <i class="fa fa-circle" style="color:{{avalue.BookingStatus=='Offered'?'orange':avalue.BookingStatus=='Assigned'?'limegreen':'#aaa'}}"></i>
-                                                                {{avalue.BookingStatus}}
-                                                            </span>
-                                                            <span class="label label-pill mt-2"
-                                                                ng-if="driverJobCount(avalue.DriverId) > 1"
-                                                                style="background:#e67e22;color:#fff;font-weight:bold;"
-                                                                title="This driver has multiple jobs assigned">
-                                                                <i class="fa fa-stack-overflow"></i>
-                                                                {{driverJobCount(avalue.DriverId)}} jobs
-                                                            </span>
-                                                             <i ng-if="avalue.DropLatLng != '0,0'" ng-mouseover="showmakert(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" ng-mouseleave="markerremove(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="avalue.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(avalue.Id,avalue.PickLatLng)" ng-mouseleave="markerremove1(avalue.Id,avalue.PickLatLng )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="avalue.DropLatLng !=  '0,0' && avalue.Nextstop != 0" ng-mouseover="showmakert3(avalue.Id,avalue.PickAddress,avalue.DropAddress,avalue.nextstopdata)" ng-mouseleave="markerremove3( )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-
+                                                    <div id="Divo{{avalue.Id}}" ng-if="true" ng-style="getCardStyle(avalue.Pickingtime || avalue.BookingDateTime, avalue.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 bw-job-card {{ alerting(avalue.DispatchTimebefore, avalue.Pickingtime || avalue.BookingDateTime, avalue.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': avalue.serviceType==='food', 'bw-svc-freight': avalue.serviceType==='freight', 'bw-svc-tm': avalue.serviceType==='tm', 'bw-urgent': avalue.Urgent==='Yes', 'bw-svc-rental': avalue.BookingSource==='Rental'}" id="singlediv-{{avalue.Id}}" ng-repeat="(key, avalue) in assignedjob_list">
+                                                        <div class="bw-card-hd">
+                                                            <span class="bw-jid"><i class="fa fa-hashtag"></i>{{avalue.Id}}</span>
+                                                            <span class="bw-b" ng-style="{background: avalue.JobMins<=0 ? '#16a34a' : avalue.JobMins<=30 ? '#d97706' : '#2563eb', color:'#fff'}"><i class="fa fa-clock-o"></i> {{jobTypeLabel(avalue.JobMins, avalue.DispatchTimebefore)}}</span>
+                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(avalue.Pickingtime || avalue.BookingDateTime, avalue.DispatchTimebefore)}}</span>
+                                                            <span ng-if="avalue.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                            <span ng-if="avalue.serviceType && avalue.serviceType !== 'taxi'" class="bw-b" ng-style="{background: avalue.serviceType==='food'?'#16a34a':avalue.serviceType==='freight'?'#ea580c':'#7c3aed', color:'#fff'}">{{avalue.serviceType|uppercase}}</span>
+                                                            <span ng-if="avalue.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled</span>
+                                                            <i ng-if="avalue.DropLatLng != '0,0'" ng-mouseover="showmakert(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" ng-mouseleave="markerremove(avalue.Id,avalue.PickLatLng,avalue.DropLatLng)" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
                                                         </div>
-                                                        <div class="nopad   col-sm-12 col-md-12 col-xl-12">
-                                                            <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                                data-toggle="collapse" data-target="#datassass{{key}}">
-                                                                <div class="row nopad col-sm-12 col-md-12 col-xl-12">
-                                                                    <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
-                                                                        <span>
-                                                                            <i class="fa fa-circle" style="color: green;"></i>
-                                                                            {{avalue.PickAddress || 'Hail / Street Pickup'}}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
-                                                                        <span>
-                                                                            <i class="fa fa-circle" style="color: red;"></i>
-                                                                            {{avalue.DropAddress || '—'}}
-                                                                        </span>
-                                                                    </div>
-
-
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                        {{avalue.BookingStatus}} {{avalue.CallSign}} {{avalue.VehicleNo}}
-                                                                                                                         
-                                                                    </span>
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                        <span ng-if="avalue.Acc_job_id">ACC</span>
-                                                                        <span ng-if="avalue.Account_id" class="bw-mc" title="{{avalue.Account_Name || avalue.Account_id}}"><i class="fa fa-briefcase"></i> {{avalue.Account_Name || avalue.Account_id}} &middot; Account Job</span>
-                                                                        <span ng-if="avalue.Recieve_payment">Paid</span><span ng-if="(avalue.paymentMethod||avalue.PaymentMethod) && (avalue.paymentMethod||avalue.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(avalue.paymentMethod||avalue.PaymentMethod)|uppercase}}</span><span ng-if="((avalue.paymentStatus||avalue.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
-                                                                    </span>
-                                                                    <span class="label label-pill label-danger mt-2">{{avalue.BookingSource}} </span>
-
-                                                                </div>
+                                                        <div class="bw-card-route">
+                                                            <div class="bw-card-route-row">
+                                                                <span class="bw-rdot bw-rdot-pick"></span>
+                                                                <span class="bw-raddr">{{bwFormatAddress(avalue.PickAddress, 'Hail Pickup')}}</span>
+                                                                <span class="bw-rmeta"><i class="fa fa-user"></i> {{avalue.passengername || avalue.Name || '—'}}</span>
                                                             </div>
-
+                                                            <div class="bw-card-route-row" ng-if="avalue.DropAddress">
+                                                                <span class="bw-rdot bw-rdot-drop"></span>
+                                                                <span class="bw-raddr">{{avalue.DropAddress}}</span>
+                                                                <span class="bw-rmeta" ng-if="avalue.PhoneNo"><i class="fa fa-phone"></i> {{avalue.PhoneNo}}</span>
+                                                            </div>
                                                         </div>
-                                                        <div class="nopad bottomspave col-sm-12 col-md-12 col-xl-12">
-                                                            <div class="nopad collapse  col-sm-12 col-md-12 col-xl-12 row" id="datassass{{key}}">
-                                                                <div class="row nopad col-sm-4  col-md-2 col-xl-3">
-                                                                    <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
-                                                                        <li>
-                                                                            <span style="padding: 0px 2px;">
-                                                                                <i class="fa fa-users" title="No of Passenger" style="padding: 1px;"></i>
-                                                                                {{avalue.Passengers}}                                  
-                                                                            </span>
-                                                                        </li>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-shopping-bag" title="No of Bag" style="padding: 1px;"></i>
-                                                                            {{avalue.Bags}}</span>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-wheelchair" title="No of Wheelchair" style="padding: 1px;"></i>
-                                                                            {{avalue.WheelChairs}}
-                                                                        </span>
-                                                             
-                                                                    </ul>
-                                                                </div>
-                                                                <div class="row nopad col-sm-9  col-md-9 col-xl-9">
-                                                                   
-
-                                                                    <select id="sxq{{avalue.Id}}" class="form-control JobsListVehicles" style="width: 160px;">
-                                                                        <option value="0" data-zoneq="0" >Select Driver</option>
-                                                                         <option value="0" data-zoneq="0" >No One</option>
-                                                                       <option ng-repeat="drivi in driverdatarealx  " ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid, (avalue.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available'  && true == checkjobvehile(avalue.VehicleType, drivi.vehicletype)"   value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}"  data-doo="{{drivi.VehicleId}}"> {{drivi.vehiclenumber}}/{{drivi.vehicletype}}  </option>
-
-                                                                         
-                                                                    </select>
-
-                                                                 
-                                                                    <span class=" label label-pill label-success mt-2" ng-click="AssignJobFromJobList(avalue.Id,avalue.VehicleId,avalue.DriverId,avalue.U_id, avalue.quenumber, 'sxq')">
-                                                                        <i style="color: black" class="fa fa-paper-plane"></i>
-                                                                    </span>
-
-                                                                    <span class="label label-pill label-warning mt-2" ng-click="EditJob(avalue.Id , avalue.quenumber)">
-                                                                        <i class="  glyphicon glyphicon-edit "></i>
-                                                                    </span>
-                                                                    <span class="label label-pill label-danger mt-2" ng-click="CancelJob(avalue.Id,avalue.U_id , avalue.ZoneId , avalue.quenumber)">
-                                                                        <i class="  glyphicon glyphicon-trash "></i>
-                                                                    </span>
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i class="  fa fa-headphones "></i>{{avalue.DispatcherName}}
-                                                                    </span>
-                                                                    <span class="label label-pill mt-2" style="background:#e67e22;color:#fff;cursor:pointer;" ng-click="clearStuckJob(avalue.Id, avalue.DriverId)" title="Force job back to Unassigned queue">
-                                                                        <i class="fa fa-undo"></i> Unassign
-                                                                    </span>
-                                                                    <span class="label label-pill mt-2" style="background:#27ae60;color:#fff;cursor:pointer;" ng-click="forceCompleteJob(avalue.Id, avalue.DriverId)" title="Mark as completed (use for offline trips that didn't auto-sync)">
-                                                                        <i class="fa fa-check-circle"></i> Force Complete
-                                                                    </span>
-                                                                    <span ng-if="driverIsOffline(avalue.DriverId, avalue.VehicleId)" style="display:inline-block;background:#e74c3c;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:4px;" title="Driver is offline — last seen: {{driverLastSeenAgo(avalue.DriverId, avalue.VehicleId)}}">
-                                                                        <i class="fa fa-wifi"></i> OFFLINE {{driverLastSeenAgo(avalue.DriverId, avalue.VehicleId)}}
-                                                                    </span>
-
-                                                                    
-                                                                </div>
-                                                            </div>
-
+                                                        <div class="bw-assign-row">
+                                                            <span class="bw-b" style="background:#dc2626;color:#fff;font-weight:700;">{{avalue.BookingStatus}}</span>
+                                                            <span class="bw-b" ng-style="{background: latealert(avalue.DispatchTimebefore, avalue.BookingDateTime) || '#475569', color:'#fff'}"><i class="fa fa-hourglass-half"></i> {{checklateornow(avalue.JobMins, avalue.DispatchTimebefore)}}</span>
+                                                            <span class="bw-mc" ng-if="avalue.TotalFare || avalue.fare"><i class="fa fa-dollar"></i>{{avalue.TotalFare || avalue.fare}}</span>
+                                                            <span class="bw-mc" ng-if="avalue.TripMins != null"><i class="fa fa-clock-o"></i>{{avalue.TripMins}}m</span>
+                                                            <span class="bw-mc" ng-if="avalue.drivername || avalue.VehicleNo"><i class="fa fa-car"></i>{{avalue.drivername || ''}} {{avalue.VehicleNo || avalue.CallSign || ''}}</span>
+                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
+                                                                <select id="sxq{{avalue.Id}}" class="form-control bw-spx-sel" style="max-width:130px;"><option value="0">Select Driver</option><option value="0">No One</option><option ng-repeat="drivi in driverdatarealx" ng-show="checkofferjob(drivi.driverid) && checkDriverSvc(drivi.driverid,(avalue.serviceType||'taxi'))" ng-if="drivi.vehiclestatus == 'Available' && checkjobvehile(avalue.VehicleType, drivi.vehicletype)" value="{{drivi.driverid}}" data-zoneq="{{drivi.zonequeue}}" data-doo="{{drivi.VehicleId}}">{{drivi.vehiclenumber}}/{{drivi.vehicletype}}</option></select>
+                                                                <span class="bw-b" style="background:#16a34a;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="AssignJobFromJobList(avalue.Id,avalue.VehicleId,avalue.DriverId,avalue.U_id, avalue.quenumber, 'sxq')"><i class="fa fa-paper-plane"></i></span>
+                                                                <span class="bw-ab bw-ab-edit" ng-click="EditJob(avalue.Id, avalue.quenumber)"><i class="fa fa-pencil"></i></span>
+                                                                <span class="bw-ab bw-ab-del" ng-click="CancelJob(avalue.Id,avalue.U_id, avalue.ZoneId, avalue.quenumber)"><i class="fa fa-times"></i></span>
+                                                                <span class="bw-b" style="background:#27ae60;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="forceCompleteJob(avalue.Id, avalue.DriverId)"><i class="fa fa-check"></i> Complete</span></span>
                                                         </div>
                                                     </div>
-
-                                                    <!-- Queued jobs moved to Queue tab -->
-                                                    
                                                 </div>
-                                                
+
                                                 <div class="tab-pane" id="tab-queue">
                                                     <div ng-if="!queuedJobs || queuedJobs.length === 0" style="text-align:center;color:#94a3b8;padding:32px;font-size:13px;">
                                                         <i class="fa fa-clock-o" style="font-size:28px;display:block;margin-bottom:8px;"></i>No queued jobs
@@ -3940,261 +3309,75 @@ $(document).ready(function() {
                                                     </div>
                                                     <!-- END QUEUED JOBS -->
                                                 </div>
-<div class="tab-pane" id="tab7">
-                                                    
+                                                <div class="tab-pane" id="tab7">
 
-                                                    <div style="background: #ce184a3d; box-shadow: 1px 1px 1px 1px #00800070; border-radius: 6px;"
-                                                        class="nopad   col-sm-12 col-md-12 col-xl-12" ng-repeat="(key , acvalue) in ActiveJob">
-                                                        <div class=" row nopad    col-sm-12 col-md-12 col-xl-12" data-toggle="collapse" data-target="#dataactive{{key}}">
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-tag"></i>
-                                                                {{acvalue.Id}}</span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-time"></i>
-                                                                {{bwFmtDt(acvalue.BookingDateTime)}}
-                                                            </span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-users "></i>
-                                                                {{acvalue.passengername || acvalue.Name}}</span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-phone"></i>
-                                                                {{acvalue.PhoneNo}}</span>
-
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="fa fa-id-badge"></i>
-                                                                {{acvalue.drivername || (acvalue.UserFName + ' ' + acvalue.UserLName)}} / {{acvalue.VehicleNo}}
-                                                            </span>
-                                                            <span class="label label-pill label-primary mt-2" ng-if="acvalue.TotalFare || acvalue.fare">
-                                                                <i class="fa fa-dollar"></i>
-                                                                ${{acvalue.TotalFare || acvalue.fare}}
-                                                            </span>
-                                                            <span class="label label-pill label-primary mt-2" ng-if="acvalue.TripMins != null">
-                                                                <i class="fa fa-clock-o"></i>
-                                                                {{acvalue.TripMins}} min
-                                                            </span>
-                                                            <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-time"></i>
-                                                                {{acvalue.TarriffType}}
-                                                            </span>
-                                                            <i ng-if="acvalue.DropLatLng != '0,0'" ng-mouseover="showmakert(acvalue.Id,acvalue.PickLatLng,acvalue.DropLatLng)" ng-mouseleave="markerremove(acvalue.Id,acvalue.PickLatLng,acvalue.DropLatLng)" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="acvalue.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(acvalue.Id,acvalue.PickLatLng)" ng-mouseleave="markerremove1(acvalue.Id,acvalue.PickLatLng )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="acvalue.DropLatLng !=  '0,0' && acvalue.Nextstop != 0" ng-mouseover="showmakert3(acvalue.Id,acvalue.PickAddress,acvalue.DropAddress,acvalue.nextstopdata)" ng-mouseleave="markerremove3( )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-
+                                                    <div id="Divo{{acvalue.Id}}" ng-if="true" ng-style="getCardStyle(acvalue.Pickingtime || acvalue.BookingDateTime, acvalue.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 bw-job-card {{ alerting(acvalue.DispatchTimebefore, acvalue.Pickingtime || acvalue.BookingDateTime, acvalue.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': acvalue.serviceType==='food', 'bw-svc-freight': acvalue.serviceType==='freight', 'bw-svc-tm': acvalue.serviceType==='tm', 'bw-urgent': acvalue.Urgent==='Yes', 'bw-svc-rental': acvalue.BookingSource==='Rental'}" id="singlediv-{{acvalue.Id}}" ng-repeat="(key, acvalue) in ActiveJob">
+                                                        <div class="bw-card-hd">
+                                                            <span class="bw-jid"><i class="fa fa-hashtag"></i>{{acvalue.Id}}</span>
+                                                            <span class="bw-b" ng-style="{background: acvalue.JobMins<=0 ? '#16a34a' : acvalue.JobMins<=30 ? '#d97706' : '#2563eb', color:'#fff'}"><i class="fa fa-clock-o"></i> {{jobTypeLabel(acvalue.JobMins, acvalue.DispatchTimebefore)}}</span>
+                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(acvalue.Pickingtime || acvalue.BookingDateTime, acvalue.DispatchTimebefore)}}</span>
+                                                            <span ng-if="acvalue.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                            <span ng-if="acvalue.serviceType && acvalue.serviceType !== 'taxi'" class="bw-b" ng-style="{background: acvalue.serviceType==='food'?'#16a34a':acvalue.serviceType==='freight'?'#ea580c':'#7c3aed', color:'#fff'}">{{acvalue.serviceType|uppercase}}</span>
+                                                            <span ng-if="acvalue.RecallStatus === 'Recalled'" class="bw-b" style="background:#c0392b;color:#fff;">&#9888; Recalled</span>
+                                                            <i ng-if="acvalue.DropLatLng != '0,0'" ng-mouseover="showmakert(acvalue.Id,acvalue.PickLatLng,acvalue.DropLatLng)" ng-mouseleave="markerremove(acvalue.Id,acvalue.PickLatLng,acvalue.DropLatLng)" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
                                                         </div>
-                                                        <div class="nopad   col-sm-12 col-md-12 col-xl-12">
-                                                            <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                                data-toggle="collapse" data-target="#dataactive{{key}}">
-                                                                <div class="row nopad col-sm-12 col-md-12 col-xl-12">
-                                                                    <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
-                                                                        <span>
-                                                                            <i class="fa fa-circle" style="color: green;"></i>
-                                                                            {{bwFormatAddress(acvalue.PickAddress, 'Hail / Street Pickup')}}
-                                                                        </span>
-                                                                    </div>
-                                                                    <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
-                                                                        <span>
-                                                                            <i class="fa fa-circle" style="color: red;"></i>
-                                                                            {{bwFormatAddress(acvalue.DropAddress, '—')}}
-                                                                        </span>
-                                                                    </div>
-
-                                                                    <span class="label label-pill label-primary mt-2" ng-if="acvalue.passengername || acvalue.Name">
-                                                                        <i style="color: black" class="fa fa-users "></i>{{acvalue.passengername || acvalue.Name}}
-                                                                    </span>
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                        {{acvalue.BookingStatus}} {{acvalue.CallSign}} {{acvalue.VehicleNo}}
-                                                                                                                         
-                                                                    </span>
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                       <span ng-if="acvalue.Acc_job_id ">ACC</span>
-
-                                                                    <span ng-if="acvalue.Account_id" class="bw-mc" title="{{acvalue.Account_Name || acvalue.Account_id}}"><i class="fa fa-briefcase"></i> {{acvalue.Account_Name || acvalue.Account_id}} &middot; Account Job</span>
-
-                                                                    <span ng-if="acvalue.Recieve_payment  ">Paid</span><span ng-if="(acvalue.paymentMethod||acvalue.PaymentMethod) && (acvalue.paymentMethod||acvalue.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(acvalue.paymentMethod||acvalue.PaymentMethod)|uppercase}}</span><span ng-if="((acvalue.paymentStatus||acvalue.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
-
-                                                                    </span>
-
-                                                                </div>
+                                                        <div class="bw-card-route">
+                                                            <div class="bw-card-route-row">
+                                                                <span class="bw-rdot bw-rdot-pick"></span>
+                                                                <span class="bw-raddr">{{bwFormatAddress(acvalue.PickAddress, 'Hail Pickup')}}</span>
+                                                                <span class="bw-rmeta"><i class="fa fa-user"></i> {{acvalue.passengername || acvalue.Name || '—'}}</span>
                                                             </div>
-
+                                                            <div class="bw-card-route-row" ng-if="acvalue.DropAddress">
+                                                                <span class="bw-rdot bw-rdot-drop"></span>
+                                                                <span class="bw-raddr">{{acvalue.DropAddress}}</span>
+                                                                <span class="bw-rmeta" ng-if="acvalue.PhoneNo"><i class="fa fa-phone"></i> {{acvalue.PhoneNo}}</span>
+                                                            </div>
                                                         </div>
-                                                        <div class="nopad bottomspave col-sm-12 col-md-12 col-xl-12">
-                                                            <div class="nopad collapse  col-sm-12 col-md-12 col-xl-12 row" id="dataactive{{key}}">
-                                                                <div class="row nopad col-sm-4  col-md-2 col-xl-3">
-                                                                    <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
-                                                                        <li>
-                                                                            <span style="padding: 0px 2px;">
-                                                                                <i class="fa fa-users" title="No of Passenger" style="padding: 1px;"></i>
-                                                                                {{acvalue.Passengers}}                                  
-                                                                            </span>
-                                                                        </li>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-shopping-bag" title="No of Bag" style="padding: 1px;"></i>
-                                                                            {{acvalue.Bags}}</span>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-wheelchair" title="No of Wheelchair" style="padding: 1px;"></i>
-                                                                            {{acvalue.WheelChairs}}
-                                                                        </span>
-                                                                     
-                                                                    </ul>
-                                                                </div>
-                                                                <div class="row nopad col-sm-9  col-md-9 col-xl-9">
-
-                                                                    <span class="label label-pill label-danger mt-2"
-                                                                        ng-click="cancelactivejob(acvalue.Id )">
-                                                                        <i class="  glyphicon glyphicon-trash "></i>
-                                                                    </span>
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i class="  fa fa-headphones "></i>{{acvalue.DispatcherName}}
-                                                                    </span>
-
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i class="  glyphicon glyphicon-tag "></i>{{acvalue.BookingSource}}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-
+                                                        <div class="bw-assign-row">
+                                                            <span class="bw-b" style="background:#dc2626;color:#fff;font-weight:700;">{{acvalue.BookingStatus}}</span>
+                                                            <span class="bw-b" ng-style="{background: latealert(acvalue.DispatchTimebefore, acvalue.BookingDateTime) || '#475569', color:'#fff'}"><i class="fa fa-hourglass-half"></i> {{checklateornow(acvalue.JobMins, acvalue.DispatchTimebefore)}}</span>
+                                                            <span class="bw-mc" ng-if="acvalue.TotalFare || acvalue.fare"><i class="fa fa-dollar"></i>{{acvalue.TotalFare || acvalue.fare}}</span>
+                                                            <span class="bw-mc" ng-if="acvalue.TripMins != null"><i class="fa fa-clock-o"></i>{{acvalue.TripMins}}m</span>
+                                                            <span class="bw-mc" ng-if="acvalue.drivername || acvalue.VehicleNo"><i class="fa fa-car"></i>{{acvalue.drivername || ''}} {{acvalue.VehicleNo || acvalue.CallSign || ''}}</span>
+                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
+                                                                <span class="bw-b" style="background:#27ae60;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="forceCompleteJob(acvalue.Id, acvalue.DriverId)"><i class="fa fa-check"></i> Complete</span>
+                                                                <span class="bw-ab bw-ab-del" ng-click="cancelactivejob(acvalue.Id)"><i class="fa fa-times"></i></span></span>
                                                         </div>
                                                     </div>
-                                                    
                                                 </div>
-                                                <div class="tab-pane " id="tab8">
-                                                          <div id="Divo{{value.Id}}" ng-style="{ background: asssignedcolor(value.BookingStatus)  }" style="margin-bottom: 13px;" class="nopad bottomspave col-sm-12 col-md-12 col-xl-12  {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" id="singlediv-{{value.Id}}" ng-repeat="(key ,  value) in  deliveryjobs">
-                                                           
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-click="toggleCard(value.Id)">
-                                                            <div class="nopad row col-sm-12  col-md-12 col-xl-12" style="margin: -8px 1px;">
-
-                                                                <span   class="label label-pill label-primary mt-2"><i style="color: black;" class="glyphicon glyphicon-tag"></i>
-
-                                                                    {{value.Id}}  
-                                                                </span>
-
-                                                                <span class="label label-pill label-primary mt-2" style="background: {{latealert(value.DispatchTimebefore, value.BookingDateTime )}}"><i style="color: black;" class="fa fa-hourglass-half"></i>
-
-                                                                    {{ checklateornow(value.JobMins , value.DispatchTimebefore) }}
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2" style="font-size:11px;"> {{  datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore) }} 
-                                                                </span>
-                                                                <span ng-if="value.DispatchTimebefore > 0" class="label label-pill mt-2 bw-dispatch-arrow" style="font-size:11px;" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff', fontWeight:'bold'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
-                                                                <div ng-if="value.Passengers > 4" style="padding: 6px;">
-                                                                    <span class="label label-pill label-danger mt-2">V.Job</span>
-                                                                </div>
-                                                                <div ng-if="value.Passengers < 4" style="padding: 6px;">
-                                                                    <span ng-if="value.VehicleType == 'Not Specified'" class="label label-pill label-primary mt-2">Any Vehicle
-                                                                    </span>
-                                                                    <span ng-if="value.VehicleType != 'Not Specified'" class="label label-pill label-primary mt-2">{{value.VehicleType}}
-                                                                    </span>
-
-                                                                </div>
-                                                                <span  ng-if="value.WheelChairs > 0" class="label label-pill label-danger mt-2">Wheel Chair</span>
-                                                                <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
-                                                                <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="label label-pill mt-2"
-                                                                    ng-style="{background: value.serviceType==='food' ? '#2e7d32' : value.serviceType==='freight' ? '#e65100' : value.serviceType==='tm' ? '#6a1b9a' : '#1565c0', color:'#fff', fontWeight:'700'}">
-                                                                    <i ng-class="{'fa fa-cutlery': value.serviceType==='food', 'fa fa-truck': value.serviceType==='freight', 'fa fa-wheelchair': value.serviceType==='tm'}"></i>
-                                                                    {{value.serviceType | uppercase}}</span>
-
-                                                                <div  ng-if="value.EntitiesDetails" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 100px; white-space: nowrap; overflow: hidden;">
-                                                                    <span><i style="color: black;" title="Dispatched Time" class="glyphicon glyphicon-info-sign"></i>
-                                                                        {{value.EntitiesDetails}}
-                                                                    </span>
-                                                                </div>
-
-
-                                                                <span ng-if="value.PhoneNo" class="label label-pill label-primary mt-2"><i class="fa fa-phone"></i>
-                                                                    {{value.PhoneNo}}
-                                                                </span>
-                                                                <i ng-if="value.DropLatLng != '0,0'" ng-mouseover="showmakert(value.Id,value.PickLatLng,value.DropLatLng)" ng-mouseleave="markerremove(value.Id,value.PickLatLng,value.DropLatLng)" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="value.DropLatLng ==  '0,0'" ng-mouseover="showmakert1(value.Id,value.PickLatLng)" ng-mouseleave="markerremove1(value.Id,value.PickLatLng )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
-                                                                <i ng-if="value.DropLatLng !=  '0,0' && value.Nextstop != 0" ng-mouseover="showmakert3(value.Id,value.PickAddress,value.DropAddress,value.nextstopdata)" ng-mouseleave="markerremove3( )" class="fa fa-compass" style="position: absolute; right: 10px; color: #f5002d; font-size: 27px;"></i>
+                                                                                                <div class="tab-pane " id="tab8">
+                                                    <div id="Divo{{value.Id}}" ng-if="true" ng-style="getCardStyle(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)" class="col-sm-12 col-md-12 col-xl-12 bw-job-card {{ alerting(value.DispatchTimebefore, value.Pickingtime || value.BookingDateTime, value.BookingStatus) }}" ng-class="{'bw-card-alt': $odd, 'bw-svc-food': value.serviceType==='food', 'bw-svc-freight': value.serviceType==='freight', 'bw-svc-tm': value.serviceType==='tm', 'bw-urgent': value.Urgent==='Yes', 'bw-svc-rental': value.BookingSource==='Rental'}" id="singlediv-{{value.Id}}" ng-repeat="(key, value) in deliveryjobs">
+                                                        <div class="bw-card-hd">
+                                                            <span class="bw-jid"><i class="fa fa-hashtag"></i>{{value.Id}}</span>
+                                                            <span class="bw-b" ng-style="{background: value.JobMins<=0 ? '#16a34a' : value.JobMins<=30 ? '#d97706' : '#2563eb', color:'#fff'}"><i class="fa fa-clock-o"></i> {{jobTypeLabel(value.JobMins, value.DispatchTimebefore)}}</span>
+                                                            <span class="bw-b" style="background:#e0e7ff;color:#3730a3;font-size:11px;">{{datecreate(value.Pickingtime || value.BookingDateTime, value.DispatchTimebefore)}}</span>
+                                                            <span ng-if="value.PaymentType === 'total_mobility'" class="bw-tm-badge">TM</span>
+                                                            <span ng-if="value.serviceType && value.serviceType !== 'taxi'" class="bw-b" ng-style="{background: value.serviceType==='food'?'#16a34a':value.serviceType==='freight'?'#ea580c':'#7c3aed', color:'#fff'}">{{value.serviceType|uppercase}}</span>
+                                                            <span ng-if="value.DispatchTimebefore > 0" class="bw-b" ng-style="{background: dispatchWindowOpen(value.DispatchTimebefore, value.BookingDateTime) ? '#dc2626' : '#6d28d9', color:'#fff'}"><i class="fa fa-send"></i> {{ dispatchAtLabel(value.BookingDateTime, value.DispatchTimebefore) }}</span>
+                                                            <i ng-if="value.DropLatLng != '0,0'" ng-mouseover="showmakert(value.Id,value.PickLatLng,value.DropLatLng)" ng-mouseleave="markerremove(value.Id,value.PickLatLng,value.DropLatLng)" class="fa fa-compass" style="color:#e53e3e;font-size:17px;cursor:pointer;margin-left:auto;"></i>
+                                                        </div>
+                                                        <div class="bw-card-route">
+                                                            <div class="bw-card-route-row">
+                                                                <span class="bw-rdot bw-rdot-pick"></span>
+                                                                <span class="bw-raddr">{{bwFormatAddress(value.PickAddress, 'Hail Pickup')}}</span>
+                                                                <span class="bw-rmeta"><i class="fa fa-user"></i> {{value.passengername || value.Name || '—'}}</span>
+                                                            </div>
+                                                            <div class="bw-card-route-row" ng-if="value.DropAddress">
+                                                                <span class="bw-rdot bw-rdot-drop"></span>
+                                                                <span class="bw-raddr">{{value.DropAddress}}</span>
+                                                                <span class="bw-rmeta" ng-if="value.PhoneNo"><i class="fa fa-phone"></i> {{value.PhoneNo}}</span>
                                                             </div>
                                                         </div>
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" style="margin-top: -7px; margin-bottom: -7px;"
-                                                            ng-click="toggleCard(value.Id)">
-                                                            <div class="row nopad col-sm-12 col-md-12 col-xl-12">
-                                                                <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
-                                                                    <span>
-                                                                        <i class="fa fa-circle" style="color: green;"></i>
-                                                                        {{value.PickAddress}}
-                                                                                                                                
-                                                                    </span>
-                                                                </div>
-                                                                <div  ng-if="value.DropAddress" class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
-                                                                    <span>
-                                                                        <i class="fa fa-circle" style="color: red;"></i>
-                                                                        {{value.DropAddress}}
-                                                                                                                                
-                                                                    </span>
-                                                                </div>
-
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i style="color: black" class="fa fa-users "></i>{{value.passengername || value.Name}}
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2" id="Divoo{{value.Id}}">
-                                                                    <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                    {{value.BookingStatus}} {{value.CallSign}} {{value.VehicleNo}}
-                                                                                                                         
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i style="color: black" class="glyphicon glyphicon-tag"></i>
-                                                                   
-                                                                    <span ng-if="value.Recieve_payment  ">Paid</span><span ng-if="(value.paymentMethod||value.PaymentMethod) && (value.paymentMethod||value.PaymentMethod)!=''" class="label label-pill mt-2" style="background:#475569;color:#fff;font-size:10px;font-weight:700;" title="Payment method"><i class="fa fa-credit-card"></i> {{(value.paymentMethod||value.PaymentMethod)|uppercase}}</span><span ng-if="((value.paymentStatus||value.PaymentStatus)+'').toLowerCase()=='paid'" class="label label-pill mt-2" style="background:#16a34a;color:#fff;font-size:10px;font-weight:700;" title="Pre-paid online">PAID</span>
-
-                                                                </span>
-                                                                <span class="label label-pill label-danger mt-2" ng-if="value.Nextstop > 0">M-Stops </span>
-                                                            </div>
-                                                        </div>
-                                                        <div class="nopad col-sm-12 col-md-12 col-xl-12 row" ng-show="openCards[value.Id]">
-                                                            <div class="row nopad col-sm-4  col-md-2 col-xl-3">
-                                                                <ul style="padding: 0px; margin: 0px; list-style: none; display: inline-flex;">
-                                                                    <li>
-                                                                        <span style="padding: 0px 2px;">
-                                                                            <i class="fa fa-users" title="No of Passenger" style="padding: 1px;"></i>
-                                                                            {{value.Passengers}}                                  
-                                                                        </span>
-                                                                    </li>
-                                                                    <span style="padding: 0px 2px;">
-                                                                        <i class="fa fa-shopping-bag" title="No of Bag" style="padding: 1px;"></i>
-                                                                        {{value.Bags}}</span>
-                                                                    <span style="padding: 0px 2px;">
-                                                                        <i class="fa fa-wheelchair" title="No of Wheelchair" style="padding: 1px;"></i>
-                                                                        {{value.WheelChairs}}
-                                                                    </span>
-                            
-                                                                </ul>
-                                                            </div>
-                                                            <div class="row nopad col-sm-9  col-md-9 col-xl-9">
-                                                              
-
-                                                                <select id="sax{{value.Id}}" class="form-control UnAssignJobsList2" style="width: 160px;">
-                                                                    <option value="0"  >Select Driver</option>
-                                                                    <option value="-1"  data-is-noone="true">No One</option>
-                                                                    <option ng-repeat="drivi in driverdatarealx" value="{{drivi.Id}}">   {{drivi.VehicleNo}} {{"/" +  drivi.VehicleName}}  </option>
-                                                                </select>
-
-                                                             
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned11( value.BookingStatus)}};cursor:pointer;" ng-click="bwConfirmCard('sax','pending',value.Id,value.VehicleId,value.DriverId,value.U_id)" title="Confirm driver selection">
-                                                                    <i style="color: black" class="fa fa-paper-plane"></i>
-                                                                </span>
-                                                                <span class=" label label-pill label-success mt-2 bw-send-pulse" style="display: {{asssigned1( value.BookingStatus)}};cursor:pointer;" ng-click="bwConfirmCard('sax','assigned',value.Id,value.VehicleId,value.DriverId,value.U_id)" title="Confirm driver selection">
-                                                                    <i style="color: black" class="fa fa-paper-plane"></i>
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2" style="cursor:pointer;background:#1565c0;" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map to pickup">
-                                                                    <i class="fa fa-map-marker" style="color:#fff;"></i>
-                                                                </span>
-                                                                
-                                                                <span class="label label-pill label-danger mt-2" ng-click="UnAssignedJobsCancelng(value.Id,value.U_id)">
-                                                                    <i class="  glyphicon glyphicon-trash "></i>
-                                                                </span>
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="  fa fa-headphones "></i>{{value.DispatcherName}}
-                                                                </span>
-
-                                                                <span class="label label-pill label-primary mt-2">
-                                                                    <i class="  glyphicon glyphicon-tag "></i>{{value.BookingSource}}
-                                                                </span>
-                                                            </div>
+                                                        <div class="bw-assign-row">
+                                                            <span class="bw-b" style="background:#dc2626;color:#fff;font-weight:700;">{{value.BookingStatus}}</span>
+                                                            <span class="bw-b" ng-style="{background: latealert(value.DispatchTimebefore, value.BookingDateTime) || '#475569', color:'#fff'}"><i class="fa fa-hourglass-half"></i> {{checklateornow(value.JobMins, value.DispatchTimebefore)}}</span>
+                                                            <span class="bw-mc" ng-if="value.EntitiesDetails"><i class="fa fa-info-circle"></i>{{value.EntitiesDetails}}</span>
+                                                            <span class="bw-mc" ng-if="value.DispatcherName"><i class="fa fa-headphones"></i>{{value.DispatcherName}}</span>
+                                                            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:3px;flex-shrink:0;">
+                                                                <select id="sax{{value.Id}}" class="form-control bw-spx-sel" style="max-width:130px;"><option value="0">Select Driver</option><option value="-1" data-is-noone="true">No One</option><option ng-repeat="drivi in driverdatarealx" value="{{drivi.Id}}">{{drivi.VehicleNo}}/{{drivi.VehicleName}}</option></select>
+                                                                <span class="bw-b bw-send-pulse" style="background:#16a34a;color:#fff;cursor:pointer;padding:2px 8px;" ng-click="bwConfirmCard('sax','pending',value.Id,value.VehicleId,value.DriverId,value.U_id)"><i class="fa fa-paper-plane"></i></span>
+                                                                <span class="bw-ab bw-ab-del" ng-click="UnAssignedJobsCancelng(value.Id,value.U_id)"><i class="fa fa-times"></i></span>
+                                                                <span class="bw-ab bw-ab-edit" ng-click="bwZoomPickup(value.PickLatLng)" title="Zoom map"><i class="fa fa-map-marker"></i></span></span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -20612,46 +19795,15 @@ $(document).ready(function() {
                 }, 5000);
         
                     $scope.cancelactivejob = function(id){
-            
-                        $scope.param111 = [{ "name": "BookingId", "Value": id },
-                             { "name": "DropLocation", "Value": '' },
-                         { "name": "Distance", "Value": '' },
-                         { "name": "Time", "Value": '' },
-                         { "name": "Cost", "Value":'' },
-                         { "name": "RideCost", "Value": '' },
-                         { "name": "WaitingCost", "Value":''},
-                         { "name": "Curreny", "Value": '' }];
-                        $scope.proc11a = 'UpdateBooking';
-              
-                        $http({
-
-                            method: "POST",
-
-                            url: "DataManager/Data.aspx/DataSelectorRide",
-
-                            data: {
-                                data: $scope.param111,
-                                action: $scope.proc11a
-                            }
-
-                        }).then(function mySuccess(result) {
-                
-                            try { $res = JSON.parse(result.data.d); } catch(e) { $res = []; }
-                       
-                            if ($res[0] && $res[0].Result == "Ride Ended Successfully") {
-                                $scope.ActiveJobsdata();
-                            }
-                     
-
-                        }, function myError(response) {
-
-                            console.log(response);
-
-                        });
-
-
-          
-           
+                        if (typeof window.cancelBooking === 'function') {
+                            window.cancelBooking(id, SomeSession2, 'Cancelled from active tab').then(function () {
+                                if (typeof $scope.ActiveJobsdata === 'function') $scope.ActiveJobsdata();
+                            }).catch(function () {
+                                toastr['error']('Could not cancel job #' + id, 'Error');
+                            });
+                            return;
+                        }
+                        toastr['error']('Cancel unavailable', 'Error');
                     }
                     $scope.AssignPendingJobFromJobList = function (BookingId, VehicleId, driverId, u_id, laststatus,type) {
                      
@@ -21350,61 +20502,51 @@ $(document).ready(function() {
         $("#AlertDiv" + Id + "").remove();
     }
 
+    function bwNowAlarmParam() {
+        var d = new Date();
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+            p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    }
+
+    function bwApplyAlarmList(rows, playSound) {
+        var sc = angular.element(document.getElementById('myangular')).scope();
+        if (!sc) return;
+        var list = (rows || []).map(function (r) {
+            var copy = {};
+            for (var k in r) { if (Object.prototype.hasOwnProperty.call(r, k)) copy[k] = r[k]; }
+            copy.displayTime = (window.bwAlarmIncludesDate ? window.bwAlarmIncludesDate(r.AlarmTime) : r.AlarmTime);
+            return copy;
+        });
+        var _apply = function () { sc.bwAlarmList = list; };
+        if (!sc.$phase) { sc.$apply(_apply); } else { _apply(); }
+        if (list.length > 0) {
+            if (playSound && $("#DispatchSounds").text() == "1" && typeof sc.playAudio === 'function') {
+                sc.playAudio();
+            }
+            $("#alarms").modal();
+        }
+    }
+
     function Alarms() {
-        var currentdate = new Date();
-        var datetime = currentdate.getHours() + ":" + currentdate.getMinutes() + ":" + currentdate.getSeconds();
-        var param = [{ "name": "AlarmTime", "value": datetime }];
+        var param = [{ "name": "AlarmTime", "value": bwNowAlarmParam() }];
         var proc = 'RetrieveAlarms';
         Selector1(param, proc).then(function (result) {
             if (result.d == "Session is experied, please login again") {
                 window.location.href = "DispatcherLogin.aspx?";
-            }
-            else {
+            } else {
                 $res = JSON.parse(result.d);
-                if ($res.length > 0) {
-                    if ($("#DispatchSounds").text() == "1") {
-                        angular.element(document.getElementById('myangular')).scope().playAudio( );
-                    }
-                    $("#alarms .modal-alarm-box").empty();
-                    for ($i = 0; $i < $res.length; $i++) {
-                        $("#alarms .modal-alarm-box").append('<div id="AlarmDiv' + $res[$i].Id + '" style="cursor:pointer;background:#fff;" class="row">' +
-                            '<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">' +
-                                                            '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                                '<p>Text</p>' +
-                                                            '</div>' +
-                                                            '<div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">' +
-                                                                '<p class="txt-light">' + $res[$i].AlarmText + '</p>' +
-                                                            '</div>' +
-
-                                                        '</div>' +
-                                                         '<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">' +
-                                                         '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                          '<p>Date</p>' +
-                                                          '</div>' +
-                                                          '<div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">' +
-                                                            '<p class="txt-light">' + $res[$i].AlarmDate + '</p>' +
-                                                        '</div>' +
-                                                        '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                            '<p>Time</p>' +
-                                                            '</div>' +
-                                                      '<div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">' +
-                                                '<p class="txt-light">' + $res[$i].AlarmTime + '</p>' +
-                                                '</div>' +
-                                                '</div>' +
-                                                '<div class="col-lg-6 col-md-6 col-sm-6 col-xs-6">' +
-                                                    '<button class="btn btn-main" onclick="UpdateAlarm(' + $res[$i].Id + ')">Disable Alarm</button>' +
-                                                '</div>' +
-                                            '</div>' +
-                                         '<hr>');
-                    }
-                    $("#alarms").modal();
-                }
+                bwApplyAlarmList($res, true);
             }
         });
-
     }
 
     function UpdateAlarm(ele) {
+        var sc = angular.element(document.getElementById('myangular')).scope();
+        if (sc && typeof sc.bwDisableAlarm === 'function') {
+            sc.bwDisableAlarm(ele);
+            return;
+        }
         Action([ { "name": "Id", "Value": ele }], "[UpdateAlarm]");
         $("#AlarmDiv" + ele + "").remove();
     }
@@ -21422,53 +20564,9 @@ $(document).ready(function() {
             if (result.d == "Session is experied, please login again") {
                 alert(result.d);
                 window.location.href = "DispatcherLogin.aspx?";
-            }
-            else {
+            } else {
                 $res = JSON.parse(result.d);
-                if ($res.length > 0) {
-                    if ($("#DispatchSounds").text() == "1") {
-
-                        angular.element(document.getElementById('myangular')).scope().playAudio( );
-                    }
-                    $("#alarms .modal-alarm-box").empty();
-                    for ($i = 0; $i < $res.length; $i++) {
-                        $("#alarms .modal-alarm-box").append('<div style="cursor:pointer;background:#fff;" class="row">' +
-                            '<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">' +
-                                                            '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                                '<p>Text</p>' +
-                                                            '</div>' +
-                                                            '<div class="col-lg-10 col-md-10 col-sm-10 col-xs-10">' +
-                                                                '<p class="txt-light">' + $res[$i].AlarmText + '</p>' +
-                                                            '</div>' +
-
-                                                        '</div>' +
-                                                         '<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">' +
-                                                          '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                          '<p>Date</p>' +
-                                                          '</div>' +
-                                                          '<div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">' +
-                                                            '<p class="txt-light">' + $res[$i].AlarmDate + '</p>' +
-                                                        '</div>' +
-                                                        '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                            '<p>Time</p>' +
-                                                            '</div>' +
-                                                       '<div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">' +
-                                                '<p class="txt-light">' + $res[$i].AlarmTime + '</p>' +
-                                                '</div>' +
-                                                 '</div>' +
-                                                  '<div class="col-lg-2 col-md-2 col-sm-2 col-xs-2">' +
-                                                            '<p>Status</p>' +
-                                                            '</div>' +
-                                                       '<div class="col-lg-4 col-md-4 col-sm-4 col-xs-4">' +
-                                                '<p class="txt-light">' + $res[$i].Status + '</p>' +
-                                                '</div>' +
-                                                 '</div>' +
-                                            '</div>' +
-
-                                            '<hr>');
-                    }
-                    $("#alarms").modal();
-                }
+                bwApplyAlarmList($res, true);
             }
         });
     }
@@ -22659,6 +21757,16 @@ $(document).ready(function() {
                             datasetx.push(datas);
                         }
           
+                        if (datasetx.length === 0) {
+                            $('#bw-closed-empty').show();
+                            $('#tbleClosedJobs').hide();
+                            if ($.fn.DataTable.isDataTable('#tbleClosedJobs')) {
+                                $('#tbleClosedJobs').DataTable().clear().destroy();
+                            }
+                            return;
+                        }
+                        $('#bw-closed-empty').hide();
+                        $('#tbleClosedJobs').show();
                         var tabless =  $('#tbleClosedJobs').DataTable({
                             data: datasetx,
                             columns: [
