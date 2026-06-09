@@ -7850,6 +7850,19 @@ $(document).ready(function() {
 
     var cars_Ref = firebase.database().ref("online/" + SomeSession2 + "");
     console.log(cars_Ref);
+    // Write zonequeue to online/{cid}/{vid} so the driver app shows queue position on shift start.
+    function _bwWriteZonequeueOnline(vehicleId, queueNo, zonename) {
+        if (!vehicleId || !queueNo || !SomeSession2) return;
+        try {
+            var _zqPatch = { zonequeue: queueNo, queueWaitSince: Date.now() };
+            if (zonename) _zqPatch.zonename = zonename;
+            firebase.database().ref('online/' + SomeSession2 + '/' + vehicleId).update(_zqPatch);
+            firebase.database().ref('online/' + SomeSession2 + '/' + vehicleId + '/current').update({ zonequeue: queueNo });
+            console.log('[BW] zonequeue=' + queueNo + ' → online/' + SomeSession2 + '/' + vehicleId);
+        } catch (e) {
+            console.warn('[BW] zonequeue write failed:', e);
+        }
+    }
     // Tracks pending removal timers keyed by vehicleKey — used to delay driver removal
     // when Firebase disconnects (phone screen off) so drivers don't flash off the board.
     var _disconnectTimers = {};
@@ -13062,9 +13075,11 @@ $(document).ready(function() {
                                         // When server returns a new queue number (driver came back Available),
                                         // write it to Firebase so the driver app and other nodes see it.
                                         if (_r && _r.newQueueNo && _newSt === 'Available' && SomeSession2) {
-                                            var _fbQueue = { zonequeue: _r.newQueueNo };
-                                            if (_r.queueWaitSince) _fbQueue.queueWaitSince = _r.queueWaitSince;
-                                            firebase.database().ref("online/" + SomeSession2 + "/" + _capVid).update(_fbQueue);
+                                            _bwWriteZonequeueOnline(
+                                                String(_capVid),
+                                                _r.newQueueNo,
+                                                String(_capDatacom.zonename || '')
+                                            );
                                             // §FIX-DA-G2 — zonequeue is a driver-level field and lives on online/;
                                             // never write driver-level state onto a booking-keyed jobs/ child.
                                             // Also update local driver data so the dispatch board reflects it

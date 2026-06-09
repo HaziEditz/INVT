@@ -745,6 +745,26 @@ async function firebaseDbPush(path, value, idToken) {
   return r.body; // { name: "-Os7EhxblNgbMg2B0D6G" }
 }
 
+/** Mirror zone queue to online/{cid}/{vid} when driver goes Available (incl. shift start). */
+function syncZonequeueToFirebase(companyId, vehicleId, queueNo, zonename, source) {
+  if (!companyId || !vehicleId || !queueNo) return;
+  const _src = source || 'syncZonequeue';
+  void (async () => {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (!tok) return;
+      const topPatch = { zonequeue: queueNo, queueWaitSince: Date.now() };
+      if (zonename) topPatch.zonename = zonename;
+      await firebaseDbPatch(`online/${companyId}/${vehicleId}`, topPatch, tok);
+      await firebaseDbPatch(`online/${companyId}/${vehicleId}/current`, { zonequeue: queueNo }, tok)
+        .catch(() => undefined);
+      console.log(`  [${_src}] Firebase zonequeue=${queueNo} → online/${companyId}/${vehicleId}`);
+    } catch (e) {
+      console.warn(`  [${_src}] Firebase zonequeue write failed:`, e && e.message);
+    }
+  })();
+}
+
 // ── Firebase cleanup on terminal job state ─────────────────────────────────
 // When a job reaches a terminal state (Completed / Cancelled / Closed) we MUST
 // clear every Firebase path that could resurrect it, otherwise:
@@ -9591,6 +9611,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           saveJobStore();
         }
+        if (_dscQueueNo && newStatus === 'Available' && sessionCompanyId) {
+          syncZonequeueToFirebase(
+            sessionCompanyId,
+            vehiclenumber || driverId,
+            _dscQueueNo,
+            zonename,
+            'DriverStatusChanged/DP',
+          );
+        }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus} (${jobStore.filter(j=>j.BookingStatus==='Active').length} active now)`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dscQueueNo, queueWaitSince: _dscQueueNo ? Date.now() : null, driverCancelled: _dscDriverCancelled || null, driverRecalled: _dscDriverRecalled || null, zoneOnly: zoneOnly || false, completedJob: _dscCompletedJob || null, reconnectJob: _dscReconnectJob || null });
 
@@ -11512,6 +11541,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
           saveJobStore();
+        }
+        if (_dssQueueNo && newStatus === 'Available' && sessionCompanyId) {
+          syncZonequeueToFirebase(
+            sessionCompanyId,
+            vehiclenumber || driverId,
+            _dssQueueNo,
+            zonenameDS,
+            'DriverStatusChanged/DS',
+          );
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> driverId=${driverId} newStatus=${newStatus}`);
         objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], newQueueNo: _dssQueueNo, queueWaitSince: _dssQueueNo ? Date.now() : null, driverCancelled: _dssDriverCancelled || null, driverRecalled: _dssDriverRecalled || null, zoneOnly: zoneOnlyDS || false, completedJob: _dscCompletedJobDS || null });
