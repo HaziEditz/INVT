@@ -9987,7 +9987,7 @@ $(document).ready(function() {
 
  
          // Replace with your own API key
-         var API_KEY = 'AIzaSyAg5Q5LyM2Bv0xpeHz4gPRG1MwMh71klis';
+         var API_KEY = '__BW_GOOGLE_MAPS_API_KEY__';
 
          // Icons for markers
          var RED_MARKER = 'https://maps.google.com/mapfiles/ms/icons/red-dot.png';
@@ -23220,7 +23220,7 @@ $(document).ready(function() {
     };
 })();
 </script>
- <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAg5Q5LyM2Bv0xpeHz4gPRG1MwMh71klis&libraries=places,geometry&callback=initMap"
+ <script src="https://maps.googleapis.com/maps/api/js?key=__BW_GOOGLE_MAPS_API_KEY__&libraries=places,geometry&callback=initMap"
             async defer></script> 
      <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script> 
 <script src="https://cdn.rawgit.com/googlemaps/v3-utility-library/master/markerwithlabel/src/markerwithlabel.js"></script>

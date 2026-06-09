@@ -2918,6 +2918,7 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
 const _geocodeCache = new Map(); // "lat,lng" -> address string
 const _geocodeInflight = new Map(); // "lat,lng" -> Promise
 const GOOGLE_MAPS_GEOCODE_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+const GOOGLE_MAPS_API_KEY = GOOGLE_MAPS_GEOCODE_KEY;
 function _reverseGeocode(lat, lng) {
   const _lat = Number(lat), _lng = Number(lng);
   if (!isFinite(_lat) || !isFinite(_lng)) return Promise.resolve(null);
@@ -4397,6 +4398,10 @@ function readBody(req) {
     req.on('end', () => resolve(body));
     req.on('error', () => resolve(''));
   });
+}
+
+function injectAspxEnv(html) {
+  return html.replace(/__BW_GOOGLE_MAPS_API_KEY__/g, GOOGLE_MAPS_API_KEY);
 }
 
 function resolveFilePath(urlPath) {
@@ -12476,6 +12481,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     'Cache-Control': _cc,
     'Access-Control-Allow-Origin': '*',
   });
+  if (ext === '.aspx') {
+    if (!GOOGLE_MAPS_API_KEY && urlPath.includes('Default.aspx')) {
+      console.warn('[maps] GOOGLE_MAPS_API_KEY is not set — map may fail to load');
+    }
+    const html = injectAspxEnv(fs.readFileSync(filePath, 'utf8'));
+    res.end(html);
+    return;
+  }
   fs.createReadStream(filePath).pipe(res);
 });
 
