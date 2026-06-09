@@ -4550,14 +4550,22 @@ $(document).ready(function() {
                                                             </span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-users "></i>
-                                                                {{acvalue.passengername}}</span>
+                                                                {{acvalue.passengername || acvalue.Name}}</span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="fa fa-phone"></i>
                                                                 {{acvalue.PhoneNo}}</span>
 
                                                             <span class="label label-pill label-primary mt-2">
-                                                                <i class="glyphicon glyphicon-time"></i>
-                                                                {{acvalue.drivername}} {{acvalue.VehicleNo}}
+                                                                <i class="fa fa-id-badge"></i>
+                                                                {{acvalue.drivername || (acvalue.UserFName + ' ' + acvalue.UserLName)}} / {{acvalue.VehicleNo}}
+                                                            </span>
+                                                            <span class="label label-pill label-primary mt-2" ng-if="acvalue.TotalFare || acvalue.fare">
+                                                                <i class="fa fa-dollar"></i>
+                                                                ${{acvalue.TotalFare || acvalue.fare}}
+                                                            </span>
+                                                            <span class="label label-pill label-primary mt-2" ng-if="acvalue.TripMins != null">
+                                                                <i class="fa fa-clock-o"></i>
+                                                                {{acvalue.TripMins}} min
                                                             </span>
                                                             <span class="label label-pill label-primary mt-2">
                                                                 <i class="glyphicon glyphicon-time"></i>
@@ -4575,18 +4583,18 @@ $(document).ready(function() {
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 30%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: green;"></i>
-                                                                            {{acvalue.PickAddress || 'Hail / Street Pickup'}}
+                                                                            {{bwFormatAddress(acvalue.PickAddress, 'Hail / Street Pickup')}}
                                                                         </span>
                                                                     </div>
                                                                     <div class="label label-pill label-primary mt-2" style="overflow: hidden; width: 25%; white-space: nowrap; overflow: hidden;">
                                                                         <span>
                                                                             <i class="fa fa-circle" style="color: red;"></i>
-                                                                            {{acvalue.DropAddress || '—'}}
+                                                                            {{bwFormatAddress(acvalue.DropAddress, '—')}}
                                                                         </span>
                                                                     </div>
 
-                                                                    <span class="label label-pill label-primary mt-2">
-                                                                        <i style="color: black" class="fa fa-users "></i>{{acvalue.passengername}}
+                                                                    <span class="label label-pill label-primary mt-2" ng-if="acvalue.passengername || acvalue.Name">
+                                                                        <i style="color: black" class="fa fa-users "></i>{{acvalue.passengername || acvalue.Name}}
                                                                     </span>
                                                                     <span class="label label-pill label-primary mt-2">
                                                                         <i style="color: black" class="glyphicon glyphicon-tag"></i>
@@ -4930,29 +4938,25 @@ $(document).ready(function() {
                                         <table id="example" style="width:100%;" >
                                             <thead>
                                                 <tr>
-                                                    <th class="wd-15p">Zone/Cabs </th>
+                                                    <th class="wd-15p">Zone/Cab</th>
                                                     <th class="wd-15p">Driver</th>
                                                     <th class="wd-10p">Services</th>
-                                                    <th class="wd-15p">status</th>
-                                                    <th class="wd-15p">Jobs</th>
+                                                    <th class="wd-10p">Status</th>
+                                                    <th class="wd-8p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
-                                                    <th class="wd-20p">Pick up</th>
+                                                    <th class="wd-10p">Phone</th>
+                                                    <th class="wd-15p">Pick up</th>
                                                     <th class="wd-15p">Drop Off</th>
-
-
                                                 </tr>
                                             </thead>
-                                               <tr ng-repeat="driverz in driverdatarealx  " ng-if="driverz.drivername && driverz.vehiclestatus !== 'inactive' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600; background:{{showcolor(driverz.vehiclestatus)}}">
+                                               <tr ng-repeat="driverz in driverdatarealx  " ng-if="(driverz.vehiclenumber || driverz.driverid) && driverz.vehiclestatus !== 'inactive' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="font-weight: 600; background:{{showcolor(bwBoardStatus(driverz))}}">
                                                 <td><div style="height: 20px!important; overflow: hidden;">
-                                                         {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}}
+                                                         {{bwZoneCabLabel(driverz)}}
                                                          <span ng-if="driverIsOffline(driverz.driverid, driverz.VehicleId)" title="Last seen: {{driverLastSeenAgo(driverz.driverid, driverz.VehicleId)}}" style="display:inline-block;background:#e74c3c;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:0.3px;">OFFLINE</span>
-                                                      <i class='fa fa-circle'  ' style='float:right; color:{{timercheck(driverz.time ,driverz)}}' aria-hidden='true'>
-
-                                                      </i>
-
+                                                      <i class='fa fa-circle'  ' style='float:right; color:{{timercheck(driverz.time ,driverz)}}' aria-hidden='true'></i>
                                                     </div>
                                                    </td>
-                                                <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                                <td style="overflow: hidden; white-space: nowrap;">{{bwDriverDisplayName(driverz)}}</td>
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
@@ -4960,38 +4964,18 @@ $(document).ready(function() {
                                                         style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
                                                         title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
-                                                <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
-                                                    <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
-                                                   
-                                                    <span  ng-if="driverz.vehiclestatus != 'Picking' " >  {{driverz.vehiclestatus}}</span> 
-                                                </td>
-                                              
-                                                <td>
-                                                    <div> <span>{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
-                                                    </div>
-
+                                                <td ng-if="driverz.vehiclestatus != 'manualreject'">
+                                                    <span ng-if="driverz.vehiclestatus == 'Picking'">Roger</span>
+                                                    <span ng-if="driverz.vehiclestatus != 'Picking'" style="font-weight:700;"
+                                                        ng-style="{color: bwBoardStatus(driverz)==='Available' ? '#15803d' : bwBoardStatus(driverz)==='Busy' ? '#b91c1c' : bwBoardStatus(driverz)==='OnTrip' ? '#b91c1c' : bwBoardStatus(driverz)==='Picking' ? '#1d4ed8' : '#c2410c'}">{{bwBoardStatus(driverz)}}</span>
                                                 </td>
                                                 <td>
-                                                    <div>     
-                                                        <span ng-if="driverz.vehiclestatus != 'Available' " >{{ driverz.JobphoneNo }}
-                                                        </span>
-                                                    </div>
+                                                    <div><span>{{ bwJobsToday(driverz) }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span></div>
                                                 </td>
-                                                <td>
-                                                    <div  style=" height: 20px!important; overflow: hidden;">
-                                                        <span ng-if="driverz.vehiclestatus != 'Available'  " >{{ driverz.jobpickup }}
-                                                        </span>
-                                                    </div>
-
-                                                </td>
-                                                <td>
-                                                    <div   style="height: 20px!important; overflow: hidden;">
-                                                        <span  ng-if="driverz.vehiclestatus != 'Available' " >{{ driverz.jobdropoff }}
-                                                        </span>
-                                                    </div>
-                                                </td>
-
-
+                                                <td><div><span ng-if="driverz.vehiclestatus != 'Available'">{{ bwPassengerName(driverz) }}</span></div></td>
+                                                <td><div><span ng-if="driverz.vehiclestatus != 'Available'">{{ bwPassengerPhone(driverz) }}</span></div></td>
+                                                <td><div style="height: 20px!important; overflow: hidden;"><span ng-if="driverz.vehiclestatus != 'Available'">{{ bwFormatAddress(driverz.jobpickup, '—') }}</span></div></td>
+                                                <td><div style="height: 20px!important; overflow: hidden;"><span ng-if="driverz.vehiclestatus != 'Available'">{{ bwFormatAddress(driverz.jobdropoff, '—') }}</span></div></td>
                                             </tr>
 
                                         
@@ -5013,68 +4997,31 @@ $(document).ready(function() {
                                         <table id="example111" style="width:100%;" >
                                             <thead>
                                                 <tr>
-                                                    <th class="wd-15p">Zone/Cabs</th>
+                                                    <th class="wd-15p">Zone/Cab</th>
                                                     <th class="wd-15p">Driver</th>
                                                     <th class="wd-10p">Services</th>
-                                                    <th class="wd-15p">status</th>
-                                                    <th class="wd-15p">Jobs</th>
+                                                    <th class="wd-10p">Status</th>
+                                                    <th class="wd-8p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
-                                                    <th class="wd-20p">Pick up</th>
+                                                    <th class="wd-10p">Phone</th>
+                                                    <th class="wd-15p">Pick up</th>
                                                     <th class="wd-15p">Drop Off</th>
-
-
                                                 </tr>
                                             </thead>
 
-                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Picking' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
-                                                <td><div style="height: 20px!important; overflow: hidden;">
-                                                       {{driverz.zonename}}/{{driverz.vehiclenumber}}/{{driverz.vehicletype}} 
-                                                      <i class='fa fa-circle' id='online{{driverz.Id}}' style='float:right; ' aria-hidden='true'>
-
-                                                      </i>
-
-                                                    </div>
-                                                   </td>
-                                                <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Picking' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="font-weight: 600;background:{{showcolor(bwBoardStatus(driverz))}}">
+                                                <td><div style="height: 20px!important; overflow: hidden;">{{bwZoneCabLabel(driverz)}}</div></td>
+                                                <td style="overflow: hidden; white-space: nowrap;">{{bwDriverDisplayName(driverz)}}</td>
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
-                                                    <span ng-if="isSharedDriver(driverz.PlayerId || driverz.driverid)"
-                                                        style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
-                                                        title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
-                                                <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
-                                                    <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
-                                                   
-                                                    <span  ng-if="driverz.vehiclestatus != 'Picking'   "  >  {{driverz.vehiclestatus}}</span> 
-                                                </td>
-                                               
-                                                <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
-                                                    </div>
-
-                                                </td>
-                                                   <td>
-                                                    <div>     
-                                                        <span >{{ driverz.JobphoneNo }}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <div  style=" height: 20px!important; overflow: hidden;">
-                                                        <span >{{ driverz.jobpickup }}
-                                                        </span>
-                                                    </div>
-
-                                                </td>
-                                                <td>
-                                                    <div   style="height: 20px!important; overflow: hidden;">
-                                                        <span  >{{ driverz.jobdropoff }}
-                                                        </span>
-                                                    </div>
-                                                </td>
-
-
+                                                <td><span style="font-weight:700;color:#1d4ed8;">Picking</span></td>
+                                                <td><span>{{ bwJobsToday(driverz) }}</span></td>
+                                                <td>{{ bwPassengerName(driverz) }}</td>
+                                                <td>{{ bwPassengerPhone(driverz) }}</td>
+                                                <td><div style="height: 20px!important; overflow: hidden;">{{ bwFormatAddress(driverz.jobpickup, '—') }}</div></td>
+                                                <td><div style="height: 20px!important; overflow: hidden;">{{ bwFormatAddress(driverz.jobdropoff, '—') }}</div></td>
                                             </tr>
 
                                         
@@ -5092,68 +5039,31 @@ $(document).ready(function() {
                                         <table id="example2222" style="width:100%;" >
                                             <thead>
                                                 <tr>
-                                                    <th class="wd-15p">Zone/Cabs</th>
+                                                    <th class="wd-15p">Zone/Cab</th>
                                                     <th class="wd-15p">Driver</th>
                                                     <th class="wd-10p">Services</th>
-                                                    <th class="wd-15p">status</th>
-                                                    <th class="wd-15p">Jobs</th>
+                                                    <th class="wd-10p">Status</th>
+                                                    <th class="wd-8p">Jobs</th>
                                                     <th class="wd-10p">Passenger</th>
-                                                    <th class="wd-20p">Pick up</th>
+                                                    <th class="wd-10p">Phone</th>
+                                                    <th class="wd-15p">Pick up</th>
                                                     <th class="wd-15p">Drop Off</th>
-
-
                                                 </tr>
                                             </thead>
 
-                                            
-                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Busy' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="    font-weight: 600;background:{{showcolor(driverz.vehiclestatus)}}">
-                                                <td><div style="height: 20px!important; overflow: hidden;">
-                                                        {{driverz.zonename}}/{{driverz.vehiclenumber}} /{{driverz.vehicletype}}
-                                                      <i class='fa fa-circle' id='online{{driverz.Id}}' style='float:right; ' aria-hidden='true'>
-
-                                                      </i>
-
-                                                    </div>
-                                                   </td>
-                                                <td style="overflow: hidden; width: 60px; white-space: nowrap; overflow: hidden;">{{driverz.drivername}}</td>
+                                             <tr ng-repeat="driverz in driverdatarealx " ng-if="driverz.vehiclestatus == 'Busy' && checkDriverSvcFilter(driverz.driverid)"  ng-click='VehicleDetailschng(  driverz.VehicleId  )'  style="font-weight: 600;background:{{showcolor(bwBoardStatus(driverz))}}">
+                                                <td><div style="height: 20px!important; overflow: hidden;">{{bwZoneCabLabel(driverz)}}</div></td>
+                                                <td style="overflow: hidden; white-space: nowrap;">{{bwDriverDisplayName(driverz)}}</td>
                                                 <td style="white-space:nowrap;">
                                                     <span ng-repeat="badge in getDriverSvcBadges(driverz.driverid)" style="display:inline-block; font-size:9px; font-weight:700; padding:1px 4px; border-radius:3px; margin-right:2px;"
                                                         ng-style="{background: badge==='Taxi' ? '#1565c0' : badge==='Food' ? '#2e7d32' : badge==='Freight' ? '#e65100' : '#6a1b9a', color:'#fff'}">{{badge}}</span>
-                                                    <span ng-if="isSharedDriver(driverz.PlayerId || driverz.driverid)"
-                                                        style="display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:#7b1fa2; color:#fff; margin-left:2px; letter-spacing:0.3px;"
-                                                        title="Shared from {{getDriverHomeCompany(driverz.PlayerId || driverz.driverid)}}">SHARED</span>
                                                 </td>
-                                                <td ng-if="driverz.vehiclestatus != 'manualreject'"> 
-                                                    <span ng-if="driverz.vehiclestatus == 'Picking'" > Roger</span>    
-                                                   
-                                                    <span  ng-if="driverz.vehiclestatus != 'Picking'   "  >  {{driverz.vehiclestatus}}</span> 
-                                                </td>
-                                              
-                                                <td>
-                                                    <div  >  <span  >{{ driverz.jobCount }}</span><span ng-if="driverQueuedCount(driverz.driverid) > 0" style="color:#e67e22;font-weight:700;margin-left:4px;" title="{{driverQueuedCount(driverz.driverid)}} queued job(s) lined up">+{{driverQueuedCount(driverz.driverid)}}</span>
-                                                    </div>
-
-                                                </td>
-                                             <td>
-                                                    <div>     
-                                                        <span >{{ driverz.JobphoneNo }}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td>
-                                                    <div  style=" height: 20px!important; overflow: hidden;">
-                                                        <span >{{ driverz.jobpickup }}
-                                                        </span>
-                                                    </div>
-
-                                                </td>
-                                                <td>
-                                                    <div   style="height: 20px!important; overflow: hidden;">
-                                                        <span  >{{ driverz.jobdropoff }}
-                                                        </span>
-                                                    </div>
-                                                </td>
-
+                                                <td><span style="font-weight:700;color:#b91c1c;">{{bwBoardStatus(driverz)}}</span></td>
+                                                <td><span>{{ bwJobsToday(driverz) }}</span></td>
+                                                <td>{{ bwPassengerName(driverz) }}</td>
+                                                <td>{{ bwPassengerPhone(driverz) }}</td>
+                                                <td><div style="height: 20px!important; overflow: hidden;">{{ bwFormatAddress(driverz.jobpickup, 'Hail / Street Pickup') }}</div></td>
+                                                <td><div style="height: 20px!important; overflow: hidden;">{{ bwFormatAddress(driverz.jobdropoff, '—') }}</div></td>
                                             </tr>
                                        
 
@@ -6413,9 +6323,9 @@ $(document).ready(function() {
 
 
     // ── Pending Driver Approvals listener ─────────────────────────────────
-    // Reads drivers/{companyId} once per session — updates $scope.pendingDrivers
-    // with any driver whose approved field is explicitly false.
-    // Missing approved field = legacy driver = treated as approved (skip).
+    // Reads drivers/{companyId} — caches all driver names for zone-board display
+    // and updates $scope.pendingDrivers for unapproved registrations.
+    window._bwDriverNames = window._bwDriverNames || {};
     (function _bwPendingDriversListener() {
         if (!SomeSession2) return;
         function _sync() {
@@ -6424,19 +6334,24 @@ $(document).ready(function() {
                 if (snap && snap.val()) {
                     snap.forEach(function(child) {
                         var d = child.val();
-                        if (d && d.approved === false) {
-                            var entry = {};
-                            entry.uid       = child.key;
-                            entry.name      = d.name || d.driverName || d.drivername || '';
-                            entry.email     = d.email || '';
-                            entry.phone     = d.phone || d.PhoneNo || d.phoneno || '';
-                            list.push(entry);
+                        if (!d) return;
+                        var _fullName = d.name || d.driverName || d.drivername ||
+                            ((d.firstName || '') + ' ' + (d.lastName || '')).trim();
+                        if (_fullName) window._bwDriverNames[child.key] = _fullName;
+                        if (d.approved === false) {
+                            list.push({
+                                uid:   child.key,
+                                name:  _fullName,
+                                email: d.email || '',
+                                phone: d.phone || d.PhoneNo || d.phoneno || ''
+                            });
                         }
                     });
                 }
                 var _pdSc = angular.element(document.getElementById('myangular')).scope();
                 if (_pdSc) {
                     _pdSc.pendingDrivers = list;
+                    if (typeof _pdSc.zonetablez === 'function') _pdSc.zonetablez();
                     if (!_pdSc.$$phase) _pdSc.$digest();
                 }
             }, function(e) {
@@ -6755,6 +6670,10 @@ $(document).ready(function() {
                                 return hit;
                             });
                             if (!_found) {
+                                // Keep mid-trip drivers on the board even if server ZONE_DRIVERS
+                                // hasn't re-registered them yet (e.g. hail trip after server restart).
+                                var _activeKeep = { Busy: 1, Picking: 1, Assigned: 1 };
+                                if (_activeKeep[d.vehiclestatus]) return true;
                                 console.log('[VehiclesStatus] driver', _did || _vid, 'not in server ZONE_DRIVERS — removing from board');
                                 if (typeof markers !== 'undefined' && d.vehiclenumber && markers[d.vehiclenumber]) {
                                     markers[d.vehiclenumber].setMap(null);
@@ -6781,8 +6700,7 @@ $(document).ready(function() {
                                     var _dt6OldStatus = d.vehiclestatus;
                                     d.vehiclestatus = _match.status;
                                     _changed = true;
-                                    // Update map marker icon color to match the new status
-                                    var _dt6Colors = { Available: '#00e600', Away: '#ffaf1a', Busy: '#ff3333', Picking: '#3333ff', Assigned: '#3333ff' };
+                                    var _dt6Colors = { Available: '#00e600', Away: '#ffaf1a', Busy: '#ff3333', Picking: '#3333ff', Assigned: '#3333ff', OnTrip: '#ff3333' };
                                     var _dt6OldColor = _dt6Colors[_dt6OldStatus] || '#80ff80';
                                     var _dt6NewColor = _dt6Colors[_match.status]  || '#80ff80';
                                     if (_dt6OldColor !== _dt6NewColor &&
@@ -6794,8 +6712,17 @@ $(document).ready(function() {
                                         markers[d.vehiclenumber].setIcon(icon[d.vehiclenumber]);
                                     }
                                 }
+                                if (_match.drivername && !d.drivername) {
+                                    d.drivername = _match.drivername;
+                                    _changed = true;
+                                }
+                                if (_match.jobsToday != null && d.jobsToday !== _match.jobsToday) {
+                                    d.jobsToday = _match.jobsToday;
+                                    _changed = true;
+                                }
                             }
-                            return _found;
+                            if (!_found) return false;
+                            return true;
                         });
                         if (_changed) {
                             _sc6.driverlist = _sc6.driverdatarealx;
@@ -6833,6 +6760,9 @@ $(document).ready(function() {
                             });
                             if (_serverKnows) return true;
                         }
+                        // Never ghost-sweep mid-trip drivers — hail trips may not re-register quickly.
+                        var _tripStatuses = { Busy: 1, Picking: 1, Assigned: 1 };
+                        if (_tripStatuses[d.vehiclestatus]) return true;
 
                         // Driver is NOT in ZONE_DRIVERS — check Firebase inactivity age.
                         var _lastSeen = _driverLastSeen[_fbKey] ||
@@ -12893,6 +12823,10 @@ $(document).ready(function() {
             // BUG 6 fix: never add inactive vehicles to the fleet list
             if (datacom.vehiclestatus === 'inactive') return;
             // Ensure display fields always have a value so driver shows in all tables
+            var _uid = String(datacom.PlayerId || datacom.driverid || '');
+            if (_uid && window._bwDriverNames && window._bwDriverNames[_uid]) {
+                datacom.drivername = window._bwDriverNames[_uid];
+            }
             datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + datacom.driverid);
             datacom.vehiclestatus = datacom.vehiclestatus || 'Available';
             datacom.vehiclenumber = datacom.vehiclenumber || String(datacom.VehicleId || datacom.driverid || '');
@@ -12952,6 +12886,12 @@ $(document).ready(function() {
                             }
                             datacom.zonename = _detectedZone.zoneName;
                             datacom.zoneid   = _detectedZone.zoneId;
+                        }
+                    } else if ((!datacom.zonename || datacom.zonename === 'Hail') && datacom.lat && datacom.lng) {
+                        var _detectedZone2 = _getZoneForLatLng(datacom.lat, datacom.lng);
+                        if (_detectedZone2) {
+                            datacom.zonename = _detectedZone2.zoneName;
+                            datacom.zoneid   = _detectedZone2.zoneId;
                         }
                     }
 
@@ -13356,9 +13296,11 @@ $(document).ready(function() {
                         }
                     }
                 }
-                // If zone is still unknown after all lookups, skip this driver —
-                // don't group under a blank key or a raw ID. They will appear once
-                // VehiclesStatus backfills their zone from the server.
+                // Resolve zone from GPS polygon if name still missing
+                if (!zn && a.lat && a.lng) {
+                    var _gpsZone = _getZoneForLatLng(a.lat, a.lng);
+                    if (_gpsZone) zn = _gpsZone.zoneName;
+                }
                 if (!zn) return;
                 grouped[zn] = grouped[zn] || [];
                 a.zonename = zn;
@@ -18060,7 +18002,64 @@ $(document).ready(function() {
         // especially the bright blue #3333ff for Assigned/Picking. New palette
         // uses soft tinted backgrounds that keep dark row text legible while
         // still giving each status a distinct, scannable colour cue.
+        $scope.bwDriverDisplayName = function(d) {
+            if (!d) return '';
+            var uid = String(d.PlayerId || d.driverid || '');
+            if (uid && window._bwDriverNames && window._bwDriverNames[uid]) return window._bwDriverNames[uid];
+            var dn = d.drivername || '';
+            if (dn && dn !== d.vehiclenumber && !/^Driver\s+\d/i.test(dn)) return dn;
+            return dn || d.vehiclenumber || uid || 'Driver';
+        };
+
+        $scope.bwBoardStatus = function(d) {
+            var st = d.vehiclestatus || 'Available';
+            if (st === 'Assigned') return 'Picking';
+            if (st === 'Busy') {
+                if (d.jobpickup && /^Hail/i.test(String(d.jobpickup))) return 'Busy';
+                if (d.jobpickup || d.jobdropoff || (d.jobCount && Number(d.jobCount) > 0)) return 'OnTrip';
+                return 'Busy';
+            }
+            return st;
+        };
+
+        $scope.bwLooksLikeCoords = function(s) {
+            if (!s) return false;
+            var t = String(s).trim();
+            return /^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(t) ||
+                   /^Hail\s*-\s*-?\d/i.test(t) ||
+                   /^Hail Pickup\s*\(/i.test(t);
+        };
+
+        $scope.bwFormatAddress = function(addr, fallback) {
+            if (!addr || $scope.bwLooksLikeCoords(addr)) return fallback || '';
+            return String(addr).replace(/^Hail\s*-\s*/i, '').trim();
+        };
+
+        $scope.bwPassengerName = function(d) {
+            if (!d || d.vehiclestatus === 'Available') return '';
+            return d.jobname || d.passengername || d.jobPassenger || '';
+        };
+
+        $scope.bwPassengerPhone = function(d) {
+            if (!d || d.vehiclestatus === 'Available') return '';
+            return d.JobphoneNo || d.jobphone || '';
+        };
+
+        $scope.bwJobsToday = function(d) {
+            if (!d) return 0;
+            if (d.jobsToday != null && d.jobsToday !== '') return parseInt(d.jobsToday, 10) || 0;
+            return parseInt(d.jobCount, 10) || 0;
+        };
+
+        $scope.bwZoneCabLabel = function(d) {
+            if (!d) return '';
+            var zn = d.zonename || '';
+            var cab = d.vehiclenumber || d.VehicleNo || '';
+            return zn ? (zn + '/' + cab) : cab;
+        };
+
         $scope.showcolor = function (VehicleStatus){
+            if (VehicleStatus === 'OnTrip') return '#ffd6d6';
             if( VehicleStatus == 'Available' ){
                 return "#d6f5dd";   // soft mint — Available
             }
@@ -18611,6 +18610,54 @@ $(document).ready(function() {
                     }, function(err) {
                         console.error('[tariffZones] Firebase read error:', err.code, err.message);
                     });
+                }
+
+                // Firebase zones/{companyId} listener — owner panel zone polygons (authoritative)
+                if (!$scope._companyZonesListenerActive) {
+                    $scope._companyZonesListenerActive = true;
+                    var _zonesCid = localStorage.getItem('TT_CId') || someSession4 || '';
+                    if (_zonesCid) {
+                        firebase.database().ref('zones/' + _zonesCid).on('value', function(snapshot) {
+                            if (!snapshot.exists()) return;
+                            var gridData = [];
+                            var zoneList = [];
+                            snapshot.forEach(function(child) {
+                                var z = child.val();
+                                if (!z || z.active === false) return;
+                                var name = z.name || z.zoneName || ('Zone ' + (z.zoneNumber || child.key));
+                                var id = z.zoneNumber != null ? z.zoneNumber : child.key;
+                                zoneList.push({ ZoneId: id, ZoneName: name });
+                                var coords = z.boundary || z.coordinates || z.coords;
+                                if (name && coords && coords.length >= 3) {
+                                    var paths = [];
+                                    for (var ci = 0; ci < coords.length; ci++) {
+                                        var c = coords[ci];
+                                        if (Array.isArray(c) && c.length >= 2) {
+                                            paths.push({ lat: parseFloat(c[0]), lng: parseFloat(c[1]) });
+                                        } else if (c && typeof c === 'object') {
+                                            paths.push({ lat: parseFloat(c.lat || c.Lat), lng: parseFloat(c.lng || c.Lng) });
+                                        }
+                                    }
+                                    if (paths.length >= 3) {
+                                        gridData.push({ Id: id, TariffName: name, paths: paths });
+                                    }
+                                }
+                            });
+                            if (gridData.length > 0) {
+                                window._zoneGridData = gridData;
+                                console.log('[zones] stored', gridData.length, 'zone polygon(s) from zones/' + _zonesCid);
+                            }
+                            if (zoneList.length > 0) {
+                                ZonesArea = {
+                                    dt1: zoneList.map(function(z) { return { ZoneId: z.ZoneId, ZoneName: z.ZoneName, No: 0 }; }),
+                                    dt2: []
+                                };
+                                if (typeof $scope.zonetablez === 'function') $scope.zonetablez();
+                            }
+                        }, function(err) {
+                            console.error('[zones] Firebase read error:', err && err.code, err && err.message);
+                        });
+                    }
                 }
             
                 if ($res["dt1"].length > 0) {

@@ -3866,8 +3866,95 @@ function calcRestoredQueue(driverId, currentZone) {
   }
 }
 
+function _isCoordLikeAddress(s) {
+  if (typeof s !== 'string') return true;
+  const t = s.trim();
+  if (!t) return true;
+  return /^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(t) ||
+         /^Hail\s*-\s*-?\d/i.test(t) ||
+         /^Hail Pickup\s*\(/i.test(t);
+}
+
+function _formatActivePickAddress(j) {
+  const isHail = j.BookingSource === 'Hail' || j.booking_type === 'Hail';
+  let pickAddr = j.PickAddress || '';
+  if (isHail && pickAddr.startsWith('Hail - ')) {
+    return 'Hail / Street Pickup';
+  }
+  if (_isCoordLikeAddress(pickAddr)) {
+    return isHail ? 'Hail / Street Pickup' : (pickAddr || '—');
+  }
+  return pickAddr;
+}
+
+function _lookupZoneDriverForJob(j) {
+  const _validId = v => v && String(v) !== '0' && parseInt(v) !== 0;
+  return ZONE_DRIVERS.find(d =>
+    (_validId(j.DriverId)  && (String(d.driverid) === String(j.DriverId)  || String(d.VehicleId) === String(j.DriverId)))  ||
+    (_validId(j.VehicleId) && (String(d.driverid) === String(j.VehicleId) || String(d.VehicleId) === String(j.VehicleId))) ||
+    (j.UserFName && d.drivername && d.drivername.toLowerCase() === (j.UserFName || '').toLowerCase())
+  ) || null;
+}
+
+function _calcTripDurationMins(j) {
+  const startMs = j.ActiveAt ? new Date(_toDateStr(j.ActiveAt)).getTime()
+                : j.AcceptedAt ? new Date(_toDateStr(j.AcceptedAt)).getTime()
+                : j.createdAt || 0;
+  if (!startMs || isNaN(startMs)) return null;
+  return Math.max(0, Math.round((Date.now() - startMs) / 60000));
+}
+
+function _driverJobsTodayCount(driverId, vehicleId, companyId) {
+  if (!driverId && !vehicleId) return 0;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' });
+  const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
+  const did = String(driverId || '');
+  const vid = String(vehicleId || '');
+  return [...companyJobs(closedJobStore), ...companyJobs(jobStore).filter(j => TERMINAL.has(j.BookingStatus))]
+    .filter(j => {
+      if (companyId && j.companyId && String(j.companyId) !== String(companyId)) return false;
+      const ds = _toDateStr(j.JobCompleteTime || j.BookingDateTime || '').substring(0, 10);
+      if (ds !== today) return false;
+      return (did && (String(j.DriverId) === did || String(j.VehicleId) === did)) ||
+             (vid && (String(j.DriverId) === vid || String(j.VehicleId) === vid));
+    }).length;
+}
+
+// Enrich an Active/Picking job for the Active tab and zone-board job cards.
+function _enrichActiveJob(j, companyId) {
+  const isHail = j.BookingSource === 'Hail' || j.booking_type === 'Hail';
+  if (isHail && companyId) _resolveHailAddressFromFirebase(companyId, j);
+  const zdN = _lookupZoneDriverForJob(j);
+  const drivername = (j.drivername || (zdN && zdN.drivername) ||
+    ((j.UserFName || '') + ' ' + (j.UserLName || '')).trim() || '').trim();
+  let passengername = j.passengername || j.PassengerName || j.Name || '';
+  if (passengername === 'Street Pickup') passengername = '';
+  const fare = j.TotalFare || j.totalFare || j.EstimatedFare || j.RideCost || j.Fare || j.CustomeRate || '';
+  const tripMins = _calcTripDurationMins(j);
+  let pickAddr = _formatActivePickAddress(j);
+  if (isHail && j.PickAddress && !_isCoordLikeAddress(j.PickAddress)) {
+    pickAddr = j.PickAddress;
+  }
+  let dropAddr = j.DropAddress || '';
+  if (_isCoordLikeAddress(dropAddr)) dropAddr = '';
+  return {
+    ...j,
+    BookingId: j.Id,
+    PickAddress: pickAddr,
+    DropAddress: dropAddr,
+    passengername,
+    PassengerName: passengername,
+    drivername,
+    VehicleNo: j.VehicleNo || j.CallSign || (zdN ? zdN.vehiclenumber : '') || String(j.VehicleId || ''),
+    TotalFare: fare,
+    fare,
+    TripMins: tripMins,
+    JobMins: calcJobMins(j),
+  };
+}
+
 // Build full job-list DataSelector response
-function buildJobListResponse(jobs) {
+function buildJobListResponse(jobs, companyId) {
   // Terminal statuses — jobs in these states are done and must NOT appear in the dispatcher queue
   const TERMINAL = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
   const allNonTerminal = jobs.filter(j => !TERMINAL.has(j.BookingStatus));
@@ -3887,7 +3974,7 @@ function buildJobListResponse(jobs) {
     dt3: [{ ActiveCount: activeJobs.length }],
     dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Scheduled' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
     dt5: [{ PublicKey: STRIPE_PK }],
-    dt6: activeJobs.map(j => ({ ...j, BookingId: j.Id })),
+    dt6: activeJobs.map(j => _enrichActiveJob(j, companyId || '')),
   };
 }
 
@@ -9871,23 +9958,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             _startTrailRecorder(sessionCompanyId, _vid, _aj.Id);
           }
         });
-        const activeWithId = active.map(j => {
-          const isHail = j.BookingSource === 'Hail' || j.booking_type === 'Hail';
-          let pickAddr = j.PickAddress || '';
-          if (isHail) {
-            if (pickAddr.startsWith('Hail - ')) {
-              // §FIX-J — lazy-fetch the resolved address from allbookings.
-              // Driver app (OTA 22au+) writes PickAddress/DropAddress/Name as it
-              // resolves them; we copy them back into the in-memory job so the
-              // next poll returns the real address instead of "Hail Pickup (lat,lng)".
-              _resolveHailAddressFromFirebase(sessionCompanyId, j);
-              pickAddr = 'Hail Pickup (' + pickAddr.slice('Hail - '.length).trim() + ')';
-            } else if (!pickAddr || pickAddr === 'Hail / Street Pickup') {
-              pickAddr = 'Hail / Street Pickup';
-            }
-          }
-          return { ...j, BookingId: j.Id, PickAddress: pickAddr || j.PickAddress || '' };
-        });
+        const activeWithId = active.map(j => _enrichActiveJob(j, sessionCompanyId || ''));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${active.length} active companyId=${sessionCompanyId}`);
         arrayD(res, activeWithId);
 
@@ -10595,6 +10666,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   zone:   d.zonename  || '',
                   zoneq:  d.zonequeue || 0,
                   status: d.vehiclestatus || 'Available',
+                  drivername: d.drivername || '',
+                  jobsToday: _driverJobsTodayCount(d.driverid, d.VehicleId || d.vehiclenumber, sessionCompanyId),
                 }))
               : null)   // confirmed empty — signal client to clear board
           : [];         // warm-up or no driver yet seen — don't clear anything
@@ -11602,7 +11675,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
       } else if (action === '[UnAssignedJobsv3]') {
         const _cJobs = companyJobs(jobStore);
-        const resp = buildJobListResponse(_cJobs);
+        const resp = buildJobListResponse(_cJobs, sessionCompanyId);
         console.log(`200: POST ${urlPath} [action=${action}] -> ${_cJobs.length} jobs (${resp.dt4[0].UnAssignedCount} unassigned) companyId=${sessionCompanyId}`);
         objectD(res, resp);
 
@@ -11928,7 +12001,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
       } else {
         // Default: return live job list from in-memory store
-        const allJobs = buildJobListResponse(companyJobs(jobStore));
+        const allJobs = buildJobListResponse(companyJobs(jobStore), sessionCompanyId);
         console.log(`200: POST ${urlPath} [action=${action || 'default'}] -> ${companyJobs(jobStore).length} jobs companyId=${sessionCompanyId}`);
         objectD(res, allJobs);
       }
