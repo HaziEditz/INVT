@@ -607,7 +607,15 @@ async function readCompanySettingsNode(companyId) {
   }
 }
 
-/** Merge registration record with Firebase companySettings plan/billing for access decisions. */
+/** Parse billing nextDueDate (ISO string or epoch ms). */
+function parseBillingDueMs(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return value;
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Merge registration record with Firebase companySettings for login access. */
 function resolveCompanyAccess(reg, settings) {
   const now = Date.now();
   const plan = (settings && settings.plan) || {};
@@ -615,11 +623,45 @@ function resolveCompanyAccess(reg, settings) {
   const graceDays = Math.max(0, Number(billing.gracePeriodDays ?? billing.graceDays ?? DEFAULT_GRACE_PERIOD_DAYS) || DEFAULT_GRACE_PERIOD_DAYS);
   const extensionDays = Math.max(0, Number(billing.extensionDays ?? 0) || 0);
   const trialEnd = Number(plan.trialEnd || reg.trialEnd || 0) || null;
-  const planStatus = String(plan.status || billing.status || reg.status || 'active').toLowerCase();
-  const accessUntil = trialEnd ? trialEnd + (graceDays + extensionDays) * 86400000 : null;
-  const pastGrace = !!(accessUntil && now > accessUntil);
-  const loginBlocked = pastGrace || planStatus === 'deactivated' || planStatus === 'suspended' || planStatus === 'deleted';
-  const showBanner = !pastGrace && (
+  const billingStatus = String(billing.status || plan.status || '').toLowerCase();
+  const planStatus = billingStatus || String(reg.status || 'active').toLowerCase();
+
+  const hasFirebaseBilling = !!(settings && (
+    settings.active !== undefined ||
+    billing.status ||
+    billing.nextDueDate
+  ));
+
+  let subscriptionOk;
+  let accessUntil = null;
+
+  if (hasFirebaseBilling) {
+    const companyActive = settings.active === true;
+    const statusOk = billingStatus === 'active' || billingStatus === 'trial';
+    const dueMs = parseBillingDueMs(billing.nextDueDate);
+    let dueOk = true;
+    if (dueMs != null) {
+      dueOk = dueMs > now;
+      accessUntil = dueMs;
+    } else if (billingStatus === 'trial' && trialEnd) {
+      dueOk = trialEnd > now;
+      accessUntil = trialEnd + (graceDays + extensionDays) * 86400000;
+    }
+    subscriptionOk = companyActive && statusOk && dueOk;
+  } else {
+    accessUntil = trialEnd ? trialEnd + (graceDays + extensionDays) * 86400000 : null;
+    const pastGrace = !!(accessUntil && now > accessUntil);
+    subscriptionOk = !pastGrace &&
+      planStatus !== 'deactivated' &&
+      planStatus !== 'suspended' &&
+      planStatus !== 'deleted';
+  }
+
+  const loginBlocked = !subscriptionOk ||
+    planStatus === 'deactivated' ||
+    planStatus === 'suspended' ||
+    planStatus === 'deleted';
+  const showBanner = !loginBlocked && (
     planStatus === 'trial' || planStatus === 'overdue' || planStatus === 'grace' ||
     reg.status === 'trial' || reg.status === 'grace' ||
     (trialEnd && now >= trialEnd && accessUntil && now < accessUntil)
@@ -641,6 +683,9 @@ function resolveCompanyAccess(reg, settings) {
     blockMessage: SUBSCRIPTION_EXPIRED_MSG,
     canAccess: !loginBlocked,
     planName: plan.name || plan.planLabel || reg.planLabel || '',
+    companyActive: settings?.active === true,
+    billingStatus,
+    nextDueDate: billing.nextDueDate || null,
   };
 }
 
@@ -4981,8 +5026,8 @@ const server = http.createServer(async (req, res) => {
         reg.status === 'rejected' ? 'This account application was not approved.' :
         'Account access is not available.'
       );
-      res.end(JSON.stringify({ error: msg, status: reg.status }));
-      console.log(`[session] login BLOCKED: companyId=${companyId} status=${reg.status}`);
+      res.end(JSON.stringify({ error: msg, status: reg.status, reason: 'subscription_expired' }));
+      console.log(`[session] login BLOCKED: companyId=${companyId} status=${reg.status} billing=${access.billingStatus} active=${access.companyActive}`);
       return;
     }
     if (['pending', 'rejected', 'deleted'].includes(reg.status)) {
@@ -5025,18 +5070,17 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'No valid session' }));
       return;
     }
-    const ACTIVE_STATUSES = ['active', 'trial', 'grace'];
     const reg = registrationStore.find(r => r.companyId === cid);
     if (!reg) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Company not found' }));
       return;
     }
-    // If company has been deactivated/deleted since the cookie was issued, block them
-    if (!ACTIVE_STATUSES.includes(reg.status)) {
+    const access = await resolveCompanyAccessAsync(reg);
+    if (access.loginBlocked) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Account is not active', status: reg.status }));
-      console.log(`[session/me] blocked: companyId=${cid} status=${reg.status}`);
+      res.end(JSON.stringify({ error: access.blockMessage || 'Account is not active', status: reg.status }));
+      console.log(`[session/me] blocked: companyId=${cid} status=${reg.status} billing=${access.billingStatus}`);
       return;
     }
     const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
