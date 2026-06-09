@@ -1420,8 +1420,12 @@ function assignBooking(opts) {
   // as manual offers (same semantics as the legacy [AssignJob] handler).
   if (by === 'dispatcher' && opts.manualOffer !== false) {
     job.manualOffer = true;
+    job.originalStatus = 'manual';
   } else if (opts.manualOffer === true) {
     job.manualOffer = true;
+    job.originalStatus = 'manual';
+  } else if (by === 'driver' || opts.fromPending) {
+    job.originalStatus = job.originalStatus || 'pending';
   }
   saveJobStore();
 
@@ -1662,6 +1666,192 @@ function acceptBooking(opts) {
     version: job.updateSeq,
     booking: _publicBooking(job)
   };
+}
+
+// Write driverQueue/{cid}/{driverId}/queued/{bookingId} for driver-app Queue tab.
+async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus) {
+  try {
+    if (!cid || !driverId || !bookingId) return;
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const payload = {
+      jobId: String(bookingId),
+      BookingId: bookingId,
+      acceptedAt: Date.now(),
+      queuedAt: Date.now(),
+      originalStatus: originalStatus || 'pending',
+      PickAddress: job.PickAddress || job.PickLocation || '',
+      DropAddress: job.DropAddress || job.DropLocation || '',
+      passengername: job.passengername || job.Name || '',
+      PhoneNo: job.PhoneNo || '',
+      PaymentType: job.PaymentType || job.paymentMethod || job.PaymentMethod || '',
+      VehicleType: job.VehicleType || job.serviceType || '',
+      serviceType: job.serviceType || job.ServiceType || 'taxi',
+    };
+    await firebaseDbSet(`driverQueue/${cid}/${driverId}/queued/${bookingId}`, payload, tok);
+    console.log(`  [driverQueue] queued #${bookingId} for driver ${driverId} originalStatus=${payload.originalStatus}`);
+  } catch (e) {
+    console.warn(`  [driverQueue] write failed: ${e && e.message}`);
+  }
+}
+
+async function _removeDriverQueueFirebase(cid, driverId, bookingId) {
+  try {
+    if (!cid || !driverId || !bookingId) return;
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    await fbRequest(`${FB_DB_URL}/driverQueue/${cid}/${driverId}/queued/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
+    await fbRequest(`${FB_DB_URL}/driverQueue/${cid}/${driverId}/current.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+  } catch (e) { /* non-fatal */ }
+}
+
+async function _writePendingJobFirebase(cid, bookingId, job) {
+  try {
+    if (!cid || !bookingId || !job) return;
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const normed = _normFbJob(job);
+    const fbJob = {
+      BookingId: bookingId,
+      Status: 'Pending',
+      PassengerName: normed.name,
+      PhoneNo: normed.phone,
+      PickAddress: normed.pickAddress,
+      DropAddress: normed.dropAddress,
+      PickLatLng: normed.pickLatLng,
+      DropLatLng: normed.dropLatLng,
+      VehicleType: normed.vehicleType || job.VehicleType || '',
+      serviceType: job.serviceType || job.ServiceType || 'taxi',
+      Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
+      PaymentType: normed.paymentMethod,
+    };
+    await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, fbJob, tok);
+  } catch (e) {
+    console.warn(`  [pendingjobs] write failed: ${e && e.message}`);
+  }
+}
+
+// Driver accepts a Pending job from Offers tab — assign if free, queue if busy.
+async function acceptPendingJobByDriver(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId || '').trim();
+  const source    = opts.source || 'acceptPendingJobByDriver';
+  if (!bookingId || !driverId) return { ok: false, error_code: 'bad_request', error: 'bookingId and driverId required' };
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const job = jobStore[idx];
+  const _cur = job.BookingStatus || '';
+  if (_cur !== 'Pending' && _cur !== 'Offered' && _cur !== 'No One') {
+    return { ok: false, error_code: 'invalid_transition', error: `cannot accept job in status ${_cur}`, currentStatus: _cur };
+  }
+
+  const drv = ZONE_DRIVERS.find(d => d && (String(d.driverid) === driverId || String(d.VehicleId) === driverId)) || null;
+  const vehicleId = String((drv && (drv.VehicleId || drv.vehiclenumber)) || job.VehicleNo || '').trim();
+  const _cid = String(job.companyId || opts.companyId || '');
+  const _busySt = new Set(['Busy', 'Picking', 'Assigned', 'Active']);
+  const isBusy = drv && _busySt.has(String(drv.vehiclestatus || ''));
+  const originalStatus = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
+  job.originalStatus = originalStatus === 'manual' ? 'manual' : 'pending';
+
+  if (isBusy) {
+    const _qSvc = (job.serviceType || job.ServiceType || 'taxi').toString().toLowerCase();
+    const _qIsTaxi = (_qSvc === 'taxi' || _qSvc === 'tm' || _qSvc === '');
+    const _qExisting = _qIsTaxi ? jobStore.find(j =>
+      j.BookingStatus === 'Queued' &&
+      String(j.DriverId) === String(driverId) &&
+      String(j.Id) !== String(bookingId)
+    ) : null;
+    if (_qExisting) {
+      return { ok: false, error_code: 'queue_full', error: 'driver already has a queued job', existingJobId: _qExisting.Id };
+    }
+    job._origStatus = _cur === 'No One' ? 'No One' : 'Pending';
+    job.BookingStatus = 'Queued';
+    job.DriverId = driverId;
+    job.queuedAt = Date.now();
+    saveJobStore();
+    await _writeDriverQueueFirebase(_cid, driverId, bookingId, job, job.originalStatus);
+    // Remove from pendingjobs so other drivers stop seeing it
+    if (_cid) {
+      getFirebaseServerToken().then(tok => {
+        if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+      });
+    }
+    console.log(`  [${source}] job #${bookingId} → Queued for busy driver ${driverId}`);
+    return { ok: true, status: 'Queued', queued: true, driverId, booking: _publicBooking(job) };
+  }
+
+  const assignRes = assignBooking({
+    bookingId, driverId, vehicleId, by: 'driver', manualOffer: false, source
+  });
+  if (!assignRes.ok) return assignRes;
+  const acceptRes = acceptBooking({ bookingId, driverId, by: 'driver', source });
+  if (_cid && driverId) {
+    getFirebaseServerToken().then(async tok => {
+      if (!tok) return;
+      await firebaseDbSet(`notification/${driverId}`, {
+        bookingid: `${bookingId},Assigned,${driverId},Server,driver`,
+        content: 'Assigned',
+        eventType: 'assigned',
+        bookingId,
+        joboffer: String(bookingId),
+        jobpickup: String(job.PickAddress || ''),
+        jobdropoff: String(job.DropAddress || ''),
+        updatedAt: _FB_SERVER_TIMESTAMP,
+      }, tok).catch(() => {});
+      await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+    });
+  }
+  return Object.assign({}, acceptRes, { queued: false });
+}
+
+// Driver recall — restore to Pending (broadcast) or No One (dispatcher-only) based on originalStatus.
+async function driverRecallJob(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId || '').trim();
+  const source    = opts.source || 'driverRecallJob';
+  if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const job = jobStore[idx];
+  const _cid = String(job.companyId || opts.companyId || '');
+  const orig = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
+  const _prevSt = job.BookingStatus || '';
+  const _drvId = String(job.DriverId || driverId || '').trim();
+
+  if (orig === 'manual') {
+    job.BookingStatus = 'No One';
+    job.DriverId = 0;
+    job.VehicleId = 0;
+    job.returnReason = driverId ? `Recalled by ${driverId}` : 'Recalled by Driver';
+    job.releasedAt = Date.now();
+    job.manualOffer = true;
+    saveJobStore();
+    if (_cid) {
+      getFirebaseServerToken().then(tok => {
+        if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+      });
+    }
+  } else {
+    job.BookingStatus = 'Pending';
+    job.DriverId = 0;
+    job.VehicleId = 0;
+    job.returnReason = 'Recalled by Driver';
+    job.releasedAt = Date.now();
+    job.manualOffer = false;
+    saveJobStore();
+    if (_cid) await _writePendingJobFirebase(_cid, bookingId, job);
+  }
+
+  if (_cid && _drvId) await _removeDriverQueueFirebase(_cid, _drvId, bookingId);
+  if (_drvId) {
+    const _ds = _maybeRestoreDriverState(_drvId, String(job.VehicleNo || ''), _cid, bookingId, false, source);
+    return { ok: true, restoredStatus: job.BookingStatus, driverFreed: _ds.driverFreed, previousStatus: _prevSt, booking: _publicBooking(job) };
+  }
+  return { ok: true, restoredStatus: job.BookingStatus, previousStatus: _prevSt, booking: _publicBooking(job) };
 }
 
 // ─── §FIX-UB — Unified booking update lifecycle ───────────────────────────────
@@ -3975,6 +4165,7 @@ function buildJobListResponse(jobs, companyId) {
     dt4: [{ UnAssignedCount: pendingJobs.filter(j => j.BookingStatus === 'Pending' || j.BookingStatus === 'Scheduled' || j.BookingStatus === 'Unreached' || j.BookingStatus === 'No One' || isOrphaned(j)).length }],
     dt5: [{ PublicKey: STRIPE_PK }],
     dt6: activeJobs.map(j => _enrichActiveJob(j, companyId || '')),
+    activeJobsList: activeJobs.map(j => _enrichActiveJob(j, companyId || '')),
   };
 }
 
@@ -6411,12 +6602,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           companyId: _cmdCid, source: _logSrc
         });
       } else if (_cmdName === 'recall') {
-        _result = cancelBooking({
-          bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
-          driverFault: !!_cmdPayload.driverFault, recallToPending: true,
-          ifVersion: _cmdIfVer,
-          companyId: _cmdCid, source: _logSrc
-        });
+        if (_cmdBy === 'driver' && (_cmdPayload.originalStatus || _cmdPayload.restoreMode)) {
+          _result = await driverRecallJob({
+            bookingId: _cmdBooking,
+            driverId: _cmdAuthDriverId || _cmdPayload.driverId,
+            originalStatus: _cmdPayload.originalStatus,
+            companyId: _cmdCid,
+            source: _logSrc
+          });
+        } else {
+          _result = cancelBooking({
+            bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
+            driverFault: !!_cmdPayload.driverFault, recallToPending: true,
+            ifVersion: _cmdIfVer,
+            companyId: _cmdCid, source: _logSrc
+          });
+        }
       } else if (_cmdName === 'update') {
         const _changes = (_cmdPayload.changes && typeof _cmdPayload.changes === 'object') ? _cmdPayload.changes : _cmdPayload;
         _result = updateBooking({
@@ -6474,6 +6675,64 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     console.log(`${_status}: POST /api/job/command [${_cmdName}] #${_cmdBooking} by=${_cmdBy} -> ${JSON.stringify({ ok: _result.ok, idempotent: _result.idempotent, error_code: _result.error_code, status: _result.status || _result.cancelStage, version: _result.version })}`);
     res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    return;
+  }
+
+  // ── POST /api/job/accept — driver accepts Pending job from Offers tab ───────
+  if (urlPath === '/api/job/accept' && req.method === 'POST') {
+    const _ab = await readBody(req);
+    let _a = {};
+    try { _a = JSON.parse(_ab); } catch (e) {}
+    const _aJob = parseInt(_a.jobId || _a.bookingId || _a.BookingId || 0) || 0;
+    let _aDrv = String(_a.driverId || _a.DriverId || '').trim();
+    const _userKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_aDrv && _userKey) {
+      const _dr = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _userKey ||
+        String(d.userKey || '').trim() === _userKey
+      ));
+      if (_dr) _aDrv = String(_dr.driverid || '').trim();
+    }
+    if (!_aJob || !_aDrv) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'jobId and driverId required' }));
+      return;
+    }
+    const _result = await acceptPendingJobByDriver({ bookingId: _aJob, driverId: _aDrv, source: '/api/job/accept' });
+    const _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/accept #${_aJob} driver=${_aDrv} → ${JSON.stringify({ ok: _result.ok, status: _result.status, queued: _result.queued })}`);
+    return;
+  }
+
+  // ── POST /api/job/decline — driver declines offer (no-op ack for now) ────────
+  if (urlPath === '/api/job/decline' && req.method === 'POST') {
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // ── POST /api/job/recall — driver recall with originalStatus routing ─────────
+  if (urlPath === '/api/job/recall' && req.method === 'POST') {
+    const _rb = await readBody(req);
+    let _r = {};
+    try { _r = JSON.parse(_rb); } catch (e) {}
+    const _rJob = parseInt(_r.jobId || _r.bookingId || 0) || 0;
+    let _rDrv = String(_r.driverId || '').trim();
+    const _userKeyR = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_rDrv && _userKeyR) {
+      const _drr = ZONE_DRIVERS.find(d => d && String(d.passforlink || '').trim() === _userKeyR);
+      if (_drr) _rDrv = String(_drr.driverid || '').trim();
+    }
+    const _result = await driverRecallJob({
+      bookingId: _rJob,
+      driverId: _rDrv,
+      originalStatus: _r.originalStatus,
+      source: '/api/job/recall'
+    });
+    res.writeHead(_result.ok ? 200 : 404, JSON_HEADERS);
     res.end(JSON.stringify(_result));
     return;
   }
@@ -7249,7 +7508,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       // Admin
       '[KickDriver]', '[DispatcherKickUsers]', '[GetSuspendedDrivers]', '[UnsuspendDriver]', '[UpdateSuspensionTime]', '[UpdateQueueNo]',
       '[ZonesListUpdate]', '[payment_percentage]', '[storeemergency]',
-      '[CancelJobStatusFromJobList]', '[QuickSetNoOne]',
+      '[CancelJobStatusFromJobList]', '[QuickSetNoOne]', '[QuickSetPending]',
       '[TariffSync]',
       '[QueueJob]', '[RecallQueuedJob]', '[GetQueuedJobs]', '[PromoteQueuedToAssigned]',
       // Payments
@@ -9791,6 +10050,36 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${_qsnBookingId} set to No One`);
         successD(res, 'Operation Successfully Performed');
 
+      } else if (action === '[QuickSetPending]') {
+        const _qspBookingId = parseInt(param('BookingId')) || 0;
+        const _qspJob = jobStore.find(j => j.Id === _qspBookingId);
+        if (_qspJob) {
+          const _qspActiveSt = new Set(['Pending','Offered','Assigned','Unreached','No One','Reject','']);
+          if (_qspActiveSt.has(_qspJob.BookingStatus || '')) {
+            const _qspPrevDrv = _qspJob.DriverId || 0;
+            _qspJob.BookingStatus = 'Pending';
+            _qspJob.DriverId = 0;
+            _qspJob.VehicleId = 0;
+            _qspJob.manualOffer = false;
+            _qspJob.originalStatus = 'pending';
+            _qspJob.releasedAt = Date.now();
+            if (_qspPrevDrv > 0) {
+              const _qspZd = ZONE_DRIVERS.find(d => d.driverid === _qspPrevDrv || d.VehicleId === _qspPrevDrv);
+              if (_qspZd) {
+                _qspZd.vehiclestatus = 'Available';
+                _qspZd.JobphoneNo = '';
+                _qspZd.jobpickup = '';
+                _qspZd.jobdropoff = '';
+              }
+            }
+            saveJobStore();
+            const _qspCid = String(_qspJob.companyId || sessionCompanyId || '');
+            if (_qspCid) _writePendingJobFirebase(_qspCid, _qspBookingId, _qspJob);
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${_qspBookingId} set to Pending`);
+        successD(res, 'Operation Successfully Performed');
+
       } else if (action === '[CancelJobStatusFromJobList]') {
         // §FIX-CB — unified cancel flow (DP variant)
         const _cjBookingId = parseInt(param('BookingId')) || 0;
@@ -10195,6 +10484,38 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} set to No One`);
         successD(res, 'Operation Successfully Performed');
 
+      } else if (action === '[QuickSetPending]') {
+        const bookingId = parseInt(param('BookingId')) || 0;
+        const job = jobStore.find(j => j.Id === bookingId);
+        if (job) {
+          const preActiveSt = new Set(['Pending','Offered','Assigned','Unreached','No One','Reject','']);
+          if (preActiveSt.has(job.BookingStatus || '')) {
+            const prevDriverId = job.DriverId || 0;
+            job.BookingStatus = 'Pending';
+            job.DriverId = 0;
+            job.VehicleId = 0;
+            job.manualOffer = false;
+            job.originalStatus = 'pending';
+            job.releasedAt = Date.now();
+            if (prevDriverId > 0) {
+              const zd = ZONE_DRIVERS.find(d => d.driverid === prevDriverId || d.VehicleId === prevDriverId);
+              if (zd) {
+                zd.vehiclestatus = 'Available';
+                zd.JobphoneNo = '';
+                zd.jobpickup = '';
+                zd.jobdropoff = '';
+              }
+              clearAwayLock(prevDriverId);
+              clearDriverHomeState(prevDriverId);
+            }
+            saveJobStore();
+            const _qspCid = String(job.companyId || sessionCompanyId || '');
+            if (_qspCid) _writePendingJobFirebase(_qspCid, bookingId, job);
+          }
+        }
+        console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} set to Pending`);
+        successD(res, 'Operation Successfully Performed');
+
       } else if (action === '[CancelJobStatusFromJobList]') {
         // §FIX-CB — unified cancel flow (DS variant)
         const bookingId = parseInt(param('BookingId')) || 0;
@@ -10536,14 +10857,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           objectD(res, { ok: false, msg: `cannot queue job with status ${_qJob.BookingStatus}` });
         } else {
           // Remember the pre-queue status so [RecallQueuedJob] can restore to the right state.
-          // e.g. 'No One' jobs should return to 'No One', not 'Pending'.
-          _qJob._origStatus  = _qJob.BookingStatus;
+          const _origSt = _qJob._origStatus || _qJob.BookingStatus || 'Pending';
+          _qJob._origStatus  = _origSt;
+          _qJob.originalStatus = (_origSt === 'No One' || _qJob.manualOffer) ? 'manual' : 'pending';
           _qJob.BookingStatus = 'Queued';
           _qJob.DriverId     = _qDriverId;
           _qJob.queuedAt     = Date.now();
           saveJobStore();
-          console.log(`[QueueJob] job #${_qBookingId} (was ${_qJob._origStatus}) → Queued for driver ${_qDriverId}`);
-          objectD(res, { ok: true, origStatus: _qJob._origStatus });
+          const _qCid = String(_qJob.companyId || sessionCompanyId || '');
+          if (_qCid) {
+            _writeDriverQueueFirebase(_qCid, _qDriverId, _qBookingId, _qJob, _qJob.originalStatus);
+            getFirebaseServerToken().then(tok => {
+              if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_qCid}/${_qBookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+            });
+          }
+          console.log(`[QueueJob] job #${_qBookingId} (was ${_origSt}) → Queued for driver ${_qDriverId} originalStatus=${_qJob.originalStatus}`);
+          objectD(res, { ok: true, origStatus: _origSt, originalStatus: _qJob.originalStatus });
         }
 
       } else if (action === '[RecallQueuedJob]') {
@@ -10553,18 +10882,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         if (!_rqJob) { objectD(res, { ok: false, msg: 'job not found' }); }
         else {
           const _prevSt = _rqJob.BookingStatus;
-          // Restore to the original pre-queue status (Pending or No One), not always Pending.
-          const _restoreSt = _rqJob._origStatus || 'Pending';
+          const _orig = _rqJob.originalStatus || ((_rqJob._origStatus === 'No One') ? 'manual' : 'pending');
+          const _restoreSt = _orig === 'manual' ? 'No One' : 'Pending';
           _rqJob.BookingStatus = _restoreSt;
-          // Use -2 sentinel (same as driver-recalled Assigned jobs) so UI shows recall badge.
-          _rqJob.DriverId      = -2;
+          _rqJob.DriverId      = _orig === 'manual' ? 0 : -2;
           _rqJob.VehicleId     = 0;
           _rqJob.queuedAt      = null;
           _rqJob.returnReason  = _rqDriverId ? `Recalled by ${_rqDriverId}` : 'Recalled by Driver';
           delete _rqJob._origStatus;
           saveJobStore();
-          console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → ${_restoreSt} (driver ${_rqDriverId || '?'} recalled)`);
-          objectD(res, { ok: true, restoredStatus: _restoreSt });
+          const _rqCid = String(_rqJob.companyId || sessionCompanyId || '');
+          if (_rqCid) {
+            if (_restoreSt === 'Pending') _writePendingJobFirebase(_rqCid, _rqBookingId, _rqJob);
+            else getFirebaseServerToken().then(tok => {
+              if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_rqCid}/${_rqBookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+            });
+            if (_rqDriverId) _removeDriverQueueFirebase(_rqCid, _rqDriverId, _rqBookingId);
+          }
+          console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → ${_restoreSt} originalStatus=${_orig}`);
+          objectD(res, { ok: true, restoredStatus: _restoreSt, originalStatus: _orig });
         }
 
       } else if (action === '[PromoteQueuedToAssigned]') {
@@ -10678,6 +11014,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           dt4: [{ Picking: _myDrivers.filter(d => d.vehiclestatus === 'Picking').length }],
           dt5: [{ Away: awayCount }],
           dt6: _onlineIds,
+          onlineDrivers: _onlineIds,
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> ${_myDrivers.length} vehicles (companyId=${sessionCompanyId})`);
         objectD(res, vehicleStatus);
