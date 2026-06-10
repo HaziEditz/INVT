@@ -6,16 +6,18 @@ module.exports = {
     extend: {
       colors: {
         bw: {
-          bg: '#0f1117',
-          surface: '#1a1d27',
-          card: '#1e2132',
-          border: '#2a2d3e',
-          primary: '#4f6ef7',
+          bg: '#13151f',
+          header: '#0f1420',
+          surface: '#1a1d2e',
+          card: '#1e2235',
+          cardHover: '#242840',
+          border: '#2d3148',
+          primary: '#5b7cfa',
           success: '#22c55e',
           warning: '#f59e0b',
           danger: '#ef4444',
-          text: '#e2e8f0',
-          muted: '#64748b',
+          text: '#e8eaf0',
+          muted: '#8892a4',
           gold: '#dfba5f',
         },
         status: {
@@ -23,7 +25,7 @@ module.exports = {
           picking: '#3b82f6',
           active: '#f59e0b',
           busy: '#f97316',
-          away: '#64748b',
+          away: '#8892a4',
           suspended: '#ef4444',
         },
         service: {

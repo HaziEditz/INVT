@@ -10,8 +10,8 @@ const variants = {
   gold: 'bg-bw-gold hover:brightness-110 text-[#1a1a2e] font-bold',
   success: 'bg-bw-success hover:brightness-110 text-white',
   danger: 'bg-bw-danger hover:brightness-110 text-white',
-  ghost: 'bg-transparent border border-bw-border hover:bg-bw-card text-bw-text',
-  muted: 'bg-bw-card border border-bw-border text-bw-muted hover:text-bw-text',
+  ghost: 'bg-bw-surface/80 border border-bw-border hover:bg-bw-cardHover hover:border-bw-primary/30 text-bw-text',
+  muted: 'bg-bw-card border border-bw-border text-bw-muted hover:text-bw-text hover:bg-bw-cardHover',
 };
 
 export function Button({ variant = 'primary', size = 'sm', className, children, ...props }: ButtonProps) {

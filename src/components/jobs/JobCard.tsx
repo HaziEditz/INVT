@@ -66,7 +66,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     <div
       className={cn(
         'rounded-lg p-3 mb-2.5 bg-bw-card border border-bw-border shadow-sm',
-        'hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 border-l-[4px]',
+        'hover:shadow-md hover:-translate-y-0.5 hover:bg-bw-cardHover transition-all duration-150 border-l-[4px]',
         job.urgent && 'ring-1 ring-bw-warning/50'
       )}
       style={{ borderLeftColor: border }}

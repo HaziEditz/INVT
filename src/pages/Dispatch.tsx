@@ -155,7 +155,7 @@ export function DispatchPage() {
       <ResizableDispatchLayout left={<JobTabs />} center={mapNode} right={rightPanel} />
 
       {mapFullscreen && (
-        <div className="fixed inset-x-0 top-10 bottom-[30px] z-40 bg-[#1a1d27]">
+        <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bg-bw-card">
           <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} compactControls />
           <button
             type="button"

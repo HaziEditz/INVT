@@ -36,7 +36,7 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
           {billingBanner}
         </div>
       )}
-      <header className="h-11 shrink-0 flex items-center gap-3 px-3 bg-gradient-to-r from-bw-surface via-bw-surface to-bw-card border-b border-bw-border/80 shadow-sm text-sm">
+      <header className="h-11 shrink-0 flex items-center gap-3 px-3 bg-bw-header border-b border-bw-border shadow-sm text-sm">
         <div className="flex items-center gap-2 shrink-0">
           <div className="w-8 h-8 rounded-lg bg-bw-primary/20 border border-bw-primary/40 flex items-center justify-center">
             <Car size={16} className="text-bw-primary" />

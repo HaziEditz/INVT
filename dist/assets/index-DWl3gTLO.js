@@ -27964,8 +27964,8 @@ const variants = {
   gold: "bg-bw-gold hover:brightness-110 text-[#1a1a2e] font-bold",
   success: "bg-bw-success hover:brightness-110 text-white",
   danger: "bg-bw-danger hover:brightness-110 text-white",
-  ghost: "bg-transparent border border-bw-border hover:bg-bw-card text-bw-text",
-  muted: "bg-bw-card border border-bw-border text-bw-muted hover:text-bw-text"
+  ghost: "bg-bw-surface/80 border border-bw-border hover:bg-bw-cardHover hover:border-bw-primary/30 text-bw-text",
+  muted: "bg-bw-card border border-bw-border text-bw-muted hover:text-bw-text hover:bg-bw-cardHover"
 };
 function Button({ variant = "primary", size = "sm", className, children, ...props }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -28138,7 +28138,7 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
   const initials = dispatcherInitials(dispatcherName);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     billingBanner && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bg-amber-900/40 border-b border-amber-700 text-amber-200 text-xs px-3 py-1 text-center", children: billingBanner }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "h-11 shrink-0 flex items-center gap-3 px-3 bg-gradient-to-r from-bw-surface via-bw-surface to-bw-card border-b border-bw-border/80 shadow-sm text-sm", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "h-11 shrink-0 flex items-center gap-3 px-3 bg-bw-header border-b border-bw-border shadow-sm text-sm", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 shrink-0", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-8 h-8 rounded-lg bg-bw-primary/20 border border-bw-primary/40 flex items-center justify-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Car, { size: 16, className: "text-bw-primary" }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold tracking-wide text-bw-muted hidden sm:inline", children: "BookaWaka" })
@@ -30399,7 +30399,7 @@ function JobCard({ job, tab }) {
     {
       className: cn(
         "rounded-lg p-3 mb-2.5 bg-bw-card border border-bw-border shadow-sm",
-        "hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 border-l-[4px]",
+        "hover:shadow-md hover:-translate-y-0.5 hover:bg-bw-cardHover transition-all duration-150 border-l-[4px]",
         job.urgent && "ring-1 ring-bw-warning/50"
       ),
       style: { borderLeftColor: border },
@@ -38436,7 +38436,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BxE7s8Xe.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DauoTWXt.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -39399,7 +39399,7 @@ function DriverRow({ driver, index }) {
     "tr",
     {
       className: cn(
-        "border-b border-bw-border/40 hover:bg-bw-card/60 cursor-pointer text-[9px] leading-tight border-l-[3px]",
+        "border-b border-bw-border/50 hover:bg-bw-cardHover cursor-pointer text-[9px] leading-tight border-l-[3px]",
         index % 2 === 0 ? "bg-bw-surface/30" : "bg-transparent"
       ),
       style: { borderLeftColor: color },
@@ -39651,13 +39651,25 @@ function parseCityFromFirebase(raw) {
   }
   return { ...DEFAULT_MAP_CITY };
 }
-const MAP_STYLES = [
-  { elementType: "geometry", stylers: [{ color: "#1a1d27" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#64748b" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a2d3e" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f1117" }] },
-  { featureType: "poi", stylers: [{ visibility: "off" }] }
+const DISPATCH_MAP_STYLES = [
+  { elementType: "geometry", stylers: [{ color: "#1e2235" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#cbd5e0" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1e2235" }, { weight: 2 }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d1b2e" }] },
+  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#4a5568" }] },
+  { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#e2e8f0" }] },
+  { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#4a5568" }] },
+  { featureType: "road.arterial", elementType: "labels.text.fill", stylers: [{ color: "#e2e8f0" }] },
+  { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#2d3748" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d3748" }] },
+  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#cbd5e0" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#1a2e1a" }] },
+  { featureType: "landscape.man_made", elementType: "geometry", stylers: [{ color: "#1a1d2e" }] },
+  { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] }
 ];
+const MAP_CANVAS_BG = "#1e2235";
 function DispatchMap({
   mapsKey,
   center,
@@ -39710,8 +39722,8 @@ function DispatchMap({
           center: safeCenter,
           zoom: 13,
           disableDefaultUI: true,
-          backgroundColor: "#1a1d27",
-          styles: MAP_STYLES
+          backgroundColor: MAP_CANVAS_BG,
+          styles: DISPATCH_MAP_STYLES
         });
         trafficRef.current = new google.maps.TrafficLayer();
         if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
@@ -39814,10 +39826,10 @@ function DispatchMap({
     if (z2 != null) (_b2 = gMapRef.current) == null ? void 0 : _b2.setZoom(z2 + delta);
   };
   const ctrlBtn = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-bw-surface/95 border border-bw-border text-bw-text hover:bg-bw-card hover:border-bw-primary/40 transition shadow-lg backdrop-blur-sm";
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bg-[#1a1d27]", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bg-[#1a1d27]" }),
-    !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
-    mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1] px-4 text-center text-sm text-bw-danger", children: mapError }),
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bg-bw-card", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bg-bw-card" }),
+    !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-bw-card z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
+    mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-bw-card z-[1] px-4 text-center text-sm text-bw-danger", children: mapError }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-bw-border/80 bg-bw-surface/95 p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: () => {
         var _a2;
@@ -40253,7 +40265,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-B_5bQ6fd.js");
+        const { writeActiveDispatcher } = await import("./notifications-DIkoatI_.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -40280,7 +40292,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B_5bQ6fd.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DIkoatI_.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -40485,7 +40497,7 @@ function DispatchPage() {
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(ResizableDispatchLayout, { left: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}), center: mapNode, right: rightPanel }),
-    mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-10 bottom-[30px] z-40 bg-[#1a1d27]", children: [
+    mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-11 bottom-[32px] z-40 bg-bw-card", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId, compactControls: true }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
@@ -40552,13 +40564,13 @@ function MapPopoutPage() {
     return DEFAULT_MAP_CENTER;
   }, [(_a2 = settings == null ? void 0 : settings.city) == null ? void 0 : _a2.lat, (_b2 = settings == null ? void 0 : settings.city) == null ? void 0 : _b2.lng]);
   if (!authChecked || !ready) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center bg-[#1a1d27]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-10 h-10 text-bw-muted" }) });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center bg-bw-card", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-10 h-10 text-bw-muted" }) });
   }
   if (error2) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center text-bw-danger", children: error2 });
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col bg-[#1a1d27]", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-8 shrink-0 flex items-center px-3 bg-bw-surface border-b border-bw-border text-xs font-semibold text-bw-muted", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col bg-bw-bg", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-8 shrink-0 flex items-center px-3 bg-bw-header border-b border-bw-border text-xs font-semibold text-bw-muted", children: [
       "BookaWaka Live Map · ",
       companyId
     ] }),
@@ -40597,4 +40609,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DXhnzKzD.js.map
+//# sourceMappingURL=index-DWl3gTLO.js.map

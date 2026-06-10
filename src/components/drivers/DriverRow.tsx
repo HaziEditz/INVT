@@ -15,7 +15,7 @@ export function DriverRow({ driver, index }: DriverRowProps) {
   return (
     <tr
       className={cn(
-        'border-b border-bw-border/40 hover:bg-bw-card/60 cursor-pointer text-[9px] leading-tight border-l-[3px]',
+        'border-b border-bw-border/50 hover:bg-bw-cardHover cursor-pointer text-[9px] leading-tight border-l-[3px]',
         index % 2 === 0 ? 'bg-bw-surface/30' : 'bg-transparent'
       )}
       style={{ borderLeftColor: color }}

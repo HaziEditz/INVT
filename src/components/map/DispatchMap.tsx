@@ -31,13 +31,7 @@ interface DispatchMapProps {
   popOutActive?: boolean;
 }
 
-const MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#1a1d27' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2d3e' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f1117' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-];
+import { DISPATCH_MAP_STYLES, MAP_CANVAS_BG } from '@/lib/mapStyles';
 
 export function DispatchMap({
   mapsKey,
@@ -98,8 +92,8 @@ export function DispatchMap({
             center: safeCenter,
             zoom: 13,
             disableDefaultUI: true,
-            backgroundColor: '#1a1d27',
-            styles: MAP_STYLES,
+            backgroundColor: MAP_CANVAS_BG,
+            styles: DISPATCH_MAP_STYLES,
           });
           trafficRef.current = new google.maps.TrafficLayer();
           if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
@@ -211,15 +205,15 @@ export function DispatchMap({
     'flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-bw-surface/95 border border-bw-border text-bw-text hover:bg-bw-card hover:border-bw-primary/40 transition shadow-lg backdrop-blur-sm';
 
   return (
-    <div className="relative flex-1 min-h-0 bg-[#1a1d27]">
-      <div ref={mapRef} className="absolute inset-0 bg-[#1a1d27]" />
+    <div className="relative flex-1 min-h-0 bg-bw-card">
+      <div ref={mapRef} className="absolute inset-0 bg-bw-card" />
       {!mapReady && !mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]">
+        <div className="absolute inset-0 flex items-center justify-center bg-bw-card z-[1]">
           <Spinner className="w-8 h-8 text-bw-muted" />
         </div>
       )}
       {mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1] px-4 text-center text-sm text-bw-danger">
+        <div className="absolute inset-0 flex items-center justify-center bg-bw-card z-[1] px-4 text-center text-sm text-bw-danger">
           {mapError}
         </div>
       )}
