@@ -4030,10 +4030,15 @@ $(document).ready(function() {
     fetch('/api/session/me', { credentials: 'include' })
       .then(function(r) {
         if (r.status === 401 || r.status === 403) {
-          // No valid server session — force re-login
-          window.location.replace('DispatcherLogin.aspx');
+          var _fails = parseInt(sessionStorage.getItem('bw_session_fail_count') || '0', 10) + 1;
+          sessionStorage.setItem('bw_session_fail_count', String(_fails));
+          if (_fails >= 3) {
+            window.location.replace('DispatcherLogin.aspx');
+          }
           return;
         }
+        sessionStorage.setItem('bw_session_fail_count', '0');
+        sessionStorage.setItem('bw_dispatch_session_ok', '1');
         return r.json();
       })
       .then(function(me) {
@@ -4261,9 +4266,12 @@ $(document).ready(function() {
     (function() {
         function _bwCheckAccountStatus() {
             fetch('/api/session/me', { credentials: 'include' })
-                .then(function(r) { return r.json().catch(function() { return {}; }); })
+                .then(function(r) {
+                    if (r.status === 401 || r.status === 403) return {};
+                    return r.json().catch(function() { return {}; });
+                })
                 .then(function(data) {
-                    if (!data || data.error || data.status === 'deactivated' || data.status === 'deleted') {
+                    if (data && (data.status === 'deactivated' || data.status === 'deleted')) {
                         console.warn('[bw-session] account no longer active — redirecting to login');
                         window.location.href = 'DispatcherLogin.aspx?reason=account_inactive';
                     }

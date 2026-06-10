@@ -1234,6 +1234,7 @@
     firebase.auth().onAuthStateChanged(function(user) {
       if (!user) return;
       if (sessionStorage.getItem('bw_dispatch_autologin_done') === '1') return;
+      if (sessionStorage.getItem('bw_dispatch_session_ok') === '1') return;
       if (/Default\.aspx/i.test(window.location.pathname || '')) return;
       var userEmail = user.email || '';
       // Use the name stored from a previous form login if it's a proper name.

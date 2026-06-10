@@ -454,11 +454,13 @@ const ADMIN_KEY = process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026';
 
 // ─── Session token helpers ─────────────────────────────────────────────────────
 // Stateless signed cookies: companyId.expiry.hmac — survives server restarts.
+// Use BW_SESSION_SECRET (stable across deploys) — NOT BW_ADMIN_KEY which may rotate.
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_HMAC_KEY = process.env.BW_SESSION_SECRET || process.env.BW_ADMIN_KEY || ADMIN_KEY;
 function createSessionToken(companyId) {
   const expiry = Date.now() + SESSION_TTL_MS;
   const payload = `${companyId}.${expiry}`;
-  const sig = crypto.createHmac('sha256', ADMIN_KEY).update(payload).digest('hex');
+  const sig = crypto.createHmac('sha256', SESSION_HMAC_KEY).update(payload).digest('hex');
   return `${payload}.${sig}`;
 }
 function parseSessionToken(token) {
@@ -467,10 +469,14 @@ function parseSessionToken(token) {
   if (parts.length !== 3) return null;
   const [companyId, expiry, sig] = parts;
   const payload = `${companyId}.${expiry}`;
-  const expected = crypto.createHmac('sha256', ADMIN_KEY).update(payload).digest('hex');
+  const expected = crypto.createHmac('sha256', SESSION_HMAC_KEY).update(payload).digest('hex');
   if (sig !== expected) return null;
   if (Date.now() > parseInt(expiry, 10)) return null;
   return companyId;
+}
+function sessionCookieHeader(companyId) {
+  const token = createSessionToken(companyId);
+  return `BW_SID=${token}; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`;
 }
 function parseCookieString(str) {
   const out = {};
@@ -1283,6 +1289,7 @@ const _BOOKING_STATE_MACHINE = {
   'Picking':   { cancel: 'Cancelled', update: 'Picking', complete: 'Completed' },
   'OnTrip':    { cancel: 'Cancelled', update: 'OnTrip', complete: 'Completed' },
   'Active':    { cancel: 'Cancelled', update: 'Active',  complete: 'Completed' },
+  'Busy':      { cancel: 'Cancelled', update: 'Busy',    complete: 'Completed' },
   'Queued':    { cancel: 'Cancelled', update: 'Queued' },
   'Completed': { complete: 'Completed' },   // idempotent
   'Cancelled': { cancel: 'Cancelled' },     // idempotent
@@ -1479,7 +1486,7 @@ function assignBooking(opts) {
 // §FIX-CMD/1.7 — Idempotent complete. Moves job to closedJobStore, restores
 // driver state via _maybeRestoreDriverState (respects remaining-assignments
 // rule), emits BookingCompleted event + 'completed' eventType to driver.
-function completeBooking(opts) {
+async function completeBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
   const by        = String(opts.by || 'driver').toLowerCase();
@@ -1498,7 +1505,11 @@ function completeBooking(opts) {
              version: parseInt(_closed.updateSeq) || 0,
              booking: _publicBooking(_closed) };
   }
-  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  let idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) {
+    const _hydrated = await _hydrateSingleJobFromFirebase(opts.companyId, bookingId);
+    if (_hydrated) idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  }
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
   const _curStatus = job.BookingStatus || '';
@@ -5461,7 +5472,7 @@ const server = http.createServer(async (req, res) => {
     const token = createSessionToken(companyId);
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Set-Cookie': `BW_SID=${token}; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+      'Set-Cookie': sessionCookieHeader(companyId),
     });
     res.end(JSON.stringify({ ok: true, companyId, company: reg.company, status: reg.status, ownerName: reg.name || '' }));
     console.log(`[session] login: companyId=${companyId} company="${reg.company}" uid=${uid}`);
@@ -5493,7 +5504,10 @@ const server = http.createServer(async (req, res) => {
     const clientIp = (req.headers['x-forwarded-for'] || '').split(',')[0].trim()
                   || req.socket?.remoteAddress
                   || 'unknown';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': sessionCookieHeader(reg.companyId),
+    });
     res.end(JSON.stringify({
       ok:        true,
       companyId: reg.companyId,
@@ -6769,12 +6783,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           by: _cmdBy, source: _logSrc
         });
       } else if (_cmdName === 'complete') {
-        _result = completeBooking({
+        _result = await completeBooking({
           bookingId: _cmdBooking,
-          fare:     _cmdPayload.fare,
-          distance: _cmdPayload.distance,
+          fare:     _cmdPayload.fare ?? _cmdPayload.totalFare,
+          distance: _cmdPayload.distance ?? _cmdPayload.distanceKm,
           payload:  _cmdPayload,
           ifVersion: _cmdIfVer,
+          companyId: _cmdCid,
           by: _cmdBy, source: _logSrc
         });
       }
@@ -6882,6 +6897,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     });
     res.writeHead(_result.ok ? 200 : 404, JSON_HEADERS);
     res.end(JSON.stringify(_result));
+    return;
+  }
+
+  // ── POST /api/job/complete — driver trip/payment complete (no dispatcher session) ─
+  if (urlPath === '/api/job/complete' && req.method === 'POST') {
+    const _cb = await readBody(req);
+    let _c = {};
+    try { _c = JSON.parse(_cb); } catch (e) {}
+    const _cJob = parseInt(_c.jobId || _c.bookingId || 0) || 0;
+    let _cDrv = String(_c.driverId || '').trim();
+    const _userKeyC = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_cDrv && _userKeyC) {
+      const _drc = ZONE_DRIVERS.find(d => d && String(d.passforlink || '').trim() === _userKeyC);
+      if (_drc) _cDrv = String(_drc.driverid || '').trim();
+    }
+    const _payload = (_c.payload && typeof _c.payload === 'object') ? _c.payload : _c;
+    const _result = await completeBooking({
+      bookingId: _cJob,
+      companyId: _c.companyId || _payload.companyId,
+      fare: _c.fare ?? _payload.fare ?? _payload.totalFare,
+      distance: _c.distance ?? _payload.distance ?? _payload.distanceKm,
+      payload: _payload,
+      by: 'driver',
+      source: '/api/job/complete',
+    });
+    const _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/complete #${_cJob} driver=${_cDrv} → ${JSON.stringify({ ok: _result.ok, status: _result.status })}`);
     return;
   }
 
@@ -13292,8 +13336,213 @@ server.listen(PORT, HOST, () => {
   console.log(`[tz] process.env.TZ=${process.env.TZ} | server local time=${new Date().toString()}`);
   _seedZoneDriversFromFirebase();
   _syncBizAccountsFromFirebase();
+  setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
   setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
+  setInterval(() => { _serverAutoDispatchTick().catch(e => console.warn('[server-auto-dispatch]', e && e.message)); }, 30000);
 });
+
+// ─── Firebase → jobStore hydration (survives Railway ephemeral disk) ─────────
+const _HYDRATE_ACTIVE = new Set(['Pending','Offered','Assigned','Picking','Active','OnTrip','Queued','Scheduled','No One','Busy']);
+
+function _mergeFbIntoJob(job, fb) {
+  if (!fb || typeof fb !== 'object') return job;
+  if (fb.PickAddress || fb.pickup || fb.pickupAddress) job.PickAddress = fb.PickAddress || fb.pickup || fb.pickupAddress || job.PickAddress;
+  if (fb.DropAddress || fb.dropoff || fb.dropAddress) job.DropAddress = fb.DropAddress || fb.dropoff || fb.dropAddress || job.DropAddress;
+  if (fb.PhoneNo || fb.passengerPhone) job.PhoneNo = fb.PhoneNo || fb.passengerPhone || job.PhoneNo;
+  if (fb.Name || fb.passengerName) job.Name = fb.Name || fb.passengerName || job.Name;
+  if (fb.DriverId || fb.driverId) job.DriverId = fb.DriverId || fb.driverId;
+  if (fb.VehicleNo || fb.vehicleId) job.VehicleNo = fb.VehicleNo || fb.vehicleId;
+  const st = fb.BookingStatus || fb.Status || fb.status;
+  if (st && _HYDRATE_ACTIVE.has(String(st))) job.BookingStatus = String(st);
+  if (fb.TotalFare != null || fb.fare != null) job.TotalFare = fb.TotalFare ?? fb.fare;
+  if (fb.distanceKm != null) job.distance = fb.distanceKm;
+  return job;
+}
+
+function _fbRecToJob(bid, cid, fb, fallbackStatus) {
+  const st = String(fb.BookingStatus || fb.Status || fb.status || fallbackStatus || 'Pending');
+  return {
+    Id: bid,
+    companyId: cid,
+    BookingStatus: st,
+    PickAddress: fb.PickAddress || fb.pickup || fb.pickupAddress || '',
+    DropAddress: fb.DropAddress || fb.dropoff || fb.dropAddress || '',
+    PickLatLng: fb.PickLatLng || (fb.pickupLat != null ? `${fb.pickupLat},${fb.pickupLng}` : ''),
+    DropLatLng: fb.DropLatLng || (fb.dropLat != null ? `${fb.dropLat},${fb.dropLng}` : ''),
+    PhoneNo: fb.PhoneNo || fb.passengerPhone || '',
+    Name: fb.Name || fb.passengerName || fb.UserFName || '',
+    DriverId: fb.DriverId || fb.driverId || fb.AssignedDriver || 0,
+    VehicleNo: fb.VehicleNo || fb.vehicleId || fb.CallSign || '',
+    VehicleId: fb.VehicleId || fb.vehicleId || 0,
+    EstimatedFare: fb.EstimatedFare || fb.Fare || fb.fare || '',
+    TotalFare: fb.TotalFare || fb.fare || '',
+    serviceType: fb.serviceType || fb.ServiceType || 'taxi',
+    BookingSource: fb.BookingSource || fb.source || fb.bookingSource || '',
+    updateSeq: parseInt(fb.updateSeq || fb.version || 0) || 0,
+    _hydratedFromFirebase: true,
+  };
+}
+
+async function _hydrateSingleJobFromFirebase(companyId, bookingId) {
+  const cid = String(companyId || '').trim();
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return false;
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) return false;
+  const auth = encodeURIComponent(tok);
+  const paths = [
+    cid ? `allbookings/${cid}/${bid}` : null,
+    cid ? `pendingjobs/${cid}/${bid}` : null,
+  ].filter(Boolean);
+  for (const p of paths) {
+    try {
+      const r = await fbRequest(`${FB_DB_URL}/${p}.json?auth=${auth}`, 'GET');
+      if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
+      const st = String(r.body.BookingStatus || r.body.Status || r.body.status || 'Assigned');
+      if (!_HYDRATE_ACTIVE.has(st)) continue;
+      const existing = jobStore.find(j => j && j.Id === bid);
+      if (existing) {
+        _mergeFbIntoJob(existing, r.body);
+        if (cid) existing.companyId = cid;
+      } else {
+        jobStore.push(_fbRecToJob(bid, cid || String(r.body.companyId || ''), r.body, st));
+      }
+      saveJobStore();
+      console.log(`[hydrate] single job #${bid} restored from Firebase ${p} (${st})`);
+      return true;
+    } catch (e) { /* try next path */ }
+  }
+  return false;
+}
+
+async function hydrateJobStoreFromFirebase() {
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) { console.warn('[hydrate] no Firebase token'); return { ok: false }; }
+  const auth = encodeURIComponent(tok);
+  const cids = _fixsCollectCompanyIds();
+  let added = 0, updated = 0;
+  for (const cid of cids) {
+    for (const root of [`pendingjobs/${cid}`, `allbookings/${cid}`]) {
+      try {
+        const r = await fbRequest(`${FB_DB_URL}/${root}.json?auth=${auth}`, 'GET');
+        if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
+        for (const [key, rec] of Object.entries(r.body)) {
+          if (!rec || typeof rec !== 'object') continue;
+          const bid = parseInt(rec.BookingId || rec.bookingId || key) || 0;
+          if (!bid) continue;
+          const st = String(rec.BookingStatus || rec.Status || rec.status || 'Pending');
+          if (!_HYDRATE_ACTIVE.has(st)) continue;
+          const idx = jobStore.findIndex(j => j && j.Id === bid && String(j.companyId || '') === String(cid));
+          if (idx >= 0) {
+            _mergeFbIntoJob(jobStore[idx], rec);
+            updated++;
+          } else {
+            jobStore.push(_fbRecToJob(bid, cid, rec, st));
+            added++;
+          }
+        }
+      } catch (e) {
+        console.warn(`[hydrate] ${root} failed:`, e && e.message);
+      }
+    }
+  }
+  if (added || updated) saveJobStore();
+  console.log(`[hydrate] jobStore: +${added} updated=${updated} total=${jobStore.length}`);
+  return { ok: true, added, updated };
+}
+
+// ─── Server-side auto-dispatch (runs without dispatcher console) ─────────────
+function _parseLatLng(s) {
+  const p = String(s || '').split(',');
+  if (p.length !== 2) return null;
+  const lat = parseFloat(p[0]), lng = parseFloat(p[1]);
+  return (isNaN(lat) || isNaN(lng)) ? null : { lat, lng };
+}
+
+function _haversineKm(a, b) {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+async function _writeDriverOfferNotification(cid, driver, job) {
+  const tok = await getFirebaseServerToken();
+  if (!tok || !cid || !driver || !job) return;
+  const bid = job.Id;
+  const did = String(driver.driverid || '').trim();
+  const vid = String(driver.VehicleId || driver.vehiclenumber || '').trim();
+  const payload = {
+    type: 'job_offer',
+    bookingid: `${bid},Offered,${did},Server,AutoDispatch`,
+    content: 'You have offered new Job please view details',
+    joboffer: String(bid),
+    jobpickup: job.PickAddress || '',
+    jobdropoff: job.DropAddress || '',
+    JobphoneNo: job.PhoneNo || '',
+    jobname: job.Name || job.UserFName || '',
+    jobFare: String(job.EstimatedFare || job.TotalFare || ''),
+    jobServiceType: job.serviceType || 'taxi',
+    jobBookingSrc: job.BookingSource || 'Auto Dispatch',
+    vehicleId: vid,
+    companyId: String(cid),
+    bookingId: bid,
+    originalStatus: 'pending',
+    expiresAt: Date.now() + 30000,
+    updatedAt: _FB_SERVER_TIMESTAMP,
+  };
+  await firebaseDbSet(`notification/${did}`, payload, tok).catch(() => {});
+  const _pjUrl = `${FB_DB_URL}/pendingjobs/${cid}/${bid}.json?auth=${encodeURIComponent(tok)}`;
+  await fbRequest(_pjUrl, 'PATCH', {
+    BookingId: String(bid), Status: 'Offered', BookingStatus: 'Offered',
+    DriverId: did, offeredAt: Date.now(),
+    PickAddress: job.PickAddress || '', DropAddress: job.DropAddress || '',
+  }).catch(() => {});
+}
+
+async function _serverAutoDispatchTick() {
+  const now = Date.now();
+  const cids = _fixsCollectCompanyIds();
+  for (const cid of cids) {
+    if (jobStore.some(j => String(j.companyId) === String(cid) && j.BookingStatus === 'Offered')) continue;
+    const pending = jobStore.filter(j => {
+      if (String(j.companyId) !== String(cid) || j.BookingStatus !== 'Pending') return false;
+      if (j.manualOffer === true) return false;
+      if (j.releasedAt && (now - j.releasedAt) < 10000) return false;
+      return true;
+    });
+    if (!pending.length) continue;
+    pending.sort((a, b) => (a.Pickingtime || a.BookingDateTime || '').localeCompare(b.Pickingtime || b.BookingDateTime || ''));
+    const job = pending[0];
+    const pick = _parseLatLng(job.PickLatLng);
+    const drivers = ZONE_DRIVERS.filter(d =>
+      String(d.companyId || '') === String(cid) &&
+      String(d.vehiclestatus || '') === 'Available' &&
+      !isAwayLocked(d.driverid) &&
+      d.lat && d.lng
+    );
+    if (!drivers.length) continue;
+    let best = drivers[0];
+    if (pick) {
+      let bestDist = Infinity;
+      for (const d of drivers) {
+        const dist = _haversineKm(pick, { lat: parseFloat(d.lat), lng: parseFloat(d.lng) });
+        if (dist < bestDist) { bestDist = dist; best = d; }
+      }
+    }
+    job.BookingStatus = 'Offered';
+    job.DriverId = best.driverid;
+    job.VehicleId = best.VehicleId || best.vehiclenumber;
+    job.VehicleNo = best.vehiclenumber || best.VehicleId;
+    job.offeredAt = now;
+    job.originalStatus = 'pending';
+    saveJobStore();
+    await _writeDriverOfferNotification(cid, best, job);
+    console.log(`[server-auto-dispatch] offered job #${job.Id} → driver ${best.driverid} (cid=${cid})`);
+  }
+}
 
 async function _releaseScheduledJobs() {
   if (!process.env.BW_FIREBASE_SECRET) return;
