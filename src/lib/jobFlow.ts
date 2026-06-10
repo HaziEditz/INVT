@@ -1,0 +1,129 @@
+import type { Job, JobStatus } from '@/types/job';
+
+const API = '/api';
+
+async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    ...init,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || data.message || `HTTP ${r.status}`);
+  return data as T;
+}
+
+export async function sessionLogin(companyId: string, uid: string) {
+  return jsonFetch<{ ok: boolean; companyId: string; company: string; ownerName?: string }>(
+    `${API}/session/login`,
+    { method: 'POST', body: JSON.stringify({ companyId, uid }) }
+  );
+}
+
+export async function sessionMe() {
+  return jsonFetch<{
+    ok: boolean;
+    companyId: string;
+    company: string;
+    ownerName?: string;
+    email?: string;
+  }>(`${API}/session/me`);
+}
+
+export async function accountStatus(companyId: string) {
+  return jsonFetch<{
+    canAccess: boolean;
+    loginBlocked: boolean;
+    blockMessage?: string;
+    planName?: string;
+  }>(`${API}/account-status?companyId=${encodeURIComponent(companyId)}`);
+}
+
+export async function jobCommand(payload: {
+  bookingId: number;
+  command: 'assign' | 'accept' | 'cancel' | 'recall' | 'update' | 'complete';
+  by: 'dispatcher' | 'driver' | 'passenger' | 'website';
+  ifVersion?: number;
+  payload?: Record<string, unknown>;
+}) {
+  return jsonFetch(`${API}/job/command`, { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function createJob(body: Record<string, unknown>) {
+  return jsonFetch<{ ok: boolean; bookingId: number }>(`${API}/job/create`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateBooking(body: Record<string, unknown>) {
+  return jsonFetch(`${API}/booking/update`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function setJobStatus(
+  companyId: string,
+  bookingId: number,
+  status: JobStatus,
+  extra: Record<string, unknown> = {}
+) {
+  return updateBooking({
+    companyId,
+    bookingId,
+    fields: { BookingStatus: status, Status: status, ...extra },
+  });
+}
+
+export async function assignJob(
+  bookingId: number,
+  driverId: string,
+  vehicleId: string,
+  ifVersion = 0
+) {
+  return jobCommand({
+    bookingId,
+    command: 'assign',
+    by: 'dispatcher',
+    ifVersion,
+    payload: { driverId, vehicleId },
+  });
+}
+
+export async function cancelJob(bookingId: number, reason = 'Cancelled by dispatcher') {
+  return jobCommand({
+    bookingId,
+    command: 'cancel',
+    by: 'dispatcher',
+    payload: { reason },
+  });
+}
+
+export async function recallJob(bookingId: number, originalStatus: JobStatus) {
+  return jobCommand({
+    bookingId,
+    command: 'recall',
+    by: 'dispatcher',
+    payload: { originalStatus },
+  });
+}
+
+export async function forceCompleteJob(bookingId: number) {
+  return jobCommand({
+    bookingId,
+    command: 'complete',
+    by: 'dispatcher',
+    payload: {},
+  });
+}
+
+export async function setPending(job: Job) {
+  return setJobStatus(job.companyId, job.id, 'Pending', { originalStatus: 'pending' });
+}
+
+export async function setNoOne(job: Job) {
+  return setJobStatus(job.companyId, job.id, 'No One', { originalStatus: 'no_one' });
+}
+
+export function logoutSession() {
+  document.cookie = 'BW_SID=; Max-Age=0; path=/';
+  window.location.href = '/login';
+}

@@ -78,6 +78,52 @@ const STRIPE_PK = process.env.STRIPE_PUBLISHABLE_KEY || '';
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 const ROOT = path.join(__dirname, 'taxitime.co.nz', 'Dispatchthree');
+const DIST_DIR = path.join(__dirname, 'dist');
+
+function serveDistAsset(res, urlPath) {
+  const rel = urlPath.replace(/^\//, '');
+  const fp = path.join(DIST_DIR, rel);
+  if (!fp.startsWith(DIST_DIR) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) return false;
+  const ext = path.extname(fp).toLowerCase();
+  res.writeHead(200, {
+    'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+    'Cache-Control': rel.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+  });
+  fs.createReadStream(fp).pipe(res);
+  return true;
+}
+
+function serveSpaIndex(res) {
+  const index = path.join(DIST_DIR, 'index.html');
+  if (!fs.existsSync(index)) {
+    res.writeHead(503, { 'Content-Type': 'text/plain' });
+    res.end('Dispatch UI not built — run: npm install && npm run build');
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache, must-revalidate' });
+  fs.createReadStream(index).pipe(res);
+}
+
+async function gateDispatchAccess(req, res) {
+  const companyId = getSessionCompanyId(req);
+  if (!companyId) {
+    res.writeHead(302, { Location: '/login' });
+    res.end();
+    return false;
+  }
+  const _gateReg = registrationStore.find(r => r.companyId === companyId);
+  const _gateAccess = _gateReg ? await resolveCompanyAccessAsync(_gateReg) : { loginBlocked: true };
+  if (!_gateReg || _gateAccess.loginBlocked) {
+    const reason = _gateAccess.blockMessage === SUBSCRIPTION_EXPIRED_MSG ? 'subscription_expired' : 'account_inactive';
+    res.writeHead(302, {
+      Location: `/login?reason=${reason}`,
+      'Set-Cookie': 'BW_SID=; HttpOnly; SameSite=None; Secure; Path=/; Max-Age=0',
+    });
+    res.end();
+    return false;
+  }
+  return true;
+}
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -2358,6 +2404,106 @@ function newCompanyJobId(companyId) {
 // Valid booking sources accepted by POST /api/job/create
 const BOOKING_SOURCES = new Set(['dispatch', 'hail', 'passenger', 'web', 'food', 'freight']);
 
+// ─── Job validation (phantom/empty job guard) ────────────────────────────────
+function _normalizeBookingSource(raw) {
+  const s = String(raw || '').toLowerCase().trim();
+  if (!s) return '';
+  if (s === 'website') return 'web';
+  if (s.includes('passenger')) return 'passenger';
+  if (s.includes('hail')) return 'hail';
+  if (s.includes('dispatch') || s === 'auto dispatch' || s === 'dispatch console') return 'dispatch';
+  if (s.includes('food')) return 'food';
+  if (s.includes('freight')) return 'freight';
+  if (s === 'web') return 'web';
+  return s;
+}
+
+function _parseJobLatLng(jobOrRec) {
+  if (jobOrRec.pickupLat != null && jobOrRec.pickupLng != null) {
+    const lat = parseFloat(jobOrRec.pickupLat);
+    const lng = parseFloat(jobOrRec.pickupLng);
+    if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+  }
+  const raw = jobOrRec.PickLatLng || jobOrRec.pickLatLng || jobOrRec.pickupLocation || '';
+  const p = String(raw || '').split(',');
+  if (p.length !== 2) return null;
+  const lat = parseFloat(p[0]);
+  const lng = parseFloat(p[1]);
+  return (isNaN(lat) || isNaN(lng)) ? null : { lat, lng };
+}
+
+function _jobHasValidPickup(jobOrRec) {
+  const addr = String(jobOrRec.PickAddress || jobOrRec.pickup || jobOrRec.pickupAddress || '').trim();
+  if (addr.length >= 3 && !/^0\s*,\s*0/.test(addr) && addr !== '0,0') return true;
+  const ll = _parseJobLatLng(jobOrRec);
+  if (ll && (Math.abs(ll.lat) > 0.0001 || Math.abs(ll.lng) > 0.0001) &&
+      Math.abs(ll.lat) <= 90 && Math.abs(ll.lng) <= 180) return true;
+  return false;
+}
+
+function _jobHasValidSource(jobOrRec) {
+  const src = _normalizeBookingSource(jobOrRec.BookingSource || jobOrRec.source || jobOrRec.bookingSource || '');
+  return !!src && BOOKING_SOURCES.has(src);
+}
+
+function _jobBookingId(jobOrRec, fallbackKey) {
+  return parseInt(jobOrRec.Id || jobOrRec.BookingId || jobOrRec.bookingId || fallbackKey || 0) || 0;
+}
+
+function _jobExistsInStore(bid, cid) {
+  if (!bid) return false;
+  return jobStore.some(j => j && j.Id === bid && String(j.companyId || '') === String(cid || j.companyId || ''));
+}
+
+function _isValidJobRecord(rec, opts) {
+  opts = opts || {};
+  const bid = _jobBookingId(rec, opts.fallbackKey);
+  if (!bid || bid <= 0) return false;
+  const cid = String(rec.companyId || opts.companyId || '').trim();
+  if (cid && !/^\d+$/.test(cid)) return false;
+  if (!_jobHasValidPickup(rec)) return false;
+  if (opts.requireSource && !_jobHasValidSource(rec)) return false;
+  return true;
+}
+
+function _tryPushJobToStore(job, tag) {
+  if (!job || !_isValidJobRecord(job, { requireSource: true })) return false;
+  if (_jobExistsInStore(job.Id, job.companyId)) return false;
+  jobStore.push(job);
+  saveJobStore();
+  if (tag) console.log(`[job-valid] ${tag} added job #${job.Id} cid=${job.companyId}`);
+  return true;
+}
+
+function _purgeInvalidJobsFromStore(tag) {
+  let removed = 0;
+  for (let i = jobStore.length - 1; i >= 0; i--) {
+    const j = jobStore[i];
+    if (!j) { jobStore.splice(i, 1); removed++; continue; }
+    const st = String(j.BookingStatus || '');
+    const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
+    if (!_isValidJobRecord(j, { requireSource: needsSource })) {
+      console.log(`[${tag}] removed invalid job #${j.Id} cid=${j.companyId} status=${st} pickup="${j.PickAddress || ''}"`);
+      jobStore.splice(i, 1);
+      removed++;
+    }
+  }
+  if (removed) saveJobStore();
+  return removed;
+}
+
+function _isDispatchableJob(job, cid) {
+  if (!job || !job.Id) return false;
+  const st = String(job.BookingStatus || '');
+  if (st !== 'Pending' && st !== 'No One') return false;
+  if (job.manualOffer === true) return false;
+  if (!_isValidJobRecord(job, { requireSource: true, companyId: cid })) return false;
+  const inStore = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
+  if (!inStore) return false;
+  if (String(inStore.BookingStatus || '') !== st) return false;
+  return true;
+}
+
 // ─── In-memory message store ──────────────────────────────────────────────────
 let nextMsgId = 100;
 const messageStore = [];
@@ -4575,11 +4721,48 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (urlPath === '/' || urlPath === '') urlPath = '/Default.aspx';
+  // Public client config for React dispatch UI
+  if (urlPath === '/api/config/client' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      firebase: FIREBASE_CONFIG,
+      mapsApiKey: GOOGLE_MAPS_API_KEY || '',
+    }));
+    return;
+  }
 
-  // Server-side auth guard for the dispatch console.
-  // If the browser has no valid BW_SID cookie, redirect to the login page at the HTTP level
-  // so the client never receives Default.aspx and no client-side redirect loop occurs.
+  if (urlPath === '/' || urlPath === '') urlPath = '/';
+
+  // ── React SPA (BookaWaka Dispatch v2) ─────────────────────────────────────
+  if (req.method === 'GET') {
+    if (urlPath.startsWith('/assets/') && serveDistAsset(res, urlPath)) return;
+
+    if (urlPath === '/login') {
+      serveSpaIndex(res);
+      return;
+    }
+
+    if (urlPath === '/dispatch') {
+      if (!(await gateDispatchAccess(req, res))) return;
+      serveSpaIndex(res);
+      return;
+    }
+
+    if (urlPath === '/') {
+      const companyId = getSessionCompanyId(req);
+      if (companyId) {
+        if (!(await gateDispatchAccess(req, res))) return;
+        res.writeHead(302, { Location: '/dispatch' });
+        res.end();
+        return;
+      }
+      res.writeHead(302, { Location: '/login' });
+      res.end();
+      return;
+    }
+  }
+
+  // Legacy ASPX — still available at /Default.aspx for transition
   if (urlPath === '/Default.aspx' && req.method === 'GET') {
     const companyId = getSessionCompanyId(req);
     if (!companyId) {
@@ -4610,6 +4793,11 @@ const server = http.createServer(async (req, res) => {
 
   // Serve a minimal transparent 1×1 favicon to silence the 404 log noise
   if (urlPath === '/favicon.ico') {
+    const distIco = path.join(DIST_DIR, 'favicon.ico');
+    if (fs.existsSync(distIco)) {
+      serveDistAsset(res, '/favicon.ico');
+      return;
+    }
     const favicon = Buffer.from(
       'AAABAAEAAQEAAAEAGAAwAAAAFgAAACgAAAABAAAAAgAAAAEAGAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAP8AAAAA',
       'base64'
@@ -7040,6 +7228,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error: `source must be one of: ${[...BOOKING_SOURCES].join(' | ')}` }));
       return;
     }
+    if (!_jobHasValidPickup({ PickAddress: _cjPick.address, PickLatLng: `${_cjPick.lat || 0},${_cjPick.lng || 0}` })) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: 'pickup address or coordinates are required' }));
+      return;
+    }
 
     const _cjIdStr   = newCompanyJobId(_cjCid);
     const _cjIdNum   = Number(_cjIdStr); // safe: fits in JS float exactly
@@ -7107,8 +7300,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // Only push to jobStore for non-dispatch sources (hail, passenger, web, etc.)
     // where the caller passes complete data and there is no follow-up InsertBookingv4.
     if (_cjSource !== 'dispatch') {
-      jobStore.push(_cjJob);
-      saveJobStore();
+      if (_jobExistsInStore(_cjIdNum, _cjCid)) {
+        res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'job already exists', bookingId: _cjIdNum }));
+        return;
+      }
+      if (!_tryPushJobToStore(_cjJob, '/api/job/create')) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: false, error: 'invalid job data' }));
+        return;
+      }
     }
 
     // §FIX-HAIL/2 — when a hail booking arrives driver-attached + Active, fan out
@@ -12822,6 +13023,15 @@ setInterval(() => {
   let changed = false;
   jobStore.forEach(j => {
     if (j.BookingStatus !== 'Offered') return;
+    const st = String(j.BookingStatus || '');
+    const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
+    if (!_isValidJobRecord(j, { requireSource: needsSource })) {
+      console.log(`[stale-offer watchdog] removing invalid phantom job #${j.Id} (was Offered)`);
+      const idx = jobStore.indexOf(j);
+      if (idx >= 0) jobStore.splice(idx, 1);
+      changed = true;
+      return;
+    }
     const age = j.offeredAt ? (now - j.offeredAt) : STALE_MS + 1;
     if (age > STALE_MS) {
       console.log(`[stale-offer watchdog] job #${j.Id} stuck as Offered for ${Math.round(age/1000)}s (driver ${j.DriverId}) — resetting to Pending`);
@@ -13360,8 +13570,9 @@ function _mergeFbIntoJob(job, fb) {
 }
 
 function _fbRecToJob(bid, cid, fb, fallbackStatus) {
-  const st = String(fb.BookingStatus || fb.Status || fb.status || fallbackStatus || 'Pending');
-  return {
+  const st = String(fb.BookingStatus || fb.Status || fb.status || fallbackStatus || '');
+  if (!st) return null;
+  const rec = {
     Id: bid,
     companyId: cid,
     BookingStatus: st,
@@ -13381,6 +13592,9 @@ function _fbRecToJob(bid, cid, fb, fallbackStatus) {
     updateSeq: parseInt(fb.updateSeq || fb.version || 0) || 0,
     _hydratedFromFirebase: true,
   };
+  const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
+  if (!_isValidJobRecord(rec, { requireSource: needsSource, companyId: cid, fallbackKey: bid })) return null;
+  return rec;
 }
 
 async function _hydrateSingleJobFromFirebase(companyId, bookingId) {
@@ -13398,14 +13612,16 @@ async function _hydrateSingleJobFromFirebase(companyId, bookingId) {
     try {
       const r = await fbRequest(`${FB_DB_URL}/${p}.json?auth=${auth}`, 'GET');
       if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
-      const st = String(r.body.BookingStatus || r.body.Status || r.body.status || 'Assigned');
-      if (!_HYDRATE_ACTIVE.has(st)) continue;
+      const st = String(r.body.BookingStatus || r.body.Status || r.body.status || '');
+      if (!st || !_HYDRATE_ACTIVE.has(st)) continue;
       const existing = jobStore.find(j => j && j.Id === bid);
       if (existing) {
         _mergeFbIntoJob(existing, r.body);
         if (cid) existing.companyId = cid;
       } else {
-        jobStore.push(_fbRecToJob(bid, cid || String(r.body.companyId || ''), r.body, st));
+        const job = _fbRecToJob(bid, cid || String(r.body.companyId || ''), r.body, st);
+        if (!job || _jobExistsInStore(bid, cid)) continue;
+        jobStore.push(job);
       }
       saveJobStore();
       console.log(`[hydrate] single job #${bid} restored from Firebase ${p} (${st})`);
@@ -13430,14 +13646,16 @@ async function hydrateJobStoreFromFirebase() {
           if (!rec || typeof rec !== 'object') continue;
           const bid = parseInt(rec.BookingId || rec.bookingId || key) || 0;
           if (!bid) continue;
-          const st = String(rec.BookingStatus || rec.Status || rec.status || 'Pending');
-          if (!_HYDRATE_ACTIVE.has(st)) continue;
+          const st = String(rec.BookingStatus || rec.Status || rec.status || '');
+          if (!st || !_HYDRATE_ACTIVE.has(st)) continue;
           const idx = jobStore.findIndex(j => j && j.Id === bid && String(j.companyId || '') === String(cid));
           if (idx >= 0) {
             _mergeFbIntoJob(jobStore[idx], rec);
             updated++;
           } else {
-            jobStore.push(_fbRecToJob(bid, cid, rec, st));
+            const job = _fbRecToJob(bid, cid, rec, st);
+            if (!job || _jobExistsInStore(bid, cid)) continue;
+            jobStore.push(job);
             added++;
           }
         }
@@ -13447,8 +13665,9 @@ async function hydrateJobStoreFromFirebase() {
     }
   }
   if (added || updated) saveJobStore();
-  console.log(`[hydrate] jobStore: +${added} updated=${updated} total=${jobStore.length}`);
-  return { ok: true, added, updated };
+  const purged = _purgeInvalidJobsFromStore('hydrate');
+  console.log(`[hydrate] jobStore: +${added} updated=${updated} purged=${purged} total=${jobStore.length}`);
+  return { ok: true, added, updated, purged };
 }
 
 // ─── Server-side auto-dispatch (runs without dispatcher console) ─────────────
@@ -13469,10 +13688,20 @@ function _haversineKm(a, b) {
 }
 
 async function _writeDriverOfferNotification(cid, driver, job) {
-  const tok = await getFirebaseServerToken();
-  if (!tok || !cid || !driver || !job) return;
-  const bid = job.Id;
+  if (!job || !job.Id || !cid || !driver) return;
+  const inStore = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
+  if (!inStore) return;
+  const st = String(inStore.BookingStatus || '');
+  if (!['Pending', 'Offered', 'No One'].includes(st)) return;
+  if (!_isValidJobRecord(inStore, { requireSource: true, companyId: cid })) return;
   const did = String(driver.driverid || '').trim();
+  if (!did) return;
+  if (st === 'Offered' && String(inStore.DriverId || '') !== did) return;
+  if (inStore._offerNotifiedAt && (Date.now() - inStore._offerNotifiedAt) < 15000 &&
+      String(inStore.DriverId || '') === did) return;
+  const tok = await getFirebaseServerToken();
+  if (!tok) return;
+  const bid = job.Id;
   const vid = String(driver.VehicleId || driver.vehiclenumber || '').trim();
   const payload = {
     type: 'job_offer',
@@ -13500,22 +13729,26 @@ async function _writeDriverOfferNotification(cid, driver, job) {
     DriverId: did, offeredAt: Date.now(),
     PickAddress: job.PickAddress || '', DropAddress: job.DropAddress || '',
   }).catch(() => {});
+  inStore._offerNotifiedAt = Date.now();
 }
 
 async function _serverAutoDispatchTick() {
   const now = Date.now();
+  _purgeInvalidJobsFromStore('server-auto-dispatch');
   const cids = _fixsCollectCompanyIds();
   for (const cid of cids) {
     if (jobStore.some(j => String(j.companyId) === String(cid) && j.BookingStatus === 'Offered')) continue;
     const pending = jobStore.filter(j => {
-      if (String(j.companyId) !== String(cid) || j.BookingStatus !== 'Pending') return false;
+      if (String(j.companyId) !== String(cid)) return false;
+      if (j.BookingStatus !== 'Pending' && j.BookingStatus !== 'No One') return false;
       if (j.manualOffer === true) return false;
       if (j.releasedAt && (now - j.releasedAt) < 10000) return false;
-      return true;
+      return _isDispatchableJob(j, cid);
     });
     if (!pending.length) continue;
     pending.sort((a, b) => (a.Pickingtime || a.BookingDateTime || '').localeCompare(b.Pickingtime || b.BookingDateTime || ''));
     const job = pending[0];
+    if (!_isDispatchableJob(job, cid)) continue;
     const pick = _parseLatLng(job.PickLatLng);
     const drivers = ZONE_DRIVERS.filter(d =>
       String(d.companyId || '') === String(cid) &&
@@ -13532,15 +13765,17 @@ async function _serverAutoDispatchTick() {
         if (dist < bestDist) { bestDist = dist; best = d; }
       }
     }
-    job.BookingStatus = 'Offered';
-    job.DriverId = best.driverid;
-    job.VehicleId = best.VehicleId || best.vehiclenumber;
-    job.VehicleNo = best.vehiclenumber || best.VehicleId;
-    job.offeredAt = now;
-    job.originalStatus = 'pending';
+    const fresh = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
+    if (!fresh || !_isDispatchableJob(fresh, cid)) continue;
+    fresh.BookingStatus = 'Offered';
+    fresh.DriverId = best.driverid;
+    fresh.VehicleId = best.VehicleId || best.vehiclenumber;
+    fresh.VehicleNo = best.vehiclenumber || best.VehicleId;
+    fresh.offeredAt = now;
+    fresh.originalStatus = 'pending';
     saveJobStore();
-    await _writeDriverOfferNotification(cid, best, job);
-    console.log(`[server-auto-dispatch] offered job #${job.Id} → driver ${best.driverid} (cid=${cid})`);
+    await _writeDriverOfferNotification(cid, best, fresh);
+    console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
   }
 }
 
@@ -13570,6 +13805,7 @@ async function _releaseScheduledJobs() {
       }
     }
     if (!shouldRelease) continue;
+    if (!_isValidJobRecord(j, { requireSource: true, companyId: j.companyId })) continue;
 
     const prev = j.BookingStatus;
     j.BookingStatus = 'Pending';
