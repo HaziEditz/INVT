@@ -52,3 +52,12 @@ body {
 .bw-tab-active {
   @apply text-bw-primary border-bw-primary;
 }
+
+@keyframes bw-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.15); }
+}
+
+.bw-status-pulse {
+  animation: bw-pulse-dot 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}

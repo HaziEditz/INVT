@@ -149,7 +149,7 @@ async function tryServeReactSpa(req, res, urlPath) {
   if (urlPath !== '/' && serveDistAsset(res, urlPath)) return true;
 
   const spaPath = normalizeUrlPath(urlPath);
-  if (spaPath === '/dispatch') {
+  if (spaPath === '/dispatch' || spaPath === '/dispatch/map') {
     if (!(await gateDispatchAccess(req, res))) return true;
   }
 

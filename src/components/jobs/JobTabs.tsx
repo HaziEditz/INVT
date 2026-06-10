@@ -1,3 +1,4 @@
+import { useRef, useEffect, useState } from 'react';
 import { useJobStore } from '@/store/jobStore';
 import type { JobTab } from '@/types/job';
 import { JobCard } from './JobCard';
@@ -17,22 +18,52 @@ export function JobTabs() {
   const setActiveTab = useJobStore((s) => s.setActiveTab);
   const jobsForTab = useJobStore((s) => s.jobsForTab);
   const countForTab = useJobStore((s) => s.countForTab);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
+
+  useEffect(() => {
+    const el = tabRefs.current[activeTab];
+    if (el?.parentElement) {
+      const parent = el.parentElement.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
+      setIndicator({ left: rect.left - parent.left, width: rect.width });
+    }
+  }, [activeTab]);
 
   return (
-    <div className="flex flex-col h-full bw-panel">
-      <div className="flex border-b border-bw-border bg-bw-surface shrink-0">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={cn('bw-tab', activeTab === t.id && 'bw-tab-active')}
-            onClick={() => setActiveTab(t.id)}
-          >
-            {t.label}
-            <span className="ml-1 opacity-70">({countForTab(t.id)})</span>
-          </button>
-        ))}
+    <div className="flex flex-col h-full bw-panel border-0">
+      <div className="relative flex border-b border-bw-border bg-bw-surface shrink-0">
+        {TABS.map((t) => {
+          const count = countForTab(t.id);
+          const active = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              ref={(el) => { tabRefs.current[t.id] = el; }}
+              className={cn(
+                'flex-1 text-center py-2.5 text-xs font-bold uppercase tracking-wide transition-colors relative',
+                active ? 'text-bw-primary' : 'text-bw-muted hover:text-bw-text'
+              )}
+              onClick={() => setActiveTab(t.id)}
+            >
+              {t.label}
+              <span
+                className={cn(
+                  'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold',
+                  active ? 'bg-bw-primary text-white' : 'bg-bw-card text-bw-muted border border-bw-border'
+                )}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+        <span
+          className="absolute bottom-0 h-0.5 bg-bw-primary transition-all duration-200 ease-out rounded-full"
+          style={{ left: indicator.left, width: indicator.width }}
+        />
       </div>
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2.5">
         {jobsForTab(activeTab).length === 0 ? (
           <div className="text-center text-bw-muted text-sm py-12">No jobs in this tab</div>
         ) : (

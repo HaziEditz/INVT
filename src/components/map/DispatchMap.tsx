@@ -1,18 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader } from '@googlemaps/js-api-loader';
-import { normalizeMapCenter } from '@/lib/mapCenter';
+import {
+  Car,
+  Home,
+  Layers,
+  Maximize2,
+  Minus,
+  Navigation,
+  Plus,
+  TrafficCone,
+  ExternalLink,
+  Users,
+} from 'lucide-react';
+import { loadGoogleMaps } from '@/lib/geocoder';
+import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
-import { Button } from '@/components/shared/Button';
 import { Spinner } from '@/components/shared/Spinner';
+import { cn } from '@/lib/utils';
 
 interface DispatchMapProps {
   mapsKey: string;
   center: { lat: number; lng: number };
   companyId: string;
+  compactControls?: boolean;
+  onPopOut?: () => void;
+  onFullscreen?: () => void;
+  popOutActive?: boolean;
 }
 
 const MAP_STYLES: google.maps.MapTypeStyle[] = [
@@ -23,7 +39,15 @@ const MAP_STYLES: google.maps.MapTypeStyle[] = [
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
 ];
 
-export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
+export function DispatchMap({
+  mapsKey,
+  center,
+  companyId,
+  compactControls,
+  onPopOut,
+  onFullscreen,
+  popOutActive,
+}: DispatchMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const gMapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
@@ -66,14 +90,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
     setMapReady(false);
     setMapError(null);
 
-    const loader = new Loader({
-      apiKey,
-      version: 'weekly',
-      libraries: ['places', 'geometry'],
-    });
-
-    loader
-      .load()
+    loadGoogleMaps(apiKey)
       .then(() => {
         if (cancelled || !mapRef.current) return;
         if (typeof google.maps.Map !== 'function') {
@@ -101,7 +118,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
     return () => {
       cancelled = true;
     };
-  }, [mapsKey, mapTraffic]);
+  }, [mapsKey]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
@@ -114,7 +131,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   }, [mapTraffic, mapReady]);
 
   useEffect(() => {
-    if (!gMapRef.current) return;
+    if (!gMapRef.current || !mapReady) return;
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
     for (const d of drivers) {
@@ -139,7 +156,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   }, [drivers, openModalWith, mapReady]);
 
   useEffect(() => {
-    if (!gMapRef.current || !selectedJob) return;
+    if (!gMapRef.current || !selectedJob || !mapReady) return;
     const pick = parseLatLng(selectedJob.pickLatLng);
     if (pick) {
       new google.maps.Marker({
@@ -151,7 +168,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   }, [selectedJob, mapReady]);
 
   useEffect(() => {
-    if (!gMapRef.current || !mapZones || !companyId) return;
+    if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
     let unsub: (() => void) | undefined;
     const polys: google.maps.Polygon[] = [];
@@ -164,18 +181,19 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
         polys.length = 0;
         const val = snap.val();
         if (!val || !gMapRef.current) return;
-        for (const [, z] of Object.entries(val as Record<string, { name?: string; paths?: { lat: number; lng: number }[] }>)) {
+        for (const [, z] of Object.entries(val as Record<string, { paths?: { lat: number; lng: number }[] }>)) {
           if (!z.paths?.length) continue;
-          const poly = new google.maps.Polygon({
-            paths: z.paths,
-            strokeColor: '#4f6ef7',
-            strokeOpacity: 0.8,
-            strokeWeight: 2,
-            fillColor: '#4f6ef7',
-            fillOpacity: 0.08,
-            map: gMapRef.current,
-          });
-          polys.push(poly);
+          polys.push(
+            new google.maps.Polygon({
+              paths: z.paths,
+              strokeColor: '#4f6ef7',
+              strokeOpacity: 0.8,
+              strokeWeight: 2,
+              fillColor: '#4f6ef7',
+              fillOpacity: 0.08,
+              map: gMapRef.current,
+            })
+          );
         }
       });
     });
@@ -186,6 +204,14 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
       polys.forEach((p) => p.setMap(null));
     };
   }, [mapZones, companyId, mapReady]);
+
+  const zoom = (delta: number) => {
+    const z = gMapRef.current?.getZoom();
+    if (z != null) gMapRef.current?.setZoom(z + delta);
+  };
+
+  const ctrlBtn =
+    'flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-bw-surface/95 border border-bw-border text-bw-text hover:bg-bw-card hover:border-bw-primary/40 transition shadow-lg backdrop-blur-sm';
 
   return (
     <div className="relative flex-1 min-h-0 bg-[#1a1d27]">
@@ -200,22 +226,75 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
           {mapError}
         </div>
       )}
-      <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
-        <Button variant="ghost" onClick={() => gMapRef.current?.setCenter(safeCenter)}>Home</Button>
-        <Button variant="ghost" onClick={() => setMapTraffic(!mapTraffic)}>
-          Traffic {mapTraffic ? 'On' : 'Off'}
-        </Button>
-        <Button variant="ghost" onClick={() => setMapZones(!mapZones)}>
-          Zones {mapZones ? 'On' : 'Off'}
-        </Button>
+
+      <div className={cn('absolute top-2 left-2 z-10 flex flex-col gap-1.5', compactControls && 'scale-90 origin-top-left')}>
+        <div className="rounded-lg border border-bw-border/80 bg-bw-surface/95 p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]">
+          <button type="button" className={ctrlBtn} onClick={() => gMapRef.current?.setCenter(safeCenter)}>
+            <Home size={14} /> Home
+          </button>
+          <div className="flex gap-1">
+            <button type="button" className={cn(ctrlBtn, 'flex-1')} onClick={() => zoom(1)} aria-label="Zoom in">
+              <Plus size={14} />
+            </button>
+            <button type="button" className={cn(ctrlBtn, 'flex-1')} onClick={() => zoom(-1)} aria-label="Zoom out">
+              <Minus size={14} />
+            </button>
+          </div>
+          <button
+            type="button"
+            className={cn(ctrlBtn, mapTraffic && 'border-bw-warning/50 text-bw-warning')}
+            onClick={() => setMapTraffic(!mapTraffic)}
+          >
+            <TrafficCone size={14} /> Traffic
+          </button>
+          <button
+            type="button"
+            className={cn(ctrlBtn, mapZones && 'border-bw-primary/50 text-bw-primary')}
+            onClick={() => setMapZones(!mapZones)}
+          >
+            <Layers size={14} /> Zones
+          </button>
+        </div>
       </div>
-      <div className="absolute bottom-2 left-2 flex gap-1 z-10 flex-wrap">
-        {(['all', 'free', 'picking', 'busy', 'away'] as const).map((k) => (
-          <span key={k} className="text-[10px] px-2 py-1 rounded bg-bw-surface/90 border border-bw-border text-bw-text">
-            {k}: {counts[k === 'all' ? 'all' : k]}
+
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1">
+        {onPopOut && (
+          <button type="button" className={ctrlBtn} onClick={onPopOut}>
+            <ExternalLink size={14} />
+            {popOutActive ? 'Close Map Window' : 'Pop Out Map'}
+          </button>
+        )}
+        {onFullscreen && (
+          <button type="button" className={ctrlBtn} onClick={onFullscreen}>
+            <Maximize2 size={14} /> Fullscreen
+          </button>
+        )}
+      </div>
+
+      <div className="absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]">
+        {(
+          [
+            { k: 'all', icon: Users, color: 'text-bw-text' },
+            { k: 'free', icon: Car, color: 'text-status-available' },
+            { k: 'picking', icon: Navigation, color: 'text-status-picking' },
+            { k: 'busy', icon: Car, color: 'text-status-busy' },
+            { k: 'away', icon: Car, color: 'text-bw-muted' },
+          ] as const
+        ).map(({ k, icon: Icon, color }) => (
+          <span
+            key={k}
+            className={cn(
+              'inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-bw-surface/95 border border-bw-border shadow backdrop-blur-sm font-medium',
+              color
+            )}
+          >
+            <Icon size={11} />
+            {k}: {counts[k]}
           </span>
         ))}
       </div>
     </div>
   );
 }
+
+export { DEFAULT_MAP_CENTER };

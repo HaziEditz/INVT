@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { StatusBar } from '@/components/layout/StatusBar';
+import { ResizableDispatchLayout } from '@/components/layout/ResizableDispatchLayout';
 import { JobTabs } from '@/components/jobs/JobTabs';
 import { CreateJobModal } from '@/components/jobs/CreateJobModal';
 import { JobDetailModal } from '@/components/jobs/JobDetailModal';
@@ -35,10 +36,15 @@ export function DispatchPage() {
   const [dispatcherName, setDispatcherName] = useState(localStorage.getItem('bw_dispatcher_name') || 'Dispatcher');
   const [sessionId] = useState(() => localStorage.getItem('bw_session_id') || `sess_${Date.now()}`);
   const [authChecked, setAuthChecked] = useState(false);
+  const popOutRef = useRef<Window | null>(null);
   const emergency = useUiStore((s) => s.emergency);
   const setEmergency = useUiStore((s) => s.setEmergency);
   const settings = useUiStore((s) => s.settings);
   const setBillingBanner = useUiStore((s) => s.setBillingBanner);
+  const mapFullscreen = useUiStore((s) => s.mapFullscreen);
+  const setMapFullscreen = useUiStore((s) => s.setMapFullscreen);
+  const mapPoppedOut = useUiStore((s) => s.mapPoppedOut);
+  const setMapPoppedOut = useUiStore((s) => s.setMapPoppedOut);
 
   const activeCompanyId = ready && companyId ? companyId : null;
 
@@ -67,12 +73,43 @@ export function DispatchPage() {
     localStorage.setItem('bw_dispatcher_name', dispatcherName);
   }, [dispatcherName]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && mapFullscreen) setMapFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mapFullscreen, setMapFullscreen]);
+
+  useEffect(() => {
+    const tick = setInterval(() => {
+      if (popOutRef.current?.closed) {
+        popOutRef.current = null;
+        setMapPoppedOut(false);
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [setMapPoppedOut]);
+
   const mapCenter = useMemo(() => {
-    if (settings?.city) {
-      return normalizeMapCenter(settings.city.lat, settings.city.lng);
-    }
+    if (settings?.city) return normalizeMapCenter(settings.city.lat, settings.city.lng);
     return DEFAULT_MAP_CENTER;
   }, [settings?.city?.lat, settings?.city?.lng, settings?.city?.name]);
+
+  const togglePopOut = () => {
+    if (popOutRef.current && !popOutRef.current.closed) {
+      popOutRef.current.close();
+      popOutRef.current = null;
+      setMapPoppedOut(false);
+      return;
+    }
+    popOutRef.current = window.open(
+      '/dispatch/map',
+      'bw-dispatch-map',
+      'width=1280,height=800,menubar=no,toolbar=no,location=no'
+    );
+    setMapPoppedOut(!!popOutRef.current);
+  };
 
   if (!authChecked || !ready) {
     return (
@@ -86,6 +123,26 @@ export function DispatchPage() {
     return <div className="min-h-screen flex items-center justify-center text-bw-danger">{error}</div>;
   }
 
+  const mapNode = (
+    <DispatchMap
+      mapsKey={mapsKey}
+      center={mapCenter}
+      companyId={companyId}
+      onPopOut={togglePopOut}
+      onFullscreen={() => setMapFullscreen(true)}
+      popOutActive={mapPoppedOut}
+    />
+  );
+
+  const rightPanel = (
+    <>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ZoneBoard />
+      </div>
+      <ZoneQueuePanel companyId={companyId} />
+    </>
+  );
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-bw-bg">
       <Header
@@ -94,20 +151,22 @@ export function DispatchPage() {
         dispatcherName={dispatcherName}
         onNameChange={setDispatcherName}
       />
-      <div className="flex flex-1 min-h-0">
-        <aside className="w-[380px] shrink-0 border-r border-bw-border min-h-0">
-          <JobTabs />
-        </aside>
-        <main className="flex-1 flex flex-col min-w-0 min-h-0">
-          <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} />
-        </main>
-        <aside className="w-[460px] shrink-0 border-l border-bw-border flex flex-col min-h-0">
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <ZoneBoard />
-          </div>
-          <ZoneQueuePanel companyId={companyId} />
-        </aside>
-      </div>
+
+      <ResizableDispatchLayout left={<JobTabs />} center={mapNode} right={rightPanel} />
+
+      {mapFullscreen && (
+        <div className="fixed inset-x-0 top-10 bottom-[30px] z-40 bg-[#1a1d27]">
+          <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} compactControls />
+          <button
+            type="button"
+            className="absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-bw-surface border border-bw-border text-bw-text hover:border-bw-primary shadow-lg"
+            onClick={() => setMapFullscreen(false)}
+          >
+            Exit Fullscreen (Esc)
+          </button>
+        </div>
+      )}
+
       <StatusBar />
 
       <CreateJobModal mapsKey={mapsKey} companyId={companyId} />

@@ -25,3 +25,22 @@ export function sourceLabel(src: string): string {
   };
   return m[src.toLowerCase()] || src;
 }
+
+export function paymentBadgeColor(type: string): string {
+  const t = (type || '').toLowerCase();
+  if (t.includes('cash')) return '#22c55e';
+  if (t.includes('card') || t.includes('stripe')) return '#3b82f6';
+  if (t.includes('account') || t.includes('invoice')) return '#8b5cf6';
+  if (t.includes('acc')) return '#ec4899';
+  return '#64748b';
+}
+
+export function dispatcherInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'D';
+}

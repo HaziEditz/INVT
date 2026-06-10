@@ -27613,6 +27613,24 @@ const Bell = createLucideIcon("Bell", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Car = createLucideIcon("Car", [
+  [
+    "path",
+    {
+      d: "M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2",
+      key: "5owen"
+    }
+  ],
+  ["circle", { cx: "7", cy: "17", r: "2", key: "u2ysq9" }],
+  ["path", { d: "M9 17h6", key: "r8uit2" }],
+  ["circle", { cx: "17", cy: "17", r: "2", key: "axvx0g" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const CircleCheckBig = createLucideIcon("CircleCheckBig", [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
@@ -27633,11 +27651,67 @@ const Copy = createLucideIcon("Copy", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const ExternalLink = createLucideIcon("ExternalLink", [
+  ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
+  ["path", { d: "M10 14 21 3", key: "gplh6r" }],
+  ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const FileDown = createLucideIcon("FileDown", [
   ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "M12 18v-6", key: "17g6i2" }],
   ["path", { d: "m9 15 3 3 3-3", key: "1npd3o" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const House = createLucideIcon("House", [
+  ["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8", key: "5wwlr5" }],
+  [
+    "path",
+    {
+      d: "M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+      key: "1d0kgt"
+    }
+  ]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Layers = createLucideIcon("Layers", [
+  [
+    "path",
+    {
+      d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z",
+      key: "zw3jo"
+    }
+  ],
+  [
+    "path",
+    {
+      d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12",
+      key: "1wduqc"
+    }
+  ],
+  [
+    "path",
+    {
+      d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17",
+      key: "kqbvx6"
+    }
+  ]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -27675,8 +27749,67 @@ const Mail = createLucideIcon("Mail", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const MapPin = createLucideIcon("MapPin", [
+  [
+    "path",
+    {
+      d: "M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0",
+      key: "1r0f0z"
+    }
+  ],
+  ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Maximize2 = createLucideIcon("Maximize2", [
+  ["polyline", { points: "15 3 21 3 21 9", key: "mznyad" }],
+  ["polyline", { points: "9 21 3 21 3 15", key: "1avn1i" }],
+  ["line", { x1: "21", x2: "14", y1: "3", y2: "10", key: "ota7mn" }],
+  ["line", { x1: "3", x2: "10", y1: "21", y2: "14", key: "1atl0r" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Minus = createLucideIcon("Minus", [["path", { d: "M5 12h14", key: "1ays0h" }]]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Moon = createLucideIcon("Moon", [
   ["path", { d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z", key: "a7tn18" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Navigation = createLucideIcon("Navigation", [
+  ["polygon", { points: "3 11 22 2 13 21 11 13 3 11", key: "1ltx0t" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Phone = createLucideIcon("Phone", [
+  [
+    "path",
+    {
+      d: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z",
+      key: "foiqr5"
+    }
+  ]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -27737,6 +27870,52 @@ const Sun = createLucideIcon("Sun", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const TrafficCone = createLucideIcon("TrafficCone", [
+  ["path", { d: "M9.3 6.2a4.55 4.55 0 0 0 5.4 0", key: "flyxqv" }],
+  ["path", { d: "M7.9 10.7c.9.8 2.4 1.3 4.1 1.3s3.2-.5 4.1-1.3", key: "1nlxxg" }],
+  [
+    "path",
+    {
+      d: "M13.9 3.5a1.93 1.93 0 0 0-3.8-.1l-3 10c-.1.2-.1.4-.1.6 0 1.7 2.2 3 5 3s5-1.3 5-3c0-.2 0-.4-.1-.5Z",
+      key: "vz7x1l"
+    }
+  ],
+  [
+    "path",
+    {
+      d: "m7.5 12.2-4.7 2.7c-.5.3-.8.7-.8 1.1s.3.8.8 1.1l7.6 4.5c.9.5 2.1.5 3 0l7.6-4.5c.7-.3 1-.7 1-1.1s-.3-.8-.8-1.1l-4.7-2.8",
+      key: "1xfzlw"
+    }
+  ]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const User = createLucideIcon("User", [
+  ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", key: "975kel" }],
+  ["circle", { cx: "12", cy: "7", r: "4", key: "17ys0d" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Users = createLucideIcon("Users", [
+  ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
+  ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }],
+  ["path", { d: "M22 21v-2a4 4 0 0 0-3-3.87", key: "kshegd" }],
+  ["path", { d: "M16 3.13a4 4 0 0 1 0 7.75", key: "1da9ce" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const X$1 = createLucideIcon("X", [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
@@ -27768,6 +27947,17 @@ function sourceLabel(src) {
     phone: "Phone"
   };
   return m2[src.toLowerCase()] || src;
+}
+function paymentBadgeColor(type) {
+  const t2 = (type || "").toLowerCase();
+  if (t2.includes("cash")) return "#22c55e";
+  if (t2.includes("card") || t2.includes("stripe")) return "#3b82f6";
+  if (t2.includes("account") || t2.includes("invoice")) return "#8b5cf6";
+  if (t2.includes("acc")) return "#ec4899";
+  return "#64748b";
+}
+function dispatcherInitials(name2) {
+  return name2.split(/\s+/).filter(Boolean).map((p2) => p2[0]).join("").slice(0, 2).toUpperCase() || "D";
 }
 const variants = {
   primary: "bg-bw-primary hover:bg-blue-600 text-white",
@@ -27901,6 +28091,9 @@ const useUiStore = create((set2) => ({
   billingBanner: null,
   mapTraffic: true,
   mapZones: true,
+  mapVisible: localStorage.getItem("bw_map_visible") !== "false",
+  mapFullscreen: false,
+  mapPoppedOut: false,
   emergency: null,
   settings: null,
   setTheme: (t2) => {
@@ -27918,6 +28111,12 @@ const useUiStore = create((set2) => ({
   setBillingBanner: (msg) => set2({ billingBanner: msg }),
   setMapTraffic: (v2) => set2({ mapTraffic: v2 }),
   setMapZones: (v2) => set2({ mapZones: v2 }),
+  setMapVisible: (v2) => {
+    localStorage.setItem("bw_map_visible", v2 ? "true" : "false");
+    set2({ mapVisible: v2 });
+  },
+  setMapFullscreen: (v2) => set2({ mapFullscreen: v2 }),
+  setMapPoppedOut: (v2) => set2({ mapPoppedOut: v2 }),
   setEmergency: (e) => set2({ emergency: e }),
   setSettings: (s2) => set2({ settings: s2 })
 }));
@@ -27936,9 +28135,14 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
   const setTheme = useUiStore((s2) => s2.setTheme);
   const notificationCount = useUiStore((s2) => s2.notificationCount);
   const billingBanner = useUiStore((s2) => s2.billingBanner);
+  const initials = dispatcherInitials(dispatcherName);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     billingBanner && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bg-amber-900/40 border-b border-amber-700 text-amber-200 text-xs px-3 py-1 text-center", children: billingBanner }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "h-10 shrink-0 flex items-center gap-2 px-2 bg-bw-surface border-b border-bw-border text-sm", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "h-11 shrink-0 flex items-center gap-3 px-3 bg-gradient-to-r from-bw-surface via-bw-surface to-bw-card border-b border-bw-border/80 shadow-sm text-sm", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 shrink-0", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-8 h-8 rounded-lg bg-bw-primary/20 border border-bw-primary/40 flex items-center justify-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Car, { size: 16, className: "text-bw-primary" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold tracking-wide text-bw-muted hidden sm:inline", children: "BookaWaka" })
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "gold", onClick: () => openModalWith("createJob"), children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 }),
         " Create Job"
@@ -27956,24 +28160,36 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
           ]
         }
       ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-semibold text-bw-text truncate max-w-[120px]", children: companyName }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "input",
-        {
-          value: dispatcherName,
-          onChange: (e) => onNameChange(e.target.value),
-          className: "bg-transparent border-b border-bw-border text-xs w-28 focus:outline-none focus:border-bw-primary"
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { className: "flex items-center gap-0.5 ml-2 flex-1 overflow-x-auto", children: [
-        NAV.map((n2) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "bw-nav-link", onClick: () => openModalWith(n2.id), children: n2.label }, n2.id)),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "bw-nav-link text-bw-danger", onClick: logoutSession, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-text truncate max-w-[160px] text-sm", children: companyName }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 ml-1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-7 h-7 rounded-full bg-bw-primary/30 border border-bw-primary/50 flex items-center justify-center text-[10px] font-bold text-bw-primary", children: initials }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            value: dispatcherName,
+            onChange: (e) => onNameChange(e.target.value),
+            className: "bg-transparent border-b border-bw-border text-xs w-28 focus:outline-none focus:border-bw-primary text-bw-text",
+            "aria-label": "Dispatcher name"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { className: "flex items-center gap-1 ml-auto overflow-x-auto", children: [
+        NAV.map((n2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "bw-nav-link px-2.5",
+            onClick: () => openModalWith(n2.id),
+            children: n2.label
+          },
+          `${n2.id}-${n2.label}-${i2}`
+        )),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "bw-nav-link text-bw-danger px-2.5", onClick: logoutSession, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(LogOut, { size: 12, className: "inline mr-0.5" }),
           " Log Out"
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "text-bw-muted hover:text-bw-text p-1", onClick: () => setTheme(theme === "dark" ? "light" : "dark"), children: theme === "dark" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Sun, { size: 16 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Moon, { size: 16 }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "relative text-bw-muted hover:text-bw-text p-1", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "text-bw-muted hover:text-bw-text p-1.5 rounded-md hover:bg-bw-card", onClick: () => setTheme(theme === "dark" ? "light" : "dark"), children: theme === "dark" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Sun, { size: 16 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Moon, { size: 16 }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "relative text-bw-muted hover:text-bw-text p-1.5 rounded-md hover:bg-bw-card", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Bell, { size: 16 }),
         notificationCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "absolute -top-0.5 -right-0.5 bg-bw-danger text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center", children: notificationCount })
       ] })
@@ -28096,9 +28312,23 @@ const useJobStore = create((set2, get2) => ({
   },
   countForTab: (tab) => get2().jobsForTab(tab).length
 }));
+function nzClockString(date) {
+  return date.toLocaleTimeString("en-NZ", {
+    timeZone: "Pacific/Auckland",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+}
 function StatusBar() {
   const drivers = useDriverStore((s2) => s2.drivers);
   const jobs = useJobStore((s2) => s2.jobs);
+  const [now, setNow] = reactExports.useState(/* @__PURE__ */ new Date());
+  reactExports.useEffect(() => {
+    const t2 = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
+    return () => clearInterval(t2);
+  }, []);
   const counts = reactExports.useMemo(
     () => ({
       all: drivers.length,
@@ -28111,35 +28341,180 @@ function StatusBar() {
   );
   const pending = jobs.filter((j2) => j2.status === "Pending" || j2.status === "No One").length;
   const active = jobs.filter((j2) => ["Active", "OnTrip", "Picking"].includes(j2.status)).length;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "h-[30px] shrink-0 flex items-center justify-between px-3 bg-bw-surface border-t border-bw-border text-[10px] text-bw-muted uppercase tracking-wide", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "BookaWaka Dispatch" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-4", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-        "Drivers: ",
-        counts.all
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-status-available", children: [
-        "Free: ",
-        counts.free
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-status-picking", children: [
-        "Picking: ",
-        counts.picking
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-status-busy", children: [
-        "Busy: ",
-        counts.busy
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-        "Pending jobs: ",
-        pending
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-        "Active trips: ",
-        active
-      ] })
+  const nzTime = nzClockString(now);
+  const stat = (label, value, color) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: color ? color : "text-bw-muted", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "opacity-70", children: [
+      label,
+      ":"
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: (/* @__PURE__ */ new Date()).toLocaleTimeString() })
+    " ",
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-text", children: value })
+  ] });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "h-[32px] shrink-0 flex items-center justify-between px-4 bg-bw-surface border-t border-bw-border text-[10px] uppercase tracking-wide", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-primary", children: "BookaWaka Dispatch" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-5 items-center", children: [
+      stat("Drivers", counts.all),
+      stat("Free", counts.free, "text-status-available"),
+      stat("Picking", counts.picking, "text-status-picking"),
+      stat("Busy", counts.busy, "text-status-busy"),
+      stat("Pending", pending, "text-bw-warning"),
+      stat("Active", active, "text-bw-primary")
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-bw-text tabular-nums", children: [
+      "NZ ",
+      nzTime
+    ] })
+  ] });
+}
+function ResizeHandle({ onDrag, onDoubleClick, className }) {
+  const dragging = reactExports.useRef(false);
+  const lastX = reactExports.useRef(0);
+  const onMouseDown = reactExports.useCallback((e) => {
+    e.preventDefault();
+    dragging.current = true;
+    lastX.current = e.clientX;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+  reactExports.useEffect(() => {
+    const onMove = (e) => {
+      if (!dragging.current) return;
+      const delta = e.clientX - lastX.current;
+      lastX.current = e.clientX;
+      onDrag(delta);
+    };
+    const onUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [onDrag]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      role: "separator",
+      "aria-orientation": "vertical",
+      onMouseDown,
+      onDoubleClick,
+      className: cn(
+        "w-1 shrink-0 cursor-col-resize bg-bw-border/60 hover:bg-bw-primary/50 active:bg-bw-primary transition-colors z-20",
+        className
+      ),
+      title: "Drag to resize · double-click to reset"
+    }
+  );
+}
+const STORAGE_KEY = "bw_dispatch_panel_sizes";
+const DEFAULT_LEFT_WIDTH = 380;
+const DEFAULT_RIGHT_WIDTH = 460;
+const MIN_LEFT = 280;
+const MIN_RIGHT = 320;
+const MIN_MAP = 200;
+function readSizes() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH };
+    const parsed = JSON.parse(raw);
+    return {
+      left: Math.max(MIN_LEFT, Number(parsed.left) || DEFAULT_LEFT_WIDTH),
+      right: Math.max(MIN_RIGHT, Number(parsed.right) || DEFAULT_RIGHT_WIDTH)
+    };
+  } catch {
+    return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH };
+  }
+}
+function saveSizes(sizes) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sizes));
+}
+function usePanelSizes(containerWidth) {
+  const [sizes, setSizes] = reactExports.useState(readSizes);
+  reactExports.useEffect(() => {
+    saveSizes(sizes);
+  }, [sizes]);
+  const clampSizes = reactExports.useCallback(
+    (next) => {
+      const maxLeft = Math.max(MIN_LEFT, containerWidth - next.right - MIN_MAP);
+      const maxRight = Math.max(MIN_RIGHT, containerWidth - next.left - MIN_MAP);
+      return {
+        left: Math.min(Math.max(MIN_LEFT, next.left), maxLeft),
+        right: Math.min(Math.max(MIN_RIGHT, next.right), maxRight)
+      };
+    },
+    [containerWidth]
+  );
+  const resizeLeft = reactExports.useCallback(
+    (delta) => {
+      setSizes((prev) => clampSizes({ ...prev, left: prev.left + delta }));
+    },
+    [clampSizes]
+  );
+  const resizeRight = reactExports.useCallback(
+    (delta) => {
+      setSizes((prev) => clampSizes({ ...prev, right: prev.right - delta }));
+    },
+    [clampSizes]
+  );
+  const reset = reactExports.useCallback(() => {
+    setSizes({ left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH });
+  }, []);
+  return { sizes, resizeLeft, resizeRight, reset };
+}
+function ResizableDispatchLayout({ left, center, right }) {
+  const containerRef = reactExports.useRef(null);
+  const [containerWidth, setContainerWidth] = reactExports.useState(1200);
+  const { sizes, resizeLeft, resizeRight, reset } = usePanelSizes(containerWidth);
+  const mapVisible = useUiStore((s2) => s2.mapVisible);
+  const mapPoppedOut = useUiStore((s2) => s2.mapPoppedOut);
+  const setMapVisible = useUiStore((s2) => s2.setMapVisible);
+  const showMap = mapVisible && !mapPoppedOut;
+  reactExports.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      var _a2;
+      const w2 = (_a2 = entries[0]) == null ? void 0 : _a2.contentRect.width;
+      if (w2) setContainerWidth(w2);
+    });
+    ro.observe(el);
+    setContainerWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: "flex flex-1 min-h-0 relative", children: [
+    showMap ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: { width: sizes.left }, className: "shrink-0 min-h-0 overflow-hidden border-r border-bw-border", children: left }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeLeft, onDoubleClick: reset }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0", children: center }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeRight, onDoubleClick: reset }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "aside",
+        {
+          style: { width: sizes.right },
+          className: "shrink-0 flex flex-col min-h-0 border-l border-bw-border overflow-hidden",
+          children: right
+        }
+      )
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "flex-1 min-h-0 overflow-hidden border-r border-bw-border", children: left }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "flex-1 min-h-0 overflow-hidden flex flex-col", children: right })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => setMapVisible(!showMap),
+        className: cn(
+          "absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide",
+          "bg-bw-surface/95 border border-bw-border shadow-lg hover:border-bw-primary text-bw-muted hover:text-bw-text transition backdrop-blur-sm"
+        ),
+        children: showMap ? "Hide Map" : "Show Map"
+      }
+    )
   ] });
 }
 const millisecondsInWeek = 6048e5;
@@ -28284,6 +28659,10 @@ function getRoundingMethod(method) {
 }
 function differenceInMilliseconds(laterDate, earlierDate) {
   return +toDate(laterDate) - +toDate(earlierDate);
+}
+function differenceInMinutes(dateLeft, dateRight, options) {
+  const diff = differenceInMilliseconds(dateLeft, dateRight) / millisecondsInMinute;
+  return getRoundingMethod(options == null ? void 0 : options.roundingMethod)(diff);
 }
 function endOfDay(date, options) {
   const _date = toDate(date, options == null ? void 0 : options.in);
@@ -29975,6 +30354,17 @@ function Badge({ children, color, className }) {
     }
   );
 }
+function Tooltip({ label, children, className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("group relative inline-flex", className), title: label, children: [
+    children,
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 rounded bg-bw-card border border-bw-border text-[10px] text-bw-text whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg", children: label })
+  ] });
+}
+function waitBadgeClass(minutes) {
+  if (minutes >= 10) return "bg-bw-danger/20 text-bw-danger border-bw-danger/40";
+  if (minutes >= 5) return "bg-bw-warning/20 text-bw-warning border-bw-warning/40";
+  return "bg-bw-card text-bw-muted border-bw-border";
+}
 function JobCard({ job, tab }) {
   const allDrivers = useDriverStore((s2) => s2.drivers);
   const drivers = reactExports.useMemo(
@@ -29984,14 +30374,17 @@ function JobCard({ job, tab }) {
   const addToast = useUiStore((s2) => s2.addToast);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const border = serviceBorderColor(job.serviceType);
-  const waitLabel = (() => {
+  const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
     try {
       const d2 = parseISO(job.bookingDateTime);
-      return formatDistanceToNow(d2, { addSuffix: false });
+      return {
+        waitLabel: formatDistanceToNow(d2, { addSuffix: false }),
+        waitMinutes: differenceInMinutes(/* @__PURE__ */ new Date(), d2)
+      };
     } catch {
-      return "—";
+      return { waitLabel: "—", waitMinutes: 0 };
     }
-  })();
+  }, [job.bookingDateTime]);
   const run = async (fn, ok) => {
     try {
       await fn();
@@ -30000,13 +30393,18 @@ function JobCard({ job, tab }) {
       addToast({ type: "error", title: "Action failed", message: e instanceof Error ? e.message : "" });
     }
   };
+  const iconBtn = "p-1.5 rounded-md hover:bg-bw-surface border border-transparent hover:border-bw-border transition";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
-      className: `bw-card p-3 mb-2 border-l-4 ${job.urgent ? "ring-1 ring-bw-warning/50" : ""}`,
+      className: cn(
+        "rounded-lg p-3 mb-2.5 bg-bw-card border border-bw-border shadow-sm",
+        "hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 border-l-[4px]",
+        job.urgent && "ring-1 ring-bw-warning/50"
+      ),
       style: { borderLeftColor: border },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1 mb-1.5", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1.5 mb-2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-sm font-bold text-bw-text", children: [
             "#",
             job.id
@@ -30017,25 +30415,31 @@ function JobCard({ job, tab }) {
           job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#f59e0b", children: "URGENT" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ml-auto text-[10px] text-bw-muted uppercase", children: job.status })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1 text-xs mb-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-success shrink-0", children: "●" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5 text-xs mb-2", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 items-start", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 13, className: "text-bw-success shrink-0 mt-0.5" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-text truncate", children: job.pickAddress || "No pickup" })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-danger shrink-0", children: "●" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 items-start", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 13, className: "text-bw-danger shrink-0 mt-0.5" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted truncate", children: job.dropAddress || "No dropoff" })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-x-3 text-[11px] text-bw-muted mb-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: job.passengerName || "—" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: job.passengerPhone || "—" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: job.paymentType }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-2 text-[11px] text-bw-muted mb-2 items-center", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 11 }),
+            job.passengerName || "—"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Phone, { size: 11 }),
+            job.passengerPhone || "—"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), children: job.paymentType || "Cash" }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
             "$",
             job.estimatedFare || "0"
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("px-1.5 py-0.5 rounded-full border text-[10px] font-medium", waitBadgeClass(waitMinutes)), children: [
             waitLabel,
             " waiting"
           ] })
@@ -30044,7 +30448,7 @@ function JobCard({ job, tab }) {
           "Offer expires ",
           formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1 items-center", children: [
           tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => run(() => setPending(job), "Set Pending"), children: "Pending" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "muted", onClick: () => run(() => setNoOne(job), "Set No One"), children: "No One" }),
@@ -30068,37 +30472,21 @@ function JobCard({ job, tab }) {
                 ]
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => openModalWith("createJob", { jobId: job.id }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 12 }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 12 }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => openModalWith("createJob", { jobId: job.id }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 14 }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Offer cancelled"), children: "Cancel Offer" }),
           (tab === "assign" || tab === "active") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "success", onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 12 }),
-              " Complete"
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 12 }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-success"), onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 14 }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              Button,
-              {
-                variant: "primary",
-                onClick: () => run(
-                  () => recallJob(job.id, job.originalStatus || "Pending"),
-                  "Recalled to U-A"
-                ),
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 12 }),
-                  " Recall"
-                ]
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 12 }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 14 }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           tab === "dy" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => run(() => setPending(job), "Pending"), children: "Pending" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 12 }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => openModalWith("jobDetail", { jobId: job.id }), children: "Details" })
         ] })
@@ -30119,24 +30507,58 @@ function JobTabs() {
   const setActiveTab = useJobStore((s2) => s2.setActiveTab);
   const jobsForTab = useJobStore((s2) => s2.jobsForTab);
   const countForTab = useJobStore((s2) => s2.countForTab);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-panel", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex border-b border-bw-border bg-bw-surface shrink-0", children: TABS.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "button",
-      {
-        className: cn("bw-tab", activeTab === t2.id && "bw-tab-active"),
-        onClick: () => setActiveTab(t2.id),
-        children: [
-          t2.label,
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "ml-1 opacity-70", children: [
-            "(",
-            countForTab(t2.id),
-            ")"
-          ] })
-        ]
-      },
-      t2.id
-    )) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2", children: jobsForTab(activeTab).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-bw-muted text-sm py-12", children: "No jobs in this tab" }) : jobsForTab(activeTab).map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
+  const tabRefs = reactExports.useRef({});
+  const [indicator, setIndicator] = reactExports.useState({ left: 0, width: 0 });
+  reactExports.useEffect(() => {
+    const el = tabRefs.current[activeTab];
+    if (el == null ? void 0 : el.parentElement) {
+      const parent = el.parentElement.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
+      setIndicator({ left: rect.left - parent.left, width: rect.width });
+    }
+  }, [activeTab]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-panel border-0", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex border-b border-bw-border bg-bw-surface shrink-0", children: [
+      TABS.map((t2) => {
+        const count = countForTab(t2.id);
+        const active = activeTab === t2.id;
+        return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            ref: (el) => {
+              tabRefs.current[t2.id] = el;
+            },
+            className: cn(
+              "flex-1 text-center py-2.5 text-xs font-bold uppercase tracking-wide transition-colors relative",
+              active ? "text-bw-primary" : "text-bw-muted hover:text-bw-text"
+            ),
+            onClick: () => setActiveTab(t2.id),
+            children: [
+              t2.label,
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  className: cn(
+                    "ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold",
+                    active ? "bg-bw-primary text-white" : "bg-bw-card text-bw-muted border border-bw-border"
+                  ),
+                  children: count
+                }
+              )
+            ]
+          },
+          t2.id
+        );
+      }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "span",
+        {
+          className: "absolute bottom-0 h-0.5 bg-bw-primary transition-all duration-200 ease-out rounded-full",
+          style: { left: indicator.left, width: indicator.width }
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2.5", children: jobsForTab(activeTab).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-bw-muted text-sm py-12", children: "No jobs in this tab" }) : jobsForTab(activeTab).map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
   ] });
 }
 function Modal({ open: open2, onClose, title, wide, children, footer }) {
@@ -37895,7 +38317,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DdVFuTpr.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-t3ieePv-.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -38850,22 +39272,34 @@ function statusColor(status) {
       return "#64748b";
   }
 }
-function DriverRow({ driver }) {
+function DriverRow({ driver, index }) {
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const color = statusColor(driver.status);
+  const isAvailable = driver.status === "Available";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "tr",
     {
-      className: "border-b border-bw-border/50 hover:bg-bw-card/50 cursor-pointer text-[9px] leading-tight",
+      className: cn(
+        "border-b border-bw-border/40 hover:bg-bw-card/60 cursor-pointer text-[9px] leading-tight border-l-[3px]",
+        index % 2 === 0 ? "bg-bw-surface/30" : "bg-transparent"
+      ),
+      style: { borderLeftColor: color },
       onClick: () => openModalWith("driverDetail", { driverId: driver.driverId }),
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.zoneName || void 0, children: driver.zoneName || "—" }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "py-1 px-0.5 truncate", title: driver.driverName, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "inline-block w-1.5 h-1.5 rounded-full mr-0.5 align-middle", style: { background: color } }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: driver.driverName })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-text", children: driver.driverName }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted ml-1 font-mono", children: driver.vehicleNo })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: (driver.services || ["Taxi"]).join(", "), children: (driver.services || ["Taxi"]).map((s2) => s2.slice(0, 1)).join("") }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 font-semibold truncate", style: { color }, title: driver.status, children: driver.status }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 font-semibold truncate", style: { color }, title: driver.status, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-1", children: [
+          isAvailable && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "relative flex h-2 w-2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-status-pulse absolute inline-flex h-full w-full rounded-full opacity-60", style: { background: color } }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "relative inline-flex rounded-full h-2 w-2", style: { background: color } })
+          ] }),
+          !isAvailable && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "inline-block w-1.5 h-1.5 rounded-full", style: { background: color } }),
+          driver.status
+        ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 text-center", children: driver.jobCount ?? 0 }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.passengerName || void 0, children: driver.passengerName || "—" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate font-mono", title: driver.passengerPhone || void 0, children: driver.passengerPhone || "—" }),
@@ -38889,38 +39323,45 @@ function ZoneBoard() {
   const setStatusFilter = useDriverStore((s2) => s2.setStatusFilter);
   const setServiceFilter = useDriverStore((s2) => s2.setServiceFilter);
   const filteredDrivers = useDriverStore((s2) => s2.filteredDrivers);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-panel overflow-hidden", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex border-b border-bw-border text-[10px] shrink-0", children: STATUS_TABS.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+  const drivers = filteredDrivers();
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-panel overflow-hidden border-0", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex border-b border-bw-border text-[10px] shrink-0 bg-bw-surface", children: STATUS_TABS.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
-        className: cn("flex-1 py-1.5 uppercase font-bold", statusFilter === t2.id ? "text-bw-primary border-b-2 border-bw-primary" : "text-bw-muted"),
+        className: cn(
+          "flex-1 py-2 uppercase font-bold tracking-wide transition-colors",
+          statusFilter === t2.id ? "text-bw-primary border-b-2 border-bw-primary bg-bw-primary/5" : "text-bw-muted hover:text-bw-text"
+        ),
         onClick: () => setStatusFilter(t2.id),
         children: t2.label
       },
       t2.id
     )) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-1 p-1 shrink-0 flex-wrap", children: SVC_FILTERS.map((f2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-1 p-1.5 shrink-0 flex-wrap border-b border-bw-border/50", children: SVC_FILTERS.map((f2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
-        className: cn("px-2 py-0.5 rounded text-[10px] font-bold", serviceFilter === f2 ? "bg-bw-primary text-white" : "bg-bw-card text-bw-muted"),
+        className: cn(
+          "px-2 py-0.5 rounded-full text-[10px] font-bold transition",
+          serviceFilter === f2 ? "bg-bw-primary text-white shadow-sm" : "bg-bw-card text-bw-muted hover:text-bw-text border border-bw-border"
+        ),
         onClick: () => setServiceFilter(f2),
         children: f2
       },
       f2
     )) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "w-full table-fixed text-[9px] leading-tight", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "sticky top-0 bg-bw-surface text-[8px] text-bw-muted uppercase", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[11%]", children: "Zone" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[14%]", children: "Driver" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[8%]", children: "Svc" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[10%]", children: "Status" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "p-0.5 w-[6%]", children: "Jobs" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[10%]", children: "Pax" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[11%]", children: "Phone" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[15%]", children: "Pickup" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[15%]", children: "Drop" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "sticky top-0 bg-bw-surface/95 backdrop-blur-sm text-[8px] text-bw-muted uppercase border-b border-bw-border z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[11%] font-bold", children: "Zone" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[14%] font-bold", children: "Driver" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[8%] font-bold", children: "Svc" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[10%] font-bold", children: "Status" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "p-1 w-[6%] font-bold", children: "Jobs" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[10%] font-bold", children: "Pax" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[11%] font-bold", children: "Phone" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[15%] font-bold", children: "Pickup" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[15%] font-bold", children: "Drop" })
       ] }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: filteredDrivers().map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsx(DriverRow, { driver: d2 }, d2.vehicleId)) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: drivers.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsx(DriverRow, { driver: d2, index: i2 }, d2.vehicleId)) })
     ] }) })
   ] });
 }
@@ -38979,19 +39420,30 @@ function useDriverQueue(companyId) {
 }
 function ZoneQueuePanel({ companyId }) {
   const queueByZone = useDriverQueue(companyId);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bw-panel border-t border-bw-border h-[180px] shrink-0 overflow-y-auto p-2", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold text-bw-muted uppercase mb-2", children: "Zone Queue" }),
-    Object.keys(queueByZone).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-bw-muted", children: "No zone data" }) : Object.entries(queueByZone).map(([zone, drivers]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-2", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold text-bw-text mb-1", children: zone }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1", children: drivers.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bw-panel border-t border-bw-border h-[180px] shrink-0 overflow-y-auto p-2.5 bg-bw-surface/50", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold text-bw-muted uppercase mb-2 tracking-wider", children: "Zone Queue" }),
+    Object.keys(queueByZone).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-bw-muted", children: "No zone data" }) : Object.entries(queueByZone).map(([zone, drivers]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold text-bw-primary mb-1.5 uppercase tracking-wide border-b border-bw-border/50 pb-0.5", children: zone }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5", children: drivers.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
         "span",
         {
-          className: "text-[10px] px-1.5 py-0.5 rounded border border-bw-border font-mono",
+          className: cn(
+            "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
+            "bg-bw-card/80 shadow-sm"
+          ),
           style: { borderColor: statusColor(d2.status), color: statusColor(d2.status) },
           children: [
-            i2 === 0 ? "★1" : `#${i2 + 1}`,
-            " ",
-            d2.vehicleNo
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: cn(
+                  "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0",
+                  i2 === 0 ? "bg-bw-gold text-[#1a1a2e]" : "bg-bw-surface border border-bw-border text-bw-muted"
+                ),
+                children: i2 + 1
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: d2.vehicleNo })
           ]
         },
         d2.driverId
@@ -39087,7 +39539,15 @@ const MAP_STYLES = [
   { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f1117" }] },
   { featureType: "poi", stylers: [{ visibility: "off" }] }
 ];
-function DispatchMap({ mapsKey, center, companyId }) {
+function DispatchMap({
+  mapsKey,
+  center,
+  companyId,
+  compactControls,
+  onPopOut,
+  onFullscreen,
+  popOutActive
+}) {
   const mapRef = reactExports.useRef(null);
   const gMapRef = reactExports.useRef(null);
   const markersRef = reactExports.useRef([]);
@@ -39124,12 +39584,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
     let cancelled = false;
     setMapReady(false);
     setMapError(null);
-    const loader = new Loader({
-      apiKey,
-      version: "weekly",
-      libraries: ["places", "geometry"]
-    });
-    loader.load().then(() => {
+    loadGoogleMaps(apiKey).then(() => {
       if (cancelled || !mapRef.current) return;
       if (typeof google.maps.Map !== "function") {
         throw new Error("Google Maps API loaded but Map constructor is unavailable");
@@ -39154,7 +39609,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
     return () => {
       cancelled = true;
     };
-  }, [mapsKey, mapTraffic]);
+  }, [mapsKey]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     gMapRef.current.setCenter(safeCenter);
@@ -39164,7 +39619,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
     trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
   }, [mapTraffic, mapReady]);
   reactExports.useEffect(() => {
-    if (!gMapRef.current) return;
+    if (!gMapRef.current || !mapReady) return;
     markersRef.current.forEach((m2) => m2.setMap(null));
     markersRef.current = [];
     for (const d2 of drivers) {
@@ -39188,7 +39643,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
     }
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
-    if (!gMapRef.current || !selectedJob) return;
+    if (!gMapRef.current || !selectedJob || !mapReady) return;
     const pick = parseLatLng(selectedJob.pickLatLng);
     if (pick) {
       new google.maps.Marker({
@@ -39199,7 +39654,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
     }
   }, [selectedJob, mapReady]);
   reactExports.useEffect(() => {
-    if (!gMapRef.current || !mapZones || !companyId) return;
+    if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
     let unsub;
     const polys = [];
@@ -39217,16 +39672,17 @@ function DispatchMap({ mapsKey, center, companyId }) {
         if (!val || !gMapRef.current) return;
         for (const [, z2] of Object.entries(val)) {
           if (!((_a2 = z2.paths) == null ? void 0 : _a2.length)) continue;
-          const poly = new google.maps.Polygon({
-            paths: z2.paths,
-            strokeColor: "#4f6ef7",
-            strokeOpacity: 0.8,
-            strokeWeight: 2,
-            fillColor: "#4f6ef7",
-            fillOpacity: 0.08,
-            map: gMapRef.current
-          });
-          polys.push(poly);
+          polys.push(
+            new google.maps.Polygon({
+              paths: z2.paths,
+              strokeColor: "#4f6ef7",
+              strokeOpacity: 0.8,
+              strokeWeight: 2,
+              fillColor: "#4f6ef7",
+              fillOpacity: 0.08,
+              map: gMapRef.current
+            })
+          );
         }
       });
     });
@@ -39236,29 +39692,85 @@ function DispatchMap({ mapsKey, center, companyId }) {
       polys.forEach((p2) => p2.setMap(null));
     };
   }, [mapZones, companyId, mapReady]);
+  const zoom = (delta) => {
+    var _a2, _b2;
+    const z2 = (_a2 = gMapRef.current) == null ? void 0 : _a2.getZoom();
+    if (z2 != null) (_b2 = gMapRef.current) == null ? void 0 : _b2.setZoom(z2 + delta);
+  };
+  const ctrlBtn = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-bw-surface/95 border border-bw-border text-bw-text hover:bg-bw-card hover:border-bw-primary/40 transition shadow-lg backdrop-blur-sm";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bg-[#1a1d27]", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bg-[#1a1d27]" }),
     !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
     mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1] px-4 text-center text-sm text-bw-danger", children: mapError }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute top-2 left-2 flex flex-col gap-1 z-10", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => {
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-bw-border/80 bg-bw-surface/95 p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: () => {
         var _a2;
         return (_a2 = gMapRef.current) == null ? void 0 : _a2.setCenter(safeCenter);
-      }, children: "Home" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "ghost", onClick: () => setMapTraffic(!mapTraffic), children: [
-        "Traffic ",
-        mapTraffic ? "On" : "Off"
+      }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(House, { size: 14 }),
+        " Home"
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "ghost", onClick: () => setMapZones(!mapZones), children: [
-        "Zones ",
-        mapZones ? "On" : "Off"
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(ctrlBtn, "flex-1"), onClick: () => zoom(1), "aria-label": "Zoom in", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(ctrlBtn, "flex-1"), onClick: () => zoom(-1), "aria-label": "Zoom out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Minus, { size: 14 }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          type: "button",
+          className: cn(ctrlBtn, mapTraffic && "border-bw-warning/50 text-bw-warning"),
+          onClick: () => setMapTraffic(!mapTraffic),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TrafficCone, { size: 14 }),
+            " Traffic"
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          type: "button",
+          className: cn(ctrlBtn, mapZones && "border-bw-primary/50 text-bw-primary"),
+          onClick: () => setMapZones(!mapZones),
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Layers, { size: 14 }),
+            " Zones"
+          ]
+        }
+      )
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute top-2 right-2 z-10 flex flex-col gap-1", children: [
+      onPopOut && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: onPopOut, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(ExternalLink, { size: 14 }),
+        popOutActive ? "Close Map Window" : "Pop Out Map"
+      ] }),
+      onFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: onFullscreen, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Maximize2, { size: 14 }),
+        " Fullscreen"
       ] })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-2 left-2 flex gap-1 z-10 flex-wrap", children: ["all", "free", "picking", "busy", "away"].map((k2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] px-2 py-1 rounded bg-bw-surface/90 border border-bw-border text-bw-text", children: [
-      k2,
-      ": ",
-      counts[k2 === "all" ? "all" : k2]
-    ] }, k2)) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]", children: [
+      { k: "all", icon: Users, color: "text-bw-text" },
+      { k: "free", icon: Car, color: "text-status-available" },
+      { k: "picking", icon: Navigation, color: "text-status-picking" },
+      { k: "busy", icon: Car, color: "text-status-busy" },
+      { k: "away", icon: Car, color: "text-bw-muted" }
+    ].map(({ k: k2, icon: Icon2, color }) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "span",
+      {
+        className: cn(
+          "inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-bw-surface/95 border border-bw-border shadow backdrop-blur-sm font-medium",
+          color
+        ),
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Icon2, { size: 11 }),
+          k2,
+          ": ",
+          counts[k2]
+        ]
+      },
+      k2
+    )) })
   ] });
 }
 function MessagesModal() {
@@ -39625,7 +40137,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CsBMyLXX.js");
+        const { writeActiveDispatcher } = await import("./notifications-6j3dmGta.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -39652,7 +40164,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CsBMyLXX.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-6j3dmGta.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -39760,10 +40272,15 @@ function DispatchPage() {
   const [dispatcherName, setDispatcherName] = reactExports.useState(localStorage.getItem("bw_dispatcher_name") || "Dispatcher");
   const [sessionId] = reactExports.useState(() => localStorage.getItem("bw_session_id") || `sess_${Date.now()}`);
   const [authChecked, setAuthChecked] = reactExports.useState(false);
+  const popOutRef = reactExports.useRef(null);
   const emergency = useUiStore((s2) => s2.emergency);
   const setEmergency = useUiStore((s2) => s2.setEmergency);
   const settings = useUiStore((s2) => s2.settings);
   const setBillingBanner = useUiStore((s2) => s2.setBillingBanner);
+  const mapFullscreen = useUiStore((s2) => s2.mapFullscreen);
+  const setMapFullscreen = useUiStore((s2) => s2.setMapFullscreen);
+  const mapPoppedOut = useUiStore((s2) => s2.mapPoppedOut);
+  const setMapPoppedOut = useUiStore((s2) => s2.setMapPoppedOut);
   const activeCompanyId = ready && companyId ? companyId : null;
   reactExports.useEffect(() => {
     sessionMe().then(async (s2) => {
@@ -39785,18 +40302,62 @@ function DispatchPage() {
   reactExports.useEffect(() => {
     localStorage.setItem("bw_dispatcher_name", dispatcherName);
   }, [dispatcherName]);
+  reactExports.useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && mapFullscreen) setMapFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mapFullscreen, setMapFullscreen]);
+  reactExports.useEffect(() => {
+    const tick = setInterval(() => {
+      var _a3;
+      if ((_a3 = popOutRef.current) == null ? void 0 : _a3.closed) {
+        popOutRef.current = null;
+        setMapPoppedOut(false);
+      }
+    }, 1e3);
+    return () => clearInterval(tick);
+  }, [setMapPoppedOut]);
   const mapCenter = reactExports.useMemo(() => {
-    if (settings == null ? void 0 : settings.city) {
-      return normalizeMapCenter(settings.city.lat, settings.city.lng);
-    }
+    if (settings == null ? void 0 : settings.city) return normalizeMapCenter(settings.city.lat, settings.city.lng);
     return DEFAULT_MAP_CENTER;
   }, [(_a2 = settings == null ? void 0 : settings.city) == null ? void 0 : _a2.lat, (_b2 = settings == null ? void 0 : settings.city) == null ? void 0 : _b2.lng, (_c = settings == null ? void 0 : settings.city) == null ? void 0 : _c.name]);
+  const togglePopOut = () => {
+    if (popOutRef.current && !popOutRef.current.closed) {
+      popOutRef.current.close();
+      popOutRef.current = null;
+      setMapPoppedOut(false);
+      return;
+    }
+    popOutRef.current = window.open(
+      "/dispatch/map",
+      "bw-dispatch-map",
+      "width=1280,height=800,menubar=no,toolbar=no,location=no"
+    );
+    setMapPoppedOut(!!popOutRef.current);
+  };
   if (!authChecked || !ready) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center bg-bw-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8" }) });
   }
   if (error2) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center text-bw-danger", children: error2 });
   }
+  const mapNode = /* @__PURE__ */ jsxRuntimeExports.jsx(
+    DispatchMap,
+    {
+      mapsKey,
+      center: mapCenter,
+      companyId,
+      onPopOut: togglePopOut,
+      onFullscreen: () => setMapFullscreen(true),
+      popOutActive: mapPoppedOut
+    }
+  );
+  const rightPanel = /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 min-h-0 overflow-hidden", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneBoard, {}) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneQueuePanel, { companyId })
+  ] });
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col overflow-hidden bg-bw-bg", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Header,
@@ -39807,13 +40368,18 @@ function DispatchPage() {
         onNameChange: setDispatcherName
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-1 min-h-0", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "w-[380px] shrink-0 border-r border-bw-border min-h-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "w-[460px] shrink-0 border-l border-bw-border flex flex-col min-h-0", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 min-h-0 overflow-hidden", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneBoard, {}) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneQueuePanel, { companyId })
-      ] })
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ResizableDispatchLayout, { left: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}), center: mapNode, right: rightPanel }),
+    mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-10 bottom-[30px] z-40 bg-[#1a1d27]", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId, compactControls: true }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: "absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-bw-surface border border-bw-border text-bw-text hover:border-bw-primary shadow-lg",
+          onClick: () => setMapFullscreen(false),
+          children: "Exit Fullscreen (Esc)"
+        }
+      )
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBar, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsx(CreateJobModal, { mapsKey, companyId }),
@@ -39846,9 +40412,53 @@ function DispatchPage() {
     )
   ] });
 }
+function MapPopoutPage() {
+  var _a2, _b2;
+  const navigate = useNavigate();
+  const { ready, error: error2, mapsKey } = useFirebaseInit();
+  const [companyId, setCompanyId] = reactExports.useState("");
+  const [authChecked, setAuthChecked] = reactExports.useState(false);
+  const settings = useUiStore((s2) => s2.settings);
+  const activeCompanyId = ready && companyId ? companyId : null;
+  reactExports.useEffect(() => {
+    document.title = "BookaWaka Map";
+  }, []);
+  reactExports.useEffect(() => {
+    sessionMe().then((s2) => {
+      setCompanyId(s2.companyId);
+      setAuthChecked(true);
+    }).catch(() => navigate("/login", { replace: true }));
+  }, [navigate]);
+  useDrivers(activeCompanyId);
+  useCompanySettings(activeCompanyId);
+  const mapCenter = reactExports.useMemo(() => {
+    if (settings == null ? void 0 : settings.city) return normalizeMapCenter(settings.city.lat, settings.city.lng);
+    return DEFAULT_MAP_CENTER;
+  }, [(_a2 = settings == null ? void 0 : settings.city) == null ? void 0 : _a2.lat, (_b2 = settings == null ? void 0 : settings.city) == null ? void 0 : _b2.lng]);
+  if (!authChecked || !ready) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center bg-[#1a1d27]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-10 h-10 text-bw-muted" }) });
+  }
+  if (error2) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center text-bw-danger", children: error2 });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col bg-[#1a1d27]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-8 shrink-0 flex items-center px-3 bg-bw-surface border-b border-bw-border text-xs font-semibold text-bw-muted", children: [
+      "BookaWaka Live Map · ",
+      companyId
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId })
+  ] });
+}
 function App() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(BrowserRouter, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Routes, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/login", element: /* @__PURE__ */ jsxRuntimeExports.jsx(LoginPage, {}) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Route,
+      {
+        path: "/dispatch/map",
+        element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Map pop-out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(MapPopoutPage, {}) })
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Route,
       {
@@ -39871,4 +40481,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-B7YrjjCT.js.map
+//# sourceMappingURL=index-W14mXAEQ.js.map

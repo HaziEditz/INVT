@@ -31,6 +31,9 @@ interface UiStore {
   billingBanner: string | null;
   mapTraffic: boolean;
   mapZones: boolean;
+  mapVisible: boolean;
+  mapFullscreen: boolean;
+  mapPoppedOut: boolean;
   emergency: { driverName: string; vehicle: string; lat: number; lng: number; time: string } | null;
   settings: CompanySettings | null;
   setTheme: (t: 'dark' | 'light') => void;
@@ -42,6 +45,9 @@ interface UiStore {
   setBillingBanner: (msg: string | null) => void;
   setMapTraffic: (v: boolean) => void;
   setMapZones: (v: boolean) => void;
+  setMapVisible: (v: boolean) => void;
+  setMapFullscreen: (v: boolean) => void;
+  setMapPoppedOut: (v: boolean) => void;
   setEmergency: (e: UiStore['emergency']) => void;
   setSettings: (s: CompanySettings | null) => void;
 }
@@ -56,6 +62,9 @@ export const useUiStore = create<UiStore>((set) => ({
   billingBanner: null,
   mapTraffic: true,
   mapZones: true,
+  mapVisible: localStorage.getItem('bw_map_visible') !== 'false',
+  mapFullscreen: false,
+  mapPoppedOut: false,
   emergency: null,
   settings: null,
   setTheme: (t) => {
@@ -75,6 +84,12 @@ export const useUiStore = create<UiStore>((set) => ({
   setBillingBanner: (msg) => set({ billingBanner: msg }),
   setMapTraffic: (v) => set({ mapTraffic: v }),
   setMapZones: (v) => set({ mapZones: v }),
+  setMapVisible: (v) => {
+    localStorage.setItem('bw_map_visible', v ? 'true' : 'false');
+    set({ mapVisible: v });
+  },
+  setMapFullscreen: (v) => set({ mapFullscreen: v }),
+  setMapPoppedOut: (v) => set({ mapPoppedOut: v }),
   setEmergency: (e) => set({ emergency: e }),
   setSettings: (s) => set({ settings: s }),
 }));
