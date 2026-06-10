@@ -125,6 +125,38 @@ async function gateDispatchAccess(req, res) {
   return true;
 }
 
+function normalizeUrlPath(urlPath) {
+  let p = String(urlPath || '/');
+  if (!p.startsWith('/')) p = '/' + p;
+  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  return p || '/';
+}
+
+/** Routes handled by server.js APIs or legacy ASPX — not React Router */
+function isBackendRoute(urlPath) {
+  return urlPath.startsWith('/api/') ||
+    urlPath.startsWith('/admin/') ||
+    urlPath.startsWith('/DataManager/') ||
+    urlPath.startsWith('/dev/') ||
+    urlPath.startsWith('/__mockup/');
+}
+
+async function tryServeReactSpa(req, res, urlPath) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  if (isBackendRoute(urlPath)) return false;
+
+  // Serve built static files (JS/CSS/assets) from dist/
+  if (urlPath !== '/' && serveDistAsset(res, urlPath)) return true;
+
+  const spaPath = normalizeUrlPath(urlPath);
+  if (spaPath === '/dispatch') {
+    if (!(await gateDispatchAccess(req, res))) return true;
+  }
+
+  serveSpaIndex(res);
+  return true;
+}
+
 const mimeTypes = {
   '.html': 'text/html',
   '.aspx': 'text/html',
@@ -4705,7 +4737,7 @@ const SILENT_OK_PATTERNS = ['/cdn-cgi/', '/%7B%7B', '/{{'];
 
 // ─── Request handler ──────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
-  let urlPath = req.url.split('?')[0];
+  let urlPath = normalizeUrlPath(req.url.split('?')[0]);
 
   // ── Proxy /__mockup/ to the mockup sandbox Vite dev server (port 23636) ──
   if (urlPath.startsWith('/__mockup/')) {
@@ -4731,27 +4763,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (urlPath === '/' || urlPath === '') urlPath = '/';
-
-  // ── React SPA (BookaWaka Dispatch v2) ─────────────────────────────────────
-  if (req.method === 'GET') {
-    if (urlPath.startsWith('/assets/') && serveDistAsset(res, urlPath)) return;
-
-    if (urlPath === '/login') {
-      serveSpaIndex(res);
-      return;
-    }
-
-    if (urlPath === '/dispatch') {
-      if (!(await gateDispatchAccess(req, res))) return;
-      serveSpaIndex(res);
-      return;
-    }
-
-    if (urlPath === '/') {
+  if (urlPath === '/') {
+    if (req.method === 'GET' || req.method === 'HEAD') {
       const companyId = getSessionCompanyId(req);
-      if (companyId) {
-        if (!(await gateDispatchAccess(req, res))) return;
+      if (companyId && (await gateDispatchAccess(req, res))) {
         res.writeHead(302, { Location: '/dispatch' });
         res.end();
         return;
@@ -12850,34 +12865,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
-  // ── Static file serving ─────────────────────────────────────────────────────
+  // ── Static file serving (legacy ASPX / assets) ─────────────────────────────
   const filePath = resolveFilePath(urlPath);
-  if (!filePath) {
-    console.log(`404: ${req.method} ${urlPath}`);
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end(`404 Not Found: ${urlPath}`);
+  if (filePath) {
+    console.log(`200: ${req.method} ${urlPath} -> ${filePath.replace(ROOT, '')}`);
+    const ext = path.extname(filePath).toLowerCase();
+    const _cc = ext === '.aspx' ? 'no-store, must-revalidate' : 'no-cache';
+    res.writeHead(200, {
+      'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+      'Cache-Control': _cc,
+      'Access-Control-Allow-Origin': '*',
+    });
+    if (ext === '.aspx') {
+      if (!GOOGLE_MAPS_API_KEY && urlPath.includes('Default.aspx')) {
+        console.warn('[maps] GOOGLE_MAPS_API_KEY is not set — map may fail to load');
+      }
+      const html = injectAspxEnv(fs.readFileSync(filePath, 'utf8'));
+      res.end(html);
+      return;
+    }
+    fs.createReadStream(filePath).pipe(res);
     return;
   }
 
-  console.log(`200: ${req.method} ${urlPath} -> ${filePath.replace(ROOT, '')}`);
-  const ext = path.extname(filePath).toLowerCase();
-  // .aspx files embed all JavaScript inline — use no-store so browsers always fetch
-  // fresh code after a server restart rather than running stale cached JS.
-  const _cc = ext === '.aspx' ? 'no-store, must-revalidate' : 'no-cache';
-  res.writeHead(200, {
-    'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-    'Cache-Control': _cc,
-    'Access-Control-Allow-Origin': '*',
-  });
-  if (ext === '.aspx') {
-    if (!GOOGLE_MAPS_API_KEY && urlPath.includes('Default.aspx')) {
-      console.warn('[maps] GOOGLE_MAPS_API_KEY is not set — map may fail to load');
-    }
-    const html = injectAspxEnv(fs.readFileSync(filePath, 'utf8'));
-    res.end(html);
-    return;
-  }
-  fs.createReadStream(filePath).pipe(res);
+  // ── React SPA catch-all — React Router handles /login, /dispatch, etc. ───
+  if (await tryServeReactSpa(req, res, urlPath)) return;
+
+  console.log(`404: ${req.method} ${urlPath}`);
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end(`404 Not Found: ${urlPath}`);
 });
 
 // ─── Periodic in-memory map cleanup ──────────────────────────────────────────

@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "npx vite build",
     "preview": "vite preview",
+    "prestart": "npm run build",
     "start": "node server.js"
   },
   "dependencies": {
