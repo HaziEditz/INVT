@@ -1,10 +1,53 @@
-/** Google Places helpers — loaded when Maps script is ready */
+/** Google Maps + Places — loaded via @googlemaps/js-api-loader */
+
+import { Loader } from '@googlemaps/js-api-loader';
+
+declare global {
+  interface Window {
+    google: typeof google;
+    __BW_GOOGLE_MAPS_API_KEY__?: string;
+  }
+}
+
+let loaderPromise: Promise<typeof google> | null = null;
+
+function resolveApiKey(explicit?: string): string {
+  const key = explicit || window.__BW_GOOGLE_MAPS_API_KEY__ || '';
+  if (!key) throw new Error('Google Maps API key is not configured');
+  return key;
+}
+
+/** Load Google Maps once; safe to call from multiple components. */
+export function loadGoogleMaps(apiKey?: string): Promise<typeof google> {
+  if (loaderPromise) return loaderPromise;
+
+  const loader = new Loader({
+    apiKey: resolveApiKey(apiKey),
+    version: 'weekly',
+    libraries: ['places', 'geometry', 'drawing'],
+  });
+
+  loaderPromise = loader.load().catch((err) => {
+    loaderPromise = null;
+    throw err;
+  });
+
+  return loaderPromise;
+}
+
+export function createGoogleMapsLoader(apiKey?: string): Loader {
+  return new Loader({
+    apiKey: resolveApiKey(apiKey),
+    version: 'weekly',
+    libraries: ['places', 'geometry', 'drawing'],
+  });
+}
 
 export function attachPlacesAutocomplete(
   input: HTMLInputElement,
   onSelect: (place: { address: string; lat: number; lng: number }) => void
 ) {
-  const g = (window as unknown as { google?: typeof google }).google;
+  const g = window.google;
   if (!g?.maps?.places) return () => {};
   const ac = new g.maps.places.Autocomplete(input, {
     fields: ['formatted_address', 'geometry'],
@@ -19,37 +62,6 @@ export function attachPlacesAutocomplete(
     });
   });
   return () => g.maps.event.removeListener(listener);
-}
-
-export function loadGoogleMaps(apiKey: string): Promise<void> {
-  if ((window as unknown as { google?: typeof google }).google?.maps) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const id = 'bw-gmaps-script';
-    if (document.getElementById(id)) {
-      const check = setInterval(() => {
-        if ((window as unknown as { google?: typeof google }).google?.maps) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
-      return;
-    }
-    const s = document.createElement('script');
-    s.id = id;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,drawing,geometry&loading=async`;
-    s.async = true;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Google Maps failed to load'));
-    document.head.appendChild(s);
-  });
-}
-
-declare global {
-  interface Window {
-    google: typeof google;
-  }
 }
 
 export {};

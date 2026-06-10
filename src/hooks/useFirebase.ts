@@ -13,6 +13,7 @@ export function useFirebaseInit() {
         const cfg = await fetchClientConfig();
         if (cancelled) return;
         initFirebase(cfg.firebase);
+        window.__BW_GOOGLE_MAPS_API_KEY__ = cfg.mapsApiKey;
         setMapsKey(cfg.mapsApiKey);
         setReady(true);
       } catch (e) {

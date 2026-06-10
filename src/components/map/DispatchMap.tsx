@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { loadGoogleMaps } from '@/lib/geocoder';
+import { Loader } from '@googlemaps/js-api-loader';
 import { normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
@@ -29,6 +29,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   const markersRef = useRef<google.maps.Marker[]>([]);
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
   const drivers = useDriverStore((s) => s.drivers);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const jobs = useJobStore((s) => s.jobs);
@@ -57,33 +58,55 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   const selectedJob = jobs.find((j) => j.id === selectedJobId);
 
   useEffect(() => {
-    if (!mapsKey || !mapRef.current) return;
+    const el = mapRef.current;
+    const apiKey = mapsKey || window.__BW_GOOGLE_MAPS_API_KEY__ || '';
+    if (!apiKey || !el) return;
+
     let cancelled = false;
     setMapReady(false);
-    loadGoogleMaps(mapsKey).then(() => {
-      if (cancelled || !mapRef.current) return;
-      if (!gMapRef.current) {
-        gMapRef.current = new google.maps.Map(mapRef.current, {
-          center: safeCenter,
-          zoom: 13,
-          disableDefaultUI: true,
-          backgroundColor: '#1a1d27',
-          styles: MAP_STYLES,
-        });
-        trafficRef.current = new google.maps.TrafficLayer();
-        if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
-      }
-      if (!cancelled) setMapReady(true);
+    setMapError(null);
+
+    const loader = new Loader({
+      apiKey,
+      version: 'weekly',
+      libraries: ['places', 'geometry'],
     });
+
+    loader
+      .load()
+      .then(() => {
+        if (cancelled || !mapRef.current) return;
+        if (typeof google.maps.Map !== 'function') {
+          throw new Error('Google Maps API loaded but Map constructor is unavailable');
+        }
+        if (!gMapRef.current) {
+          gMapRef.current = new google.maps.Map(mapRef.current, {
+            center: safeCenter,
+            zoom: 13,
+            disableDefaultUI: true,
+            backgroundColor: '#1a1d27',
+            styles: MAP_STYLES,
+          });
+          trafficRef.current = new google.maps.TrafficLayer();
+          if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
+        }
+        if (!cancelled) setMapReady(true);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMapError(err instanceof Error ? err.message : 'Failed to load Google Maps');
+        }
+      });
+
     return () => {
       cancelled = true;
     };
   }, [mapsKey, mapTraffic]);
 
   useEffect(() => {
-    if (!gMapRef.current) return;
+    if (!gMapRef.current || !mapReady) return;
     gMapRef.current.setCenter(safeCenter);
-  }, [safeCenter.lat, safeCenter.lng]);
+  }, [safeCenter.lat, safeCenter.lng, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current || !trafficRef.current) return;
@@ -167,9 +190,14 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   return (
     <div className="relative flex-1 min-h-0 bg-[#1a1d27]">
       <div ref={mapRef} className="absolute inset-0 bg-[#1a1d27]" />
-      {!mapReady && (
+      {!mapReady && !mapError && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]">
           <Spinner className="w-8 h-8 text-bw-muted" />
+        </div>
+      )}
+      {mapError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1] px-4 text-center text-sm text-bw-danger">
+          {mapError}
         </div>
       )}
       <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">

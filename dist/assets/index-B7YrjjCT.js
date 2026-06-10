@@ -30160,6 +30160,31 @@ function Modal({ open: open2, onClose, title, wide, children, footer }) {
     }
   ) });
 }
+const MSG_DEPRECATED_LOADER = "The Loader class is no longer available in this version.\nPlease use the new functional API: setOptions() and importLibrary().\nFor more information, see the updated documentation at: https://github.com/googlemaps/js-api-loader/blob/main/README.md";
+class Loader {
+  constructor(...args) {
+    throw new Error(`[@googlemaps/js-api-loader]: ${MSG_DEPRECATED_LOADER}`);
+  }
+}
+let loaderPromise = null;
+function resolveApiKey(explicit) {
+  const key = explicit || window.__BW_GOOGLE_MAPS_API_KEY__ || "";
+  if (!key) throw new Error("Google Maps API key is not configured");
+  return key;
+}
+function loadGoogleMaps(apiKey) {
+  if (loaderPromise) return loaderPromise;
+  const loader = new Loader({
+    apiKey: resolveApiKey(apiKey),
+    version: "weekly",
+    libraries: ["places", "geometry", "drawing"]
+  });
+  loaderPromise = loader.load().catch((err2) => {
+    loaderPromise = null;
+    throw err2;
+  });
+  return loaderPromise;
+}
 function attachPlacesAutocomplete(input, onSelect) {
   var _a2;
   const g2 = window.google;
@@ -30179,32 +30204,6 @@ function attachPlacesAutocomplete(input, onSelect) {
     });
   });
   return () => g2.maps.event.removeListener(listener);
-}
-function loadGoogleMaps(apiKey) {
-  var _a2;
-  if ((_a2 = window.google) == null ? void 0 : _a2.maps) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const id = "bw-gmaps-script";
-    if (document.getElementById(id)) {
-      const check = setInterval(() => {
-        var _a3;
-        if ((_a3 = window.google) == null ? void 0 : _a3.maps) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
-      return;
-    }
-    const s2 = document.createElement("script");
-    s2.id = id;
-    s2.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,drawing,geometry&loading=async`;
-    s2.async = true;
-    s2.onload = () => resolve();
-    s2.onerror = () => reject(new Error("Google Maps failed to load"));
-    document.head.appendChild(s2);
-  });
 }
 function CreateJobModal({ mapsKey, companyId }) {
   const open2 = useUiStore((s2) => s2.openModal === "createJob");
@@ -37896,7 +37895,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B2wAUW7-.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DdVFuTpr.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -39094,6 +39093,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
   const markersRef = reactExports.useRef([]);
   const trafficRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
+  const [mapError, setMapError] = reactExports.useState(null);
   const drivers = useDriverStore((s2) => s2.drivers);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const jobs = useJobStore((s2) => s2.jobs);
@@ -39118,11 +39118,22 @@ function DispatchMap({ mapsKey, center, companyId }) {
   );
   const selectedJob = jobs.find((j2) => j2.id === selectedJobId);
   reactExports.useEffect(() => {
-    if (!mapsKey || !mapRef.current) return;
+    const el = mapRef.current;
+    const apiKey = mapsKey || window.__BW_GOOGLE_MAPS_API_KEY__ || "";
+    if (!apiKey || !el) return;
     let cancelled = false;
     setMapReady(false);
-    loadGoogleMaps(mapsKey).then(() => {
+    setMapError(null);
+    const loader = new Loader({
+      apiKey,
+      version: "weekly",
+      libraries: ["places", "geometry"]
+    });
+    loader.load().then(() => {
       if (cancelled || !mapRef.current) return;
+      if (typeof google.maps.Map !== "function") {
+        throw new Error("Google Maps API loaded but Map constructor is unavailable");
+      }
       if (!gMapRef.current) {
         gMapRef.current = new google.maps.Map(mapRef.current, {
           center: safeCenter,
@@ -39135,15 +39146,19 @@ function DispatchMap({ mapsKey, center, companyId }) {
         if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
       }
       if (!cancelled) setMapReady(true);
+    }).catch((err2) => {
+      if (!cancelled) {
+        setMapError(err2 instanceof Error ? err2.message : "Failed to load Google Maps");
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [mapsKey, mapTraffic]);
   reactExports.useEffect(() => {
-    if (!gMapRef.current) return;
+    if (!gMapRef.current || !mapReady) return;
     gMapRef.current.setCenter(safeCenter);
-  }, [safeCenter.lat, safeCenter.lng]);
+  }, [safeCenter.lat, safeCenter.lng, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !trafficRef.current) return;
     trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
@@ -39223,7 +39238,8 @@ function DispatchMap({ mapsKey, center, companyId }) {
   }, [mapZones, companyId, mapReady]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bg-[#1a1d27]", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bg-[#1a1d27]" }),
-    !mapReady && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
+    !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
+    mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1] px-4 text-center text-sm text-bw-danger", children: mapError }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute top-2 left-2 flex flex-col gap-1 z-10", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => {
         var _a2;
@@ -39582,6 +39598,7 @@ function useFirebaseInit() {
         const cfg = await fetchClientConfig();
         if (cancelled) return;
         initFirebase(cfg.firebase);
+        window.__BW_GOOGLE_MAPS_API_KEY__ = cfg.mapsApiKey;
         setMapsKey(cfg.mapsApiKey);
         setReady(true);
       } catch (e) {
@@ -39608,7 +39625,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-Btb6zLto.js");
+        const { writeActiveDispatcher } = await import("./notifications-CsBMyLXX.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -39635,7 +39652,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Btb6zLto.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CsBMyLXX.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -39854,4 +39871,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-YNrZDt-m.js.map
+//# sourceMappingURL=index-B7YrjjCT.js.map
