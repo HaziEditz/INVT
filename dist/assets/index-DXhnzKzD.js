@@ -30582,30 +30582,149 @@ function Modal({ open: open2, onClose, title, wide, children, footer }) {
     }
   ) });
 }
-const MSG_DEPRECATED_LOADER = "The Loader class is no longer available in this version.\nPlease use the new functional API: setOptions() and importLibrary().\nFor more information, see the updated documentation at: https://github.com/googlemaps/js-api-loader/blob/main/README.md";
-class Loader {
-  constructor(...args) {
-    throw new Error(`[@googlemaps/js-api-loader]: ${MSG_DEPRECATED_LOADER}`);
+const MSG_REPEATED_SET_OPTIONS = (options) => `The setOptions() function should only be called once. The options passed to the additional call (${JSON.stringify(options)}) will be ignored.`;
+const MSG_IMPORT_LIBRARY_EXISTS = (options) => `The google.maps.importLibrary() function is already defined, and @googlemaps/js-api-loader will use the existing function instead of overwriting it. The options passed to setOptions (${JSON.stringify(options)}) will be ignored.`;
+const MSG_TRUSTED_TYPES_POLICY_FAILED = (policyName, error2) => `Failed to create Trusted Types policy "${policyName}": ${error2 instanceof Error ? error2.message : String(error2)}.
+
+If your Content Security Policy uses "require-trusted-types-for 'script'", allow this policy with "trusted-types ${policyName} google-maps-api-loader google-maps-api#html lit-html". The "google-maps-api-loader", "lit-html", and "google-maps-api#html" policies are required for full Maps JavaScript API execution. Falling back to a string script URL.`;
+const logDevWarning = () => {
+};
+const logDevNotice = () => {
+};
+const TRUSTED_TYPES_POLICY_NAME = "@googlemaps/js-api-loader";
+const fallbackPolicy = { createScriptURL: (url) => url };
+let policy;
+function getPolicy() {
+  if (policy) {
+    return policy;
+  }
+  const trustedTypes = globalThis.trustedTypes;
+  if (!trustedTypes) {
+    policy = fallbackPolicy;
+    return policy;
+  }
+  try {
+    policy = trustedTypes.createPolicy(TRUSTED_TYPES_POLICY_NAME, {
+      createScriptURL: (url) => url
+    });
+  } catch (e) {
+    logDevWarning(MSG_TRUSTED_TYPES_POLICY_FAILED(TRUSTED_TYPES_POLICY_NAME, e));
+    policy = fallbackPolicy;
+  }
+  return policy;
+}
+function setScriptSrc(script, src) {
+  script.src = getPolicy().createScriptURL(src);
+}
+const bootstrap = (bootstrapParams) => {
+  var bootstrapPromise;
+  var script;
+  var bootstrapParamsKey;
+  var PRODUCT_NAME = "The Google Maps JavaScript API";
+  var GOOGLE = "google";
+  var IMPORT_API_NAME = "importLibrary";
+  var PENDING_BOOTSTRAP_KEY = "__ib__";
+  var doc = document;
+  var global_ = window;
+  var google_ = global_[GOOGLE] || (global_[GOOGLE] = {});
+  var namespace = google_.maps || (google_.maps = {});
+  var libraries = /* @__PURE__ */ new Set();
+  var searchParams = new URLSearchParams();
+  var triggerBootstrap = () => bootstrapPromise || (bootstrapPromise = new Promise(async (resolve, reject) => {
+    var _a2;
+    await (script = doc.createElement("script"));
+    searchParams.set("libraries", [...libraries] + "");
+    for (bootstrapParamsKey in bootstrapParams) {
+      searchParams.set(bootstrapParamsKey.replace(/[A-Z]/g, (g2) => "_" + g2[0].toLowerCase()), bootstrapParams[bootstrapParamsKey]);
+    }
+    searchParams.set("callback", GOOGLE + ".maps." + PENDING_BOOTSTRAP_KEY);
+    setScriptSrc(script, "https://maps.googleapis.com/maps/api/js?" + searchParams);
+    namespace[PENDING_BOOTSTRAP_KEY] = resolve;
+    script.onerror = () => bootstrapPromise = reject(Error(PRODUCT_NAME + " could not load."));
+    script.nonce = ((_a2 = doc.querySelector("script[nonce]")) == null ? void 0 : _a2.nonce) || "";
+    doc.head.append(script);
+  }));
+  namespace[IMPORT_API_NAME] ? console.warn(PRODUCT_NAME + " only loads once. Ignoring:", bootstrapParams) : namespace[IMPORT_API_NAME] = (libraryName, ...args) => libraries.add(libraryName) && triggerBootstrap().then(() => namespace[IMPORT_API_NAME](libraryName, ...args));
+};
+let setOptionsWasCalled_ = false;
+function setOptions(options) {
+  if (setOptionsWasCalled_) {
+    logDevWarning(MSG_REPEATED_SET_OPTIONS(options));
+    return;
+  }
+  if (options.apiKey) {
+    if (!options.key) {
+      options.key = options.apiKey;
+    }
+  }
+  installImportLibrary_(options);
+  setOptionsWasCalled_ = true;
+}
+async function importLibrary(libraryName) {
+  var _a2, _b2;
+  if (!((_b2 = (_a2 = window == null ? void 0 : window.google) == null ? void 0 : _a2.maps) == null ? void 0 : _b2.importLibrary)) {
+    throw new Error("google.maps.importLibrary is not installed.");
+  }
+  return await google.maps.importLibrary(libraryName);
+}
+function installImportLibrary_(options) {
+  var _a2, _b2;
+  const importLibraryExists = Boolean((_b2 = (_a2 = window.google) == null ? void 0 : _a2.maps) == null ? void 0 : _b2.importLibrary);
+  if (importLibraryExists) {
+    logDevNotice(MSG_IMPORT_LIBRARY_EXISTS(options));
+  }
+  if (!importLibraryExists) {
+    bootstrap(options);
   }
 }
-let loaderPromise = null;
+let loadPromise = null;
+let configuredKey = null;
 function resolveApiKey(explicit) {
   const key = explicit || window.__BW_GOOGLE_MAPS_API_KEY__ || "";
   if (!key) throw new Error("Google Maps API key is not configured");
   return key;
 }
-function loadGoogleMaps(apiKey) {
-  if (loaderPromise) return loaderPromise;
-  const loader = new Loader({
-    apiKey: resolveApiKey(apiKey),
-    version: "weekly",
-    libraries: ["places", "geometry", "drawing"]
-  });
-  loaderPromise = loader.load().catch((err2) => {
-    loaderPromise = null;
-    throw err2;
-  });
-  return loaderPromise;
+async function loadGoogleMaps(apiKey) {
+  const key = resolveApiKey(apiKey);
+  if (loadPromise && configuredKey === key) {
+    return loadPromise;
+  }
+  if (configuredKey !== key) {
+    loadPromise = null;
+    configuredKey = key;
+  }
+  if (!loadPromise) {
+    setOptions({
+      key,
+      v: "weekly"
+    });
+    loadPromise = Promise.all([
+      importLibrary("maps"),
+      importLibrary("places"),
+      importLibrary("geometry")
+    ]).then(() => {
+      var _a2;
+      if (typeof ((_a2 = google == null ? void 0 : google.maps) == null ? void 0 : _a2.Map) !== "function") {
+        throw new Error("Google Maps API loaded but Map constructor is unavailable");
+      }
+    }).catch((err2) => {
+      loadPromise = null;
+      configuredKey = null;
+      throw err2;
+    });
+  }
+  return loadPromise;
+}
+async function loadGoogleMapsLibraries(apiKey) {
+  await loadGoogleMaps(apiKey);
+  const [mapsLib, placesLib] = await Promise.all([
+    importLibrary("maps"),
+    importLibrary("places")
+  ]);
+  return {
+    Map: mapsLib.Map,
+    Autocomplete: placesLib.Autocomplete
+  };
 }
 function attachPlacesAutocomplete(input, onSelect) {
   var _a2;
@@ -38317,7 +38436,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-t3ieePv-.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BxE7s8Xe.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -39584,13 +39703,10 @@ function DispatchMap({
     let cancelled = false;
     setMapReady(false);
     setMapError(null);
-    loadGoogleMaps(apiKey).then(() => {
+    loadGoogleMapsLibraries(apiKey).then(({ Map: Map2 }) => {
       if (cancelled || !mapRef.current) return;
-      if (typeof google.maps.Map !== "function") {
-        throw new Error("Google Maps API loaded but Map constructor is unavailable");
-      }
       if (!gMapRef.current) {
-        gMapRef.current = new google.maps.Map(mapRef.current, {
+        gMapRef.current = new Map2(mapRef.current, {
           center: safeCenter,
           zoom: 13,
           disableDefaultUI: true,
@@ -40137,7 +40253,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-6j3dmGta.js");
+        const { writeActiveDispatcher } = await import("./notifications-B_5bQ6fd.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -40164,7 +40280,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-6j3dmGta.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B_5bQ6fd.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -40481,4 +40597,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-W14mXAEQ.js.map
+//# sourceMappingURL=index-DXhnzKzD.js.map

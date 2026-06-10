@@ -11,7 +11,7 @@ import {
   ExternalLink,
   Users,
 } from 'lucide-react';
-import { loadGoogleMaps } from '@/lib/geocoder';
+import { loadGoogleMaps, loadGoogleMapsLibraries } from '@/lib/mapLoader';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
@@ -90,14 +90,11 @@ export function DispatchMap({
     setMapReady(false);
     setMapError(null);
 
-    loadGoogleMaps(apiKey)
-      .then(() => {
+    loadGoogleMapsLibraries(apiKey)
+      .then(({ Map }) => {
         if (cancelled || !mapRef.current) return;
-        if (typeof google.maps.Map !== 'function') {
-          throw new Error('Google Maps API loaded but Map constructor is unavailable');
-        }
         if (!gMapRef.current) {
-          gMapRef.current = new google.maps.Map(mapRef.current, {
+          gMapRef.current = new Map(mapRef.current, {
             center: safeCenter,
             zoom: 13,
             disableDefaultUI: true,
