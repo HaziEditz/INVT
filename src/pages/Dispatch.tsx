@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { StatusBar } from '@/components/layout/StatusBar';
@@ -26,6 +26,8 @@ import { useSession, useCompanySettings, useRealtimeNotifications } from '@/hook
 import { sessionMe, accountStatus } from '@/lib/jobFlow';
 import { useUiStore } from '@/store/uiStore';
 
+const DEFAULT_MAP_CENTER = { lat: -46.4132, lng: 168.3538 };
+
 export function DispatchPage() {
   const navigate = useNavigate();
   const { ready, error, mapsKey } = useFirebaseInit();
@@ -38,6 +40,8 @@ export function DispatchPage() {
   const setEmergency = useUiStore((s) => s.setEmergency);
   const settings = useUiStore((s) => s.settings);
   const setBillingBanner = useUiStore((s) => s.setBillingBanner);
+
+  const activeCompanyId = ready && companyId ? companyId : null;
 
   useEffect(() => {
     sessionMe()
@@ -54,15 +58,22 @@ export function DispatchPage() {
       .catch(() => navigate('/login', { replace: true }));
   }, [navigate, setBillingBanner]);
 
-  useJobs(companyId || null);
-  useDrivers(companyId || null);
-  useSession(companyId || null, sessionId, dispatcherName);
-  useCompanySettings(companyId || null);
-  useRealtimeNotifications(companyId || null);
+  useJobs(activeCompanyId);
+  useDrivers(activeCompanyId);
+  useSession(activeCompanyId, sessionId, dispatcherName);
+  useCompanySettings(activeCompanyId);
+  useRealtimeNotifications(activeCompanyId);
 
   useEffect(() => {
     localStorage.setItem('bw_dispatcher_name', dispatcherName);
   }, [dispatcherName]);
+
+  const mapCenter = useMemo(() => {
+    if (settings?.city) {
+      return { lat: settings.city.lat, lng: settings.city.lng };
+    }
+    return DEFAULT_MAP_CENTER;
+  }, [settings?.city?.lat, settings?.city?.lng]);
 
   if (!authChecked || !ready) {
     return (
@@ -75,8 +86,6 @@ export function DispatchPage() {
   if (error) {
     return <div className="min-h-screen flex items-center justify-center text-bw-danger">{error}</div>;
   }
-
-  const mapCenter = settings?.city || { lat: -46.4132, lng: 168.3538 };
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-bw-bg">

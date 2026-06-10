@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { getDb, ref, onValue, off } from '@/lib/firebase';
+import { getDb, ref, onValue } from '@/lib/firebase';
 import { useUiStore } from '@/store/uiStore';
 import type { CompanySettings } from '@/types/booking';
 
@@ -16,7 +16,6 @@ const DEFAULT_FEATURES = {
 export function useSession(companyId: string | null, sessionId: string | null, dispatcherName: string) {
   useEffect(() => {
     if (!companyId || !sessionId) return;
-    const db = getDb();
     const iv = setInterval(() => {
       import('@/lib/notifications').then(({ writeActiveDispatcher }) =>
         writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -36,13 +35,24 @@ export function useSession(companyId: string | null, sessionId: string | null, d
         import('@/lib/jobFlow').then(({ logoutSession }) => logoutSession());
       }
     });
-    return () => off(r, 'value', h);
+    return () => h();
   }, [companyId]);
 }
 
 async function writeActiveDispatcherOnce(cid: string, sid: string, name: string) {
   const { writeActiveDispatcher } = await import('@/lib/notifications');
   await writeActiveDispatcher(cid, sid, { name, active: true });
+}
+
+function settingsFingerprint(s: CompanySettings): string {
+  return JSON.stringify({
+    companyId: s.companyId,
+    companyName: s.companyName,
+    timezone: s.timezone,
+    city: s.city,
+    features: s.features,
+    logoUrl: s.logoUrl,
+  });
 }
 
 export function useCompanySettings(companyId: string | null) {
@@ -74,9 +84,11 @@ export function useCompanySettings(companyId: string | null) {
         tmConfig: val.tmConfig || {},
         logoUrl: val.logoUrl,
       };
+      const prev = useUiStore.getState().settings;
+      if (prev && settingsFingerprint(prev) === settingsFingerprint(settings)) return;
       setSettings(settings);
     });
-    return () => off(r, 'value', h);
+    return () => h();
   }, [companyId, setSettings]);
 }
 
@@ -90,16 +102,18 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     const bookingsRef = ref(db, `bookings/${companyId}`);
     let init = true;
-    const h1 = onValue(bookingsRef, (snap) => {
+    const unsubBookings = onValue(bookingsRef, (snap) => {
       if (init) {
         init = false;
         return;
       }
-      addToast({ type: 'info', title: 'New booking', message: 'A new passenger booking was received' });
+      if (snap.exists()) {
+        addToast({ type: 'info', title: 'New booking', message: 'A new passenger booking was received' });
+      }
     });
 
     const emergRef = ref(db, `Emergency/${companyId}`);
-    const h2 = onValue(emergRef, (snap) => {
+    const unsubEmergency = onValue(emergRef, (snap) => {
       const val = snap.val();
       if (!val || typeof val !== 'object') return;
       for (const [, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
@@ -111,12 +125,13 @@ export function useRealtimeNotifications(companyId: string | null) {
           time: String(rec.time ?? new Date().toISOString()),
         });
         addToast({ type: 'error', title: 'Emergency alert', message: 'Driver emergency signal received' });
+        break;
       }
     });
 
     const regRef = ref(db, `driverRegistrations/${companyId}`);
     let regInit = true;
-    const h3 = onValue(regRef, (snap) => {
+    const unsubReg = onValue(regRef, (snap) => {
       if (regInit) {
         regInit = false;
         return;
@@ -127,9 +142,9 @@ export function useRealtimeNotifications(companyId: string | null) {
     });
 
     return () => {
-      off(bookingsRef, 'value', h1);
-      off(emergRef, 'value', h2);
-      off(regRef, 'value', h3);
+      unsubBookings();
+      unsubEmergency();
+      unsubReg();
     };
   }, [companyId, addToast, setEmergency]);
 }

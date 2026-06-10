@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import { Edit, X, CheckCircle, RotateCcw } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
@@ -21,7 +22,11 @@ interface JobCardProps {
 }
 
 export function JobCard({ job, tab }: JobCardProps) {
-  const drivers = useDriverStore((s) => s.drivers.filter((d) => d.status === 'Available'));
+  const allDrivers = useDriverStore((s) => s.drivers);
+  const drivers = useMemo(
+    () => allDrivers.filter((d) => d.status === 'Available'),
+    [allDrivers]
+  );
   const addToast = useUiStore((s) => s.addToast);
   const openModalWith = useUiStore((s) => s.openModalWith);
   const border = serviceBorderColor(job.serviceType);

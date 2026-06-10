@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDb, ref, onValue, off } from '@/lib/firebase';
+import { getDb, ref, onValue } from '@/lib/firebase';
 import { useDriverStore } from '@/store/driverStore';
 import { driverFromFirebase } from '@/types/driver';
 
@@ -11,7 +11,7 @@ export function useDrivers(companyId: string | null) {
     const db = getDb();
     const r = ref(db, `online/${companyId}`);
 
-    const handler = onValue(r, (snap) => {
+    const unsub = onValue(r, (snap) => {
       const list = [];
       const val = snap.val();
       if (val && typeof val === 'object') {
@@ -23,7 +23,7 @@ export function useDrivers(companyId: string | null) {
       setDrivers(list);
     });
 
-    return () => off(r, 'value', handler);
+    return () => unsub();
   }, [companyId, setDrivers]);
 }
 
@@ -34,7 +34,7 @@ export function useDriverQueue(companyId: string | null) {
     if (!companyId) return;
     const db = getDb();
     const r = ref(db, `online/${companyId}`);
-    const handler = onValue(r, (snap) => {
+    const unsub = onValue(r, (snap) => {
       const zones: Record<string, { vehicleNo: string; driverId: string; status: string; queue: number }[]> = {};
       const val = snap.val();
       if (val && typeof val === 'object') {
@@ -57,7 +57,7 @@ export function useDriverQueue(companyId: string | null) {
       }
       setQueueByZone(zones);
     });
-    return () => off(r, 'value', handler);
+    return () => unsub();
   }, [companyId]);
 
   return queueByZone;

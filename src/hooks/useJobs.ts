@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getDb, ref, onValue, off } from '@/lib/firebase';
+import { getDb, ref, onValue } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { jobFromFirebase, type Job } from '@/types/job';
 
@@ -15,20 +15,19 @@ export function useJobs(companyId: string | null) {
   const setJobs = useJobStore((s) => s.setJobs);
   const pendingRef = useRef<Map<number, Job>>(new Map());
   const bookingsRef = useRef<Map<number, Job>>(new Map());
-  const queueRef = useRef<Map<number, Job>>(new Map());
 
   useEffect(() => {
     if (!companyId) return;
     const db = getDb();
 
     const sync = () => {
-      setJobs(mergeJobs([pendingRef.current, bookingsRef.current, queueRef.current]));
+      setJobs(mergeJobs([pendingRef.current, bookingsRef.current]));
     };
 
     const pRef = ref(db, `pendingjobs/${companyId}`);
     const bRef = ref(db, `allbookings/${companyId}`);
 
-    const onPending = onValue(pRef, (snap) => {
+    const unsubPending = onValue(pRef, (snap) => {
       pendingRef.current = new Map();
       const val = snap.val();
       if (val && typeof val === 'object') {
@@ -40,7 +39,7 @@ export function useJobs(companyId: string | null) {
       sync();
     });
 
-    const onBookings = onValue(bRef, (snap) => {
+    const unsubBookings = onValue(bRef, (snap) => {
       bookingsRef.current = new Map();
       const val = snap.val();
       if (val && typeof val === 'object') {
@@ -55,8 +54,8 @@ export function useJobs(companyId: string | null) {
     });
 
     return () => {
-      off(pRef, 'value', onPending);
-      off(bRef, 'value', onBookings);
+      unsubPending();
+      unsubBookings();
     };
   }, [companyId, setJobs]);
 }
@@ -92,8 +91,7 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
     });
 
     return () => {
-      for (const p of paths) off(ref(db, p));
-      void unsubs;
+      for (const unsub of unsubs) unsub();
     };
   }, [companyId, enabled]);
 

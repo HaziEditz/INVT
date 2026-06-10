@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { loadGoogleMaps } from '@/lib/geocoder';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
@@ -26,15 +26,26 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
   const setMapZones = useUiStore((s) => s.setMapZones);
   const openModalWith = useUiStore((s) => s.openModalWith);
-  const counts = useDriverStore((s) => s.counts);
+
+  const counts = useMemo(
+    () => ({
+      all: drivers.length,
+      free: drivers.filter((d) => d.status === 'Available').length,
+      picking: drivers.filter((d) => d.status === 'Picking').length,
+      busy: drivers.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned'].includes(d.status)).length,
+      away: drivers.filter((d) => d.status === 'Away').length,
+    }),
+    [drivers]
+  );
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId);
 
   useEffect(() => {
     if (!mapsKey || !mapRef.current) return;
+    let cancelled = false;
     loadGoogleMaps(mapsKey).then(() => {
-      if (gMapRef.current) return;
-      gMapRef.current = new google.maps.Map(mapRef.current!, {
+      if (cancelled || gMapRef.current || !mapRef.current) return;
+      gMapRef.current = new google.maps.Map(mapRef.current, {
         center,
         zoom: 13,
         disableDefaultUI: true,
@@ -47,7 +58,10 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
       trafficRef.current = new google.maps.TrafficLayer();
       if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
     });
-  }, [mapsKey, center, mapTraffic]);
+    return () => {
+      cancelled = true;
+    };
+  }, [mapsKey, center.lat, center.lng, mapTraffic]);
 
   useEffect(() => {
     if (!gMapRef.current) return;
@@ -88,14 +102,18 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId) return;
-    import('@/lib/firebase').then(({ getDb, ref, onValue, off }) => {
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
+    const polys: google.maps.Polygon[] = [];
+
+    import('@/lib/firebase').then(({ getDb, ref, onValue }) => {
+      if (cancelled || !gMapRef.current) return;
       const r = ref(getDb(), `zones/${companyId}`);
-      const polys: google.maps.Polygon[] = [];
-      const h = onValue(r, (snap) => {
+      unsub = onValue(r, (snap) => {
         polys.forEach((p) => p.setMap(null));
         polys.length = 0;
         const val = snap.val();
-        if (!val) return;
+        if (!val || !gMapRef.current) return;
         for (const [, z] of Object.entries(val as Record<string, { name?: string; paths?: { lat: number; lng: number }[] }>)) {
           if (!z.paths?.length) continue;
           const poly = new google.maps.Polygon({
@@ -105,13 +123,18 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
             strokeWeight: 2,
             fillColor: '#4f6ef7',
             fillOpacity: 0.08,
-            map: gMapRef.current!,
+            map: gMapRef.current,
           });
           polys.push(poly);
         }
       });
-      return () => off(r, 'value', h);
     });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+      polys.forEach((p) => p.setMap(null));
+    };
   }, [mapZones, companyId]);
 
   return (
@@ -129,7 +152,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
       <div className="absolute bottom-2 left-2 flex gap-1 z-10 flex-wrap">
         {(['all', 'free', 'picking', 'busy', 'away'] as const).map((k) => (
           <span key={k} className="text-[10px] px-2 py-1 rounded bg-bw-surface/90 border border-bw-border text-bw-text">
-            {k}: {counts()[k === 'all' ? 'all' : k]}
+            {k}: {counts[k === 'all' ? 'all' : k]}
           </span>
         ))}
       </div>

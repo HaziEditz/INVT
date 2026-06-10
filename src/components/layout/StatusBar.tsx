@@ -1,9 +1,21 @@
+import { useMemo } from 'react';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 
 export function StatusBar() {
-  const counts = useDriverStore((s) => s.counts());
+  const drivers = useDriverStore((s) => s.drivers);
   const jobs = useJobStore((s) => s.jobs);
+
+  const counts = useMemo(
+    () => ({
+      all: drivers.length,
+      free: drivers.filter((d) => d.status === 'Available').length,
+      picking: drivers.filter((d) => d.status === 'Picking').length,
+      busy: drivers.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned'].includes(d.status)).length,
+      away: drivers.filter((d) => d.status === 'Away').length,
+    }),
+    [drivers]
+  );
 
   const pending = jobs.filter((j) => j.status === 'Pending' || j.status === 'No One').length;
   const active = jobs.filter((j) => ['Active', 'OnTrip', 'Picking'].includes(j.status)).length;
