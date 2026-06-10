@@ -4038,15 +4038,17 @@ $(document).ready(function() {
       })
       .then(function(me) {
         if (!me || !me.companyId) return;
-        var localCid = localStorage.getItem('TT_CId') || '';
-        if (localCid !== me.companyId) {
-          // Company ID in localStorage doesn't match the signed server session.
-          // Update it and reload so Firebase paths are built with the real company_id.
-          localStorage.setItem('TT_CId', me.companyId);
+        var localCid = String(localStorage.getItem('TT_CId') || '').trim();
+        var serverCid = String(me.companyId || '').trim();
+        if (localCid !== serverCid) {
+          if (sessionStorage.getItem('bw_cid_resync') === serverCid) return;
+          localStorage.setItem('TT_CId', serverCid);
           localStorage.setItem('TT_Company', me.company || '');
+          sessionStorage.setItem('bw_cid_resync', serverCid);
           window.location.reload();
+          return;
         }
-        // Always keep company name in sync
+        sessionStorage.removeItem('bw_cid_resync');
         if (me.company) localStorage.setItem('TT_Company', me.company);
       })
       .catch(function() { /* network error — continue with cached value */ });
@@ -4091,6 +4093,8 @@ $(document).ready(function() {
         ['TT_Name', 'TT_DId', 'TT_Country', 'TT_CId', 'TT_Company', 'Country'].forEach(function(k) {
             localStorage.removeItem(k);
         });
+        sessionStorage.removeItem('bw_dispatch_autologin_done');
+        sessionStorage.removeItem('bw_cid_resync');
         // Sign out of Firebase so the anonymous token is discarded
         try {
             if (typeof firebase !== 'undefined' && firebase.auth) {

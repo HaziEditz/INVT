@@ -1041,8 +1041,9 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
     const _ver     = (opts && opts.version != null) ? opts.version : 0;
     firebaseDbSet(`notification/${drvId}`, {
       bookingid: `${bookingId},Job Cancel,${drvId},Server,${_srcPretty}`,
-      content: 'Passenger Cancel',
-      eventType: _pubType,
+      content: 'Job has been cancelled',
+      type: 'job_cancelled',
+      eventType: 'job_cancelled',
       version:   _ver,
       updatedAt: _FB_SERVER_TIMESTAMP,
       bookingId: bookingId
@@ -1855,6 +1856,83 @@ async function driverRecallJob(opts) {
   return { ok: true, restoredStatus: job.BookingStatus, previousStatus: _prevSt, booking: _publicBooking(job) };
 }
 
+// Driver declines or times out on a broadcast offer — restore job to U-A and set driver Away.
+async function driverDeclineJob(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId || '').trim();
+  const timedOut  = !!opts.timedOut;
+  const source    = opts.source || 'driverDeclineJob';
+  if (!bookingId || !driverId) return { ok: false, error_code: 'bad_request', error: 'bookingId and driverId required' };
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const job = jobStore[idx];
+  const _cid = String(job.companyId || opts.companyId || '');
+  const _cur = job.BookingStatus || '';
+  if (_cur !== 'Offered' && _cur !== 'Pending' && _cur !== 'No One') {
+    return { ok: false, error_code: 'invalid_transition', error: `cannot decline job in status ${_cur}`, currentStatus: _cur };
+  }
+
+  const origRaw = String(job.originalStatus || opts.originalStatus || (job.manualOffer ? 'manual' : 'pending')).toLowerCase();
+  const isManual = origRaw === 'manual' || job.manualOffer === true;
+  const _prevSt = _cur;
+
+  if (isManual) {
+    job.BookingStatus = 'No One';
+    job.manualOffer = true;
+    job.DriverId = 0;
+    job.VehicleId = 0;
+  } else {
+    job.BookingStatus = 'Pending';
+    job.manualOffer = false;
+    job.DriverId = 0;
+    job.VehicleId = 0;
+    job.releasedAt = Date.now();
+  }
+  job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
+  saveJobStore();
+
+  const _hasOther = driverHasRemainingAssignments(driverId, bookingId, _cid);
+  if (!_hasOther && timedOut) {
+    const zd = ZONE_DRIVERS.find(d => d && (String(d.driverid) === driverId || String(d.VehicleId) === driverId));
+    if (zd) {
+      zd.vehiclestatus = 'Away';
+      zd.JobphoneNo = '';
+      zd.jobpickup = '';
+      zd.jobdropoff = '';
+      zd.jobCount = 0;
+      setAwayLock(driverId);
+      const _fbVehId = zd.VehicleId || zd.vehiclenumber || '';
+      if (_cid && _fbVehId) {
+        getFirebaseServerToken().then(_tok => {
+          if (!_tok) return;
+          firebaseDbPatch(`online/${_cid}/${_fbVehId}/current`, {
+            vehiclestatus: 'Away',
+            jobId: '',
+            jobpickup: '',
+            jobdropoff: '',
+            JobphoneNo: '',
+          }, _tok).catch(() => {});
+        });
+      }
+      console.log(`  [${source}] driver ${driverId} → Away (timedOut=${timedOut})`);
+    }
+  }
+
+  if (_cid) {
+    getFirebaseServerToken().then(async _tok => {
+      if (!_tok) return;
+      await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
+      if (!isManual) await _writePendingJobFirebase(_cid, bookingId, job);
+      await fbRequest(`${FB_DB_URL}/notification/${driverId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
+    });
+  }
+
+  console.log(`  [${source}] job #${bookingId} → ${job.BookingStatus} (manual=${isManual}, timedOut=${timedOut})`);
+  return { ok: true, status: job.BookingStatus, timedOut, driverSetAway: !_hasOther, previousStatus: _prevSt, booking: _publicBooking(job) };
+}
+
 // ─── §FIX-UB — Unified booking update lifecycle ───────────────────────────────
 // Counterpart to §FIX-CB. Single helper for every booking edit. Diff-based,
 // per-booking, with explicit event classification so the driver app can react
@@ -2163,15 +2241,23 @@ function updateBooking(opts) {
         const _pubType     = _ubMapEventType(_primaryType);
         const _payload = {
           bookingid: `${bookingId},${_primaryType},${_drv},${by},Dispatcher`,
-          content:   `Booking ${_primaryType}`,
-          type:      _primaryType,
+          content:   `Job has been updated`,
+          type:      'job_updated',
           seq:       _newSeq,
           bookingId: bookingId,
-          // §FIX-DA-G4/G5 — driver-app public contract.
-          eventType: _pubType,
+          eventType: 'job_updated',
           version:   _newSeq,
           updatedAt: _FB_SERVER_TIMESTAMP
         };
+        if (_diff.PickAddress) { _payload.pickup = _diff.PickAddress.to; _payload.jobpickup = _diff.PickAddress.to; }
+        if (_diff.DropAddress) { _payload.dropoff = _diff.DropAddress.to; _payload.jobdropoff = _diff.DropAddress.to; }
+        if (_diff.Pickingtime || _diff.BookingDateTime) {
+          _payload.Pickingtime = (_diff.Pickingtime || _diff.BookingDateTime).to;
+        }
+        if (_diff.Notes || _diff.JobInfo || _diff.Instructions) {
+          _payload.notes = (_diff.Notes || _diff.JobInfo || _diff.Instructions).to;
+          _payload.jobinfo = _payload.notes;
+        }
         await firebaseDbPatch(`notification/${_drv}`, _payload, _tok);
         console.log(`  [${source}] §FIX-UB notification/${_drv} → ${_primaryType} seq=${_newSeq}`);
       } catch (_e) {
@@ -6750,10 +6836,29 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
-  // ── POST /api/job/decline — driver declines offer (no-op ack for now) ────────
+  // ── POST /api/job/decline — driver declines offer or times out ───────────────
   if (urlPath === '/api/job/decline' && req.method === 'POST') {
-    res.writeHead(200, JSON_HEADERS);
-    res.end(JSON.stringify({ ok: true }));
+    const _db = await readBody(req);
+    let _d = {};
+    try { _d = JSON.parse(_db); } catch (e) {}
+    const _dJob = parseInt(_d.jobId || _d.bookingId || 0) || 0;
+    let _dDrv = String(_d.driverId || '').trim();
+    const _userKeyD = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_dDrv && _userKeyD) {
+      const _drd = ZONE_DRIVERS.find(d => d && String(d.passforlink || '').trim() === _userKeyD);
+      if (_drd) _dDrv = String(_drd.driverid || '').trim();
+    }
+    const _result = await driverDeclineJob({
+      bookingId: _dJob,
+      driverId: _dDrv,
+      originalStatus: _d.originalStatus,
+      timedOut: !!_d.timedOut,
+      source: '/api/job/decline',
+    });
+    const _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/decline #${_dJob} driver=${_dDrv} timedOut=${!!_d.timedOut} → ${JSON.stringify({ ok: _result.ok, status: _result.status })}`);
     return;
   }
 
@@ -8635,15 +8740,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                       .then(_r => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs/${sessionCompanyId}/${_fbVehId}/${_drvForFb}/${bookingId} → eventType=cancelled then removed [${_r && _r.status}]`))
                       .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q jobs child remove failed: ${e.message}`));
                     firebaseDbSet(`notification/${_drvForFb}`, {
-                      bookingid: `${bookingId},Job Cancel,${_drvForFb},Server,Dispatcher`,
-                      content:   'Passenger Cancel',
-                      // §FIX-DA-G4/G5 — driver-app public contract.
-                      eventType: 'cancelled',
+                      bookingid: `${bookingId},Job Removed,${_drvForFb},Server,Dispatcher`,
+                      content:   'Job has been taken back by dispatcher',
+                      type:      'job_removed',
+                      eventType: 'job_removed',
                       version:   (function(){ const _j = jobStore.find(j => j && j.Id === bookingId); return _j ? (parseInt(_j.updateSeq) || 0) : 0; })(),
                       updatedAt: _FB_SERVER_TIMESTAMP,
                       bookingId: bookingId
                     }, _tok)
-                      .then(() => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification/${_drvForFb} → Job Cancel written`))
+                      .then(() => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification/${_drvForFb} → job_removed written`))
                       .catch(e => console.log(`  [UnAssignJobStatusFromJobList] §FIX-Q notification write failed: ${e.message}`));
                   }
                 });

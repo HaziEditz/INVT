@@ -1233,6 +1233,8 @@
     // ── Auto-login if Firebase already has a session ─────────────────────────
     firebase.auth().onAuthStateChanged(function(user) {
       if (!user) return;
+      if (sessionStorage.getItem('bw_dispatch_autologin_done') === '1') return;
+      if (/Default\.aspx/i.test(window.location.pathname || '')) return;
       var userEmail = user.email || '';
       // Use the name stored from a previous form login if it's a proper name.
       // Never derive the name from the email or Firebase profile on auto-login —
@@ -1293,6 +1295,7 @@
               localStorage.setItem('TT_CId',     data.companyId || cid);
               localStorage.setItem('TT_Company', data.company   || '');
               localStorage.setItem('Country',    'NZ');
+              sessionStorage.setItem('bw_dispatch_autologin_done', '1');
               window.location.replace('Default.aspx');
             });
           } else {
