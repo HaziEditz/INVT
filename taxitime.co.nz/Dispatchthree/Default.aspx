@@ -4579,10 +4579,11 @@ $(document).ready(function() {
             if (!b || typeof b !== 'object') return;
             var status = (b.Status || b.status || '').toString();
             var fbKey  = SomeSession2 + ':' + k;
-            // §104 — booking websites sometimes send Status='Waiting' for all bookings.
-            // Auto-remap to 'Scheduled' if ScheduledFor is >30 min in the future.
-            var _autoSf = parseInt(b.ScheduledFor || b.scheduledFor || b.ScheduledForMs || b.scheduledForMs || 0);
-            if ((status === 'Waiting' || status === 'Pending') && _autoSf && _autoSf > Date.now() + 30 * 60 * 1000) {
+            // Auto-remap to Scheduled if pickup/dispatch time is still in the future.
+            var _schedMs = parseInt(b.ScheduledFor || b.scheduledFor || b.ScheduledForMs || b.scheduledForMs || 0);
+            var _notifyAtStr = b.NotifyDispatchAt || b.notifyDispatchAt || '';
+            var _notifyAtMs = _notifyAtStr ? new Date(_notifyAtStr).getTime() : 0;
+            if ((status === 'Waiting' || status === 'Pending') && (_schedMs > Date.now() || (_notifyAtMs && _notifyAtMs > Date.now()))) {
                 status = 'Scheduled';
                 b.Status = 'Scheduled';
             }
@@ -4700,12 +4701,35 @@ $(document).ready(function() {
         _pjRef.on('child_changed', function(snap) { _pjIngest(snap, true); }, function(e) {});
         _pjRef.once('value', function(allSnap) {
             _pjInit = true;
-            // Re-scan all existing jobs now that _pjInit is set.
-            // child_added fires before once('value') so pre-existing jobs were skipped
-            // by the _pjInit guard — process them now to catch jobs already in Firebase.
             allSnap.forEach(function(child) { _pjIngest(child, false); });
             console.log('[pendingjobs] initial scan complete — ' + allSnap.numChildren() + ' job(s) processed');
         });
+
+        // Server-side backup: every minute promote Scheduled → Pending when dispatch time arrives
+        setInterval(function() {
+            if (!SomeSession2) return;
+            var nowMs = Date.now();
+            _pjRef.once('value', function(snap) {
+                snap.forEach(function(child) {
+                    var b = child.val();
+                    if (!b) return;
+                    var st = (b.Status || b.status || '').toString();
+                    if (st !== 'Scheduled') return;
+                    var notifyStr = b.NotifyDispatchAt || b.notifyDispatchAt || '';
+                    var notifyMs = notifyStr ? new Date(notifyStr).getTime() : 0;
+                    var schedMs = parseInt(b.ScheduledFor || b.scheduledFor || 0);
+                    var dispBefore = parseInt(b.DispatchTimebefore || b.dispatchTimebefore || b.NotifyDispatchBeforeMinutes || 0) || 0;
+                    if (!notifyMs && schedMs && dispBefore) {
+                        notifyMs = schedMs - dispBefore * 60000;
+                    }
+                    if (notifyMs && nowMs >= notifyMs) {
+                        child.ref.update({ Status: 'Pending', status: 'Pending' }, function(err) {
+                            if (!err) console.log('[pendingjobs] minute timer promoted Scheduled → Pending:', child.key);
+                        });
+                    }
+                });
+            });
+        }, 60000);
     })();
 
     // ── 6a. Firebase /driverQueue/{companyId} listener ───────────────────
@@ -4882,7 +4906,14 @@ $(document).ready(function() {
                         if (!d) return;
                         var _fullName = d.name || d.driverName || d.drivername ||
                             ((d.firstName || '') + ' ' + (d.lastName || '')).trim();
-                        if (_fullName) window._bwDriverNames[child.key] = _fullName;
+                        if (_fullName) {
+                            window._bwDriverNames[child.key] = _fullName;
+                            if (d.driverId != null) window._bwDriverNames[String(d.driverId)] = _fullName;
+                            if (d.driverid != null) window._bwDriverNames[String(d.driverid)] = _fullName;
+                            if (d.uid) window._bwDriverNames[String(d.uid)] = _fullName;
+                            var _vno = d.vehicleNo || d.VehicleNo || d.vehiclenumber || '';
+                            if (_vno) window._bwDriverNames['v:' + _vno] = _fullName;
+                        }
                         if (d.approved === false) {
                             list.push({
                                 uid:   child.key,
@@ -5408,6 +5439,17 @@ $(document).ready(function() {
         if (window._bwRouteHoverGuard.key === key && (now - window._bwRouteHoverGuard.at) < 8000) return true;
         window._bwRouteHoverGuard = { key: key, at: now };
         return false;
+    }
+
+    function _bwDirectionsError(status, context) {
+        if (status === 'OK' || (typeof google !== 'undefined' && google.maps && status === google.maps.DirectionsStatus.OK)) {
+            return false;
+        }
+        console.warn('[BW] Directions failed:', status, context || '');
+        if (typeof toastr !== 'undefined') {
+            toastr.warning('Route preview unavailable — job can still be saved.', 'Directions');
+        }
+        return true;
     }
 
     function _bwPatchDirectionsService(svc) {
@@ -11368,11 +11410,18 @@ $(document).ready(function() {
             // BUG 6 fix: never add inactive vehicles to the fleet list
             if (datacom.vehiclestatus === 'inactive') return;
             // Ensure display fields always have a value so driver shows in all tables
-            var _uid = String(datacom.PlayerId || datacom.driverid || '');
+            var _uid = String(datacom.PlayerId || datacom.driverid || datacom.driverId || '');
             if (_uid && window._bwDriverNames && window._bwDriverNames[_uid]) {
                 datacom.drivername = window._bwDriverNames[_uid];
+            } else {
+                var _vKey = datacom.vehiclenumber || datacom.VehicleNo;
+                if (_vKey && window._bwDriverNames && window._bwDriverNames['v:' + _vKey]) {
+                    datacom.drivername = window._bwDriverNames['v:' + _vKey];
+                }
             }
-            datacom.drivername    = datacom.drivername    || datacom.vehiclenumber || ('Driver ' + datacom.driverid);
+            if (!datacom.drivername || datacom.drivername === datacom.vehiclenumber) {
+                datacom.drivername = datacom.drivername || datacom.vehiclenumber || ('Driver ' + (datacom.driverid || ''));
+            }
             datacom.vehiclestatus = datacom.vehiclestatus || 'Available';
             datacom.vehiclenumber = datacom.vehiclenumber || String(datacom.VehicleId || datacom.driverid || '');
             datacom.Id = datacom.driverid;
@@ -12116,7 +12165,7 @@ $(document).ready(function() {
                 
                   
                 } else {
-                    alert("directions response " + status);
+                    _bwDirectionsError(status, 'calcRoute');
                 }
             });
    
@@ -15339,10 +15388,20 @@ $(document).ready(function() {
                     // Window opens when: now >= BookingDateTime - DispatchTimebefore minutes.
                     var _nowMs = Date.now();
                     pendingJobs = pendingJobs.filter(function(pj) {
+                        var notifyStr = pj.NotifyDispatchAt || pj.notifyDispatchAt || '';
+                        if (notifyStr) {
+                            var notifyMs = new Date(notifyStr).getTime();
+                            if (!isNaN(notifyMs) && _nowMs < notifyMs) {
+                                console.log('[smartAutoDispatch] Skipping job #' + pj.Id + ' — NotifyDispatchAt not reached');
+                                return false;
+                            }
+                        }
                         var db = parseInt(pj.DispatchTimebefore || pj.dispatchTimebefore || 0);
-                        if (db <= 0) return true; // ASAP jobs always qualify
-                        var bdt = pj.BookingDateTime || pj.bookingDateTime || '';
-                        if (!bdt) return true; // no time stored, let it through
+                        if (db <= 0) return true;
+                        var bdt = pj.Pickingtime || pj.pickingtime || pj.BookingDateTime || pj.bookingDateTime || '';
+                        var schedMs = parseInt(pj.ScheduledFor || pj.scheduledFor || 0);
+                        if (!bdt && schedMs) bdt = new Date(schedMs).toISOString();
+                        if (!bdt) return true;
                         var bdtMs = _bwToDateMs(bdt);
                         if (isNaN(bdtMs)) return true;
                         var windowOpensMs = bdtMs - db * 60000;
@@ -16549,11 +16608,21 @@ $(document).ready(function() {
         // still giving each status a distinct, scannable colour cue.
         $scope.bwDriverDisplayName = function(d) {
             if (!d) return '';
-            var uid = String(d.PlayerId || d.driverid || '');
-            if (uid && window._bwDriverNames && window._bwDriverNames[uid]) return window._bwDriverNames[uid];
-            var dn = d.drivername || '';
-            if (dn && dn !== d.vehiclenumber && !/^Driver\s+\d/i.test(dn)) return dn;
-            return dn || d.vehiclenumber || uid || 'Driver';
+            var lookupKeys = [
+                String(d.PlayerId || ''),
+                String(d.driverid || d.driverId || d.Id || ''),
+                d.vehiclenumber ? ('v:' + d.vehiclenumber) : '',
+                d.VehicleNo ? ('v:' + d.VehicleNo) : ''
+            ];
+            for (var _ki = 0; _ki < lookupKeys.length; _ki++) {
+                var _k = lookupKeys[_ki];
+                if (_k && window._bwDriverNames && window._bwDriverNames[_k]) {
+                    return window._bwDriverNames[_k];
+                }
+            }
+            var dn = d.drivername || d.VehicleDetails || '';
+            if (dn && dn !== d.vehiclenumber && dn !== d.VehicleNo && !/^Driver\s+\d/i.test(dn)) return dn;
+            return dn || d.vehiclenumber || d.VehicleNo || lookupKeys[1] || 'Driver';
         };
 
         $scope.bwBoardStatus = function(d) {
@@ -18256,7 +18325,7 @@ $(document).ready(function() {
                   
                    
                     } else {
-                        alert("directions response " + status);
+                        _bwDirectionsError(status, 'calcRoute');
                     }
                 });
 
@@ -18369,7 +18438,7 @@ $(document).ready(function() {
                         });
                   
                     } else {
-                        alert("directions response " + status);
+                        _bwDirectionsError(status, 'calcRoute');
                     }
                 });
 
@@ -18428,7 +18497,7 @@ $(document).ready(function() {
                         $scope.estimate(DistanceResx+1);
                    
                     } else {
-                        alert("directions response " + status);
+                        _bwDirectionsError(status, 'calcRoute');
                     }
                 });
 
@@ -18452,7 +18521,7 @@ $(document).ready(function() {
                  
 
                     } else {
-                        window.alert('Directions request failed due to ' + status);
+                        _bwDirectionsError(status, 'calculateAndDisplayRoute0');
                     }
                 });
             }
@@ -18491,7 +18560,7 @@ $(document).ready(function() {
                         }
 
                     } else {
-                        window.alert('Directions request failed due to ' + status);
+                        _bwDirectionsError(status, 'calculateAndDisplayRoute');
                     }
                 });
             }

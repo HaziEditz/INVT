@@ -13147,10 +13147,56 @@ async function _syncBizAccountsFromFirebase() {
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
   console.log(`[tz] process.env.TZ=${process.env.TZ} | server local time=${new Date().toString()}`);
-  // Seed ZONE_DRIVERS from Firebase so auto-dispatch works immediately after restart,
-  // without waiting for each driver app to send its next heartbeat.
   _seedZoneDriversFromFirebase();
-  // Sync business accounts from Firebase businessAccounts/{cid} so the local store
-  // reflects any accounts created or managed outside this console (e.g. Dispatch HQ).
   _syncBizAccountsFromFirebase();
+  setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
 });
+
+async function _releaseScheduledJobs() {
+  if (!process.env.BW_FIREBASE_SECRET) return;
+  const now = Date.now();
+  let tok;
+  try { tok = await getFirebaseServerToken(); } catch (e) { return; }
+  if (!tok) return;
+
+  const promoted = [];
+  for (const j of jobStore) {
+    if (j.BookingStatus !== 'Scheduled') continue;
+    let shouldRelease = false;
+    const notifyAt = j.NotifyDispatchAt || j.notifyDispatchAt;
+    if (notifyAt) {
+      const ms = Date.parse(String(notifyAt));
+      if (!Number.isNaN(ms) && now >= ms) shouldRelease = true;
+    }
+    if (!shouldRelease) {
+      const db = parseInt(j.DispatchTimebefore || '0', 10) || 0;
+      const sched = j.ScheduledFor || 0;
+      const pickRef = j.Pickingtime || j.BookingDateTime;
+      let pickupMs = sched || (pickRef ? _parseLocalDT(pickRef, j.companyId) : NaN);
+      if (db > 0 && !isNaN(pickupMs) && now >= pickupMs - db * 60000) {
+        shouldRelease = true;
+      }
+    }
+    if (!shouldRelease) continue;
+
+    const prev = j.BookingStatus;
+    j.BookingStatus = 'Pending';
+    if (typeof _bumpSeqAndEmitStatus === 'function') {
+      _bumpSeqAndEmitStatus(j, prev, 'system', 'scheduledRelease', { action: 'promote' });
+    }
+    promoted.push(j);
+
+    if (j._fbKey && j.companyId) {
+      const fbKeyPart = String(j._fbKey).includes(':') ? String(j._fbKey).split(':').pop() : String(j._fbKey);
+      try {
+        await firebaseDbPatch(`pendingjobs/${j.companyId}/${fbKeyPart}`, { Status: 'Pending', status: 'Pending' }, tok);
+      } catch (e) {
+        console.warn(`[sched-release] Firebase patch failed job#${j.Id}:`, e.message);
+      }
+    }
+  }
+  if (promoted.length) {
+    saveJobStore();
+    console.log(`[sched-release] promoted ${promoted.length} scheduled job(s) → Pending`);
+  }
+}
