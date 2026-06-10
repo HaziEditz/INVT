@@ -150,7 +150,8 @@
       "$companyId": {
         ".validate": "$companyId!='null'",
         ".read": "auth != null && root.child('drivers').child(auth.uid).exists()",
-        ".write": "auth != null && root.child('drivers').child(auth.uid).exists()"
+        ".write": "auth != null && root.child('drivers').child(auth.uid).exists()",
+        ".indexOn": ["bookingId", "jobId", "completedAt"]
       }
     },
     "companies": {

@@ -1213,13 +1213,14 @@ function cancelBooking(opts) {
     console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → Pending+releasedAt (recall by ${_cancelledByPretty}, prevDriver=${_drvId || 'none'})`);
   } else {
     // Hard cancel — close the job.
-    job.BookingStatus   = 'Cancelled';
+    const _isNoShow = /no\s*show/i.test(reason);
+    job.BookingStatus   = _isNoShow ? 'No Show' : 'Cancelled';
     job.JobCompleteTime = _nowIso;
     closedJobStore.push(job);
     jobStore.splice(idx, 1);
     saveJobStore();
     saveClosedJobStore();
-    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → Cancelled by ${_cancelledByPretty} (driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
+    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${job.BookingStatus} by ${_cancelledByPretty} (driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
   }
 
   // §FIX-CMD/ver-fanout — mirror version into Firebase paths the driver app
@@ -2624,6 +2625,42 @@ function _fixsNormalizeCompletedJob(c, cid, bid) {
   return out;
 }
 
+function _fixsNormalizeClosedLog(c, cid, bid) {
+  if (!c || typeof c !== 'object') return null;
+  const numId = parseInt(c.bookingId != null ? c.bookingId : (c.jobId != null ? c.jobId : bid));
+  if (!numId) return null;
+  const out = Object.assign({}, c);
+  out.Id            = numId;
+  out.companyId     = String(cid);
+  out.BookingStatus = c.BookingStatus || c.status || 'Completed';
+  if (c.completedAt && !out.JobCompleteTime) out.JobCompleteTime = typeof c.completedAt === 'number' ? new Date(c.completedAt).toISOString() : c.completedAt;
+  if (c.closedAt && !out.JobCompleteTime) out.JobCompleteTime = typeof c.closedAt === 'number' ? new Date(c.closedAt).toISOString() : c.closedAt;
+  if (c.distanceKm  != null && out.JobDistance == null) out.JobDistance = c.distanceKm;
+  if (c.fare        != null && out.TotalFare   == null) out.TotalFare   = c.fare;
+  if (c.totalFare   != null && out.TotalFare   == null) out.TotalFare   = c.totalFare;
+  if (c.pickup      && !out.PickupAddress) out.PickupAddress = c.pickup;
+  if (c.pickupAddress && !out.PickupAddress) out.PickupAddress = c.pickupAddress;
+  if (c.dropoff     && !out.DropAddress)   out.DropAddress   = c.dropoff;
+  if (c.dropAddress && !out.DropAddress)   out.DropAddress   = c.dropAddress;
+  if (c.paymentType   && !out.PaymentType)   out.PaymentType   = c.paymentType;
+  if (c.paymentMethod && !out.PaymentMethod) out.PaymentMethod = c.paymentMethod;
+  if (c.source        && !out.BookingSource) out.BookingSource = c.source;
+  if (c.driverId      && !out.driverId)      out.driverId      = c.driverId;
+  if (c.driverName    && !out.drivername)    out.drivername    = c.driverName;
+  if (c.vehicleId     && !out.VehicleId)     out.VehicleId     = c.vehicleId;
+  if (c.routePolyline && !out.RoutePolyline) out.RoutePolyline = c.routePolyline;
+  if (c.route_polyline && !out.RoutePolyline) out.RoutePolyline = c.route_polyline;
+  if (c.fareBreakdown && !out.FareBreakdown) out.FareBreakdown = c.fareBreakdown;
+  if (c.flagFall != null && out.FareBase == null) out.FareBase = c.flagFall;
+  if (c.distanceCharge != null && out.RideCost == null) out.RideCost = c.distanceCharge;
+  if (c.waitingCharge != null && out.WaitingCost == null) out.WaitingCost = c.waitingCharge;
+  if (c.tariffName && !out.TarriffType) out.TarriffType = c.tariffName;
+  if (c.tariffChanges && !out.tariffChanges) out.tariffChanges = c.tariffChanges;
+  if (c.stepTimes && !out.stepTimes) out.stepTimes = c.stepTimes;
+  if (c.gpsRoute && !out.gpsRoute) out.gpsRoute = c.gpsRoute;
+  return out;
+}
+
 async function reconcileClosedJobsFromFirebase(opts) {
   opts = opts || {};
   const verbose = opts.verbose !== false;
@@ -2642,7 +2679,7 @@ async function reconcileClosedJobsFromFirebase(opts) {
   const cids      = _fixsCollectCompanyIds();
   const report    = { startedAt: new Date(startedAt).toISOString(),
                       tenants: cids.length, scanned: 0, hydrated: 0,
-                      perTenant: {}, perPath: { allbookings: 0, completedJobs: 0 } };
+                      perTenant: {}, perPath: { allbookings: 0, completedJobs: 0, closedLogs: 0 } };
 
   // Defines the two canonical write paths the driver app uses, so the
   // reconciler scans EVERY place a completed trip might land.
@@ -2658,6 +2695,7 @@ async function reconcileClosedJobsFromFirebase(opts) {
         return Object.assign({}, b, { Id: numId, companyId: String(cid) });
     } },
     { name: 'completedJobs', normalize: _fixsNormalizeCompletedJob },
+    { name: 'closedLogs', normalize: _fixsNormalizeClosedLog, firebasePath: 'closedJobs' },
   ];
 
   try {
@@ -2668,7 +2706,7 @@ async function reconcileClosedJobsFromFirebase(opts) {
         const pInfo = _paths[pi];
         let bookings = null;
         try {
-          bookings = await firebaseDbGet(pInfo.name + '/' + cid, tok);
+          bookings = await firebaseDbGet((pInfo.firebasePath || pInfo.name) + '/' + cid, tok);
         } catch (e) {
           if (verbose) console.log(`[§FIX-S/reconciler] ${pInfo.name}/${cid} read failed: ${(e && e.message) || e}`);
           continue;
@@ -2682,7 +2720,7 @@ async function reconcileClosedJobsFromFirebase(opts) {
           report.scanned++;
           report.perTenant[cid].scanned++;
           const status = String(raw.BookingStatus || raw.bookingStatus || raw.status || '').toLowerCase();
-          if (status !== 'completed' && status !== 'cancelled') continue;
+          if (status !== 'completed' && status !== 'cancelled' && status !== 'closed' && status !== 'no show' && status !== 'noshow') continue;
           const tripMs = _fixsTripTimestampMs(raw);
           if (!tripMs || tripMs < cutoffMs) continue;
           const rec = pInfo.normalize(raw, cid, bid);

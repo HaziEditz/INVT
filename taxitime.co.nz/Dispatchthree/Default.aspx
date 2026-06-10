@@ -1089,7 +1089,7 @@
                                 <script>
                                     $(document).ready(function() {
                                         var _tz = window._companyTZ || 'Pacific/Auckland';
-                                        $('#DateFrom').val(new Date(Date.now() - 7 * 86400000).toLocaleDateString('en-CA', { timeZone: _tz }));
+                                        $('#DateFrom').val(new Date().toLocaleDateString('en-CA', { timeZone: _tz }));
                                     });
                                 </script>
                             </div>
@@ -21784,8 +21784,9 @@ $(document).ready(function() {
                             closedJobIdMap.push($res["dt1"][$i].Id);
                             $action =  "<span style='cursor:pointer;'><i class='fa fa-search txt-theme'></i></span>";
                             datas.push($action);
-                            $refresh = " <span><i class='fa fa-refresh txt-theme' onclick='event.stopPropagation(); RefreshJob(" + $res["dt1"][$i].Id + ")'></i></span>";
-                            datas.push($refresh);
+                            var _jid = $res["dt1"][$i].Id;
+                            var _pdfBtn = "<span title='Export PDF' style='cursor:pointer;color:#c0392b;' onclick='event.stopPropagation(); ShowJobPopup(" + _jid + "); setTimeout(function(){ if(typeof GeneratePDF===\"function\") GeneratePDF(); }, 1500);'><i class='fa fa-file-pdf-o'></i></span>";
+                            datas.push(_pdfBtn);
                             datas.push("<span>"+ _bwFmtDt($res["dt1"][$i].BookingDateTime || '')+"</span>");
                             datas.push("<span>"+ _bwFmtDt($res["dt1"][$i].JobCompleteTime || '')+"</span>");
                             var _pick = $res["dt1"][$i].PickAddress || '';
@@ -21840,7 +21841,7 @@ $(document).ready(function() {
                             data: datasetx,
                             columns: [
                                 { title: "Details" },
-                                { title: "Refresh" },
+                                { title: "PDF" },
                                 { title: "Filed" },
                                 { title: "Closed" },
                                 { title: "Pick up" },
@@ -22932,10 +22933,16 @@ $(document).ready(function() {
                             if (typeof db !== 'undefined' && _cid) {
                                 Promise.all([
                                     db.ref('completedJobs/' + _cid + '/' + _jobKey).once('value'),
+                                    db.ref('closedJobs/' + _cid).orderByChild('bookingId').equalTo(String(_jobKey)).limitToFirst(1).once('value'),
                                     db.ref('tmTripStatus/'  + _cid + '/' + _jobKey).once('value')
                                 ]).then(function(snaps) {
                                     var fbJob    = snaps[0].exists() ? snaps[0].val() : null;
-                                    var fbStatus = snaps[1].exists() ? (typeof snaps[1].val() === 'object' ? snaps[1].val().status : snaps[1].val()) : null;
+                                    var fbClosed = null;
+                                    if (snaps[1].exists()) { snaps[1].forEach(function(ch) { fbClosed = ch.val(); return true; }); }
+                                    if (fbClosed) {
+                                        fbJob = fbJob ? Object.assign({}, fbClosed, fbJob) : fbClosed;
+                                    }
+                                    var fbStatus = snaps[2].exists() ? (typeof snaps[2].val() === 'object' ? snaps[2].val().status : snaps[2].val()) : null;
                                     if (fbStatus) {
                                         _fillTmFields(fbJob || {}, fbStatus);
                                     } else if (fbJob && (fbJob.paymentType === 'total_mobility' || fbJob.PaymentType === 'total_mobility')) {
@@ -22957,6 +22964,13 @@ $(document).ready(function() {
                                         if (!fb.DropAddress  && fb.dropAddress)      fb.DropAddress   = fb.dropAddress;
                                         if (!fb.RoutePolyline&& fb.route_polyline)   fb.RoutePolyline = fb.route_polyline;
                                         if (!fb.RoutePolyline&& fb.routePolyline)    fb.RoutePolyline = fb.routePolyline;
+                                        if (!fb.FareBase     && fb.flagFall != null)  fb.FareBase     = fb.flagFall;
+                                        if (!fb.RideCost     && fb.distanceCharge != null) fb.RideCost = fb.distanceCharge;
+                                        if (!fb.WaitingCost  && fb.waitingCharge != null) fb.WaitingCost = fb.waitingCharge;
+                                        if (!fb.FareBreakdown&& fb.fareBreakdown)    fb.FareBreakdown = fb.fareBreakdown;
+                                        if (!fb.tariffChanges&& fb.tariffChanges)    fb.tariffChanges = fb.tariffChanges;
+                                        if (!fb.stepTimes    && fb.stepTimes)        fb.stepTimes    = fb.stepTimes;
+                                        if (!fb.gpsRoute     && fb.gpsRoute)         fb.gpsRoute     = fb.gpsRoute;
                                         // Fare component aliases (driver-app offline sync uses FareBase/FareTime)
                                         if (!fb.RideCost     && fb.FareBase != null)  fb.RideCost     = fb.FareBase;
                                         if (!fb.WaitingCost  && fb.FareTime != null)  fb.WaitingCost  = fb.FareTime;
