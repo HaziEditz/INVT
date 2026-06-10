@@ -1,5 +1,4 @@
 import { statusColor, type Driver } from '@/types/driver';
-import { Badge } from '@/components/shared/Badge';
 import { useUiStore } from '@/store/uiStore';
 
 interface DriverRowProps {
@@ -12,25 +11,25 @@ export function DriverRow({ driver }: DriverRowProps) {
 
   return (
     <tr
-      className="border-b border-bw-border/50 hover:bg-bw-card/50 cursor-pointer text-[11px]"
+      className="border-b border-bw-border/50 hover:bg-bw-card/50 cursor-pointer text-[9px] leading-tight"
       onClick={() => openModalWith('driverDetail', { driverId: driver.driverId })}
     >
-      <td className="py-1.5 px-1 truncate max-w-[70px]">{driver.zoneName || '—'}</td>
-      <td className="py-1.5 px-1">
-        <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: color }} />
-        {driver.driverName}
+      <td className="py-1 px-0.5 truncate" title={driver.zoneName || undefined}>{driver.zoneName || '—'}</td>
+      <td className="py-1 px-0.5 truncate" title={driver.driverName}>
+        <span className="inline-block w-1.5 h-1.5 rounded-full mr-0.5 align-middle" style={{ background: color }} />
+        <span className="truncate">{driver.driverName}</span>
       </td>
-      <td className="py-1.5 px-1">
-        {(driver.services || ['Taxi']).map((s) => (
-          <Badge key={s} className="mr-0.5">{s}</Badge>
-        ))}
+      <td className="py-1 px-0.5 truncate" title={(driver.services || ['Taxi']).join(', ')}>
+        {(driver.services || ['Taxi']).map((s) => s.slice(0, 1)).join('')}
       </td>
-      <td className="py-1.5 px-1 font-semibold" style={{ color }}>{driver.status}</td>
-      <td className="py-1.5 px-1 text-center">{driver.jobCount ?? 0}</td>
-      <td className="py-1.5 px-1 truncate max-w-[80px]">{driver.passengerName || '—'}</td>
-      <td className="py-1.5 px-1">{driver.passengerPhone || '—'}</td>
-      <td className="py-1.5 px-1 truncate max-w-[90px]">{driver.jobPickup || '—'}</td>
-      <td className="py-1.5 px-1 truncate max-w-[90px]">{driver.jobDropoff || '—'}</td>
+      <td className="py-1 px-0.5 font-semibold truncate" style={{ color }} title={driver.status}>
+        {driver.status}
+      </td>
+      <td className="py-1 px-0.5 text-center">{driver.jobCount ?? 0}</td>
+      <td className="py-1 px-0.5 truncate" title={driver.passengerName || undefined}>{driver.passengerName || '—'}</td>
+      <td className="py-1 px-0.5 truncate font-mono" title={driver.passengerPhone || undefined}>{driver.passengerPhone || '—'}</td>
+      <td className="py-1 px-0.5 truncate" title={driver.jobPickup || undefined}>{driver.jobPickup || '—'}</td>
+      <td className="py-1 px-0.5 truncate" title={driver.jobDropoff || undefined}>{driver.jobDropoff || '—'}</td>
     </tr>
   );
 }

@@ -38,7 +38,7 @@ export function loadGoogleMaps(apiKey: string): Promise<void> {
     }
     const s = document.createElement('script');
     s.id = id;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,drawing,geometry`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,drawing,geometry&loading=async`;
     s.async = true;
     s.onload = () => resolve();
     s.onerror = () => reject(new Error('Google Maps failed to load'));

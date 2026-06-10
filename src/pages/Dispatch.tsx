@@ -25,8 +25,7 @@ import { useDrivers } from '@/hooks/useDrivers';
 import { useSession, useCompanySettings, useRealtimeNotifications } from '@/hooks/useSession';
 import { sessionMe, accountStatus } from '@/lib/jobFlow';
 import { useUiStore } from '@/store/uiStore';
-
-const DEFAULT_MAP_CENTER = { lat: -46.4132, lng: 168.3538 };
+import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 
 export function DispatchPage() {
   const navigate = useNavigate();
@@ -70,10 +69,10 @@ export function DispatchPage() {
 
   const mapCenter = useMemo(() => {
     if (settings?.city) {
-      return { lat: settings.city.lat, lng: settings.city.lng };
+      return normalizeMapCenter(settings.city.lat, settings.city.lng);
     }
     return DEFAULT_MAP_CENTER;
-  }, [settings?.city?.lat, settings?.city?.lng]);
+  }, [settings?.city?.lat, settings?.city?.lng, settings?.city?.name]);
 
   if (!authChecked || !ready) {
     return (
@@ -102,7 +101,7 @@ export function DispatchPage() {
         <main className="flex-1 flex flex-col min-w-0 min-h-0">
           <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} />
         </main>
-        <aside className="w-[320px] shrink-0 border-l border-bw-border flex flex-col min-h-0">
+        <aside className="w-[460px] shrink-0 border-l border-bw-border flex flex-col min-h-0">
           <div className="flex-1 min-h-0 overflow-hidden">
             <ZoneBoard />
           </div>

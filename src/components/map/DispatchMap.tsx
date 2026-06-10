@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadGoogleMaps } from '@/lib/geocoder';
+import { normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
 import { Button } from '@/components/shared/Button';
+import { Spinner } from '@/components/shared/Spinner';
 
 interface DispatchMapProps {
   mapsKey: string;
@@ -13,11 +15,20 @@ interface DispatchMapProps {
   companyId: string;
 }
 
+const MAP_STYLES: google.maps.MapTypeStyle[] = [
+  { elementType: 'geometry', stylers: [{ color: '#1a1d27' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2d3e' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f1117' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+];
+
 export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const gMapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const drivers = useDriverStore((s) => s.drivers);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const jobs = useJobStore((s) => s.jobs);
@@ -26,6 +37,11 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
   const setMapZones = useUiStore((s) => s.setMapZones);
   const openModalWith = useUiStore((s) => s.openModalWith);
+
+  const safeCenter = useMemo(
+    () => normalizeMapCenter(center.lat, center.lng),
+    [center.lat, center.lng]
+  );
 
   const counts = useMemo(
     () => ({
@@ -43,25 +59,36 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
   useEffect(() => {
     if (!mapsKey || !mapRef.current) return;
     let cancelled = false;
+    setMapReady(false);
     loadGoogleMaps(mapsKey).then(() => {
-      if (cancelled || gMapRef.current || !mapRef.current) return;
-      gMapRef.current = new google.maps.Map(mapRef.current, {
-        center,
-        zoom: 13,
-        disableDefaultUI: true,
-        styles: [
-          { elementType: 'geometry', stylers: [{ color: '#1a1d27' }] },
-          { elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
-          { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2d3e' }] },
-        ],
-      });
-      trafficRef.current = new google.maps.TrafficLayer();
-      if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
+      if (cancelled || !mapRef.current) return;
+      if (!gMapRef.current) {
+        gMapRef.current = new google.maps.Map(mapRef.current, {
+          center: safeCenter,
+          zoom: 13,
+          disableDefaultUI: true,
+          backgroundColor: '#1a1d27',
+          styles: MAP_STYLES,
+        });
+        trafficRef.current = new google.maps.TrafficLayer();
+        if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
+      }
+      if (!cancelled) setMapReady(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [mapsKey, center.lat, center.lng, mapTraffic]);
+  }, [mapsKey, mapTraffic]);
+
+  useEffect(() => {
+    if (!gMapRef.current) return;
+    gMapRef.current.setCenter(safeCenter);
+  }, [safeCenter.lat, safeCenter.lng]);
+
+  useEffect(() => {
+    if (!gMapRef.current || !trafficRef.current) return;
+    trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
+  }, [mapTraffic, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current) return;
@@ -86,7 +113,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
       m.addListener('click', () => openModalWith('driverDetail', { driverId: d.driverId }));
       markersRef.current.push(m);
     }
-  }, [drivers, openModalWith]);
+  }, [drivers, openModalWith, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current || !selectedJob) return;
@@ -98,7 +125,7 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
         icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#22c55e', fillOpacity: 1, strokeWeight: 0 },
       });
     }
-  }, [selectedJob]);
+  }, [selectedJob, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId) return;
@@ -135,13 +162,18 @@ export function DispatchMap({ mapsKey, center, companyId }: DispatchMapProps) {
       unsub?.();
       polys.forEach((p) => p.setMap(null));
     };
-  }, [mapZones, companyId]);
+  }, [mapZones, companyId, mapReady]);
 
   return (
-    <div className="relative flex-1 min-h-0">
-      <div ref={mapRef} className="absolute inset-0" />
+    <div className="relative flex-1 min-h-0 bg-[#1a1d27]">
+      <div ref={mapRef} className="absolute inset-0 bg-[#1a1d27]" />
+      {!mapReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]">
+          <Spinner className="w-8 h-8 text-bw-muted" />
+        </div>
+      )}
       <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
-        <Button variant="ghost" onClick={() => gMapRef.current?.setCenter(center)}>Home</Button>
+        <Button variant="ghost" onClick={() => gMapRef.current?.setCenter(safeCenter)}>Home</Button>
         <Button variant="ghost" onClick={() => setMapTraffic(!mapTraffic)}>
           Traffic {mapTraffic ? 'On' : 'Off'}
         </Button>

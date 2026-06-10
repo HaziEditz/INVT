@@ -30199,7 +30199,7 @@ function loadGoogleMaps(apiKey) {
     }
     const s2 = document.createElement("script");
     s2.id = id;
-    s2.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,drawing,geometry`;
+    s2.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,drawing,geometry&loading=async`;
     s2.async = true;
     s2.onload = () => resolve();
     s2.onerror = () => reject(new Error("Google Maps failed to load"));
@@ -37896,7 +37896,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Bp1Z6KGA.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B2wAUW7-.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -38857,21 +38857,21 @@ function DriverRow({ driver }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "tr",
     {
-      className: "border-b border-bw-border/50 hover:bg-bw-card/50 cursor-pointer text-[11px]",
+      className: "border-b border-bw-border/50 hover:bg-bw-card/50 cursor-pointer text-[9px] leading-tight",
       onClick: () => openModalWith("driverDetail", { driverId: driver.driverId }),
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1 truncate max-w-[70px]", children: driver.zoneName || "—" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "py-1.5 px-1", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "inline-block w-2 h-2 rounded-full mr-1", style: { background: color } }),
-          driver.driverName
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.zoneName || void 0, children: driver.zoneName || "—" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "py-1 px-0.5 truncate", title: driver.driverName, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "inline-block w-1.5 h-1.5 rounded-full mr-0.5 align-middle", style: { background: color } }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: driver.driverName })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1", children: (driver.services || ["Taxi"]).map((s2) => /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { className: "mr-0.5", children: s2 }, s2)) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1 font-semibold", style: { color }, children: driver.status }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1 text-center", children: driver.jobCount ?? 0 }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1 truncate max-w-[80px]", children: driver.passengerName || "—" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1", children: driver.passengerPhone || "—" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1 truncate max-w-[90px]", children: driver.jobPickup || "—" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1.5 px-1 truncate max-w-[90px]", children: driver.jobDropoff || "—" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: (driver.services || ["Taxi"]).join(", "), children: (driver.services || ["Taxi"]).map((s2) => s2.slice(0, 1)).join("") }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 font-semibold truncate", style: { color }, title: driver.status, children: driver.status }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 text-center", children: driver.jobCount ?? 0 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.passengerName || void 0, children: driver.passengerName || "—" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate font-mono", title: driver.passengerPhone || void 0, children: driver.passengerPhone || "—" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.jobPickup || void 0, children: driver.jobPickup || "—" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.jobDropoff || void 0, children: driver.jobDropoff || "—" })
       ]
     }
   );
@@ -38909,17 +38909,17 @@ function ZoneBoard() {
       },
       f2
     )) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "w-full", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "sticky top-0 bg-bw-surface text-[9px] text-bw-muted uppercase", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Zone" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Driver" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Svc" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Status" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "p-1", children: "Jobs" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Pax" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Phone" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Pickup" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1", children: "Drop" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "w-full table-fixed text-[9px] leading-tight", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "sticky top-0 bg-bw-surface text-[8px] text-bw-muted uppercase", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[11%]", children: "Zone" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[14%]", children: "Driver" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[8%]", children: "Svc" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[10%]", children: "Status" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "p-0.5 w-[6%]", children: "Jobs" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[10%]", children: "Pax" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[11%]", children: "Phone" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[15%]", children: "Pickup" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-0.5 w-[15%]", children: "Drop" })
       ] }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: filteredDrivers().map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsx(DriverRow, { driver: d2 }, d2.vehicleId)) })
     ] }) })
@@ -39054,11 +39054,46 @@ function DriverDetailModal() {
     }
   );
 }
+const DEFAULT_MAP_CENTER = { lat: -46.4132, lng: 168.3538 };
+const DEFAULT_MAP_CITY = {
+  ...DEFAULT_MAP_CENTER,
+  name: "Invercargill"
+};
+function normalizeMapCenter(lat, lng) {
+  const la = typeof lat === "number" ? lat : Number(lat);
+  const ln2 = typeof lng === "number" ? lng : Number(lng);
+  if (Number.isFinite(la) && Number.isFinite(ln2) && la >= -90 && la <= 90 && ln2 >= -180 && ln2 <= 180) {
+    return { lat: la, lng: ln2 };
+  }
+  return { lat: DEFAULT_MAP_CENTER.lat, lng: DEFAULT_MAP_CENTER.lng };
+}
+function parseCityFromFirebase(raw) {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const c2 = raw;
+    const coords = normalizeMapCenter(c2.lat, c2.lng);
+    return {
+      ...coords,
+      name: String(c2.name ?? c2.city ?? DEFAULT_MAP_CITY.name)
+    };
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return { ...DEFAULT_MAP_CENTER, name: raw.trim() };
+  }
+  return { ...DEFAULT_MAP_CITY };
+}
+const MAP_STYLES = [
+  { elementType: "geometry", stylers: [{ color: "#1a1d27" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#64748b" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a2d3e" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f1117" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] }
+];
 function DispatchMap({ mapsKey, center, companyId }) {
   const mapRef = reactExports.useRef(null);
   const gMapRef = reactExports.useRef(null);
   const markersRef = reactExports.useRef([]);
   const trafficRef = reactExports.useRef(null);
+  const [mapReady, setMapReady] = reactExports.useState(false);
   const drivers = useDriverStore((s2) => s2.drivers);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const jobs = useJobStore((s2) => s2.jobs);
@@ -39067,6 +39102,10 @@ function DispatchMap({ mapsKey, center, companyId }) {
   const setMapTraffic = useUiStore((s2) => s2.setMapTraffic);
   const setMapZones = useUiStore((s2) => s2.setMapZones);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
+  const safeCenter = reactExports.useMemo(
+    () => normalizeMapCenter(center.lat, center.lng),
+    [center.lat, center.lng]
+  );
   const counts = reactExports.useMemo(
     () => ({
       all: drivers.length,
@@ -39081,25 +39120,34 @@ function DispatchMap({ mapsKey, center, companyId }) {
   reactExports.useEffect(() => {
     if (!mapsKey || !mapRef.current) return;
     let cancelled = false;
+    setMapReady(false);
     loadGoogleMaps(mapsKey).then(() => {
-      if (cancelled || gMapRef.current || !mapRef.current) return;
-      gMapRef.current = new google.maps.Map(mapRef.current, {
-        center,
-        zoom: 13,
-        disableDefaultUI: true,
-        styles: [
-          { elementType: "geometry", stylers: [{ color: "#1a1d27" }] },
-          { elementType: "labels.text.fill", stylers: [{ color: "#64748b" }] },
-          { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a2d3e" }] }
-        ]
-      });
-      trafficRef.current = new google.maps.TrafficLayer();
-      if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
+      if (cancelled || !mapRef.current) return;
+      if (!gMapRef.current) {
+        gMapRef.current = new google.maps.Map(mapRef.current, {
+          center: safeCenter,
+          zoom: 13,
+          disableDefaultUI: true,
+          backgroundColor: "#1a1d27",
+          styles: MAP_STYLES
+        });
+        trafficRef.current = new google.maps.TrafficLayer();
+        if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
+      }
+      if (!cancelled) setMapReady(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [mapsKey, center.lat, center.lng, mapTraffic]);
+  }, [mapsKey, mapTraffic]);
+  reactExports.useEffect(() => {
+    if (!gMapRef.current) return;
+    gMapRef.current.setCenter(safeCenter);
+  }, [safeCenter.lat, safeCenter.lng]);
+  reactExports.useEffect(() => {
+    if (!gMapRef.current || !trafficRef.current) return;
+    trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
+  }, [mapTraffic, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current) return;
     markersRef.current.forEach((m2) => m2.setMap(null));
@@ -39123,7 +39171,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
       m2.addListener("click", () => openModalWith("driverDetail", { driverId: d2.driverId }));
       markersRef.current.push(m2);
     }
-  }, [drivers, openModalWith]);
+  }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !selectedJob) return;
     const pick = parseLatLng(selectedJob.pickLatLng);
@@ -39134,7 +39182,7 @@ function DispatchMap({ mapsKey, center, companyId }) {
         icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#22c55e", fillOpacity: 1, strokeWeight: 0 }
       });
     }
-  }, [selectedJob]);
+  }, [selectedJob, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId) return;
     let cancelled = false;
@@ -39172,13 +39220,14 @@ function DispatchMap({ mapsKey, center, companyId }) {
       unsub == null ? void 0 : unsub();
       polys.forEach((p2) => p2.setMap(null));
     };
-  }, [mapZones, companyId]);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0" }),
+  }, [mapZones, companyId, mapReady]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bg-[#1a1d27]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bg-[#1a1d27]" }),
+    !mapReady && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-[#1a1d27] z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute top-2 left-2 flex flex-col gap-1 z-10", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => {
         var _a2;
-        return (_a2 = gMapRef.current) == null ? void 0 : _a2.setCenter(center);
+        return (_a2 = gMapRef.current) == null ? void 0 : _a2.setCenter(safeCenter);
       }, children: "Home" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "ghost", onClick: () => setMapTraffic(!mapTraffic), children: [
         "Traffic ",
@@ -39559,7 +39608,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CEFvxvW9.js");
+        const { writeActiveDispatcher } = await import("./notifications-Btb6zLto.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -39586,7 +39635,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CEFvxvW9.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Btb6zLto.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -39613,7 +39662,7 @@ function useCompanySettings(companyId) {
         companyId,
         companyName: String(val.companyName ?? val.name ?? companyId),
         timezone: String(val.timezone ?? "Pacific/Auckland"),
-        city: val.city ? { lat: Number(val.city.lat), lng: Number(val.city.lng), name: val.city.name } : { lat: -46.4132, lng: 168.3538, name: "Invercargill" },
+        city: parseCityFromFirebase(val.city),
         features: {
           ...DEFAULT_FEATURES,
           tmEnabled: val.tmEnabled !== false,
@@ -39685,9 +39734,8 @@ function useRealtimeNotifications(companyId) {
     };
   }, [companyId, addToast, setEmergency]);
 }
-const DEFAULT_MAP_CENTER = { lat: -46.4132, lng: 168.3538 };
 function DispatchPage() {
-  var _a2, _b2;
+  var _a2, _b2, _c;
   const navigate = useNavigate();
   const { ready, error: error2, mapsKey } = useFirebaseInit();
   const [companyId, setCompanyId] = reactExports.useState("");
@@ -39722,10 +39770,10 @@ function DispatchPage() {
   }, [dispatcherName]);
   const mapCenter = reactExports.useMemo(() => {
     if (settings == null ? void 0 : settings.city) {
-      return { lat: settings.city.lat, lng: settings.city.lng };
+      return normalizeMapCenter(settings.city.lat, settings.city.lng);
     }
     return DEFAULT_MAP_CENTER;
-  }, [(_a2 = settings == null ? void 0 : settings.city) == null ? void 0 : _a2.lat, (_b2 = settings == null ? void 0 : settings.city) == null ? void 0 : _b2.lng]);
+  }, [(_a2 = settings == null ? void 0 : settings.city) == null ? void 0 : _a2.lat, (_b2 = settings == null ? void 0 : settings.city) == null ? void 0 : _b2.lng, (_c = settings == null ? void 0 : settings.city) == null ? void 0 : _c.name]);
   if (!authChecked || !ready) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center bg-bw-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8" }) });
   }
@@ -39745,7 +39793,7 @@ function DispatchPage() {
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-1 min-h-0", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "w-[380px] shrink-0 border-r border-bw-border min-h-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "w-[320px] shrink-0 border-l border-bw-border flex flex-col min-h-0", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "w-[460px] shrink-0 border-l border-bw-border flex flex-col min-h-0", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 min-h-0 overflow-hidden", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneBoard, {}) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneQueuePanel, { companyId })
       ] })
@@ -39806,4 +39854,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DzX_zLMt.js.map
+//# sourceMappingURL=index-YNrZDt-m.js.map

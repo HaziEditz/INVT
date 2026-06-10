@@ -45,18 +45,18 @@ export function ZoneBoard() {
         ))}
       </div>
       <div className="flex-1 overflow-auto">
-        <table className="w-full">
-          <thead className="sticky top-0 bg-bw-surface text-[9px] text-bw-muted uppercase">
+        <table className="w-full table-fixed text-[9px] leading-tight">
+          <thead className="sticky top-0 bg-bw-surface text-[8px] text-bw-muted uppercase">
             <tr>
-              <th className="text-left p-1">Zone</th>
-              <th className="text-left p-1">Driver</th>
-              <th className="text-left p-1">Svc</th>
-              <th className="text-left p-1">Status</th>
-              <th className="p-1">Jobs</th>
-              <th className="text-left p-1">Pax</th>
-              <th className="text-left p-1">Phone</th>
-              <th className="text-left p-1">Pickup</th>
-              <th className="text-left p-1">Drop</th>
+              <th className="text-left p-0.5 w-[11%]">Zone</th>
+              <th className="text-left p-0.5 w-[14%]">Driver</th>
+              <th className="text-left p-0.5 w-[8%]">Svc</th>
+              <th className="text-left p-0.5 w-[10%]">Status</th>
+              <th className="p-0.5 w-[6%]">Jobs</th>
+              <th className="text-left p-0.5 w-[10%]">Pax</th>
+              <th className="text-left p-0.5 w-[11%]">Phone</th>
+              <th className="text-left p-0.5 w-[15%]">Pickup</th>
+              <th className="text-left p-0.5 w-[15%]">Drop</th>
             </tr>
           </thead>
           <tbody>

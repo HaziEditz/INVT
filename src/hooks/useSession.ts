@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { getDb, ref, onValue } from '@/lib/firebase';
+import { parseCityFromFirebase } from '@/lib/mapCenter';
 import { useUiStore } from '@/store/uiStore';
 import type { CompanySettings } from '@/types/booking';
 
@@ -68,9 +69,7 @@ export function useCompanySettings(companyId: string | null) {
         companyId,
         companyName: String(val.companyName ?? val.name ?? companyId),
         timezone: String(val.timezone ?? 'Pacific/Auckland'),
-        city: val.city
-          ? { lat: Number(val.city.lat), lng: Number(val.city.lng), name: val.city.name }
-          : { lat: -46.4132, lng: 168.3538, name: 'Invercargill' },
+        city: parseCityFromFirebase(val.city),
         features: {
           ...DEFAULT_FEATURES,
           tmEnabled: val.tmEnabled !== false,
