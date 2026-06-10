@@ -28138,10 +28138,10 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
   const initials = dispatcherInitials(dispatcherName);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     billingBanner && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bg-amber-900/40 border-b border-amber-700 text-amber-200 text-xs px-3 py-1 text-center", children: billingBanner }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "h-11 shrink-0 flex items-center gap-3 px-3 bg-bw-header border-b border-bw-border shadow-sm text-sm", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "h-11 shrink-0 flex items-center gap-3 px-3 bg-[#0f1420] border-b border-[#2d3148] shadow-sm text-sm text-[#e8eaf0]", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 shrink-0", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-8 h-8 rounded-lg bg-bw-primary/20 border border-bw-primary/40 flex items-center justify-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Car, { size: 16, className: "text-bw-primary" }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold tracking-wide text-bw-muted hidden sm:inline", children: "BookaWaka" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-8 h-8 rounded-lg bg-[#5b7cfa]/20 border border-[#5b7cfa]/40 flex items-center justify-center", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Car, { size: 16, className: "text-[#5b7cfa]" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-bold tracking-wide text-[#8892a4] hidden sm:inline", children: "BookaWaka" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Button, { variant: "gold", onClick: () => openModalWith("createJob"), children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 }),
@@ -28150,7 +28150,7 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
       /* @__PURE__ */ jsxRuntimeExports.jsxs(
         "button",
         {
-          className: "text-[10px] font-mono px-2 py-0.5 rounded bg-bw-card border border-bw-border text-bw-muted hover:text-bw-text flex items-center gap-1",
+          className: "text-[10px] font-mono px-2 py-0.5 rounded bg-[#1e2235] border border-[#2d3148] text-[#8892a4] hover:text-[#e8eaf0] flex items-center gap-1",
           onClick: () => navigator.clipboard.writeText(companyId),
           title: "Copy Company ID",
           children: [
@@ -28160,15 +28160,15 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
           ]
         }
       ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-text truncate max-w-[160px] text-sm", children: companyName }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-[#e8eaf0] truncate max-w-[160px] text-sm", children: companyName }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-2 ml-1", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-7 h-7 rounded-full bg-bw-primary/30 border border-bw-primary/50 flex items-center justify-center text-[10px] font-bold text-bw-primary", children: initials }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-7 h-7 rounded-full bg-[#5b7cfa]/30 border border-[#5b7cfa]/50 flex items-center justify-center text-[10px] font-bold text-[#5b7cfa]", children: initials }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "input",
           {
             value: dispatcherName,
             onChange: (e) => onNameChange(e.target.value),
-            className: "bg-transparent border-b border-bw-border text-xs w-28 focus:outline-none focus:border-bw-primary text-bw-text",
+            className: "bg-transparent border-b border-[#2d3148] text-xs w-28 focus:outline-none focus:border-[#5b7cfa] text-[#e8eaf0]",
             "aria-label": "Dispatcher name"
           }
         )
@@ -28183,13 +28183,13 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
           },
           `${n2.id}-${n2.label}-${i2}`
         )),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "bw-nav-link text-bw-danger px-2.5", onClick: logoutSession, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "bw-nav-link text-red-400 px-2.5", onClick: logoutSession, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(LogOut, { size: 12, className: "inline mr-0.5" }),
           " Log Out"
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "text-bw-muted hover:text-bw-text p-1.5 rounded-md hover:bg-bw-card", onClick: () => setTheme(theme === "dark" ? "light" : "dark"), children: theme === "dark" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Sun, { size: 16 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Moon, { size: 16 }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "relative text-bw-muted hover:text-bw-text p-1.5 rounded-md hover:bg-bw-card", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "text-[#8892a4] hover:text-[#e8eaf0] p-1.5 rounded-md hover:bg-[#1e2235]", onClick: () => setTheme(theme === "dark" ? "light" : "dark"), children: theme === "dark" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Sun, { size: 16 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Moon, { size: 16 }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "relative text-[#8892a4] hover:text-[#e8eaf0] p-1.5 rounded-md hover:bg-[#1e2235]", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Bell, { size: 16 }),
         notificationCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "absolute -top-0.5 -right-0.5 bg-bw-danger text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center", children: notificationCount })
       ] })
@@ -28342,25 +28342,25 @@ function StatusBar() {
   const pending = jobs.filter((j2) => j2.status === "Pending" || j2.status === "No One").length;
   const active = jobs.filter((j2) => ["Active", "OnTrip", "Picking"].includes(j2.status)).length;
   const nzTime = nzClockString(now);
-  const stat = (label, value, color) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: color ? color : "text-bw-muted", children: [
+  const stat = (label, value, color) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: color ? color : "text-[#8892a4]", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "opacity-70", children: [
       label,
       ":"
     ] }),
     " ",
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-text", children: value })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-[#e8eaf0]", children: value })
   ] });
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "h-[32px] shrink-0 flex items-center justify-between px-4 bg-bw-surface border-t border-bw-border text-[10px] uppercase tracking-wide", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-primary", children: "BookaWaka Dispatch" }),
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "h-[32px] shrink-0 flex items-center justify-between px-4 bg-[#1a1d2e] border-t border-[#2d3148] text-[10px] uppercase tracking-wide text-[#e8eaf0]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-[#5b7cfa]", children: "BookaWaka Dispatch" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-5 items-center", children: [
       stat("Drivers", counts.all),
       stat("Free", counts.free, "text-status-available"),
       stat("Picking", counts.picking, "text-status-picking"),
       stat("Busy", counts.busy, "text-status-busy"),
-      stat("Pending", pending, "text-bw-warning"),
-      stat("Active", active, "text-bw-primary")
+      stat("Pending", pending, "text-amber-400"),
+      stat("Active", active, "text-[#5b7cfa]")
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-bw-text tabular-nums", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-[#e8eaf0] tabular-nums", children: [
       "NZ ",
       nzTime
     ] })
@@ -28403,7 +28403,7 @@ function ResizeHandle({ onDrag, onDoubleClick, className }) {
       onMouseDown,
       onDoubleClick,
       className: cn(
-        "w-1 shrink-0 cursor-col-resize bg-bw-border/60 hover:bg-bw-primary/50 active:bg-bw-primary transition-colors z-20",
+        "w-1 shrink-0 cursor-col-resize bg-[#2d3148]/60 hover:bg-[#5b7cfa]/50 active:bg-[#5b7cfa] transition-colors z-20",
         className
       ),
       title: "Drag to resize · double-click to reset"
@@ -28465,6 +28465,7 @@ function usePanelSizes(containerWidth) {
   }, []);
   return { sizes, resizeLeft, resizeRight, reset };
 }
+const panelClass = "shrink-0 min-h-0 overflow-hidden bg-[#1a1d2e] text-[#e8eaf0] border-[#2d3148]";
 function ResizableDispatchLayout({ left, center, right }) {
   const containerRef = reactExports.useRef(null);
   const [containerWidth, setContainerWidth] = reactExports.useState(1200);
@@ -28485,33 +28486,30 @@ function ResizableDispatchLayout({ left, center, right }) {
     setContainerWidth(el.clientWidth);
     return () => ro.disconnect();
   }, []);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: "flex flex-1 min-h-0 relative", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: "flex flex-1 min-h-0 relative bg-[#13151f]", children: [
     showMap ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: { width: sizes.left }, className: "shrink-0 min-h-0 overflow-hidden border-r border-bw-border", children: left }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: { width: sizes.left }, className: `${panelClass} border-r`, children: left }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeLeft, onDoubleClick: reset }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0", children: center }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0 bg-[#13151f]", children: center }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeRight, onDoubleClick: reset }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "aside",
         {
           style: { width: sizes.right },
-          className: "shrink-0 flex flex-col min-h-0 border-l border-bw-border overflow-hidden",
+          className: `${panelClass} flex flex-col border-l`,
           children: right
         }
       )
     ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "flex-1 min-h-0 overflow-hidden border-r border-bw-border", children: left }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "flex-1 min-h-0 overflow-hidden flex flex-col", children: right })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: `flex-1 ${panelClass} border-r`, children: left }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: `flex-1 ${panelClass} flex flex-col`, children: right })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
         type: "button",
         onClick: () => setMapVisible(!showMap),
-        className: cn(
-          "absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide",
-          "bg-bw-surface/95 border border-bw-border shadow-lg hover:border-bw-primary text-bw-muted hover:text-bw-text transition backdrop-blur-sm"
-        ),
+        className: "absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-[#1a1d2e] border border-[#2d3148] shadow-lg hover:border-[#5b7cfa] text-[#8892a4] hover:text-[#e8eaf0] transition",
         children: showMap ? "Hide Map" : "Show Map"
       }
     )
@@ -30361,9 +30359,9 @@ function Tooltip({ label, children, className }) {
   ] });
 }
 function waitBadgeClass(minutes) {
-  if (minutes >= 10) return "bg-bw-danger/20 text-bw-danger border-bw-danger/40";
-  if (minutes >= 5) return "bg-bw-warning/20 text-bw-warning border-bw-warning/40";
-  return "bg-bw-card text-bw-muted border-bw-border";
+  if (minutes >= 10) return "bg-red-500/20 text-red-400 border-red-500/40";
+  if (minutes >= 5) return "bg-amber-500/20 text-amber-400 border-amber-500/40";
+  return "bg-[#1e2235] text-[#8892a4] border-[#2d3148]";
 }
 function JobCard({ job, tab }) {
   const allDrivers = useDriverStore((s2) => s2.drivers);
@@ -30393,19 +30391,19 @@ function JobCard({ job, tab }) {
       addToast({ type: "error", title: "Action failed", message: e instanceof Error ? e.message : "" });
     }
   };
-  const iconBtn = "p-1.5 rounded-md hover:bg-bw-surface border border-transparent hover:border-bw-border transition";
+  const iconBtn = "p-1.5 rounded-md hover:bg-[#1a1d2e] border border-transparent hover:border-[#2d3148] transition";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       className: cn(
-        "rounded-lg p-3 mb-2.5 bg-bw-card border border-bw-border shadow-sm",
-        "hover:shadow-md hover:-translate-y-0.5 hover:bg-bw-cardHover transition-all duration-150 border-l-[4px]",
-        job.urgent && "ring-1 ring-bw-warning/50"
+        "rounded-lg p-3 mb-2.5 bg-[#1e2235] border border-[#2d3148] text-[#e8eaf0] shadow-sm",
+        "hover:shadow-md hover:-translate-y-0.5 hover:bg-[#242840] transition-all duration-150 border-l-[4px]",
+        job.urgent && "ring-1 ring-amber-500/50"
       ),
       style: { borderLeftColor: border },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1.5 mb-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-sm font-bold text-bw-text", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-sm font-bold text-[#e8eaf0]", children: [
             "#",
             job.id
           ] }),
@@ -30413,19 +30411,19 @@ function JobCard({ job, tab }) {
           /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: border, children: job.serviceType.toUpperCase() }),
           job.accountId && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ec4899", children: "ACC" }),
           job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#f59e0b", children: "URGENT" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ml-auto text-[10px] text-bw-muted uppercase", children: job.status })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ml-auto text-[10px] text-[#8892a4] uppercase", children: job.status })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1.5 text-xs mb-2", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 items-start", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 13, className: "text-bw-success shrink-0 mt-0.5" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-text truncate", children: job.pickAddress || "No pickup" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 13, className: "text-emerald-400 shrink-0 mt-0.5" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[#e8eaf0] truncate", children: job.pickAddress || "No pickup" })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 items-start", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 13, className: "text-bw-danger shrink-0 mt-0.5" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted truncate", children: job.dropAddress || "No dropoff" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 13, className: "text-red-400 shrink-0 mt-0.5" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[#8892a4] truncate", children: job.dropAddress || "No dropoff" })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-2 text-[11px] text-bw-muted mb-2 items-center", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-2 text-[11px] text-[#8892a4] mb-2 items-center", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-1", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 11 }),
             job.passengerName || "—"
@@ -30444,7 +30442,7 @@ function JobCard({ job, tab }) {
             " waiting"
           ] })
         ] }),
-        tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] text-bw-warning mb-2", children: [
+        tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] text-amber-400 mb-2", children: [
           "Offer expires ",
           formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
         ] }),
@@ -30455,7 +30453,7 @@ function JobCard({ job, tab }) {
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "select",
               {
-                className: "bg-bw-card border border-bw-border rounded text-xs px-1 py-1 text-bw-text max-w-[100px]",
+                className: "bg-[#1e2235] border border-[#2d3148] rounded text-xs px-1 py-1 text-[#e8eaf0] max-w-[100px]",
                 defaultValue: "",
                 onChange: (e) => {
                   const d2 = drivers.find((x2) => x2.driverId === e.target.value);
@@ -30473,20 +30471,20 @@ function JobCard({ job, tab }) {
               }
             ),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => openModalWith("createJob", { jobId: job.id }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 14 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Offer cancelled"), children: "Cancel Offer" }),
           (tab === "assign" || tab === "active") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-success"), onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 14 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-emerald-400"), onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 14 }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 14 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           tab === "dy" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => run(() => setPending(job), "Pending"), children: "Pending" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-bw-danger"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) }) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => openModalWith("jobDetail", { jobId: job.id }), children: "Details" })
         ] })
@@ -30517,8 +30515,8 @@ function JobTabs() {
       setIndicator({ left: rect.left - parent.left, width: rect.width });
     }
   }, [activeTab]);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-panel border-0", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex border-b border-bw-border bg-bw-surface shrink-0", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bg-[#1a1d2e] text-[#e8eaf0]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex border-b border-[#2d3148] bg-[#1a1d2e] shrink-0", children: [
       TABS.map((t2) => {
         const count = countForTab(t2.id);
         const active = activeTab === t2.id;
@@ -30530,7 +30528,7 @@ function JobTabs() {
             },
             className: cn(
               "flex-1 text-center py-2.5 text-xs font-bold uppercase tracking-wide transition-colors relative",
-              active ? "text-bw-primary" : "text-bw-muted hover:text-bw-text"
+              active ? "text-[#5b7cfa]" : "text-[#8892a4] hover:text-[#e8eaf0]"
             ),
             onClick: () => setActiveTab(t2.id),
             children: [
@@ -30540,7 +30538,7 @@ function JobTabs() {
                 {
                   className: cn(
                     "ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold",
-                    active ? "bg-bw-primary text-white" : "bg-bw-card text-bw-muted border border-bw-border"
+                    active ? "bg-[#5b7cfa] text-white" : "bg-[#1e2235] text-[#8892a4] border border-[#2d3148]"
                   ),
                   children: count
                 }
@@ -30553,12 +30551,12 @@ function JobTabs() {
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "span",
         {
-          className: "absolute bottom-0 h-0.5 bg-bw-primary transition-all duration-200 ease-out rounded-full",
+          className: "absolute bottom-0 h-0.5 bg-[#5b7cfa] transition-all duration-200 ease-out rounded-full",
           style: { left: indicator.left, width: indicator.width }
         }
       )
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2.5", children: jobsForTab(activeTab).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-bw-muted text-sm py-12", children: "No jobs in this tab" }) : jobsForTab(activeTab).map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2.5", children: jobsForTab(activeTab).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-[#8892a4] text-sm py-12", children: "No jobs in this tab" }) : jobsForTab(activeTab).map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
   ] });
 }
 function Modal({ open: open2, onClose, title, wide, children, footer }) {
@@ -38436,7 +38434,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DauoTWXt.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BdbIJNz8.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -39399,16 +39397,16 @@ function DriverRow({ driver, index }) {
     "tr",
     {
       className: cn(
-        "border-b border-bw-border/50 hover:bg-bw-cardHover cursor-pointer text-[9px] leading-tight border-l-[3px]",
-        index % 2 === 0 ? "bg-bw-surface/30" : "bg-transparent"
+        "border-b border-[#2d3148]/50 hover:bg-[#242840] cursor-pointer text-[9px] leading-tight border-l-[3px] text-[#e8eaf0]",
+        index % 2 === 0 ? "bg-[#1a1d2e]/30" : "bg-transparent"
       ),
       style: { borderLeftColor: color },
       onClick: () => openModalWith("driverDetail", { driverId: driver.driverId }),
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: driver.zoneName || void 0, children: driver.zoneName || "—" }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "py-1 px-0.5 truncate", title: driver.driverName, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-bw-text", children: driver.driverName }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted ml-1 font-mono", children: driver.vehicleNo })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-bold text-[#e8eaf0]", children: driver.driverName }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[#8892a4] ml-1 font-mono", children: driver.vehicleNo })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 truncate", title: (driver.services || ["Taxi"]).join(", "), children: (driver.services || ["Taxi"]).map((s2) => s2.slice(0, 1)).join("") }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "py-1 px-0.5 font-semibold truncate", style: { color }, title: driver.status, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-1", children: [
@@ -39443,25 +39441,25 @@ function ZoneBoard() {
   const setServiceFilter = useDriverStore((s2) => s2.setServiceFilter);
   const filteredDrivers = useDriverStore((s2) => s2.filteredDrivers);
   const drivers = filteredDrivers();
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-panel overflow-hidden border-0", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex border-b border-bw-border text-[10px] shrink-0 bg-bw-surface", children: STATUS_TABS.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full overflow-hidden bg-[#1a1d2e] text-[#e8eaf0]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex border-b border-[#2d3148] text-[10px] shrink-0 bg-[#1a1d2e]", children: STATUS_TABS.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
         className: cn(
           "flex-1 py-2 uppercase font-bold tracking-wide transition-colors",
-          statusFilter === t2.id ? "text-bw-primary border-b-2 border-bw-primary bg-bw-primary/5" : "text-bw-muted hover:text-bw-text"
+          statusFilter === t2.id ? "text-[#5b7cfa] border-b-2 border-[#5b7cfa] bg-[#5b7cfa]/5" : "text-[#8892a4] hover:text-[#e8eaf0]"
         ),
         onClick: () => setStatusFilter(t2.id),
         children: t2.label
       },
       t2.id
     )) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-1 p-1.5 shrink-0 flex-wrap border-b border-bw-border/50", children: SVC_FILTERS.map((f2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-1 p-1.5 shrink-0 flex-wrap border-b border-[#2d3148]/50", children: SVC_FILTERS.map((f2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
         className: cn(
           "px-2 py-0.5 rounded-full text-[10px] font-bold transition",
-          serviceFilter === f2 ? "bg-bw-primary text-white shadow-sm" : "bg-bw-card text-bw-muted hover:text-bw-text border border-bw-border"
+          serviceFilter === f2 ? "bg-[#5b7cfa] text-white shadow-sm" : "bg-[#1e2235] text-[#8892a4] hover:text-[#e8eaf0] border border-[#2d3148]"
         ),
         onClick: () => setServiceFilter(f2),
         children: f2
@@ -39469,7 +39467,7 @@ function ZoneBoard() {
       f2
     )) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-auto", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "w-full table-fixed text-[9px] leading-tight", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "sticky top-0 bg-bw-surface/95 backdrop-blur-sm text-[8px] text-bw-muted uppercase border-b border-bw-border z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "sticky top-0 bg-[#1a1d2e]/95 backdrop-blur-sm text-[8px] text-[#8892a4] uppercase border-b border-[#2d3148] z-10", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[11%] font-bold", children: "Zone" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[14%] font-bold", children: "Driver" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-1 w-[8%] font-bold", children: "Svc" }),
@@ -39539,16 +39537,16 @@ function useDriverQueue(companyId) {
 }
 function ZoneQueuePanel({ companyId }) {
   const queueByZone = useDriverQueue(companyId);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bw-panel border-t border-bw-border h-[180px] shrink-0 overflow-y-auto p-2.5 bg-bw-surface/50", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold text-bw-muted uppercase mb-2 tracking-wider", children: "Zone Queue" }),
-    Object.keys(queueByZone).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-bw-muted", children: "No zone data" }) : Object.entries(queueByZone).map(([zone, drivers]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold text-bw-primary mb-1.5 uppercase tracking-wide border-b border-bw-border/50 pb-0.5", children: zone }),
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t border-[#2d3148] h-[180px] shrink-0 overflow-y-auto p-2.5 bg-[#1a1d2e] text-[#e8eaf0]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold text-[#8892a4] uppercase mb-2 tracking-wider", children: "Zone Queue" }),
+    Object.keys(queueByZone).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-[#8892a4]", children: "No zone data" }) : Object.entries(queueByZone).map(([zone, drivers]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold text-[#5b7cfa] mb-1.5 uppercase tracking-wide border-b border-[#2d3148]/50 pb-0.5", children: zone }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5", children: drivers.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
         "span",
         {
           className: cn(
             "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
-            "bg-bw-card/80 shadow-sm"
+            "bg-[#1e2235]/80 shadow-sm"
           ),
           style: { borderColor: statusColor(d2.status), color: statusColor(d2.status) },
           children: [
@@ -39557,7 +39555,7 @@ function ZoneQueuePanel({ companyId }) {
               {
                 className: cn(
                   "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0",
-                  i2 === 0 ? "bg-bw-gold text-[#1a1a2e]" : "bg-bw-surface border border-bw-border text-bw-muted"
+                  i2 === 0 ? "bg-[#f5c542] text-[#1a1a2e]" : "bg-[#1a1d2e] border border-[#2d3148] text-[#8892a4]"
                 ),
                 children: i2 + 1
               }
@@ -39825,12 +39823,12 @@ function DispatchMap({
     const z2 = (_a2 = gMapRef.current) == null ? void 0 : _a2.getZoom();
     if (z2 != null) (_b2 = gMapRef.current) == null ? void 0 : _b2.setZoom(z2 + delta);
   };
-  const ctrlBtn = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-bw-surface/95 border border-bw-border text-bw-text hover:bg-bw-card hover:border-bw-primary/40 transition shadow-lg backdrop-blur-sm";
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bg-bw-card", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bg-bw-card" }),
-    !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-bw-card z-[1]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-bw-muted" }) }),
-    mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center bg-bw-card z-[1] px-4 text-center text-sm text-bw-danger", children: mapError }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-bw-border/80 bg-bw-surface/95 p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]", children: [
+  const ctrlBtn = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-[#1a1d2e] border border-[#2d3148] text-[#e8eaf0] hover:bg-[#242840] hover:border-[#5b7cfa]/40 transition shadow-lg backdrop-blur-sm";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 text-[#e8eaf0]", style: { backgroundColor: "#1e2235" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0", style: { backgroundColor: "#1e2235" } }),
+    !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1]", style: { backgroundColor: "#1e2235" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 text-[#8892a4]" }) }),
+    mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400", style: { backgroundColor: "#1e2235" }, children: mapError }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border border-[#2d3148] bg-[#1a1d2e] p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: () => {
         var _a2;
         return (_a2 = gMapRef.current) == null ? void 0 : _a2.setCenter(safeCenter);
@@ -39846,7 +39844,7 @@ function DispatchMap({
         "button",
         {
           type: "button",
-          className: cn(ctrlBtn, mapTraffic && "border-bw-warning/50 text-bw-warning"),
+          className: cn(ctrlBtn, mapTraffic && "border-amber-500/50 text-amber-400"),
           onClick: () => setMapTraffic(!mapTraffic),
           children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(TrafficCone, { size: 14 }),
@@ -39858,7 +39856,7 @@ function DispatchMap({
         "button",
         {
           type: "button",
-          className: cn(ctrlBtn, mapZones && "border-bw-primary/50 text-bw-primary"),
+          className: cn(ctrlBtn, mapZones && "border-[#5b7cfa]/50 text-[#5b7cfa]"),
           onClick: () => setMapZones(!mapZones),
           children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Layers, { size: 14 }),
@@ -39878,16 +39876,16 @@ function DispatchMap({
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]", children: [
-      { k: "all", icon: Users, color: "text-bw-text" },
+      { k: "all", icon: Users, color: "text-[#e8eaf0]" },
       { k: "free", icon: Car, color: "text-status-available" },
       { k: "picking", icon: Navigation, color: "text-status-picking" },
       { k: "busy", icon: Car, color: "text-status-busy" },
-      { k: "away", icon: Car, color: "text-bw-muted" }
+      { k: "away", icon: Car, color: "text-[#8892a4]" }
     ].map(({ k: k2, icon: Icon2, color }) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "span",
       {
         className: cn(
-          "inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-bw-surface/95 border border-bw-border shadow backdrop-blur-sm font-medium",
+          "inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-[#1a1d2e] border border-[#2d3148] shadow backdrop-blur-sm font-medium",
           color
         ),
         children: [
@@ -40265,7 +40263,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DIkoatI_.js");
+        const { writeActiveDispatcher } = await import("./notifications-8Kpx_P9h.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -40292,7 +40290,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DIkoatI_.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-8Kpx_P9h.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -40466,10 +40464,10 @@ function DispatchPage() {
     setMapPoppedOut(!!popOutRef.current);
   };
   if (!authChecked || !ready) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center bg-bw-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8" }) });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center bg-[#13151f] text-[#e8eaf0]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8" }) });
   }
   if (error2) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center text-bw-danger", children: error2 });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "min-h-screen flex items-center justify-center text-red-400", children: error2 });
   }
   const mapNode = /* @__PURE__ */ jsxRuntimeExports.jsx(
     DispatchMap,
@@ -40486,7 +40484,7 @@ function DispatchPage() {
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 min-h-0 overflow-hidden", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneBoard, {}) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(ZoneQueuePanel, { companyId })
   ] });
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col overflow-hidden bg-bw-bg", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col overflow-hidden bg-[#13151f] text-[#e8eaf0]", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       Header,
       {
@@ -40497,13 +40495,13 @@ function DispatchPage() {
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(ResizableDispatchLayout, { left: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}), center: mapNode, right: rightPanel }),
-    mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-11 bottom-[32px] z-40 bg-bw-card", children: [
+    mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-11 bottom-[32px] z-40 bg-[#1e2235]", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId, compactControls: true }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
         {
           type: "button",
-          className: "absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-bw-surface border border-bw-border text-bw-text hover:border-bw-primary shadow-lg",
+          className: "absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#1a1d2e] border border-[#2d3148] text-[#e8eaf0] hover:border-[#5b7cfa] shadow-lg",
           onClick: () => setMapFullscreen(false),
           children: "Exit Fullscreen (Esc)"
         }
@@ -40528,13 +40526,13 @@ function DispatchPage() {
         title: "EMERGENCY ALERT",
         footer: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => setEmergency(null), children: "Acknowledge" }),
         children: emergency && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-center py-6", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xl font-bold text-bw-danger mb-2", children: "Driver Emergency" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-bw-text", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xl font-bold text-red-400 mb-2", children: "Driver Emergency" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[#e8eaf0]", children: [
             emergency.driverName,
             " · Vehicle ",
             emergency.vehicle
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted mt-2", children: emergency.time })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-[#8892a4] mt-2", children: emergency.time })
         ] })
       }
     )
@@ -40564,13 +40562,13 @@ function MapPopoutPage() {
     return DEFAULT_MAP_CENTER;
   }, [(_a2 = settings == null ? void 0 : settings.city) == null ? void 0 : _a2.lat, (_b2 = settings == null ? void 0 : settings.city) == null ? void 0 : _b2.lng]);
   if (!authChecked || !ready) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center bg-bw-card", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-10 h-10 text-bw-muted" }) });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center bg-[#1e2235]", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-10 h-10 text-[#8892a4]" }) });
   }
   if (error2) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center text-bw-danger", children: error2 });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "h-screen flex items-center justify-center text-red-400", children: error2 });
   }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col bg-bw-bg", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-8 shrink-0 flex items-center px-3 bg-bw-header border-b border-bw-border text-xs font-semibold text-bw-muted", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-screen flex flex-col bg-[#13151f] text-[#e8eaf0]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "h-8 shrink-0 flex items-center px-3 bg-[#0f1420] border-b border-[#2d3148] text-xs font-semibold text-[#8892a4]", children: [
       "BookaWaka Live Map · ",
       companyId
     ] }),
@@ -40609,4 +40607,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DWl3gTLO.js.map
+//# sourceMappingURL=index-DCukac_Q.js.map

@@ -202,24 +202,24 @@ export function DispatchMap({
   };
 
   const ctrlBtn =
-    'flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-bw-surface/95 border border-bw-border text-bw-text hover:bg-bw-card hover:border-bw-primary/40 transition shadow-lg backdrop-blur-sm';
+    'flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-[#1a1d2e] border border-[#2d3148] text-[#e8eaf0] hover:bg-[#242840] hover:border-[#5b7cfa]/40 transition shadow-lg backdrop-blur-sm';
 
   return (
-    <div className="relative flex-1 min-h-0 bg-bw-card">
-      <div ref={mapRef} className="absolute inset-0 bg-bw-card" />
+    <div className="relative flex-1 min-h-0 text-[#e8eaf0]" style={{ backgroundColor: '#1e2235' }}>
+      <div ref={mapRef} className="absolute inset-0" style={{ backgroundColor: '#1e2235' }} />
       {!mapReady && !mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-bw-card z-[1]">
-          <Spinner className="w-8 h-8 text-bw-muted" />
+        <div className="absolute inset-0 flex items-center justify-center z-[1]" style={{ backgroundColor: '#1e2235' }}>
+          <Spinner className="w-8 h-8 text-[#8892a4]" />
         </div>
       )}
       {mapError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-bw-card z-[1] px-4 text-center text-sm text-bw-danger">
+        <div className="absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400" style={{ backgroundColor: '#1e2235' }}>
           {mapError}
         </div>
       )}
 
       <div className={cn('absolute top-2 left-2 z-10 flex flex-col gap-1.5', compactControls && 'scale-90 origin-top-left')}>
-        <div className="rounded-lg border border-bw-border/80 bg-bw-surface/95 p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]">
+        <div className="rounded-lg border border-[#2d3148] bg-[#1a1d2e] p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]">
           <button type="button" className={ctrlBtn} onClick={() => gMapRef.current?.setCenter(safeCenter)}>
             <Home size={14} /> Home
           </button>
@@ -233,14 +233,14 @@ export function DispatchMap({
           </div>
           <button
             type="button"
-            className={cn(ctrlBtn, mapTraffic && 'border-bw-warning/50 text-bw-warning')}
+            className={cn(ctrlBtn, mapTraffic && 'border-amber-500/50 text-amber-400')}
             onClick={() => setMapTraffic(!mapTraffic)}
           >
             <TrafficCone size={14} /> Traffic
           </button>
           <button
             type="button"
-            className={cn(ctrlBtn, mapZones && 'border-bw-primary/50 text-bw-primary')}
+            className={cn(ctrlBtn, mapZones && 'border-[#5b7cfa]/50 text-[#5b7cfa]')}
             onClick={() => setMapZones(!mapZones)}
           >
             <Layers size={14} /> Zones
@@ -265,17 +265,17 @@ export function DispatchMap({
       <div className="absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]">
         {(
           [
-            { k: 'all', icon: Users, color: 'text-bw-text' },
+            { k: 'all', icon: Users, color: 'text-[#e8eaf0]' },
             { k: 'free', icon: Car, color: 'text-status-available' },
             { k: 'picking', icon: Navigation, color: 'text-status-picking' },
             { k: 'busy', icon: Car, color: 'text-status-busy' },
-            { k: 'away', icon: Car, color: 'text-bw-muted' },
+            { k: 'away', icon: Car, color: 'text-[#8892a4]' },
           ] as const
         ).map(({ k, icon: Icon, color }) => (
           <span
             key={k}
             className={cn(
-              'inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-bw-surface/95 border border-bw-border shadow backdrop-blur-sm font-medium',
+              'inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-[#1a1d2e] border border-[#2d3148] shadow backdrop-blur-sm font-medium',
               color
             )}
           >

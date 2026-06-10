@@ -24,9 +24,9 @@ interface JobCardProps {
 }
 
 function waitBadgeClass(minutes: number): string {
-  if (minutes >= 10) return 'bg-bw-danger/20 text-bw-danger border-bw-danger/40';
-  if (minutes >= 5) return 'bg-bw-warning/20 text-bw-warning border-bw-warning/40';
-  return 'bg-bw-card text-bw-muted border-bw-border';
+  if (minutes >= 10) return 'bg-red-500/20 text-red-400 border-red-500/40';
+  if (minutes >= 5) return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+  return 'bg-[#1e2235] text-[#8892a4] border-[#2d3148]';
 }
 
 export function JobCard({ job, tab }: JobCardProps) {
@@ -60,38 +60,38 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const iconBtn = 'p-1.5 rounded-md hover:bg-bw-surface border border-transparent hover:border-bw-border transition';
+  const iconBtn = 'p-1.5 rounded-md hover:bg-[#1a1d2e] border border-transparent hover:border-[#2d3148] transition';
 
   return (
     <div
       className={cn(
-        'rounded-lg p-3 mb-2.5 bg-bw-card border border-bw-border shadow-sm',
-        'hover:shadow-md hover:-translate-y-0.5 hover:bg-bw-cardHover transition-all duration-150 border-l-[4px]',
-        job.urgent && 'ring-1 ring-bw-warning/50'
+        'rounded-lg p-3 mb-2.5 bg-[#1e2235] border border-[#2d3148] text-[#e8eaf0] shadow-sm',
+        'hover:shadow-md hover:-translate-y-0.5 hover:bg-[#242840] transition-all duration-150 border-l-[4px]',
+        job.urgent && 'ring-1 ring-amber-500/50'
       )}
       style={{ borderLeftColor: border }}
     >
       <div className="flex flex-wrap items-center gap-1.5 mb-2">
-        <span className="font-mono text-sm font-bold text-bw-text">#{job.id}</span>
+        <span className="font-mono text-sm font-bold text-[#e8eaf0]">#{job.id}</span>
         <Badge color="#94a3b8">{sourceLabel(job.source)}</Badge>
         <Badge color={border}>{job.serviceType.toUpperCase()}</Badge>
         {job.accountId && <Badge color="#ec4899">ACC</Badge>}
         {job.urgent && <Badge color="#f59e0b">URGENT</Badge>}
-        <span className="ml-auto text-[10px] text-bw-muted uppercase">{job.status}</span>
+        <span className="ml-auto text-[10px] text-[#8892a4] uppercase">{job.status}</span>
       </div>
 
       <div className="space-y-1.5 text-xs mb-2">
         <div className="flex gap-2 items-start">
-          <MapPin size={13} className="text-bw-success shrink-0 mt-0.5" />
-          <span className="text-bw-text truncate">{job.pickAddress || 'No pickup'}</span>
+          <MapPin size={13} className="text-emerald-400 shrink-0 mt-0.5" />
+          <span className="text-[#e8eaf0] truncate">{job.pickAddress || 'No pickup'}</span>
         </div>
         <div className="flex gap-2 items-start">
-          <MapPin size={13} className="text-bw-danger shrink-0 mt-0.5" />
-          <span className="text-bw-muted truncate">{job.dropAddress || 'No dropoff'}</span>
+          <MapPin size={13} className="text-red-400 shrink-0 mt-0.5" />
+          <span className="text-[#8892a4] truncate">{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-[11px] text-bw-muted mb-2 items-center">
+      <div className="flex flex-wrap gap-2 text-[11px] text-[#8892a4] mb-2 items-center">
         <span className="inline-flex items-center gap-1"><User size={11} />{job.passengerName || '—'}</span>
         <span className="inline-flex items-center gap-1"><Phone size={11} />{job.passengerPhone || '—'}</span>
         <Badge color={paymentBadgeColor(job.paymentType)}>{job.paymentType || 'Cash'}</Badge>
@@ -102,7 +102,7 @@ export function JobCard({ job, tab }: JobCardProps) {
       </div>
 
       {tab === 'offer' && job.offeredAt && (
-        <div className="text-[10px] text-bw-warning mb-2">
+        <div className="text-[10px] text-amber-400 mb-2">
           Offer expires {formatDistanceToNow(job.offeredAt + 30000, { addSuffix: true })}
         </div>
       )}
@@ -113,7 +113,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             <Button variant="primary" onClick={() => run(() => setPending(job), 'Set Pending')}>Pending</Button>
             <Button variant="muted" onClick={() => run(() => setNoOne(job), 'Set No One')}>No One</Button>
             <select
-              className="bg-bw-card border border-bw-border rounded text-xs px-1 py-1 text-bw-text max-w-[100px]"
+              className="bg-[#1e2235] border border-[#2d3148] rounded text-xs px-1 py-1 text-[#e8eaf0] max-w-[100px]"
               defaultValue=""
               onChange={(e) => {
                 const d = drivers.find((x) => x.driverId === e.target.value);
@@ -132,7 +132,7 @@ export function JobCard({ job, tab }: JobCardProps) {
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-bw-danger')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
                 <X size={14} />
               </button>
             </Tooltip>
@@ -144,12 +144,12 @@ export function JobCard({ job, tab }: JobCardProps) {
         {(tab === 'assign' || tab === 'active') && (
           <>
             <Tooltip label="Complete job">
-              <button type="button" className={cn(iconBtn, 'text-bw-success')} onClick={() => run(() => forceCompleteJob(job.id), 'Completed')}>
+              <button type="button" className={cn(iconBtn, 'text-emerald-400')} onClick={() => run(() => forceCompleteJob(job.id), 'Completed')}>
                 <CheckCircle size={14} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-bw-danger')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
                 <X size={14} />
               </button>
             </Tooltip>
@@ -163,7 +163,7 @@ export function JobCard({ job, tab }: JobCardProps) {
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-bw-danger')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
                 <X size={14} />
               </button>
             </Tooltip>
@@ -173,7 +173,7 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <Button variant="primary" onClick={() => run(() => setPending(job), 'Pending')}>Pending</Button>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-bw-danger')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
                 <X size={14} />
               </button>
             </Tooltip>

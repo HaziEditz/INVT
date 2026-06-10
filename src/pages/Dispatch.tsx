@@ -113,14 +113,14 @@ export function DispatchPage() {
 
   if (!authChecked || !ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bw-bg">
+      <div className="min-h-screen flex items-center justify-center bg-[#13151f] text-[#e8eaf0]">
         <Spinner className="w-8 h-8" />
       </div>
     );
   }
 
   if (error) {
-    return <div className="min-h-screen flex items-center justify-center text-bw-danger">{error}</div>;
+    return <div className="min-h-screen flex items-center justify-center text-red-400">{error}</div>;
   }
 
   const mapNode = (
@@ -144,7 +144,7 @@ export function DispatchPage() {
   );
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-bw-bg">
+    <div className="h-screen flex flex-col overflow-hidden bg-[#13151f] text-[#e8eaf0]">
       <Header
         companyId={companyId}
         companyName={companyName}
@@ -155,11 +155,11 @@ export function DispatchPage() {
       <ResizableDispatchLayout left={<JobTabs />} center={mapNode} right={rightPanel} />
 
       {mapFullscreen && (
-        <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bg-bw-card">
+        <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bg-[#1e2235]">
           <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} compactControls />
           <button
             type="button"
-            className="absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-bw-surface border border-bw-border text-bw-text hover:border-bw-primary shadow-lg"
+            className="absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#1a1d2e] border border-[#2d3148] text-[#e8eaf0] hover:border-[#5b7cfa] shadow-lg"
             onClick={() => setMapFullscreen(false)}
           >
             Exit Fullscreen (Esc)
@@ -188,9 +188,9 @@ export function DispatchPage() {
       >
         {emergency && (
           <div className="text-center py-6">
-            <p className="text-xl font-bold text-bw-danger mb-2">Driver Emergency</p>
-            <p className="text-bw-text">{emergency.driverName} · Vehicle {emergency.vehicle}</p>
-            <p className="text-sm text-bw-muted mt-2">{emergency.time}</p>
+            <p className="text-xl font-bold text-red-400 mb-2">Driver Emergency</p>
+            <p className="text-[#e8eaf0]">{emergency.driverName} · Vehicle {emergency.vehicle}</p>
+            <p className="text-sm text-[#8892a4] mt-2">{emergency.time}</p>
           </div>
         )}
       </Modal>

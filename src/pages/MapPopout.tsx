@@ -42,19 +42,19 @@ export function MapPopoutPage() {
 
   if (!authChecked || !ready) {
     return (
-      <div className="h-screen flex items-center justify-center bg-bw-card">
-        <Spinner className="w-10 h-10 text-bw-muted" />
+      <div className="h-screen flex items-center justify-center bg-[#1e2235]">
+        <Spinner className="w-10 h-10 text-[#8892a4]" />
       </div>
     );
   }
 
   if (error) {
-    return <div className="h-screen flex items-center justify-center text-bw-danger">{error}</div>;
+    return <div className="h-screen flex items-center justify-center text-red-400">{error}</div>;
   }
 
   return (
-    <div className="h-screen flex flex-col bg-bw-bg">
-      <div className="h-8 shrink-0 flex items-center px-3 bg-bw-header border-b border-bw-border text-xs font-semibold text-bw-muted">
+    <div className="h-screen flex flex-col bg-[#13151f] text-[#e8eaf0]">
+      <div className="h-8 shrink-0 flex items-center px-3 bg-[#0f1420] border-b border-[#2d3148] text-xs font-semibold text-[#8892a4]">
         BookaWaka Live Map · {companyId}
       </div>
       <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} />

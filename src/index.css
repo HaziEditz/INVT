@@ -22,6 +22,8 @@ body {
   margin: 0;
   min-height: 100vh;
   font-family: Inter, system-ui, sans-serif;
+  background-color: #13151f;
+  color: #e8eaf0;
 }
 
 ::-webkit-scrollbar {
@@ -34,27 +36,57 @@ body {
 }
 
 .bw-panel {
-  @apply bg-bw-surface border border-bw-border;
+  background-color: #1a1d2e;
+  border: 1px solid #2d3148;
 }
 
 .bw-card {
-  @apply bg-bw-card border border-bw-border rounded-lg transition-colors;
+  background-color: #1e2235;
+  border: 1px solid #2d3148;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s ease;
 }
 
 .bw-card:hover {
-  @apply bg-bw-cardHover;
+  background-color: #242840;
 }
 
 .bw-nav-link {
-  @apply text-xs font-semibold tracking-wide text-bw-muted hover:text-bw-text uppercase cursor-pointer px-2 py-1 rounded hover:bg-bw-card/60;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8892a4;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.bw-nav-link:hover {
+  color: #e8eaf0;
+  background-color: rgba(30, 34, 53, 0.6);
 }
 
 .bw-tab {
-  @apply flex-1 text-center py-2 text-xs font-bold uppercase tracking-wide text-bw-muted border-b-2 border-transparent hover:text-bw-text cursor-pointer;
+  flex: 1;
+  text-align: center;
+  padding: 0.625rem 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8892a4;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.bw-tab:hover {
+  color: #e8eaf0;
 }
 
 .bw-tab-active {
-  @apply text-bw-primary border-bw-primary;
+  color: #5b7cfa;
+  border-bottom-color: #5b7cfa;
 }
 
 @keyframes bw-pulse-dot {

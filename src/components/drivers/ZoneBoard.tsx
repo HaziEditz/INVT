@@ -22,14 +22,14 @@ export function ZoneBoard() {
   const drivers = filteredDrivers();
 
   return (
-    <div className="flex flex-col h-full bw-panel overflow-hidden border-0">
-      <div className="flex border-b border-bw-border text-[10px] shrink-0 bg-bw-surface">
+    <div className="flex flex-col h-full overflow-hidden bg-[#1a1d2e] text-[#e8eaf0]">
+      <div className="flex border-b border-[#2d3148] text-[10px] shrink-0 bg-[#1a1d2e]">
         {STATUS_TABS.map((t) => (
           <button
             key={t.id}
             className={cn(
               'flex-1 py-2 uppercase font-bold tracking-wide transition-colors',
-              statusFilter === t.id ? 'text-bw-primary border-b-2 border-bw-primary bg-bw-primary/5' : 'text-bw-muted hover:text-bw-text'
+              statusFilter === t.id ? 'text-[#5b7cfa] border-b-2 border-[#5b7cfa] bg-[#5b7cfa]/5' : 'text-[#8892a4] hover:text-[#e8eaf0]'
             )}
             onClick={() => setStatusFilter(t.id)}
           >
@@ -37,13 +37,13 @@ export function ZoneBoard() {
           </button>
         ))}
       </div>
-      <div className="flex gap-1 p-1.5 shrink-0 flex-wrap border-b border-bw-border/50">
+      <div className="flex gap-1 p-1.5 shrink-0 flex-wrap border-b border-[#2d3148]/50">
         {SVC_FILTERS.map((f) => (
           <button
             key={f}
             className={cn(
               'px-2 py-0.5 rounded-full text-[10px] font-bold transition',
-              serviceFilter === f ? 'bg-bw-primary text-white shadow-sm' : 'bg-bw-card text-bw-muted hover:text-bw-text border border-bw-border'
+              serviceFilter === f ? 'bg-[#5b7cfa] text-white shadow-sm' : 'bg-[#1e2235] text-[#8892a4] hover:text-[#e8eaf0] border border-[#2d3148]'
             )}
             onClick={() => setServiceFilter(f)}
           >
@@ -53,7 +53,7 @@ export function ZoneBoard() {
       </div>
       <div className="flex-1 overflow-auto">
         <table className="w-full table-fixed text-[9px] leading-tight">
-          <thead className="sticky top-0 bg-bw-surface/95 backdrop-blur-sm text-[8px] text-bw-muted uppercase border-b border-bw-border z-10">
+          <thead className="sticky top-0 bg-[#1a1d2e]/95 backdrop-blur-sm text-[8px] text-[#8892a4] uppercase border-b border-[#2d3148] z-10">
             <tr>
               <th className="text-left p-1 w-[11%] font-bold">Zone</th>
               <th className="text-left p-1 w-[14%] font-bold">Driver</th>

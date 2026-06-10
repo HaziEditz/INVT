@@ -15,16 +15,16 @@ export function DriverRow({ driver, index }: DriverRowProps) {
   return (
     <tr
       className={cn(
-        'border-b border-bw-border/50 hover:bg-bw-cardHover cursor-pointer text-[9px] leading-tight border-l-[3px]',
-        index % 2 === 0 ? 'bg-bw-surface/30' : 'bg-transparent'
+        'border-b border-[#2d3148]/50 hover:bg-[#242840] cursor-pointer text-[9px] leading-tight border-l-[3px] text-[#e8eaf0]',
+        index % 2 === 0 ? 'bg-[#1a1d2e]/30' : 'bg-transparent'
       )}
       style={{ borderLeftColor: color }}
       onClick={() => openModalWith('driverDetail', { driverId: driver.driverId })}
     >
       <td className="py-1 px-0.5 truncate" title={driver.zoneName || undefined}>{driver.zoneName || '—'}</td>
       <td className="py-1 px-0.5 truncate" title={driver.driverName}>
-        <span className="font-bold text-bw-text">{driver.driverName}</span>
-        <span className="text-bw-muted ml-1 font-mono">{driver.vehicleNo}</span>
+        <span className="font-bold text-[#e8eaf0]">{driver.driverName}</span>
+        <span className="text-[#8892a4] ml-1 font-mono">{driver.vehicleNo}</span>
       </td>
       <td className="py-1 px-0.5 truncate" title={(driver.services || ['Taxi']).join(', ')}>
         {(driver.services || ['Taxi']).map((s) => s.slice(0, 1)).join('')}

@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ResizeHandle } from './ResizeHandle';
 import { usePanelSizes } from '@/hooks/usePanelSizes';
 import { useUiStore } from '@/store/uiStore';
-import { cn } from '@/lib/utils';
 
 interface ResizableDispatchLayoutProps {
   left: React.ReactNode;
   center: React.ReactNode;
   right: React.ReactNode;
 }
+
+const panelClass = 'shrink-0 min-h-0 overflow-hidden bg-[#1a1d2e] text-[#e8eaf0] border-[#2d3148]';
 
 export function ResizableDispatchLayout({ left, center, right }: ResizableDispatchLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,36 +34,33 @@ export function ResizableDispatchLayout({ left, center, right }: ResizableDispat
   }, []);
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-h-0 relative">
+    <div ref={containerRef} className="flex flex-1 min-h-0 relative bg-[#13151f]">
       {showMap ? (
         <>
-          <aside style={{ width: sizes.left }} className="shrink-0 min-h-0 overflow-hidden border-r border-bw-border">
+          <aside style={{ width: sizes.left }} className={`${panelClass} border-r`}>
             {left}
           </aside>
           <ResizeHandle onDrag={resizeLeft} onDoubleClick={reset} />
-          <main className="flex-1 flex flex-col min-w-0 min-h-0">{center}</main>
+          <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#13151f]">{center}</main>
           <ResizeHandle onDrag={resizeRight} onDoubleClick={reset} />
           <aside
             style={{ width: sizes.right }}
-            className="shrink-0 flex flex-col min-h-0 border-l border-bw-border overflow-hidden"
+            className={`${panelClass} flex flex-col border-l`}
           >
             {right}
           </aside>
         </>
       ) : (
         <>
-          <aside className="flex-1 min-h-0 overflow-hidden border-r border-bw-border">{left}</aside>
-          <aside className="flex-1 min-h-0 overflow-hidden flex flex-col">{right}</aside>
+          <aside className={`flex-1 ${panelClass} border-r`}>{left}</aside>
+          <aside className={`flex-1 ${panelClass} flex flex-col`}>{right}</aside>
         </>
       )}
 
       <button
         type="button"
         onClick={() => setMapVisible(!showMap)}
-        className={cn(
-          'absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide',
-          'bg-bw-surface/95 border border-bw-border shadow-lg hover:border-bw-primary text-bw-muted hover:text-bw-text transition backdrop-blur-sm'
-        )}
+        className="absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-[#1a1d2e] border border-[#2d3148] shadow-lg hover:border-[#5b7cfa] text-[#8892a4] hover:text-[#e8eaf0] transition"
       >
         {showMap ? 'Hide Map' : 'Show Map'}
       </button>
