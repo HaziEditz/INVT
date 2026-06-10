@@ -12865,6 +12865,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── Vite dist assets + React SPA routes (before legacy ASPX static files) ──
+  if (urlPath.startsWith('/assets/') && serveDistAsset(res, urlPath)) return;
+
+  const REACT_SPA_ROUTES = new Set(['/login', '/dispatch', '/dispatch/map']);
+  if (REACT_SPA_ROUTES.has(urlPath) && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (urlPath === '/dispatch' || urlPath === '/dispatch/map') {
+      if (!(await gateDispatchAccess(req, res))) return;
+    }
+    serveSpaIndex(res);
+    return;
+  }
+
   // ── Static file serving (legacy ASPX / assets) ─────────────────────────────
   const filePath = resolveFilePath(urlPath);
   if (filePath) {
