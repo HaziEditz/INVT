@@ -12,6 +12,7 @@ export function attachPlacesAutocomplete(
   if (!g?.maps?.places) return () => {};
   const ac = new g.maps.places.Autocomplete(input, {
     fields: ['formatted_address', 'geometry'],
+    componentRestrictions: { country: 'nz' },
   });
   const listener = ac.addListener('place_changed', () => {
     const place = ac.getPlace();

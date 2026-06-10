@@ -50,7 +50,7 @@ export async function jobCommand(payload: {
 }
 
 export async function createJob(body: Record<string, unknown>) {
-  return jsonFetch<{ ok: boolean; bookingId: number }>(`${API}/job/create`, {
+  return jsonFetch<{ ok: boolean; bookingId?: number; jobId?: string | number }>(`${API}/job/create`, {
     method: 'POST',
     body: JSON.stringify(body),
   });

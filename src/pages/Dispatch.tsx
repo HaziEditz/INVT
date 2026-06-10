@@ -169,7 +169,7 @@ export function DispatchPage() {
 
       <StatusBar />
 
-      <CreateJobModal mapsKey={mapsKey} companyId={companyId} />
+      <CreateJobModal mapsKey={mapsKey} companyId={companyId} dispatcherName={dispatcherName} />
       <JobDetailModal />
       <DriverDetailModal />
       <MessagesModal />
