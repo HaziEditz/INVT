@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import type { CompanySettings } from '@/types/booking';
+import {
+  type DispatchThemeId,
+  initThemeFromStorage,
+  nextTheme,
+  persistTheme,
+} from '@/lib/theme';
 
 export type ModalId =
   | 'createJob'
@@ -22,7 +28,7 @@ export interface ToastItem {
 }
 
 interface UiStore {
-  theme: 'dark' | 'light';
+  theme: DispatchThemeId;
   openModal: ModalId;
   modalJobId: number | null;
   modalDriverId: string | null;
@@ -36,7 +42,8 @@ interface UiStore {
   mapPoppedOut: boolean;
   emergency: { driverName: string; vehicle: string; lat: number; lng: number; time: string } | null;
   settings: CompanySettings | null;
-  setTheme: (t: 'dark' | 'light') => void;
+  setTheme: (t: DispatchThemeId) => void;
+  cycleTheme: () => void;
   openModalWith: (m: ModalId, opts?: { jobId?: number; driverId?: string }) => void;
   closeModal: () => void;
   addToast: (t: Omit<ToastItem, 'id'>) => void;
@@ -52,8 +59,8 @@ interface UiStore {
   setSettings: (s: CompanySettings | null) => void;
 }
 
-export const useUiStore = create<UiStore>((set) => ({
-  theme: (localStorage.getItem('bw_theme') as 'dark' | 'light') || 'dark',
+export const useUiStore = create<UiStore>((set, get) => ({
+  theme: initThemeFromStorage(),
   openModal: null,
   modalJobId: null,
   modalDriverId: null,
@@ -68,8 +75,12 @@ export const useUiStore = create<UiStore>((set) => ({
   emergency: null,
   settings: null,
   setTheme: (t) => {
-    localStorage.setItem('bw_theme', t);
-    document.documentElement.classList.toggle('dark', t === 'dark');
+    persistTheme(t);
+    set({ theme: t });
+  },
+  cycleTheme: () => {
+    const t = nextTheme(get().theme);
+    persistTheme(t);
     set({ theme: t });
   },
   openModalWith: (m, opts) =>

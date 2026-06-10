@@ -26,7 +26,7 @@ interface JobCardProps {
 function waitBadgeClass(minutes: number): string {
   if (minutes >= 10) return 'bg-red-500/20 text-red-400 border-red-500/40';
   if (minutes >= 5) return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
-  return 'bg-[#1e2235] text-[#8892a4] border-[#2d3148]';
+  return 'bw-card-static bw-muted border';
 }
 
 export function JobCard({ job, tab }: JobCardProps) {
@@ -60,38 +60,38 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const iconBtn = 'p-1.5 rounded-md hover:bg-[#1a1d2e] border border-transparent hover:border-[#2d3148] transition';
+  const iconBtn = 'p-1.5 rounded-md bw-hover-surface border border-transparent hover:border-[var(--bw-border)] transition';
 
   return (
     <div
       className={cn(
-        'rounded-lg p-3 mb-2.5 bg-[#1e2235] border border-[#2d3148] text-[#e8eaf0] shadow-sm',
-        'hover:shadow-md hover:-translate-y-0.5 hover:bg-[#242840] transition-all duration-150 border-l-[4px]',
+        'rounded-lg p-3 mb-2.5 bw-card-static shadow-sm',
+        'hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 border-l-[4px]',
         job.urgent && 'ring-1 ring-amber-500/50'
       )}
       style={{ borderLeftColor: border }}
     >
       <div className="flex flex-wrap items-center gap-1.5 mb-2">
-        <span className="font-mono text-sm font-bold text-[#e8eaf0]">#{job.id}</span>
+        <span className="font-mono text-sm font-bold bw-text">#{job.id}</span>
         <Badge color="#94a3b8">{sourceLabel(job.source)}</Badge>
         <Badge color={border}>{job.serviceType.toUpperCase()}</Badge>
         {job.accountId && <Badge color="#ec4899">ACC</Badge>}
         {job.urgent && <Badge color="#f59e0b">URGENT</Badge>}
-        <span className="ml-auto text-[10px] text-[#8892a4] uppercase">{job.status}</span>
+        <span className="ml-auto text-[10px] bw-muted uppercase">{job.status}</span>
       </div>
 
       <div className="space-y-1.5 text-xs mb-2">
         <div className="flex gap-2 items-start">
           <MapPin size={13} className="text-emerald-400 shrink-0 mt-0.5" />
-          <span className="text-[#e8eaf0] truncate">{job.pickAddress || 'No pickup'}</span>
+          <span className="bw-text truncate">{job.pickAddress || 'No pickup'}</span>
         </div>
         <div className="flex gap-2 items-start">
           <MapPin size={13} className="text-red-400 shrink-0 mt-0.5" />
-          <span className="text-[#8892a4] truncate">{job.dropAddress || 'No dropoff'}</span>
+          <span className="bw-muted truncate">{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-[11px] text-[#8892a4] mb-2 items-center">
+      <div className="flex flex-wrap gap-2 text-[11px] bw-muted mb-2 items-center">
         <span className="inline-flex items-center gap-1"><User size={11} />{job.passengerName || '—'}</span>
         <span className="inline-flex items-center gap-1"><Phone size={11} />{job.passengerPhone || '—'}</span>
         <Badge color={paymentBadgeColor(job.paymentType)}>{job.paymentType || 'Cash'}</Badge>
@@ -113,7 +113,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             <Button variant="primary" onClick={() => run(() => setPending(job), 'Set Pending')}>Pending</Button>
             <Button variant="muted" onClick={() => run(() => setNoOne(job), 'Set No One')}>No One</Button>
             <select
-              className="bg-[#1e2235] border border-[#2d3148] rounded text-xs px-1 py-1 text-[#e8eaf0] max-w-[100px]"
+              className="bw-card-static rounded text-xs px-1 py-1 bw-text max-w-[100px] border"
               defaultValue=""
               onChange={(e) => {
                 const d = drivers.find((x) => x.driverId === e.target.value);

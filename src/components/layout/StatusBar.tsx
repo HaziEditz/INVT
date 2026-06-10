@@ -38,24 +38,24 @@ export function StatusBar() {
   const nzTime = nzClockString(now);
 
   const stat = (label: string, value: number | string, color?: string) => (
-    <span className={color ? color : 'text-[#8892a4]'}>
+    <span className={color ? color : 'bw-muted'}>
       <span className="opacity-70">{label}:</span>{' '}
-      <span className="font-bold text-[#e8eaf0]">{value}</span>
+      <span className="font-bold bw-text">{value}</span>
     </span>
   );
 
   return (
-    <footer className="h-[32px] shrink-0 flex items-center justify-between px-4 bg-[#1a1d2e] border-t border-[#2d3148] text-[10px] uppercase tracking-wide text-[#e8eaf0]">
-      <span className="font-bold text-[#5b7cfa]">BookaWaka Dispatch</span>
+    <footer className="h-[32px] shrink-0 flex items-center justify-between px-4 bw-surface border-t bw-border text-[10px] uppercase tracking-wide bw-text">
+      <span className="font-bold bw-accent">BookaWaka Dispatch</span>
       <div className="flex gap-5 items-center">
         {stat('Drivers', counts.all)}
         {stat('Free', counts.free, 'text-status-available')}
         {stat('Picking', counts.picking, 'text-status-picking')}
         {stat('Busy', counts.busy, 'text-status-busy')}
         {stat('Pending', pending, 'text-amber-400')}
-        {stat('Active', active, 'text-[#5b7cfa]')}
+        {stat('Active', active, 'bw-accent')}
       </div>
-      <span className="font-mono text-[#e8eaf0] tabular-nums">
+      <span className="font-mono bw-text tabular-nums">
         NZ {nzTime}
       </span>
     </footer>

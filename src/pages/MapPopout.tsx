@@ -42,8 +42,8 @@ export function MapPopoutPage() {
 
   if (!authChecked || !ready) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#1e2235]">
-        <Spinner className="w-10 h-10 text-[#8892a4]" />
+      <div className="h-screen flex items-center justify-center bw-map-bg">
+        <Spinner className="w-10 h-10 bw-muted" />
       </div>
     );
   }
@@ -53,8 +53,8 @@ export function MapPopoutPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#13151f] text-[#e8eaf0]">
-      <div className="h-8 shrink-0 flex items-center px-3 bg-[#0f1420] border-b border-[#2d3148] text-xs font-semibold text-[#8892a4]">
+    <div className="h-screen flex flex-col bw-shell">
+      <div className="h-8 shrink-0 flex items-center px-3 bw-header-bar border-b bw-border text-xs font-semibold bw-muted">
         BookaWaka Live Map · {companyId}
       </div>
       <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} />

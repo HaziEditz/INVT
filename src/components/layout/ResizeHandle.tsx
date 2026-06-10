@@ -46,7 +46,7 @@ export function ResizeHandle({ onDrag, onDoubleClick, className }: ResizeHandleP
       onMouseDown={onMouseDown}
       onDoubleClick={onDoubleClick}
       className={cn(
-        'w-1 shrink-0 cursor-col-resize bg-[#2d3148]/60 hover:bg-[#5b7cfa]/50 active:bg-[#5b7cfa] transition-colors z-20',
+        'w-1 shrink-0 cursor-col-resize bw-resize-handle transition-colors z-20',
         className
       )}
       title="Drag to resize · double-click to reset"

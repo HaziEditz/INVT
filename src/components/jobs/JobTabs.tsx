@@ -31,8 +31,8 @@ export function JobTabs() {
   }, [activeTab]);
 
   return (
-    <div className="flex flex-col h-full bg-[#1a1d2e] text-[#e8eaf0]">
-      <div className="relative flex border-b border-[#2d3148] bg-[#1a1d2e] shrink-0">
+    <div className="flex flex-col h-full bw-surface">
+      <div className="relative flex border-b bw-border bw-surface shrink-0">
         {TABS.map((t) => {
           const count = countForTab(t.id);
           const active = activeTab === t.id;
@@ -42,7 +42,7 @@ export function JobTabs() {
               ref={(el) => { tabRefs.current[t.id] = el; }}
               className={cn(
                 'flex-1 text-center py-2.5 text-xs font-bold uppercase tracking-wide transition-colors relative',
-                active ? 'text-[#5b7cfa]' : 'text-[#8892a4] hover:text-[#e8eaf0]'
+                active ? 'bw-accent' : 'bw-muted bw-hover-text'
               )}
               onClick={() => setActiveTab(t.id)}
             >
@@ -50,7 +50,7 @@ export function JobTabs() {
               <span
                 className={cn(
                   'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold',
-                  active ? 'bg-[#5b7cfa] text-white' : 'bg-[#1e2235] text-[#8892a4] border border-[#2d3148]'
+                  active ? 'bw-accent-solid' : 'bw-card-static bw-muted border'
                 )}
               >
                 {count}
@@ -59,13 +59,13 @@ export function JobTabs() {
           );
         })}
         <span
-          className="absolute bottom-0 h-0.5 bg-[#5b7cfa] transition-all duration-200 ease-out rounded-full"
+          className="absolute bottom-0 h-0.5 bg-[var(--bw-accent)] transition-all duration-200 ease-out rounded-full"
           style={{ left: indicator.left, width: indicator.width }}
         />
       </div>
       <div className="flex-1 overflow-y-auto p-2.5">
         {jobsForTab(activeTab).length === 0 ? (
-          <div className="text-center text-[#8892a4] text-sm py-12">No jobs in this tab</div>
+          <div className="text-center bw-muted text-sm py-12">No jobs in this tab</div>
         ) : (
           jobsForTab(activeTab).map((job) => <JobCard key={job.id} job={job} tab={activeTab} />)
         )}

@@ -9,7 +9,7 @@ interface ResizableDispatchLayoutProps {
   right: React.ReactNode;
 }
 
-const panelClass = 'shrink-0 min-h-0 overflow-hidden bg-[#1a1d2e] text-[#e8eaf0] border-[#2d3148]';
+const panelClass = 'shrink-0 min-h-0 overflow-hidden bw-surface border-[var(--bw-border)]';
 
 export function ResizableDispatchLayout({ left, center, right }: ResizableDispatchLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,14 +34,14 @@ export function ResizableDispatchLayout({ left, center, right }: ResizableDispat
   }, []);
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-h-0 relative bg-[#13151f]">
+    <div ref={containerRef} className="flex flex-1 min-h-0 relative bw-shell">
       {showMap ? (
         <>
           <aside style={{ width: sizes.left }} className={`${panelClass} border-r`}>
             {left}
           </aside>
           <ResizeHandle onDrag={resizeLeft} onDoubleClick={reset} />
-          <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#13151f]">{center}</main>
+          <main className="flex-1 flex flex-col min-w-0 min-h-0 bw-shell">{center}</main>
           <ResizeHandle onDrag={resizeRight} onDoubleClick={reset} />
           <aside
             style={{ width: sizes.right }}
@@ -60,7 +60,7 @@ export function ResizableDispatchLayout({ left, center, right }: ResizableDispat
       <button
         type="button"
         onClick={() => setMapVisible(!showMap)}
-        className="absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bg-[#1a1d2e] border border-[#2d3148] shadow-lg hover:border-[#5b7cfa] text-[#8892a4] hover:text-[#e8eaf0] transition"
+        className="absolute bottom-2 right-2 z-30 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide bw-surface border bw-border shadow-lg hover:border-[var(--bw-accent)] bw-muted hover:text-[var(--bw-text)] transition"
       >
         {showMap ? 'Hide Map' : 'Show Map'}
       </button>

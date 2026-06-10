@@ -1,8 +1,9 @@
-import { Plus, Bell, Moon, Sun, LogOut, Copy, Car } from 'lucide-react';
+import { Plus, Bell, Moon, Sun, LogOut, Copy, Car, Palette } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
 import { useUiStore } from '@/store/uiStore';
 import { logoutSession } from '@/lib/jobFlow';
 import { dispatcherInitials } from '@/lib/utils';
+import { THEME_LABELS, type DispatchThemeId } from '@/lib/theme';
 
 interface HeaderProps {
   companyId: string;
@@ -21,10 +22,16 @@ const NAV = [
   { id: 'messages', label: 'Message' },
 ] as const;
 
+function ThemeIcon({ theme }: { theme: DispatchThemeId }) {
+  if (theme === 'light') return <Sun size={16} />;
+  if (theme === 'dark-blue') return <Palette size={16} />;
+  return <Moon size={16} />;
+}
+
 export function Header({ companyId, companyName, dispatcherName, onNameChange }: HeaderProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const theme = useUiStore((s) => s.theme);
-  const setTheme = useUiStore((s) => s.setTheme);
+  const cycleTheme = useUiStore((s) => s.cycleTheme);
   const notificationCount = useUiStore((s) => s.notificationCount);
   const billingBanner = useUiStore((s) => s.billingBanner);
   const initials = dispatcherInitials(dispatcherName);
@@ -36,12 +43,12 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
           {billingBanner}
         </div>
       )}
-      <header className="h-11 shrink-0 flex items-center gap-3 px-3 bg-[#0f1420] border-b border-[#2d3148] shadow-sm text-sm text-[#e8eaf0]">
+      <header className="bw-header-bar h-11 shrink-0 flex items-center gap-3 px-3 border-b shadow-sm text-sm">
         <div className="flex items-center gap-2 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-[#5b7cfa]/20 border border-[#5b7cfa]/40 flex items-center justify-center">
-            <Car size={16} className="text-[#5b7cfa]" />
+          <div className="w-8 h-8 rounded-lg bw-accent-bg flex items-center justify-center">
+            <Car size={16} className="bw-accent" />
           </div>
-          <span className="text-xs font-bold tracking-wide text-[#8892a4] hidden sm:inline">BookaWaka</span>
+          <span className="text-xs font-bold tracking-wide bw-muted hidden sm:inline">BookaWaka</span>
         </div>
 
         <Button variant="gold" onClick={() => openModalWith('createJob')}>
@@ -49,23 +56,23 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
         </Button>
 
         <button
-          className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#1e2235] border border-[#2d3148] text-[#8892a4] hover:text-[#e8eaf0] flex items-center gap-1"
+          className="text-[10px] font-mono px-2 py-0.5 rounded bw-card-static bw-muted hover:text-[var(--bw-text)] flex items-center gap-1 border"
           onClick={() => navigator.clipboard.writeText(companyId)}
           title="Copy Company ID"
         >
           {companyId} <Copy size={10} />
         </button>
 
-        <span className="font-bold text-[#e8eaf0] truncate max-w-[160px] text-sm">{companyName}</span>
+        <span className="font-bold bw-text truncate max-w-[160px] text-sm">{companyName}</span>
 
         <div className="flex items-center gap-2 ml-1">
-          <div className="w-7 h-7 rounded-full bg-[#5b7cfa]/30 border border-[#5b7cfa]/50 flex items-center justify-center text-[10px] font-bold text-[#5b7cfa]">
+          <div className="w-7 h-7 rounded-full bw-accent-bg flex items-center justify-center text-[10px] font-bold bw-accent">
             {initials}
           </div>
           <input
             value={dispatcherName}
             onChange={(e) => onNameChange(e.target.value)}
-            className="bg-transparent border-b border-[#2d3148] text-xs w-28 focus:outline-none focus:border-[#5b7cfa] text-[#e8eaf0]"
+            className="bg-transparent border-b bw-border text-xs w-28 focus:outline-none focus:border-[var(--bw-accent)] bw-text"
             aria-label="Dispatcher name"
           />
         </div>
@@ -85,13 +92,18 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
           </button>
         </nav>
 
-        <button className="text-[#8892a4] hover:text-[#e8eaf0] p-1.5 rounded-md hover:bg-[#1e2235]" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        <button
+          className="bw-icon-btn"
+          onClick={cycleTheme}
+          title={`Theme: ${THEME_LABELS[theme]} — click for next`}
+          aria-label={`Theme: ${THEME_LABELS[theme]}. Click to cycle themes.`}
+        >
+          <ThemeIcon theme={theme} />
         </button>
-        <button className="relative text-[#8892a4] hover:text-[#e8eaf0] p-1.5 rounded-md hover:bg-[#1e2235]">
+        <button className="relative bw-icon-btn">
           <Bell size={16} />
           {notificationCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 bg-bw-danger text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">
+            <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">
               {notificationCount}
             </span>
           )}

@@ -31,7 +31,7 @@ interface DispatchMapProps {
   popOutActive?: boolean;
 }
 
-import { DISPATCH_MAP_STYLES, MAP_CANVAS_BG } from '@/lib/mapStyles';
+import { getMapThemeConfig } from '@/lib/mapStyles';
 
 export function DispatchMap({
   mapsKey,
@@ -53,9 +53,12 @@ export function DispatchMap({
   const jobs = useJobStore((s) => s.jobs);
   const mapTraffic = useUiStore((s) => s.mapTraffic);
   const mapZones = useUiStore((s) => s.mapZones);
+  const theme = useUiStore((s) => s.theme);
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
   const setMapZones = useUiStore((s) => s.setMapZones);
   const openModalWith = useUiStore((s) => s.openModalWith);
+
+  const mapTheme = useMemo(() => getMapThemeConfig(theme), [theme]);
 
   const safeCenter = useMemo(
     () => normalizeMapCenter(center.lat, center.lng),
@@ -92,8 +95,8 @@ export function DispatchMap({
             center: safeCenter,
             zoom: 13,
             disableDefaultUI: true,
-            backgroundColor: MAP_CANVAS_BG,
-            styles: DISPATCH_MAP_STYLES,
+            backgroundColor: mapTheme.backgroundColor,
+            styles: mapTheme.styles,
           });
           trafficRef.current = new google.maps.TrafficLayer();
           if (mapTraffic) trafficRef.current.setMap(gMapRef.current);
@@ -109,7 +112,15 @@ export function DispatchMap({
     return () => {
       cancelled = true;
     };
-  }, [mapsKey]);
+  }, [mapsKey, mapTheme.backgroundColor, mapTheme.styles]);
+
+  useEffect(() => {
+    if (!gMapRef.current || !mapReady) return;
+    gMapRef.current.setOptions({
+      styles: mapTheme.styles,
+      backgroundColor: mapTheme.backgroundColor,
+    });
+  }, [mapTheme, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
@@ -201,25 +212,24 @@ export function DispatchMap({
     if (z != null) gMapRef.current?.setZoom(z + delta);
   };
 
-  const ctrlBtn =
-    'flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium bg-[#1a1d2e] border border-[#2d3148] text-[#e8eaf0] hover:bg-[#242840] hover:border-[#5b7cfa]/40 transition shadow-lg backdrop-blur-sm';
+  const ctrlBtn = 'bw-ctrl-btn';
 
   return (
-    <div className="relative flex-1 min-h-0 text-[#e8eaf0]" style={{ backgroundColor: '#1e2235' }}>
-      <div ref={mapRef} className="absolute inset-0" style={{ backgroundColor: '#1e2235' }} />
+    <div className="relative flex-1 min-h-0 bw-text bw-map-bg">
+      <div ref={mapRef} className="absolute inset-0 bw-map-bg" />
       {!mapReady && !mapError && (
-        <div className="absolute inset-0 flex items-center justify-center z-[1]" style={{ backgroundColor: '#1e2235' }}>
-          <Spinner className="w-8 h-8 text-[#8892a4]" />
+        <div className="absolute inset-0 flex items-center justify-center z-[1] bw-map-bg">
+          <Spinner className="w-8 h-8 bw-muted" />
         </div>
       )}
       {mapError && (
-        <div className="absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400" style={{ backgroundColor: '#1e2235' }}>
+        <div className="absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400 bw-map-bg">
           {mapError}
         </div>
       )}
 
       <div className={cn('absolute top-2 left-2 z-10 flex flex-col gap-1.5', compactControls && 'scale-90 origin-top-left')}>
-        <div className="rounded-lg border border-[#2d3148] bg-[#1a1d2e] p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]">
+        <div className="rounded-lg border bw-border bw-surface p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]">
           <button type="button" className={ctrlBtn} onClick={() => gMapRef.current?.setCenter(safeCenter)}>
             <Home size={14} /> Home
           </button>
@@ -240,7 +250,7 @@ export function DispatchMap({
           </button>
           <button
             type="button"
-            className={cn(ctrlBtn, mapZones && 'border-[#5b7cfa]/50 text-[#5b7cfa]')}
+            className={cn(ctrlBtn, mapZones && 'border-[color-mix(in_srgb,var(--bw-accent)_50%,transparent)] bw-accent')}
             onClick={() => setMapZones(!mapZones)}
           >
             <Layers size={14} /> Zones
@@ -265,17 +275,17 @@ export function DispatchMap({
       <div className="absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]">
         {(
           [
-            { k: 'all', icon: Users, color: 'text-[#e8eaf0]' },
+            { k: 'all', icon: Users, color: 'bw-text' },
             { k: 'free', icon: Car, color: 'text-status-available' },
             { k: 'picking', icon: Navigation, color: 'text-status-picking' },
             { k: 'busy', icon: Car, color: 'text-status-busy' },
-            { k: 'away', icon: Car, color: 'text-[#8892a4]' },
+            { k: 'away', icon: Car, color: 'bw-muted' },
           ] as const
         ).map(({ k, icon: Icon, color }) => (
           <span
             key={k}
             className={cn(
-              'inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-[#1a1d2e] border border-[#2d3148] shadow backdrop-blur-sm font-medium',
+              'inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bw-surface border bw-border shadow backdrop-blur-sm font-medium',
               color
             )}
           >

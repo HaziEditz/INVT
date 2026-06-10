@@ -113,7 +113,7 @@ export function DispatchPage() {
 
   if (!authChecked || !ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#13151f] text-[#e8eaf0]">
+      <div className="min-h-screen flex items-center justify-center bw-shell">
         <Spinner className="w-8 h-8" />
       </div>
     );
@@ -144,7 +144,7 @@ export function DispatchPage() {
   );
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-[#13151f] text-[#e8eaf0]">
+    <div className="h-screen flex flex-col overflow-hidden bw-shell">
       <Header
         companyId={companyId}
         companyName={companyName}
@@ -155,11 +155,11 @@ export function DispatchPage() {
       <ResizableDispatchLayout left={<JobTabs />} center={mapNode} right={rightPanel} />
 
       {mapFullscreen && (
-        <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bg-[#1e2235]">
+        <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bw-map-bg">
           <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} compactControls />
           <button
             type="button"
-            className="absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#1a1d2e] border border-[#2d3148] text-[#e8eaf0] hover:border-[#5b7cfa] shadow-lg"
+            className="absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bw-surface border bw-border bw-text hover:border-[var(--bw-accent)] shadow-lg"
             onClick={() => setMapFullscreen(false)}
           >
             Exit Fullscreen (Esc)
@@ -190,7 +190,7 @@ export function DispatchPage() {
           <div className="text-center py-6">
             <p className="text-xl font-bold text-red-400 mb-2">Driver Emergency</p>
             <p className="text-[#e8eaf0]">{emergency.driverName} · Vehicle {emergency.vehicle}</p>
-            <p className="text-sm text-[#8892a4] mt-2">{emergency.time}</p>
+            <p className="text-sm bw-muted mt-2">{emergency.time}</p>
           </div>
         )}
       </Modal>
