@@ -371,7 +371,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       ? { ...form, timing: 'later' as const, laterDate: dateOverride }
       : form;
     const params = buildInsertParams(f, dispatcherName);
-    return insertDispatchBooking(companyId, params);
+    console.log('[CreateJob] submitting:', { form: f, companyId, params });
+    const response = await insertDispatchBooking(companyId, params);
+    console.log('[CreateJob] response:', response);
+    return response;
   };
 
   const handleSubmit = async () => {
@@ -426,20 +429,26 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       let lastStatus = 'Pending';
       for (const d of targets) {
         const res = await bookOne(d);
+        if (!res?.bookingId) {
+          throw new Error('Server did not return a booking ID');
+        }
         lastId = res.bookingId;
         lastStatus = res.bookingStatus;
       }
 
-      if (lastId) {
-        upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
-        setActiveTab('ua');
-        setSelectedJobId(lastId);
+      if (!lastId) {
+        throw new Error('Booking was not created — no job ID returned');
       }
+
+      upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
+      setActiveTab('ua');
+      setSelectedJobId(null);
+      setRoutePreview(null);
 
       addToast({
         type: 'success',
         title: targets.length > 1 ? `${targets.length} jobs created` : 'Job booked',
-        message: lastId ? `#${lastId}` : undefined,
+        message: `#${lastId}`,
       });
       closeModal();
       resetForm();

@@ -7245,7 +7245,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cjBody = await readBody(req);
     let _cjData = {};
     try { _cjData = JSON.parse(_cjBody); } catch(e) {}
-    console.log('job/create received:', JSON.stringify(_cjData));
+    console.log('[job/create] received:', JSON.stringify(_cjData));
 
     const _cjCid     = ((_cjData.companyId) || '').toString().trim();
     const _cjSource  = ((_cjData.source)    || 'dispatch').toString().toLowerCase().trim();
@@ -7348,11 +7348,38 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       createdVia:         '/api/job/create',
     };
 
-    // For "dispatch" source, InsertBookingv4 is called immediately after with the full
-    // form data — it will create the actual job entry using ExternalJobId.
-    // Only push to jobStore for non-dispatch sources (hail, passenger, web, etc.)
-    // where the caller passes complete data and there is no follow-up InsertBookingv4.
-    if (_cjSource !== 'dispatch') {
+    // For "dispatch" source, InsertBookingv4 follows with full form data.
+    // Push a Pending stub to jobStore + Firebase so the job appears in U-A immediately
+    // and is not lost if InsertBookingv4 is delayed.
+    if (_cjSource === 'dispatch') {
+      _cjJob.BookingSource = 'Dispatch Console';
+      _tryPushJobToStore(_cjJob, '/api/job/create');
+      (async () => {
+        try {
+          const _tokD = await getFirebaseServerToken();
+          if (!_tokD || !_cjCid) return;
+          const _fbStub = {
+            BookingId: String(_cjIdNum),
+            CompanyId: _cjCid,
+            Status: 'Pending',
+            BookingStatus: 'Pending',
+            Name: _cjJob.Name || '',
+            PassengerName: _cjJob.Name || '',
+            PhoneNo: _cjJob.PhoneNo || '',
+            PickAddress: _cjJob.PickAddress || '',
+            DropAddress: _cjJob.DropAddress || '',
+            PickLatLng: _cjJob.PickLatLng || '',
+            DropLatLng: _cjJob.DropLatLng || '',
+            serviceType: 'taxi',
+            BookingSource: 'Dispatch Console',
+            createdAt: _cjCreated,
+          };
+          await firebaseDbSet(`pendingjobs/${_cjCid}/${_cjIdNum}`, _fbStub, _tokD);
+        } catch (_e) {
+          console.warn(`  [/api/job/create] dispatch pendingjobs stub failed: ${_e && _e.message}`);
+        }
+      })();
+    } else {
       if (_jobExistsInStore(_cjIdNum, _cjCid)) {
         res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ ok: false, error: 'job already exists', bookingId: _cjIdNum }));
@@ -7466,10 +7493,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       })();
     }
 
-    console.log(`200: POST /api/job/create -> reserved job #${_cjIdStr} companyId=${_cjCid} source=${_cjSource} pax="${_cjJob.Name}"`);
+    const _cjResult = { ok: true, jobId: _cjIdStr, bookingId: _cjIdNum, createdAt: _cjCreated };
+    console.log('[job/create] result:', JSON.stringify(_cjResult));
     try { console.time(`booking-gap-${_cjIdStr}`); } catch(e) {}
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify({ ok: true, jobId: _cjIdStr, createdAt: _cjCreated }));
+    res.end(JSON.stringify(_cjResult));
     return;
   }
 
@@ -8125,7 +8153,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             newJob.TarriffType = _tName;
             newJob.TariffId    = _tId;
           } }
-        jobStore.push(newJob);
+        const _insertExistIdx = jobStore.findIndex(j => j && j.Id === newId);
+        if (_insertExistIdx >= 0) {
+          Object.assign(jobStore[_insertExistIdx], newJob);
+          newJob = jobStore[_insertExistIdx];
+        } else {
+          jobStore.push(newJob);
+        }
         saveJobStore();
         if (sessionCompanyId) {
           _writeBookingEvent(sessionCompanyId, newId, 'StatusChanged',

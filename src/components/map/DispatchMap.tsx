@@ -56,7 +56,6 @@ export function DispatchMap({
   const jobs = useJobStore((s) => s.jobs);
   const mapTraffic = useUiStore((s) => s.mapTraffic);
   const mapZones = useUiStore((s) => s.mapZones);
-  const routePreview = useUiStore((s) => s.routePreview);
   const createJobOpen = useUiStore((s) => s.openModal === 'createJob');
   const theme = useUiStore((s) => s.theme);
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
@@ -87,9 +86,22 @@ export function DispatchMap({
       ? jobs.find((j) => j.id === selectedJobId)
       : undefined;
 
+  const clearDirectionsRenderer = () => {
+    routeRequestRef.current += 1;
+    const renderer = directionsRendererRef.current;
+    if (renderer) {
+      renderer.setDirections(null);
+      renderer.setMap(null);
+    }
+    directionsRendererRef.current = null;
+    jobMarkersRef.current.forEach((m) => m.setMap(null));
+    jobMarkersRef.current = [];
+  };
+
   useEffect(() => {
     if (createJobOpen) {
       setSelectedJobId(null);
+      clearDirectionsRenderer();
     }
   }, [createJobOpen, setSelectedJobId]);
 
@@ -188,17 +200,15 @@ export function DispatchMap({
     const map = gMapRef.current;
     const requestId = ++routeRequestRef.current;
 
-    const clearRoute = () => {
-      const renderer = directionsRendererRef.current;
-      if (!renderer) return;
-      renderer.setDirections(null);
-      renderer.setMap(null);
-    };
+    clearDirectionsRenderer();
+    // Restore request id after clearDirectionsRenderer bumped it
+    routeRequestRef.current = requestId;
 
-    clearRoute();
-
-    jobMarkersRef.current.forEach((m) => m.setMap(null));
-    jobMarkersRef.current = [];
+    if (createJobOpen || selectedJobId == null || !selectedJob) {
+      return () => {
+        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
+      };
+    }
 
     directionsRendererRef.current = new google.maps.DirectionsRenderer({
       suppressMarkers: true,
@@ -210,27 +220,16 @@ export function DispatchMap({
     });
     const directionsRenderer = directionsRendererRef.current;
 
-    const target = createJobOpen
-      ? routePreview
-        ? {
-            pick: routePreview.pick,
-            drop: routePreview.drop,
-            pickLabel: 'Pickup',
-            dropLabel: 'Dropoff',
-          }
-        : null
-      : selectedJob
-        ? {
-            pick: parseLatLng(selectedJob.pickLatLng),
-            drop: parseLatLng(selectedJob.dropLatLng),
-            pickLabel: selectedJob.pickAddress,
-            dropLabel: selectedJob.dropAddress,
-          }
-        : null;
+    const target = {
+      pick: parseLatLng(selectedJob.pickLatLng),
+      drop: parseLatLng(selectedJob.dropLatLng),
+      pickLabel: selectedJob.pickAddress,
+      dropLabel: selectedJob.dropAddress,
+    };
 
-    if (!target?.pick) {
+    if (!target.pick) {
       return () => {
-        if (routeRequestRef.current === requestId) clearRoute();
+        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
       };
     }
 
@@ -238,7 +237,7 @@ export function DispatchMap({
       Math.abs(target.pick.lat) > 0.0001 || Math.abs(target.pick.lng) > 0.0001;
     if (!hasPick) {
       return () => {
-        if (routeRequestRef.current === requestId) clearRoute();
+        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
       };
     }
 
@@ -284,7 +283,7 @@ export function DispatchMap({
       map.setCenter(target.pick);
       map.setZoom(15);
       return () => {
-        if (routeRequestRef.current === requestId) clearRoute();
+        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
       };
     }
 
@@ -317,16 +316,16 @@ export function DispatchMap({
               gMapRef.current.fitBounds(bounds, 48);
             }
           } else {
-            clearRoute();
+            clearDirectionsRenderer();
           }
         }
       );
     });
 
     return () => {
-      if (routeRequestRef.current === requestId) clearRoute();
+      if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
-  }, [selectedJobId, selectedJob, routePreview, createJobOpen, mapReady, mapsKey]);
+  }, [selectedJobId, selectedJob, createJobOpen, mapReady, mapsKey]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
