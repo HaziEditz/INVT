@@ -2465,12 +2465,49 @@ function _parseJobLatLng(jobOrRec) {
 }
 
 function _jobHasValidPickup(jobOrRec) {
-  const addr = String(jobOrRec.PickAddress || jobOrRec.pickup || jobOrRec.pickupAddress || '').trim();
+  const addr = String(jobOrRec.PickAddress || jobOrRec.pickup || jobOrRec.pickupAddress || jobOrRec.PickLocation || '').trim();
   if (addr.length >= 3 && !/^0\s*,\s*0/.test(addr) && addr !== '0,0') return true;
   const ll = _parseJobLatLng(jobOrRec);
   if (ll && (Math.abs(ll.lat) > 0.0001 || Math.abs(ll.lng) > 0.0001) &&
       Math.abs(ll.lat) <= 90 && Math.abs(ll.lng) <= 180) return true;
   return false;
+}
+
+/** Normalize pickup/dropoff from POST /api/job/create body (multiple client field shapes). */
+function _normalizeLocationFromCreateBody(data, kind) {
+  const nested = data[kind];
+  if (typeof nested === 'string' && nested.trim()) {
+    return { address: nested.trim(), lat: 0, lng: 0 };
+  }
+  if (nested && typeof nested === 'object') {
+    const addr = String(
+      nested.address || nested.Address ||
+      (kind === 'pickup'
+        ? (nested.PickAddress || nested.PickLocation || nested.pickupAddress || nested.PickupAddress)
+        : (nested.DropAddress || nested.DropLocation || nested.dropoffAddress || nested.DropoffAddress)) ||
+      ''
+    ).trim();
+    const lat = parseFloat(nested.lat ?? nested.latitude ?? 0) || 0;
+    const lng = parseFloat(nested.lng ?? nested.longitude ?? 0) || 0;
+    if (addr || lat || lng) return { address: addr, lat, lng };
+  }
+  const isPick = kind === 'pickup';
+  const flatAddr = String(
+    isPick
+      ? (data.pickupAddress || data.PickupAddress || data.PickAddress || data.PickLocation || data.pickup_address || '')
+      : (data.dropoffAddress || data.DropoffAddress || data.DropAddress || data.DropLocation || data.dropoff_address || '')
+  ).trim();
+  const flatLL = _parseJobLatLng({
+    PickLatLng: isPick ? (data.PickLatLng || data.pickLatLng) : undefined,
+    DropLatLng: !isPick ? (data.DropLatLng || data.dropLatLng) : undefined,
+    pickLatLng: isPick ? data.pickLatLng : undefined,
+    dropLatLng: !isPick ? data.dropLatLng : undefined,
+  });
+  return {
+    address: flatAddr,
+    lat: flatLL ? flatLL.lat : 0,
+    lng: flatLL ? flatLL.lng : 0,
+  };
 }
 
 function _jobHasValidSource(jobOrRec) {
@@ -7208,12 +7245,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cjBody = await readBody(req);
     let _cjData = {};
     try { _cjData = JSON.parse(_cjBody); } catch(e) {}
+    console.log('job/create received:', JSON.stringify(_cjData));
 
     const _cjCid     = ((_cjData.companyId) || '').toString().trim();
     const _cjSource  = ((_cjData.source)    || 'dispatch').toString().toLowerCase().trim();
     const _cjPax     = _cjData.passenger || {};
-    const _cjPick    = _cjData.pickup    || {};
-    const _cjDrop    = _cjData.dropoff   || {};
+    const _cjPick    = _normalizeLocationFromCreateBody(_cjData, 'pickup');
+    const _cjDrop    = _normalizeLocationFromCreateBody(_cjData, 'dropoff');
     const _cjTariff  = ((_cjData.tariffId) || '').toString().trim();
     const _cjNotes   = ((_cjData.notes)    || '').toString().trim();
     const _cjPickDT  = ((_cjData.pickupTime) || '').toString().trim(); // optional scheduled pickup

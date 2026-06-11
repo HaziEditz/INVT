@@ -2,6 +2,21 @@ import { createJob } from '@/lib/jobFlow';
 
 export type DataParam = { name: string; Value?: string; value?: string };
 
+function paramVal(params: DataParam[], ...names: string[]): string {
+  for (const name of names) {
+    const p = params.find((x) => x.name === name);
+    const v = p?.Value ?? p?.value;
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function parseLatLng(raw: string): { lat: number; lng: number } {
+  const parts = raw.split(',').map((s) => parseFloat(s.trim()));
+  if (parts.length !== 2 || parts.some((n) => Number.isNaN(n))) return { lat: 0, lng: 0 };
+  return { lat: parts[0], lng: parts[1] };
+}
+
 async function postDataManager<T = unknown>(
   selector: 'DataSelector' | 'DataSelectorRide',
   action: string,
@@ -80,7 +95,22 @@ export async function insertDispatchBooking(
   companyId: string,
   params: DataParam[]
 ): Promise<InsertBookingResult> {
-  const pre = await createJob({ source: 'dispatch', companyId });
+  const pickAddr = paramVal(params, 'PickLocation', 'PickAddress', 'pickupAddress', 'PickupAddress');
+  const dropAddr = paramVal(params, 'DropLocation', 'DropAddress', 'dropoffAddress', 'DropoffAddress');
+  const pickLL = parseLatLng(paramVal(params, 'PickLatLng'));
+  const dropLL = parseLatLng(paramVal(params, 'DropLatLng'));
+
+  const pre = await createJob({
+    source: 'dispatch',
+    companyId,
+    pickup: { address: pickAddr, lat: pickLL.lat, lng: pickLL.lng },
+    dropoff: { address: dropAddr, lat: dropLL.lat, lng: dropLL.lng },
+    passenger: {
+      name: paramVal(params, 'Name'),
+      phone: paramVal(params, 'PassengerId'),
+    },
+    notes: paramVal(params, 'EntitiesDetails', 'Notes'),
+  });
   const jobId = String(pre.jobId ?? pre.bookingId ?? '');
   if (!jobId) throw new Error('Server did not return a job ID');
 

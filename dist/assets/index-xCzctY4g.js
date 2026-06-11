@@ -28310,7 +28310,7 @@ const useDriverStore = create((set2, get2) => ({
     };
   }
 }));
-function parseLatLng(raw) {
+function parseLatLng$1(raw) {
   if (!raw) return null;
   const p2 = raw.split(",");
   if (p2.length !== 2) return null;
@@ -30846,6 +30846,19 @@ function AddressAutocomplete({
     }
   );
 }
+function paramVal(params, ...names) {
+  for (const name2 of names) {
+    const p2 = params.find((x2) => x2.name === name2);
+    const v2 = (p2 == null ? void 0 : p2.Value) ?? (p2 == null ? void 0 : p2.value);
+    if (v2 != null && String(v2).trim()) return String(v2).trim();
+  }
+  return "";
+}
+function parseLatLng(raw) {
+  const parts = raw.split(",").map((s2) => parseFloat(s2.trim()));
+  if (parts.length !== 2 || parts.some((n2) => Number.isNaN(n2))) return { lat: 0, lng: 0 };
+  return { lat: parts[0], lng: parts[1] };
+}
 async function postDataManager(selector, action, data) {
   const r = await fetch(`/DataManager/Data.aspx/${selector}`, {
     method: "POST",
@@ -30881,7 +30894,21 @@ async function fetchDispatcherSettings() {
 }
 async function insertDispatchBooking(companyId, params) {
   var _a2;
-  const pre = await createJob({ source: "dispatch", companyId });
+  const pickAddr = paramVal(params, "PickLocation", "PickAddress", "pickupAddress", "PickupAddress");
+  const dropAddr = paramVal(params, "DropLocation", "DropAddress", "dropoffAddress", "DropoffAddress");
+  const pickLL = parseLatLng(paramVal(params, "PickLatLng"));
+  const dropLL = parseLatLng(paramVal(params, "DropLatLng"));
+  const pre = await createJob({
+    source: "dispatch",
+    companyId,
+    pickup: { address: pickAddr, lat: pickLL.lat, lng: pickLL.lng },
+    dropoff: { address: dropAddr, lat: dropLL.lat, lng: dropLL.lng },
+    passenger: {
+      name: paramVal(params, "Name"),
+      phone: paramVal(params, "PassengerId")
+    },
+    notes: paramVal(params, "EntitiesDetails", "Notes")
+  });
   const jobId = String(pre.jobId ?? pre.bookingId ?? "");
   if (!jobId) throw new Error("Server did not return a job ID");
   const withId = params.filter((p2) => p2.name !== "ExternalJobId").concat([{ name: "ExternalJobId", Value: jobId }]);
@@ -39354,7 +39381,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-qD1wVr0p.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DOio3VHk.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -40726,7 +40753,7 @@ function DispatchMap({
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !selectedJob || !mapReady) return;
-    const pick = parseLatLng(selectedJob.pickLatLng);
+    const pick = parseLatLng$1(selectedJob.pickLatLng);
     if (pick) {
       new google.maps.Marker({
         position: pick,
@@ -41219,7 +41246,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CxXicFlN.js");
+        const { writeActiveDispatcher } = await import("./notifications-CQrY839H.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -41246,7 +41273,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CxXicFlN.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CQrY839H.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -41564,4 +41591,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CyM-1HCG.js.map
+//# sourceMappingURL=index-xCzctY4g.js.map
