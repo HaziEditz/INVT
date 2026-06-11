@@ -1,5 +1,6 @@
 import type { Job, JobStatus } from '@/types/job';
 import { getDb, ref, remove, update } from '@/lib/firebase';
+import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
 import { useJobStore } from '@/store/jobStore';
 
 const API = '/api';
@@ -103,8 +104,15 @@ export async function cancelJob(
   const cancelledAt = new Date().toISOString();
   const cancelReason = 'Cancelled by dispatcher';
 
-  // Remove immediately from local state — do not wait for API or Firebase
+  const jobsBefore = useJobStore.getState().jobs.length;
+  console.log('Cancelling job:', bookingId);
+  console.log('Jobs before cancel:', jobsBefore);
+
+  // Blacklist + remove immediately — do not wait for API or Firebase
+  purgeCancelledJobFromListeners(bookingId);
   useJobStore.getState().removeJob(bookingId);
+
+  console.log('Jobs after cancel:', useJobStore.getState().jobs.length);
 
   await jsonFetch(`${API}/cancel`, {
     method: 'POST',

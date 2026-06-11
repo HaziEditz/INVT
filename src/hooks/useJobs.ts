@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { jobFromFirebase, normalizeJobStatus, type Job } from '@/types/job';
+import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, type Job } from '@/types/job';
 import { playNewJobSound } from '@/lib/notifySound';
 import { isExternalJobSource } from '@/lib/utils';
 
@@ -21,6 +21,19 @@ function isUaJob(job: Job): boolean {
   return jobTabForStatus(job) === 'ua';
 }
 
+function isBlacklisted(jobId: number): boolean {
+  return useJobStore.getState().isJobBlacklisted(jobId);
+}
+
+/** Purge cancelled job from in-memory listener caches so it cannot reappear. */
+export function purgeCancelledJobFromListeners(jobId: number) {
+  listenerPendingCache?.delete(jobId);
+  listenerBookingsCache?.delete(jobId);
+}
+
+let listenerPendingCache: Map<number, Job> | null = null;
+let listenerBookingsCache: Map<number, Job> | null = null;
+
 export function useJobs(companyId: string | null) {
   const setJobs = useJobStore((s) => s.setJobs);
   const upsertJob = useJobStore((s) => s.upsertJob);
@@ -35,13 +48,15 @@ export function useJobs(companyId: string | null) {
     const unsubs: Array<() => void> = [];
     let bootstrapping = true;
 
+    listenerPendingCache = pendingRef.current;
+    listenerBookingsCache = bookingsRef.current;
+
     const syncAll = () => {
       const removed = new Set(useJobStore.getState().removedJobIds);
       const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
         (j) => !removed.has(j.id)
       );
       const byId = new Map(merged.map((j) => [j.id, j]));
-      // Keep optimistic U-A jobs until Firebase pendingjobs confirms them
       for (const j of useJobStore.getState().jobs) {
         if (!byId.has(j.id) && jobTabForStatus(j) === 'ua' && !removed.has(j.id)) {
           byId.set(j.id, j);
@@ -61,8 +76,12 @@ export function useJobs(companyId: string | null) {
     };
 
     const applyPending = (key: string, rec: Record<string, unknown>, notify: boolean) => {
+      const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+      if (!jobId || isBlacklisted(jobId)) return;
+
       const job = jobFromFirebase(key, rec, companyId);
-      if (!job) return;
+      if (!job || isBlacklisted(job.id)) return;
+
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
       const merged = booking ? { ...booking, ...job } : job;
@@ -76,17 +95,20 @@ export function useJobs(companyId: string | null) {
 
     unsubs.push(
       onChildAdded(pRef, (snap) => {
+        const jobId = parseInt(snap.key || '0', 10);
+        if (isBlacklisted(jobId)) return;
         const val = snap.val();
         if (!val || typeof val !== 'object') return;
         applyPending(snap.key!, val as Record<string, unknown>, !bootstrapping);
       })
     );
 
-    // Existing children fire synchronously during onChildAdded registration
     bootstrapping = false;
 
     unsubs.push(
       onChildChanged(pRef, (snap) => {
+        const jobId = parseInt(snap.key || '0', 10);
+        if (isBlacklisted(jobId)) return;
         const val = snap.val();
         if (!val || typeof val !== 'object') return;
         applyPending(snap.key!, val as Record<string, unknown>, false);
@@ -110,8 +132,12 @@ export function useJobs(companyId: string | null) {
         const val = snap.val();
         if (val && typeof val === 'object') {
           for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
+            const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+            if (!jobId || isBlacklisted(jobId)) continue;
+
             const job = jobFromFirebase(key, rec, companyId);
-            if (!job) continue;
+            if (!job || isBlacklisted(job.id)) continue;
+
             const active = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued', 'Offered'].includes(
               job.status
             );

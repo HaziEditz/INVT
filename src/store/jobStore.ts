@@ -11,6 +11,7 @@ interface JobStore {
   upsertJob: (job: Job) => void;
   removeJob: (id: number) => void;
   clearRemovedJob: (id: number) => void;
+  isJobBlacklisted: (id: number) => boolean;
   setSelectedJobId: (id: number | null) => void;
   setActiveTab: (tab: JobTab) => void;
   jobsForTab: (tab: JobTab) => Job[];
@@ -25,6 +26,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
   setJobs: (jobs) => set({ jobs }),
   upsertJob: (job) =>
     set((s) => {
+      if (s.removedJobIds.includes(job.id)) return s;
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {
         const next = [...s.jobs];
@@ -34,13 +36,22 @@ export const useJobStore = create<JobStore>((set, get) => ({
       return { jobs: [...s.jobs, job] };
     }),
   removeJob: (id) =>
-    set((s) => ({
-      jobs: s.jobs.filter((j) => j.id !== id),
-      removedJobIds: s.removedJobIds.includes(id) ? s.removedJobIds : [...s.removedJobIds, id],
-      selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
-    })),
+    set((s) => {
+      if (s.removedJobIds.includes(id)) {
+        return {
+          jobs: s.jobs.filter((j) => j.id !== id),
+          selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
+        };
+      }
+      return {
+        jobs: s.jobs.filter((j) => j.id !== id),
+        removedJobIds: [...s.removedJobIds, id],
+        selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
+      };
+    }),
   clearRemovedJob: (id) =>
     set((s) => ({ removedJobIds: s.removedJobIds.filter((x) => x !== id) })),
+  isJobBlacklisted: (id) => get().removedJobIds.includes(id),
   setSelectedJobId: (id) => set({ selectedJobId: id }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   jobsForTab: (tab) => {

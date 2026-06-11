@@ -241,7 +241,11 @@ export function JobCard({ job, tab }: JobCardProps) {
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled')}>
+              <button
+                type="button"
+                className={cn(iconBtn, 'text-red-400')}
+                onClick={() => setConfirmCancel(true)}
+              >
                 <X size={13} />
               </button>
             </Tooltip>
@@ -274,7 +278,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         <Button variant="ghost" onClick={() => openModalWith('jobDetail', { jobId: job.id })}>Details</Button>
       </div>
 
-      {confirmCancel && tab === 'ua' && (
+      {confirmCancel && (tab === 'ua' || tab === 'assign') && (
         <div
           className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4"
           onClick={() => setConfirmCancel(false)}

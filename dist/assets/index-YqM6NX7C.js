@@ -27725,7 +27725,7 @@ function jobCardBorderColor(job) {
   if (st2 === "Pending") return "#4f6ef7";
   return "#4f6ef7";
 }
-function jobTabForStatus$1(job) {
+function jobTabForStatus(job) {
   if (job.serviceType === "food" || job.serviceType === "freight") return "dy";
   const st2 = normalizeJobStatus(job.status);
   if (st2 === "Queued") return "queue";
@@ -27741,6 +27741,7 @@ const useJobStore = create((set2, get2) => ({
   activeTab: "ua",
   setJobs: (jobs) => set2({ jobs }),
   upsertJob: (job) => set2((s2) => {
+    if (s2.removedJobIds.includes(job.id)) return s2;
     const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
     if (idx >= 0) {
       const next = [...s2.jobs];
@@ -27749,17 +27750,26 @@ const useJobStore = create((set2, get2) => ({
     }
     return { jobs: [...s2.jobs, job] };
   }),
-  removeJob: (id) => set2((s2) => ({
-    jobs: s2.jobs.filter((j2) => j2.id !== id),
-    removedJobIds: s2.removedJobIds.includes(id) ? s2.removedJobIds : [...s2.removedJobIds, id],
-    selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId
-  })),
+  removeJob: (id) => set2((s2) => {
+    if (s2.removedJobIds.includes(id)) {
+      return {
+        jobs: s2.jobs.filter((j2) => j2.id !== id),
+        selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId
+      };
+    }
+    return {
+      jobs: s2.jobs.filter((j2) => j2.id !== id),
+      removedJobIds: [...s2.removedJobIds, id],
+      selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId
+    };
+  }),
   clearRemovedJob: (id) => set2((s2) => ({ removedJobIds: s2.removedJobIds.filter((x2) => x2 !== id) })),
+  isJobBlacklisted: (id) => get2().removedJobIds.includes(id),
   setSelectedJobId: (id) => set2({ selectedJobId: id }),
   setActiveTab: (tab) => set2({ activeTab: tab }),
   jobsForTab: (tab) => {
     const jobs = get2().jobs;
-    return jobs.filter((j2) => jobTabForStatus$1(j2) === tab).sort((a2, b2) => {
+    return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
       const ca = a2.createdAt || 0;
       const cb = b2.createdAt || 0;
       if (cb !== ca) return cb - ca;
@@ -27768,6 +27778,338 @@ const useJobStore = create((set2, get2) => ({
   },
   countForTab: (tab) => get2().jobsForTab(tab).length
 }));
+const THEME_ORDER = ["dark", "dark-blue", "light"];
+const THEME_LABELS = {
+  dark: "Dark",
+  "dark-blue": "Dark Blue",
+  light: "Light"
+};
+const STORAGE_KEY$1 = "bw_theme";
+function nextTheme(current) {
+  const i2 = THEME_ORDER.indexOf(current);
+  return THEME_ORDER[(i2 + 1) % THEME_ORDER.length];
+}
+function parseStoredTheme(raw) {
+  if (raw === "dark-blue" || raw === "light" || raw === "dark") return raw;
+  return "dark";
+}
+function applyThemeToDocument(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.classList.toggle("light", theme === "light");
+  document.documentElement.classList.toggle("dark", theme !== "light");
+}
+function initThemeFromStorage() {
+  const theme = parseStoredTheme(localStorage.getItem(STORAGE_KEY$1));
+  applyThemeToDocument(theme);
+  return theme;
+}
+function persistTheme(theme) {
+  localStorage.setItem(STORAGE_KEY$1, theme);
+  applyThemeToDocument(theme);
+}
+const useUiStore = create((set2, get2) => ({
+  theme: initThemeFromStorage(),
+  openModal: null,
+  modalJobId: null,
+  modalDriverId: null,
+  notificationCount: 0,
+  toasts: [],
+  billingBanner: null,
+  mapTraffic: true,
+  mapZones: true,
+  mapVisible: localStorage.getItem("bw_map_visible") !== "false",
+  mapFullscreen: false,
+  mapPoppedOut: false,
+  emergency: null,
+  settings: null,
+  routePreview: null,
+  setTheme: (t2) => {
+    persistTheme(t2);
+    set2({ theme: t2 });
+  },
+  cycleTheme: () => {
+    const t2 = nextTheme(get2().theme);
+    persistTheme(t2);
+    set2({ theme: t2 });
+  },
+  openModalWith: (m2, opts) => set2({ openModal: m2, modalJobId: (opts == null ? void 0 : opts.jobId) ?? null, modalDriverId: (opts == null ? void 0 : opts.driverId) ?? null }),
+  closeModal: () => set2({ openModal: null, modalJobId: null, modalDriverId: null }),
+  addToast: (t2) => set2((s2) => ({
+    toasts: [...s2.toasts, { ...t2, id: `${Date.now()}-${Math.random()}` }].slice(-8)
+  })),
+  removeToast: (id) => set2((s2) => ({ toasts: s2.toasts.filter((x2) => x2.id !== id) })),
+  setNotificationCount: (n2) => set2({ notificationCount: n2 }),
+  setBillingBanner: (msg) => set2({ billingBanner: msg }),
+  setMapTraffic: (v2) => set2({ mapTraffic: v2 }),
+  setMapZones: (v2) => set2({ mapZones: v2 }),
+  setMapVisible: (v2) => {
+    localStorage.setItem("bw_map_visible", v2 ? "true" : "false");
+    set2({ mapVisible: v2 });
+  },
+  setMapFullscreen: (v2) => set2({ mapFullscreen: v2 }),
+  setMapPoppedOut: (v2) => set2({ mapPoppedOut: v2 }),
+  setEmergency: (e) => set2({ emergency: e }),
+  setSettings: (s2) => set2({ settings: s2 }),
+  setRoutePreview: (r) => set2({ routePreview: r })
+}));
+let audioCtx = null;
+function playNewJobSound() {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    const ctx = audioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(1e-4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(1e-4, ctx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.36);
+  } catch {
+  }
+}
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+function serviceBorderColor(service) {
+  const map2 = {
+    taxi: "#3b82f6",
+    food: "#f97316",
+    freight: "#8b5cf6",
+    tm: "#06b6d4",
+    acc: "#ec4899",
+    rental: "#64748b"
+  };
+  return map2[service] || map2.taxi;
+}
+function sourceLabel(src) {
+  const s2 = src.toLowerCase().replace(/_/g, " ");
+  if (s2.includes("dispatch") || s2 === "phone" || s2.includes("console")) return "DESK";
+  if (s2.includes("hail")) return "HAIL";
+  if (s2.includes("passenger") || s2 === "app") return "APP";
+  if (s2.includes("web") || s2.includes("website")) return "WEB";
+  return s2.slice(0, 8).toUpperCase();
+}
+function sourceBadgeLabel(src, dispatcherName) {
+  const label = sourceLabel(src);
+  if (label === "DESK" && (dispatcherName == null ? void 0 : dispatcherName.trim())) {
+    return `${label} · ${dispatcherName.trim()}`;
+  }
+  return label;
+}
+function isExternalJobSource(src) {
+  const label = sourceLabel(src);
+  return label === "APP" || label === "WEB" || label === "HAIL";
+}
+function paymentLabel(type) {
+  const t2 = (type || "cash").toUpperCase();
+  if (t2.includes("STRIPE")) return "CARD";
+  return t2.split(/[\s/]/)[0].slice(0, 12);
+}
+function paymentBadgeColor(type) {
+  const t2 = (type || "").toLowerCase();
+  if (t2.includes("cash")) return "#22c55e";
+  if (t2.includes("card") || t2.includes("stripe")) return "#3b82f6";
+  if (t2.includes("account") || t2.includes("invoice")) return "#8b5cf6";
+  if (t2.includes("acc")) return "#ec4899";
+  return "#64748b";
+}
+function dispatcherInitials(name2) {
+  return name2.split(/\s+/).filter(Boolean).map((p2) => p2[0]).join("").slice(0, 2).toUpperCase() || "D";
+}
+function mergeJobs(maps) {
+  const byId = /* @__PURE__ */ new Map();
+  for (const m2 of maps) {
+    for (const [id, job] of m2) {
+      const prev = byId.get(id);
+      byId.set(id, prev ? { ...prev, ...job } : job);
+    }
+  }
+  return Array.from(byId.values());
+}
+function isUaJob(job) {
+  return jobTabForStatus(job) === "ua";
+}
+function isBlacklisted(jobId) {
+  return useJobStore.getState().isJobBlacklisted(jobId);
+}
+function purgeCancelledJobFromListeners(jobId) {
+  listenerPendingCache == null ? void 0 : listenerPendingCache.delete(jobId);
+  listenerBookingsCache == null ? void 0 : listenerBookingsCache.delete(jobId);
+}
+let listenerPendingCache = null;
+let listenerBookingsCache = null;
+function useJobs(companyId) {
+  const setJobs = useJobStore((s2) => s2.setJobs);
+  const upsertJob = useJobStore((s2) => s2.upsertJob);
+  const removeJob = useJobStore((s2) => s2.removeJob);
+  const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
+  const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  reactExports.useEffect(() => {
+    if (!companyId) return;
+    const db2 = getDb();
+    const unsubs = [];
+    let bootstrapping = true;
+    listenerPendingCache = pendingRef.current;
+    listenerBookingsCache = bookingsRef.current;
+    const syncAll = () => {
+      const removed = new Set(useJobStore.getState().removedJobIds);
+      const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
+        (j2) => !removed.has(j2.id)
+      );
+      const byId = new Map(merged.map((j2) => [j2.id, j2]));
+      for (const j2 of useJobStore.getState().jobs) {
+        if (!byId.has(j2.id) && jobTabForStatus(j2) === "ua" && !removed.has(j2.id)) {
+          byId.set(j2.id, j2);
+        }
+      }
+      setJobs(Array.from(byId.values()));
+    };
+    const notifyNewJob = (job) => {
+      if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
+      playNewJobSound();
+      useUiStore.getState().addToast({
+        type: "info",
+        title: `New job #${job.id}`,
+        message: job.pickAddress || void 0
+      });
+    };
+    const applyPending = (key, rec, notify) => {
+      const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+      if (!jobId || isBlacklisted(jobId)) return;
+      const job = jobFromFirebase(key, rec, companyId);
+      if (!job || isBlacklisted(job.id)) return;
+      pendingRef.current.set(job.id, job);
+      const booking = bookingsRef.current.get(job.id);
+      const merged = booking ? { ...booking, ...job } : job;
+      upsertJob(merged);
+      syncAll();
+      if (notify) notifyNewJob(job);
+    };
+    const pRef = ref(db2, `pendingjobs/${companyId}`);
+    const bRef = ref(db2, `allbookings/${companyId}`);
+    unsubs.push(
+      onChildAdded(pRef, (snap) => {
+        const jobId = parseInt(snap.key || "0", 10);
+        if (isBlacklisted(jobId)) return;
+        const val = snap.val();
+        if (!val || typeof val !== "object") return;
+        applyPending(snap.key, val, !bootstrapping);
+      })
+    );
+    bootstrapping = false;
+    unsubs.push(
+      onChildChanged(pRef, (snap) => {
+        const jobId = parseInt(snap.key || "0", 10);
+        if (isBlacklisted(jobId)) return;
+        const val = snap.val();
+        if (!val || typeof val !== "object") return;
+        applyPending(snap.key, val, false);
+      })
+    );
+    unsubs.push(
+      onChildRemoved(pRef, (snap) => {
+        const id = parseInt(snap.key || "0", 10);
+        if (!id) return;
+        pendingRef.current.delete(id);
+        removeJob(id);
+        clearRemovedJob(id);
+        syncAll();
+      })
+    );
+    unsubs.push(
+      onValue(bRef, (snap) => {
+        bookingsRef.current = /* @__PURE__ */ new Map();
+        const val = snap.val();
+        if (val && typeof val === "object") {
+          for (const [key, rec] of Object.entries(val)) {
+            const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+            if (!jobId || isBlacklisted(jobId)) continue;
+            const job = jobFromFirebase(key, rec, companyId);
+            if (!job || isBlacklisted(job.id)) continue;
+            const active = ["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Queued", "Offered"].includes(
+              job.status
+            );
+            if (active) bookingsRef.current.set(job.id, job);
+          }
+        }
+        syncAll();
+      })
+    );
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
+}
+function useClosedJobs(companyId, enabled) {
+  const [closed, setClosed] = reactExports.useState([]);
+  reactExports.useEffect(() => {
+    if (!companyId || !enabled) return;
+    const db2 = getDb();
+    const maps = [[], [], []];
+    const ingestClosed = (idx, snap) => {
+      const list = [];
+      const val = snap.val();
+      if (val && typeof val === "object") {
+        for (const [key, rec] of Object.entries(val)) {
+          const job = jobFromFirebase(key, rec, companyId);
+          if (!job) continue;
+          const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
+          if (st2 === "Cancelled") {
+            job.status = "Cancelled";
+            const at2 = job.cancelledAt || job.completedAt;
+            job.completedAt = at2 ? Date.parse(at2) || job.completedAt : job.completedAt;
+          } else {
+            job.status = "Completed";
+          }
+          list.push(job);
+        }
+      }
+      maps[idx] = list;
+      const merged = /* @__PURE__ */ new Map();
+      for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
+      setClosed(
+        Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
+      );
+    };
+    const unsubs = [
+      onValue(ref(db2, `completedJobs/${companyId}`), (snap) => ingestClosed(0, snap)),
+      onValue(ref(db2, `closedJobs/${companyId}`), (snap) => ingestClosed(1, snap)),
+      onValue(ref(db2, `allbookings/${companyId}`), (snap) => {
+        const list = [];
+        const val = snap.val();
+        if (val && typeof val === "object") {
+          for (const [key, rec] of Object.entries(val)) {
+            const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? ""));
+            if (st2 !== "Cancelled") continue;
+            const job = jobFromFirebase(key, rec, companyId);
+            if (!job) continue;
+            job.status = "Cancelled";
+            const at2 = job.cancelledAt || String(rec.cancelledAt ?? "");
+            job.completedAt = at2 ? Date.parse(at2) || void 0 : void 0;
+            list.push(job);
+          }
+        }
+        maps[2] = list;
+        const merged = /* @__PURE__ */ new Map();
+        for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
+        setClosed(
+          Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
+        );
+      })
+    ];
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  }, [companyId, enabled]);
+  return closed;
+}
 const API = "/api";
 async function jsonFetch(url, init) {
   const r = await fetch(url, {
@@ -27824,7 +28166,12 @@ async function assignJob(bookingId, driverId, vehicleId, ifVersion = 0) {
 async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   const cancelledAt = (/* @__PURE__ */ new Date()).toISOString();
   const cancelReason = "Cancelled by dispatcher";
+  const jobsBefore = useJobStore.getState().jobs.length;
+  console.log("Cancelling job:", bookingId);
+  console.log("Jobs before cancel:", jobsBefore);
+  purgeCancelledJobFromListeners(bookingId);
   useJobStore.getState().removeJob(bookingId);
+  console.log("Jobs after cancel:", useJobStore.getState().jobs.length);
   await jsonFetch(`${API}/cancel`, {
     method: "POST",
     body: JSON.stringify({
@@ -28309,55 +28656,6 @@ const X$1 = createLucideIcon("X", [
 function Spinner({ className }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: `animate-spin text-bw-primary ${className || "w-5 h-5"}` });
 }
-function cn(...classes) {
-  return classes.filter(Boolean).join(" ");
-}
-function serviceBorderColor(service) {
-  const map2 = {
-    taxi: "#3b82f6",
-    food: "#f97316",
-    freight: "#8b5cf6",
-    tm: "#06b6d4",
-    acc: "#ec4899",
-    rental: "#64748b"
-  };
-  return map2[service] || map2.taxi;
-}
-function sourceLabel(src) {
-  const s2 = src.toLowerCase().replace(/_/g, " ");
-  if (s2.includes("dispatch") || s2 === "phone" || s2.includes("console")) return "DESK";
-  if (s2.includes("hail")) return "HAIL";
-  if (s2.includes("passenger") || s2 === "app") return "APP";
-  if (s2.includes("web") || s2.includes("website")) return "WEB";
-  return s2.slice(0, 8).toUpperCase();
-}
-function sourceBadgeLabel(src, dispatcherName) {
-  const label = sourceLabel(src);
-  if (label === "DESK" && (dispatcherName == null ? void 0 : dispatcherName.trim())) {
-    return `${label} · ${dispatcherName.trim()}`;
-  }
-  return label;
-}
-function isExternalJobSource(src) {
-  const label = sourceLabel(src);
-  return label === "APP" || label === "WEB" || label === "HAIL";
-}
-function paymentLabel(type) {
-  const t2 = (type || "cash").toUpperCase();
-  if (t2.includes("STRIPE")) return "CARD";
-  return t2.split(/[\s/]/)[0].slice(0, 12);
-}
-function paymentBadgeColor(type) {
-  const t2 = (type || "").toLowerCase();
-  if (t2.includes("cash")) return "#22c55e";
-  if (t2.includes("card") || t2.includes("stripe")) return "#3b82f6";
-  if (t2.includes("account") || t2.includes("invoice")) return "#8b5cf6";
-  if (t2.includes("acc")) return "#ec4899";
-  return "#64748b";
-}
-function dispatcherInitials(name2) {
-  return name2.split(/\s+/).filter(Boolean).map((p2) => p2[0]).join("").slice(0, 2).toUpperCase() || "D";
-}
 const variants = {
   primary: "bg-bw-primary hover:bg-blue-600 text-white",
   gold: "bg-bw-gold hover:brightness-110 text-[#1a1a2e] font-bold",
@@ -28441,80 +28739,6 @@ function LoginPage() {
     ] })
   ] }) });
 }
-const THEME_ORDER = ["dark", "dark-blue", "light"];
-const THEME_LABELS = {
-  dark: "Dark",
-  "dark-blue": "Dark Blue",
-  light: "Light"
-};
-const STORAGE_KEY$1 = "bw_theme";
-function nextTheme(current) {
-  const i2 = THEME_ORDER.indexOf(current);
-  return THEME_ORDER[(i2 + 1) % THEME_ORDER.length];
-}
-function parseStoredTheme(raw) {
-  if (raw === "dark-blue" || raw === "light" || raw === "dark") return raw;
-  return "dark";
-}
-function applyThemeToDocument(theme) {
-  document.documentElement.setAttribute("data-theme", theme);
-  document.documentElement.classList.toggle("light", theme === "light");
-  document.documentElement.classList.toggle("dark", theme !== "light");
-}
-function initThemeFromStorage() {
-  const theme = parseStoredTheme(localStorage.getItem(STORAGE_KEY$1));
-  applyThemeToDocument(theme);
-  return theme;
-}
-function persistTheme(theme) {
-  localStorage.setItem(STORAGE_KEY$1, theme);
-  applyThemeToDocument(theme);
-}
-const useUiStore = create((set2, get2) => ({
-  theme: initThemeFromStorage(),
-  openModal: null,
-  modalJobId: null,
-  modalDriverId: null,
-  notificationCount: 0,
-  toasts: [],
-  billingBanner: null,
-  mapTraffic: true,
-  mapZones: true,
-  mapVisible: localStorage.getItem("bw_map_visible") !== "false",
-  mapFullscreen: false,
-  mapPoppedOut: false,
-  emergency: null,
-  settings: null,
-  routePreview: null,
-  setTheme: (t2) => {
-    persistTheme(t2);
-    set2({ theme: t2 });
-  },
-  cycleTheme: () => {
-    const t2 = nextTheme(get2().theme);
-    persistTheme(t2);
-    set2({ theme: t2 });
-  },
-  openModalWith: (m2, opts) => set2({ openModal: m2, modalJobId: (opts == null ? void 0 : opts.jobId) ?? null, modalDriverId: (opts == null ? void 0 : opts.driverId) ?? null }),
-  closeModal: () => set2({ openModal: null, modalJobId: null, modalDriverId: null }),
-  addToast: (t2) => set2((s2) => ({
-    toasts: [...s2.toasts, { ...t2, id: `${Date.now()}-${Math.random()}` }].slice(-8)
-  })),
-  removeToast: (id) => set2((s2) => ({ toasts: s2.toasts.filter((x2) => x2.id !== id) })),
-  setNotificationCount: (n2) => set2({ notificationCount: n2 }),
-  setBillingBanner: (msg) => set2({ billingBanner: msg }),
-  setMapTraffic: (v2) => set2({ mapTraffic: v2 }),
-  setMapZones: (v2) => set2({ mapZones: v2 }),
-  setMapVisible: (v2) => {
-    localStorage.setItem("bw_map_visible", v2 ? "true" : "false");
-    set2({ mapVisible: v2 });
-  },
-  setMapFullscreen: (v2) => set2({ mapFullscreen: v2 }),
-  setMapPoppedOut: (v2) => set2({ mapPoppedOut: v2 }),
-  setEmergency: (e) => set2({ emergency: e }),
-  setSettings: (s2) => set2({ settings: s2 }),
-  setRoutePreview: (r) => set2({ routePreview: r })
-}));
 const NAV = [
   { id: "searchJobs", label: "Filter" },
   { id: "suspended", label: "Suspended" },
@@ -30873,7 +31097,15 @@ function JobCard({ job, tab }) {
           tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Offer cancelled"), children: "Cancel Offer" }),
           (tab === "assign" || tab === "active") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-emerald-400"), onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 13 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: cn(iconBtn, "text-red-400"),
+                onClick: () => setConfirmCancel(true),
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+              }
+            ) })
           ] }),
           tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 13 }) }) }),
@@ -30885,7 +31117,7 @@ function JobCard({ job, tab }) {
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => openModalWith("jobDetail", { jobId: job.id }), children: "Details" })
         ] }),
-        confirmCancel && tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        confirmCancel && (tab === "ua" || tab === "assign") && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
             className: "fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4",
@@ -40106,7 +40338,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Co0PrVmj.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Dwz73Woy.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41701,196 +41933,6 @@ function MessagesModal() {
     tab === "inbox" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Firebase messages thread view." })
   ] });
 }
-let audioCtx = null;
-function playNewJobSound() {
-  try {
-    if (!audioCtx) audioCtx = new AudioContext();
-    const ctx = audioCtx;
-    if (ctx.state === "suspended") void ctx.resume();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
-    gain.gain.setValueAtTime(1e-4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(1e-4, ctx.currentTime + 0.35);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.36);
-  } catch {
-  }
-}
-function mergeJobs(maps) {
-  const byId = /* @__PURE__ */ new Map();
-  for (const m2 of maps) {
-    for (const [id, job] of m2) {
-      const prev = byId.get(id);
-      byId.set(id, prev ? { ...prev, ...job } : job);
-    }
-  }
-  return Array.from(byId.values());
-}
-function isUaJob(job) {
-  return jobTabForStatus(job) === "ua";
-}
-function useJobs(companyId) {
-  const setJobs = useJobStore((s2) => s2.setJobs);
-  const upsertJob = useJobStore((s2) => s2.upsertJob);
-  const removeJob = useJobStore((s2) => s2.removeJob);
-  const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
-  const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
-  const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
-  reactExports.useEffect(() => {
-    if (!companyId) return;
-    const db2 = getDb();
-    const unsubs = [];
-    let bootstrapping = true;
-    const syncAll = () => {
-      const removed = new Set(useJobStore.getState().removedJobIds);
-      const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
-        (j2) => !removed.has(j2.id)
-      );
-      const byId = new Map(merged.map((j2) => [j2.id, j2]));
-      for (const j2 of useJobStore.getState().jobs) {
-        if (!byId.has(j2.id) && jobTabForStatus(j2) === "ua" && !removed.has(j2.id)) {
-          byId.set(j2.id, j2);
-        }
-      }
-      setJobs(Array.from(byId.values()));
-    };
-    const notifyNewJob = (job) => {
-      if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
-      playNewJobSound();
-      useUiStore.getState().addToast({
-        type: "info",
-        title: `New job #${job.id}`,
-        message: job.pickAddress || void 0
-      });
-    };
-    const applyPending = (key, rec, notify) => {
-      const job = jobFromFirebase(key, rec, companyId);
-      if (!job) return;
-      pendingRef.current.set(job.id, job);
-      const booking = bookingsRef.current.get(job.id);
-      const merged = booking ? { ...booking, ...job } : job;
-      upsertJob(merged);
-      syncAll();
-      if (notify) notifyNewJob(job);
-    };
-    const pRef = ref(db2, `pendingjobs/${companyId}`);
-    const bRef = ref(db2, `allbookings/${companyId}`);
-    unsubs.push(
-      onChildAdded(pRef, (snap) => {
-        const val = snap.val();
-        if (!val || typeof val !== "object") return;
-        applyPending(snap.key, val, !bootstrapping);
-      })
-    );
-    bootstrapping = false;
-    unsubs.push(
-      onChildChanged(pRef, (snap) => {
-        const val = snap.val();
-        if (!val || typeof val !== "object") return;
-        applyPending(snap.key, val, false);
-      })
-    );
-    unsubs.push(
-      onChildRemoved(pRef, (snap) => {
-        const id = parseInt(snap.key || "0", 10);
-        if (!id) return;
-        pendingRef.current.delete(id);
-        removeJob(id);
-        clearRemovedJob(id);
-        syncAll();
-      })
-    );
-    unsubs.push(
-      onValue(bRef, (snap) => {
-        bookingsRef.current = /* @__PURE__ */ new Map();
-        const val = snap.val();
-        if (val && typeof val === "object") {
-          for (const [key, rec] of Object.entries(val)) {
-            const job = jobFromFirebase(key, rec, companyId);
-            if (!job) continue;
-            const active = ["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Queued", "Offered"].includes(
-              job.status
-            );
-            if (active) bookingsRef.current.set(job.id, job);
-          }
-        }
-        syncAll();
-      })
-    );
-    return () => {
-      for (const unsub of unsubs) unsub();
-    };
-  }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
-}
-function useClosedJobs(companyId, enabled) {
-  const [closed, setClosed] = reactExports.useState([]);
-  reactExports.useEffect(() => {
-    if (!companyId || !enabled) return;
-    const db2 = getDb();
-    const maps = [[], [], []];
-    const ingestClosed = (idx, snap) => {
-      const list = [];
-      const val = snap.val();
-      if (val && typeof val === "object") {
-        for (const [key, rec] of Object.entries(val)) {
-          const job = jobFromFirebase(key, rec, companyId);
-          if (!job) continue;
-          const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
-          if (st2 === "Cancelled") {
-            job.status = "Cancelled";
-            const at2 = job.cancelledAt || job.completedAt;
-            job.completedAt = at2 ? Date.parse(at2) || job.completedAt : job.completedAt;
-          } else {
-            job.status = "Completed";
-          }
-          list.push(job);
-        }
-      }
-      maps[idx] = list;
-      const merged = /* @__PURE__ */ new Map();
-      for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
-      setClosed(
-        Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
-      );
-    };
-    const unsubs = [
-      onValue(ref(db2, `completedJobs/${companyId}`), (snap) => ingestClosed(0, snap)),
-      onValue(ref(db2, `closedJobs/${companyId}`), (snap) => ingestClosed(1, snap)),
-      onValue(ref(db2, `allbookings/${companyId}`), (snap) => {
-        const list = [];
-        const val = snap.val();
-        if (val && typeof val === "object") {
-          for (const [key, rec] of Object.entries(val)) {
-            const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? ""));
-            if (st2 !== "Cancelled") continue;
-            const job = jobFromFirebase(key, rec, companyId);
-            if (!job) continue;
-            job.status = "Cancelled";
-            const at2 = job.cancelledAt || String(rec.cancelledAt ?? "");
-            job.completedAt = at2 ? Date.parse(at2) || void 0 : void 0;
-            list.push(job);
-          }
-        }
-        maps[2] = list;
-        const merged = /* @__PURE__ */ new Map();
-        for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
-        setClosed(
-          Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
-        );
-      })
-    ];
-    return () => {
-      for (const unsub of unsubs) unsub();
-    };
-  }, [companyId, enabled]);
-  return closed;
-}
 function formatCancelledAt(raw) {
   if (!raw) return "—";
   try {
@@ -42167,7 +42209,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BEh8u98I.js");
+        const { writeActiveDispatcher } = await import("./notifications-BEbH2eHN.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42194,7 +42236,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BEh8u98I.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BEbH2eHN.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42502,4 +42544,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BHk4LVPq.js.map
+//# sourceMappingURL=index-YqM6NX7C.js.map
