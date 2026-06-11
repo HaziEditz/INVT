@@ -40532,7 +40532,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DjfH3wNK.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-16k7zHQS.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41942,23 +41942,17 @@ function DispatchMap({
         if (routeRequestRef.current === requestId) clearDirectionsRenderer();
       };
     }
-    const target = {
-      pick: parseLatLng$1(selectedJob.pickLatLng),
-      drop: parseLatLng$1(selectedJob.dropLatLng),
-      pickLabel: selectedJob.pickAddress,
-      dropLabel: selectedJob.dropAddress
-    };
-    if (!target.pick) {
-      return () => {
-        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
-      };
-    }
-    const hasPick = Math.abs(target.pick.lat) > 1e-4 || Math.abs(target.pick.lng) > 1e-4;
-    if (!hasPick) {
-      return () => {
-        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
-      };
-    }
+    const parsedPick = parseLatLng$1(selectedJob.pickLatLng);
+    const parsedDrop = parseLatLng$1(selectedJob.dropLatLng);
+    const pickupLat = (parsedPick == null ? void 0 : parsedPick.lat) ?? 0;
+    const pickupLng = (parsedPick == null ? void 0 : parsedPick.lng) ?? 0;
+    const dropoffLat = (parsedDrop == null ? void 0 : parsedDrop.lat) ?? 0;
+    const dropoffLng = (parsedDrop == null ? void 0 : parsedDrop.lng) ?? 0;
+    console.log("[Route] selectedJob:", selectedJob == null ? void 0 : selectedJob.id);
+    console.log("[Route] pickup coords:", pickupLat, pickupLng);
+    console.log("[Route] dropoff coords:", dropoffLat, dropoffLng);
+    console.log("[Route] map ready:", !!map2);
+    console.log("[Route] renderer:", !!directionsRendererRef.current);
     const labelMarker = (pos, label, color, title) => new google.maps.Marker({
       position: pos,
       map: gMapRef.current,
@@ -41978,49 +41972,57 @@ function DispatchMap({
         fontSize: "11px"
       }
     });
-    const pickMarker = labelMarker(
-      target.pick,
-      "P",
-      "#22c55e",
-      target.pickLabel || "Pickup"
-    );
-    jobMarkersRef.current.push(pickMarker);
-    const hasDrop = target.drop && (Math.abs(target.drop.lat) > 1e-4 || Math.abs(target.drop.lng) > 1e-4);
-    if (!hasDrop || !target.drop) {
-      map2.setCenter(target.pick);
-      map2.setZoom(15);
-      return () => {
-        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
-      };
-    }
-    const dropMarker = labelMarker(
-      target.drop,
-      "D",
-      "#ef4444",
-      target.dropLabel || "Dropoff"
-    );
-    jobMarkersRef.current.push(dropMarker);
-    if (!directionsRendererRef.current) {
-      directionsRendererRef.current = new google.maps.DirectionsRenderer({
-        suppressMarkers: true,
-        polylineOptions: {
-          strokeColor: "#4f6ef7",
-          strokeWeight: 4
+    const coordsValid = (lat, lng) => Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
+    const geocodeAddress = (address) => new Promise((resolve) => {
+      const trimmed = address.trim();
+      if (!trimmed) {
+        resolve(null);
+        return;
+      }
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: trimmed }, (results, status) => {
+        if (status === "OK" && (results == null ? void 0 : results[0])) {
+          resolve({
+            lat: results[0].geometry.location.lat(),
+            lng: results[0].geometry.location.lng()
+          });
+        } else {
+          console.log("[Route] geocode failed:", trimmed, status);
+          resolve(null);
         }
       });
-      directionsRendererRef.current.setMap(map2);
-    }
-    void loadGoogleMaps(mapsKey || void 0).then(() => {
+    });
+    const drawRoute = (pick, drop, pickLabel, dropLabel) => {
       if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+      jobMarkersRef.current.push(
+        labelMarker(pick, "P", "#22c55e", pickLabel || "Pickup")
+      );
+      jobMarkersRef.current.push(
+        labelMarker(drop, "D", "#ef4444", dropLabel || "Dropoff")
+      );
+      if (!directionsRendererRef.current) {
+        directionsRendererRef.current = new google.maps.DirectionsRenderer({
+          suppressMarkers: true,
+          polylineOptions: {
+            strokeColor: "#4f6ef7",
+            strokeWeight: 4
+          }
+        });
+        directionsRendererRef.current.setMap(map2);
+      }
+      console.log("[Route] renderer:", !!directionsRendererRef.current);
       const directionsService = new google.maps.DirectionsService();
+      console.log("[Route] calling DirectionsService");
       directionsService.route(
         {
-          origin: { lat: target.pick.lat, lng: target.pick.lng },
-          destination: { lat: target.drop.lat, lng: target.drop.lng },
+          origin: pick,
+          destination: drop,
           travelMode: google.maps.TravelMode.DRIVING
         },
         (result, status) => {
           var _a2, _b2;
+          console.log("[Route] status:", status);
+          console.log("[Route] result:", result);
           if (routeRequestRef.current !== requestId || !gMapRef.current) return;
           if (status === google.maps.DirectionsStatus.OK && result) {
             (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
@@ -42033,6 +42035,36 @@ function DispatchMap({
           }
         }
       );
+    };
+    void loadGoogleMaps(mapsKey || void 0).then(async () => {
+      var _a2, _b2;
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+      let pick = parsedPick && coordsValid(pickupLat, pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
+      let drop = parsedDrop && coordsValid(dropoffLat, dropoffLng) ? { lat: dropoffLat, lng: dropoffLng } : null;
+      if (!pick && ((_a2 = selectedJob.pickAddress) == null ? void 0 : _a2.trim())) {
+        console.log("[Route] geocoding pickup address:", selectedJob.pickAddress);
+        pick = await geocodeAddress(selectedJob.pickAddress);
+        console.log("[Route] geocoded pickup:", pick);
+      }
+      if (!drop && ((_b2 = selectedJob.dropAddress) == null ? void 0 : _b2.trim())) {
+        console.log("[Route] geocoding dropoff address:", selectedJob.dropAddress);
+        drop = await geocodeAddress(selectedJob.dropAddress);
+        console.log("[Route] geocoded dropoff:", drop);
+      }
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+      if (!pick) {
+        console.log("[Route] no pickup coords available, abort");
+        return;
+      }
+      if (!drop) {
+        jobMarkersRef.current.push(
+          labelMarker(pick, "P", "#22c55e", selectedJob.pickAddress || "Pickup")
+        );
+        map2.setCenter(pick);
+        map2.setZoom(15);
+        return;
+      }
+      drawRoute(pick, drop, selectedJob.pickAddress, selectedJob.dropAddress);
     });
     return () => {
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
@@ -42459,7 +42491,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-B7x8bnD9.js");
+        const { writeActiveDispatcher } = await import("./notifications-BbeEgu9J.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42486,7 +42518,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B7x8bnD9.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BbeEgu9J.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42794,4 +42826,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Bb8lMrnG.js.map
+//# sourceMappingURL=index-AKad0D3l.js.map
