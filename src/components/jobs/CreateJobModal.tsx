@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, Minus, Plus, X } from 'lucide-react';
 import { AddressAutocomplete } from '@/components/jobs/AddressAutocomplete';
+import { useTariffs } from '@/hooks/useTariffs';
 import { useUiStore } from '@/store/uiStore';
 import { useDriverStore } from '@/store/driverStore';
+import { useJobStore } from '@/store/jobStore';
 import {
   chargeStripeCard,
   fetchDispatcherSettings,
@@ -12,6 +14,7 @@ import {
 } from '@/lib/dispatchApi';
 import {
   buildInsertParams,
+  buildBookingDateTime,
   CJ_SERVICES,
   CJ_VEHICLE_TYPES,
   defaultCreateJobForm,
@@ -20,6 +23,8 @@ import {
   type PaymentType,
   type StopPoint,
 } from '@/lib/createJobForm';
+import { estimateFare, formatFare, haversineKm } from '@/lib/fareEstimate';
+import type { Job } from '@/types/job';
 
 interface CreateJobModalProps {
   mapsKey: string;
@@ -93,11 +98,45 @@ function serviceLabel(s: string) {
   return s.toUpperCase();
 }
 
+function jobFromForm(
+  form: CreateJobFormState,
+  cid: string,
+  bookingId: number,
+  bookingStatus: string
+): Job {
+  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  return {
+    id: bookingId,
+    companyId: cid,
+    status: (bookingStatus === 'No One' ? 'No One' : 'Pending') as Job['status'],
+    source: 'dispatch',
+    serviceType: form.serviceType as Job['serviceType'],
+    pickAddress: form.pick.address || form.pickInput,
+    pickLatLng: form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : '0,0',
+    dropAddress: form.drop.address || form.dropInput,
+    dropLatLng: form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : '0,0',
+    passengerName: form.name,
+    passengerPhone: form.phone,
+    paymentType: form.paymentType || 'Cash',
+    estimatedFare: form.fixedFareEnabled ? form.fixedFareAmount : '',
+    bookingDateTime,
+    dispatchBeforeMinutes: dispatchBefore,
+    urgent: form.urgent,
+    updateSeq: 1,
+    createdAt: Date.now(),
+  };
+}
+
 export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJobModalProps) {
   const open = useUiStore((s) => s.openModal === 'createJob');
   const closeModal = useUiStore((s) => s.closeModal);
   const settings = useUiStore((s) => s.settings);
   const addToast = useUiStore((s) => s.addToast);
+  const upsertJob = useJobStore((s) => s.upsertJob);
+  const setActiveTab = useJobStore((s) => s.setActiveTab);
+  const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+
+  const fbTariffs = useTariffs(companyId);
 
   const drivers = useDriverStore((s) => s.drivers);
   const availableDrivers = useMemo(
@@ -121,6 +160,20 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const patch = useCallback((p: Partial<CreateJobFormState>) => {
     setForm((f) => ({ ...f, ...p }));
   }, []);
+
+  const fareEstimateLabel = useMemo(() => {
+    if (form.fixedFareEnabled && form.fixedFareAmount) {
+      const n = parseFloat(form.fixedFareAmount);
+      return Number.isNaN(n) ? null : formatFare(n);
+    }
+    const pickAddr = (form.pick.address || form.pickInput).trim();
+    const dropAddr = (form.drop.address || form.dropInput).trim();
+    if (!pickAddr || !dropAddr || !form.pick.lat || !form.drop.lat) return null;
+    const km = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
+    const tariff = fbTariffs.find((t) => t.id === form.tariffId) ?? fbTariffs[0];
+    if (!tariff) return null;
+    return formatFare(estimateFare(km, tariff));
+  }, [form, fbTariffs]);
 
   const resetForm = useCallback(() => {
     setForm(defaultCreateJobForm());
@@ -283,9 +336,17 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
       const targets = dates.length ? dates : [undefined];
       let lastId = 0;
+      let lastStatus = 'Pending';
       for (const d of targets) {
         const res = await bookOne(d);
         lastId = res.bookingId;
+        lastStatus = res.bookingStatus;
+      }
+
+      if (lastId) {
+        upsertJob(jobFromForm(form, companyId, lastId, lastStatus));
+        setActiveTab('ua');
+        setSelectedJobId(lastId);
       }
 
       addToast({
@@ -395,6 +456,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
               Email
             </label>
           </div>
+          {fareEstimateLabel && (
+            <div className="text-xs font-semibold text-[#5b7cfa] mt-1.5">{fareEstimateLabel}</div>
+          )}
         </section>
 
         {/* 2. PASSENGER */}

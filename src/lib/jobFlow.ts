@@ -64,12 +64,17 @@ export async function setJobStatus(
   companyId: string,
   bookingId: number,
   status: JobStatus,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
+  ifSeq?: number
 ) {
+  const { originalStatus, ifVersion, ...rest } = extra;
+  void companyId;
+  void originalStatus;
   return updateBooking({
-    companyId,
     bookingId,
-    fields: { BookingStatus: status, Status: status, ...extra },
+    by: 'dispatcher',
+    ifSeq: ifSeq ?? (typeof ifVersion === 'number' ? ifVersion : undefined),
+    changes: { BookingStatus: status, Status: status, ...rest },
   });
 }
 
@@ -116,11 +121,11 @@ export async function forceCompleteJob(bookingId: number) {
 }
 
 export async function setPending(job: Job) {
-  return setJobStatus(job.companyId, job.id, 'Pending', { originalStatus: 'pending' });
+  return setJobStatus(job.companyId, job.id, 'Pending', { originalStatus: 'pending' }, job.updateSeq);
 }
 
 export async function setNoOne(job: Job) {
-  return setJobStatus(job.companyId, job.id, 'No One', { originalStatus: 'no_one' });
+  return setJobStatus(job.companyId, job.id, 'No One', { originalStatus: 'no_one' }, job.updateSeq);
 }
 
 export function logoutSession() {

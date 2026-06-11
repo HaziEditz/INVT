@@ -115,7 +115,7 @@ export function parseLatLng(raw?: string): { lat: number; lng: number } | null {
 export function jobFromFirebase(key: string, rec: Record<string, unknown>, companyId: string): Job | null {
   const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
   if (!id) return null;
-  const status = String(rec.BookingStatus ?? rec.Status ?? rec.status ?? 'No One') as JobStatus;
+  const status = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? 'Pending'));
   const src = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? 'dispatch').toLowerCase();
   const svc = String(rec.serviceType ?? rec.ServiceType ?? 'taxi').toLowerCase() as ServiceType;
   return {
@@ -136,7 +136,12 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : undefined,
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : undefined,
     vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ''),
-    bookingDateTime: String(rec.BookingDateTime ?? rec.createdAt ?? new Date().toISOString()),
+    bookingDateTime: String(
+      rec.BookingDateTime ??
+        (typeof rec.createdAt === 'number'
+          ? new Date(rec.createdAt).toISOString()
+          : rec.createdAt ?? new Date().toISOString())
+    ),
     scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : undefined,
     dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? '0'), 10) || 0,
     notifyDispatchAt: rec.NotifyDispatchAt ? String(rec.NotifyDispatchAt) : undefined,
@@ -153,11 +158,46 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
   };
 }
 
+export function normalizeJobStatus(raw: string): JobStatus {
+  const s = String(raw || '').trim();
+  if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
+  if (s === 'pending' || s === 'PENDING') return 'Pending';
+  return s as JobStatus;
+}
+
+export function isScheduledJob(job: Job): boolean {
+  if (job.dispatchBeforeMinutes && job.dispatchBeforeMinutes > 0) return true;
+  if (job.scheduledFor && job.scheduledFor > Date.now() + 60000) return true;
+  try {
+    const d = new Date(job.bookingDateTime);
+    return !Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60000;
+  } catch {
+    return false;
+  }
+}
+
+export function jobCardBorderColor(job: Job): string {
+  if (job.urgent) return '#ef4444';
+  if (isScheduledJob(job)) return '#f59e0b';
+  const st = normalizeJobStatus(job.status);
+  if (st === 'No One') return '#64748b';
+  if (st === 'Pending') return '#4f6ef7';
+  return '#4f6ef7';
+}
+
+export function statusBadgeStyle(status: JobStatus): { label: string; color: string; bg: string } {
+  const st = normalizeJobStatus(status);
+  if (st === 'No One') return { label: 'NO ONE', color: '#94a3b8', bg: 'rgba(100,116,139,0.2)' };
+  if (st === 'Pending') return { label: 'PENDING', color: '#5b7cfa', bg: 'rgba(79,110,247,0.2)' };
+  return { label: st.toUpperCase(), color: '#8892a4', bg: 'rgba(136,146,164,0.15)' };
+}
+
 export function jobTabForStatus(job: Job): JobTab {
   if (job.serviceType === 'food' || job.serviceType === 'freight') return 'dy';
-  if (job.status === 'Queued') return 'queue';
-  if (job.status === 'Active' || job.status === 'OnTrip') return 'active';
-  if (job.status === 'Assigned' || job.status === 'Picking' || job.status === 'Arrived') return 'assign';
-  if (job.status === 'Offered') return 'offer';
+  const st = normalizeJobStatus(job.status);
+  if (st === 'Queued') return 'queue';
+  if (st === 'Active' || st === 'OnTrip') return 'active';
+  if (st === 'Assigned' || st === 'Picking' || st === 'Arrived') return 'assign';
+  if (st === 'Offered') return 'offer';
   return 'ua';
 }

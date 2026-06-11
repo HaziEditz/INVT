@@ -1,12 +1,18 @@
 import { useMemo } from 'react';
 import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
-import { Edit, X, CheckCircle, RotateCcw, MapPin, User, Phone } from 'lucide-react';
+import { Edit, X, CheckCircle, RotateCcw, MapPin, User } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
+import {
+  jobCardBorderColor,
+  normalizeJobStatus,
+  statusBadgeStyle,
+} from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
-import { serviceBorderColor, sourceLabel, paymentBadgeColor } from '@/lib/utils';
+import { sourceLabel, paymentBadgeColor } from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
+import { useJobStore } from '@/store/jobStore';
 import {
   assignJob,
   cancelJob,
@@ -26,7 +32,7 @@ interface JobCardProps {
 function waitBadgeClass(minutes: number): string {
   if (minutes >= 10) return 'bg-red-500/20 text-red-400 border-red-500/40';
   if (minutes >= 5) return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
-  return 'bw-card-static bw-muted border';
+  return 'bg-[var(--bw-card)] text-[var(--bw-muted)] border-[var(--bw-border)]';
 }
 
 export function JobCard({ job, tab }: JobCardProps) {
@@ -37,11 +43,18 @@ export function JobCard({ job, tab }: JobCardProps) {
   );
   const addToast = useUiStore((s) => s.addToast);
   const openModalWith = useUiStore((s) => s.openModalWith);
-  const border = serviceBorderColor(job.serviceType);
+  const selectedJobId = useJobStore((s) => s.selectedJobId);
+  const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+
+  const border = jobCardBorderColor(job);
+  const status = normalizeJobStatus(job.status);
+  const badge = statusBadgeStyle(status);
+  const selected = selectedJobId === job.id;
 
   const { waitLabel, waitMinutes } = useMemo(() => {
+    const base = job.createdAt ? new Date(job.createdAt) : null;
     try {
-      const d = parseISO(job.bookingDateTime);
+      const d = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime);
       return {
         waitLabel: formatDistanceToNow(d, { addSuffix: false }),
         waitMinutes: differenceInMinutes(new Date(), d),
@@ -49,7 +62,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     } catch {
       return { waitLabel: '—', waitMinutes: 0 };
     }
-  }, [job.bookingDateTime]);
+  }, [job.bookingDateTime, job.createdAt]);
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -60,60 +73,88 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const iconBtn = 'p-1.5 rounded-md bw-hover-surface border border-transparent hover:border-[var(--bw-border)] transition';
+  const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
+
+  const selectJob = () => setSelectedJobId(selected ? null : job.id);
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={selectJob}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          selectJob();
+        }
+      }}
       className={cn(
-        'rounded-lg p-3 mb-2.5 bw-card-static shadow-sm',
-        'hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 border-l-[4px]',
-        job.urgent && 'ring-1 ring-amber-500/50'
+        'rounded-md px-2.5 py-2 mb-1.5 bw-card-static cursor-pointer transition-all duration-150 border-l-[3px]',
+        selected && 'ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]'
       )}
       style={{ borderLeftColor: border }}
     >
-      <div className="flex flex-wrap items-center gap-1.5 mb-2">
-        <span className="font-mono text-sm font-bold bw-text">#{job.id}</span>
+      <div className="flex flex-wrap items-center gap-1 mb-1.5">
+        <span className="font-mono text-xs font-bold bw-text">#{job.id}</span>
+        <span
+          className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+          style={{ color: badge.color, backgroundColor: badge.bg }}
+        >
+          {badge.label}
+        </span>
         <Badge color="#94a3b8">{sourceLabel(job.source)}</Badge>
-        <Badge color={border}>{job.serviceType.toUpperCase()}</Badge>
-        {job.accountId && <Badge color="#ec4899">ACC</Badge>}
-        {job.urgent && <Badge color="#f59e0b">URGENT</Badge>}
-        <span className="ml-auto text-[10px] bw-muted uppercase">{job.status}</span>
-      </div>
-
-      <div className="space-y-1.5 text-xs mb-2">
-        <div className="flex gap-2 items-start">
-          <MapPin size={13} className="text-emerald-400 shrink-0 mt-0.5" />
-          <span className="bw-text truncate">{job.pickAddress || 'No pickup'}</span>
-        </div>
-        <div className="flex gap-2 items-start">
-          <MapPin size={13} className="text-red-400 shrink-0 mt-0.5" />
-          <span className="bw-muted truncate">{job.dropAddress || 'No dropoff'}</span>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2 text-[11px] bw-muted mb-2 items-center">
-        <span className="inline-flex items-center gap-1"><User size={11} />{job.passengerName || '—'}</span>
-        <span className="inline-flex items-center gap-1"><Phone size={11} />{job.passengerPhone || '—'}</span>
-        <Badge color={paymentBadgeColor(job.paymentType)}>{job.paymentType || 'Cash'}</Badge>
-        <span>${job.estimatedFare || '0'}</span>
-        <span className={cn('px-1.5 py-0.5 rounded-full border text-[10px] font-medium', waitBadgeClass(waitMinutes))}>
-          {waitLabel} waiting
+        {job.urgent && <Badge color="#ef4444">URGENT</Badge>}
+        <span className={cn('ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
+          {waitLabel}
         </span>
       </div>
 
+      <div className="space-y-1 text-[11px] mb-1.5 leading-snug">
+        <div className="flex gap-1.5 items-start">
+          <MapPin size={11} className="text-emerald-400 shrink-0 mt-0.5" />
+          <span className="bw-text line-clamp-2">{job.pickAddress || 'No pickup'}</span>
+        </div>
+        <div className="flex gap-1.5 items-start">
+          <MapPin size={11} className="text-red-400 shrink-0 mt-0.5" />
+          <span className="text-[var(--bw-muted)] line-clamp-2">{job.dropAddress || 'No dropoff'}</span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1.5 items-center">
+        <span className="inline-flex items-center gap-0.5 truncate max-w-full">
+          <User size={10} />
+          {job.passengerName || '—'}
+          {job.passengerPhone ? ` · ${job.passengerPhone}` : ''}
+        </span>
+        <Badge color={paymentBadgeColor(job.paymentType)}>{job.paymentType || 'Cash'}</Badge>
+        {job.estimatedFare && <span>${job.estimatedFare}</span>}
+      </div>
+
       {tab === 'offer' && job.offeredAt && (
-        <div className="text-[10px] text-amber-400 mb-2">
+        <div className="text-[9px] text-amber-400 mb-1.5">
           Offer expires {formatDistanceToNow(job.offeredAt + 30000, { addSuffix: true })}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1 items-center">
+      <div className="flex flex-wrap gap-1 items-center" onClick={(e) => e.stopPropagation()}>
         {tab === 'ua' && (
           <>
-            <Button variant="primary" onClick={() => run(() => setPending(job), 'Set Pending')}>Pending</Button>
-            <Button variant="muted" onClick={() => run(() => setNoOne(job), 'Set No One')}>No One</Button>
+            <Button
+              variant={status === 'Pending' ? 'primary' : 'ghost'}
+              className={cn(status === 'Pending' && 'ring-1 ring-[#4f6ef7]')}
+              onClick={() => run(() => setPending(job), 'Set Pending')}
+            >
+              Pending
+            </Button>
+            <Button
+              variant={status === 'No One' ? 'muted' : 'ghost'}
+              className={cn(status === 'No One' && 'ring-1 ring-[#64748b] bg-[#64748b]/20')}
+              onClick={() => run(() => setNoOne(job), 'Set No One')}
+            >
+              No One
+            </Button>
             <select
-              className="bw-card-static rounded text-xs px-1 py-1 bw-text max-w-[100px] border"
+              className="bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[90px] border"
               defaultValue=""
               onChange={(e) => {
                 const d = drivers.find((x) => x.driverId === e.target.value);
@@ -128,12 +169,12 @@ export function JobCard({ job, tab }: JobCardProps) {
             </select>
             <Tooltip label="Edit job">
               <button type="button" className={iconBtn} onClick={() => openModalWith('createJob', { jobId: job.id })}>
-                <Edit size={14} />
+                <Edit size={13} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
               <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
-                <X size={14} />
+                <X size={13} />
               </button>
             </Tooltip>
           </>
@@ -145,12 +186,12 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <Tooltip label="Complete job">
               <button type="button" className={cn(iconBtn, 'text-emerald-400')} onClick={() => run(() => forceCompleteJob(job.id), 'Completed')}>
-                <CheckCircle size={14} />
+                <CheckCircle size={13} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
               <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
-                <X size={14} />
+                <X size={13} />
               </button>
             </Tooltip>
           </>
@@ -159,12 +200,12 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <Tooltip label="Recall to U-A">
               <button type="button" className={iconBtn} onClick={() => run(() => recallJob(job.id, job.originalStatus || 'Pending'), 'Recalled to U-A')}>
-                <RotateCcw size={14} />
+                <RotateCcw size={13} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
               <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
-                <X size={14} />
+                <X size={13} />
               </button>
             </Tooltip>
           </>
@@ -174,7 +215,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             <Button variant="primary" onClick={() => run(() => setPending(job), 'Pending')}>Pending</Button>
             <Tooltip label="Cancel job">
               <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
-                <X size={14} />
+                <X size={13} />
               </button>
             </Tooltip>
           </>

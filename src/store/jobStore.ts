@@ -37,7 +37,12 @@ export const useJobStore = create<JobStore>((set, get) => ({
     const jobs = get().jobs;
     return jobs
       .filter((j) => jobTabForStatus(j) === tab)
-      .sort((a, b) => (a.bookingDateTime || '').localeCompare(b.bookingDateTime || ''));
+      .sort((a, b) => {
+        const ca = a.createdAt || 0;
+        const cb = b.createdAt || 0;
+        if (cb !== ca) return cb - ca;
+        return b.id - a.id;
+      });
   },
   countForTab: (tab) => get().jobsForTab(tab).length,
 }));

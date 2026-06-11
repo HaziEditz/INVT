@@ -21,7 +21,7 @@ export function useJobs(companyId: string | null) {
     const db = getDb();
 
     const sync = () => {
-      setJobs(mergeJobs([pendingRef.current, bookingsRef.current]));
+      setJobs(mergeJobs([bookingsRef.current, pendingRef.current]));
     };
 
     const pRef = ref(db, `pendingjobs/${companyId}`);
