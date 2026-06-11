@@ -91,6 +91,9 @@ export interface Job {
   updateSeq?: number;
   createdAt?: number;
   completedAt?: number;
+  cancelledBy?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
   dispatcherName?: string;
   timeline?: JobTimelineEvent[];
 }
@@ -160,6 +163,9 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     updateSeq: parseInt(String(rec.updateSeq ?? '0'), 10) || 0,
     createdAt: rec.createdAt ? Number(rec.createdAt) : undefined,
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
+    cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ''),
+    cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ''),
+    cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? ''),
   };
 }
 

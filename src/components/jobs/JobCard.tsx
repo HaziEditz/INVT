@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { differenceInMinutes, format, formatDistanceToNow, parseISO } from 'date-fns';
 import { Edit, X, CheckCircle, RotateCcw, User } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
@@ -59,6 +59,11 @@ export function JobCard({ job, tab }: JobCardProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+  const dispatcherName = useMemo(
+    () => localStorage.getItem('bw_dispatcher_name') || 'Dispatcher',
+    []
+  );
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const border = jobCardBorderColor(job);
   const status = normalizeJobStatus(job.status);
@@ -85,6 +90,20 @@ export function JobCard({ job, tab }: JobCardProps) {
       addToast({ type: 'success', title: ok });
     } catch (e) {
       addToast({ type: 'error', title: 'Action failed', message: e instanceof Error ? e.message : '' });
+    }
+  };
+
+  const handleCancelConfirmed = async () => {
+    setConfirmCancel(false);
+    try {
+      await cancelJob(job.id, job.companyId, dispatcherName);
+      addToast({ type: 'success', title: `Job cancelled by ${dispatcherName}` });
+    } catch (e) {
+      addToast({
+        type: 'error',
+        title: 'Cancel failed',
+        message: e instanceof Error ? e.message : '',
+      });
     }
   };
 
@@ -201,14 +220,18 @@ export function JobCard({ job, tab }: JobCardProps) {
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button
+                type="button"
+                className={cn(iconBtn, 'text-red-400')}
+                onClick={() => setConfirmCancel(true)}
+              >
                 <X size={13} />
               </button>
             </Tooltip>
           </>
         )}
         {tab === 'offer' && (
-          <Button variant="danger" onClick={() => run(() => cancelJob(job.id), 'Offer cancelled')}>Cancel Offer</Button>
+          <Button variant="danger" onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Offer cancelled')}>Cancel Offer</Button>
         )}
         {(tab === 'assign' || tab === 'active') && (
           <>
@@ -218,7 +241,7 @@ export function JobCard({ job, tab }: JobCardProps) {
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled')}>
                 <X size={13} />
               </button>
             </Tooltip>
@@ -232,7 +255,7 @@ export function JobCard({ job, tab }: JobCardProps) {
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled')}>
                 <X size={13} />
               </button>
             </Tooltip>
@@ -242,7 +265,7 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <Button variant="primary" onClick={() => run(() => setPending(job), 'Pending')}>Pending</Button>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id), 'Cancelled')}>
+              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled')}>
                 <X size={13} />
               </button>
             </Tooltip>
@@ -250,6 +273,28 @@ export function JobCard({ job, tab }: JobCardProps) {
         )}
         <Button variant="ghost" onClick={() => openModalWith('jobDetail', { jobId: job.id })}>Details</Button>
       </div>
+
+      {confirmCancel && tab === 'ua' && (
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setConfirmCancel(false)}
+        >
+          <div
+            className="bw-card rounded-lg p-4 shadow-xl max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm bw-text mb-4">Cancel this job?</p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="muted" onClick={() => setConfirmCancel(false)}>
+                Keep Job
+              </Button>
+              <Button variant="danger" onClick={() => void handleCancelConfirmed()}>
+                Yes, Cancel Job
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

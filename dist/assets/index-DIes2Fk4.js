@@ -19910,6 +19910,20 @@ function newRelativePath(outerPath, innerPath) {
     throw new Error("INTERNAL ERROR: innerPath (" + innerPath + ") is not within outerPath (" + outerPath + ")");
   }
 }
+function pathCompare(left, right) {
+  const leftKeys = pathSlice(left, 0);
+  const rightKeys = pathSlice(right, 0);
+  for (let i2 = 0; i2 < leftKeys.length && i2 < rightKeys.length; i2++) {
+    const cmp = nameCompare(leftKeys[i2], rightKeys[i2]);
+    if (cmp !== 0) {
+      return cmp;
+    }
+  }
+  if (leftKeys.length === rightKeys.length) {
+    return 0;
+  }
+  return leftKeys.length < rightKeys.length ? -1 : 1;
+}
 function pathEquals(path, other) {
   if (pathGetLength(path) !== pathGetLength(other)) {
     return false;
@@ -24317,6 +24331,17 @@ function writeTreeAddOverwrite(writeTree, path, snap, writeId, visible) {
   }
   writeTree.lastWriteId = writeId;
 }
+function writeTreeAddMerge(writeTree, path, changedChildren, writeId) {
+  assert(writeId > writeTree.lastWriteId, "Stacking an older merge on top of newer ones");
+  writeTree.allWrites.push({
+    path,
+    children: changedChildren,
+    writeId,
+    visible: true
+  });
+  writeTree.visibleWrites = compoundWriteAddWrites(writeTree.visibleWrites, path, changedChildren);
+  writeTree.lastWriteId = writeId;
+}
 function writeTreeGetWrite(writeTree, writeId) {
   for (let i2 = 0; i2 < writeTree.allWrites.length; i2++) {
     const record = writeTree.allWrites[i2];
@@ -25310,6 +25335,11 @@ function syncTreeApplyUserOverwrite(syncTree, path, newData, writeId, visible) {
     return syncTreeApplyOperationToSyncPoints_(syncTree, new Overwrite(newOperationSourceUser(), path, newData));
   }
 }
+function syncTreeApplyUserMerge(syncTree, path, changedChildren, writeId) {
+  writeTreeAddMerge(syncTree.pendingWriteTree_, path, changedChildren, writeId);
+  const changeTree = ImmutableTree.fromObject(changedChildren);
+  return syncTreeApplyOperationToSyncPoints_(syncTree, new Merge(newOperationSourceUser(), path, changeTree));
+}
 function syncTreeAckUserWrite(syncTree, writeId, revert = false) {
   const write = writeTreeGetWrite(syncTree.pendingWriteTree_, writeId);
   const needToReevaluate = writeTreeRemoveWrite(syncTree.pendingWriteTree_, writeId);
@@ -25917,6 +25947,10 @@ const isValidRootPathString = function(pathString) {
   }
   return isValidPathString(pathString);
 };
+const isValidPriority = function(priority) {
+  return priority === null || typeof priority === "string" || typeof priority === "number" && !isInvalidJSONNumber(priority) || priority && typeof priority === "object" && // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  contains(priority, ".sv");
+};
 const validateFirebaseDataArg = function(fnName, value, path, optional) {
   validateFirebaseData(errorPrefix(fnName, "value"), value, path);
 };
@@ -25954,6 +25988,46 @@ const validateFirebaseData = function(errorPrefix2, data, path_) {
       throw new Error(errorPrefix2 + ' contains ".value" child ' + validationPathToErrorString(path) + " in addition to actual children.");
     }
   }
+};
+const validateFirebaseMergePaths = function(errorPrefix2, mergePaths) {
+  let i2, curPath;
+  for (i2 = 0; i2 < mergePaths.length; i2++) {
+    curPath = mergePaths[i2];
+    const keys = pathSlice(curPath);
+    for (let j2 = 0; j2 < keys.length; j2++) {
+      if (keys[j2] === ".priority" && j2 === keys.length - 1) ;
+      else if (!isValidKey(keys[j2])) {
+        throw new Error(errorPrefix2 + "contains an invalid key (" + keys[j2] + ") in path " + curPath.toString() + `. Keys must be non-empty strings and can't contain ".", "#", "$", "/", "[", or "]"`);
+      }
+    }
+  }
+  mergePaths.sort(pathCompare);
+  let prevPath = null;
+  for (i2 = 0; i2 < mergePaths.length; i2++) {
+    curPath = mergePaths[i2];
+    if (prevPath !== null && pathContains(prevPath, curPath)) {
+      throw new Error(errorPrefix2 + "contains a path " + prevPath.toString() + " that is ancestor of another path " + curPath.toString());
+    }
+    prevPath = curPath;
+  }
+};
+const validateFirebaseMergeDataArg = function(fnName, data, path, optional) {
+  const errorPrefix$1 = errorPrefix(fnName, "values");
+  if (!(data && typeof data === "object") || Array.isArray(data)) {
+    throw new Error(errorPrefix$1 + " must be an object containing the children to replace.");
+  }
+  const mergePaths = [];
+  each(data, (key, value) => {
+    const curPath = new Path(key);
+    validateFirebaseData(errorPrefix$1, value, pathChild(path, curPath));
+    if (pathGetBack(curPath) === ".priority") {
+      if (!isValidPriority(value)) {
+        throw new Error(errorPrefix$1 + "contains an invalid value for '" + curPath.toString() + "', which must be a valid Firebase priority (a string, finite number, server value, or null).");
+      }
+    }
+    mergePaths.push(curPath);
+  });
+  validateFirebaseMergePaths(errorPrefix$1, mergePaths);
 };
 const validatePathString = function(fnName, argumentName, pathString, optional) {
   if (!isValidPathString(pathString)) {
@@ -26275,6 +26349,39 @@ function repoSetWithPriority(repo, path, newVal, newPriority, onComplete) {
   const affectedPath = repoAbortTransactions(repo, path);
   repoRerunTransactions(repo, affectedPath);
   eventQueueRaiseEventsForChangedPath(repo.eventQueue_, affectedPath, []);
+}
+function repoUpdate(repo, path, childrenToMerge, onComplete) {
+  repoLog(repo, "update", { path: path.toString(), value: childrenToMerge });
+  let empty = true;
+  const serverValues = repoGenerateServerValues(repo);
+  const changedChildren = {};
+  each(childrenToMerge, (changedKey, changedValue) => {
+    empty = false;
+    changedChildren[changedKey] = resolveDeferredValueTree(pathChild(path, changedKey), nodeFromJSON(changedValue), repo.serverSyncTree_, serverValues);
+  });
+  if (!empty) {
+    const writeId = repoGetNextWriteId(repo);
+    const events = syncTreeApplyUserMerge(repo.serverSyncTree_, path, changedChildren, writeId);
+    eventQueueQueueEvents(repo.eventQueue_, events);
+    repo.server_.merge(path.toString(), childrenToMerge, (status, errorReason) => {
+      const success = status === "ok";
+      if (!success) {
+        warn("update at " + path + " failed: " + status);
+      }
+      const clearEvents = syncTreeAckUserWrite(repo.serverSyncTree_, writeId, !success);
+      const affectedPath = clearEvents.length > 0 ? repoRerunTransactions(repo, path) : path;
+      eventQueueRaiseEventsForChangedPath(repo.eventQueue_, affectedPath, clearEvents);
+      repoCallOnCompleteCallback(repo, onComplete, status, errorReason);
+    });
+    each(childrenToMerge, (changedPath) => {
+      const affectedPath = repoAbortTransactions(repo, pathChild(path, changedPath));
+      repoRerunTransactions(repo, affectedPath);
+    });
+    eventQueueRaiseEventsForChangedPath(repo.eventQueue_, path, []);
+  } else {
+    log("update() called with empty data.  Don't do anything.");
+    repoCallOnCompleteCallback(repo, onComplete, "ok", void 0);
+  }
 }
 function repoRunOnDisconnectEvents(repo) {
   repoLog(repo, "onDisconnectEvents");
@@ -27077,6 +27184,10 @@ function child(parent, path) {
   }
   return new ReferenceImpl(parent._repo, pathChild(parent._path, path));
 }
+function remove(ref2) {
+  validateWritablePath("remove", ref2._path);
+  return set(ref2, null);
+}
 function set(ref2, value) {
   ref2 = getModularInstance(ref2);
   validateWritablePath("set", ref2._path);
@@ -27091,6 +27202,13 @@ function set(ref2, value) {
     deferred.wrapCallback(() => {
     })
   );
+  return deferred.promise;
+}
+function update(ref2, values) {
+  validateFirebaseMergeDataArg("update", values, ref2._path);
+  const deferred = new Deferred();
+  repoUpdate(ref2._repo, ref2._path, values, deferred.wrapCallback(() => {
+  }));
   return deferred.promise;
 }
 function get(query2) {
@@ -27458,8 +27576,192 @@ const firebase = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProp
   onChildRemoved,
   onValue,
   ref,
-  set
+  remove,
+  set,
+  update
 }, Symbol.toStringTag, { value: "Module" }));
+const createStoreImpl = (createState) => {
+  let state;
+  const listeners = /* @__PURE__ */ new Set();
+  const setState = (partial, replace) => {
+    const nextState = typeof partial === "function" ? partial(state) : partial;
+    if (!Object.is(nextState, state)) {
+      const previousState = state;
+      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
+      listeners.forEach((listener) => listener(state, previousState));
+    }
+  };
+  const getState = () => state;
+  const getInitialState = () => initialState;
+  const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const api = { setState, getState, getInitialState, subscribe };
+  const initialState = state = createState(setState, getState, api);
+  return api;
+};
+const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
+const identity = (arg) => arg;
+function useStore(api, selector = identity) {
+  const slice = React.useSyncExternalStore(
+    api.subscribe,
+    React.useCallback(() => selector(api.getState()), [api, selector]),
+    React.useCallback(() => selector(api.getInitialState()), [api, selector])
+  );
+  React.useDebugValue(slice);
+  return slice;
+}
+const createImpl = (createState) => {
+  const api = createStore(createState);
+  const useBoundStore = (selector) => useStore(api, selector);
+  Object.assign(useBoundStore, api);
+  return useBoundStore;
+};
+const create = ((createState) => createState ? createImpl(createState) : createImpl);
+function parseLatLng$1(raw) {
+  if (!raw) return null;
+  const p2 = raw.split(",");
+  if (p2.length !== 2) return null;
+  const lat = parseFloat(p2[0]);
+  const lng = parseFloat(p2[1]);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return { lat, lng };
+}
+function jobFromFirebase(key, rec, companyId) {
+  const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+  if (!id) return null;
+  const status = resolveJobStatus(rec);
+  const srcRaw = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? "dispatch");
+  const svc = String(rec.serviceType ?? rec.ServiceType ?? "taxi").toLowerCase();
+  return {
+    id,
+    companyId,
+    status,
+    source: normalizeSource(srcRaw),
+    serviceType: svc,
+    pickAddress: String(rec.PickAddress ?? rec.pickup ?? rec.pickupAddress ?? ""),
+    pickLatLng: String(rec.PickLatLng ?? (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : "")),
+    dropAddress: String(rec.DropAddress ?? rec.dropoff ?? rec.dropAddress ?? ""),
+    dropLatLng: String(rec.DropLatLng ?? (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : "")),
+    passengerName: String(rec.Name ?? rec.passengerName ?? ""),
+    passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? ""),
+    paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? "Cash"),
+    estimatedFare: String(rec.EstimatedFare ?? rec.Fare ?? rec.fare ?? ""),
+    totalFare: rec.TotalFare != null ? String(rec.TotalFare) : void 0,
+    driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : void 0,
+    vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : void 0,
+    vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ""),
+    bookingDateTime: String(
+      rec.BookingDateTime ?? rec.Pickingtime ?? rec.PickingTime ?? rec.pickingTime ?? (typeof rec.createdAt === "number" ? new Date(rec.createdAt).toISOString() : rec.createdAt ?? (/* @__PURE__ */ new Date()).toISOString())
+    ),
+    scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : void 0,
+    dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? "0"), 10) || 0,
+    notifyDispatchAt: rec.NotifyDispatchAt ? String(rec.NotifyDispatchAt) : void 0,
+    offeredAt: rec.offeredAt ? Number(rec.offeredAt) : void 0,
+    originalStatus: rec.originalStatus ? String(rec.originalStatus) : void 0,
+    urgent: rec.Urgent === "Yes" || rec.urgent === true,
+    notes: String(rec.Notes ?? rec.notes ?? ""),
+    accountId: rec.Account_id ? String(rec.Account_id) : void 0,
+    accountName: rec.Account_Name ? String(rec.Account_Name) : void 0,
+    tariffId: rec.TariffId ? String(rec.TariffId) : void 0,
+    passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
+    updateSeq: parseInt(String(rec.updateSeq ?? "0"), 10) || 0,
+    createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
+    dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ""),
+    cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ""),
+    cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ""),
+    cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? "")
+  };
+}
+function normalizeJobStatus(raw) {
+  const s2 = String(raw || "").trim();
+  if (s2 === "NoOne" || s2 === "no_one" || s2 === "NO ONE") return "No One";
+  if (s2 === "pending" || s2 === "PENDING") return "Pending";
+  return s2;
+}
+function uaStatusBadge(job) {
+  const st2 = normalizeJobStatus(job.status);
+  if (st2 === "No One") return { label: "NO ONE", color: "#94a3b8", bg: "rgba(100,116,139,0.2)" };
+  if (st2 === "Pending") return { label: "PENDING", color: "#5b7cfa", bg: "rgba(79,110,247,0.2)" };
+  return null;
+}
+function normalizeSource(raw) {
+  const s2 = raw.toLowerCase();
+  if (s2.includes("dispatch") || s2 === "phone" || s2.includes("console")) return "dispatch";
+  if (s2.includes("hail")) return "hail";
+  if (s2.includes("passenger") || s2 === "app") return "passenger";
+  if (s2.includes("web") || s2.includes("website")) return "web";
+  return "dispatch";
+}
+function resolveJobStatus(rec) {
+  const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
+  if (dId === -1 || dId === "-1") return "No One";
+  const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
+  const status = rec.Status != null || rec.status != null ? normalizeJobStatus(String(rec.Status ?? rec.status)) : null;
+  if (booking === "No One" || status === "No One") return "No One";
+  if (booking === "Pending" || status === "Pending") return "Pending";
+  if (booking) return booking;
+  if (status) return status;
+  return "Pending";
+}
+function isScheduledJob(job) {
+  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  if (job.notifyDispatchAt) return true;
+  if (job.scheduledFor && job.scheduledFor > Date.now() + 6e4) return true;
+  try {
+    const raw = job.bookingDateTime.replace(" ", "T");
+    const d2 = new Date(raw);
+    if (!Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4) return true;
+  } catch {
+  }
+  return false;
+}
+function jobCardBorderColor(job) {
+  if (job.urgent) return "#ef4444";
+  if (isScheduledJob(job)) return "#f59e0b";
+  const st2 = normalizeJobStatus(job.status);
+  if (st2 === "No One") return "#64748b";
+  if (st2 === "Pending") return "#4f6ef7";
+  return "#4f6ef7";
+}
+function jobTabForStatus$1(job) {
+  if (job.serviceType === "food" || job.serviceType === "freight") return "dy";
+  const st2 = normalizeJobStatus(job.status);
+  if (st2 === "Queued") return "queue";
+  if (st2 === "Active" || st2 === "OnTrip") return "active";
+  if (st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived") return "assign";
+  if (st2 === "Offered") return "offer";
+  return "ua";
+}
+const useJobStore = create((set2, get2) => ({
+  jobs: [],
+  selectedJobId: null,
+  activeTab: "ua",
+  setJobs: (jobs) => set2({ jobs }),
+  upsertJob: (job) => set2((s2) => {
+    const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
+    if (idx >= 0) {
+      const next = [...s2.jobs];
+      next[idx] = { ...next[idx], ...job };
+      return { jobs: next };
+    }
+    return { jobs: [...s2.jobs, job] };
+  }),
+  removeJob: (id) => set2((s2) => ({ jobs: s2.jobs.filter((j2) => j2.id !== id) })),
+  setSelectedJobId: (id) => set2({ selectedJobId: id }),
+  setActiveTab: (tab) => set2({ activeTab: tab }),
+  jobsForTab: (tab) => {
+    const jobs = get2().jobs;
+    return jobs.filter((j2) => jobTabForStatus$1(j2) === tab).sort((a2, b2) => {
+      const ca = a2.createdAt || 0;
+      const cb = b2.createdAt || 0;
+      if (cb !== ca) return cb - ca;
+      return b2.id - a2.id;
+    });
+  },
+  countForTab: (tab) => get2().jobsForTab(tab).length
+}));
 const API = "/api";
 async function jsonFetch(url, init) {
   const r = await fetch(url, {
@@ -27513,13 +27815,37 @@ async function assignJob(bookingId, driverId, vehicleId, ifVersion = 0) {
     payload: { driverId, vehicleId }
   });
 }
-async function cancelJob(bookingId, reason = "Cancelled by dispatcher") {
-  return jobCommand({
-    bookingId,
-    command: "cancel",
-    by: "dispatcher",
-    payload: { reason }
+async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
+  const cancelledAt = (/* @__PURE__ */ new Date()).toISOString();
+  const cancelReason = "Cancelled by dispatcher";
+  await jsonFetch(`${API}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({
+      bookingId,
+      companyId,
+      cancelledBy: "dispatcher",
+      cancelledAt,
+      reason: cancelReason,
+      dispatcherName
+    })
   });
+  try {
+    const db2 = getDb();
+    await remove(ref(db2, `pendingjobs/${companyId}/${bookingId}`));
+    await update(ref(db2, `allbookings/${companyId}/${bookingId}`), {
+      status: "Cancelled",
+      BookingStatus: "Cancelled",
+      Status: "Cancelled",
+      cancelledBy: dispatcherName,
+      CancelledBy: dispatcherName,
+      cancelledAt,
+      CancelledAt: cancelledAt,
+      cancelReason,
+      CancelReason: cancelReason
+    });
+  } catch {
+  }
+  useJobStore.getState().removeJob(bookingId);
 }
 async function recallJob(bookingId, originalStatus) {
   return jobCommand({
@@ -28109,45 +28435,6 @@ function LoginPage() {
     ] })
   ] }) });
 }
-const createStoreImpl = (createState) => {
-  let state;
-  const listeners = /* @__PURE__ */ new Set();
-  const setState = (partial, replace) => {
-    const nextState = typeof partial === "function" ? partial(state) : partial;
-    if (!Object.is(nextState, state)) {
-      const previousState = state;
-      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
-      listeners.forEach((listener) => listener(state, previousState));
-    }
-  };
-  const getState = () => state;
-  const getInitialState = () => initialState;
-  const subscribe = (listener) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
-  const api = { setState, getState, getInitialState, subscribe };
-  const initialState = state = createState(setState, getState, api);
-  return api;
-};
-const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
-const identity = (arg) => arg;
-function useStore(api, selector = identity) {
-  const slice = React.useSyncExternalStore(
-    api.subscribe,
-    React.useCallback(() => selector(api.getState()), [api, selector]),
-    React.useCallback(() => selector(api.getInitialState()), [api, selector])
-  );
-  React.useDebugValue(slice);
-  return slice;
-}
-const createImpl = (createState) => {
-  const api = createStore(createState);
-  const useBoundStore = (selector) => useStore(api, selector);
-  Object.assign(useBoundStore, api);
-  return useBoundStore;
-};
-const create = ((createState) => createState ? createImpl(createState) : createImpl);
 const THEME_ORDER = ["dark", "dark-blue", "light"];
 const THEME_LABELS = {
   dark: "Dark",
@@ -28347,146 +28634,6 @@ const useDriverStore = create((set2, get2) => ({
       away: ds.filter((d2) => d2.status === "Away").length
     };
   }
-}));
-function parseLatLng$1(raw) {
-  if (!raw) return null;
-  const p2 = raw.split(",");
-  if (p2.length !== 2) return null;
-  const lat = parseFloat(p2[0]);
-  const lng = parseFloat(p2[1]);
-  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
-  return { lat, lng };
-}
-function jobFromFirebase(key, rec, companyId) {
-  const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
-  if (!id) return null;
-  const status = resolveJobStatus(rec);
-  const srcRaw = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? "dispatch");
-  const svc = String(rec.serviceType ?? rec.ServiceType ?? "taxi").toLowerCase();
-  return {
-    id,
-    companyId,
-    status,
-    source: normalizeSource(srcRaw),
-    serviceType: svc,
-    pickAddress: String(rec.PickAddress ?? rec.pickup ?? rec.pickupAddress ?? ""),
-    pickLatLng: String(rec.PickLatLng ?? (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : "")),
-    dropAddress: String(rec.DropAddress ?? rec.dropoff ?? rec.dropAddress ?? ""),
-    dropLatLng: String(rec.DropLatLng ?? (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : "")),
-    passengerName: String(rec.Name ?? rec.passengerName ?? ""),
-    passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? ""),
-    paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? "Cash"),
-    estimatedFare: String(rec.EstimatedFare ?? rec.Fare ?? rec.fare ?? ""),
-    totalFare: rec.TotalFare != null ? String(rec.TotalFare) : void 0,
-    driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : void 0,
-    vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : void 0,
-    vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ""),
-    bookingDateTime: String(
-      rec.BookingDateTime ?? rec.Pickingtime ?? rec.PickingTime ?? rec.pickingTime ?? (typeof rec.createdAt === "number" ? new Date(rec.createdAt).toISOString() : rec.createdAt ?? (/* @__PURE__ */ new Date()).toISOString())
-    ),
-    scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : void 0,
-    dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? "0"), 10) || 0,
-    notifyDispatchAt: rec.NotifyDispatchAt ? String(rec.NotifyDispatchAt) : void 0,
-    offeredAt: rec.offeredAt ? Number(rec.offeredAt) : void 0,
-    originalStatus: rec.originalStatus ? String(rec.originalStatus) : void 0,
-    urgent: rec.Urgent === "Yes" || rec.urgent === true,
-    notes: String(rec.Notes ?? rec.notes ?? ""),
-    accountId: rec.Account_id ? String(rec.Account_id) : void 0,
-    accountName: rec.Account_Name ? String(rec.Account_Name) : void 0,
-    tariffId: rec.TariffId ? String(rec.TariffId) : void 0,
-    passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
-    updateSeq: parseInt(String(rec.updateSeq ?? "0"), 10) || 0,
-    createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
-    dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? "")
-  };
-}
-function normalizeJobStatus(raw) {
-  const s2 = String(raw || "").trim();
-  if (s2 === "NoOne" || s2 === "no_one" || s2 === "NO ONE") return "No One";
-  if (s2 === "pending" || s2 === "PENDING") return "Pending";
-  return s2;
-}
-function uaStatusBadge(job) {
-  const st2 = normalizeJobStatus(job.status);
-  if (st2 === "No One") return { label: "NO ONE", color: "#94a3b8", bg: "rgba(100,116,139,0.2)" };
-  if (st2 === "Pending") return { label: "PENDING", color: "#5b7cfa", bg: "rgba(79,110,247,0.2)" };
-  return null;
-}
-function normalizeSource(raw) {
-  const s2 = raw.toLowerCase();
-  if (s2.includes("dispatch") || s2 === "phone" || s2.includes("console")) return "dispatch";
-  if (s2.includes("hail")) return "hail";
-  if (s2.includes("passenger") || s2 === "app") return "passenger";
-  if (s2.includes("web") || s2.includes("website")) return "web";
-  return "dispatch";
-}
-function resolveJobStatus(rec) {
-  const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
-  if (dId === -1 || dId === "-1") return "No One";
-  const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
-  const status = rec.Status != null || rec.status != null ? normalizeJobStatus(String(rec.Status ?? rec.status)) : null;
-  if (booking === "No One" || status === "No One") return "No One";
-  if (booking === "Pending" || status === "Pending") return "Pending";
-  if (booking) return booking;
-  if (status) return status;
-  return "Pending";
-}
-function isScheduledJob(job) {
-  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
-  if (job.notifyDispatchAt) return true;
-  if (job.scheduledFor && job.scheduledFor > Date.now() + 6e4) return true;
-  try {
-    const raw = job.bookingDateTime.replace(" ", "T");
-    const d2 = new Date(raw);
-    if (!Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4) return true;
-  } catch {
-  }
-  return false;
-}
-function jobCardBorderColor(job) {
-  if (job.urgent) return "#ef4444";
-  if (isScheduledJob(job)) return "#f59e0b";
-  const st2 = normalizeJobStatus(job.status);
-  if (st2 === "No One") return "#64748b";
-  if (st2 === "Pending") return "#4f6ef7";
-  return "#4f6ef7";
-}
-function jobTabForStatus(job) {
-  if (job.serviceType === "food" || job.serviceType === "freight") return "dy";
-  const st2 = normalizeJobStatus(job.status);
-  if (st2 === "Queued") return "queue";
-  if (st2 === "Active" || st2 === "OnTrip") return "active";
-  if (st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived") return "assign";
-  if (st2 === "Offered") return "offer";
-  return "ua";
-}
-const useJobStore = create((set2, get2) => ({
-  jobs: [],
-  selectedJobId: null,
-  activeTab: "ua",
-  setJobs: (jobs) => set2({ jobs }),
-  upsertJob: (job) => set2((s2) => {
-    const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
-    if (idx >= 0) {
-      const next = [...s2.jobs];
-      next[idx] = { ...next[idx], ...job };
-      return { jobs: next };
-    }
-    return { jobs: [...s2.jobs, job] };
-  }),
-  removeJob: (id) => set2((s2) => ({ jobs: s2.jobs.filter((j2) => j2.id !== id) })),
-  setSelectedJobId: (id) => set2({ selectedJobId: id }),
-  setActiveTab: (tab) => set2({ activeTab: tab }),
-  jobsForTab: (tab) => {
-    const jobs = get2().jobs;
-    return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
-      const ca = a2.createdAt || 0;
-      const cb = b2.createdAt || 0;
-      if (cb !== ca) return cb - ca;
-      return b2.id - a2.id;
-    });
-  },
-  countForTab: (tab) => get2().jobsForTab(tab).length
 }));
 function nzClockString(date) {
   return date.toLocaleTimeString("en-NZ", {
@@ -30562,6 +30709,11 @@ function JobCard({ job, tab }) {
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
+  const dispatcherName = reactExports.useMemo(
+    () => localStorage.getItem("bw_dispatcher_name") || "Dispatcher",
+    []
+  );
+  const [confirmCancel, setConfirmCancel] = reactExports.useState(false);
   const border = jobCardBorderColor(job);
   normalizeJobStatus(job.status);
   const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
@@ -30585,6 +30737,19 @@ function JobCard({ job, tab }) {
       addToast({ type: "success", title: ok });
     } catch (e) {
       addToast({ type: "error", title: "Action failed", message: e instanceof Error ? e.message : "" });
+    }
+  };
+  const handleCancelConfirmed = async () => {
+    setConfirmCancel(false);
+    try {
+      await cancelJob(job.id, job.companyId, dispatcherName);
+      addToast({ type: "success", title: `Job cancelled by ${dispatcherName}` });
+    } catch (e) {
+      addToast({
+        type: "error",
+        title: "Cancel failed",
+        message: e instanceof Error ? e.message : ""
+      });
     }
   };
   const iconBtn = "p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition";
@@ -30689,23 +30854,52 @@ function JobCard({ job, tab }) {
               }
             ),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => openModalWith("createJob", { jobId: job.id }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 13 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: cn(iconBtn, "text-red-400"),
+                onClick: () => setConfirmCancel(true),
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+              }
+            ) })
           ] }),
-          tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id), "Offer cancelled"), children: "Cancel Offer" }),
+          tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Offer cancelled"), children: "Cancel Offer" }),
           (tab === "assign" || tab === "active") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-emerald-400"), onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 13 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
           ] }),
           tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 13 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
           ] }),
           tab === "dy" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => run(() => setPending(job), "Pending"), children: "Pending" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => openModalWith("jobDetail", { jobId: job.id }), children: "Details" })
-        ] })
+        ] }),
+        confirmCancel && tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4",
+            onClick: () => setConfirmCancel(false),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "div",
+              {
+                className: "bw-card rounded-lg p-4 shadow-xl max-w-sm w-full",
+                onClick: (e) => e.stopPropagation(),
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm bw-text mb-4", children: "Cancel this job?" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 justify-end", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "muted", onClick: () => setConfirmCancel(false), children: "Keep Job" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => void handleCancelConfirmed(), children: "Yes, Cancel Job" })
+                  ] })
+                ]
+              }
+            )
+          }
+        )
       ]
     }
   );
@@ -39906,7 +40100,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DrDv_nW9.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Do1tyZo9.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41628,33 +41822,73 @@ function useClosedJobs(companyId, enabled) {
   reactExports.useEffect(() => {
     if (!companyId || !enabled) return;
     const db2 = getDb();
-    const paths = [`completedJobs/${companyId}`, `closedJobs/${companyId}`];
-    const maps = [[], []];
-    const unsubs = paths.map((p2, i2) => {
-      const r = ref(db2, p2);
-      return onValue(r, (snap) => {
+    const maps = [[], [], []];
+    const ingestClosed = (idx, snap) => {
+      const list = [];
+      const val = snap.val();
+      if (val && typeof val === "object") {
+        for (const [key, rec] of Object.entries(val)) {
+          const job = jobFromFirebase(key, rec, companyId);
+          if (!job) continue;
+          const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
+          if (st2 === "Cancelled") {
+            job.status = "Cancelled";
+            const at2 = job.cancelledAt || job.completedAt;
+            job.completedAt = at2 ? Date.parse(at2) || job.completedAt : job.completedAt;
+          } else {
+            job.status = "Completed";
+          }
+          list.push(job);
+        }
+      }
+      maps[idx] = list;
+      const merged = /* @__PURE__ */ new Map();
+      for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
+      setClosed(
+        Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
+      );
+    };
+    const unsubs = [
+      onValue(ref(db2, `completedJobs/${companyId}`), (snap) => ingestClosed(0, snap)),
+      onValue(ref(db2, `closedJobs/${companyId}`), (snap) => ingestClosed(1, snap)),
+      onValue(ref(db2, `allbookings/${companyId}`), (snap) => {
         const list = [];
         const val = snap.val();
         if (val && typeof val === "object") {
           for (const [key, rec] of Object.entries(val)) {
+            const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? ""));
+            if (st2 !== "Cancelled") continue;
             const job = jobFromFirebase(key, rec, companyId);
-            if (job) {
-              job.status = "Completed";
-              list.push(job);
-            }
+            if (!job) continue;
+            job.status = "Cancelled";
+            const at2 = job.cancelledAt || String(rec.cancelledAt ?? "");
+            job.completedAt = at2 ? Date.parse(at2) || void 0 : void 0;
+            list.push(job);
           }
         }
-        maps[i2] = list;
+        maps[2] = list;
         const merged = /* @__PURE__ */ new Map();
         for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
-        setClosed(Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0)));
-      });
-    });
+        setClosed(
+          Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
+        );
+      })
+    ];
     return () => {
       for (const unsub of unsubs) unsub();
     };
   }, [companyId, enabled]);
   return closed;
+}
+function formatCancelledAt(raw) {
+  if (!raw) return "—";
+  try {
+    const d2 = parseISO(raw.includes("T") ? raw : raw.replace(" ", "T"));
+    if (Number.isNaN(d2.getTime())) return raw;
+    return format(d2, "dd/MM/yyyy HH:mm");
+  } catch {
+    return raw;
+  }
 }
 function ClosedJobsModal({ companyId }) {
   const open2 = useUiStore((s2) => s2.openModal === "closedJobs");
@@ -41665,7 +41899,7 @@ function ClosedJobsModal({ companyId }) {
   const [from, setFrom] = reactExports.useState(today);
   const [to, setTo] = reactExports.useState(today);
   const filtered = closed.filter((j2) => {
-    const d2 = j2.completedAt || Date.parse(j2.bookingDateTime);
+    const d2 = j2.completedAt || Date.parse(j2.cancelledAt || j2.bookingDateTime);
     if (!d2) return true;
     const day = format(new Date(d2), "yyyy-MM-dd");
     return day >= from && day <= to;
@@ -41702,29 +41936,38 @@ function ClosedJobsModal({ companyId }) {
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-x-auto max-h-[50vh]", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "w-full text-xs", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { className: "text-bw-muted uppercase sticky top-0 bg-bw-card", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "ID" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Status" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Passenger" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Pickup" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Fare" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Payment" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Cancelled By" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "text-left p-2", children: "Cancelled At" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "p-2", children: "Actions" })
       ] }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: filtered.map((j2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: "border-t border-bw-border hover:bg-bw-surface", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "p-2 font-mono", children: [
-          "#",
-          j2.id
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: j2.passengerName }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2 truncate max-w-[200px]", children: j2.pickAddress }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "p-2", children: [
-          "$",
-          j2.totalFare || j2.estimatedFare || "0"
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: j2.paymentType }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => {
-          closeModal();
-          openModalWith("jobDetail", { jobId: j2.id });
-        }, children: "View" }) })
-      ] }, j2.id)) })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: filtered.map((j2) => {
+        const isCancelled = normalizeJobStatus(j2.status) === "Cancelled";
+        return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: "border-t border-bw-border hover:bg-bw-surface", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "p-2 font-mono", children: [
+            "#",
+            j2.id
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled ? /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "CANCELLED" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#22c55e", children: "COMPLETED" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: j2.passengerName }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2 truncate max-w-[200px]", children: j2.pickAddress }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "p-2", children: [
+            "$",
+            j2.totalFare || j2.estimatedFare || "0"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: j2.paymentType }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled ? j2.cancelledBy || "—" : "—" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled ? formatCancelledAt(j2.cancelledAt) : "—" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => {
+            closeModal();
+            openModalWith("jobDetail", { jobId: j2.id });
+          }, children: "View" }) })
+        ] }, j2.id);
+      }) })
     ] }) })
   ] });
 }
@@ -41913,7 +42156,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-iZNzyHLa.js");
+        const { writeActiveDispatcher } = await import("./notifications-B9w1xcRd.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -41940,7 +42183,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-iZNzyHLa.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B9w1xcRd.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42248,4 +42491,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CkvQsXeq.js.map
+//# sourceMappingURL=index-DIes2Fk4.js.map

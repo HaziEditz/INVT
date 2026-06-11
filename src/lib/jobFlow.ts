@@ -1,4 +1,6 @@
 import type { Job, JobStatus } from '@/types/job';
+import { getDb, ref, remove, update } from '@/lib/firebase';
+import { useJobStore } from '@/store/jobStore';
 
 const API = '/api';
 
@@ -93,13 +95,45 @@ export async function assignJob(
   });
 }
 
-export async function cancelJob(bookingId: number, reason = 'Cancelled by dispatcher') {
-  return jobCommand({
-    bookingId,
-    command: 'cancel',
-    by: 'dispatcher',
-    payload: { reason },
+export async function cancelJob(
+  bookingId: number,
+  companyId: string,
+  dispatcherName = 'Dispatcher'
+) {
+  const cancelledAt = new Date().toISOString();
+  const cancelReason = 'Cancelled by dispatcher';
+
+  await jsonFetch(`${API}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({
+      bookingId,
+      companyId,
+      cancelledBy: 'dispatcher',
+      cancelledAt,
+      reason: cancelReason,
+      dispatcherName,
+    }),
   });
+
+  try {
+    const db = getDb();
+    await remove(ref(db, `pendingjobs/${companyId}/${bookingId}`));
+    await update(ref(db, `allbookings/${companyId}/${bookingId}`), {
+      status: 'Cancelled',
+      BookingStatus: 'Cancelled',
+      Status: 'Cancelled',
+      cancelledBy: dispatcherName,
+      CancelledBy: dispatcherName,
+      cancelledAt,
+      CancelledAt: cancelledAt,
+      cancelReason,
+      CancelReason: cancelReason,
+    });
+  } catch {
+    /* server may have already updated Firebase */
+  }
+
+  useJobStore.getState().removeJob(bookingId);
 }
 
 export async function recallJob(bookingId: number, originalStatus: JobStatus) {

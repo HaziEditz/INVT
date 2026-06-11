@@ -1,12 +1,25 @@
 import { useState } from 'react';
-import { format, subDays } from 'date-fns';
+import { format, subDays, parseISO } from 'date-fns';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
+import { Badge } from '@/components/shared/Badge';
 import { useUiStore } from '@/store/uiStore';
 import { useClosedJobs } from '@/hooks/useJobs';
+import { normalizeJobStatus } from '@/types/job';
 
 interface ClosedJobsModalProps {
   companyId: string;
+}
+
+function formatCancelledAt(raw?: string): string {
+  if (!raw) return '—';
+  try {
+    const d = parseISO(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return raw;
+    return format(d, 'dd/MM/yyyy HH:mm');
+  } catch {
+    return raw;
+  }
 }
 
 export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
@@ -20,7 +33,7 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
   const [to, setTo] = useState(today);
 
   const filtered = closed.filter((j) => {
-    const d = j.completedAt || Date.parse(j.bookingDateTime);
+    const d = j.completedAt || Date.parse(j.cancelledAt || j.bookingDateTime);
     if (!d) return true;
     const day = format(new Date(d), 'yyyy-MM-dd');
     return day >= from && day <= to;
@@ -56,26 +69,41 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
           <thead className="text-bw-muted uppercase sticky top-0 bg-bw-card">
             <tr>
               <th className="text-left p-2">ID</th>
+              <th className="text-left p-2">Status</th>
               <th className="text-left p-2">Passenger</th>
               <th className="text-left p-2">Pickup</th>
               <th className="text-left p-2">Fare</th>
               <th className="text-left p-2">Payment</th>
+              <th className="text-left p-2">Cancelled By</th>
+              <th className="text-left p-2">Cancelled At</th>
               <th className="p-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((j) => (
-              <tr key={j.id} className="border-t border-bw-border hover:bg-bw-surface">
-                <td className="p-2 font-mono">#{j.id}</td>
-                <td className="p-2">{j.passengerName}</td>
-                <td className="p-2 truncate max-w-[200px]">{j.pickAddress}</td>
-                <td className="p-2">${j.totalFare || j.estimatedFare || '0'}</td>
-                <td className="p-2">{j.paymentType}</td>
-                <td className="p-2">
-                  <Button variant="ghost" onClick={() => { closeModal(); openModalWith('jobDetail', { jobId: j.id }); }}>View</Button>
-                </td>
-              </tr>
-            ))}
+            {filtered.map((j) => {
+              const isCancelled = normalizeJobStatus(j.status) === 'Cancelled';
+              return (
+                <tr key={j.id} className="border-t border-bw-border hover:bg-bw-surface">
+                  <td className="p-2 font-mono">#{j.id}</td>
+                  <td className="p-2">
+                    {isCancelled ? (
+                      <Badge color="#ef4444">CANCELLED</Badge>
+                    ) : (
+                      <Badge color="#22c55e">COMPLETED</Badge>
+                    )}
+                  </td>
+                  <td className="p-2">{j.passengerName}</td>
+                  <td className="p-2 truncate max-w-[200px]">{j.pickAddress}</td>
+                  <td className="p-2">${j.totalFare || j.estimatedFare || '0'}</td>
+                  <td className="p-2">{j.paymentType}</td>
+                  <td className="p-2">{isCancelled ? j.cancelledBy || '—' : '—'}</td>
+                  <td className="p-2">{isCancelled ? formatCancelledAt(j.cancelledAt) : '—'}</td>
+                  <td className="p-2">
+                    <Button variant="ghost" onClick={() => { closeModal(); openModalWith('jobDetail', { jobId: j.id }); }}>View</Button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
