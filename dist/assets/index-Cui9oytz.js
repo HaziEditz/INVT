@@ -40500,7 +40500,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-GNY61Ro6.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C2MIqhRG.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41775,6 +41775,7 @@ function DispatchMap({
   const markersRef = reactExports.useRef([]);
   const jobMarkersRef = reactExports.useRef([]);
   const directionsRendererRef = reactExports.useRef(null);
+  const routeRequestRef = reactExports.useRef(0);
   const trafficRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
@@ -41784,9 +41785,11 @@ function DispatchMap({
   const mapTraffic = useUiStore((s2) => s2.mapTraffic);
   const mapZones = useUiStore((s2) => s2.mapZones);
   const routePreview = useUiStore((s2) => s2.routePreview);
+  const createJobOpen = useUiStore((s2) => s2.openModal === "createJob");
   const theme = useUiStore((s2) => s2.theme);
   const setMapTraffic = useUiStore((s2) => s2.setMapTraffic);
   const setMapZones = useUiStore((s2) => s2.setMapZones);
+  const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const mapTheme = reactExports.useMemo(() => getMapThemeConfig(theme), [theme]);
   const safeCenter = reactExports.useMemo(
@@ -41803,7 +41806,21 @@ function DispatchMap({
     }),
     [drivers]
   );
-  const selectedJob = jobs.find((j2) => j2.id === selectedJobId);
+  const selectedJob = !createJobOpen && selectedJobId != null ? jobs.find((j2) => j2.id === selectedJobId) : void 0;
+  reactExports.useEffect(() => {
+    if (createJobOpen) {
+      setSelectedJobId(null);
+    }
+  }, [createJobOpen, setSelectedJobId]);
+  reactExports.useEffect(() => {
+    if (!gMapRef.current || !mapReady) return;
+    const listener = gMapRef.current.addListener("click", () => {
+      setSelectedJobId(null);
+    });
+    return () => {
+      google.maps.event.removeListener(listener);
+    };
+  }, [mapReady, setSelectedJobId]);
   reactExports.useEffect(() => {
     const el = mapRef.current;
     const apiKey = mapsKey || window.__BW_GOOGLE_MAPS_API_KEY__ || "";
@@ -41876,43 +41893,46 @@ function DispatchMap({
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     const map2 = gMapRef.current;
-    let cancelled = false;
+    const requestId = ++routeRequestRef.current;
+    const clearRoute = () => {
+      const renderer = directionsRendererRef.current;
+      if (!renderer) return;
+      renderer.setDirections(null);
+      renderer.setMap(null);
+    };
+    clearRoute();
     jobMarkersRef.current.forEach((m2) => m2.setMap(null));
     jobMarkersRef.current = [];
-    if (!directionsRendererRef.current) {
-      directionsRendererRef.current = new google.maps.DirectionsRenderer({
-        suppressMarkers: true,
-        polylineOptions: {
-          strokeColor: "#4f6ef7",
-          strokeWeight: 4,
-          strokeOpacity: 0.8
-        }
-      });
-    }
+    directionsRendererRef.current = new google.maps.DirectionsRenderer({
+      suppressMarkers: true,
+      polylineOptions: {
+        strokeColor: "#4f6ef7",
+        strokeWeight: 4,
+        strokeOpacity: 0.8
+      }
+    });
     const directionsRenderer = directionsRendererRef.current;
-    const clearRoute = () => {
-      directionsRenderer.setMap(null);
-      directionsRenderer.setDirections(null);
-    };
-    const target = selectedJob ? {
-      pick: parseLatLng$1(selectedJob.pickLatLng),
-      drop: parseLatLng$1(selectedJob.dropLatLng),
-      pickLabel: selectedJob.pickAddress,
-      dropLabel: selectedJob.dropAddress
-    } : routePreview ? {
+    const target = createJobOpen ? routePreview ? {
       pick: routePreview.pick,
       drop: routePreview.drop,
       pickLabel: "Pickup",
       dropLabel: "Dropoff"
+    } : null : selectedJob ? {
+      pick: parseLatLng$1(selectedJob.pickLatLng),
+      drop: parseLatLng$1(selectedJob.dropLatLng),
+      pickLabel: selectedJob.pickAddress,
+      dropLabel: selectedJob.dropAddress
     } : null;
     if (!(target == null ? void 0 : target.pick)) {
-      clearRoute();
-      return;
+      return () => {
+        if (routeRequestRef.current === requestId) clearRoute();
+      };
     }
     const hasPick = Math.abs(target.pick.lat) > 1e-4 || Math.abs(target.pick.lng) > 1e-4;
     if (!hasPick) {
-      clearRoute();
-      return;
+      return () => {
+        if (routeRequestRef.current === requestId) clearRoute();
+      };
     }
     const labelMarker = (pos, label, color, title) => new google.maps.Marker({
       position: pos,
@@ -41942,11 +41962,10 @@ function DispatchMap({
     jobMarkersRef.current.push(pickMarker);
     const hasDrop = target.drop && (Math.abs(target.drop.lat) > 1e-4 || Math.abs(target.drop.lng) > 1e-4);
     if (!hasDrop || !target.drop) {
-      clearRoute();
       map2.setCenter(target.pick);
       map2.setZoom(15);
       return () => {
-        cancelled = true;
+        if (routeRequestRef.current === requestId) clearRoute();
       };
     }
     const dropMarker = labelMarker(
@@ -41957,7 +41976,7 @@ function DispatchMap({
     );
     jobMarkersRef.current.push(dropMarker);
     void loadGoogleMaps(mapsKey || void 0).then(() => {
-      if (cancelled || !gMapRef.current) return;
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
       const directionsService = new google.maps.DirectionsService();
       directionsRenderer.setMap(map2);
       directionsService.route(
@@ -41968,7 +41987,7 @@ function DispatchMap({
         },
         (result, status) => {
           var _a2;
-          if (cancelled || !gMapRef.current) return;
+          if (routeRequestRef.current !== requestId || !gMapRef.current) return;
           if (status === google.maps.DirectionsStatus.OK && result) {
             directionsRenderer.setDirections(result);
             const bounds = (_a2 = result.routes[0]) == null ? void 0 : _a2.bounds;
@@ -41976,15 +41995,15 @@ function DispatchMap({
               gMapRef.current.fitBounds(bounds, 48);
             }
           } else {
-            directionsRenderer.setMap(null);
+            clearRoute();
           }
         }
       );
     });
     return () => {
-      cancelled = true;
+      if (routeRequestRef.current === requestId) clearRoute();
     };
-  }, [selectedJob, routePreview, mapReady, mapsKey]);
+  }, [selectedJobId, selectedJob, routePreview, createJobOpen, mapReady, mapsKey]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
@@ -42406,7 +42425,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-ziw6F2lN.js");
+        const { writeActiveDispatcher } = await import("./notifications-6dtsHolp.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42433,7 +42452,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-ziw6F2lN.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-6dtsHolp.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42741,4 +42760,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-D1k7mqfk.js.map
+//# sourceMappingURL=index-Cui9oytz.js.map
