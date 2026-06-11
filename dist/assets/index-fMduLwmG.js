@@ -27781,7 +27781,10 @@ const useJobStore = create((set2, get2) => ({
   }),
   clearRemovedJob: (id) => set2((s2) => ({ removedJobIds: s2.removedJobIds.filter((x2) => x2 !== id) })),
   isJobBlacklisted: (id) => get2().removedJobIds.includes(id),
-  setSelectedJobId: (id) => set2({ selectedJobId: id }),
+  setSelectedJobId: (id) => {
+    if (id === null) console.trace("[Store] selectedJobId cleared to null");
+    set2({ selectedJobId: id });
+  },
   setActiveTab: (tab) => set2({ activeTab: tab })
 }));
 const THEME_ORDER = ["dark", "dark-blue", "light"];
@@ -31296,7 +31299,8 @@ function JobCard({ job, tab }) {
     }
   };
   const iconBtn = "p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition";
-  const handleCardClick = () => {
+  const handleCardClick = (e) => {
+    e.stopPropagation();
     console.log("[JobCard] clicked job:", job.id);
     setSelectedJobId(job.id);
     console.log("[JobCard] setSelectedJobId called with:", job.id);
@@ -31824,6 +31828,7 @@ function attachPlacesAutocomplete(input, onSelect) {
     var _a3;
     const place = ac.getPlace();
     if (!((_a3 = place.geometry) == null ? void 0 : _a3.location)) return;
+    console.log("[Pickup] place selected:", place.formatted_address);
     onSelect({
       address: place.formatted_address || input.value,
       lat: place.geometry.location.lat(),
@@ -31847,9 +31852,8 @@ function AddressAutocomplete({
   invalid = false
 }) {
   const inputRef = reactExports.useRef(null);
-  const onChangeRef = reactExports.useRef(onChange);
   const onPlaceRef = reactExports.useRef(onPlace);
-  onChangeRef.current = onChange;
+  const placeSelectingRef = reactExports.useRef(false);
   onPlaceRef.current = onPlace;
   reactExports.useEffect(() => {
     const input = inputRef.current;
@@ -31857,8 +31861,9 @@ function AddressAutocomplete({
     let detach = () => {
     };
     attachPlacesAutocompleteAsync(input, mapsKey, (place) => {
+      placeSelectingRef.current = true;
       onPlaceRef.current(place);
-      onChangeRef.current(place.address);
+      placeSelectingRef.current = false;
     }).then((fn) => {
       detach = fn;
     });
@@ -31873,7 +31878,10 @@ function AddressAutocomplete({
       placeholder,
       value,
       autoComplete: "off",
-      onChange: (e) => onChange(e.target.value)
+      onChange: (e) => {
+        if (placeSelectingRef.current) return;
+        onChange(e.target.value);
+      }
     }
   );
 }
@@ -40931,7 +40939,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CmTfsGPP.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DHYp1lcJ.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42192,6 +42200,14 @@ function getMapThemeConfig(theme) {
       return { styles: DISPATCH_DARK_MAP_STYLES, backgroundColor: "#1e2235" };
   }
 }
+const ROUTE_BOUNDS_PADDING = 80;
+function fitRouteBounds(map2, bounds) {
+  map2.fitBounds(bounds, ROUTE_BOUNDS_PADDING);
+  google.maps.event.addListenerOnce(map2, "bounds_changed", () => {
+    const z2 = map2.getZoom();
+    if (z2 != null && z2 > 12) map2.setZoom(12);
+  });
+}
 function DispatchMap({
   mapsKey,
   center,
@@ -42225,6 +42241,8 @@ function DispatchMap({
   const setMapZones = useUiStore((s2) => s2.setMapZones);
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
+  const createJobOpenRef = reactExports.useRef(createJobOpen);
+  createJobOpenRef.current = createJobOpen;
   const mapTheme = reactExports.useMemo(() => getMapThemeConfig(theme), [theme]);
   const safeCenter = reactExports.useMemo(
     () => normalizeMapCenter(center.lat, center.lng),
@@ -42329,7 +42347,7 @@ function DispatchMap({
           labelMarker(pick, "P", "#22c55e", job.pickAddress || "Pickup")
         );
         map2.setCenter(pick);
-        map2.setZoom(15);
+        map2.setZoom(14);
         return;
       }
       jobMarkersRef.current.push(
@@ -42368,7 +42386,7 @@ function DispatchMap({
             (_a3 = directionsRendererRef.current) == null ? void 0 : _a3.setDirections(result);
             const bounds = (_b3 = result.routes[0]) == null ? void 0 : _b3.bounds;
             if (bounds) {
-              gMapRef.current.fitBounds(bounds, 48);
+              fitRouteBounds(gMapRef.current, bounds);
             }
           } else {
             clearDirectionsRenderer();
@@ -42402,12 +42420,6 @@ function DispatchMap({
         }
       });
       const coordsValid = (lat, lng) => Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
-      const mapPadding = { top: 56, right: 56, bottom: 56, left: 56 };
-      const fitMapView = (points) => {
-        const bounds = new google.maps.LatLngBounds();
-        points.forEach((p2) => bounds.extend(p2));
-        map2.fitBounds(bounds, mapPadding);
-      };
       await loadGoogleMaps(mapsKey || void 0);
       if (routeRequestRef.current !== requestId || !gMapRef.current) return;
       jobMarkersRef.current.push(labelMarker(pick, "P", "#22c55e", "Pickup"));
@@ -42437,32 +42449,27 @@ function DispatchMap({
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
               (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
-              const bounds = new google.maps.LatLngBounds();
-              bounds.extend(pick);
-              bounds.extend(drop);
-              bounds.extend(safeCenter);
               const routeBounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
               if (routeBounds) {
-                bounds.union(routeBounds);
+                fitRouteBounds(gMapRef.current, routeBounds);
               }
-              gMapRef.current.fitBounds(bounds, mapPadding);
             } else {
               clearDirectionsRenderer();
             }
           }
         );
       } else {
-        fitMapView([pick, safeCenter]);
+        map2.setCenter(pick);
+        map2.setZoom(14);
       }
     },
-    [mapsKey, safeCenter.lat, safeCenter.lng, setRouteDrawing]
+    [mapsKey, setRouteDrawing]
   );
   reactExports.useEffect(() => {
     if (createJobOpen) {
-      setSelectedJobId(null);
       clearDirectionsRenderer();
     }
-  }, [createJobOpen, setSelectedJobId]);
+  }, [createJobOpen]);
   reactExports.useEffect(() => {
     if (gMapRef.current && mapReady) {
       setMapInstance(gMapRef.current);
@@ -42472,6 +42479,7 @@ function DispatchMap({
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     const listener = gMapRef.current.addListener("click", () => {
+      if (createJobOpenRef.current) return;
       setSelectedJobId(null);
     });
     return () => {
@@ -43023,7 +43031,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CzIDoNFg.js");
+        const { writeActiveDispatcher } = await import("./notifications-CMEX2Mlw.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43050,7 +43058,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CzIDoNFg.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CMEX2Mlw.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43378,4 +43386,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CrdTcFU5.js.map
+//# sourceMappingURL=index-fMduLwmG.js.map

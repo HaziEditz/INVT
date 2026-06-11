@@ -25,9 +25,8 @@ export function AddressAutocomplete({
   invalid = false,
 }: AddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const onChangeRef = useRef(onChange);
   const onPlaceRef = useRef(onPlace);
-  onChangeRef.current = onChange;
+  const placeSelectingRef = useRef(false);
   onPlaceRef.current = onPlace;
 
   useEffect(() => {
@@ -36,8 +35,9 @@ export function AddressAutocomplete({
 
     let detach = () => {};
     attachPlacesAutocompleteAsync(input, mapsKey, (place) => {
+      placeSelectingRef.current = true;
       onPlaceRef.current(place);
-      onChangeRef.current(place.address);
+      placeSelectingRef.current = false;
     }).then((fn) => {
       detach = fn;
     });
@@ -53,7 +53,10 @@ export function AddressAutocomplete({
       placeholder={placeholder}
       value={value}
       autoComplete="off"
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => {
+        if (placeSelectingRef.current) return;
+        onChange(e.target.value);
+      }}
     />
   );
 }

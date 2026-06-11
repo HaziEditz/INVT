@@ -35,6 +35,16 @@ interface DispatchMapProps {
 
 import { getMapThemeConfig } from '@/lib/mapStyles';
 
+const ROUTE_BOUNDS_PADDING = 80;
+
+function fitRouteBounds(map: google.maps.Map, bounds: google.maps.LatLngBounds) {
+  map.fitBounds(bounds, ROUTE_BOUNDS_PADDING);
+  google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+    const z = map.getZoom();
+    if (z != null && z > 12) map.setZoom(12);
+  });
+}
+
 export function DispatchMap({
   mapsKey,
   center,
@@ -68,6 +78,8 @@ export function DispatchMap({
   const setMapZones = useUiStore((s) => s.setMapZones);
   const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
   const openModalWith = useUiStore((s) => s.openModalWith);
+  const createJobOpenRef = useRef(createJobOpen);
+  createJobOpenRef.current = createJobOpen;
 
   const mapTheme = useMemo(() => getMapThemeConfig(theme), [theme]);
 
@@ -201,7 +213,7 @@ export function DispatchMap({
           labelMarker(pick, 'P', '#22c55e', job.pickAddress || 'Pickup')
         );
         map.setCenter(pick);
-        map.setZoom(15);
+        map.setZoom(14);
         return;
       }
 
@@ -244,7 +256,7 @@ export function DispatchMap({
             directionsRendererRef.current?.setDirections(result);
             const bounds = result.routes[0]?.bounds;
             if (bounds) {
-              gMapRef.current.fitBounds(bounds, 48);
+              fitRouteBounds(gMapRef.current, bounds);
             }
           } else {
             clearDirectionsRenderer();
@@ -293,14 +305,6 @@ export function DispatchMap({
       const coordsValid = (lat: number, lng: number) =>
         Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001;
 
-      const mapPadding = { top: 56, right: 56, bottom: 56, left: 56 };
-
-      const fitMapView = (points: google.maps.LatLngLiteral[]) => {
-        const bounds = new google.maps.LatLngBounds();
-        points.forEach((p) => bounds.extend(p));
-        map.fitBounds(bounds, mapPadding);
-      };
-
       await loadGoogleMaps(mapsKey || undefined);
       if (routeRequestRef.current !== requestId || !gMapRef.current) return;
 
@@ -333,33 +337,28 @@ export function DispatchMap({
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
               directionsRendererRef.current?.setDirections(result);
-              const bounds = new google.maps.LatLngBounds();
-              bounds.extend(pick);
-              bounds.extend(drop);
-              bounds.extend(safeCenter);
               const routeBounds = result.routes[0]?.bounds;
               if (routeBounds) {
-                bounds.union(routeBounds);
+                fitRouteBounds(gMapRef.current, routeBounds);
               }
-              gMapRef.current.fitBounds(bounds, mapPadding);
             } else {
               clearDirectionsRenderer();
             }
           }
         );
       } else {
-        fitMapView([pick, safeCenter]);
+        map.setCenter(pick);
+        map.setZoom(14);
       }
     },
-    [mapsKey, safeCenter.lat, safeCenter.lng, setRouteDrawing]
+    [mapsKey, setRouteDrawing]
   );
 
   useEffect(() => {
     if (createJobOpen) {
-      setSelectedJobId(null);
       clearDirectionsRenderer();
     }
-  }, [createJobOpen, setSelectedJobId]);
+  }, [createJobOpen]);
 
   useEffect(() => {
     if (gMapRef.current && mapReady) {
@@ -371,6 +370,7 @@ export function DispatchMap({
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     const listener = gMapRef.current.addListener('click', () => {
+      if (createJobOpenRef.current) return;
       setSelectedJobId(null);
     });
     return () => {

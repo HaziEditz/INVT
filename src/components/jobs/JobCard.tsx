@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import { differenceInMinutes, format, formatDistanceToNow, parseISO } from 'date-fns';
 import { Edit, X, CheckCircle, RotateCcw, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
@@ -130,7 +130,8 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: MouseEvent) => {
+    e.stopPropagation();
     console.log('[JobCard] clicked job:', job.id);
     setSelectedJobId(job.id);
     console.log('[JobCard] setSelectedJobId called with:', job.id);

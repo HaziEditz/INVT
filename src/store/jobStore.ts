@@ -61,6 +61,9 @@ export const useJobStore = create<JobStore>((set, get) => ({
   clearRemovedJob: (id) =>
     set((s) => ({ removedJobIds: s.removedJobIds.filter((x) => x !== id) })),
   isJobBlacklisted: (id) => get().removedJobIds.includes(id),
-  setSelectedJobId: (id) => set({ selectedJobId: id }),
+  setSelectedJobId: (id) => {
+    if (id === null) console.trace('[Store] selectedJobId cleared to null');
+    set({ selectedJobId: id });
+  },
   setActiveTab: (tab) => set({ activeTab: tab }),
 }));

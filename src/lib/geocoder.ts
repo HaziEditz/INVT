@@ -21,6 +21,7 @@ export function attachPlacesAutocomplete(
   const listener = ac.addListener('place_changed', () => {
     const place = ac.getPlace();
     if (!place.geometry?.location) return;
+    console.log('[Pickup] place selected:', place.formatted_address);
     onSelect({
       address: place.formatted_address || input.value,
       lat: place.geometry.location.lat(),
