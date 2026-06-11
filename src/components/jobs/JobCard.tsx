@@ -109,6 +109,12 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
 
+  const handleCardClick = () => {
+    console.log('[JobCard] clicked job:', job.id);
+    setSelectedJobId(job.id);
+    console.log('[JobCard] setSelectedJobId called with:', job.id);
+  };
+
   const handleAssign = (value: string) => {
     if (value === '__pending__') run(() => setPending(job), 'Set Pending');
     else if (value === '__noone__') run(() => setNoOne(job), 'Set No One');
@@ -122,11 +128,11 @@ export function JobCard({ job, tab }: JobCardProps) {
     <div
       role="button"
       tabIndex={0}
-      onClick={() => setSelectedJobId(job.id)}
+      onClick={handleCardClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          setSelectedJobId(job.id);
+          handleCardClick();
         }
       }}
       className={cn(
@@ -192,13 +198,16 @@ export function JobCard({ job, tab }: JobCardProps) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1 items-center" onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap gap-1 items-center">
         {tab === 'ua' && (
           <>
             <select
               className="bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border"
               defaultValue=""
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               onChange={(e) => {
+                e.stopPropagation();
                 handleAssign(e.target.value);
                 e.target.value = '';
               }}
@@ -214,7 +223,14 @@ export function JobCard({ job, tab }: JobCardProps) {
               ))}
             </select>
             <Tooltip label="Edit job">
-              <button type="button" className={iconBtn} onClick={() => openModalWith('createJob', { jobId: job.id })}>
+              <button
+                type="button"
+                className={iconBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openModalWith('createJob', { jobId: job.id });
+                }}
+              >
                 <Edit size={13} />
               </button>
             </Tooltip>
@@ -222,7 +238,10 @@ export function JobCard({ job, tab }: JobCardProps) {
               <button
                 type="button"
                 className={cn(iconBtn, 'text-red-400')}
-                onClick={() => setConfirmCancel(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmCancel(true);
+                }}
               >
                 <X size={13} />
               </button>
@@ -230,12 +249,27 @@ export function JobCard({ job, tab }: JobCardProps) {
           </>
         )}
         {tab === 'offer' && (
-          <Button variant="danger" onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Offer cancelled')}>Cancel Offer</Button>
+          <Button
+            variant="danger"
+            onClick={(e) => {
+              e.stopPropagation();
+              void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Offer cancelled');
+            }}
+          >
+            Cancel Offer
+          </Button>
         )}
         {(tab === 'assign' || tab === 'active') && (
           <>
             <Tooltip label="Complete job">
-              <button type="button" className={cn(iconBtn, 'text-emerald-400')} onClick={() => run(() => forceCompleteJob(job.id), 'Completed')}>
+              <button
+                type="button"
+                className={cn(iconBtn, 'text-emerald-400')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void run(() => forceCompleteJob(job.id), 'Completed');
+                }}
+              >
                 <CheckCircle size={13} />
               </button>
             </Tooltip>
@@ -243,7 +277,10 @@ export function JobCard({ job, tab }: JobCardProps) {
               <button
                 type="button"
                 className={cn(iconBtn, 'text-red-400')}
-                onClick={() => setConfirmCancel(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmCancel(true);
+                }}
               >
                 <X size={13} />
               </button>
@@ -253,12 +290,26 @@ export function JobCard({ job, tab }: JobCardProps) {
         {tab === 'queue' && (
           <>
             <Tooltip label="Recall to U-A">
-              <button type="button" className={iconBtn} onClick={() => run(() => recallJob(job.id, job.originalStatus || 'Pending'), 'Recalled to U-A')}>
+              <button
+                type="button"
+                className={iconBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void run(() => recallJob(job.id, job.originalStatus || 'Pending'), 'Recalled to U-A');
+                }}
+              >
                 <RotateCcw size={13} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled')}>
+              <button
+                type="button"
+                className={cn(iconBtn, 'text-red-400')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled');
+                }}
+              >
                 <X size={13} />
               </button>
             </Tooltip>
@@ -266,15 +317,38 @@ export function JobCard({ job, tab }: JobCardProps) {
         )}
         {tab === 'dy' && (
           <>
-            <Button variant="primary" onClick={() => run(() => setPending(job), 'Pending')}>Pending</Button>
+            <Button
+              variant="primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                void run(() => setPending(job), 'Pending');
+              }}
+            >
+              Pending
+            </Button>
             <Tooltip label="Cancel job">
-              <button type="button" className={cn(iconBtn, 'text-red-400')} onClick={() => run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled')}>
+              <button
+                type="button"
+                className={cn(iconBtn, 'text-red-400')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled');
+                }}
+              >
                 <X size={13} />
               </button>
             </Tooltip>
           </>
         )}
-        <Button variant="ghost" onClick={() => openModalWith('jobDetail', { jobId: job.id })}>Details</Button>
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            openModalWith('jobDetail', { jobId: job.id });
+          }}
+        >
+          Details
+        </Button>
       </div>
 
       {confirmCancel && (tab === 'ua' || tab === 'assign') && (
@@ -288,10 +362,22 @@ export function JobCard({ job, tab }: JobCardProps) {
           >
             <p className="text-sm bw-text mb-4">Cancel this job?</p>
             <div className="flex gap-2 justify-end">
-              <Button variant="muted" onClick={() => setConfirmCancel(false)}>
+              <Button
+                variant="muted"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmCancel(false);
+                }}
+              >
                 Keep Job
               </Button>
-              <Button variant="danger" onClick={() => void handleCancelConfirmed()}>
+              <Button
+                variant="danger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleCancelConfirmed();
+                }}
+              >
                 Yes, Cancel Job
               </Button>
             </div>

@@ -31114,6 +31114,11 @@ function JobCard({ job, tab }) {
     }
   };
   const iconBtn = "p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition";
+  const handleCardClick = () => {
+    console.log("[JobCard] clicked job:", job.id);
+    setSelectedJobId(job.id);
+    console.log("[JobCard] setSelectedJobId called with:", job.id);
+  };
   const handleAssign = (value) => {
     if (value === "__pending__") run(() => setPending(job), "Set Pending");
     else if (value === "__noone__") run(() => setNoOne(job), "Set No One");
@@ -31127,11 +31132,11 @@ function JobCard({ job, tab }) {
     {
       role: "button",
       tabIndex: 0,
-      onClick: () => setSelectedJobId(job.id),
+      onClick: handleCardClick,
       onKeyDown: (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          setSelectedJobId(job.id);
+          handleCardClick();
         }
       },
       className: cn(
@@ -31189,14 +31194,17 @@ function JobCard({ job, tab }) {
           "Offer expires ",
           formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1 items-center", onClick: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1 items-center", children: [
           tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "select",
               {
                 className: "bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border",
                 defaultValue: "",
+                onClick: (e) => e.stopPropagation(),
+                onMouseDown: (e) => e.stopPropagation(),
                 onChange: (e) => {
+                  e.stopPropagation();
                   handleAssign(e.target.value);
                   e.target.value = "";
                 },
@@ -31213,39 +31221,130 @@ function JobCard({ job, tab }) {
                 ]
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => openModalWith("createJob", { jobId: job.id }), children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 13 }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: iconBtn,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  openModalWith("createJob", { jobId: job.id });
+                },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 13 })
+              }
+            ) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
               "button",
               {
                 type: "button",
                 className: cn(iconBtn, "text-red-400"),
-                onClick: () => setConfirmCancel(true),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setConfirmCancel(true);
+                },
                 children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
               }
             ) })
           ] }),
-          tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Offer cancelled"), children: "Cancel Offer" }),
+          tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              variant: "danger",
+              onClick: (e) => {
+                e.stopPropagation();
+                void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Offer cancelled");
+              },
+              children: "Cancel Offer"
+            }
+          ),
           (tab === "assign" || tab === "active") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-emerald-400"), onClick: () => run(() => forceCompleteJob(job.id), "Completed"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 13 }) }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: cn(iconBtn, "text-emerald-400"),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void run(() => forceCompleteJob(job.id), "Completed");
+                },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 13 })
+              }
+            ) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
               "button",
               {
                 type: "button",
                 className: cn(iconBtn, "text-red-400"),
-                onClick: () => setConfirmCancel(true),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  setConfirmCancel(true);
+                },
                 children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
               }
             ) })
           ] }),
           tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: iconBtn, onClick: () => run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 13 }) }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: iconBtn,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A");
+                },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 13 })
+              }
+            ) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: cn(iconBtn, "text-red-400"),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled");
+                },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+              }
+            ) })
           ] }),
           tab === "dy" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => run(() => setPending(job), "Pending"), children: "Pending" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(iconBtn, "text-red-400"), onClick: () => run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled"), children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 }) }) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Button,
+              {
+                variant: "primary",
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void run(() => setPending(job), "Pending");
+                },
+                children: "Pending"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: cn(iconBtn, "text-red-400"),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled");
+                },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+              }
+            ) })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => openModalWith("jobDetail", { jobId: job.id }), children: "Details" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              variant: "ghost",
+              onClick: (e) => {
+                e.stopPropagation();
+                openModalWith("jobDetail", { jobId: job.id });
+              },
+              children: "Details"
+            }
+          )
         ] }),
         confirmCancel && (tab === "ua" || tab === "assign") && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
@@ -31260,8 +31359,28 @@ function JobCard({ job, tab }) {
                 children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm bw-text mb-4", children: "Cancel this job?" }),
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 justify-end", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "muted", onClick: () => setConfirmCancel(false), children: "Keep Job" }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => void handleCancelConfirmed(), children: "Yes, Cancel Job" })
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Button,
+                      {
+                        variant: "muted",
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          setConfirmCancel(false);
+                        },
+                        children: "Keep Job"
+                      }
+                    ),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      Button,
+                      {
+                        variant: "danger",
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          void handleCancelConfirmed();
+                        },
+                        children: "Yes, Cancel Job"
+                      }
+                    )
                   ] })
                 ]
               }
@@ -40531,7 +40650,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C5crs7-u.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CWq6rGJ3.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42501,7 +42620,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-MpNRy9Uu.js");
+        const { writeActiveDispatcher } = await import("./notifications-BIYRTihA.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42528,7 +42647,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-MpNRy9Uu.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BIYRTihA.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42856,4 +42975,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index--E1XwLFd.js.map
+//# sourceMappingURL=index-RDURvy_O.js.map
