@@ -177,12 +177,6 @@ export function JobCard({ job, tab }: JobCardProps) {
       <div className="flex flex-wrap gap-1 items-center" onClick={(e) => e.stopPropagation()}>
         {tab === 'ua' && (
           <>
-            <Button variant="ghost" onClick={() => run(() => setPending(job), 'Set Pending')}>
-              Pending
-            </Button>
-            <Button variant="ghost" onClick={() => run(() => setNoOne(job), 'Set No One')}>
-              No One
-            </Button>
             <select
               className="bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border"
               defaultValue=""

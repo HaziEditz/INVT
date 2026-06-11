@@ -30666,8 +30666,6 @@ function JobCard({ job, tab }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1 items-center", onClick: (e) => e.stopPropagation(), children: [
           tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => run(() => setPending(job), "Set Pending"), children: "Pending" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => run(() => setNoOne(job), "Set No One"), children: "No One" }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "select",
               {
@@ -39908,7 +39906,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-EMKueUY8.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DrDv_nW9.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41915,7 +41913,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CQPigeCW.js");
+        const { writeActiveDispatcher } = await import("./notifications-iZNzyHLa.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -41942,7 +41940,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CQPigeCW.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-iZNzyHLa.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42250,4 +42248,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CALdLDdo.js.map
+//# sourceMappingURL=index-CkvQsXeq.js.map
