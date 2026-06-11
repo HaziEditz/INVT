@@ -22,8 +22,8 @@ export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
     .sort((a, b) => {
       const ca = a.createdAt || 0;
       const cb = b.createdAt || 0;
-      if (cb !== ca) return cb - ca;
-      return b.id - a.id;
+      if (ca !== cb) return ca - cb;
+      return a.id - b.id;
     });
 }
 

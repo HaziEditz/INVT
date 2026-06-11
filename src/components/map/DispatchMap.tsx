@@ -208,16 +208,6 @@ export function DispatchMap({
       };
     }
 
-    directionsRendererRef.current = new google.maps.DirectionsRenderer({
-      suppressMarkers: true,
-      polylineOptions: {
-        strokeColor: '#4f6ef7',
-        strokeWeight: 4,
-        strokeOpacity: 0.8,
-      },
-    });
-    const directionsRenderer = directionsRendererRef.current;
-
     const target = {
       pick: parseLatLng(selectedJob.pickLatLng),
       drop: parseLatLng(selectedJob.dropLatLng),
@@ -293,11 +283,21 @@ export function DispatchMap({
     );
     jobMarkersRef.current.push(dropMarker);
 
+    if (!directionsRendererRef.current) {
+      directionsRendererRef.current = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        polylineOptions: {
+          strokeColor: '#4f6ef7',
+          strokeWeight: 4,
+        },
+      });
+      directionsRendererRef.current.setMap(map);
+    }
+
     void loadGoogleMaps(mapsKey || undefined).then(() => {
       if (routeRequestRef.current !== requestId || !gMapRef.current) return;
 
       const directionsService = new google.maps.DirectionsService();
-      directionsRenderer.setMap(map);
 
       directionsService.route(
         {
@@ -308,7 +308,7 @@ export function DispatchMap({
         (result, status) => {
           if (routeRequestRef.current !== requestId || !gMapRef.current) return;
           if (status === google.maps.DirectionsStatus.OK && result) {
-            directionsRenderer.setDirections(result);
+            directionsRendererRef.current?.setDirections(result);
             const bounds = result.routes[0]?.bounds;
             if (bounds) {
               gMapRef.current.fitBounds(bounds, 48);

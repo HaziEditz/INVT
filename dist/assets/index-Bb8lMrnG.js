@@ -27746,8 +27746,8 @@ function filterJobsForTab(jobs, tab) {
   return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
     const ca = a2.createdAt || 0;
     const cb = b2.createdAt || 0;
-    if (cb !== ca) return cb - ca;
-    return b2.id - a2.id;
+    if (ca !== cb) return ca - cb;
+    return a2.id - b2.id;
   });
 }
 const useJobStore = create((set2, get2) => ({
@@ -40532,7 +40532,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-IfuNL_9U.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DjfH3wNK.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41942,15 +41942,6 @@ function DispatchMap({
         if (routeRequestRef.current === requestId) clearDirectionsRenderer();
       };
     }
-    directionsRendererRef.current = new google.maps.DirectionsRenderer({
-      suppressMarkers: true,
-      polylineOptions: {
-        strokeColor: "#4f6ef7",
-        strokeWeight: 4,
-        strokeOpacity: 0.8
-      }
-    });
-    const directionsRenderer = directionsRendererRef.current;
     const target = {
       pick: parseLatLng$1(selectedJob.pickLatLng),
       drop: parseLatLng$1(selectedJob.dropLatLng),
@@ -42009,10 +42000,19 @@ function DispatchMap({
       target.dropLabel || "Dropoff"
     );
     jobMarkersRef.current.push(dropMarker);
+    if (!directionsRendererRef.current) {
+      directionsRendererRef.current = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        polylineOptions: {
+          strokeColor: "#4f6ef7",
+          strokeWeight: 4
+        }
+      });
+      directionsRendererRef.current.setMap(map2);
+    }
     void loadGoogleMaps(mapsKey || void 0).then(() => {
       if (routeRequestRef.current !== requestId || !gMapRef.current) return;
       const directionsService = new google.maps.DirectionsService();
-      directionsRenderer.setMap(map2);
       directionsService.route(
         {
           origin: { lat: target.pick.lat, lng: target.pick.lng },
@@ -42020,11 +42020,11 @@ function DispatchMap({
           travelMode: google.maps.TravelMode.DRIVING
         },
         (result, status) => {
-          var _a2;
+          var _a2, _b2;
           if (routeRequestRef.current !== requestId || !gMapRef.current) return;
           if (status === google.maps.DirectionsStatus.OK && result) {
-            directionsRenderer.setDirections(result);
-            const bounds = (_a2 = result.routes[0]) == null ? void 0 : _a2.bounds;
+            (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
+            const bounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
             if (bounds) {
               gMapRef.current.fitBounds(bounds, 48);
             }
@@ -42459,7 +42459,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-B2baVJnO.js");
+        const { writeActiveDispatcher } = await import("./notifications-B7x8bnD9.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42486,7 +42486,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B2baVJnO.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B7x8bnD9.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42794,4 +42794,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-JNf4-SwJ.js.map
+//# sourceMappingURL=index-Bb8lMrnG.js.map
