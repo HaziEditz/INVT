@@ -90,41 +90,41 @@ export function useJobs(companyId: string | null) {
       if (notify) notifyNewJob(job);
     };
 
-    const pRef = ref(db, `pendingjobs/${companyId}`);
+    const jobsRef = ref(db, `pendingjobs/${companyId}`);
     const bRef = ref(db, `allbookings/${companyId}`);
 
-    unsubs.push(
-      onChildAdded(pRef, (snap) => {
-        const jobId = parseInt(snap.key || '0', 10);
-        if (isBlacklisted(jobId)) return;
-        const val = snap.val();
-        if (!val || typeof val !== 'object') return;
-        applyPending(snap.key!, val as Record<string, unknown>, !bootstrapping);
-      })
-    );
+    const addJobToStore = (snap: { key: string | null; val: () => unknown }) => {
+      const jobId = parseInt(snap.key || '0', 10);
+      if (!jobId || isBlacklisted(jobId)) return;
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return;
+      applyPending(snap.key!, val as Record<string, unknown>, !bootstrapping);
+    };
 
+    const updateJobInStore = (snap: { key: string | null; val: () => unknown }) => {
+      const jobId = parseInt(snap.key || '0', 10);
+      if (!jobId || isBlacklisted(jobId)) return;
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return;
+      applyPending(snap.key!, val as Record<string, unknown>, false);
+    };
+
+    const removeJobFromStore = (snap: { key: string | null }) => {
+      const jobId = parseInt(snap.key || '0', 10);
+      if (!jobId) return;
+      pendingRef.current.delete(jobId);
+      removeJob(jobId);
+      clearRemovedJob(jobId);
+      syncAll();
+    };
+
+    unsubs.push(onChildAdded(jobsRef, addJobToStore));
+
+    // Existing children fire synchronously during onChildAdded registration
     bootstrapping = false;
 
-    unsubs.push(
-      onChildChanged(pRef, (snap) => {
-        const jobId = parseInt(snap.key || '0', 10);
-        if (isBlacklisted(jobId)) return;
-        const val = snap.val();
-        if (!val || typeof val !== 'object') return;
-        applyPending(snap.key!, val as Record<string, unknown>, false);
-      })
-    );
-
-    unsubs.push(
-      onChildRemoved(pRef, (snap) => {
-        const id = parseInt(snap.key || '0', 10);
-        if (!id) return;
-        pendingRef.current.delete(id);
-        removeJob(id);
-        clearRemovedJob(id);
-        syncAll();
-      })
-    );
+    unsubs.push(onChildChanged(jobsRef, updateJobInStore));
+    unsubs.push(onChildRemoved(jobsRef, removeJobFromStore));
 
     unsubs.push(
       onValue(bRef, (snap) => {

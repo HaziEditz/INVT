@@ -27990,37 +27990,34 @@ function useJobs(companyId) {
       syncAll();
       if (notify) notifyNewJob(job);
     };
-    const pRef = ref(db2, `pendingjobs/${companyId}`);
+    const jobsRef = ref(db2, `pendingjobs/${companyId}`);
     const bRef = ref(db2, `allbookings/${companyId}`);
-    unsubs.push(
-      onChildAdded(pRef, (snap) => {
-        const jobId = parseInt(snap.key || "0", 10);
-        if (isBlacklisted(jobId)) return;
-        const val = snap.val();
-        if (!val || typeof val !== "object") return;
-        applyPending(snap.key, val, !bootstrapping);
-      })
-    );
+    const addJobToStore = (snap) => {
+      const jobId = parseInt(snap.key || "0", 10);
+      if (!jobId || isBlacklisted(jobId)) return;
+      const val = snap.val();
+      if (!val || typeof val !== "object") return;
+      applyPending(snap.key, val, !bootstrapping);
+    };
+    const updateJobInStore = (snap) => {
+      const jobId = parseInt(snap.key || "0", 10);
+      if (!jobId || isBlacklisted(jobId)) return;
+      const val = snap.val();
+      if (!val || typeof val !== "object") return;
+      applyPending(snap.key, val, false);
+    };
+    const removeJobFromStore = (snap) => {
+      const jobId = parseInt(snap.key || "0", 10);
+      if (!jobId) return;
+      pendingRef.current.delete(jobId);
+      removeJob(jobId);
+      clearRemovedJob(jobId);
+      syncAll();
+    };
+    unsubs.push(onChildAdded(jobsRef, addJobToStore));
     bootstrapping = false;
-    unsubs.push(
-      onChildChanged(pRef, (snap) => {
-        const jobId = parseInt(snap.key || "0", 10);
-        if (isBlacklisted(jobId)) return;
-        const val = snap.val();
-        if (!val || typeof val !== "object") return;
-        applyPending(snap.key, val, false);
-      })
-    );
-    unsubs.push(
-      onChildRemoved(pRef, (snap) => {
-        const id = parseInt(snap.key || "0", 10);
-        if (!id) return;
-        pendingRef.current.delete(id);
-        removeJob(id);
-        clearRemovedJob(id);
-        syncAll();
-      })
-    );
+    unsubs.push(onChildChanged(jobsRef, updateJobInStore));
+    unsubs.push(onChildRemoved(jobsRef, removeJobFromStore));
     unsubs.push(
       onValue(bRef, (snap) => {
         bookingsRef.current = /* @__PURE__ */ new Map();
@@ -40337,7 +40334,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-WLPOjMHk.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-jQNesHa5.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42208,7 +42205,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BcRD8U67.js");
+        const { writeActiveDispatcher } = await import("./notifications-DkvaAxML.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42235,7 +42232,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BcRD8U67.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DkvaAxML.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42543,4 +42540,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BoDJcQ5U.js.map
+//# sourceMappingURL=index-dgTj6P1t.js.map
