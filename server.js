@@ -79,6 +79,14 @@ const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 const ROOT = path.join(__dirname, 'taxitime.co.nz', 'Dispatchthree');
 const DIST_DIR = path.join(__dirname, 'dist');
+const DIST_INDEX = path.join(DIST_DIR, 'index.html');
+const REACT_SPA_ROUTES = new Set(['/login', '/dispatch', '/dispatch/map']);
+
+if (!fs.existsSync(DIST_INDEX)) {
+  console.warn('[server] dist/index.html missing — run: npm install && npm run build');
+} else {
+  console.log('[server] React dispatch UI ready at dist/index.html');
+}
 
 function serveDistAsset(res, urlPath) {
   const rel = urlPath.replace(/^\//, '');
@@ -94,14 +102,13 @@ function serveDistAsset(res, urlPath) {
 }
 
 function serveSpaIndex(res) {
-  const index = path.join(DIST_DIR, 'index.html');
-  if (!fs.existsSync(index)) {
+  if (!fs.existsSync(DIST_INDEX)) {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
     res.end('Dispatch UI not built — run: npm install && npm run build');
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache, must-revalidate' });
-  fs.createReadStream(index).pipe(res);
+  fs.createReadStream(DIST_INDEX).pipe(res);
 }
 
 async function gateDispatchAccess(req, res) {
@@ -145,16 +152,31 @@ async function tryServeReactSpa(req, res, urlPath) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return false;
   if (isBackendRoute(urlPath)) return false;
 
-  // Serve built static files (JS/CSS/assets) from dist/
-  if (urlPath !== '/' && serveDistAsset(res, urlPath)) return true;
-
   const spaPath = normalizeUrlPath(urlPath);
-  if (spaPath === '/dispatch' || spaPath === '/dispatch/map') {
-    if (!(await gateDispatchAccess(req, res))) return true;
+
+  // Vite /assets/* — dist only; never fall through to legacy Dispatchthree/assets/
+  if (urlPath.startsWith('/assets/')) {
+    if (serveDistAsset(res, urlPath)) return true;
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end(`404 Not Found: ${urlPath}`);
+    return true;
   }
 
-  serveSpaIndex(res);
-  return true;
+  // Other static files shipped in dist/ (e.g. favicon)
+  if (urlPath !== '/' && !REACT_SPA_ROUTES.has(spaPath) && serveDistAsset(res, urlPath)) {
+    return true;
+  }
+
+  // React Router entry points
+  if (spaPath === '/login' || REACT_SPA_ROUTES.has(spaPath)) {
+    if (spaPath === '/dispatch' || spaPath === '/dispatch/map') {
+      if (!(await gateDispatchAccess(req, res))) return true;
+    }
+    serveSpaIndex(res);
+    return true;
+  }
+
+  return false;
 }
 
 const mimeTypes = {
@@ -12955,19 +12977,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
-  // ── Vite dist assets + React SPA routes (before legacy ASPX static files) ──
-  if (urlPath.startsWith('/assets/') && serveDistAsset(res, urlPath)) return;
+  // ── React SPA (dist/) — before legacy ASPX static files ─────────────────
+  if (await tryServeReactSpa(req, res, urlPath)) return;
 
-  const REACT_SPA_ROUTES = new Set(['/login', '/dispatch', '/dispatch/map']);
-  if (REACT_SPA_ROUTES.has(urlPath) && (req.method === 'GET' || req.method === 'HEAD')) {
-    if (urlPath === '/dispatch' || urlPath === '/dispatch/map') {
-      if (!(await gateDispatchAccess(req, res))) return;
-    }
-    serveSpaIndex(res);
+  // ── Static file serving (legacy ASPX / assets under taxitime.co.nz) ───────
+  // Skip /assets/ — owned by Vite dist/ only (see tryServeReactSpa above).
+  if (urlPath.startsWith('/assets/')) {
+    console.log(`404: ${req.method} ${urlPath} (dist asset missing)`);
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end(`404 Not Found: ${urlPath}`);
     return;
   }
 
-  // ── Static file serving (legacy ASPX / assets) ─────────────────────────────
   const filePath = resolveFilePath(urlPath);
   if (filePath) {
     console.log(`200: ${req.method} ${urlPath} -> ${filePath.replace(ROOT, '')}`);
@@ -12989,9 +13010,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     fs.createReadStream(filePath).pipe(res);
     return;
   }
-
-  // ── React SPA catch-all — React Router handles /login, /dispatch, etc. ───
-  if (await tryServeReactSpa(req, res, urlPath)) return;
 
   console.log(`404: ${req.method} ${urlPath}`);
   res.writeHead(404, { 'Content-Type': 'text/plain' });
