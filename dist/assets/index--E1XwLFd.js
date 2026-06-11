@@ -31114,7 +31114,6 @@ function JobCard({ job, tab }) {
     }
   };
   const iconBtn = "p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition";
-  const selectJob = () => setSelectedJobId(selected ? null : job.id);
   const handleAssign = (value) => {
     if (value === "__pending__") run(() => setPending(job), "Set Pending");
     else if (value === "__noone__") run(() => setNoOne(job), "Set No One");
@@ -31128,11 +31127,11 @@ function JobCard({ job, tab }) {
     {
       role: "button",
       tabIndex: 0,
-      onClick: selectJob,
+      onClick: () => setSelectedJobId(job.id),
       onKeyDown: (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          selectJob();
+          setSelectedJobId(job.id);
         }
       },
       className: cn(
@@ -40532,7 +40531,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B4jxwkNs.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C5crs7-u.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41797,7 +41796,6 @@ function DispatchMap({
   mapsKey,
   center,
   companyId,
-  selectedJobId: selectedJobIdProp,
   compactControls,
   onPopOut,
   onFullscreen,
@@ -41813,8 +41811,7 @@ function DispatchMap({
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
   const drivers = useDriverStore((s2) => s2.drivers);
-  const storeSelectedJobId = useJobStore((s2) => s2.selectedJobId);
-  const selectedJobId = selectedJobIdProp ?? storeSelectedJobId;
+  const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const jobs = useJobStore((s2) => s2.jobs);
   const mapTraffic = useUiStore((s2) => s2.mapTraffic);
   const mapZones = useUiStore((s2) => s2.mapZones);
@@ -42504,7 +42501,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-B_cU0pvg.js");
+        const { writeActiveDispatcher } = await import("./notifications-MpNRy9Uu.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42531,7 +42528,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B_cU0pvg.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-MpNRy9Uu.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42859,4 +42856,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CDq6JFL7.js.map
+//# sourceMappingURL=index--E1XwLFd.js.map

@@ -39,7 +39,6 @@ export function DispatchMap({
   mapsKey,
   center,
   companyId,
-  selectedJobId: selectedJobIdProp,
   compactControls,
   onPopOut,
   onFullscreen,
@@ -55,8 +54,7 @@ export function DispatchMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const drivers = useDriverStore((s) => s.drivers);
-  const storeSelectedJobId = useJobStore((s) => s.selectedJobId);
-  const selectedJobId = selectedJobIdProp ?? storeSelectedJobId;
+  const selectedJobId = useJobStore((s) => s.selectedJobId);
   const jobs = useJobStore((s) => s.jobs);
   const mapTraffic = useUiStore((s) => s.mapTraffic);
   const mapZones = useUiStore((s) => s.mapZones);

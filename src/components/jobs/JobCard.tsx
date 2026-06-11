@@ -108,7 +108,6 @@ export function JobCard({ job, tab }: JobCardProps) {
   };
 
   const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
-  const selectJob = () => setSelectedJobId(selected ? null : job.id);
 
   const handleAssign = (value: string) => {
     if (value === '__pending__') run(() => setPending(job), 'Set Pending');
@@ -123,11 +122,11 @@ export function JobCard({ job, tab }: JobCardProps) {
     <div
       role="button"
       tabIndex={0}
-      onClick={selectJob}
+      onClick={() => setSelectedJobId(job.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          selectJob();
+          setSelectedJobId(job.id);
         }
       }}
       className={cn(
