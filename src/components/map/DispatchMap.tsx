@@ -18,7 +18,6 @@ import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
-import { renderDrivingRoute } from '@/lib/directions';
 import { Spinner } from '@/components/shared/Spinner';
 import { cn } from '@/lib/utils';
 
@@ -164,16 +163,28 @@ export function DispatchMap({
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
 
+    const map = gMapRef.current;
+    let cancelled = false;
+
     jobMarkersRef.current.forEach((m) => m.setMap(null));
     jobMarkersRef.current = [];
 
     if (!directionsRendererRef.current) {
       directionsRendererRef.current = new google.maps.DirectionsRenderer({
         suppressMarkers: true,
-        polylineOptions: { strokeColor: '#5b7cfa', strokeWeight: 4, strokeOpacity: 0.85 },
+        polylineOptions: {
+          strokeColor: '#4f6ef7',
+          strokeWeight: 4,
+          strokeOpacity: 0.8,
+        },
       });
     }
-    directionsRendererRef.current.setMap(null);
+    const directionsRenderer = directionsRendererRef.current;
+
+    const clearRoute = () => {
+      directionsRenderer.setMap(null);
+      directionsRenderer.setDirections(null);
+    };
 
     const target = selectedJob
       ? {
@@ -191,11 +202,17 @@ export function DispatchMap({
           }
         : null;
 
-    if (!target?.pick) return;
+    if (!target?.pick) {
+      clearRoute();
+      return;
+    }
 
     const hasPick =
       Math.abs(target.pick.lat) > 0.0001 || Math.abs(target.pick.lng) > 0.0001;
-    if (!hasPick) return;
+    if (!hasPick) {
+      clearRoute();
+      return;
+    }
 
     const labelMarker = (
       pos: google.maps.LatLngLiteral,
@@ -235,32 +252,54 @@ export function DispatchMap({
       target.drop &&
       (Math.abs(target.drop.lat) > 0.0001 || Math.abs(target.drop.lng) > 0.0001);
 
-    if (hasDrop && target.drop) {
-      const dropMarker = labelMarker(
-        target.drop,
-        'D',
-        '#ef4444',
-        target.dropLabel || 'Dropoff'
-      );
-      jobMarkersRef.current.push(dropMarker);
-
-      void renderDrivingRoute(
-        gMapRef.current,
-        directionsRendererRef.current,
-        target.pick,
-        target.drop
-      ).then((info) => {
-        if (!gMapRef.current || !info) return;
-        const bounds = new google.maps.LatLngBounds();
-        bounds.extend(target.pick!);
-        bounds.extend(target.drop!);
-        gMapRef.current.fitBounds(bounds, 48);
-      });
-    } else {
-      gMapRef.current.setCenter(target.pick);
-      gMapRef.current.setZoom(15);
+    if (!hasDrop || !target.drop) {
+      clearRoute();
+      map.setCenter(target.pick);
+      map.setZoom(15);
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [selectedJob, routePreview, mapReady]);
+
+    const dropMarker = labelMarker(
+      target.drop,
+      'D',
+      '#ef4444',
+      target.dropLabel || 'Dropoff'
+    );
+    jobMarkersRef.current.push(dropMarker);
+
+    void loadGoogleMaps(mapsKey || undefined).then(() => {
+      if (cancelled || !gMapRef.current) return;
+
+      const directionsService = new google.maps.DirectionsService();
+      directionsRenderer.setMap(map);
+
+      directionsService.route(
+        {
+          origin: { lat: target.pick!.lat, lng: target.pick!.lng },
+          destination: { lat: target.drop!.lat, lng: target.drop!.lng },
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (cancelled || !gMapRef.current) return;
+          if (status === google.maps.DirectionsStatus.OK && result) {
+            directionsRenderer.setDirections(result);
+            const bounds = result.routes[0]?.bounds;
+            if (bounds) {
+              gMapRef.current.fitBounds(bounds, 48);
+            }
+          } else {
+            directionsRenderer.setMap(null);
+          }
+        }
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedJob, routePreview, mapReady, mapsKey]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;

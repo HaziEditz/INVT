@@ -32094,28 +32094,6 @@ async function fetchDrivingRoute(origin, destination) {
     path
   };
 }
-async function renderDrivingRoute(map2, renderer, origin, destination) {
-  var _a2, _b2, _c, _d;
-  if (!validCoord(origin) || !validCoord(destination)) {
-    renderer.setMap(null);
-    return null;
-  }
-  await loadGoogleMaps();
-  const { result, status } = await requestDrivingRoute(origin, destination);
-  if (status !== google.maps.DirectionsStatus.OK || !result) {
-    renderer.setMap(null);
-    return null;
-  }
-  renderer.setMap(map2);
-  renderer.setDirections(result);
-  const leg = (_a2 = result.routes[0]) == null ? void 0 : _a2.legs[0];
-  const path = ((_b2 = result.routes[0]) == null ? void 0 : _b2.overview_path.map((p2) => ({ lat: p2.lat(), lng: p2.lng() }))) ?? [];
-  return {
-    distanceKm: (((_c = leg == null ? void 0 : leg.distance) == null ? void 0 : _c.value) ?? 0) / 1e3,
-    durationMin: (((_d = leg == null ? void 0 : leg.duration) == null ? void 0 : _d.value) ?? 0) / 60,
-    path
-  };
-}
 function formatFormFareEstimate(fare, km, min) {
   return `Est. ~$${fare.toFixed(2)} · ${km.toFixed(1)}km · ${Math.round(min)}min`;
 }
@@ -40522,7 +40500,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Cbte7JhT.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-GNY61Ro6.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41897,15 +41875,25 @@ function DispatchMap({
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
+    const map2 = gMapRef.current;
+    let cancelled = false;
     jobMarkersRef.current.forEach((m2) => m2.setMap(null));
     jobMarkersRef.current = [];
     if (!directionsRendererRef.current) {
       directionsRendererRef.current = new google.maps.DirectionsRenderer({
         suppressMarkers: true,
-        polylineOptions: { strokeColor: "#5b7cfa", strokeWeight: 4, strokeOpacity: 0.85 }
+        polylineOptions: {
+          strokeColor: "#4f6ef7",
+          strokeWeight: 4,
+          strokeOpacity: 0.8
+        }
       });
     }
-    directionsRendererRef.current.setMap(null);
+    const directionsRenderer = directionsRendererRef.current;
+    const clearRoute = () => {
+      directionsRenderer.setMap(null);
+      directionsRenderer.setDirections(null);
+    };
     const target = selectedJob ? {
       pick: parseLatLng$1(selectedJob.pickLatLng),
       drop: parseLatLng$1(selectedJob.dropLatLng),
@@ -41917,9 +41905,15 @@ function DispatchMap({
       pickLabel: "Pickup",
       dropLabel: "Dropoff"
     } : null;
-    if (!(target == null ? void 0 : target.pick)) return;
+    if (!(target == null ? void 0 : target.pick)) {
+      clearRoute();
+      return;
+    }
     const hasPick = Math.abs(target.pick.lat) > 1e-4 || Math.abs(target.pick.lng) > 1e-4;
-    if (!hasPick) return;
+    if (!hasPick) {
+      clearRoute();
+      return;
+    }
     const labelMarker = (pos, label, color, title) => new google.maps.Marker({
       position: pos,
       map: gMapRef.current,
@@ -41947,31 +41941,50 @@ function DispatchMap({
     );
     jobMarkersRef.current.push(pickMarker);
     const hasDrop = target.drop && (Math.abs(target.drop.lat) > 1e-4 || Math.abs(target.drop.lng) > 1e-4);
-    if (hasDrop && target.drop) {
-      const dropMarker = labelMarker(
-        target.drop,
-        "D",
-        "#ef4444",
-        target.dropLabel || "Dropoff"
-      );
-      jobMarkersRef.current.push(dropMarker);
-      void renderDrivingRoute(
-        gMapRef.current,
-        directionsRendererRef.current,
-        target.pick,
-        target.drop
-      ).then((info) => {
-        if (!gMapRef.current || !info) return;
-        const bounds = new google.maps.LatLngBounds();
-        bounds.extend(target.pick);
-        bounds.extend(target.drop);
-        gMapRef.current.fitBounds(bounds, 48);
-      });
-    } else {
-      gMapRef.current.setCenter(target.pick);
-      gMapRef.current.setZoom(15);
+    if (!hasDrop || !target.drop) {
+      clearRoute();
+      map2.setCenter(target.pick);
+      map2.setZoom(15);
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [selectedJob, routePreview, mapReady]);
+    const dropMarker = labelMarker(
+      target.drop,
+      "D",
+      "#ef4444",
+      target.dropLabel || "Dropoff"
+    );
+    jobMarkersRef.current.push(dropMarker);
+    void loadGoogleMaps(mapsKey || void 0).then(() => {
+      if (cancelled || !gMapRef.current) return;
+      const directionsService = new google.maps.DirectionsService();
+      directionsRenderer.setMap(map2);
+      directionsService.route(
+        {
+          origin: { lat: target.pick.lat, lng: target.pick.lng },
+          destination: { lat: target.drop.lat, lng: target.drop.lng },
+          travelMode: google.maps.TravelMode.DRIVING
+        },
+        (result, status) => {
+          var _a2;
+          if (cancelled || !gMapRef.current) return;
+          if (status === google.maps.DirectionsStatus.OK && result) {
+            directionsRenderer.setDirections(result);
+            const bounds = (_a2 = result.routes[0]) == null ? void 0 : _a2.bounds;
+            if (bounds) {
+              gMapRef.current.fitBounds(bounds, 48);
+            }
+          } else {
+            directionsRenderer.setMap(null);
+          }
+        }
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedJob, routePreview, mapReady, mapsKey]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
@@ -42393,7 +42406,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BXJuus81.js");
+        const { writeActiveDispatcher } = await import("./notifications-ziw6F2lN.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42420,7 +42433,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BXJuus81.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-ziw6F2lN.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42728,4 +42741,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-rK_fi_Qq.js.map
+//# sourceMappingURL=index-D1k7mqfk.js.map
