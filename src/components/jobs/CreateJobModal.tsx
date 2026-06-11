@@ -25,6 +25,7 @@ import {
   repeatBookingDates,
   type CreateJobFormState,
   type PaymentType,
+  type PlaceValue,
   type StopPoint,
 } from '@/lib/createJobForm';
 import { fetchDrivingRoute, formatCityDistance, formatFormFareEstimate } from '@/lib/directions';
@@ -149,6 +150,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const modalJobId = useUiStore((s) => s.modalJobId);
   const closeModal = useUiStore((s) => s.closeModal);
   const setRoutePreview = useUiStore((s) => s.setRoutePreview);
+  const mapInstance = useUiStore((s) => s.mapInstance);
   const settings = useUiStore((s) => s.settings);
   const addToast = useUiStore((s) => s.addToast);
   const upsertJob = useJobStore((s) => s.upsertJob);
@@ -288,12 +290,20 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   }, [open, form.pick.lat, form.pick.lng, settings?.city]);
 
   useEffect(() => {
-    if (!open || !form.pick.lat || !form.drop.lat) {
+    if (!open || !form.pick.lat) {
       setRoutePreview(null);
       setRouteSummary('');
       return;
     }
-    setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng }, drop: { lat: form.drop.lat, lng: form.drop.lng } });
+    if (!form.drop.lat) {
+      setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng } });
+      setRouteSummary('');
+      return;
+    }
+    setRoutePreview({
+      pick: { lat: form.pick.lat, lng: form.pick.lng },
+      drop: { lat: form.drop.lat, lng: form.drop.lng },
+    });
     const straightKm = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
     const roadKm = straightKm * 1.25;
     const min = Math.max(1, Math.round((roadKm / 35) * 60));
@@ -364,6 +374,33 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const removeStop = (id: string) => patch({ stops: form.stops.filter((s) => s.id !== id) });
   const updateStop = (id: string, p: Partial<StopPoint>) => {
     patch({ stops: form.stops.map((s) => (s.id === id ? { ...s, ...p } : s)) });
+  };
+
+  const onPickupSelect = (pick: PlaceValue) => {
+    patch({ pick, pickInput: pick.address });
+    if (mapInstance && pick.lat) {
+      mapInstance.setCenter({ lat: pick.lat, lng: pick.lng });
+      mapInstance.setZoom(14);
+    }
+    if (pick.lat) {
+      const preview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } = {
+        pick: { lat: pick.lat, lng: pick.lng },
+      };
+      if (form.drop.lat) {
+        preview.drop = { lat: form.drop.lat, lng: form.drop.lng };
+      }
+      setRoutePreview(preview);
+    }
+  };
+
+  const onDropSelect = (drop: PlaceValue) => {
+    patch({ drop, dropInput: drop.address });
+    if (form.pick.lat && drop.lat) {
+      setRoutePreview({
+        pick: { lat: form.pick.lat, lng: form.pick.lng },
+        drop: { lat: drop.lat, lng: drop.lng },
+      });
+    }
   };
 
   const validatePickup = (): boolean => {
@@ -525,7 +562,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             placeholder="Pickup address"
             className="cj-input mb-2"
             onChange={(pickInput) => patch({ pickInput })}
-            onPlace={(pick) => patch({ pick, pickInput: pick.address })}
+            onPlace={onPickupSelect}
           />
           {cityDistLabel && (
             <div className="text-[10px] text-[#8892a4] mb-2">{cityDistLabel}</div>
@@ -558,7 +595,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             placeholder="Dropoff address (optional)"
             className="cj-input mb-2"
             onChange={(dropInput) => patch({ dropInput })}
-            onPlace={(drop) => patch({ drop, dropInput: drop.address })}
+            onPlace={onDropSelect}
           />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#e8eaf0]">
             <button type="button" className="text-[#5b7cfa] flex items-center gap-1 font-semibold" onClick={addStop}>

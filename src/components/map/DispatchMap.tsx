@@ -59,6 +59,8 @@ export function DispatchMap({
   const mapTraffic = useUiStore((s) => s.mapTraffic);
   const mapZones = useUiStore((s) => s.mapZones);
   const createJobOpen = useUiStore((s) => s.openModal === 'createJob');
+  const routePreview = useUiStore((s) => s.routePreview);
+  const setMapInstance = useUiStore((s) => s.setMapInstance);
   const theme = useUiStore((s) => s.theme);
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
   const setMapZones = useUiStore((s) => s.setMapZones);
@@ -248,12 +250,104 @@ export function DispatchMap({
     [mapsKey]
   );
 
+  const drawRouteBetweenCoords = useCallback(
+    async (
+      pick: google.maps.LatLngLiteral,
+      drop: google.maps.LatLngLiteral | undefined,
+      requestId: number
+    ) => {
+      const map = gMapRef.current;
+      if (!map || routeRequestRef.current !== requestId) return;
+
+      const labelMarker = (
+        pos: google.maps.LatLngLiteral,
+        label: string,
+        color: string,
+        title: string
+      ) =>
+        new google.maps.Marker({
+          position: pos,
+          map: gMapRef.current!,
+          title,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 14,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeColor: '#fff',
+            strokeWeight: 2,
+          },
+          label: {
+            text: label,
+            color: '#fff',
+            fontWeight: 'bold',
+            fontSize: '11px',
+          },
+        });
+
+      const coordsValid = (lat: number, lng: number) =>
+        Math.abs(lat) > 0.0001 || Math.abs(lng) > 0.0001;
+
+      await loadGoogleMaps(mapsKey || undefined);
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+
+      jobMarkersRef.current.push(labelMarker(pick, 'P', '#22c55e', 'Pickup'));
+
+      if (drop && coordsValid(drop.lat, drop.lng)) {
+        jobMarkersRef.current.push(labelMarker(drop, 'D', '#ef4444', 'Dropoff'));
+
+        if (!directionsRendererRef.current) {
+          directionsRendererRef.current = new google.maps.DirectionsRenderer({
+            suppressMarkers: true,
+            polylineOptions: {
+              strokeColor: '#4f6ef7',
+              strokeWeight: 4,
+            },
+          });
+          directionsRendererRef.current.setMap(map);
+        }
+
+        const directionsService = new google.maps.DirectionsService();
+        directionsService.route(
+          {
+            origin: pick,
+            destination: drop,
+            travelMode: google.maps.TravelMode.DRIVING,
+          },
+          (result, status) => {
+            if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+            if (status === google.maps.DirectionsStatus.OK && result) {
+              directionsRendererRef.current?.setDirections(result);
+              const bounds = result.routes[0]?.bounds;
+              if (bounds) {
+                gMapRef.current.fitBounds(bounds, 48);
+              }
+            } else {
+              clearDirectionsRenderer();
+            }
+          }
+        );
+      } else {
+        map.setCenter(pick);
+        map.setZoom(14);
+      }
+    },
+    [mapsKey]
+  );
+
   useEffect(() => {
     if (createJobOpen) {
       setSelectedJobId(null);
       clearDirectionsRenderer();
     }
   }, [createJobOpen, setSelectedJobId]);
+
+  useEffect(() => {
+    if (gMapRef.current && mapReady) {
+      setMapInstance(gMapRef.current);
+    }
+    return () => setMapInstance(null);
+  }, [mapReady, setMapInstance]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
@@ -347,8 +441,10 @@ export function DispatchMap({
   useEffect(() => {
     console.log('[Route] selectedJobId changed:', selectedJobId);
 
-    if (createJobOpen || !selectedJobId) {
-      if (!selectedJobId) clearDirectionsRenderer();
+    if (createJobOpen) return;
+
+    if (!selectedJobId) {
+      clearDirectionsRenderer();
       return;
     }
 
@@ -376,6 +472,34 @@ export function DispatchMap({
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
   }, [selectedJobId, jobs, mapReady, createJobOpen, drawRouteForJob]);
+
+  useEffect(() => {
+    if (!gMapRef.current || !mapReady) return;
+
+    if (!createJobOpen) {
+      if (!selectedJobId && !routePreview) clearDirectionsRenderer();
+      return;
+    }
+
+    const requestId = ++routeRequestRef.current;
+    clearDirectionsRenderer();
+    routeRequestRef.current = requestId;
+
+    if (!routePreview?.pick) {
+      return () => {
+        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
+      };
+    }
+
+    const pick = routePreview.pick;
+    const drop = routePreview.drop;
+
+    void drawRouteBetweenCoords(pick, drop, requestId);
+
+    return () => {
+      if (routeRequestRef.current === requestId) clearDirectionsRenderer();
+    };
+  }, [createJobOpen, routePreview, mapReady, selectedJobId, drawRouteBetweenCoords]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;

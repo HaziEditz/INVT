@@ -27829,6 +27829,7 @@ const useUiStore = create((set2, get2) => ({
   emergency: null,
   settings: null,
   routePreview: null,
+  mapInstance: null,
   setTheme: (t2) => {
     persistTheme(t2);
     set2({ theme: t2 });
@@ -27856,7 +27857,8 @@ const useUiStore = create((set2, get2) => ({
   setMapPoppedOut: (v2) => set2({ mapPoppedOut: v2 }),
   setEmergency: (e) => set2({ emergency: e }),
   setSettings: (s2) => set2({ settings: s2 }),
-  setRoutePreview: (r) => set2({ routePreview: r })
+  setRoutePreview: (r) => set2({ routePreview: r }),
+  setMapInstance: (map2) => set2({ mapInstance: map2 })
 }));
 let audioCtx = null;
 function playNewJobSound() {
@@ -32301,6 +32303,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const modalJobId = useUiStore((s2) => s2.modalJobId);
   const closeModal = useUiStore((s2) => s2.closeModal);
   const setRoutePreview = useUiStore((s2) => s2.setRoutePreview);
+  const mapInstance = useUiStore((s2) => s2.mapInstance);
   const settings = useUiStore((s2) => s2.settings);
   const addToast = useUiStore((s2) => s2.addToast);
   const upsertJob = useJobStore((s2) => s2.upsertJob);
@@ -32415,12 +32418,20 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     };
   }, [open2, form.pick.lat, form.pick.lng, settings == null ? void 0 : settings.city]);
   reactExports.useEffect(() => {
-    if (!open2 || !form.pick.lat || !form.drop.lat) {
+    if (!open2 || !form.pick.lat) {
       setRoutePreview(null);
       setRouteSummary("");
       return;
     }
-    setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng }, drop: { lat: form.drop.lat, lng: form.drop.lng } });
+    if (!form.drop.lat) {
+      setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng } });
+      setRouteSummary("");
+      return;
+    }
+    setRoutePreview({
+      pick: { lat: form.pick.lat, lng: form.pick.lng },
+      drop: { lat: form.drop.lat, lng: form.drop.lng }
+    });
     const straightKm = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
     const roadKm = straightKm * 1.25;
     const min = Math.max(1, Math.round(roadKm / 35 * 60));
@@ -32487,6 +32498,31 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const removeStop = (id) => patch({ stops: form.stops.filter((s2) => s2.id !== id) });
   const updateStop = (id, p2) => {
     patch({ stops: form.stops.map((s2) => s2.id === id ? { ...s2, ...p2 } : s2) });
+  };
+  const onPickupSelect = (pick) => {
+    patch({ pick, pickInput: pick.address });
+    if (mapInstance && pick.lat) {
+      mapInstance.setCenter({ lat: pick.lat, lng: pick.lng });
+      mapInstance.setZoom(14);
+    }
+    if (pick.lat) {
+      const preview = {
+        pick: { lat: pick.lat, lng: pick.lng }
+      };
+      if (form.drop.lat) {
+        preview.drop = { lat: form.drop.lat, lng: form.drop.lng };
+      }
+      setRoutePreview(preview);
+    }
+  };
+  const onDropSelect = (drop) => {
+    patch({ drop, dropInput: drop.address });
+    if (form.pick.lat && drop.lat) {
+      setRoutePreview({
+        pick: { lat: form.pick.lat, lng: form.pick.lng },
+        drop: { lat: drop.lat, lng: drop.lng }
+      });
+    }
   };
   const validatePickup = () => {
     const addr = form.pick.address || form.pickInput;
@@ -32633,7 +32669,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 placeholder: "Pickup address",
                 className: "cj-input mb-2",
                 onChange: (pickInput) => patch({ pickInput }),
-                onPlace: (pick) => patch({ pick, pickInput: pick.address })
+                onPlace: onPickupSelect
               }
             ),
             cityDistLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#8892a4] mb-2", children: cityDistLabel }),
@@ -32670,7 +32706,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 placeholder: "Dropoff address (optional)",
                 className: "cj-input mb-2",
                 onChange: (dropInput) => patch({ dropInput }),
-                onPlace: (drop) => patch({ drop, dropInput: drop.address })
+                onPlace: onDropSelect
               }
             ),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#e8eaf0]", children: [
@@ -40650,7 +40686,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CWq6rGJ3.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Bewfoo7v.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41935,6 +41971,8 @@ function DispatchMap({
   const mapTraffic = useUiStore((s2) => s2.mapTraffic);
   const mapZones = useUiStore((s2) => s2.mapZones);
   const createJobOpen = useUiStore((s2) => s2.openModal === "createJob");
+  const routePreview = useUiStore((s2) => s2.routePreview);
+  const setMapInstance = useUiStore((s2) => s2.setMapInstance);
   const theme = useUiStore((s2) => s2.theme);
   const setMapTraffic = useUiStore((s2) => s2.setMapTraffic);
   const setMapZones = useUiStore((s2) => s2.setMapZones);
@@ -42090,12 +42128,85 @@ function DispatchMap({
     },
     [mapsKey]
   );
+  const drawRouteBetweenCoords = reactExports.useCallback(
+    async (pick, drop, requestId) => {
+      const map2 = gMapRef.current;
+      if (!map2 || routeRequestRef.current !== requestId) return;
+      const labelMarker = (pos, label, color, title) => new google.maps.Marker({
+        position: pos,
+        map: gMapRef.current,
+        title,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 14,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: "#fff",
+          strokeWeight: 2
+        },
+        label: {
+          text: label,
+          color: "#fff",
+          fontWeight: "bold",
+          fontSize: "11px"
+        }
+      });
+      const coordsValid = (lat, lng) => Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
+      await loadGoogleMaps(mapsKey || void 0);
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+      jobMarkersRef.current.push(labelMarker(pick, "P", "#22c55e", "Pickup"));
+      if (drop && coordsValid(drop.lat, drop.lng)) {
+        jobMarkersRef.current.push(labelMarker(drop, "D", "#ef4444", "Dropoff"));
+        if (!directionsRendererRef.current) {
+          directionsRendererRef.current = new google.maps.DirectionsRenderer({
+            suppressMarkers: true,
+            polylineOptions: {
+              strokeColor: "#4f6ef7",
+              strokeWeight: 4
+            }
+          });
+          directionsRendererRef.current.setMap(map2);
+        }
+        const directionsService = new google.maps.DirectionsService();
+        directionsService.route(
+          {
+            origin: pick,
+            destination: drop,
+            travelMode: google.maps.TravelMode.DRIVING
+          },
+          (result, status) => {
+            var _a2, _b2;
+            if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+            if (status === google.maps.DirectionsStatus.OK && result) {
+              (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
+              const bounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
+              if (bounds) {
+                gMapRef.current.fitBounds(bounds, 48);
+              }
+            } else {
+              clearDirectionsRenderer();
+            }
+          }
+        );
+      } else {
+        map2.setCenter(pick);
+        map2.setZoom(14);
+      }
+    },
+    [mapsKey]
+  );
   reactExports.useEffect(() => {
     if (createJobOpen) {
       setSelectedJobId(null);
       clearDirectionsRenderer();
     }
   }, [createJobOpen, setSelectedJobId]);
+  reactExports.useEffect(() => {
+    if (gMapRef.current && mapReady) {
+      setMapInstance(gMapRef.current);
+    }
+    return () => setMapInstance(null);
+  }, [mapReady, setMapInstance]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     const listener = gMapRef.current.addListener("click", () => {
@@ -42176,8 +42287,9 @@ function DispatchMap({
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
     console.log("[Route] selectedJobId changed:", selectedJobId);
-    if (createJobOpen || !selectedJobId) {
-      if (!selectedJobId) clearDirectionsRenderer();
+    if (createJobOpen) return;
+    if (!selectedJobId) {
+      clearDirectionsRenderer();
       return;
     }
     const job = jobs.find((j2) => j2.id === selectedJobId);
@@ -42199,6 +42311,27 @@ function DispatchMap({
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
   }, [selectedJobId, jobs, mapReady, createJobOpen, drawRouteForJob]);
+  reactExports.useEffect(() => {
+    if (!gMapRef.current || !mapReady) return;
+    if (!createJobOpen) {
+      if (!selectedJobId && !routePreview) clearDirectionsRenderer();
+      return;
+    }
+    const requestId = ++routeRequestRef.current;
+    clearDirectionsRenderer();
+    routeRequestRef.current = requestId;
+    if (!(routePreview == null ? void 0 : routePreview.pick)) {
+      return () => {
+        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
+      };
+    }
+    const pick = routePreview.pick;
+    const drop = routePreview.drop;
+    void drawRouteBetweenCoords(pick, drop, requestId);
+    return () => {
+      if (routeRequestRef.current === requestId) clearDirectionsRenderer();
+    };
+  }, [createJobOpen, routePreview, mapReady, selectedJobId, drawRouteBetweenCoords]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
@@ -42620,7 +42753,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BIYRTihA.js");
+        const { writeActiveDispatcher } = await import("./notifications-DVqwq2tT.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42647,7 +42780,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BIYRTihA.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DVqwq2tT.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42975,4 +43108,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-RDURvy_O.js.map
+//# sourceMappingURL=index-BhW_VFrr.js.map

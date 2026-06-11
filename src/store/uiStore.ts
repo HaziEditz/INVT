@@ -42,8 +42,10 @@ interface UiStore {
   mapPoppedOut: boolean;
   emergency: { driverName: string; vehicle: string; lat: number; lng: number; time: string } | null;
   settings: CompanySettings | null;
-  routePreview: { pick: { lat: number; lng: number }; drop: { lat: number; lng: number } } | null;
+  routePreview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } | null;
+  mapInstance: google.maps.Map | null;
   setRoutePreview: (r: UiStore['routePreview']) => void;
+  setMapInstance: (map: google.maps.Map | null) => void;
   setTheme: (t: DispatchThemeId) => void;
   cycleTheme: () => void;
   openModalWith: (m: ModalId, opts?: { jobId?: number; driverId?: string }) => void;
@@ -77,6 +79,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   emergency: null,
   settings: null,
   routePreview: null,
+  mapInstance: null,
   setTheme: (t) => {
     persistTheme(t);
     set({ theme: t });
@@ -107,4 +110,5 @@ export const useUiStore = create<UiStore>((set, get) => ({
   setEmergency: (e) => set({ emergency: e }),
   setSettings: (s) => set({ settings: s }),
   setRoutePreview: (r) => set({ routePreview: r }),
+  setMapInstance: (map) => set({ mapInstance: map }),
 }));
