@@ -794,9 +794,6 @@ video {
 .w-\[11\%\] {
   width: 11%;
 }
-.w-\[130px\] {
-  width: 130px;
-}
 .w-\[14\%\] {
   width: 14%;
 }
@@ -805,9 +802,6 @@ video {
 }
 .w-\[6\%\] {
   width: 6%;
-}
-.w-\[70px\] {
-  width: 70px;
 }
 .w-\[8\%\] {
   width: 8%;
@@ -822,8 +816,14 @@ video {
 .min-w-0 {
   min-width: 0px;
 }
+.min-w-\[100px\] {
+  min-width: 100px;
+}
 .min-w-\[120px\] {
   min-width: 120px;
+}
+.min-w-\[130px\] {
+  min-width: 130px;
 }
 .min-w-\[18px\] {
   min-width: 18px;
@@ -1091,6 +1091,9 @@ video {
   --tw-border-opacity: 1;
   border-color: rgb(45 49 72 / var(--tw-border-opacity, 1));
 }
+.border-emerald-500\/40 {
+  border-color: rgb(16 185 129 / 0.4);
+}
 .border-red-500\/40 {
   border-color: rgb(239 68 68 / 0.4);
 }
@@ -1121,9 +1124,6 @@ video {
   --tw-bg-opacity: 1;
   background-color: rgb(15 20 32 / var(--tw-bg-opacity, 1));
 }
-.bg-\[\#64748b\]\/20 {
-  background-color: rgb(100 116 139 / 0.2);
-}
 .bg-\[\#f5c542\] {
   --tw-bg-opacity: 1;
   background-color: rgb(245 197 66 / var(--tw-bg-opacity, 1));
@@ -1139,9 +1139,6 @@ video {
 }
 .bg-\[var\(--bw-accent\)\] {
   background-color: var(--bw-accent);
-}
-.bg-\[var\(--bw-card\)\] {
-  background-color: var(--bw-card);
 }
 .bg-\[var\(--bw-card-hover\)\] {
   background-color: var(--bw-card-hover);
@@ -1195,6 +1192,9 @@ video {
 .bg-emerald-400 {
   --tw-bg-opacity: 1;
   background-color: rgb(52 211 153 / var(--tw-bg-opacity, 1));
+}
+.bg-emerald-500\/20 {
+  background-color: rgb(16 185 129 / 0.2);
 }
 .bg-red-400 {
   --tw-bg-opacity: 1;
@@ -1407,6 +1407,10 @@ video {
   --tw-text-opacity: 1;
   color: rgb(136 146 164 / var(--tw-text-opacity, 1));
 }
+.text-\[\#94a3b8\] {
+  --tw-text-opacity: 1;
+  color: rgb(148 163 184 / var(--tw-text-opacity, 1));
+}
 .text-\[\#e8eaf0\] {
   --tw-text-opacity: 1;
   color: rgb(232 234 240 / var(--tw-text-opacity, 1));
@@ -1523,6 +1527,12 @@ video {
   --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
   --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color);
   box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+.ring-\[\#5b7cfa\]\/40 {
+  --tw-ring-color: rgb(91 124 250 / 0.4);
+}
+.ring-\[\#64748b\]\/40 {
+  --tw-ring-color: rgb(100 116 139 / 0.4);
 }
 .\!filter {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow) !important;
@@ -1825,6 +1835,15 @@ body {
 
 .bw-status-pulse {
   animation: bw-pulse-dot 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes bw-wait-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.bw-wait-flash {
+  animation: bw-wait-flash 0.9s ease-in-out infinite;
 }
 
 /* Google Places dropdown above slide panel */

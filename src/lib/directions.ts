@@ -101,3 +101,24 @@ export function formatRouteSummary(km: number, min: number, fare?: number): stri
 export function formatCityDistance(km: number, min: number): string {
   return `~${km.toFixed(1)} km from city, ~${Math.round(min)} min drive`;
 }
+
+/** Quadratic bezier arc between two points (fallback when Directions API unavailable). */
+export function bezierRoutePath(start: LatLng, end: LatLng, segments = 40): LatLng[] {
+  const midLat = (start.lat + end.lat) / 2;
+  const midLng = (start.lng + end.lng) / 2;
+  const dx = end.lng - start.lng;
+  const dy = end.lat - start.lat;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+  const bulge = dist * 0.18;
+  const ctrl = { lat: midLat + bulge, lng: midLng - bulge * 0.6 };
+  const path: LatLng[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const u = 1 - t;
+    path.push({
+      lat: u * u * start.lat + 2 * u * t * ctrl.lat + t * t * end.lat,
+      lng: u * u * start.lng + 2 * u * t * ctrl.lng + t * t * end.lng,
+    });
+  }
+  return path;
+}

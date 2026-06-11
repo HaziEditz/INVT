@@ -18,7 +18,7 @@ import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
-import { renderDrivingRoute } from '@/lib/directions';
+import { renderDrivingRoute, bezierRoutePath } from '@/lib/directions';
 import { Spinner } from '@/components/shared/Spinner';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +48,7 @@ export function DispatchMap({
   const markersRef = useRef<google.maps.Marker[]>([]);
   const jobMarkersRef = useRef<google.maps.Marker[]>([]);
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
+  const fallbackPolylineRef = useRef<google.maps.Polyline | null>(null);
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -174,6 +175,8 @@ export function DispatchMap({
       });
     }
     directionsRendererRef.current.setMap(null);
+    fallbackPolylineRef.current?.setMap(null);
+    fallbackPolylineRef.current = null;
 
     const target = selectedJob
       ? {
@@ -197,19 +200,38 @@ export function DispatchMap({
       Math.abs(target.pick.lat) > 0.0001 || Math.abs(target.pick.lng) > 0.0001;
     if (!hasPick) return;
 
-    const pickMarker = new google.maps.Marker({
-      position: target.pick,
-      map: gMapRef.current,
-      title: target.pickLabel || 'Pickup',
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 10,
-        fillColor: '#22c55e',
-        fillOpacity: 1,
-        strokeColor: '#fff',
-        strokeWeight: 2,
-      },
-    });
+    const labelMarker = (
+      pos: google.maps.LatLngLiteral,
+      label: string,
+      color: string,
+      title: string
+    ) =>
+      new google.maps.Marker({
+        position: pos,
+        map: gMapRef.current!,
+        title,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 14,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: '#fff',
+          strokeWeight: 2,
+        },
+        label: {
+          text: label,
+          color: '#fff',
+          fontWeight: 'bold',
+          fontSize: '11px',
+        },
+      });
+
+    const pickMarker = labelMarker(
+      target.pick,
+      'P',
+      '#22c55e',
+      target.pickLabel || 'Pickup'
+    );
     jobMarkersRef.current.push(pickMarker);
 
     const hasDrop =
@@ -217,19 +239,12 @@ export function DispatchMap({
       (Math.abs(target.drop.lat) > 0.0001 || Math.abs(target.drop.lng) > 0.0001);
 
     if (hasDrop && target.drop) {
-      const dropMarker = new google.maps.Marker({
-        position: target.drop,
-        map: gMapRef.current,
-        title: target.dropLabel || 'Dropoff',
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: '#ef4444',
-          fillOpacity: 1,
-          strokeColor: '#fff',
-          strokeWeight: 2,
-        },
-      });
+      const dropMarker = labelMarker(
+        target.drop,
+        'D',
+        '#ef4444',
+        target.dropLabel || 'Dropoff'
+      );
       jobMarkersRef.current.push(dropMarker);
 
       void renderDrivingRoute(
@@ -238,12 +253,25 @@ export function DispatchMap({
         target.pick,
         target.drop
       ).then((info) => {
-        if (info && gMapRef.current) {
+        if (!gMapRef.current) return;
+        if (info) {
           const bounds = new google.maps.LatLngBounds();
           bounds.extend(target.pick!);
           bounds.extend(target.drop!);
           gMapRef.current.fitBounds(bounds, 48);
+          return;
         }
+        const path = bezierRoutePath(target.pick!, target.drop!);
+        fallbackPolylineRef.current = new google.maps.Polyline({
+          path,
+          strokeColor: '#5b7cfa',
+          strokeWeight: 4,
+          strokeOpacity: 0.85,
+          map: gMapRef.current,
+        });
+        const bounds = new google.maps.LatLngBounds();
+        for (const pt of path) bounds.extend(pt);
+        gMapRef.current.fitBounds(bounds, 48);
       });
     } else {
       gMapRef.current.setCenter(target.pick);

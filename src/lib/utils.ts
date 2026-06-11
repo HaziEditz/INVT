@@ -15,15 +15,12 @@ export function serviceBorderColor(service: string): string {
 }
 
 export function sourceLabel(src: string): string {
-  const m: Record<string, string> = {
-    hail: 'HAIL',
-    web: 'WEB',
-    website: 'WEB',
-    passenger: 'APP',
-    dispatch: 'DISPATCH',
-    phone: 'DISPATCH',
-  };
-  return m[src.toLowerCase()] || src.toUpperCase();
+  const s = src.toLowerCase().replace(/_/g, ' ');
+  if (s.includes('dispatch') || s === 'phone' || s.includes('console')) return 'DESK';
+  if (s.includes('hail')) return 'HAIL';
+  if (s.includes('passenger') || s === 'app') return 'APP';
+  if (s.includes('web') || s.includes('website')) return 'WEB';
+  return s.slice(0, 8).toUpperCase();
 }
 
 export function paymentLabel(type: string): string {

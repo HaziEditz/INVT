@@ -116,14 +116,14 @@ export function parseLatLng(raw?: string): { lat: number; lng: number } | null {
 export function jobFromFirebase(key: string, rec: Record<string, unknown>, companyId: string): Job | null {
   const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
   if (!id) return null;
-  const status = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? 'Pending'));
-  const src = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? 'dispatch').toLowerCase();
+  const status = resolveJobStatus(rec);
+  const srcRaw = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? 'dispatch');
   const svc = String(rec.serviceType ?? rec.ServiceType ?? 'taxi').toLowerCase() as ServiceType;
   return {
     id,
     companyId,
     status,
-    source: (src === 'website' ? 'web' : src) as BookingSource,
+    source: normalizeSource(srcRaw),
     serviceType: svc,
     pickAddress: String(rec.PickAddress ?? rec.pickup ?? rec.pickupAddress ?? ''),
     pickLatLng: String(rec.PickLatLng ?? (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : '')),
@@ -139,6 +139,9 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ''),
     bookingDateTime: String(
       rec.BookingDateTime ??
+        rec.Pickingtime ??
+        rec.PickingTime ??
+        rec.pickingTime ??
         (typeof rec.createdAt === 'number'
           ? new Date(rec.createdAt).toISOString()
           : rec.createdAt ?? new Date().toISOString())
@@ -165,6 +168,33 @@ export function normalizeJobStatus(raw: string): JobStatus {
   if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
   if (s === 'pending' || s === 'PENDING') return 'Pending';
   return s as JobStatus;
+}
+
+/** Single UA status badge — Pending OR No One, never both. */
+export function uaStatusBadge(job: Job): { label: string; color: string; bg: string } | null {
+  const st = normalizeJobStatus(job.status);
+  if (st === 'No One') return { label: 'NO ONE', color: '#94a3b8', bg: 'rgba(100,116,139,0.2)' };
+  if (st === 'Pending') return { label: 'PENDING', color: '#5b7cfa', bg: 'rgba(79,110,247,0.2)' };
+  return null;
+}
+
+function normalizeSource(raw: string): BookingSource {
+  const s = raw.toLowerCase();
+  if (s.includes('dispatch') || s === 'phone' || s.includes('console')) return 'dispatch';
+  if (s.includes('hail')) return 'hail';
+  if (s.includes('passenger') || s === 'app') return 'passenger';
+  if (s.includes('web') || s.includes('website')) return 'web';
+  return 'dispatch';
+}
+
+function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
+  const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
+  const status = rec.Status != null || rec.status != null
+    ? normalizeJobStatus(String(rec.Status ?? rec.status))
+    : null;
+  if (booking) return booking;
+  if (status) return status;
+  return 'Pending';
 }
 
 export function isScheduledJob(job: Job): boolean {

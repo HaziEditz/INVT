@@ -612,30 +612,26 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             </button>
           </div>
           {form.timing === 'later' && (
-            <div className="flex flex-wrap items-end gap-2">
-              <input
-                type="date"
-                className="cj-input w-[130px]"
-                value={form.laterDate}
-                onChange={(e) => patch({ laterDate: e.target.value })}
-              />
-              <select className="cj-input w-[70px]" value={form.laterHour} onChange={(e) => patch({ laterHour: e.target.value })}>
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={String(i).padStart(2, '0')}>
-                    {String(i).padStart(2, '0')}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[#8892a4]">:</span>
-              <select className="cj-input w-[70px]" value={form.laterMin} onChange={(e) => patch({ laterMin: e.target.value })}>
-                {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  className="cj-input flex-1 min-w-[130px]"
+                  value={form.laterDate}
+                  onChange={(e) => patch({ laterDate: e.target.value })}
+                />
+                <input
+                  type="time"
+                  className="cj-input flex-1 min-w-[100px]"
+                  value={`${form.laterHour.padStart(2, '0')}:${form.laterMin.padStart(2, '0')}`}
+                  onChange={(e) => {
+                    const [h, m] = e.target.value.split(':');
+                    patch({ laterHour: h || '12', laterMin: m || '00' });
+                  }}
+                />
+              </div>
               <select
-                className="cj-input flex-1 min-w-[120px]"
+                className="cj-input w-full"
                 value={form.dispatchBeforeMin}
                 onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
                 title="Dispatch minutes before pickup"

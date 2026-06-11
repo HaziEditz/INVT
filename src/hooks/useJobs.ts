@@ -22,18 +22,21 @@ function isUaJob(job: Job): boolean {
 
 export function useJobs(companyId: string | null) {
   const setJobs = useJobStore((s) => s.setJobs);
+  const upsertJob = useJobStore((s) => s.upsertJob);
   const removeJob = useJobStore((s) => s.removeJob);
   const pendingRef = useRef<Map<number, Job>>(new Map());
   const bookingsRef = useRef<Map<number, Job>>(new Map());
-  const knownPendingIds = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (!companyId) return;
     const db = getDb();
-    const childUnsubs: Array<() => void> = [];
+    const unsubs: Array<() => void> = [];
+    const initDone = { current: false };
+    const seenIds = new Set<number>();
 
-    const sync = () => {
-      setJobs(mergeJobs([bookingsRef.current, pendingRef.current]));
+    const syncAll = () => {
+      const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
+      setJobs(merged);
     };
 
     const notifyNewJob = (job: Job) => {
@@ -46,19 +49,53 @@ export function useJobs(companyId: string | null) {
       });
     };
 
-    const applyPending = (key: string, rec: Record<string, unknown>, isNew: boolean) => {
+    const applyPending = (key: string, rec: Record<string, unknown>, notify: boolean) => {
       const job = jobFromFirebase(key, rec, companyId);
       if (!job) return;
       pendingRef.current.set(job.id, job);
-      sync();
-      if (isNew) notifyNewJob(job);
+      const booking = bookingsRef.current.get(job.id);
+      upsertJob(booking ? { ...booking, ...job } : job);
+      syncAll();
+      if (notify) notifyNewJob(job);
     };
 
     const pRef = ref(db, `pendingjobs/${companyId}`);
     const bRef = ref(db, `allbookings/${companyId}`);
 
-    knownPendingIds.current = new Set();
+    // Register child listeners immediately — do not wait for get()
+    unsubs.push(
+      onChildAdded(pRef, (snap) => {
+        const val = snap.val();
+        if (!val || typeof val !== 'object') return;
+        const job = jobFromFirebase(snap.key!, val as Record<string, unknown>, companyId);
+        if (!job) return;
+        const isNew = initDone.current && !seenIds.has(job.id);
+        seenIds.add(job.id);
+        applyPending(snap.key!, val as Record<string, unknown>, isNew);
+      })
+    );
 
+    unsubs.push(
+      onChildChanged(pRef, (snap) => {
+        const val = snap.val();
+        if (!val || typeof val !== 'object') return;
+        seenIds.add(parseInt(String(snap.key), 10));
+        applyPending(snap.key!, val as Record<string, unknown>, false);
+      })
+    );
+
+    unsubs.push(
+      onChildRemoved(pRef, (snap) => {
+        const id = parseInt(snap.key || '0', 10);
+        if (!id) return;
+        pendingRef.current.delete(id);
+        seenIds.delete(id);
+        removeJob(id);
+        syncAll();
+      })
+    );
+
+    // Bootstrap existing pending jobs
     get(pRef)
       .then((snap) => {
         pendingRef.current = new Map();
@@ -68,66 +105,39 @@ export function useJobs(companyId: string | null) {
             const job = jobFromFirebase(key, rec, companyId);
             if (job) {
               pendingRef.current.set(job.id, job);
-              knownPendingIds.current.add(job.id);
+              seenIds.add(job.id);
             }
           }
         }
-        sync();
-
-        childUnsubs.push(
-          onChildAdded(pRef, (snap) => {
-            const val = snap.val();
-            if (!val || typeof val !== 'object') return;
-            const job = jobFromFirebase(snap.key!, val as Record<string, unknown>, companyId);
-            if (!job) return;
-            const isNew = !knownPendingIds.current.has(job.id);
-            knownPendingIds.current.add(job.id);
-            applyPending(snap.key!, val as Record<string, unknown>, isNew);
-          })
-        );
-
-        childUnsubs.push(
-          onChildChanged(pRef, (snap) => {
-            const val = snap.val();
-            if (!val || typeof val !== 'object') return;
-            applyPending(snap.key!, val as Record<string, unknown>, false);
-          })
-        );
-
-        childUnsubs.push(
-          onChildRemoved(pRef, (snap) => {
-            const id = parseInt(snap.key || '0', 10);
-            if (!id) return;
-            pendingRef.current.delete(id);
-            knownPendingIds.current.delete(id);
-            removeJob(id);
-            sync();
-          })
-        );
+        initDone.current = true;
+        syncAll();
       })
-      .catch(() => {});
+      .catch(() => {
+        initDone.current = true;
+      });
 
-    const unsubBookings = onValue(bRef, (snap) => {
-      bookingsRef.current = new Map();
-      const val = snap.val();
-      if (val && typeof val === 'object') {
-        for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-          const job = jobFromFirebase(key, rec, companyId);
-          if (!job) continue;
-          const active = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued', 'Offered'].includes(
-            job.status
-          );
-          if (active) bookingsRef.current.set(job.id, job);
+    unsubs.push(
+      onValue(bRef, (snap) => {
+        bookingsRef.current = new Map();
+        const val = snap.val();
+        if (val && typeof val === 'object') {
+          for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
+            const job = jobFromFirebase(key, rec, companyId);
+            if (!job) continue;
+            const active = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued', 'Offered'].includes(
+              job.status
+            );
+            if (active) bookingsRef.current.set(job.id, job);
+          }
         }
-      }
-      sync();
-    });
+        syncAll();
+      })
+    );
 
     return () => {
-      for (const unsub of childUnsubs) unsub();
-      unsubBookings();
+      for (const unsub of unsubs) unsub();
     };
-  }, [companyId, setJobs, removeJob]);
+  }, [companyId, setJobs, upsertJob, removeJob]);
 }
 
 export function useClosedJobs(companyId: string | null, enabled: boolean) {

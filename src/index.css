@@ -260,6 +260,15 @@ body {
   animation: bw-pulse-dot 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
+@keyframes bw-wait-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.bw-wait-flash {
+  animation: bw-wait-flash 0.9s ease-in-out infinite;
+}
+
 /* Google Places dropdown above slide panel */
 .pac-container {
   z-index: 10050 !important;

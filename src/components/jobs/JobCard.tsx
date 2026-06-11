@@ -6,7 +6,7 @@ import {
   isScheduledJob,
   jobCardBorderColor,
   normalizeJobStatus,
-  statusBadgeStyle,
+  uaStatusBadge,
 } from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
@@ -31,17 +31,18 @@ interface JobCardProps {
 }
 
 function waitBadgeClass(minutes: number): string {
-  if (minutes >= 10) return 'bg-red-500/20 text-red-400 border-red-500/40';
+  if (minutes >= 10) return 'bg-red-500/20 text-red-400 border-red-500/40 bw-wait-flash';
   if (minutes >= 5) return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
-  return 'bg-[var(--bw-card)] text-[var(--bw-muted)] border-[var(--bw-border)]';
+  return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
 }
 
 function formatScheduled(job: Job): string | null {
   if (!isScheduledJob(job)) return null;
   try {
-    const d = parseISO(job.bookingDateTime.replace(' ', 'T'));
+    const raw = job.bookingDateTime.replace(' ', 'T');
+    const d = parseISO(raw);
     if (Number.isNaN(d.getTime())) return null;
-    return format(d, 'dd MMM HH:mm');
+    return `Sched: ${format(d, 'HH:mm dd/MM')}`;
   } catch {
     return null;
   }
@@ -60,7 +61,7 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const border = jobCardBorderColor(job);
   const status = normalizeJobStatus(job.status);
-  const statusBadge = tab === 'ua' ? statusBadgeStyle(status) : statusBadgeStyle(status);
+  const statusBadge = tab === 'ua' ? uaStatusBadge(job) : null;
   const selected = selectedJobId === job.id;
   const scheduledLabel = formatScheduled(job);
 
@@ -157,7 +158,7 @@ export function JobCard({ job, tab }: JobCardProps) {
 
       <div className="flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center">
         <Badge color={paymentBadgeColor(job.paymentType)}>{paymentLabel(job.paymentType)}</Badge>
-        {scheduledLabel && <span className="text-amber-400">Sched {scheduledLabel}</span>}
+        {scheduledLabel && <span className="text-amber-400">{scheduledLabel}</span>}
         {job.dispatcherName && <span className="text-[var(--bw-muted)]">by {job.dispatcherName}</span>}
         {job.estimatedFare && job.estimatedFare !== '0' && (
           <span className="text-emerald-400">${job.estimatedFare}</span>
@@ -174,14 +175,15 @@ export function JobCard({ job, tab }: JobCardProps) {
         {tab === 'ua' && (
           <>
             <Button
-              variant={status === 'Pending' ? 'primary' : 'ghost'}
+              variant="ghost"
+              className={cn(status === 'Pending' && 'ring-1 ring-[#5b7cfa]/40 text-[#5b7cfa]')}
               onClick={() => run(() => setPending(job), 'Set Pending')}
             >
               Pending
             </Button>
             <Button
-              variant={status === 'No One' ? 'muted' : 'ghost'}
-              className={cn(status === 'No One' && 'bg-[#64748b]/20')}
+              variant="ghost"
+              className={cn(status === 'No One' && 'ring-1 ring-[#64748b]/40 text-[#94a3b8]')}
               onClick={() => run(() => setNoOne(job), 'Set No One')}
             >
               No One

@@ -138,6 +138,25 @@ export function nzNowParts(): { date: string; h: string; m: string } {
   return { date: sv.slice(0, 10), h: sv.slice(11, 13), m: sv.slice(14, 16) };
 }
 
+export function parseBookingDateTime(dt: string): { date: string; hour: string; min: string } {
+  if (!dt.trim()) {
+    const now = nzNowParts();
+    return { date: now.date, hour: now.h, min: now.m };
+  }
+  const normalized = dt.includes('T') ? dt : dt.trim().replace(' ', 'T');
+  const d = new Date(normalized);
+  if (!Number.isNaN(d.getTime())) {
+    const sv = d.toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
+    return { date: sv.slice(0, 10), hour: sv.slice(11, 13), min: sv.slice(14, 16) };
+  }
+  const now = nzNowParts();
+  return {
+    date: dt.slice(0, 10) || now.date,
+    hour: dt.slice(11, 13) || now.h,
+    min: dt.slice(14, 16) || now.m,
+  };
+}
+
 function pad2(n: number) {
   return String(n).padStart(2, '0');
 }
@@ -266,8 +285,11 @@ export function jobToForm(job: Job): CreateJobFormState {
   const form = defaultCreateJobForm();
   const pick = parseLatLng(job.pickLatLng);
   const drop = parseLatLng(job.dropLatLng);
-  const dt = job.bookingDateTime || '';
-  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(dt);
+  const parsed = parseBookingDateTime(job.bookingDateTime || '');
+  const isLater =
+    (job.dispatchBeforeMinutes ?? 0) > 0 ||
+    isFutureBooking(job.bookingDateTime || '') ||
+    (job.scheduledFor != null && job.scheduledFor > Date.now() + 60000);
 
   let driverId = 0;
   if (job.status === 'No One' || job.driverId === '-1') driverId = -1;
@@ -294,9 +316,9 @@ export function jobToForm(job: Job): CreateJobFormState {
     notes: job.notes || '',
     serviceType: job.serviceType,
     timing: isLater ? 'later' : 'now',
-    laterDate: dt.slice(0, 10) || form.laterDate,
-    laterHour: dt.slice(11, 13) || form.laterHour,
-    laterMin: dt.slice(14, 16) || form.laterMin,
+    laterDate: parsed.date,
+    laterHour: parsed.hour,
+    laterMin: parsed.min,
     dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
     urgent: !!job.urgent,
     corner: !!job.corner,
