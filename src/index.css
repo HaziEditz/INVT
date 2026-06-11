@@ -265,6 +265,131 @@ body {
   z-index: 10050 !important;
 }
 
+/* Create Job floating panel */
+.cj-panel {
+  background-color: #1e2235;
+  color: #e8eaf0;
+  border: 1px solid #3d4260;
+  font-size: 13px;
+}
+
+.cj-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8892a4;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cj-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #e8eaf0;
+  background-color: #2d3148;
+  border: 1px solid #3d4260;
+  border-radius: 4px;
+  outline: none;
+}
+
+.cj-input:focus {
+  border-color: #5b7cfa;
+}
+
+.cj-input::placeholder {
+  color: #8892a4;
+  opacity: 0.85;
+}
+
+.cj-section {
+  margin-bottom: 14px;
+}
+
+.cj-drag-bar {
+  background-color: #0f1420;
+  border-bottom: 1px solid #3d4260;
+  cursor: move;
+  user-select: none;
+}
+
+.cj-svc-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #3d4260;
+  background: #2d3148;
+  color: #8892a4;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cj-svc-pill-active {
+  background: #4f6ef7;
+  border-color: #4f6ef7;
+  color: #fff;
+}
+
+.cj-toggle {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 16px;
+  border: 1px solid #3d4260;
+  background: #2d3148;
+  color: #8892a4;
+  cursor: pointer;
+}
+
+.cj-toggle-active {
+  background: #4f6ef7;
+  border-color: #4f6ef7;
+  color: #fff;
+}
+
+.cj-pay-panel {
+  background: #2d3148;
+  border: 1px solid #3d4260;
+  border-radius: 4px;
+  padding: 10px;
+  margin-top: 8px;
+}
+
+.cj-btn-book {
+  background: #22c55e;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+
+.cj-btn-book:hover {
+  background: #16a34a;
+}
+
+.cj-btn-book:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cj-btn-ghost {
+  background: transparent;
+  border: 1px solid #3d4260;
+  color: #e8eaf0;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cj-btn-ghost:hover {
+  background: #2d3148;
+}
+
 .bw-field {
   width: 100%;
   padding: 0.375rem 0.625rem;

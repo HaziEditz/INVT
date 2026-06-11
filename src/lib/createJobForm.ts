@@ -1,5 +1,7 @@
 import type { DataParam } from '@/lib/dispatchApi';
 
+export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
+
 export interface PlaceValue {
   address: string;
   lat: number;
@@ -22,6 +24,7 @@ export interface CreateJobFormState {
   name: string;
   phone: string;
   email: string;
+  showEmail: boolean;
   notes: string;
   serviceType: string;
   timing: 'now' | 'later';
@@ -30,37 +33,45 @@ export interface CreateJobFormState {
   laterMin: string;
   dispatchBeforeMin: number;
   corner: boolean;
-  cornerDetail: string;
   urgent: boolean;
-  passengers: number;
-  bags: number;
-  wheelchairs: number;
-  carsRequired: number;
   vehicleType: string;
   tariffId: string;
   tariffName: string;
-  customRate: string;
   driverId: number;
   vehicleId: string;
   queueNumber: number;
+  paymentType: PaymentType;
+  cardNumber: string;
+  cardCvc: string;
+  cardExpMonth: string;
+  cardExpYear: string;
+  cardAmount: string;
+  cardPaid: boolean;
+  eftposRef: string;
+  eftposSurcharge: boolean;
+  accountSearch: string;
   accountId: string;
-  claimNumber: string;
-  poNumber: string;
-  accJobId: string;
-  accClientId: string;
-  accManagerId: string;
-  repeatEnabled: boolean;
-  repeatUntil: string;
-  repeatWeeks: 0 | 1 | 2;
-  repeatDays: boolean[];
+  accountName: string;
+  accountCredit: string;
   tmCardNumber: string;
   tmCardExpiry: string;
   tmCouncilPercent: string;
-  cardAmount: string;
-  cardPaid: boolean;
+  tmPassengerPercent: string;
+  claimNumber: string;
+  poNumber: string;
+  accSearchQuery: string;
+  accClientId: string;
+  accJobId: string;
+  accManagerId: string;
+  repeatExpanded: boolean;
+  repeatUntil: string;
+  repeatDays: boolean[];
+  fixedFareEnabled: boolean;
+  fixedFareAmount: string;
 }
 
-const VEHICLE_TYPES = ['Automatic', 'Sedan', 'SUV', 'Van', 'Wheelchair', 'WAV', 'Car'];
+export const CJ_VEHICLE_TYPES = ['Any', 'Car', 'Van', 'WAV', 'Minibus'] as const;
+export const CJ_SERVICES = ['taxi', 'food', 'freight', 'tm', 'acc', 'rental'] as const;
 
 export function defaultCreateJobForm(): CreateJobFormState {
   const { date } = nzNowParts();
@@ -73,6 +84,7 @@ export function defaultCreateJobForm(): CreateJobFormState {
     name: '',
     phone: '',
     email: '',
+    showEmail: false,
     notes: '',
     serviceType: 'taxi',
     timing: 'now',
@@ -81,34 +93,41 @@ export function defaultCreateJobForm(): CreateJobFormState {
     laterMin: '00',
     dispatchBeforeMin: 10,
     corner: false,
-    cornerDetail: '',
     urgent: false,
-    passengers: 1,
-    bags: 0,
-    wheelchairs: 0,
-    carsRequired: 1,
-    vehicleType: 'Automatic',
+    vehicleType: 'Any',
     tariffId: '0',
     tariffName: 'Automatic',
-    customRate: '',
     driverId: 0,
     vehicleId: '0',
     queueNumber: 0,
+    paymentType: '',
+    cardNumber: '',
+    cardCvc: '',
+    cardExpMonth: '',
+    cardExpYear: '',
+    cardAmount: '',
+    cardPaid: false,
+    eftposRef: '',
+    eftposSurcharge: false,
+    accountSearch: '',
     accountId: '',
-    claimNumber: '',
-    poNumber: '',
-    accJobId: '',
-    accClientId: '',
-    accManagerId: '',
-    repeatEnabled: false,
-    repeatUntil: '',
-    repeatWeeks: 0,
-    repeatDays: [false, false, false, false, false, false, false],
+    accountName: '',
+    accountCredit: '',
     tmCardNumber: '',
     tmCardExpiry: '',
     tmCouncilPercent: '',
-    cardAmount: '',
-    cardPaid: false,
+    tmPassengerPercent: '',
+    claimNumber: '',
+    poNumber: '',
+    accSearchQuery: '',
+    accClientId: '',
+    accJobId: '',
+    accManagerId: '',
+    repeatExpanded: false,
+    repeatUntil: '',
+    repeatDays: [false, false, false, false, false, false, false],
+    fixedFareEnabled: false,
+    fixedFareAmount: '',
   };
 }
 
@@ -116,8 +135,6 @@ export function nzNowParts(): { date: string; h: string; m: string } {
   const sv = new Date().toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
   return { date: sv.slice(0, 10), h: sv.slice(11, 13), m: sv.slice(14, 16) };
 }
-
-export { VEHICLE_TYPES };
 
 function pad2(n: number) {
   return String(n).padStart(2, '0');
@@ -143,38 +160,48 @@ function stopsPayload(stops: StopPoint[]): string {
 }
 
 function bookingType(form: CreateJobFormState): string {
-  if (form.accJobId || form.accClientId) return 'ACC Ride';
-  if (form.accountId) return 'Account Ride';
+  if (form.paymentType === 'acc' || form.accClientId || form.serviceType === 'acc') return 'ACC Ride';
+  if (form.paymentType === 'account' || form.accountId) return 'Account Ride';
   return 'Normal Ride';
 }
 
-function urgentValue(form: CreateJobFormState): string {
-  return form.urgent ? 'Yes' : 'No';
+function paymentExtras(form: CreateJobFormState): string {
+  const bits: string[] = [];
+  if (form.paymentType === 'cash') bits.push('Payment: Cash');
+  if (form.paymentType === 'eftpos') {
+    bits.push('Payment: EFTPOS');
+    if (form.eftposRef) bits.push(`Ref: ${form.eftposRef}`);
+    if (form.eftposSurcharge) bits.push('EFTPOS surcharge applied');
+  }
+  if (form.paymentType === 'card') bits.push('Payment: Card (Stripe)');
+  if (form.notes) bits.push(form.notes);
+  if (form.tmCardNumber) bits.push(`TM Card: ${form.tmCardNumber}`);
+  if (form.tmCardExpiry) bits.push(`TM Expiry: ${form.tmCardExpiry}`);
+  if (form.tmCouncilPercent) bits.push(`Council %: ${form.tmCouncilPercent}`);
+  if (form.tmPassengerPercent) bits.push(`Passenger %: ${form.tmPassengerPercent}`);
+  return bits.filter(Boolean).join(' | ');
 }
 
-function tmExtras(form: CreateJobFormState): string {
-  if (form.serviceType !== 'tm') return form.notes;
-  const bits = [
-    form.notes,
-    form.tmCardNumber ? `TM Card: ${form.tmCardNumber}` : '',
-    form.tmCardExpiry ? `Expiry: ${form.tmCardExpiry}` : '',
-    form.tmCouncilPercent ? `Council %: ${form.tmCouncilPercent}` : '',
-  ].filter(Boolean);
-  return bits.join(' | ');
-}
-
-export function buildInsertParams(
-  form: CreateJobFormState,
-  dispatcherName: string
-): DataParam[] {
+export function buildInsertParams(form: CreateJobFormState, dispatcherName: string): DataParam[] {
   const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
   const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : '0,0';
   const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : '0,0';
 
+  const tariffId = form.fixedFareEnabled ? '-1' : form.tariffId;
+  const tariffName = form.fixedFareEnabled ? 'Fixed' : form.tariffName;
+  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : '';
+
+  let serviceType = form.serviceType;
+  if (form.paymentType === 'tm') serviceType = 'tm';
+  if (form.paymentType === 'acc') serviceType = 'acc';
+
+  const receivePayment =
+    form.paymentType === 'card' && form.cardPaid ? form.cardAmount : form.fixedFareEnabled ? form.fixedFareAmount : '';
+
   return [
     { name: 'Name', Value: form.name },
     { name: 'PassengerId', Value: form.phone },
-    { name: 'Email', Value: form.email },
+    { name: 'Email', Value: form.showEmail ? form.email : '' },
     { name: 'Account_id', Value: form.accountId },
     { name: 'VId', Value: form.vehicleId || '0' },
     { name: 'DId', Value: String(form.driverId) },
@@ -182,27 +209,27 @@ export function buildInsertParams(
     { name: 'DropLatLng', Value: dropLatLng },
     { name: 'PickLocation', Value: form.pick.address || form.pickInput },
     { name: 'DropLocation', Value: form.drop.address || form.dropInput },
-    { name: 'VehicleType', Value: form.vehicleType },
-    { name: 'PassengersNo', Value: String(form.passengers) },
-    { name: 'BagsNo', Value: String(form.bags) },
-    { name: 'WheelChairsNo', Value: String(form.wheelchairs) },
-    { name: 'VRequired', Value: String(form.carsRequired) },
-    { name: 'TarriffId', Value: form.tariffId },
-    { name: 'TarriffName', Value: form.tariffName },
-    { name: 'CustomeRate', Value: form.customRate },
-    { name: 'Urgent', Value: urgentValue(form) },
+    { name: 'VehicleType', Value: form.vehicleType === 'Any' ? 'Not Specified' : form.vehicleType },
+    { name: 'PassengersNo', Value: '1' },
+    { name: 'BagsNo', Value: '0' },
+    { name: 'WheelChairsNo', Value: '0' },
+    { name: 'VRequired', Value: '1' },
+    { name: 'TarriffId', Value: tariffId },
+    { name: 'TarriffName', Value: tariffName },
+    { name: 'CustomeRate', Value: customRate },
+    { name: 'Urgent', Value: form.urgent ? 'Yes' : 'No' },
     { name: 'FlightNo', Value: '' },
     { name: 'RoomNo', Value: '' },
-    { name: 'EntitiesDetails', Value: tmExtras(form) },
+    { name: 'EntitiesDetails', Value: paymentExtras(form) },
     { name: 'DateTime', Value: bookingDateTime },
     { name: 'DispatchMinutes', Value: '' },
     { name: 'Dispatchbefore', Value: String(dispatchBefore) },
     { name: 'Source', Value: 'Dispatch Console' },
-    { name: 'serviceType', Value: form.serviceType },
+    { name: 'serviceType', Value: serviceType },
     { name: 'Distance', Value: '0' },
     { name: 'Time', Value: '0' },
-    { name: 'EstimatedCost', Value: form.customRate || '0' },
-    { name: 'CornerAddress', Value: form.corner ? form.cornerDetail : '' },
+    { name: 'EstimatedCost', Value: customRate || form.cardAmount || '0' },
+    { name: 'CornerAddress', Value: form.corner ? 'Corner pickup' : '' },
     { name: 'DispatcherName', value: dispatcherName },
     { name: 'nextstop', Value: String(form.stops.length) },
     { name: 'nextstopdata', Value: stopsPayload(form.stops) },
@@ -215,14 +242,13 @@ export function buildInsertParams(
     { name: 'Acc_trip_status', Value: '' },
     { name: 'Bookingtype', Value: bookingType(form) },
     { name: 'quenumber', Value: String(form.queueNumber) },
-    { name: 'Recieve_payment', Value: form.cardPaid ? form.cardAmount : '' },
+    { name: 'Recieve_payment', Value: receivePayment },
     { name: 'PromoId', Value: '' },
   ];
 }
 
-/** Dates for repeat bookings (selected weekdays until repeatUntil) */
 export function repeatBookingDates(form: CreateJobFormState): string[] {
-  if (!form.repeatEnabled || !form.repeatUntil) return [];
+  if (!form.repeatExpanded || !form.repeatUntil) return [];
   const startDate = form.timing === 'later' ? form.laterDate : nzNowParts().date;
   const start = new Date(startDate);
   const end = new Date(form.repeatUntil);
@@ -231,15 +257,8 @@ export function repeatBookingDates(form: CreateJobFormState): string[] {
   const out: string[] = [];
   const cur = new Date(start);
   while (cur <= end) {
-    const dow = (cur.getDay() + 6) % 7; // Mon=0
-    const weekNum = Math.ceil(cur.getDate() / 7);
-    const weekOk =
-      form.repeatWeeks === 0 ||
-      (form.repeatWeeks === 1 && weekNum % 2 === 1) ||
-      (form.repeatWeeks === 2 && weekNum % 2 === 0);
-    if (form.repeatDays[dow] && weekOk) {
-      out.push(cur.toISOString().slice(0, 10));
-    }
+    const dow = (cur.getDay() + 6) % 7;
+    if (form.repeatDays[dow]) out.push(cur.toISOString().slice(0, 10));
     cur.setDate(cur.getDate() + 1);
   }
   return out;

@@ -16,6 +16,7 @@ export interface CompanySettings {
   features: CompanyFeatures;
   tmConfig?: {
     councilPercent?: number;
+    passengerPercent?: number;
     capAmount?: number;
     hoistUnitCost?: number;
   };
