@@ -8,6 +8,7 @@ import { useCompanySettings } from '@/hooks/useSession';
 import { sessionMe } from '@/lib/jobFlow';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 import { useUiStore } from '@/store/uiStore';
+import { useJobStore } from '@/store/jobStore';
 
 /** Standalone map window — live drivers/zones via shared Firebase stores */
 export function MapPopoutPage() {
@@ -16,6 +17,7 @@ export function MapPopoutPage() {
   const [companyId, setCompanyId] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
   const settings = useUiStore((s) => s.settings);
+  const selectedJobId = useJobStore((s) => s.selectedJobId);
 
   const activeCompanyId = ready && companyId ? companyId : null;
 
@@ -57,7 +59,12 @@ export function MapPopoutPage() {
       <div className="h-8 shrink-0 flex items-center px-3 bw-header-bar border-b bw-border text-xs font-semibold bw-muted">
         BookaWaka Live Map · {companyId}
       </div>
-      <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} />
+      <DispatchMap
+        mapsKey={mapsKey}
+        center={mapCenter}
+        companyId={companyId}
+        selectedJobId={selectedJobId}
+      />
     </div>
   );
 }

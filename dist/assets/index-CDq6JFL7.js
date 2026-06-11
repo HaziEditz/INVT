@@ -40532,7 +40532,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-16k7zHQS.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B4jxwkNs.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41797,6 +41797,7 @@ function DispatchMap({
   mapsKey,
   center,
   companyId,
+  selectedJobId: selectedJobIdProp,
   compactControls,
   onPopOut,
   onFullscreen,
@@ -41812,7 +41813,8 @@ function DispatchMap({
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
   const drivers = useDriverStore((s2) => s2.drivers);
-  const selectedJobId = useJobStore((s2) => s2.selectedJobId);
+  const storeSelectedJobId = useJobStore((s2) => s2.selectedJobId);
+  const selectedJobId = selectedJobIdProp ?? storeSelectedJobId;
   const jobs = useJobStore((s2) => s2.jobs);
   const mapTraffic = useUiStore((s2) => s2.mapTraffic);
   const mapZones = useUiStore((s2) => s2.mapZones);
@@ -41837,7 +41839,6 @@ function DispatchMap({
     }),
     [drivers]
   );
-  const selectedJob = !createJobOpen && selectedJobId != null ? jobs.find((j2) => j2.id === selectedJobId) : void 0;
   const clearDirectionsRenderer = () => {
     routeRequestRef.current += 1;
     if (directionsRendererRef.current) {
@@ -41847,6 +41848,132 @@ function DispatchMap({
     jobMarkersRef.current.forEach((m2) => m2.setMap(null));
     jobMarkersRef.current = [];
   };
+  const drawRouteForJob = reactExports.useCallback(
+    async (job, requestId) => {
+      var _a2, _b2;
+      const map2 = gMapRef.current;
+      if (!map2 || routeRequestRef.current !== requestId) return;
+      const parsedPick = parseLatLng$1(job.pickLatLng);
+      const parsedDrop = parseLatLng$1(job.dropLatLng);
+      const pickupLat = (parsedPick == null ? void 0 : parsedPick.lat) ?? 0;
+      const pickupLng = (parsedPick == null ? void 0 : parsedPick.lng) ?? 0;
+      const dropoffLat = (parsedDrop == null ? void 0 : parsedDrop.lat) ?? 0;
+      const dropoffLng = (parsedDrop == null ? void 0 : parsedDrop.lng) ?? 0;
+      console.log("[Route] selectedJob:", job.id);
+      console.log("[Route] pickup coords:", pickupLat, pickupLng);
+      console.log("[Route] dropoff coords:", dropoffLat, dropoffLng);
+      console.log("[Route] map ready:", !!map2);
+      console.log("[Route] renderer:", !!directionsRendererRef.current);
+      const labelMarker = (pos, label, color, title) => new google.maps.Marker({
+        position: pos,
+        map: gMapRef.current,
+        title,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 14,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: "#fff",
+          strokeWeight: 2
+        },
+        label: {
+          text: label,
+          color: "#fff",
+          fontWeight: "bold",
+          fontSize: "11px"
+        }
+      });
+      const coordsValid = (lat, lng) => Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
+      const geocodeAddress = (address) => new Promise((resolve) => {
+        const trimmed = address.trim();
+        if (!trimmed) {
+          resolve(null);
+          return;
+        }
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ address: trimmed }, (results, status) => {
+          if (status === "OK" && (results == null ? void 0 : results[0])) {
+            resolve({
+              lat: results[0].geometry.location.lat(),
+              lng: results[0].geometry.location.lng()
+            });
+          } else {
+            console.log("[Route] geocode failed:", trimmed, status);
+            resolve(null);
+          }
+        });
+      });
+      await loadGoogleMaps(mapsKey || void 0);
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+      let pick = parsedPick && coordsValid(pickupLat, pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
+      let drop = parsedDrop && coordsValid(dropoffLat, dropoffLng) ? { lat: dropoffLat, lng: dropoffLng } : null;
+      if (!pick && ((_a2 = job.pickAddress) == null ? void 0 : _a2.trim())) {
+        console.log("[Route] geocoding pickup address:", job.pickAddress);
+        pick = await geocodeAddress(job.pickAddress);
+        console.log("[Route] geocoded pickup:", pick);
+      }
+      if (!drop && ((_b2 = job.dropAddress) == null ? void 0 : _b2.trim())) {
+        console.log("[Route] geocoding dropoff address:", job.dropAddress);
+        drop = await geocodeAddress(job.dropAddress);
+        console.log("[Route] geocoded dropoff:", drop);
+      }
+      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+      if (!pick) {
+        console.log("[Route] no pickup coords available, abort");
+        return;
+      }
+      if (!drop) {
+        jobMarkersRef.current.push(
+          labelMarker(pick, "P", "#22c55e", job.pickAddress || "Pickup")
+        );
+        map2.setCenter(pick);
+        map2.setZoom(15);
+        return;
+      }
+      jobMarkersRef.current.push(
+        labelMarker(pick, "P", "#22c55e", job.pickAddress || "Pickup")
+      );
+      jobMarkersRef.current.push(
+        labelMarker(drop, "D", "#ef4444", job.dropAddress || "Dropoff")
+      );
+      if (!directionsRendererRef.current) {
+        directionsRendererRef.current = new google.maps.DirectionsRenderer({
+          suppressMarkers: true,
+          polylineOptions: {
+            strokeColor: "#4f6ef7",
+            strokeWeight: 4
+          }
+        });
+        directionsRendererRef.current.setMap(map2);
+      }
+      console.log("[Route] renderer:", !!directionsRendererRef.current);
+      const directionsService = new google.maps.DirectionsService();
+      console.log("[Route] calling DirectionsService");
+      directionsService.route(
+        {
+          origin: pick,
+          destination: drop,
+          travelMode: google.maps.TravelMode.DRIVING
+        },
+        (result, status) => {
+          var _a3, _b3;
+          console.log("[Route] status:", status);
+          console.log("[Route] result:", result);
+          if (routeRequestRef.current !== requestId || !gMapRef.current) return;
+          if (status === google.maps.DirectionsStatus.OK && result) {
+            (_a3 = directionsRendererRef.current) == null ? void 0 : _a3.setDirections(result);
+            const bounds = (_b3 = result.routes[0]) == null ? void 0 : _b3.bounds;
+            if (bounds) {
+              gMapRef.current.fitBounds(bounds, 48);
+            }
+          } else {
+            clearDirectionsRenderer();
+          }
+        }
+      );
+    },
+    [mapsKey]
+  );
   reactExports.useEffect(() => {
     if (createJobOpen) {
       setSelectedJobId(null);
@@ -41932,144 +42059,30 @@ function DispatchMap({
     }
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
-    if (!gMapRef.current || !mapReady) return;
+    console.log("[Route] selectedJobId changed:", selectedJobId);
+    if (createJobOpen || !selectedJobId) {
+      if (!selectedJobId) clearDirectionsRenderer();
+      return;
+    }
+    const job = jobs.find((j2) => j2.id === selectedJobId);
+    const parsedPick = job ? parseLatLng$1(job.pickLatLng) : null;
+    const parsedDrop = job ? parseLatLng$1(job.dropLatLng) : null;
+    console.log("[Route] job found:", job == null ? void 0 : job.id);
+    console.log("[Route] pickup:", job == null ? void 0 : job.pickAddress, parsedPick == null ? void 0 : parsedPick.lat, parsedPick == null ? void 0 : parsedPick.lng);
+    console.log("[Route] dropoff:", job == null ? void 0 : job.dropAddress, parsedDrop == null ? void 0 : parsedDrop.lat, parsedDrop == null ? void 0 : parsedDrop.lng);
     const map2 = gMapRef.current;
+    if (!job || !map2 || !mapReady) {
+      console.log("[Route] map ready:", !!map2, "mapReady:", mapReady);
+      return;
+    }
     const requestId = ++routeRequestRef.current;
     clearDirectionsRenderer();
     routeRequestRef.current = requestId;
-    if (createJobOpen || selectedJobId == null || !selectedJob) {
-      return () => {
-        if (routeRequestRef.current === requestId) clearDirectionsRenderer();
-      };
-    }
-    const parsedPick = parseLatLng$1(selectedJob.pickLatLng);
-    const parsedDrop = parseLatLng$1(selectedJob.dropLatLng);
-    const pickupLat = (parsedPick == null ? void 0 : parsedPick.lat) ?? 0;
-    const pickupLng = (parsedPick == null ? void 0 : parsedPick.lng) ?? 0;
-    const dropoffLat = (parsedDrop == null ? void 0 : parsedDrop.lat) ?? 0;
-    const dropoffLng = (parsedDrop == null ? void 0 : parsedDrop.lng) ?? 0;
-    console.log("[Route] selectedJob:", selectedJob == null ? void 0 : selectedJob.id);
-    console.log("[Route] pickup coords:", pickupLat, pickupLng);
-    console.log("[Route] dropoff coords:", dropoffLat, dropoffLng);
-    console.log("[Route] map ready:", !!map2);
-    console.log("[Route] renderer:", !!directionsRendererRef.current);
-    const labelMarker = (pos, label, color, title) => new google.maps.Marker({
-      position: pos,
-      map: gMapRef.current,
-      title,
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 14,
-        fillColor: color,
-        fillOpacity: 1,
-        strokeColor: "#fff",
-        strokeWeight: 2
-      },
-      label: {
-        text: label,
-        color: "#fff",
-        fontWeight: "bold",
-        fontSize: "11px"
-      }
-    });
-    const coordsValid = (lat, lng) => Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
-    const geocodeAddress = (address) => new Promise((resolve) => {
-      const trimmed = address.trim();
-      if (!trimmed) {
-        resolve(null);
-        return;
-      }
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ address: trimmed }, (results, status) => {
-        if (status === "OK" && (results == null ? void 0 : results[0])) {
-          resolve({
-            lat: results[0].geometry.location.lat(),
-            lng: results[0].geometry.location.lng()
-          });
-        } else {
-          console.log("[Route] geocode failed:", trimmed, status);
-          resolve(null);
-        }
-      });
-    });
-    const drawRoute = (pick, drop, pickLabel, dropLabel) => {
-      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
-      jobMarkersRef.current.push(
-        labelMarker(pick, "P", "#22c55e", pickLabel || "Pickup")
-      );
-      jobMarkersRef.current.push(
-        labelMarker(drop, "D", "#ef4444", dropLabel || "Dropoff")
-      );
-      if (!directionsRendererRef.current) {
-        directionsRendererRef.current = new google.maps.DirectionsRenderer({
-          suppressMarkers: true,
-          polylineOptions: {
-            strokeColor: "#4f6ef7",
-            strokeWeight: 4
-          }
-        });
-        directionsRendererRef.current.setMap(map2);
-      }
-      console.log("[Route] renderer:", !!directionsRendererRef.current);
-      const directionsService = new google.maps.DirectionsService();
-      console.log("[Route] calling DirectionsService");
-      directionsService.route(
-        {
-          origin: pick,
-          destination: drop,
-          travelMode: google.maps.TravelMode.DRIVING
-        },
-        (result, status) => {
-          var _a2, _b2;
-          console.log("[Route] status:", status);
-          console.log("[Route] result:", result);
-          if (routeRequestRef.current !== requestId || !gMapRef.current) return;
-          if (status === google.maps.DirectionsStatus.OK && result) {
-            (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
-            const bounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
-            if (bounds) {
-              gMapRef.current.fitBounds(bounds, 48);
-            }
-          } else {
-            clearDirectionsRenderer();
-          }
-        }
-      );
-    };
-    void loadGoogleMaps(mapsKey || void 0).then(async () => {
-      var _a2, _b2;
-      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
-      let pick = parsedPick && coordsValid(pickupLat, pickupLng) ? { lat: pickupLat, lng: pickupLng } : null;
-      let drop = parsedDrop && coordsValid(dropoffLat, dropoffLng) ? { lat: dropoffLat, lng: dropoffLng } : null;
-      if (!pick && ((_a2 = selectedJob.pickAddress) == null ? void 0 : _a2.trim())) {
-        console.log("[Route] geocoding pickup address:", selectedJob.pickAddress);
-        pick = await geocodeAddress(selectedJob.pickAddress);
-        console.log("[Route] geocoded pickup:", pick);
-      }
-      if (!drop && ((_b2 = selectedJob.dropAddress) == null ? void 0 : _b2.trim())) {
-        console.log("[Route] geocoding dropoff address:", selectedJob.dropAddress);
-        drop = await geocodeAddress(selectedJob.dropAddress);
-        console.log("[Route] geocoded dropoff:", drop);
-      }
-      if (routeRequestRef.current !== requestId || !gMapRef.current) return;
-      if (!pick) {
-        console.log("[Route] no pickup coords available, abort");
-        return;
-      }
-      if (!drop) {
-        jobMarkersRef.current.push(
-          labelMarker(pick, "P", "#22c55e", selectedJob.pickAddress || "Pickup")
-        );
-        map2.setCenter(pick);
-        map2.setZoom(15);
-        return;
-      }
-      drawRoute(pick, drop, selectedJob.pickAddress, selectedJob.dropAddress);
-    });
+    void drawRouteForJob(job, requestId);
     return () => {
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
-  }, [selectedJobId, selectedJob, createJobOpen, mapReady, mapsKey]);
+  }, [selectedJobId, jobs, mapReady, createJobOpen, drawRouteForJob]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
@@ -42491,7 +42504,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BbeEgu9J.js");
+        const { writeActiveDispatcher } = await import("./notifications-B_cU0pvg.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42518,7 +42531,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BbeEgu9J.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B_cU0pvg.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42625,6 +42638,7 @@ function DispatchPage() {
   const setMapFullscreen = useUiStore((s2) => s2.setMapFullscreen);
   const mapPoppedOut = useUiStore((s2) => s2.mapPoppedOut);
   const setMapPoppedOut = useUiStore((s2) => s2.setMapPoppedOut);
+  const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const activeCompanyId = ready && companyId ? companyId : null;
   reactExports.useEffect(() => {
     sessionMe().then(async (s2) => {
@@ -42693,6 +42707,7 @@ function DispatchPage() {
       mapsKey,
       center: mapCenter,
       companyId,
+      selectedJobId,
       onPopOut: togglePopOut,
       onFullscreen: () => setMapFullscreen(true),
       popOutActive: mapPoppedOut
@@ -42714,7 +42729,16 @@ function DispatchPage() {
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(ResizableDispatchLayout, { left: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}), center: mapNode, right: rightPanel }),
     mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-11 bottom-[32px] z-40 bw-map-bg", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId, compactControls: true }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        DispatchMap,
+        {
+          mapsKey,
+          center: mapCenter,
+          companyId,
+          selectedJobId,
+          compactControls: true
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
         {
@@ -42763,6 +42787,7 @@ function MapPopoutPage() {
   const [companyId, setCompanyId] = reactExports.useState("");
   const [authChecked, setAuthChecked] = reactExports.useState(false);
   const settings = useUiStore((s2) => s2.settings);
+  const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const activeCompanyId = ready && companyId ? companyId : null;
   reactExports.useEffect(() => {
     document.title = "BookaWaka Map";
@@ -42790,7 +42815,15 @@ function MapPopoutPage() {
       "BookaWaka Live Map · ",
       companyId
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchMap, { mapsKey, center: mapCenter, companyId })
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      DispatchMap,
+      {
+        mapsKey,
+        center: mapCenter,
+        companyId,
+        selectedJobId
+      }
+    )
   ] });
 }
 function App() {
@@ -42826,4 +42859,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-AKad0D3l.js.map
+//# sourceMappingURL=index-CDq6JFL7.js.map

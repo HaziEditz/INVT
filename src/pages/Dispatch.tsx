@@ -26,6 +26,7 @@ import { useDrivers } from '@/hooks/useDrivers';
 import { useSession, useCompanySettings, useRealtimeNotifications } from '@/hooks/useSession';
 import { sessionMe, accountStatus } from '@/lib/jobFlow';
 import { useUiStore } from '@/store/uiStore';
+import { useJobStore } from '@/store/jobStore';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 
 export function DispatchPage() {
@@ -45,6 +46,7 @@ export function DispatchPage() {
   const setMapFullscreen = useUiStore((s) => s.setMapFullscreen);
   const mapPoppedOut = useUiStore((s) => s.mapPoppedOut);
   const setMapPoppedOut = useUiStore((s) => s.setMapPoppedOut);
+  const selectedJobId = useJobStore((s) => s.selectedJobId);
 
   const activeCompanyId = ready && companyId ? companyId : null;
 
@@ -128,6 +130,7 @@ export function DispatchPage() {
       mapsKey={mapsKey}
       center={mapCenter}
       companyId={companyId}
+      selectedJobId={selectedJobId}
       onPopOut={togglePopOut}
       onFullscreen={() => setMapFullscreen(true)}
       popOutActive={mapPoppedOut}
@@ -156,7 +159,13 @@ export function DispatchPage() {
 
       {mapFullscreen && (
         <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bw-map-bg">
-          <DispatchMap mapsKey={mapsKey} center={mapCenter} companyId={companyId} compactControls />
+          <DispatchMap
+            mapsKey={mapsKey}
+            center={mapCenter}
+            companyId={companyId}
+            selectedJobId={selectedJobId}
+            compactControls
+          />
           <button
             type="button"
             className="absolute top-2 right-2 z-50 px-3 py-1.5 rounded-md text-xs font-semibold bw-surface border bw-border bw-text hover:border-[var(--bw-accent)] shadow-lg"
