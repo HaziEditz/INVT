@@ -155,7 +155,28 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     offeredAt: rec.offeredAt ? Number(rec.offeredAt) : undefined,
     originalStatus: rec.originalStatus ? String(rec.originalStatus) as JobStatus : undefined,
     urgent: rec.Urgent === 'Yes' || rec.urgent === true,
-    notes: String(rec.Notes ?? rec.notes ?? ''),
+    notes: (() => {
+      const direct = String(rec.Notes ?? rec.notes ?? '').trim();
+      if (direct) return direct;
+      const entities = String(rec.EntitiesDetails ?? rec.entitiesDetails ?? '');
+      if (!entities.trim()) return '';
+      return entities
+        .split('|')
+        .map((s) => s.trim())
+        .filter(
+          (s) =>
+            s &&
+            !/^Payment:/i.test(s) &&
+            !/^Ref:/i.test(s) &&
+            !/^TM Card:/i.test(s) &&
+            !/^TM Expiry:/i.test(s) &&
+            !/^Council %:/i.test(s) &&
+            !/^Passenger %:/i.test(s) &&
+            !/^EFTPOS surcharge/i.test(s)
+        )
+        .join(' | ')
+        .trim();
+    })(),
     accountId: rec.Account_id ? String(rec.Account_id) : undefined,
     accountName: rec.Account_Name ? String(rec.Account_Name) : undefined,
     tariffId: rec.TariffId ? String(rec.TariffId) : undefined,

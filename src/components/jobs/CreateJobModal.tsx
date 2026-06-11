@@ -10,12 +10,12 @@ import {
   fetchDispatcherSettings,
   insertDispatchBooking,
   searchCustomers,
-  updateDispatchBooking,
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
+import { updateJob } from '@/lib/jobFlow';
 import {
   buildInsertParams,
-  buildUpdateParams,
+  buildJobChangesFromForm,
   buildBookingDateTime,
   jobToForm,
   statusFromDriverId,
@@ -123,6 +123,7 @@ function jobFromForm(
     dropLatLng: form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : '0,0',
     passengerName: form.name,
     passengerPhone: form.phone,
+    notes: form.notes,
     paymentType: form.paymentType || 'Cash',
     estimatedFare: form.fixedFareEnabled ? form.fixedFareAmount : '',
     bookingDateTime,
@@ -378,15 +379,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setLoading(true);
     try {
       if (isEdit && editingJob) {
-        const params = buildUpdateParams(form, editingJob.id, dispatcherName);
-        const res = await updateDispatchBooking(editingJob.id, params);
-        upsertJob({
-          ...editingJob,
-          ...jobFromForm(form, companyId, editingJob.id, res.bookingStatus),
-          dispatcherName,
-          updateSeq: (editingJob.updateSeq ?? 0) + 1,
-        });
-        addToast({ type: 'success', title: 'Job updated', message: `#${editingJob.id}` });
+        const changes = buildJobChangesFromForm(form, dispatcherName);
+        await updateJob(editingJob.id, companyId, changes, editingJob);
+        addToast({ type: 'success', title: 'Job updated' });
         closeModal();
         resetForm();
         return;

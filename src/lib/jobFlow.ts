@@ -63,6 +63,107 @@ export async function updateBooking(body: Record<string, unknown>) {
   return jsonFetch(`${API}/booking/update`, { method: 'POST', body: JSON.stringify(body) });
 }
 
+function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: number): Job {
+  const status = changes.BookingStatus ?? changes.Status;
+  return {
+    ...job,
+    pickAddress: String(changes.PickAddress ?? changes.PickLocation ?? job.pickAddress),
+    pickLatLng: String(changes.PickLatLng ?? job.pickLatLng),
+    dropAddress: String(changes.DropAddress ?? changes.DropLocation ?? job.dropAddress),
+    dropLatLng: String(changes.DropLatLng ?? job.dropLatLng),
+    passengerName: String(changes.Name ?? job.passengerName),
+    passengerPhone: String(changes.PhoneNo ?? job.passengerPhone),
+    notes: String(changes.Notes ?? job.notes ?? ''),
+    paymentType: String(changes.PaymentMethod ?? changes.PaymentType ?? job.paymentType),
+    serviceType: String(changes.serviceType ?? changes.ServiceType ?? job.serviceType) as Job['serviceType'],
+    bookingDateTime: String(changes.BookingDateTime ?? changes.Pickingtime ?? job.bookingDateTime),
+    dispatchBeforeMinutes:
+      parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) ||
+      0,
+    status: status != null ? (String(status) as Job['status']) : job.status,
+    driverId: changes.DriverId != null ? String(changes.DriverId) : job.driverId,
+    vehicleId: changes.VehicleId != null ? String(changes.VehicleId) : job.vehicleId,
+    vehicleType: String(changes.VehicleType ?? job.vehicleType ?? ''),
+    tariffId: changes.TarriffId != null ? String(changes.TarriffId) : job.tariffId,
+    estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ''),
+    urgent: changes.Urgent === 'Yes' || changes.Urgent === true,
+    corner: changes.CornerAddress ? String(changes.CornerAddress).length > 0 : job.corner,
+    updateSeq: seq ?? (job.updateSeq ?? 0) + 1,
+  };
+}
+
+function firebasePatchFromChanges(changes: Record<string, unknown>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const map: Record<string, string> = {
+    PickAddress: 'PickAddress',
+    DropAddress: 'DropAddress',
+    PickLatLng: 'PickLatLng',
+    DropLatLng: 'DropLatLng',
+    Name: 'PassengerName',
+    PhoneNo: 'PhoneNo',
+    Notes: 'Notes',
+    PaymentMethod: 'PaymentType',
+    PaymentType: 'PaymentType',
+    serviceType: 'serviceType',
+    BookingDateTime: 'BookingDateTime',
+    DispatchTimebefore: 'DispatchTimebefore',
+    BookingStatus: 'Status',
+    Status: 'Status',
+    EstimatedFare: 'Fare',
+    Urgent: 'Urgent',
+    VehicleType: 'VehicleType',
+  };
+  for (const [from, to] of Object.entries(map)) {
+    if (changes[from] !== undefined) patch[to] = changes[from];
+  }
+  if (changes.Name !== undefined) patch.Name = changes.Name;
+  return patch;
+}
+
+export async function updateJob(
+  jobId: number,
+  companyId: string,
+  changes: Record<string, unknown>,
+  existingJob: Job
+): Promise<void> {
+  const result = await jsonFetch<{
+    ok: boolean;
+    seq?: number;
+    error?: string;
+    stale?: boolean;
+    currentSeq?: number;
+  }>(`${API}/booking/update`, {
+    method: 'POST',
+    body: JSON.stringify({
+      bookingId: jobId,
+      companyId,
+      changes,
+      by: 'dispatcher',
+      ifSeq: existingJob.updateSeq,
+    }),
+  });
+
+  if (!result.ok) {
+    if (result.stale) {
+      throw new Error(`Job was updated elsewhere (seq ${result.currentSeq ?? '?'}). Refresh and try again.`);
+    }
+    throw new Error(result.error || 'Update failed');
+  }
+
+  const patched = applyChangesToJob(existingJob, changes, result.seq);
+  useJobStore.getState().upsertJob(patched);
+
+  try {
+    const db = getDb();
+    const fbPatch = firebasePatchFromChanges(changes);
+    if (Object.keys(fbPatch).length > 0) {
+      await update(ref(db, `pendingjobs/${companyId}/${jobId}`), fbPatch);
+    }
+  } catch {
+    /* server may have already updated Firebase */
+  }
+}
+
 export async function setJobStatus(
   companyId: string,
   bookingId: number,

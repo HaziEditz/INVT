@@ -281,14 +281,106 @@ export function statusFromDriverId(driverId: number): 'Pending' | 'No One' | 'Of
   return 'Pending';
 }
 
+function parseNotesFromEntitiesDetails(raw?: string): string {
+  if (!raw?.trim()) return '';
+  return raw
+    .split('|')
+    .map((s) => s.trim())
+    .filter(
+      (s) =>
+        s &&
+        !/^Payment:/i.test(s) &&
+        !/^Ref:/i.test(s) &&
+        !/^TM Card:/i.test(s) &&
+        !/^TM Expiry:/i.test(s) &&
+        !/^Council %:/i.test(s) &&
+        !/^Passenger %:/i.test(s) &&
+        !/^EFTPOS surcharge/i.test(s)
+    )
+    .join(' | ')
+    .trim();
+}
+
+function paymentLabelFromType(paymentType: PaymentType): string {
+  if (paymentType === 'cash') return 'Cash';
+  if (paymentType === 'card') return 'Card';
+  if (paymentType === 'eftpos') return 'EFTPOS';
+  if (paymentType === 'account') return 'Account';
+  if (paymentType === 'tm') return 'TM';
+  if (paymentType === 'acc') return 'ACC';
+  return '';
+}
+
+export function buildJobChangesFromForm(
+  form: CreateJobFormState,
+  dispatcherName: string
+): Record<string, unknown> {
+  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : '0,0';
+  const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : '0,0';
+  const { dId, bookstatus } = driverBookstatus(form);
+  const pickAddr = form.pick.address || form.pickInput;
+  const dropAddr = form.drop.address || form.dropInput;
+  const tariffId = form.fixedFareEnabled ? '-1' : form.tariffId;
+  const tariffName = form.fixedFareEnabled ? 'Fixed' : form.tariffName;
+  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : '';
+
+  let serviceType = form.serviceType;
+  if (form.paymentType === 'tm') serviceType = 'tm';
+  if (form.paymentType === 'acc') serviceType = 'acc';
+
+  const paymentMethod = paymentLabelFromType(form.paymentType);
+
+  return {
+    PickAddress: pickAddr,
+    PickLocation: pickAddr,
+    DropAddress: dropAddr,
+    DropLocation: dropAddr,
+    PickLatLng: pickLatLng,
+    DropLatLng: dropLatLng,
+    Name: form.name,
+    PhoneNo: form.phone,
+    Notes: form.notes,
+    EntitiesDetails: paymentExtras(form),
+    serviceType,
+    ServiceType: serviceType,
+    BookingDateTime: bookingDateTime,
+    Pickingtime: bookingDateTime,
+    DispatchTimebefore: dispatchBefore,
+    Dispatchbefore: String(dispatchBefore),
+    BookingStatus: bookstatus,
+    Status: bookstatus,
+    DriverId: parseInt(dId, 10),
+    VehicleId: form.vehicleId || '0',
+    Urgent: form.urgent ? 'Yes' : 'No',
+    VehicleType: form.vehicleType === 'Any' ? 'Not Specified' : form.vehicleType,
+    PaymentMethod: paymentMethod,
+    PaymentType: paymentMethod,
+    TarriffId: tariffId,
+    TarriffName: tariffName,
+    CustomeRate: customRate,
+    EstimatedFare: customRate || form.cardAmount || '',
+    CornerAddress: form.corner ? 'Corner pickup' : '',
+    DispatcherName: dispatcherName,
+    Acc_job_id: form.accJobId,
+    Acc_claim_id: form.claimNumber,
+    Acc_client_id: form.accClientId,
+    Acc_manager_id: form.accManagerId,
+    Account_id: form.accountId,
+  };
+}
+
 export function jobToForm(job: Job): CreateJobFormState {
   const form = defaultCreateJobForm();
   const pick = parseLatLng(job.pickLatLng);
   const drop = parseLatLng(job.dropLatLng);
-  const parsed = parseBookingDateTime(job.bookingDateTime || '');
+  const bookingDt =
+    job.bookingDateTime ||
+    (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace('T', ' ').slice(0, 16) : '');
+  const parsed = parseBookingDateTime(bookingDt);
   const isLater =
     (job.dispatchBeforeMinutes ?? 0) > 0 ||
-    isFutureBooking(job.bookingDateTime || '') ||
+    isFutureBooking(bookingDt) ||
     (job.scheduledFor != null && job.scheduledFor > Date.now() + 60000);
 
   let driverId = 0;
@@ -298,23 +390,33 @@ export function jobToForm(job: Job): CreateJobFormState {
 
   const payment = (job.paymentType || '').toLowerCase();
   let paymentType: CreateJobFormState['paymentType'] = '';
-  if (payment.includes('card')) paymentType = 'card';
+  if (payment.includes('card') || payment.includes('stripe')) paymentType = 'card';
   else if (payment.includes('cash')) paymentType = 'cash';
   else if (payment.includes('eftpos')) paymentType = 'eftpos';
   else if (payment.includes('account')) paymentType = 'account';
   else if (payment.includes('tm')) paymentType = 'tm';
   else if (payment.includes('acc')) paymentType = 'acc';
 
+  const entitiesRaw = String(
+    (job as Job & { entitiesDetails?: string }).entitiesDetails ??
+      (job as Job & { EntitiesDetails?: string }).EntitiesDetails ??
+      ''
+  );
+  const notes = job.notes?.trim() || parseNotesFromEntitiesDetails(entitiesRaw);
+
+  const svc = String(job.serviceType || 'taxi').toLowerCase();
+  const serviceType = CJ_SERVICES.includes(svc as (typeof CJ_SERVICES)[number]) ? svc : 'taxi';
+
   return {
     ...form,
-    pick: { address: job.pickAddress, lat: pick?.lat ?? 0, lng: pick?.lng ?? 0 },
-    pickInput: job.pickAddress,
-    drop: { address: job.dropAddress, lat: drop?.lat ?? 0, lng: drop?.lng ?? 0 },
-    dropInput: job.dropAddress,
-    name: job.passengerName,
-    phone: job.passengerPhone,
-    notes: job.notes || '',
-    serviceType: job.serviceType,
+    pick: { address: job.pickAddress || '', lat: pick?.lat ?? 0, lng: pick?.lng ?? 0 },
+    pickInput: job.pickAddress || '',
+    drop: { address: job.dropAddress || '', lat: drop?.lat ?? 0, lng: drop?.lng ?? 0 },
+    dropInput: job.dropAddress || '',
+    name: job.passengerName || '',
+    phone: job.passengerPhone || '',
+    notes,
+    serviceType,
     timing: isLater ? 'later' : 'now',
     laterDate: parsed.date,
     laterHour: parsed.hour,

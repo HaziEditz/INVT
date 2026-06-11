@@ -27661,7 +27661,15 @@ function jobFromFirebase(key, rec, companyId) {
     offeredAt: rec.offeredAt ? Number(rec.offeredAt) : void 0,
     originalStatus: rec.originalStatus ? String(rec.originalStatus) : void 0,
     urgent: rec.Urgent === "Yes" || rec.urgent === true,
-    notes: String(rec.Notes ?? rec.notes ?? ""),
+    notes: (() => {
+      const direct = String(rec.Notes ?? rec.notes ?? "").trim();
+      if (direct) return direct;
+      const entities = String(rec.EntitiesDetails ?? rec.entitiesDetails ?? "");
+      if (!entities.trim()) return "";
+      return entities.split("|").map((s2) => s2.trim()).filter(
+        (s2) => s2 && !/^Payment:/i.test(s2) && !/^Ref:/i.test(s2) && !/^TM Card:/i.test(s2) && !/^TM Expiry:/i.test(s2) && !/^Council %:/i.test(s2) && !/^Passenger %:/i.test(s2) && !/^EFTPOS surcharge/i.test(s2)
+      ).join(" | ").trim();
+    })(),
     accountId: rec.Account_id ? String(rec.Account_id) : void 0,
     accountName: rec.Account_Name ? String(rec.Account_Name) : void 0,
     tariffId: rec.TariffId ? String(rec.TariffId) : void 0,
@@ -28140,6 +28148,87 @@ async function createJob(body) {
 async function updateBooking(body) {
   return jsonFetch(`${API}/booking/update`, { method: "POST", body: JSON.stringify(body) });
 }
+function applyChangesToJob(job, changes, seq) {
+  const status = changes.BookingStatus ?? changes.Status;
+  return {
+    ...job,
+    pickAddress: String(changes.PickAddress ?? changes.PickLocation ?? job.pickAddress),
+    pickLatLng: String(changes.PickLatLng ?? job.pickLatLng),
+    dropAddress: String(changes.DropAddress ?? changes.DropLocation ?? job.dropAddress),
+    dropLatLng: String(changes.DropLatLng ?? job.dropLatLng),
+    passengerName: String(changes.Name ?? job.passengerName),
+    passengerPhone: String(changes.PhoneNo ?? job.passengerPhone),
+    notes: String(changes.Notes ?? job.notes ?? ""),
+    paymentType: String(changes.PaymentMethod ?? changes.PaymentType ?? job.paymentType),
+    serviceType: String(changes.serviceType ?? changes.ServiceType ?? job.serviceType),
+    bookingDateTime: String(changes.BookingDateTime ?? changes.Pickingtime ?? job.bookingDateTime),
+    dispatchBeforeMinutes: parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) || 0,
+    status: status != null ? String(status) : job.status,
+    driverId: changes.DriverId != null ? String(changes.DriverId) : job.driverId,
+    vehicleId: changes.VehicleId != null ? String(changes.VehicleId) : job.vehicleId,
+    vehicleType: String(changes.VehicleType ?? job.vehicleType ?? ""),
+    tariffId: changes.TarriffId != null ? String(changes.TarriffId) : job.tariffId,
+    estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ""),
+    urgent: changes.Urgent === "Yes" || changes.Urgent === true,
+    corner: changes.CornerAddress ? String(changes.CornerAddress).length > 0 : job.corner,
+    updateSeq: seq ?? (job.updateSeq ?? 0) + 1
+  };
+}
+function firebasePatchFromChanges(changes) {
+  const patch = {};
+  const map2 = {
+    PickAddress: "PickAddress",
+    DropAddress: "DropAddress",
+    PickLatLng: "PickLatLng",
+    DropLatLng: "DropLatLng",
+    Name: "PassengerName",
+    PhoneNo: "PhoneNo",
+    Notes: "Notes",
+    PaymentMethod: "PaymentType",
+    PaymentType: "PaymentType",
+    serviceType: "serviceType",
+    BookingDateTime: "BookingDateTime",
+    DispatchTimebefore: "DispatchTimebefore",
+    BookingStatus: "Status",
+    Status: "Status",
+    EstimatedFare: "Fare",
+    Urgent: "Urgent",
+    VehicleType: "VehicleType"
+  };
+  for (const [from, to] of Object.entries(map2)) {
+    if (changes[from] !== void 0) patch[to] = changes[from];
+  }
+  if (changes.Name !== void 0) patch.Name = changes.Name;
+  return patch;
+}
+async function updateJob(jobId, companyId, changes, existingJob) {
+  const result = await jsonFetch(`${API}/booking/update`, {
+    method: "POST",
+    body: JSON.stringify({
+      bookingId: jobId,
+      companyId,
+      changes,
+      by: "dispatcher",
+      ifSeq: existingJob.updateSeq
+    })
+  });
+  if (!result.ok) {
+    if (result.stale) {
+      throw new Error(`Job was updated elsewhere (seq ${result.currentSeq ?? "?"}). Refresh and try again.`);
+    }
+    throw new Error(result.error || "Update failed");
+  }
+  const patched = applyChangesToJob(existingJob, changes, result.seq);
+  useJobStore.getState().upsertJob(patched);
+  try {
+    const db2 = getDb();
+    const fbPatch = firebasePatchFromChanges(changes);
+    if (Object.keys(fbPatch).length > 0) {
+      await update(ref(db2, `pendingjobs/${companyId}/${jobId}`), fbPatch);
+    }
+  } catch {
+  }
+}
 async function setJobStatus(companyId, bookingId, status, extra = {}, ifSeq) {
   const { originalStatus, ifVersion, ...rest } = extra;
   return updateBooking({
@@ -28236,7 +28325,8 @@ const jobFlow = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   setJobStatus,
   setNoOne,
   setPending,
-  updateBooking
+  updateBooking,
+  updateJob
 }, Symbol.toStringTag, { value: "Module" }));
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -31573,18 +31663,6 @@ async function insertDispatchBooking(companyId, params) {
     bookingStatus: row.BookingStatus || "Pending"
   };
 }
-async function updateDispatchBooking(bookingId, params) {
-  var _a2;
-  const withId = params.some((p2) => p2.name === "Id") ? params : [{ name: "Id", Value: String(bookingId) }, ...params];
-  const json = await postDataManager("DataSelectorRide", "[ProcUpdateJobv6]", withId);
-  const rows = JSON.parse(json.d || "[]");
-  const row = rows[0];
-  if (!row) throw new Error("Empty response from update server");
-  if (row.Error || row.Result && row.Result.indexOf("Error") === 0) {
-    throw new Error(((_a2 = row.Result) == null ? void 0 : _a2.replace(/^Error:\s*/, "")) || "Update failed");
-  }
-  return { bookingId, bookingStatus: row.BookingStatus || "Pending" };
-}
 async function chargeStripeCard(opts) {
   const r = await fetch("/Default.aspx/DispatchChargeing", {
     method: "POST",
@@ -31792,35 +31870,109 @@ function statusFromDriverId(driverId) {
   if (driverId > 0) return "Offered";
   return "Pending";
 }
+function parseNotesFromEntitiesDetails(raw) {
+  if (!(raw == null ? void 0 : raw.trim())) return "";
+  return raw.split("|").map((s2) => s2.trim()).filter(
+    (s2) => s2 && !/^Payment:/i.test(s2) && !/^Ref:/i.test(s2) && !/^TM Card:/i.test(s2) && !/^TM Expiry:/i.test(s2) && !/^Council %:/i.test(s2) && !/^Passenger %:/i.test(s2) && !/^EFTPOS surcharge/i.test(s2)
+  ).join(" | ").trim();
+}
+function paymentLabelFromType(paymentType) {
+  if (paymentType === "cash") return "Cash";
+  if (paymentType === "card") return "Card";
+  if (paymentType === "eftpos") return "EFTPOS";
+  if (paymentType === "account") return "Account";
+  if (paymentType === "tm") return "TM";
+  if (paymentType === "acc") return "ACC";
+  return "";
+}
+function buildJobChangesFromForm(form, dispatcherName) {
+  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
+  const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
+  const { dId, bookstatus } = driverBookstatus(form);
+  const pickAddr = form.pick.address || form.pickInput;
+  const dropAddr = form.drop.address || form.dropInput;
+  const tariffId = form.fixedFareEnabled ? "-1" : form.tariffId;
+  const tariffName = form.fixedFareEnabled ? "Fixed" : form.tariffName;
+  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : "";
+  let serviceType = form.serviceType;
+  if (form.paymentType === "tm") serviceType = "tm";
+  if (form.paymentType === "acc") serviceType = "acc";
+  const paymentMethod = paymentLabelFromType(form.paymentType);
+  return {
+    PickAddress: pickAddr,
+    PickLocation: pickAddr,
+    DropAddress: dropAddr,
+    DropLocation: dropAddr,
+    PickLatLng: pickLatLng,
+    DropLatLng: dropLatLng,
+    Name: form.name,
+    PhoneNo: form.phone,
+    Notes: form.notes,
+    EntitiesDetails: paymentExtras(form),
+    serviceType,
+    ServiceType: serviceType,
+    BookingDateTime: bookingDateTime,
+    Pickingtime: bookingDateTime,
+    DispatchTimebefore: dispatchBefore,
+    Dispatchbefore: String(dispatchBefore),
+    BookingStatus: bookstatus,
+    Status: bookstatus,
+    DriverId: parseInt(dId, 10),
+    VehicleId: form.vehicleId || "0",
+    Urgent: form.urgent ? "Yes" : "No",
+    VehicleType: form.vehicleType === "Any" ? "Not Specified" : form.vehicleType,
+    PaymentMethod: paymentMethod,
+    PaymentType: paymentMethod,
+    TarriffId: tariffId,
+    TarriffName: tariffName,
+    CustomeRate: customRate,
+    EstimatedFare: customRate || form.cardAmount || "",
+    CornerAddress: form.corner ? "Corner pickup" : "",
+    DispatcherName: dispatcherName,
+    Acc_job_id: form.accJobId,
+    Acc_claim_id: form.claimNumber,
+    Acc_client_id: form.accClientId,
+    Acc_manager_id: form.accManagerId,
+    Account_id: form.accountId
+  };
+}
 function jobToForm(job) {
-  var _a2, _b2, _c;
+  var _a2, _b2, _c, _d;
   const form = defaultCreateJobForm();
   const pick = parseLatLng$1(job.pickLatLng);
   const drop = parseLatLng$1(job.dropLatLng);
-  const parsed = parseBookingDateTime(job.bookingDateTime || "");
-  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(job.bookingDateTime || "") || job.scheduledFor != null && job.scheduledFor > Date.now() + 6e4;
+  const bookingDt = job.bookingDateTime || (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace("T", " ").slice(0, 16) : "");
+  const parsed = parseBookingDateTime(bookingDt);
+  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(bookingDt) || job.scheduledFor != null && job.scheduledFor > Date.now() + 6e4;
   let driverId = 0;
   if (job.status === "No One" || job.driverId === "-1") driverId = -1;
   else if (job.driverId && parseInt(job.driverId, 10) > 0) driverId = parseInt(job.driverId, 10);
   else if (job.status === "Pending") driverId = -2;
   const payment = (job.paymentType || "").toLowerCase();
   let paymentType = "";
-  if (payment.includes("card")) paymentType = "card";
+  if (payment.includes("card") || payment.includes("stripe")) paymentType = "card";
   else if (payment.includes("cash")) paymentType = "cash";
   else if (payment.includes("eftpos")) paymentType = "eftpos";
   else if (payment.includes("account")) paymentType = "account";
   else if (payment.includes("tm")) paymentType = "tm";
   else if (payment.includes("acc")) paymentType = "acc";
+  const entitiesRaw = String(
+    job.entitiesDetails ?? job.EntitiesDetails ?? ""
+  );
+  const notes = ((_a2 = job.notes) == null ? void 0 : _a2.trim()) || parseNotesFromEntitiesDetails(entitiesRaw);
+  const svc = String(job.serviceType || "taxi").toLowerCase();
+  const serviceType = CJ_SERVICES.includes(svc) ? svc : "taxi";
   return {
     ...form,
-    pick: { address: job.pickAddress, lat: (pick == null ? void 0 : pick.lat) ?? 0, lng: (pick == null ? void 0 : pick.lng) ?? 0 },
-    pickInput: job.pickAddress,
-    drop: { address: job.dropAddress, lat: (drop == null ? void 0 : drop.lat) ?? 0, lng: (drop == null ? void 0 : drop.lng) ?? 0 },
-    dropInput: job.dropAddress,
-    name: job.passengerName,
-    phone: job.passengerPhone,
-    notes: job.notes || "",
-    serviceType: job.serviceType,
+    pick: { address: job.pickAddress || "", lat: (pick == null ? void 0 : pick.lat) ?? 0, lng: (pick == null ? void 0 : pick.lng) ?? 0 },
+    pickInput: job.pickAddress || "",
+    drop: { address: job.dropAddress || "", lat: (drop == null ? void 0 : drop.lat) ?? 0, lng: (drop == null ? void 0 : drop.lng) ?? 0 },
+    dropInput: job.dropAddress || "",
+    name: job.passengerName || "",
+    phone: job.passengerPhone || "",
+    notes,
+    serviceType,
     timing: isLater ? "later" : "now",
     laterDate: parsed.date,
     laterHour: parsed.hour,
@@ -31833,9 +31985,9 @@ function jobToForm(job) {
     driverId,
     vehicleId: job.vehicleId || "0",
     paymentType,
-    claimNumber: ((_a2 = job.acc) == null ? void 0 : _a2.claimNumber) || "",
-    poNumber: ((_b2 = job.acc) == null ? void 0 : _b2.poNumber) || "",
-    accClientId: ((_c = job.acc) == null ? void 0 : _c.clientId) || "",
+    claimNumber: ((_b2 = job.acc) == null ? void 0 : _b2.claimNumber) || "",
+    poNumber: ((_c = job.acc) == null ? void 0 : _c.poNumber) || "",
+    accClientId: ((_d = job.acc) == null ? void 0 : _d.clientId) || "",
     fixedFareEnabled: !!job.estimatedFare && job.tariffId === "-1",
     fixedFareAmount: job.estimatedFare || ""
   };
@@ -31847,11 +31999,6 @@ function isFutureBooking(dt2) {
   } catch {
     return false;
   }
-}
-function buildUpdateParams(form, bookingId, dispatcherName) {
-  const { dId, bookstatus } = driverBookstatus(form);
-  const base = buildInsertParams(form, dispatcherName).filter((p2) => p2.name !== "ExternalJobId").map((p2) => p2.name === "DId" ? { ...p2, Value: dId } : p2);
-  return [{ name: "Id", Value: String(bookingId) }, ...base, { name: "bookstatus", Value: bookstatus }];
 }
 function repeatBookingDates(form) {
   if (!form.repeatExpanded || !form.repeatUntil) return [];
@@ -31988,6 +32135,7 @@ function jobFromForm(form, cid, bookingId, bookingStatus) {
     dropLatLng: form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0",
     passengerName: form.name,
     passengerPhone: form.phone,
+    notes: form.notes,
     paymentType: form.paymentType || "Cash",
     estimatedFare: form.fixedFareEnabled ? form.fixedFareAmount : "",
     bookingDateTime,
@@ -32208,15 +32356,9 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setLoading(true);
     try {
       if (isEdit && editingJob) {
-        const params = buildUpdateParams(form, editingJob.id, dispatcherName);
-        const res = await updateDispatchBooking(editingJob.id, params);
-        upsertJob({
-          ...editingJob,
-          ...jobFromForm(form, companyId, editingJob.id, res.bookingStatus),
-          dispatcherName,
-          updateSeq: (editingJob.updateSeq ?? 0) + 1
-        });
-        addToast({ type: "success", title: "Job updated", message: `#${editingJob.id}` });
+        const changes = buildJobChangesFromForm(form, dispatcherName);
+        await updateJob(editingJob.id, companyId, changes, editingJob);
+        addToast({ type: "success", title: "Job updated" });
         closeModal();
         resetForm();
         return;
@@ -40334,7 +40476,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-jQNesHa5.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DeUDYuE8.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42205,7 +42347,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DkvaAxML.js");
+        const { writeActiveDispatcher } = await import("./notifications-CcLOTuY7.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42232,7 +42374,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DkvaAxML.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CcLOTuY7.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42540,4 +42682,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-dgTj6P1t.js.map
+//# sourceMappingURL=index-CUYnY8Xr.js.map
