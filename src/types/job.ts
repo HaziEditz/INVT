@@ -188,24 +188,34 @@ function normalizeSource(raw: string): BookingSource {
 }
 
 function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
+  const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
+  if (dId === -1 || dId === '-1') return 'No One';
+
   const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
-  const status = rec.Status != null || rec.status != null
-    ? normalizeJobStatus(String(rec.Status ?? rec.status))
-    : null;
+  const status =
+    rec.Status != null || rec.status != null
+      ? normalizeJobStatus(String(rec.Status ?? rec.status))
+      : null;
+
+  if (booking === 'No One' || status === 'No One') return 'No One';
+  if (booking === 'Pending' || status === 'Pending') return 'Pending';
   if (booking) return booking;
   if (status) return status;
   return 'Pending';
 }
 
 export function isScheduledJob(job: Job): boolean {
-  if (job.dispatchBeforeMinutes && job.dispatchBeforeMinutes > 0) return true;
-  if (job.scheduledFor && job.scheduledFor > Date.now() + 60000) return true;
+  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  if (job.notifyDispatchAt) return true;
+  if (job.scheduledFor && job.scheduledFor > 0) return true;
   try {
-    const d = new Date(job.bookingDateTime);
-    return !Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60000;
+    const raw = job.bookingDateTime.replace(' ', 'T');
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60000) return true;
   } catch {
-    return false;
+    /* ignore */
   }
+  return false;
 }
 
 export function jobCardBorderColor(job: Job): string {

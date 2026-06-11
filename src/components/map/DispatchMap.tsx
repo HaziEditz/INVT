@@ -18,7 +18,7 @@ import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
-import { renderDrivingRoute, bezierRoutePath } from '@/lib/directions';
+import { renderDrivingRoute } from '@/lib/directions';
 import { Spinner } from '@/components/shared/Spinner';
 import { cn } from '@/lib/utils';
 
@@ -48,7 +48,6 @@ export function DispatchMap({
   const markersRef = useRef<google.maps.Marker[]>([]);
   const jobMarkersRef = useRef<google.maps.Marker[]>([]);
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
-  const fallbackPolylineRef = useRef<google.maps.Polyline | null>(null);
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -175,8 +174,6 @@ export function DispatchMap({
       });
     }
     directionsRendererRef.current.setMap(null);
-    fallbackPolylineRef.current?.setMap(null);
-    fallbackPolylineRef.current = null;
 
     const target = selectedJob
       ? {
@@ -253,24 +250,10 @@ export function DispatchMap({
         target.pick,
         target.drop
       ).then((info) => {
-        if (!gMapRef.current) return;
-        if (info) {
-          const bounds = new google.maps.LatLngBounds();
-          bounds.extend(target.pick!);
-          bounds.extend(target.drop!);
-          gMapRef.current.fitBounds(bounds, 48);
-          return;
-        }
-        const path = bezierRoutePath(target.pick!, target.drop!);
-        fallbackPolylineRef.current = new google.maps.Polyline({
-          path,
-          strokeColor: '#5b7cfa',
-          strokeWeight: 4,
-          strokeOpacity: 0.85,
-          map: gMapRef.current,
-        });
+        if (!gMapRef.current || !info) return;
         const bounds = new google.maps.LatLngBounds();
-        for (const pt of path) bounds.extend(pt);
+        bounds.extend(target.pick!);
+        bounds.extend(target.drop!);
         gMapRef.current.fitBounds(bounds, 48);
       });
     } else {

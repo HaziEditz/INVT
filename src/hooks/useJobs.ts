@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get } from '@/lib/firebase';
+import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { jobFromFirebase, jobTabForStatus, type Job } from '@/types/job';
 import { playNewJobSound } from '@/lib/notifySound';
+import { isExternalJobSource } from '@/lib/utils';
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
   const byId = new Map<number, Job>();
@@ -31,8 +32,7 @@ export function useJobs(companyId: string | null) {
     if (!companyId) return;
     const db = getDb();
     const unsubs: Array<() => void> = [];
-    const initDone = { current: false };
-    const seenIds = new Set<number>();
+    let bootstrapping = true;
 
     const syncAll = () => {
       const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
@@ -40,7 +40,7 @@ export function useJobs(companyId: string | null) {
     };
 
     const notifyNewJob = (job: Job) => {
-      if (!isUaJob(job)) return;
+      if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
       playNewJobSound();
       useUiStore.getState().addToast({
         type: 'info',
@@ -54,7 +54,8 @@ export function useJobs(companyId: string | null) {
       if (!job) return;
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
-      upsertJob(booking ? { ...booking, ...job } : job);
+      const merged = booking ? { ...booking, ...job } : job;
+      upsertJob(merged);
       syncAll();
       if (notify) notifyNewJob(job);
     };
@@ -62,24 +63,21 @@ export function useJobs(companyId: string | null) {
     const pRef = ref(db, `pendingjobs/${companyId}`);
     const bRef = ref(db, `allbookings/${companyId}`);
 
-    // Register child listeners immediately — do not wait for get()
     unsubs.push(
       onChildAdded(pRef, (snap) => {
         const val = snap.val();
         if (!val || typeof val !== 'object') return;
-        const job = jobFromFirebase(snap.key!, val as Record<string, unknown>, companyId);
-        if (!job) return;
-        const isNew = initDone.current && !seenIds.has(job.id);
-        seenIds.add(job.id);
-        applyPending(snap.key!, val as Record<string, unknown>, isNew);
+        applyPending(snap.key!, val as Record<string, unknown>, !bootstrapping);
       })
     );
+
+    // Existing children fire synchronously during onChildAdded registration
+    bootstrapping = false;
 
     unsubs.push(
       onChildChanged(pRef, (snap) => {
         const val = snap.val();
         if (!val || typeof val !== 'object') return;
-        seenIds.add(parseInt(String(snap.key), 10));
         applyPending(snap.key!, val as Record<string, unknown>, false);
       })
     );
@@ -89,32 +87,10 @@ export function useJobs(companyId: string | null) {
         const id = parseInt(snap.key || '0', 10);
         if (!id) return;
         pendingRef.current.delete(id);
-        seenIds.delete(id);
         removeJob(id);
         syncAll();
       })
     );
-
-    // Bootstrap existing pending jobs
-    get(pRef)
-      .then((snap) => {
-        pendingRef.current = new Map();
-        const val = snap.val();
-        if (val && typeof val === 'object') {
-          for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-            const job = jobFromFirebase(key, rec, companyId);
-            if (job) {
-              pendingRef.current.set(job.id, job);
-              seenIds.add(job.id);
-            }
-          }
-        }
-        initDone.current = true;
-        syncAll();
-      })
-      .catch(() => {
-        initDone.current = true;
-      });
 
     unsubs.push(
       onValue(bRef, (snap) => {

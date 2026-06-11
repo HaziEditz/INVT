@@ -23,6 +23,20 @@ export function sourceLabel(src: string): string {
   return s.slice(0, 8).toUpperCase();
 }
 
+/** Source badge text — DESK shows dispatcher initials/name when available. */
+export function sourceBadgeLabel(src: string, dispatcherName?: string): string {
+  const label = sourceLabel(src);
+  if (label === 'DESK' && dispatcherName?.trim()) {
+    return `${label} · ${dispatcherName.trim()}`;
+  }
+  return label;
+}
+
+export function isExternalJobSource(src: string): boolean {
+  const label = sourceLabel(src);
+  return label === 'APP' || label === 'WEB' || label === 'HAIL';
+}
+
 export function paymentLabel(type: string): string {
   const t = (type || 'cash').toUpperCase();
   if (t.includes('STRIPE')) return 'CARD';

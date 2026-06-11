@@ -27,8 +27,8 @@ import {
   type PaymentType,
   type StopPoint,
 } from '@/lib/createJobForm';
-import { fetchDrivingRoute, formatCityDistance, formatRouteSummary } from '@/lib/directions';
-import { estimateFare } from '@/lib/fareEstimate';
+import { fetchDrivingRoute, formatCityDistance, formatFormFareEstimate } from '@/lib/directions';
+import { estimateFare, haversineKm } from '@/lib/fareEstimate';
 import type { Job } from '@/types/job';
 
 interface CreateJobModalProps {
@@ -284,21 +284,21 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       return;
     }
     setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng }, drop: { lat: form.drop.lat, lng: form.drop.lng } });
-    let cancelled = false;
-    fetchDrivingRoute(form.pick, form.drop).then((r) => {
-      if (cancelled || !r) return;
-      const tariff = fbTariffs.find((t) => t.id === form.tariffId) ?? fbTariffs[0];
-      let fare: number | undefined;
-      if (form.fixedFareEnabled && form.fixedFareAmount) {
-        fare = parseFloat(form.fixedFareAmount);
-      } else if (tariff) {
-        fare = estimateFare(r.distanceKm, tariff);
-      }
-      setRouteSummary(formatRouteSummary(r.distanceKm, r.durationMin, fare));
-    });
-    return () => {
-      cancelled = true;
-    };
+    const straightKm = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
+    const roadKm = straightKm * 1.25;
+    const min = Math.max(1, Math.round((roadKm / 35) * 60));
+    const tariff = fbTariffs.find((t) => t.id === form.tariffId) ?? fbTariffs[0];
+    let fare: number | undefined;
+    if (form.fixedFareEnabled && form.fixedFareAmount) {
+      fare = parseFloat(form.fixedFareAmount);
+    } else if (tariff) {
+      fare = estimateFare(roadKm, tariff);
+    }
+    if (fare != null && !Number.isNaN(fare)) {
+      setRouteSummary(formatFormFareEstimate(fare, roadKm, min));
+    } else {
+      setRouteSummary('');
+    }
   }, [
     open,
     form.pick.lat,
@@ -444,7 +444,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       addToast({
         type: 'success',
         title: targets.length > 1 ? `${targets.length} jobs created` : 'Job booked',
-        message: lastId ? `#${lastId} — check U-A tab` : undefined,
+        message: lastId ? `#${lastId}` : undefined,
       });
       closeModal();
       resetForm();
@@ -553,9 +553,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
               Email
             </label>
           </div>
-          {routeSummary && (
-            <div className="text-xs font-semibold text-[#5b7cfa] mt-1.5">{routeSummary}</div>
-          )}
         </section>
 
         {/* 2. PASSENGER */}
@@ -591,6 +588,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             onChange={(e) => patch({ notes: e.target.value })}
           />
         </section>
+
+        {routeSummary && (
+          <div className="text-xs font-semibold text-[#5b7cfa] mb-2 px-0.5">{routeSummary}</div>
+        )}
 
         {/* 3. TIMING */}
         <section className="cj-section">

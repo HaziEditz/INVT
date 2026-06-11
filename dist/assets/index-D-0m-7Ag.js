@@ -27999,6 +27999,17 @@ function sourceLabel(src) {
   if (s2.includes("web") || s2.includes("website")) return "WEB";
   return s2.slice(0, 8).toUpperCase();
 }
+function sourceBadgeLabel(src, dispatcherName) {
+  const label = sourceLabel(src);
+  if (label === "DESK" && (dispatcherName == null ? void 0 : dispatcherName.trim())) {
+    return `${label} · ${dispatcherName.trim()}`;
+  }
+  return label;
+}
+function isExternalJobSource(src) {
+  const label = sourceLabel(src);
+  return label === "APP" || label === "WEB" || label === "HAIL";
+}
 function paymentLabel(type) {
   const t2 = (type || "cash").toUpperCase();
   if (t2.includes("STRIPE")) return "CARD";
@@ -28410,21 +28421,27 @@ function normalizeSource(raw) {
   return "dispatch";
 }
 function resolveJobStatus(rec) {
+  const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
+  if (dId === -1 || dId === "-1") return "No One";
   const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
   const status = rec.Status != null || rec.status != null ? normalizeJobStatus(String(rec.Status ?? rec.status)) : null;
+  if (booking === "No One" || status === "No One") return "No One";
+  if (booking === "Pending" || status === "Pending") return "Pending";
   if (booking) return booking;
   if (status) return status;
   return "Pending";
 }
 function isScheduledJob(job) {
-  if (job.dispatchBeforeMinutes && job.dispatchBeforeMinutes > 0) return true;
-  if (job.scheduledFor && job.scheduledFor > Date.now() + 6e4) return true;
+  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  if (job.notifyDispatchAt) return true;
+  if (job.scheduledFor && job.scheduledFor > 0) return true;
   try {
-    const d2 = new Date(job.bookingDateTime);
-    return !Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4;
+    const raw = job.bookingDateTime.replace(" ", "T");
+    const d2 = new Date(raw);
+    if (!Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4) return true;
   } catch {
-    return false;
   }
+  return false;
 }
 function jobCardBorderColor(job) {
   if (job.urgent) return "#ef4444";
@@ -30523,10 +30540,12 @@ function waitBadgeClass(minutes) {
   return "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
 }
 function formatScheduled(job) {
+  var _a2;
   if (!isScheduledJob(job)) return null;
+  const raw = (_a2 = job.bookingDateTime) == null ? void 0 : _a2.trim();
+  if (!raw) return null;
   try {
-    const raw = job.bookingDateTime.replace(" ", "T");
-    const d2 = parseISO(raw);
+    const d2 = parseISO(raw.includes("T") ? raw : raw.replace(" ", "T"));
     if (Number.isNaN(d2.getTime())) return null;
     return `Sched: ${format(d2, "HH:mm dd/MM")}`;
   } catch {
@@ -30544,7 +30563,7 @@ function JobCard({ job, tab }) {
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
   const border = jobCardBorderColor(job);
-  const status = normalizeJobStatus(job.status);
+  normalizeJobStatus(job.status);
   const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
   const selected = selectedJobId === job.id;
   const scheduledLabel = formatScheduled(job);
@@ -30601,7 +30620,7 @@ function JobCard({ job, tab }) {
             "#",
             job.id
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", children: sourceLabel(job.source) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", children: sourceBadgeLabel(job.source, job.dispatcherName) }),
           statusBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(
             "span",
             {
@@ -30610,6 +30629,7 @@ function JobCard({ job, tab }) {
               children: statusBadge.label
             }
           ),
+          scheduledLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] text-amber-400 font-medium", children: scheduledLabel }),
           job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "URGENT" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
         ] }),
@@ -30631,8 +30651,7 @@ function JobCard({ job, tab }) {
         job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[var(--bw-muted)] mb-1 line-clamp-2 italic", children: job.notes }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), children: paymentLabel(job.paymentType) }),
-          scheduledLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-amber-400", children: scheduledLabel }),
-          job.dispatcherName && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[var(--bw-muted)]", children: [
+          job.dispatcherName && !sourceBadgeLabel(job.source).startsWith("DESK") && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[var(--bw-muted)]", children: [
             "by ",
             job.dispatcherName
           ] }),
@@ -30647,24 +30666,8 @@ function JobCard({ job, tab }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1 items-center", onClick: (e) => e.stopPropagation(), children: [
           tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              Button,
-              {
-                variant: "ghost",
-                className: cn(status === "Pending" && "ring-1 ring-[#5b7cfa]/40 text-[#5b7cfa]"),
-                onClick: () => run(() => setPending(job), "Set Pending"),
-                children: "Pending"
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              Button,
-              {
-                variant: "ghost",
-                className: cn(status === "No One" && "ring-1 ring-[#64748b]/40 text-[#94a3b8]"),
-                onClick: () => run(() => setNoOne(job), "Set No One"),
-                children: "No One"
-              }
-            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => run(() => setPending(job), "Set Pending"), children: "Pending" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => run(() => setNoOne(job), "Set No One"), children: "No One" }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "select",
               {
@@ -30985,6 +30988,13 @@ function AddressAutocomplete({
       onChange: (e) => onChange(e.target.value)
     }
   );
+}
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R2 = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a2 = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R2 * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
 }
 function parseTariffRecord(key, rec) {
   const name2 = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? "").trim();
@@ -31435,99 +31445,63 @@ function repeatBookingDates(form) {
 function validCoord(p2) {
   return Math.abs(p2.lat) > 1e-4 || Math.abs(p2.lng) > 1e-4;
 }
-async function fetchDrivingRoute(origin, destination) {
-  if (!validCoord(origin) || !validCoord(destination)) return null;
-  await loadGoogleMaps();
-  const { DirectionsService } = await importLibrary("routes");
-  const service = new DirectionsService();
+function requestDrivingRoute(origin, destination) {
+  const directionsService = new google.maps.DirectionsService();
   return new Promise((resolve) => {
-    service.route(
+    directionsService.route(
       {
         origin,
         destination,
         travelMode: google.maps.TravelMode.DRIVING
       },
-      (result, status) => {
-        var _a2, _b2;
-        if (status !== google.maps.DirectionsStatus.OK || !(result == null ? void 0 : result.routes[0])) {
-          resolve(null);
-          return;
-        }
-        const leg = result.routes[0].legs[0];
-        const path = result.routes[0].overview_path.map((p2) => ({
-          lat: p2.lat(),
-          lng: p2.lng()
-        }));
-        resolve({
-          distanceKm: (((_a2 = leg == null ? void 0 : leg.distance) == null ? void 0 : _a2.value) ?? 0) / 1e3,
-          durationMin: (((_b2 = leg == null ? void 0 : leg.duration) == null ? void 0 : _b2.value) ?? 0) / 60,
-          path
-        });
-      }
+      (result, status) => resolve({ result: result ?? null, status })
     );
   });
 }
+async function fetchDrivingRoute(origin, destination) {
+  var _a2, _b2;
+  if (!validCoord(origin) || !validCoord(destination)) return null;
+  await loadGoogleMaps();
+  const { result, status } = await requestDrivingRoute(origin, destination);
+  if (status !== google.maps.DirectionsStatus.OK || !(result == null ? void 0 : result.routes[0])) return null;
+  const leg = result.routes[0].legs[0];
+  const path = result.routes[0].overview_path.map((p2) => ({
+    lat: p2.lat(),
+    lng: p2.lng()
+  }));
+  return {
+    distanceKm: (((_a2 = leg == null ? void 0 : leg.distance) == null ? void 0 : _a2.value) ?? 0) / 1e3,
+    durationMin: (((_b2 = leg == null ? void 0 : leg.duration) == null ? void 0 : _b2.value) ?? 0) / 60,
+    path
+  };
+}
 async function renderDrivingRoute(map2, renderer, origin, destination) {
+  var _a2, _b2, _c, _d;
   if (!validCoord(origin) || !validCoord(destination)) {
     renderer.setMap(null);
     return null;
   }
   await loadGoogleMaps();
-  const { DirectionsService } = await importLibrary("routes");
-  const service = new DirectionsService();
-  return new Promise((resolve) => {
-    service.route(
-      {
-        origin,
-        destination,
-        travelMode: google.maps.TravelMode.DRIVING
-      },
-      (result, status) => {
-        var _a2, _b2, _c, _d;
-        if (status !== google.maps.DirectionsStatus.OK || !result) {
-          renderer.setMap(null);
-          resolve(null);
-          return;
-        }
-        renderer.setMap(map2);
-        renderer.setDirections(result);
-        const leg = (_a2 = result.routes[0]) == null ? void 0 : _a2.legs[0];
-        const path = ((_b2 = result.routes[0]) == null ? void 0 : _b2.overview_path.map((p2) => ({ lat: p2.lat(), lng: p2.lng() }))) ?? [];
-        resolve({
-          distanceKm: (((_c = leg == null ? void 0 : leg.distance) == null ? void 0 : _c.value) ?? 0) / 1e3,
-          durationMin: (((_d = leg == null ? void 0 : leg.duration) == null ? void 0 : _d.value) ?? 0) / 60,
-          path
-        });
-      }
-    );
-  });
+  const { result, status } = await requestDrivingRoute(origin, destination);
+  if (status !== google.maps.DirectionsStatus.OK || !result) {
+    renderer.setMap(null);
+    return null;
+  }
+  renderer.setMap(map2);
+  renderer.setDirections(result);
+  const leg = (_a2 = result.routes[0]) == null ? void 0 : _a2.legs[0];
+  const path = ((_b2 = result.routes[0]) == null ? void 0 : _b2.overview_path.map((p2) => ({ lat: p2.lat(), lng: p2.lng() }))) ?? [];
+  return {
+    distanceKm: (((_c = leg == null ? void 0 : leg.distance) == null ? void 0 : _c.value) ?? 0) / 1e3,
+    durationMin: (((_d = leg == null ? void 0 : leg.duration) == null ? void 0 : _d.value) ?? 0) / 60,
+    path
+  };
 }
-function formatRouteSummary(km, min, fare) {
-  const parts = [`~${km.toFixed(1)} km`, `~${Math.round(min)} min`];
-  if (fare != null && !Number.isNaN(fare)) parts.push(`Est. $${fare.toFixed(2)}`);
-  return parts.join(" · ");
+function formatFormFareEstimate(fare, km, min) {
+  return `Est. ~$${fare.toFixed(2)} · ${km.toFixed(1)}km · ${Math.round(min)}min`;
 }
 function formatCityDistance(km, min) {
   return `~${km.toFixed(1)} km from city, ~${Math.round(min)} min drive`;
-}
-function bezierRoutePath(start, end, segments = 40) {
-  const midLat = (start.lat + end.lat) / 2;
-  const midLng = (start.lng + end.lng) / 2;
-  const dx = end.lng - start.lng;
-  const dy = end.lat - start.lat;
-  const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-  const bulge = dist * 0.18;
-  const ctrl = { lat: midLat + bulge, lng: midLng - bulge * 0.6 };
-  const path = [];
-  for (let i2 = 0; i2 <= segments; i2++) {
-    const t2 = i2 / segments;
-    const u2 = 1 - t2;
-    path.push({
-      lat: u2 * u2 * start.lat + 2 * u2 * t2 * ctrl.lat + t2 * t2 * end.lat,
-      lng: u2 * u2 * start.lng + 2 * u2 * t2 * ctrl.lng + t2 * t2 * end.lng
-    });
-  }
-  return path;
 }
 const POS_KEY = "bw_create_job_pos";
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -31723,21 +31697,21 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       return;
     }
     setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng }, drop: { lat: form.drop.lat, lng: form.drop.lng } });
-    let cancelled = false;
-    fetchDrivingRoute(form.pick, form.drop).then((r) => {
-      if (cancelled || !r) return;
-      const tariff = fbTariffs.find((t2) => t2.id === form.tariffId) ?? fbTariffs[0];
-      let fare;
-      if (form.fixedFareEnabled && form.fixedFareAmount) {
-        fare = parseFloat(form.fixedFareAmount);
-      } else if (tariff) {
-        fare = estimateFare(r.distanceKm, tariff);
-      }
-      setRouteSummary(formatRouteSummary(r.distanceKm, r.durationMin, fare));
-    });
-    return () => {
-      cancelled = true;
-    };
+    const straightKm = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
+    const roadKm = straightKm * 1.25;
+    const min = Math.max(1, Math.round(roadKm / 35 * 60));
+    const tariff = fbTariffs.find((t2) => t2.id === form.tariffId) ?? fbTariffs[0];
+    let fare;
+    if (form.fixedFareEnabled && form.fixedFareAmount) {
+      fare = parseFloat(form.fixedFareAmount);
+    } else if (tariff) {
+      fare = estimateFare(roadKm, tariff);
+    }
+    if (fare != null && !Number.isNaN(fare)) {
+      setRouteSummary(formatFormFareEstimate(fare, roadKm, min));
+    } else {
+      setRouteSummary("");
+    }
   }, [
     open2,
     form.pick.lat,
@@ -31870,7 +31844,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       addToast({
         type: "success",
         title: targets.length > 1 ? `${targets.length} jobs created` : "Job booked",
-        message: lastId ? `#${lastId} — check U-A tab` : void 0
+        message: lastId ? `#${lastId}` : void 0
       });
       closeModal();
       resetForm();
@@ -31985,8 +31959,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 ),
                 "Email"
               ] })
-            ] }),
-            routeSummary && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold text-[#5b7cfa] mt-1.5", children: routeSummary })
+            ] })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "cj-section", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cj-label", children: "Passenger" }),
@@ -32030,6 +32003,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
               }
             )
           ] }),
+          routeSummary && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold text-[#5b7cfa] mb-2 px-0.5", children: routeSummary }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "cj-section", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cj-label", children: "Timing" }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex w-fit mb-2", children: [
@@ -39934,7 +39908,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-QaUR1pMf.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-WyELP5N3.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41209,7 +41183,6 @@ function DispatchMap({
   const markersRef = reactExports.useRef([]);
   const jobMarkersRef = reactExports.useRef([]);
   const directionsRendererRef = reactExports.useRef(null);
-  const fallbackPolylineRef = reactExports.useRef(null);
   const trafficRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
@@ -41309,7 +41282,6 @@ function DispatchMap({
     }
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
-    var _a2;
     if (!gMapRef.current || !mapReady) return;
     jobMarkersRef.current.forEach((m2) => m2.setMap(null));
     jobMarkersRef.current = [];
@@ -41320,8 +41292,6 @@ function DispatchMap({
       });
     }
     directionsRendererRef.current.setMap(null);
-    (_a2 = fallbackPolylineRef.current) == null ? void 0 : _a2.setMap(null);
-    fallbackPolylineRef.current = null;
     const target = selectedJob ? {
       pick: parseLatLng$1(selectedJob.pickLatLng),
       drop: parseLatLng$1(selectedJob.dropLatLng),
@@ -41377,24 +41347,10 @@ function DispatchMap({
         target.pick,
         target.drop
       ).then((info) => {
-        if (!gMapRef.current) return;
-        if (info) {
-          const bounds2 = new google.maps.LatLngBounds();
-          bounds2.extend(target.pick);
-          bounds2.extend(target.drop);
-          gMapRef.current.fitBounds(bounds2, 48);
-          return;
-        }
-        const path = bezierRoutePath(target.pick, target.drop);
-        fallbackPolylineRef.current = new google.maps.Polyline({
-          path,
-          strokeColor: "#5b7cfa",
-          strokeWeight: 4,
-          strokeOpacity: 0.85,
-          map: gMapRef.current
-        });
+        if (!gMapRef.current || !info) return;
         const bounds = new google.maps.LatLngBounds();
-        for (const pt2 of path) bounds.extend(pt2);
+        bounds.extend(target.pick);
+        bounds.extend(target.drop);
         gMapRef.current.fitBounds(bounds, 48);
       });
     } else {
@@ -41591,14 +41547,13 @@ function useJobs(companyId) {
     if (!companyId) return;
     const db2 = getDb();
     const unsubs = [];
-    const initDone = { current: false };
-    const seenIds = /* @__PURE__ */ new Set();
+    let bootstrapping = true;
     const syncAll = () => {
       const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
       setJobs(merged);
     };
     const notifyNewJob = (job) => {
-      if (!isUaJob(job)) return;
+      if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
       playNewJobSound();
       useUiStore.getState().addToast({
         type: "info",
@@ -41611,7 +41566,8 @@ function useJobs(companyId) {
       if (!job) return;
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
-      upsertJob(booking ? { ...booking, ...job } : job);
+      const merged = booking ? { ...booking, ...job } : job;
+      upsertJob(merged);
       syncAll();
       if (notify) notifyNewJob(job);
     };
@@ -41621,18 +41577,14 @@ function useJobs(companyId) {
       onChildAdded(pRef, (snap) => {
         const val = snap.val();
         if (!val || typeof val !== "object") return;
-        const job = jobFromFirebase(snap.key, val, companyId);
-        if (!job) return;
-        const isNew = initDone.current && !seenIds.has(job.id);
-        seenIds.add(job.id);
-        applyPending(snap.key, val, isNew);
+        applyPending(snap.key, val, !bootstrapping);
       })
     );
+    bootstrapping = false;
     unsubs.push(
       onChildChanged(pRef, (snap) => {
         const val = snap.val();
         if (!val || typeof val !== "object") return;
-        seenIds.add(parseInt(String(snap.key), 10));
         applyPending(snap.key, val, false);
       })
     );
@@ -41641,28 +41593,10 @@ function useJobs(companyId) {
         const id = parseInt(snap.key || "0", 10);
         if (!id) return;
         pendingRef.current.delete(id);
-        seenIds.delete(id);
         removeJob(id);
         syncAll();
       })
     );
-    get(pRef).then((snap) => {
-      pendingRef.current = /* @__PURE__ */ new Map();
-      const val = snap.val();
-      if (val && typeof val === "object") {
-        for (const [key, rec] of Object.entries(val)) {
-          const job = jobFromFirebase(key, rec, companyId);
-          if (job) {
-            pendingRef.current.set(job.id, job);
-            seenIds.add(job.id);
-          }
-        }
-      }
-      initDone.current = true;
-      syncAll();
-    }).catch(() => {
-      initDone.current = true;
-    });
     unsubs.push(
       onValue(bRef, (snap) => {
         bookingsRef.current = /* @__PURE__ */ new Map();
@@ -41975,7 +41909,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DhquBCD9.js");
+        const { writeActiveDispatcher } = await import("./notifications-vstKWngI.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42002,7 +41936,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DhquBCD9.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-vstKWngI.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42322,4 +42256,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BgOZKqFI.js.map
+//# sourceMappingURL=index-D-0m-7Ag.js.map

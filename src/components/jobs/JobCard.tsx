@@ -11,7 +11,7 @@ import {
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
-import { sourceLabel, paymentLabel, paymentBadgeColor } from '@/lib/utils';
+import { sourceBadgeLabel, paymentLabel, paymentBadgeColor } from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import {
@@ -38,9 +38,10 @@ function waitBadgeClass(minutes: number): string {
 
 function formatScheduled(job: Job): string | null {
   if (!isScheduledJob(job)) return null;
+  const raw = job.bookingDateTime?.trim();
+  if (!raw) return null;
   try {
-    const raw = job.bookingDateTime.replace(' ', 'T');
-    const d = parseISO(raw);
+    const d = parseISO(raw.includes('T') ? raw : raw.replace(' ', 'T'));
     if (Number.isNaN(d.getTime())) return null;
     return `Sched: ${format(d, 'HH:mm dd/MM')}`;
   } catch {
@@ -118,7 +119,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     >
       <div className="flex flex-wrap items-center gap-1 mb-1">
         <span className="font-mono text-[10px] font-bold bw-text">#{job.id}</span>
-        <Badge color="#64748b">{sourceLabel(job.source)}</Badge>
+        <Badge color="#64748b">{sourceBadgeLabel(job.source, job.dispatcherName)}</Badge>
         {statusBadge && (
           <span
             className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
@@ -127,6 +128,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             {statusBadge.label}
           </span>
         )}
+        {scheduledLabel && <span className="text-[9px] text-amber-400 font-medium">{scheduledLabel}</span>}
         {job.urgent && <Badge color="#ef4444">URGENT</Badge>}
         <span className={cn('ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
           {waitLabel}
@@ -158,8 +160,9 @@ export function JobCard({ job, tab }: JobCardProps) {
 
       <div className="flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center">
         <Badge color={paymentBadgeColor(job.paymentType)}>{paymentLabel(job.paymentType)}</Badge>
-        {scheduledLabel && <span className="text-amber-400">{scheduledLabel}</span>}
-        {job.dispatcherName && <span className="text-[var(--bw-muted)]">by {job.dispatcherName}</span>}
+        {job.dispatcherName && !sourceBadgeLabel(job.source).startsWith('DESK') && (
+          <span className="text-[var(--bw-muted)]">by {job.dispatcherName}</span>
+        )}
         {job.estimatedFare && job.estimatedFare !== '0' && (
           <span className="text-emerald-400">${job.estimatedFare}</span>
         )}
@@ -174,18 +177,10 @@ export function JobCard({ job, tab }: JobCardProps) {
       <div className="flex flex-wrap gap-1 items-center" onClick={(e) => e.stopPropagation()}>
         {tab === 'ua' && (
           <>
-            <Button
-              variant="ghost"
-              className={cn(status === 'Pending' && 'ring-1 ring-[#5b7cfa]/40 text-[#5b7cfa]')}
-              onClick={() => run(() => setPending(job), 'Set Pending')}
-            >
+            <Button variant="ghost" onClick={() => run(() => setPending(job), 'Set Pending')}>
               Pending
             </Button>
-            <Button
-              variant="ghost"
-              className={cn(status === 'No One' && 'ring-1 ring-[#64748b]/40 text-[#94a3b8]')}
-              onClick={() => run(() => setNoOne(job), 'Set No One')}
-            >
+            <Button variant="ghost" onClick={() => run(() => setNoOne(job), 'Set No One')}>
               No One
             </Button>
             <select
