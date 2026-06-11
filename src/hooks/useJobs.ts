@@ -36,7 +36,14 @@ export function useJobs(companyId: string | null) {
 
     const syncAll = () => {
       const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
-      setJobs(merged);
+      const byId = new Map(merged.map((j) => [j.id, j]));
+      // Keep optimistic U-A jobs until Firebase pendingjobs confirms them
+      for (const j of useJobStore.getState().jobs) {
+        if (!byId.has(j.id) && jobTabForStatus(j) === 'ua') {
+          byId.set(j.id, j);
+        }
+      }
+      setJobs(Array.from(byId.values()));
     };
 
     const notifyNewJob = (job: Job) => {

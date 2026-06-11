@@ -207,7 +207,7 @@ function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
 export function isScheduledJob(job: Job): boolean {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
-  if (job.scheduledFor && job.scheduledFor > 0) return true;
+  if (job.scheduledFor && job.scheduledFor > Date.now() + 60000) return true;
   try {
     const raw = job.bookingDateTime.replace(' ', 'T');
     const d = new Date(raw);

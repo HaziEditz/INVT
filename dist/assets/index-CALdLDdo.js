@@ -28434,7 +28434,7 @@ function resolveJobStatus(rec) {
 function isScheduledJob(job) {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
-  if (job.scheduledFor && job.scheduledFor > 0) return true;
+  if (job.scheduledFor && job.scheduledFor > Date.now() + 6e4) return true;
   try {
     const raw = job.bookingDateTime.replace(" ", "T");
     const d2 = new Date(raw);
@@ -39908,7 +39908,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-WyELP5N3.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-EMKueUY8.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41550,7 +41550,13 @@ function useJobs(companyId) {
     let bootstrapping = true;
     const syncAll = () => {
       const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
-      setJobs(merged);
+      const byId = new Map(merged.map((j2) => [j2.id, j2]));
+      for (const j2 of useJobStore.getState().jobs) {
+        if (!byId.has(j2.id) && jobTabForStatus(j2) === "ua") {
+          byId.set(j2.id, j2);
+        }
+      }
+      setJobs(Array.from(byId.values()));
     };
     const notifyNewJob = (job) => {
       if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
@@ -41909,7 +41915,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-vstKWngI.js");
+        const { writeActiveDispatcher } = await import("./notifications-CQPigeCW.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -41936,7 +41942,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-vstKWngI.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CQPigeCW.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -41992,17 +41998,6 @@ function useRealtimeNotifications(companyId) {
   reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
-    const bookingsRef = ref(db2, `bookings/${companyId}`);
-    let init = true;
-    const unsubBookings = onValue(bookingsRef, (snap) => {
-      if (init) {
-        init = false;
-        return;
-      }
-      if (snap.exists()) {
-        addToast({ type: "info", title: "New booking", message: "A new passenger booking was received" });
-      }
-    });
     const emergRef = ref(db2, `Emergency/${companyId}`);
     const unsubEmergency = onValue(emergRef, (snap) => {
       const val = snap.val();
@@ -42031,7 +42026,6 @@ function useRealtimeNotifications(companyId) {
       }
     });
     return () => {
-      unsubBookings();
       unsubEmergency();
       unsubReg();
     };
@@ -42256,4 +42250,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-D-0m-7Ag.js.map
+//# sourceMappingURL=index-CALdLDdo.js.map

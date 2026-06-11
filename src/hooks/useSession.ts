@@ -101,18 +101,6 @@ export function useRealtimeNotifications(companyId: string | null) {
     if (!companyId) return;
     const db = getDb();
 
-    const bookingsRef = ref(db, `bookings/${companyId}`);
-    let init = true;
-    const unsubBookings = onValue(bookingsRef, (snap) => {
-      if (init) {
-        init = false;
-        return;
-      }
-      if (snap.exists()) {
-        addToast({ type: 'info', title: 'New booking', message: 'A new passenger booking was received' });
-      }
-    });
-
     const emergRef = ref(db, `Emergency/${companyId}`);
     const unsubEmergency = onValue(emergRef, (snap) => {
       const val = snap.val();
@@ -143,7 +131,6 @@ export function useRealtimeNotifications(companyId: string | null) {
     });
 
     return () => {
-      unsubBookings();
       unsubEmergency();
       unsubReg();
     };
