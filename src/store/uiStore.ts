@@ -91,7 +91,8 @@ export const useUiStore = create<UiStore>((set, get) => ({
   },
   openModalWith: (m, opts) =>
     set({ openModal: m, modalJobId: opts?.jobId ?? null, modalDriverId: opts?.driverId ?? null }),
-  closeModal: () => set({ openModal: null, modalJobId: null, modalDriverId: null }),
+  closeModal: () =>
+    set({ openModal: null, modalJobId: null, modalDriverId: null, routePreview: null }),
   addToast: (t) =>
     set((s) => ({
       toasts: [...s.toasts, { ...t, id: `${Date.now()}-${Math.random()}` }].slice(-8),

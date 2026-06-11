@@ -14,12 +14,21 @@ const panelClass = 'shrink-0 min-h-0 overflow-hidden bw-surface border-[var(--bw
 export function ResizableDispatchLayout({ left, center, right }: ResizableDispatchLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
-  const { sizes, resizeLeft, resizeRight, reset } = usePanelSizes(containerWidth);
+  const { sizes, resizeLeft, resizeRight, reset, restoreSavedSizes } = usePanelSizes(containerWidth);
   const mapVisible = useUiStore((s) => s.mapVisible);
   const mapPoppedOut = useUiStore((s) => s.mapPoppedOut);
+  const openModal = useUiStore((s) => s.openModal);
   const setMapVisible = useUiStore((s) => s.setMapVisible);
+  const prevOpenModal = useRef(openModal);
 
   const showMap = mapVisible && !mapPoppedOut;
+
+  useEffect(() => {
+    if (prevOpenModal.current === 'createJob' && openModal !== 'createJob') {
+      restoreSavedSizes();
+    }
+    prevOpenModal.current = openModal;
+  }, [openModal, restoreSavedSizes]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -41,7 +50,12 @@ export function ResizableDispatchLayout({ left, center, right }: ResizableDispat
             {left}
           </aside>
           <ResizeHandle onDrag={resizeLeft} onDoubleClick={reset} />
-          <main className="flex-1 flex flex-col min-w-0 min-h-0 bw-shell">{center}</main>
+          <main
+            className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden"
+            style={{ border: '1px solid #2d3148' }}
+          >
+            {center}
+          </main>
           <ResizeHandle onDrag={resizeRight} onDoubleClick={reset} />
           <aside
             style={{ width: sizes.right }}

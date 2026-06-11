@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 const STORAGE_KEY = 'bw_dispatch_panel_sizes';
 export const DEFAULT_LEFT_WIDTH = 380;
@@ -26,16 +26,14 @@ function readSizes(): PanelSizes {
   }
 }
 
+export { readSizes };
+
 function saveSizes(sizes: PanelSizes) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sizes));
 }
 
 export function usePanelSizes(containerWidth: number) {
   const [sizes, setSizes] = useState<PanelSizes>(readSizes);
-
-  useEffect(() => {
-    saveSizes(sizes);
-  }, [sizes]);
 
   const clampSizes = useCallback(
     (next: PanelSizes): PanelSizes => {
@@ -51,21 +49,35 @@ export function usePanelSizes(containerWidth: number) {
 
   const resizeLeft = useCallback(
     (delta: number) => {
-      setSizes((prev) => clampSizes({ ...prev, left: prev.left + delta }));
+      setSizes((prev) => {
+        const next = clampSizes({ ...prev, left: prev.left + delta });
+        saveSizes(next);
+        return next;
+      });
     },
     [clampSizes]
   );
 
   const resizeRight = useCallback(
     (delta: number) => {
-      setSizes((prev) => clampSizes({ ...prev, right: prev.right - delta }));
+      setSizes((prev) => {
+        const next = clampSizes({ ...prev, right: prev.right - delta });
+        saveSizes(next);
+        return next;
+      });
     },
     [clampSizes]
   );
 
   const reset = useCallback(() => {
-    setSizes({ left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH });
+    const next = { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH };
+    saveSizes(next);
+    setSizes(next);
   }, []);
 
-  return { sizes, resizeLeft, resizeRight, reset };
+  const restoreSavedSizes = useCallback(() => {
+    setSizes(readSizes());
+  }, []);
+
+  return { sizes, resizeLeft, resizeRight, reset, restoreSavedSizes };
 }

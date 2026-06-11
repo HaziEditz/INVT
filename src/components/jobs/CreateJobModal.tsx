@@ -150,7 +150,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const modalJobId = useUiStore((s) => s.modalJobId);
   const closeModal = useUiStore((s) => s.closeModal);
   const setRoutePreview = useUiStore((s) => s.setRoutePreview);
-  const mapInstance = useUiStore((s) => s.mapInstance);
   const settings = useUiStore((s) => s.settings);
   const addToast = useUiStore((s) => s.addToast);
   const upsertJob = useJobStore((s) => s.upsertJob);
@@ -212,6 +211,12 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setCityDistLabel('');
     setRouteSummary('');
   }, [settings?.defaultDispatchWindow]);
+
+  const onClose = useCallback(() => {
+    setRoutePreview(null);
+    resetForm();
+    closeModal();
+  }, [closeModal, resetForm, setRoutePreview]);
 
   useEffect(() => {
     if (!open) {
@@ -378,10 +383,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   const onPickupSelect = (pick: PlaceValue) => {
     patch({ pick, pickInput: pick.address });
-    if (mapInstance && pick.lat) {
-      mapInstance.setCenter({ lat: pick.lat, lng: pick.lng });
-      mapInstance.setZoom(14);
-    }
     if (pick.lat) {
       const preview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } = {
         pick: { lat: pick.lat, lng: pick.lng },
@@ -440,8 +441,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         const changes = buildJobChangesFromForm(form, dispatcherName);
         await updateJob(editingJob.id, companyId, changes, editingJob);
         addToast({ type: 'success', title: 'Job updated' });
-        closeModal();
-        resetForm();
+        onClose();
         return;
       }
 
@@ -506,15 +506,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       console.log('[Book] Step 6 - store updated', { bookingId: lastId, status: lastStatus });
       setActiveTab('ua');
       setSelectedJobId(null);
-      setRoutePreview(null);
 
       addToast({
         type: 'success',
         title: targets.length > 1 ? `${targets.length} jobs created` : 'Job booked',
         message: `#${lastId}`,
       });
-      closeModal();
-      resetForm();
+      onClose();
     } catch (e) {
       console.error('[Book] ERROR:', e);
       addToast({
@@ -544,7 +542,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         <button
           type="button"
           className="text-[#8892a4] hover:text-[#e8eaf0] p-1"
-          onClick={closeModal}
+          onClick={onClose}
           aria-label="Close"
         >
           <X size={16} />
@@ -992,7 +990,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         <button type="button" className="cj-btn-ghost" onClick={resetForm}>
           Clear
         </button>
-        <button type="button" className="cj-btn-ghost" onClick={closeModal}>
+        <button type="button" className="cj-btn-ghost" onClick={onClose}>
           Cancel
         </button>
         <button type="button" className="cj-btn-book" onClick={handleSubmit} disabled={loading}>

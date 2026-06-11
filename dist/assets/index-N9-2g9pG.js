@@ -27840,7 +27840,7 @@ const useUiStore = create((set2, get2) => ({
     set2({ theme: t2 });
   },
   openModalWith: (m2, opts) => set2({ openModal: m2, modalJobId: (opts == null ? void 0 : opts.jobId) ?? null, modalDriverId: (opts == null ? void 0 : opts.driverId) ?? null }),
-  closeModal: () => set2({ openModal: null, modalJobId: null, modalDriverId: null }),
+  closeModal: () => set2({ openModal: null, modalJobId: null, modalDriverId: null, routePreview: null }),
   addToast: (t2) => set2((s2) => ({
     toasts: [...s2.toasts, { ...t2, id: `${Date.now()}-${Math.random()}` }].slice(-8)
   })),
@@ -29120,9 +29120,6 @@ function saveSizes(sizes) {
 }
 function usePanelSizes(containerWidth) {
   const [sizes, setSizes] = reactExports.useState(readSizes);
-  reactExports.useEffect(() => {
-    saveSizes(sizes);
-  }, [sizes]);
   const clampSizes = reactExports.useCallback(
     (next) => {
       const maxLeft = Math.max(MIN_LEFT, containerWidth - next.right - MIN_MAP);
@@ -29136,30 +29133,51 @@ function usePanelSizes(containerWidth) {
   );
   const resizeLeft = reactExports.useCallback(
     (delta) => {
-      setSizes((prev) => clampSizes({ ...prev, left: prev.left + delta }));
+      setSizes((prev) => {
+        const next = clampSizes({ ...prev, left: prev.left + delta });
+        saveSizes(next);
+        return next;
+      });
     },
     [clampSizes]
   );
   const resizeRight = reactExports.useCallback(
     (delta) => {
-      setSizes((prev) => clampSizes({ ...prev, right: prev.right - delta }));
+      setSizes((prev) => {
+        const next = clampSizes({ ...prev, right: prev.right - delta });
+        saveSizes(next);
+        return next;
+      });
     },
     [clampSizes]
   );
   const reset = reactExports.useCallback(() => {
-    setSizes({ left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH });
+    const next = { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH };
+    saveSizes(next);
+    setSizes(next);
   }, []);
-  return { sizes, resizeLeft, resizeRight, reset };
+  const restoreSavedSizes = reactExports.useCallback(() => {
+    setSizes(readSizes());
+  }, []);
+  return { sizes, resizeLeft, resizeRight, reset, restoreSavedSizes };
 }
 const panelClass = "shrink-0 min-h-0 overflow-hidden bw-surface border-[var(--bw-border)]";
 function ResizableDispatchLayout({ left, center, right }) {
   const containerRef = reactExports.useRef(null);
   const [containerWidth, setContainerWidth] = reactExports.useState(1200);
-  const { sizes, resizeLeft, resizeRight, reset } = usePanelSizes(containerWidth);
+  const { sizes, resizeLeft, resizeRight, reset, restoreSavedSizes } = usePanelSizes(containerWidth);
   const mapVisible = useUiStore((s2) => s2.mapVisible);
   const mapPoppedOut = useUiStore((s2) => s2.mapPoppedOut);
+  const openModal = useUiStore((s2) => s2.openModal);
   const setMapVisible = useUiStore((s2) => s2.setMapVisible);
+  const prevOpenModal = reactExports.useRef(openModal);
   const showMap = mapVisible && !mapPoppedOut;
+  reactExports.useEffect(() => {
+    if (prevOpenModal.current === "createJob" && openModal !== "createJob") {
+      restoreSavedSizes();
+    }
+    prevOpenModal.current = openModal;
+  }, [openModal, restoreSavedSizes]);
   reactExports.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -29176,7 +29194,14 @@ function ResizableDispatchLayout({ left, center, right }) {
     showMap ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: { width: sizes.left }, className: `${panelClass} border-r`, children: left }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeLeft, onDoubleClick: reset }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0 bw-shell", children: center }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "main",
+        {
+          className: "flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden",
+          style: { border: "1px solid #2d3148" },
+          children: center
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeRight, onDoubleClick: reset }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "aside",
@@ -32303,7 +32328,6 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const modalJobId = useUiStore((s2) => s2.modalJobId);
   const closeModal = useUiStore((s2) => s2.closeModal);
   const setRoutePreview = useUiStore((s2) => s2.setRoutePreview);
-  const mapInstance = useUiStore((s2) => s2.mapInstance);
   const settings = useUiStore((s2) => s2.settings);
   const addToast = useUiStore((s2) => s2.addToast);
   const upsertJob = useJobStore((s2) => s2.upsertJob);
@@ -32357,6 +32381,11 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setCityDistLabel("");
     setRouteSummary("");
   }, [settings == null ? void 0 : settings.defaultDispatchWindow]);
+  const onClose = reactExports.useCallback(() => {
+    setRoutePreview(null);
+    resetForm();
+    closeModal();
+  }, [closeModal, resetForm, setRoutePreview]);
   reactExports.useEffect(() => {
     if (!open2) {
       setRoutePreview(null);
@@ -32501,10 +32530,6 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   };
   const onPickupSelect = (pick) => {
     patch({ pick, pickInput: pick.address });
-    if (mapInstance && pick.lat) {
-      mapInstance.setCenter({ lat: pick.lat, lng: pick.lng });
-      mapInstance.setZoom(14);
-    }
     if (pick.lat) {
       const preview = {
         pick: { lat: pick.lat, lng: pick.lng }
@@ -32555,8 +32580,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         const changes = buildJobChangesFromForm(form, dispatcherName);
         await updateJob(editingJob.id, companyId, changes, editingJob);
         addToast({ type: "success", title: "Job updated" });
-        closeModal();
-        resetForm();
+        onClose();
         return;
       }
       if (form.paymentType === "card" && form.cardAmount && stripePk && !form.cardPaid) {
@@ -32617,14 +32641,12 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       console.log("[Book] Step 6 - store updated", { bookingId: lastId, status: lastStatus });
       setActiveTab("ua");
       setSelectedJobId(null);
-      setRoutePreview(null);
       addToast({
         type: "success",
         title: targets.length > 1 ? `${targets.length} jobs created` : "Job booked",
         message: `#${lastId}`
       });
-      closeModal();
-      resetForm();
+      onClose();
     } catch (e) {
       console.error("[Book] ERROR:", e);
       addToast({
@@ -32651,7 +32673,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
             {
               type: "button",
               className: "text-[#8892a4] hover:text-[#e8eaf0] p-1",
-              onClick: closeModal,
+              onClick: onClose,
               "aria-label": "Close",
               children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 16 })
             }
@@ -33076,7 +33098,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "shrink-0 flex justify-end gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: resetForm, children: "Clear" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: closeModal, children: "Cancel" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: onClose, children: "Cancel" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-book", onClick: handleSubmit, disabled: loading, children: loading ? "Saving…" : isEdit ? "SAVE ✓" : "BOOK ✓" })
         ] })
       ]
@@ -40686,7 +40708,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Bewfoo7v.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C3dCMmKh.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42152,6 +42174,12 @@ function DispatchMap({
         }
       });
       const coordsValid = (lat, lng) => Math.abs(lat) > 1e-4 || Math.abs(lng) > 1e-4;
+      const mapPadding = { top: 56, right: 56, bottom: 56, left: 56 };
+      const fitMapView = (points) => {
+        const bounds = new google.maps.LatLngBounds();
+        points.forEach((p2) => bounds.extend(p2));
+        map2.fitBounds(bounds, mapPadding);
+      };
       await loadGoogleMaps(mapsKey || void 0);
       if (routeRequestRef.current !== requestId || !gMapRef.current) return;
       jobMarkersRef.current.push(labelMarker(pick, "P", "#22c55e", "Pickup"));
@@ -42179,21 +42207,25 @@ function DispatchMap({
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
               (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
-              const bounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
-              if (bounds) {
-                gMapRef.current.fitBounds(bounds, 48);
+              const bounds = new google.maps.LatLngBounds();
+              bounds.extend(pick);
+              bounds.extend(drop);
+              bounds.extend(safeCenter);
+              const routeBounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
+              if (routeBounds) {
+                bounds.union(routeBounds);
               }
+              gMapRef.current.fitBounds(bounds, mapPadding);
             } else {
               clearDirectionsRenderer();
             }
           }
         );
       } else {
-        map2.setCenter(pick);
-        map2.setZoom(14);
+        fitMapView([pick, safeCenter]);
       }
     },
-    [mapsKey]
+    [mapsKey, safeCenter.lat, safeCenter.lng]
   );
   reactExports.useEffect(() => {
     if (createJobOpen) {
@@ -42255,8 +42287,10 @@ function DispatchMap({
   }, [mapTheme, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
+    if (createJobOpen && routePreview) return;
+    if (selectedJobId) return;
     gMapRef.current.setCenter(safeCenter);
-  }, [safeCenter.lat, safeCenter.lng, mapReady]);
+  }, [safeCenter.lat, safeCenter.lng, mapReady, createJobOpen, routePreview, selectedJobId]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !trafficRef.current) return;
     trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
@@ -42377,8 +42411,8 @@ function DispatchMap({
     if (z2 != null) (_b2 = gMapRef.current) == null ? void 0 : _b2.setZoom(z2 + delta);
   };
   const ctrlBtn = "bw-ctrl-btn";
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 bw-text bw-map-bg", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 bw-map-bg" }),
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 w-full h-full overflow-hidden bw-text", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0" }),
     !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] bw-map-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 bw-muted" }) }),
     mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400 bw-map-bg", children: mapError }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border bw-border bw-surface p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]", children: [
@@ -42753,7 +42787,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DVqwq2tT.js");
+        const { writeActiveDispatcher } = await import("./notifications-EW5REs9-.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42780,7 +42814,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DVqwq2tT.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-EW5REs9-.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43108,4 +43142,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BhW_VFrr.js.map
+//# sourceMappingURL=index-N9-2g9pG.js.map
