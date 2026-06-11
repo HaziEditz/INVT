@@ -27736,6 +27736,7 @@ function jobTabForStatus$1(job) {
 }
 const useJobStore = create((set2, get2) => ({
   jobs: [],
+  removedJobIds: [],
   selectedJobId: null,
   activeTab: "ua",
   setJobs: (jobs) => set2({ jobs }),
@@ -27748,7 +27749,12 @@ const useJobStore = create((set2, get2) => ({
     }
     return { jobs: [...s2.jobs, job] };
   }),
-  removeJob: (id) => set2((s2) => ({ jobs: s2.jobs.filter((j2) => j2.id !== id) })),
+  removeJob: (id) => set2((s2) => ({
+    jobs: s2.jobs.filter((j2) => j2.id !== id),
+    removedJobIds: s2.removedJobIds.includes(id) ? s2.removedJobIds : [...s2.removedJobIds, id],
+    selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId
+  })),
+  clearRemovedJob: (id) => set2((s2) => ({ removedJobIds: s2.removedJobIds.filter((x2) => x2 !== id) })),
   setSelectedJobId: (id) => set2({ selectedJobId: id }),
   setActiveTab: (tab) => set2({ activeTab: tab }),
   jobsForTab: (tab) => {
@@ -27818,6 +27824,7 @@ async function assignJob(bookingId, driverId, vehicleId, ifVersion = 0) {
 async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   const cancelledAt = (/* @__PURE__ */ new Date()).toISOString();
   const cancelReason = "Cancelled by dispatcher";
+  useJobStore.getState().removeJob(bookingId);
   await jsonFetch(`${API}/cancel`, {
     method: "POST",
     body: JSON.stringify({
@@ -27845,7 +27852,6 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
     });
   } catch {
   }
-  useJobStore.getState().removeJob(bookingId);
 }
 async function recallJob(bookingId, originalStatus) {
   return jobCommand({
@@ -40100,7 +40106,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Do1tyZo9.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Co0PrVmj.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41733,6 +41739,7 @@ function useJobs(companyId) {
   const setJobs = useJobStore((s2) => s2.setJobs);
   const upsertJob = useJobStore((s2) => s2.upsertJob);
   const removeJob = useJobStore((s2) => s2.removeJob);
+  const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
   const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
   const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
   reactExports.useEffect(() => {
@@ -41741,10 +41748,13 @@ function useJobs(companyId) {
     const unsubs = [];
     let bootstrapping = true;
     const syncAll = () => {
-      const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
+      const removed = new Set(useJobStore.getState().removedJobIds);
+      const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
+        (j2) => !removed.has(j2.id)
+      );
       const byId = new Map(merged.map((j2) => [j2.id, j2]));
       for (const j2 of useJobStore.getState().jobs) {
-        if (!byId.has(j2.id) && jobTabForStatus(j2) === "ua") {
+        if (!byId.has(j2.id) && jobTabForStatus(j2) === "ua" && !removed.has(j2.id)) {
           byId.set(j2.id, j2);
         }
       }
@@ -41792,6 +41802,7 @@ function useJobs(companyId) {
         if (!id) return;
         pendingRef.current.delete(id);
         removeJob(id);
+        clearRemovedJob(id);
         syncAll();
       })
     );
@@ -41815,7 +41826,7 @@ function useJobs(companyId) {
     return () => {
       for (const unsub of unsubs) unsub();
     };
-  }, [companyId, setJobs, upsertJob, removeJob]);
+  }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
 }
 function useClosedJobs(companyId, enabled) {
   const [closed, setClosed] = reactExports.useState([]);
@@ -42156,7 +42167,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-B9w1xcRd.js");
+        const { writeActiveDispatcher } = await import("./notifications-BEh8u98I.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42183,7 +42194,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B9w1xcRd.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BEh8u98I.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42491,4 +42502,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DIes2Fk4.js.map
+//# sourceMappingURL=index-BHk4LVPq.js.map

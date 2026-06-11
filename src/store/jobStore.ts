@@ -4,11 +4,13 @@ import { jobTabForStatus } from '@/types/job';
 
 interface JobStore {
   jobs: Job[];
+  removedJobIds: number[];
   selectedJobId: number | null;
   activeTab: JobTab;
   setJobs: (jobs: Job[]) => void;
   upsertJob: (job: Job) => void;
   removeJob: (id: number) => void;
+  clearRemovedJob: (id: number) => void;
   setSelectedJobId: (id: number | null) => void;
   setActiveTab: (tab: JobTab) => void;
   jobsForTab: (tab: JobTab) => Job[];
@@ -17,6 +19,7 @@ interface JobStore {
 
 export const useJobStore = create<JobStore>((set, get) => ({
   jobs: [],
+  removedJobIds: [],
   selectedJobId: null,
   activeTab: 'ua',
   setJobs: (jobs) => set({ jobs }),
@@ -30,7 +33,14 @@ export const useJobStore = create<JobStore>((set, get) => ({
       }
       return { jobs: [...s.jobs, job] };
     }),
-  removeJob: (id) => set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) })),
+  removeJob: (id) =>
+    set((s) => ({
+      jobs: s.jobs.filter((j) => j.id !== id),
+      removedJobIds: s.removedJobIds.includes(id) ? s.removedJobIds : [...s.removedJobIds, id],
+      selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
+    })),
+  clearRemovedJob: (id) =>
+    set((s) => ({ removedJobIds: s.removedJobIds.filter((x) => x !== id) })),
   setSelectedJobId: (id) => set({ selectedJobId: id }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   jobsForTab: (tab) => {

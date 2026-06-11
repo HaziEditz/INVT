@@ -25,6 +25,7 @@ export function useJobs(companyId: string | null) {
   const setJobs = useJobStore((s) => s.setJobs);
   const upsertJob = useJobStore((s) => s.upsertJob);
   const removeJob = useJobStore((s) => s.removeJob);
+  const clearRemovedJob = useJobStore((s) => s.clearRemovedJob);
   const pendingRef = useRef<Map<number, Job>>(new Map());
   const bookingsRef = useRef<Map<number, Job>>(new Map());
 
@@ -35,11 +36,14 @@ export function useJobs(companyId: string | null) {
     let bootstrapping = true;
 
     const syncAll = () => {
-      const merged = mergeJobs([bookingsRef.current, pendingRef.current]);
+      const removed = new Set(useJobStore.getState().removedJobIds);
+      const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
+        (j) => !removed.has(j.id)
+      );
       const byId = new Map(merged.map((j) => [j.id, j]));
       // Keep optimistic U-A jobs until Firebase pendingjobs confirms them
       for (const j of useJobStore.getState().jobs) {
-        if (!byId.has(j.id) && jobTabForStatus(j) === 'ua') {
+        if (!byId.has(j.id) && jobTabForStatus(j) === 'ua' && !removed.has(j.id)) {
           byId.set(j.id, j);
         }
       }
@@ -95,6 +99,7 @@ export function useJobs(companyId: string | null) {
         if (!id) return;
         pendingRef.current.delete(id);
         removeJob(id);
+        clearRemovedJob(id);
         syncAll();
       })
     );
@@ -120,7 +125,7 @@ export function useJobs(companyId: string | null) {
     return () => {
       for (const unsub of unsubs) unsub();
     };
-  }, [companyId, setJobs, upsertJob, removeJob]);
+  }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
 }
 
 export function useClosedJobs(companyId: string | null, enabled: boolean) {

@@ -103,6 +103,9 @@ export async function cancelJob(
   const cancelledAt = new Date().toISOString();
   const cancelReason = 'Cancelled by dispatcher';
 
+  // Remove immediately from local state — do not wait for API or Firebase
+  useJobStore.getState().removeJob(bookingId);
+
   await jsonFetch(`${API}/cancel`, {
     method: 'POST',
     body: JSON.stringify({
@@ -132,8 +135,6 @@ export async function cancelJob(
   } catch {
     /* server may have already updated Firebase */
   }
-
-  useJobStore.getState().removeJob(bookingId);
 }
 
 export async function recallJob(bookingId: number, originalStatus: JobStatus) {
