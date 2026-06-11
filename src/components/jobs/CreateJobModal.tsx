@@ -10,11 +10,15 @@ import {
   fetchDispatcherSettings,
   insertDispatchBooking,
   searchCustomers,
+  updateDispatchBooking,
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
 import {
   buildInsertParams,
+  buildUpdateParams,
   buildBookingDateTime,
+  jobToForm,
+  statusFromDriverId,
   CJ_SERVICES,
   CJ_VEHICLE_TYPES,
   defaultCreateJobForm,
@@ -23,7 +27,8 @@ import {
   type PaymentType,
   type StopPoint,
 } from '@/lib/createJobForm';
-import { estimateFare, formatFare, haversineKm } from '@/lib/fareEstimate';
+import { fetchDrivingRoute, formatCityDistance, formatRouteSummary } from '@/lib/directions';
+import { estimateFare } from '@/lib/fareEstimate';
 import type { Job } from '@/types/job';
 
 interface CreateJobModalProps {
@@ -102,13 +107,14 @@ function jobFromForm(
   form: CreateJobFormState,
   cid: string,
   bookingId: number,
-  bookingStatus: string
+  bookingStatus?: string
 ): Job {
   const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  const status = (bookingStatus || statusFromDriverId(form.driverId)) as Job['status'];
   return {
     id: bookingId,
     companyId: cid,
-    status: (bookingStatus === 'No One' ? 'No One' : 'Pending') as Job['status'],
+    status,
     source: 'dispatch',
     serviceType: form.serviceType as Job['serviceType'],
     pickAddress: form.pick.address || form.pickInput,
@@ -124,17 +130,27 @@ function jobFromForm(
     urgent: form.urgent,
     updateSeq: 1,
     createdAt: Date.now(),
+    dispatcherName: '',
   };
 }
 
 export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJobModalProps) {
   const open = useUiStore((s) => s.openModal === 'createJob');
+  const modalJobId = useUiStore((s) => s.modalJobId);
   const closeModal = useUiStore((s) => s.closeModal);
+  const setRoutePreview = useUiStore((s) => s.setRoutePreview);
   const settings = useUiStore((s) => s.settings);
   const addToast = useUiStore((s) => s.addToast);
   const upsertJob = useJobStore((s) => s.upsertJob);
+  const jobs = useJobStore((s) => s.jobs);
   const setActiveTab = useJobStore((s) => s.setActiveTab);
   const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+
+  const editingJob = useMemo(
+    () => (modalJobId ? jobs.find((j) => j.id === modalJobId) ?? null : null),
+    [modalJobId, jobs]
+  );
+  const isEdit = !!editingJob;
 
   const fbTariffs = useTariffs(companyId);
 
@@ -150,6 +166,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [stripePk, setStripePk] = useState('');
   const [accountHits, setAccountHits] = useState<CustomerSearchResult['accounts']>([]);
   const [accHits, setAccHits] = useState<CustomerSearchResult['acc']>([]);
+  const [cityDistLabel, setCityDistLabel] = useState('');
+  const [routeSummary, setRouteSummary] = useState('');
 
   const [pos, setPos] = useState(loadPos);
   const dragging = useRef(false);
@@ -161,29 +179,39 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setForm((f) => ({ ...f, ...p }));
   }, []);
 
-  const fareEstimateLabel = useMemo(() => {
-    if (form.fixedFareEnabled && form.fixedFareAmount) {
-      const n = parseFloat(form.fixedFareAmount);
-      return Number.isNaN(n) ? null : formatFare(n);
+  const dispatchAtLabel = useMemo(() => {
+    if (form.timing !== 'later') return null;
+    try {
+      const pickup = new Date(`${form.laterDate}T${form.laterHour}:${form.laterMin}:00`);
+      if (Number.isNaN(pickup.getTime())) return null;
+      const dispatchAt = new Date(pickup.getTime() - form.dispatchBeforeMin * 60000);
+      return `Will dispatch at ${dispatchAt.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    } catch {
+      return null;
     }
-    const pickAddr = (form.pick.address || form.pickInput).trim();
-    const dropAddr = (form.drop.address || form.dropInput).trim();
-    if (!pickAddr || !dropAddr || !form.pick.lat || !form.drop.lat) return null;
-    const km = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
-    const tariff = fbTariffs.find((t) => t.id === form.tariffId) ?? fbTariffs[0];
-    if (!tariff) return null;
-    return formatFare(estimateFare(km, tariff));
-  }, [form, fbTariffs]);
+  }, [form.timing, form.laterDate, form.laterHour, form.laterMin, form.dispatchBeforeMin]);
 
   const resetForm = useCallback(() => {
-    setForm(defaultCreateJobForm());
+    const base = defaultCreateJobForm();
+    base.dispatchBeforeMin = settings?.defaultDispatchWindow ?? 10;
+    setForm(base);
     setAccountHits([]);
     setAccHits([]);
-  }, []);
+    setCityDistLabel('');
+    setRouteSummary('');
+  }, [settings?.defaultDispatchWindow]);
 
   useEffect(() => {
-    if (open) resetForm();
-  }, [open, resetForm]);
+    if (!open) {
+      setRoutePreview(null);
+      return;
+    }
+    if (editingJob) {
+      setForm(jobToForm(editingJob));
+    } else {
+      resetForm();
+    }
+  }, [open, editingJob, resetForm, setRoutePreview]);
 
   useEffect(() => {
     if (!open || !companyId) return;
@@ -234,6 +262,55 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     }, 300);
     return () => clearTimeout(t);
   }, [open, form.paymentType, form.accSearchQuery]);
+
+  useEffect(() => {
+    if (!open || !form.pick.lat || !settings?.city) {
+      setCityDistLabel('');
+      return;
+    }
+    let cancelled = false;
+    fetchDrivingRoute(settings.city, form.pick).then((r) => {
+      if (!cancelled && r) setCityDistLabel(formatCityDistance(r.distanceKm, r.durationMin));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.pick.lat, form.pick.lng, settings?.city]);
+
+  useEffect(() => {
+    if (!open || !form.pick.lat || !form.drop.lat) {
+      setRoutePreview(null);
+      setRouteSummary('');
+      return;
+    }
+    setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng }, drop: { lat: form.drop.lat, lng: form.drop.lng } });
+    let cancelled = false;
+    fetchDrivingRoute(form.pick, form.drop).then((r) => {
+      if (cancelled || !r) return;
+      const tariff = fbTariffs.find((t) => t.id === form.tariffId) ?? fbTariffs[0];
+      let fare: number | undefined;
+      if (form.fixedFareEnabled && form.fixedFareAmount) {
+        fare = parseFloat(form.fixedFareAmount);
+      } else if (tariff) {
+        fare = estimateFare(r.distanceKm, tariff);
+      }
+      setRouteSummary(formatRouteSummary(r.distanceKm, r.durationMin, fare));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    form.pick.lat,
+    form.pick.lng,
+    form.drop.lat,
+    form.drop.lng,
+    form.tariffId,
+    form.fixedFareEnabled,
+    form.fixedFareAmount,
+    fbTariffs,
+    setRoutePreview,
+  ]);
 
   const onDragStart = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
@@ -296,10 +373,25 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     return insertDispatchBooking(companyId, params);
   };
 
-  const handleBook = async () => {
+  const handleSubmit = async () => {
     if (!validatePickup()) return;
     setLoading(true);
     try {
+      if (isEdit && editingJob) {
+        const params = buildUpdateParams(form, editingJob.id, dispatcherName);
+        const res = await updateDispatchBooking(editingJob.id, params);
+        upsertJob({
+          ...editingJob,
+          ...jobFromForm(form, companyId, editingJob.id, res.bookingStatus),
+          dispatcherName,
+          updateSeq: (editingJob.updateSeq ?? 0) + 1,
+        });
+        addToast({ type: 'success', title: 'Job updated', message: `#${editingJob.id}` });
+        closeModal();
+        resetForm();
+        return;
+      }
+
       if (form.paymentType === 'card' && form.cardAmount && stripePk && !form.cardPaid) {
         await loadStripeV2();
         window.Stripe!.setPublishableKey(stripePk);
@@ -344,7 +436,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       }
 
       if (lastId) {
-        upsertJob(jobFromForm(form, companyId, lastId, lastStatus));
+        upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
         setActiveTab('ua');
         setSelectedJobId(lastId);
       }
@@ -378,7 +470,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     >
       {/* Drag handle */}
       <div className="cj-drag-bar flex items-center justify-between px-3 py-2 shrink-0" onMouseDown={onDragStart}>
-        <span className="text-sm font-semibold text-[#e8eaf0]">🚕 Create Job</span>
+        <span className="text-sm font-semibold text-[#e8eaf0]">
+          {isEdit ? `✏️ Edit Job #${editingJob?.id}` : '🚕 Create Job'}
+        </span>
         <button
           type="button"
           className="text-[#8892a4] hover:text-[#e8eaf0] p-1"
@@ -402,6 +496,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             onChange={(pickInput) => patch({ pickInput })}
             onPlace={(pick) => patch({ pick, pickInput: pick.address })}
           />
+          {cityDistLabel && (
+            <div className="text-[10px] text-[#8892a4] mb-2">{cityDistLabel}</div>
+          )}
           {form.stops.map((stop) => (
             <div key={stop.id} className="flex gap-1 mb-2">
               <AddressAutocomplete
@@ -456,8 +553,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
               Email
             </label>
           </div>
-          {fareEstimateLabel && (
-            <div className="text-xs font-semibold text-[#5b7cfa] mt-1.5">{fareEstimateLabel}</div>
+          {routeSummary && (
+            <div className="text-xs font-semibold text-[#5b7cfa] mt-1.5">{routeSummary}</div>
           )}
         </section>
 
@@ -541,15 +638,18 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                 className="cj-input flex-1 min-w-[120px]"
                 value={form.dispatchBeforeMin}
                 onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
-                title="Dispatch minutes before"
+                title="Dispatch minutes before pickup"
               >
                 {DISPATCH_MINS.map((m) => (
                   <option key={m} value={m}>
-                    {m === 0 ? 'Dispatch: ASAP' : `Dispatch: ${m} min before`}
+                    {m === 0 ? 'Dispatch: ASAP' : `Dispatch ${m} min before pickup`}
                   </option>
                 ))}
               </select>
             </div>
+          )}
+          {form.timing === 'later' && dispatchAtLabel && (
+            <div className="text-[10px] text-amber-400 mt-1">{dispatchAtLabel}</div>
           )}
         </section>
 
@@ -830,8 +930,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         <button type="button" className="cj-btn-ghost" onClick={closeModal}>
           Cancel
         </button>
-        <button type="button" className="cj-btn-book" onClick={handleBook} disabled={loading}>
-          {loading ? 'Booking…' : 'BOOK ✓'}
+        <button type="button" className="cj-btn-book" onClick={handleSubmit} disabled={loading}>
+          {loading ? 'Saving…' : isEdit ? 'SAVE ✓' : 'BOOK ✓'}
         </button>
       </div>
     </div>

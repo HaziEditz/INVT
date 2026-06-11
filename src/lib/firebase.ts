@@ -1,6 +1,6 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getDatabase, type Database, ref, onValue, off, set, update, push, remove, get } from 'firebase/database';
+import { getDatabase, type Database, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get, off, set, update, push, remove } from 'firebase/database';
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
@@ -34,7 +34,7 @@ export function getFirebaseAuth(): Auth {
   return auth;
 }
 
-export { ref, onValue, off, set, update, push, remove, get };
+export { ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get, off, set, update, push, remove };
 
 export async function fetchClientConfig(): Promise<{
   firebase: FirebaseClientConfig;

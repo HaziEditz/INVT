@@ -139,6 +139,28 @@ export async function insertDispatchBooking(
   };
 }
 
+export async function updateDispatchBooking(
+  bookingId: number,
+  params: DataParam[]
+): Promise<{ bookingId: number; bookingStatus: string }> {
+  const withId = params.some((p) => p.name === 'Id')
+    ? params
+    : [{ name: 'Id', Value: String(bookingId) }, ...params];
+
+  const json = await postDataManager<{ d: string }>('DataSelectorRide', '[ProcUpdateJobv6]', withId);
+  const rows = JSON.parse(json.d || '[]') as Array<{
+    Result?: string;
+    Error?: boolean;
+    BookingStatus?: string;
+  }>;
+  const row = rows[0];
+  if (!row) throw new Error('Empty response from update server');
+  if (row.Error || (row.Result && row.Result.indexOf('Error') === 0)) {
+    throw new Error(row.Result?.replace(/^Error:\s*/, '') || 'Update failed');
+  }
+  return { bookingId, bookingStatus: row.BookingStatus || 'Pending' };
+}
+
 export async function chargeStripeCard(opts: {
   token: string;
   amount: number;

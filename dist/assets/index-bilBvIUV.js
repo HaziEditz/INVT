@@ -27140,6 +27140,46 @@ class ValueEventRegistration {
     return this.callbackContext !== null;
   }
 }
+class ChildEventRegistration {
+  constructor(eventType, callbackContext) {
+    this.eventType = eventType;
+    this.callbackContext = callbackContext;
+  }
+  respondsTo(eventType) {
+    let eventToCheck = eventType === "children_added" ? "child_added" : eventType;
+    eventToCheck = eventToCheck === "children_removed" ? "child_removed" : eventToCheck;
+    return this.eventType === eventToCheck;
+  }
+  createCancelEvent(error2, path) {
+    if (this.callbackContext.hasCancelCallback) {
+      return new CancelEvent(this, error2, path);
+    } else {
+      return null;
+    }
+  }
+  createEvent(change, query2) {
+    assert(change.childName != null, "Child events should have a childName.");
+    const childRef = child(new ReferenceImpl(query2._repo, query2._path), change.childName);
+    const index = query2._queryParams.getIndex();
+    return new DataEvent(change.type, this, new DataSnapshot(change.snapshotNode, childRef, index), change.prevName);
+  }
+  getEventRunner(eventData) {
+    if (eventData.getEventType() === "cancel") {
+      return () => this.callbackContext.onCancel(eventData.error);
+    } else {
+      return () => this.callbackContext.onValue(eventData.snapshot, eventData.prevName);
+    }
+  }
+  matches(other) {
+    if (other instanceof ChildEventRegistration) {
+      return this.eventType === other.eventType && (!this.callbackContext || !other.callbackContext || this.callbackContext.matches(other.callbackContext));
+    }
+    return false;
+  }
+  hasAnyCallback() {
+    return !!this.callbackContext;
+  }
+}
 function addEventListener(query2, eventType, callback, cancelCallbackOrListenOptions, options) {
   let cancelCallback;
   if (typeof cancelCallbackOrListenOptions === "object") {
@@ -27160,12 +27200,21 @@ function addEventListener(query2, eventType, callback, cancelCallbackOrListenOpt
     callback = onceCallback;
   }
   const callbackContext = new CallbackContext(callback, cancelCallback || void 0);
-  const container = new ValueEventRegistration(callbackContext);
+  const container = eventType === "value" ? new ValueEventRegistration(callbackContext) : new ChildEventRegistration(eventType, callbackContext);
   repoAddEventCallbackForQuery(query2._repo, query2, container);
   return () => repoRemoveEventCallbackForQuery(query2._repo, query2, container);
 }
 function onValue(query2, callback, cancelCallbackOrListenOptions, options) {
   return addEventListener(query2, "value", callback, cancelCallbackOrListenOptions, options);
+}
+function onChildAdded(query2, callback, cancelCallbackOrListenOptions, options) {
+  return addEventListener(query2, "child_added", callback, cancelCallbackOrListenOptions, options);
+}
+function onChildChanged(query2, callback, cancelCallbackOrListenOptions, options) {
+  return addEventListener(query2, "child_changed", callback, cancelCallbackOrListenOptions, options);
+}
+function onChildRemoved(query2, callback, cancelCallbackOrListenOptions, options) {
+  return addEventListener(query2, "child_removed", callback, cancelCallbackOrListenOptions, options);
 }
 syncPointSetReferenceConstructor(ReferenceImpl);
 syncTreeSetReferenceConstructor(ReferenceImpl);
@@ -27404,6 +27453,9 @@ const firebase = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProp
   getDb,
   getFirebaseAuth,
   initFirebase,
+  onChildAdded,
+  onChildChanged,
+  onChildRemoved,
   onValue,
   ref,
   set
@@ -27763,22 +27815,6 @@ const Mail = createLucideIcon("Mail", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const MapPin = createLucideIcon("MapPin", [
-  [
-    "path",
-    {
-      d: "M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0",
-      key: "1r0f0z"
-    }
-  ],
-  ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
 const Maximize2 = createLucideIcon("Maximize2", [
   ["polyline", { points: "15 3 21 3 21 9", key: "mznyad" }],
   ["polyline", { points: "9 21 3 21 3 15", key: "1avn1i" }],
@@ -27957,14 +27993,19 @@ function serviceBorderColor(service) {
 }
 function sourceLabel(src) {
   const m2 = {
-    hail: "Hail",
-    web: "Web",
-    website: "Web",
-    passenger: "App",
-    dispatch: "Phone",
-    phone: "Phone"
+    hail: "HAIL",
+    web: "WEB",
+    website: "WEB",
+    passenger: "APP",
+    dispatch: "DISPATCH",
+    phone: "DISPATCH"
   };
-  return m2[src.toLowerCase()] || src;
+  return m2[src.toLowerCase()] || src.toUpperCase();
+}
+function paymentLabel(type) {
+  const t2 = (type || "cash").toUpperCase();
+  if (t2.includes("STRIPE")) return "CARD";
+  return t2.split(/[\s/]/)[0].slice(0, 12);
 }
 function paymentBadgeColor(type) {
   const t2 = (type || "").toLowerCase();
@@ -28143,6 +28184,7 @@ const useUiStore = create((set2, get2) => ({
   mapPoppedOut: false,
   emergency: null,
   settings: null,
+  routePreview: null,
   setTheme: (t2) => {
     persistTheme(t2);
     set2({ theme: t2 });
@@ -28169,7 +28211,8 @@ const useUiStore = create((set2, get2) => ({
   setMapFullscreen: (v2) => set2({ mapFullscreen: v2 }),
   setMapPoppedOut: (v2) => set2({ mapPoppedOut: v2 }),
   setEmergency: (e) => set2({ emergency: e }),
-  setSettings: (s2) => set2({ settings: s2 })
+  setSettings: (s2) => set2({ settings: s2 }),
+  setRoutePreview: (r) => set2({ routePreview: r })
 }));
 const NAV = [
   { id: "searchJobs", label: "Filter" },
@@ -28345,7 +28388,8 @@ function jobFromFirebase(key, rec, companyId) {
     tariffId: rec.TariffId ? String(rec.TariffId) : void 0,
     passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
     updateSeq: parseInt(String(rec.updateSeq ?? "0"), 10) || 0,
-    createdAt: rec.createdAt ? Number(rec.createdAt) : void 0
+    createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
+    dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? "")
   };
 }
 function normalizeJobStatus(raw) {
@@ -28376,7 +28420,8 @@ function statusBadgeStyle(status) {
   const st2 = normalizeJobStatus(status);
   if (st2 === "No One") return { label: "NO ONE", color: "#94a3b8", bg: "rgba(100,116,139,0.2)" };
   if (st2 === "Pending") return { label: "PENDING", color: "#5b7cfa", bg: "rgba(79,110,247,0.2)" };
-  return { label: st2.toUpperCase(), color: "#8892a4", bg: "rgba(136,146,164,0.15)" };
+  if (st2 === "Scheduled") return { label: "SCHEDULED", color: "#f59e0b", bg: "rgba(245,158,11,0.2)" };
+  return null;
 }
 function jobTabForStatus(job) {
   if (job.serviceType === "food" || job.serviceType === "freight") return "dy";
@@ -30466,10 +30511,20 @@ function waitBadgeClass(minutes) {
   if (minutes >= 5) return "bg-amber-500/20 text-amber-400 border-amber-500/40";
   return "bg-[var(--bw-card)] text-[var(--bw-muted)] border-[var(--bw-border)]";
 }
+function formatScheduled(job) {
+  if (!isScheduledJob(job)) return null;
+  try {
+    const d2 = parseISO(job.bookingDateTime.replace(" ", "T"));
+    if (Number.isNaN(d2.getTime())) return null;
+    return format(d2, "dd MMM HH:mm");
+  } catch {
+    return null;
+  }
+}
 function JobCard({ job, tab }) {
   const allDrivers = useDriverStore((s2) => s2.drivers);
-  const drivers = reactExports.useMemo(
-    () => allDrivers.filter((d2) => d2.status === "Available"),
+  const onlineDrivers = reactExports.useMemo(
+    () => allDrivers.filter((d2) => d2.status === "Available" && d2.driverId),
     [allDrivers]
   );
   const addToast = useUiStore((s2) => s2.addToast);
@@ -30478,12 +30533,13 @@ function JobCard({ job, tab }) {
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
   const border = jobCardBorderColor(job);
   const status = normalizeJobStatus(job.status);
-  const badge = statusBadgeStyle(status);
+  const statusBadge = tab === "ua" ? statusBadgeStyle(status) : statusBadgeStyle(status);
   const selected = selectedJobId === job.id;
+  const scheduledLabel = formatScheduled(job);
   const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
     try {
-      const d2 = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime);
+      const d2 = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime.replace(" ", "T"));
       return {
         waitLabel: formatDistanceToNow(d2, { addSuffix: false }),
         waitMinutes: differenceInMinutes(/* @__PURE__ */ new Date(), d2)
@@ -30502,6 +30558,14 @@ function JobCard({ job, tab }) {
   };
   const iconBtn = "p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition";
   const selectJob = () => setSelectedJobId(selected ? null : job.id);
+  const handleAssign = (value) => {
+    if (value === "__pending__") run(() => setPending(job), "Set Pending");
+    else if (value === "__noone__") run(() => setNoOne(job), "Set No One");
+    else {
+      const d2 = onlineDrivers.find((x2) => x2.driverId === value);
+      if (d2) run(() => assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq), "Assigned");
+    }
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -30520,41 +30584,50 @@ function JobCard({ job, tab }) {
       ),
       style: { borderLeftColor: border },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1 mb-1.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-xs font-bold bw-text", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1 mb-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-[10px] font-bold bw-text", children: [
             "#",
             job.id
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", children: sourceLabel(job.source) }),
+          statusBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(
             "span",
             {
               className: "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide",
-              style: { color: badge.color, backgroundColor: badge.bg },
-              children: badge.label
+              style: { color: statusBadge.color, backgroundColor: statusBadge.bg },
+              children: statusBadge.label
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#94a3b8", children: sourceLabel(job.source) }),
           job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "URGENT" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1 text-[11px] mb-1.5 leading-snug", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1 text-[11px] mb-1 leading-snug", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 11, className: "text-emerald-400 shrink-0 mt-0.5" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-text line-clamp-2", children: job.pickAddress || "No pickup" })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 11, className: "text-red-400 shrink-0 mt-0.5" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[var(--bw-muted)] line-clamp-2", children: job.dropAddress || "No dropoff" })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1.5 items-center", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-full", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 10 }),
-            job.passengerName || "—",
-            job.passengerPhone ? ` · ${job.passengerPhone}` : ""
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1 items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-full", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 10 }),
+          job.passengerName || "—",
+          job.passengerPhone ? ` · ${job.passengerPhone}` : ""
+        ] }) }),
+        job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[var(--bw-muted)] mb-1 line-clamp-2 italic", children: job.notes }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), children: paymentLabel(job.paymentType) }),
+          scheduledLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-amber-400", children: [
+            "Sched ",
+            scheduledLabel
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), children: job.paymentType || "Cash" }),
-          job.estimatedFare && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          job.dispatcherName && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[var(--bw-muted)]", children: [
+            "by ",
+            job.dispatcherName
+          ] }),
+          job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-emerald-400", children: [
             "$",
             job.estimatedFare
           ] })
@@ -30569,7 +30642,6 @@ function JobCard({ job, tab }) {
               Button,
               {
                 variant: status === "Pending" ? "primary" : "ghost",
-                className: cn(status === "Pending" && "ring-1 ring-[#4f6ef7]"),
                 onClick: () => run(() => setPending(job), "Set Pending"),
                 children: "Pending"
               }
@@ -30578,7 +30650,7 @@ function JobCard({ job, tab }) {
               Button,
               {
                 variant: status === "No One" ? "muted" : "ghost",
-                className: cn(status === "No One" && "ring-1 ring-[#64748b] bg-[#64748b]/20"),
+                className: cn(status === "No One" && "bg-[#64748b]/20"),
                 onClick: () => run(() => setNoOne(job), "Set No One"),
                 children: "No One"
               }
@@ -30586,16 +30658,18 @@ function JobCard({ job, tab }) {
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "select",
               {
-                className: "bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[90px] border",
+                className: "bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border",
                 defaultValue: "",
                 onChange: (e) => {
-                  const d2 = drivers.find((x2) => x2.driverId === e.target.value);
-                  if (d2) run(() => assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq), "Assigned");
+                  handleAssign(e.target.value);
                   e.target.value = "";
                 },
                 children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign…" }),
-                  drivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Set Pending" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "Set No One" }),
+                  onlineDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— online —" }),
+                  onlineDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
                     d2.vehicleNo,
                     " ",
                     d2.driverName
@@ -30811,7 +30885,8 @@ async function loadGoogleMaps(apiKey) {
     loadPromise = Promise.all([
       importLibrary("maps"),
       importLibrary("places"),
-      importLibrary("geometry")
+      importLibrary("geometry"),
+      importLibrary("routes")
     ]).then(() => {
       var _a2;
       if (typeof ((_a2 = google == null ? void 0 : google.maps) == null ? void 0 : _a2.Map) !== "function") {
@@ -30901,13 +30976,6 @@ function AddressAutocomplete({
     }
   );
 }
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R2 = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a2 = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-  return R2 * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
-}
 function parseTariffRecord(key, rec) {
   const name2 = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? "").trim();
   if (!name2) return null;
@@ -30923,9 +30991,6 @@ function parseTariffRecord(key, rec) {
 function estimateFare(km, tariff) {
   const raw = tariff.startPrice + km * tariff.distanceRate;
   return Math.max(raw, tariff.minimumFare || 0);
-}
-function formatFare(amount) {
-  return `Est. fare: ~$${amount.toFixed(2)}`;
 }
 const DEFAULT_TARIFF = {
   id: "1",
@@ -31061,6 +31126,18 @@ async function insertDispatchBooking(companyId, params) {
     bookingId: row.BookingId ?? parseInt(jobId, 10),
     bookingStatus: row.BookingStatus || "Pending"
   };
+}
+async function updateDispatchBooking(bookingId, params) {
+  var _a2;
+  const withId = params.some((p2) => p2.name === "Id") ? params : [{ name: "Id", Value: String(bookingId) }, ...params];
+  const json = await postDataManager("DataSelectorRide", "[ProcUpdateJobv6]", withId);
+  const rows = JSON.parse(json.d || "[]");
+  const row = rows[0];
+  if (!row) throw new Error("Empty response from update server");
+  if (row.Error || row.Result && row.Result.indexOf("Error") === 0) {
+    throw new Error(((_a2 = row.Result) == null ? void 0 : _a2.replace(/^Error:\s*/, "")) || "Update failed");
+  }
+  return { bookingId, bookingStatus: row.BookingStatus || "Pending" };
 }
 async function chargeStripeCard(opts) {
   const r = await fetch("/Default.aspx/DispatchChargeing", {
@@ -31240,6 +31317,78 @@ function buildInsertParams(form, dispatcherName) {
     { name: "PromoId", Value: "" }
   ];
 }
+function driverBookstatus(form) {
+  if (form.driverId === -1) return { dId: "-1", bookstatus: "No One" };
+  if (form.driverId === -2) return { dId: "0", bookstatus: "Pending" };
+  if (form.driverId > 0) return { dId: String(form.driverId), bookstatus: "Offered" };
+  return { dId: "0", bookstatus: "Pending" };
+}
+function statusFromDriverId(driverId) {
+  if (driverId === -1) return "No One";
+  if (driverId > 0) return "Offered";
+  return "Pending";
+}
+function jobToForm(job) {
+  var _a2, _b2, _c;
+  const form = defaultCreateJobForm();
+  const pick = parseLatLng$1(job.pickLatLng);
+  const drop = parseLatLng$1(job.dropLatLng);
+  const dt2 = job.bookingDateTime || "";
+  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(dt2);
+  let driverId = 0;
+  if (job.status === "No One" || job.driverId === "-1") driverId = -1;
+  else if (job.driverId && parseInt(job.driverId, 10) > 0) driverId = parseInt(job.driverId, 10);
+  else if (job.status === "Pending") driverId = -2;
+  const payment = (job.paymentType || "").toLowerCase();
+  let paymentType = "";
+  if (payment.includes("card")) paymentType = "card";
+  else if (payment.includes("cash")) paymentType = "cash";
+  else if (payment.includes("eftpos")) paymentType = "eftpos";
+  else if (payment.includes("account")) paymentType = "account";
+  else if (payment.includes("tm")) paymentType = "tm";
+  else if (payment.includes("acc")) paymentType = "acc";
+  return {
+    ...form,
+    pick: { address: job.pickAddress, lat: (pick == null ? void 0 : pick.lat) ?? 0, lng: (pick == null ? void 0 : pick.lng) ?? 0 },
+    pickInput: job.pickAddress,
+    drop: { address: job.dropAddress, lat: (drop == null ? void 0 : drop.lat) ?? 0, lng: (drop == null ? void 0 : drop.lng) ?? 0 },
+    dropInput: job.dropAddress,
+    name: job.passengerName,
+    phone: job.passengerPhone,
+    notes: job.notes || "",
+    serviceType: job.serviceType,
+    timing: isLater ? "later" : "now",
+    laterDate: dt2.slice(0, 10) || form.laterDate,
+    laterHour: dt2.slice(11, 13) || form.laterHour,
+    laterMin: dt2.slice(14, 16) || form.laterMin,
+    dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
+    urgent: !!job.urgent,
+    corner: !!job.corner,
+    vehicleType: job.vehicleType || "Any",
+    tariffId: job.tariffId || "0",
+    driverId,
+    vehicleId: job.vehicleId || "0",
+    paymentType,
+    claimNumber: ((_a2 = job.acc) == null ? void 0 : _a2.claimNumber) || "",
+    poNumber: ((_b2 = job.acc) == null ? void 0 : _b2.poNumber) || "",
+    accClientId: ((_c = job.acc) == null ? void 0 : _c.clientId) || "",
+    fixedFareEnabled: !!job.estimatedFare && job.tariffId === "-1",
+    fixedFareAmount: job.estimatedFare || ""
+  };
+}
+function isFutureBooking(dt2) {
+  try {
+    const d2 = new Date(dt2.replace(" ", "T"));
+    return !Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4;
+  } catch {
+    return false;
+  }
+}
+function buildUpdateParams(form, bookingId, dispatcherName) {
+  const { dId, bookstatus } = driverBookstatus(form);
+  const base = buildInsertParams(form, dispatcherName).filter((p2) => p2.name !== "ExternalJobId").map((p2) => p2.name === "DId" ? { ...p2, Value: dId } : p2);
+  return [{ name: "Id", Value: String(bookingId) }, ...base, { name: "bookstatus", Value: bookstatus }];
+}
 function repeatBookingDates(form) {
   if (!form.repeatExpanded || !form.repeatUntil) return [];
   const startDate = form.timing === "later" ? form.laterDate : nzNowParts().date;
@@ -31254,6 +31403,84 @@ function repeatBookingDates(form) {
     cur.setDate(cur.getDate() + 1);
   }
   return out;
+}
+function validCoord(p2) {
+  return Math.abs(p2.lat) > 1e-4 || Math.abs(p2.lng) > 1e-4;
+}
+async function fetchDrivingRoute(origin, destination) {
+  if (!validCoord(origin) || !validCoord(destination)) return null;
+  await loadGoogleMaps();
+  const { DirectionsService } = await importLibrary("routes");
+  const service = new DirectionsService();
+  return new Promise((resolve) => {
+    service.route(
+      {
+        origin,
+        destination,
+        travelMode: google.maps.TravelMode.DRIVING
+      },
+      (result, status) => {
+        var _a2, _b2;
+        if (status !== google.maps.DirectionsStatus.OK || !(result == null ? void 0 : result.routes[0])) {
+          resolve(null);
+          return;
+        }
+        const leg = result.routes[0].legs[0];
+        const path = result.routes[0].overview_path.map((p2) => ({
+          lat: p2.lat(),
+          lng: p2.lng()
+        }));
+        resolve({
+          distanceKm: (((_a2 = leg == null ? void 0 : leg.distance) == null ? void 0 : _a2.value) ?? 0) / 1e3,
+          durationMin: (((_b2 = leg == null ? void 0 : leg.duration) == null ? void 0 : _b2.value) ?? 0) / 60,
+          path
+        });
+      }
+    );
+  });
+}
+async function renderDrivingRoute(map2, renderer, origin, destination) {
+  if (!validCoord(origin) || !validCoord(destination)) {
+    renderer.setMap(null);
+    return null;
+  }
+  await loadGoogleMaps();
+  const { DirectionsService } = await importLibrary("routes");
+  const service = new DirectionsService();
+  return new Promise((resolve) => {
+    service.route(
+      {
+        origin,
+        destination,
+        travelMode: google.maps.TravelMode.DRIVING
+      },
+      (result, status) => {
+        var _a2, _b2, _c, _d;
+        if (status !== google.maps.DirectionsStatus.OK || !result) {
+          renderer.setMap(null);
+          resolve(null);
+          return;
+        }
+        renderer.setMap(map2);
+        renderer.setDirections(result);
+        const leg = (_a2 = result.routes[0]) == null ? void 0 : _a2.legs[0];
+        const path = ((_b2 = result.routes[0]) == null ? void 0 : _b2.overview_path.map((p2) => ({ lat: p2.lat(), lng: p2.lng() }))) ?? [];
+        resolve({
+          distanceKm: (((_c = leg == null ? void 0 : leg.distance) == null ? void 0 : _c.value) ?? 0) / 1e3,
+          durationMin: (((_d = leg == null ? void 0 : leg.duration) == null ? void 0 : _d.value) ?? 0) / 60,
+          path
+        });
+      }
+    );
+  });
+}
+function formatRouteSummary(km, min, fare) {
+  const parts = [`~${km.toFixed(1)} km`, `~${Math.round(min)} min`];
+  if (fare != null && !Number.isNaN(fare)) parts.push(`Est. $${fare.toFixed(2)}`);
+  return parts.join(" · ");
+}
+function formatCityDistance(km, min) {
+  return `~${km.toFixed(1)} km from city, ~${Math.round(min)} min drive`;
 }
 const POS_KEY = "bw_create_job_pos";
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -31301,10 +31528,11 @@ function serviceLabel(s2) {
 }
 function jobFromForm(form, cid, bookingId, bookingStatus) {
   const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  const status = bookingStatus || statusFromDriverId(form.driverId);
   return {
     id: bookingId,
     companyId: cid,
-    status: bookingStatus === "No One" ? "No One" : "Pending",
+    status,
     source: "dispatch",
     serviceType: form.serviceType,
     pickAddress: form.pick.address || form.pickInput,
@@ -31319,17 +31547,26 @@ function jobFromForm(form, cid, bookingId, bookingStatus) {
     dispatchBeforeMinutes: dispatchBefore,
     urgent: form.urgent,
     updateSeq: 1,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    dispatcherName: ""
   };
 }
 function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const open2 = useUiStore((s2) => s2.openModal === "createJob");
+  const modalJobId = useUiStore((s2) => s2.modalJobId);
   const closeModal = useUiStore((s2) => s2.closeModal);
+  const setRoutePreview = useUiStore((s2) => s2.setRoutePreview);
   const settings = useUiStore((s2) => s2.settings);
   const addToast = useUiStore((s2) => s2.addToast);
   const upsertJob = useJobStore((s2) => s2.upsertJob);
+  const jobs = useJobStore((s2) => s2.jobs);
   const setActiveTab = useJobStore((s2) => s2.setActiveTab);
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
+  const editingJob = reactExports.useMemo(
+    () => modalJobId ? jobs.find((j2) => j2.id === modalJobId) ?? null : null,
+    [modalJobId, jobs]
+  );
+  const isEdit = !!editingJob;
   const fbTariffs = useTariffs(companyId);
   const drivers = useDriverStore((s2) => s2.drivers);
   const availableDrivers = reactExports.useMemo(
@@ -31342,6 +31579,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const [stripePk, setStripePk] = reactExports.useState("");
   const [accountHits, setAccountHits] = reactExports.useState([]);
   const [accHits, setAccHits] = reactExports.useState([]);
+  const [cityDistLabel, setCityDistLabel] = reactExports.useState("");
+  const [routeSummary, setRouteSummary] = reactExports.useState("");
   const [pos, setPos] = reactExports.useState(loadPos);
   const dragging = reactExports.useRef(false);
   const dragOffset = reactExports.useRef({ x: 0, y: 0 });
@@ -31350,27 +31589,37 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const patch = reactExports.useCallback((p2) => {
     setForm((f2) => ({ ...f2, ...p2 }));
   }, []);
-  const fareEstimateLabel = reactExports.useMemo(() => {
-    if (form.fixedFareEnabled && form.fixedFareAmount) {
-      const n2 = parseFloat(form.fixedFareAmount);
-      return Number.isNaN(n2) ? null : formatFare(n2);
+  const dispatchAtLabel = reactExports.useMemo(() => {
+    if (form.timing !== "later") return null;
+    try {
+      const pickup = /* @__PURE__ */ new Date(`${form.laterDate}T${form.laterHour}:${form.laterMin}:00`);
+      if (Number.isNaN(pickup.getTime())) return null;
+      const dispatchAt = new Date(pickup.getTime() - form.dispatchBeforeMin * 6e4);
+      return `Will dispatch at ${dispatchAt.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+    } catch {
+      return null;
     }
-    const pickAddr = (form.pick.address || form.pickInput).trim();
-    const dropAddr = (form.drop.address || form.dropInput).trim();
-    if (!pickAddr || !dropAddr || !form.pick.lat || !form.drop.lat) return null;
-    const km = haversineKm(form.pick.lat, form.pick.lng, form.drop.lat, form.drop.lng);
-    const tariff = fbTariffs.find((t2) => t2.id === form.tariffId) ?? fbTariffs[0];
-    if (!tariff) return null;
-    return formatFare(estimateFare(km, tariff));
-  }, [form, fbTariffs]);
+  }, [form.timing, form.laterDate, form.laterHour, form.laterMin, form.dispatchBeforeMin]);
   const resetForm = reactExports.useCallback(() => {
-    setForm(defaultCreateJobForm());
+    const base = defaultCreateJobForm();
+    base.dispatchBeforeMin = (settings == null ? void 0 : settings.defaultDispatchWindow) ?? 10;
+    setForm(base);
     setAccountHits([]);
     setAccHits([]);
-  }, []);
+    setCityDistLabel("");
+    setRouteSummary("");
+  }, [settings == null ? void 0 : settings.defaultDispatchWindow]);
   reactExports.useEffect(() => {
-    if (open2) resetForm();
-  }, [open2, resetForm]);
+    if (!open2) {
+      setRoutePreview(null);
+      return;
+    }
+    if (editingJob) {
+      setForm(jobToForm(editingJob));
+    } else {
+      resetForm();
+    }
+  }, [open2, editingJob, resetForm, setRoutePreview]);
   reactExports.useEffect(() => {
     if (!open2 || !companyId) return;
     fetchDispatcherSettings().then((s2) => {
@@ -31407,6 +31656,53 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     }, 300);
     return () => clearTimeout(t2);
   }, [open2, form.paymentType, form.accSearchQuery]);
+  reactExports.useEffect(() => {
+    if (!open2 || !form.pick.lat || !(settings == null ? void 0 : settings.city)) {
+      setCityDistLabel("");
+      return;
+    }
+    let cancelled = false;
+    fetchDrivingRoute(settings.city, form.pick).then((r) => {
+      if (!cancelled && r) setCityDistLabel(formatCityDistance(r.distanceKm, r.durationMin));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open2, form.pick.lat, form.pick.lng, settings == null ? void 0 : settings.city]);
+  reactExports.useEffect(() => {
+    if (!open2 || !form.pick.lat || !form.drop.lat) {
+      setRoutePreview(null);
+      setRouteSummary("");
+      return;
+    }
+    setRoutePreview({ pick: { lat: form.pick.lat, lng: form.pick.lng }, drop: { lat: form.drop.lat, lng: form.drop.lng } });
+    let cancelled = false;
+    fetchDrivingRoute(form.pick, form.drop).then((r) => {
+      if (cancelled || !r) return;
+      const tariff = fbTariffs.find((t2) => t2.id === form.tariffId) ?? fbTariffs[0];
+      let fare;
+      if (form.fixedFareEnabled && form.fixedFareAmount) {
+        fare = parseFloat(form.fixedFareAmount);
+      } else if (tariff) {
+        fare = estimateFare(r.distanceKm, tariff);
+      }
+      setRouteSummary(formatRouteSummary(r.distanceKm, r.durationMin, fare));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open2,
+    form.pick.lat,
+    form.pick.lng,
+    form.drop.lat,
+    form.drop.lng,
+    form.tariffId,
+    form.fixedFareEnabled,
+    form.fixedFareAmount,
+    fbTariffs,
+    setRoutePreview
+  ]);
   const onDragStart = (e) => {
     if (e.target.closest("button")) return;
     dragging.current = true;
@@ -31460,10 +31756,24 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     const params = buildInsertParams(f2, dispatcherName);
     return insertDispatchBooking(companyId, params);
   };
-  const handleBook = async () => {
+  const handleSubmit = async () => {
     if (!validatePickup()) return;
     setLoading(true);
     try {
+      if (isEdit && editingJob) {
+        const params = buildUpdateParams(form, editingJob.id, dispatcherName);
+        const res = await updateDispatchBooking(editingJob.id, params);
+        upsertJob({
+          ...editingJob,
+          ...jobFromForm(form, companyId, editingJob.id, res.bookingStatus),
+          dispatcherName,
+          updateSeq: (editingJob.updateSeq ?? 0) + 1
+        });
+        addToast({ type: "success", title: "Job updated", message: `#${editingJob.id}` });
+        closeModal();
+        resetForm();
+        return;
+      }
       if (form.paymentType === "card" && form.cardAmount && stripePk && !form.cardPaid) {
         await loadStripeV2();
         window.Stripe.setPublishableKey(stripePk);
@@ -31506,7 +31816,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         lastStatus = res.bookingStatus;
       }
       if (lastId) {
-        upsertJob(jobFromForm(form, companyId, lastId, lastStatus));
+        upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
         setActiveTab("ua");
         setSelectedJobId(lastId);
       }
@@ -31536,7 +31846,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       style: { width: 500, maxHeight: "calc(100vh - 32px)", left: pos.x, top: pos.y },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "cj-drag-bar flex items-center justify-between px-3 py-2 shrink-0", onMouseDown: onDragStart, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-semibold text-[#e8eaf0]", children: "🚕 Create Job" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-semibold text-[#e8eaf0]", children: isEdit ? `✏️ Edit Job #${editingJob == null ? void 0 : editingJob.id}` : "🚕 Create Job" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
@@ -31563,6 +31873,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 onPlace: (pick) => patch({ pick, pickInput: pick.address })
               }
             ),
+            cityDistLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#8892a4] mb-2", children: cityDistLabel }),
             form.stops.map((stop) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 mb-2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 AddressAutocomplete,
@@ -31628,7 +31939,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 "Email"
               ] })
             ] }),
-            fareEstimateLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold text-[#5b7cfa] mt-1.5", children: fareEstimateLabel })
+            routeSummary && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold text-[#5b7cfa] mt-1.5", children: routeSummary })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "cj-section", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cj-label", children: "Passenger" }),
@@ -31713,11 +32024,12 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                   className: "cj-input flex-1 min-w-[120px]",
                   value: form.dispatchBeforeMin,
                   onChange: (e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) }),
-                  title: "Dispatch minutes before",
-                  children: DISPATCH_MINS.map((m2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: m2, children: m2 === 0 ? "Dispatch: ASAP" : `Dispatch: ${m2} min before` }, m2))
+                  title: "Dispatch minutes before pickup",
+                  children: DISPATCH_MINS.map((m2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: m2, children: m2 === 0 ? "Dispatch: ASAP" : `Dispatch ${m2} min before pickup` }, m2))
                 }
               )
-            ] })
+            ] }),
+            form.timing === "later" && dispatchAtLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-amber-400 mt-1", children: dispatchAtLabel })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "cj-section", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-2 gap-3", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -31955,7 +32267,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "shrink-0 flex justify-end gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: resetForm, children: "Clear" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: closeModal, children: "Cancel" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-book", onClick: handleBook, disabled: loading, children: loading ? "Booking…" : "BOOK ✓" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-book", onClick: handleSubmit, disabled: loading, children: loading ? "Saving…" : isEdit ? "SAVE ✓" : "BOOK ✓" })
         ] })
       ]
     }
@@ -39564,7 +39876,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CFtbWIV7.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-D8X_tZMB.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -40838,7 +41150,7 @@ function DispatchMap({
   const gMapRef = reactExports.useRef(null);
   const markersRef = reactExports.useRef([]);
   const jobMarkersRef = reactExports.useRef([]);
-  const routeLineRef = reactExports.useRef(null);
+  const directionsRendererRef = reactExports.useRef(null);
   const trafficRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
@@ -40847,6 +41159,7 @@ function DispatchMap({
   const jobs = useJobStore((s2) => s2.jobs);
   const mapTraffic = useUiStore((s2) => s2.mapTraffic);
   const mapZones = useUiStore((s2) => s2.mapZones);
+  const routePreview = useUiStore((s2) => s2.routePreview);
   const theme = useUiStore((s2) => s2.theme);
   const setMapTraffic = useUiStore((s2) => s2.setMapTraffic);
   const setMapZones = useUiStore((s2) => s2.setMapZones);
@@ -40937,41 +41250,50 @@ function DispatchMap({
     }
   }, [drivers, openModalWith, mapReady]);
   reactExports.useEffect(() => {
-    var _a2;
     if (!gMapRef.current || !mapReady) return;
     jobMarkersRef.current.forEach((m2) => m2.setMap(null));
     jobMarkersRef.current = [];
-    (_a2 = routeLineRef.current) == null ? void 0 : _a2.setMap(null);
-    routeLineRef.current = null;
-    if (!selectedJob) return;
-    const pick = parseLatLng$1(selectedJob.pickLatLng);
-    const drop = parseLatLng$1(selectedJob.dropLatLng);
-    const hasDrop = drop && (Math.abs(drop.lat) > 1e-4 || Math.abs(drop.lng) > 1e-4);
-    const bounds = new google.maps.LatLngBounds();
-    if (pick && (Math.abs(pick.lat) > 1e-4 || Math.abs(pick.lng) > 1e-4)) {
-      const pickMarker = new google.maps.Marker({
-        position: pick,
-        map: gMapRef.current,
-        title: selectedJob.pickAddress || "Pickup",
-        label: { text: "P", color: "#fff", fontSize: "10px", fontWeight: "700" },
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: "#22c55e",
-          fillOpacity: 1,
-          strokeColor: "#fff",
-          strokeWeight: 2
-        }
+    if (!directionsRendererRef.current) {
+      directionsRendererRef.current = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        polylineOptions: { strokeColor: "#5b7cfa", strokeWeight: 4, strokeOpacity: 0.85 }
       });
-      jobMarkersRef.current.push(pickMarker);
-      bounds.extend(pick);
     }
-    if (hasDrop && drop) {
+    directionsRendererRef.current.setMap(null);
+    const target = selectedJob ? {
+      pick: parseLatLng$1(selectedJob.pickLatLng),
+      drop: parseLatLng$1(selectedJob.dropLatLng),
+      pickLabel: selectedJob.pickAddress,
+      dropLabel: selectedJob.dropAddress
+    } : routePreview ? {
+      pick: routePreview.pick,
+      drop: routePreview.drop,
+      pickLabel: "Pickup",
+      dropLabel: "Dropoff"
+    } : null;
+    if (!(target == null ? void 0 : target.pick)) return;
+    const hasPick = Math.abs(target.pick.lat) > 1e-4 || Math.abs(target.pick.lng) > 1e-4;
+    if (!hasPick) return;
+    const pickMarker = new google.maps.Marker({
+      position: target.pick,
+      map: gMapRef.current,
+      title: target.pickLabel || "Pickup",
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 10,
+        fillColor: "#22c55e",
+        fillOpacity: 1,
+        strokeColor: "#fff",
+        strokeWeight: 2
+      }
+    });
+    jobMarkersRef.current.push(pickMarker);
+    const hasDrop = target.drop && (Math.abs(target.drop.lat) > 1e-4 || Math.abs(target.drop.lng) > 1e-4);
+    if (hasDrop && target.drop) {
       const dropMarker = new google.maps.Marker({
-        position: drop,
+        position: target.drop,
         map: gMapRef.current,
-        title: selectedJob.dropAddress || "Dropoff",
-        label: { text: "D", color: "#fff", fontSize: "10px", fontWeight: "700" },
+        title: target.dropLabel || "Dropoff",
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 10,
@@ -40982,23 +41304,24 @@ function DispatchMap({
         }
       });
       jobMarkersRef.current.push(dropMarker);
-      bounds.extend(drop);
-    }
-    if (pick && hasDrop && drop) {
-      routeLineRef.current = new google.maps.Polyline({
-        path: [pick, drop],
-        geodesic: true,
-        strokeColor: "#5b7cfa",
-        strokeOpacity: 0.85,
-        strokeWeight: 3,
-        map: gMapRef.current
+      void renderDrivingRoute(
+        gMapRef.current,
+        directionsRendererRef.current,
+        target.pick,
+        target.drop
+      ).then((info) => {
+        if (info && gMapRef.current) {
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(target.pick);
+          bounds.extend(target.drop);
+          gMapRef.current.fitBounds(bounds, 48);
+        }
       });
-      gMapRef.current.fitBounds(bounds, 48);
-    } else if (pick) {
-      gMapRef.current.setCenter(pick);
+    } else {
+      gMapRef.current.setCenter(target.pick);
       gMapRef.current.setZoom(15);
     }
-  }, [selectedJob, mapReady]);
+  }, [selectedJob, routePreview, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
     let cancelled = false;
@@ -41144,35 +41467,114 @@ function MessagesModal() {
     tab === "inbox" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Firebase messages thread view." })
   ] });
 }
+let audioCtx = null;
+function playNewJobSound() {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    const ctx = audioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(1e-4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(1e-4, ctx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.36);
+  } catch {
+  }
+}
 function mergeJobs(maps) {
   const byId = /* @__PURE__ */ new Map();
   for (const m2 of maps) {
-    for (const [id, job] of m2) byId.set(id, { ...byId.get(id), ...job });
+    for (const [id, job] of m2) {
+      const prev = byId.get(id);
+      byId.set(id, prev ? { ...prev, ...job } : job);
+    }
   }
   return Array.from(byId.values());
 }
+function isUaJob(job) {
+  return jobTabForStatus(job) === "ua";
+}
 function useJobs(companyId) {
   const setJobs = useJobStore((s2) => s2.setJobs);
+  const removeJob = useJobStore((s2) => s2.removeJob);
   const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
   const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const knownPendingIds = reactExports.useRef(/* @__PURE__ */ new Set());
   reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
+    const childUnsubs = [];
     const sync = () => {
       setJobs(mergeJobs([bookingsRef.current, pendingRef.current]));
     };
+    const notifyNewJob = (job) => {
+      if (!isUaJob(job)) return;
+      playNewJobSound();
+      useUiStore.getState().addToast({
+        type: "info",
+        title: `New job #${job.id}`,
+        message: job.pickAddress || void 0
+      });
+    };
+    const applyPending = (key, rec, isNew) => {
+      const job = jobFromFirebase(key, rec, companyId);
+      if (!job) return;
+      pendingRef.current.set(job.id, job);
+      sync();
+      if (isNew) notifyNewJob(job);
+    };
     const pRef = ref(db2, `pendingjobs/${companyId}`);
     const bRef = ref(db2, `allbookings/${companyId}`);
-    const unsubPending = onValue(pRef, (snap) => {
+    knownPendingIds.current = /* @__PURE__ */ new Set();
+    get(pRef).then((snap) => {
       pendingRef.current = /* @__PURE__ */ new Map();
       const val = snap.val();
       if (val && typeof val === "object") {
         for (const [key, rec] of Object.entries(val)) {
           const job = jobFromFirebase(key, rec, companyId);
-          if (job) pendingRef.current.set(job.id, job);
+          if (job) {
+            pendingRef.current.set(job.id, job);
+            knownPendingIds.current.add(job.id);
+          }
         }
       }
       sync();
+      childUnsubs.push(
+        onChildAdded(pRef, (snap2) => {
+          const val2 = snap2.val();
+          if (!val2 || typeof val2 !== "object") return;
+          const job = jobFromFirebase(snap2.key, val2, companyId);
+          if (!job) return;
+          const isNew = !knownPendingIds.current.has(job.id);
+          knownPendingIds.current.add(job.id);
+          applyPending(snap2.key, val2, isNew);
+        })
+      );
+      childUnsubs.push(
+        onChildChanged(pRef, (snap2) => {
+          const val2 = snap2.val();
+          if (!val2 || typeof val2 !== "object") return;
+          applyPending(snap2.key, val2, false);
+        })
+      );
+      childUnsubs.push(
+        onChildRemoved(pRef, (snap2) => {
+          const id = parseInt(snap2.key || "0", 10);
+          if (!id) return;
+          pendingRef.current.delete(id);
+          knownPendingIds.current.delete(id);
+          removeJob(id);
+          sync();
+        })
+      );
+    }).catch(() => {
     });
     const unsubBookings = onValue(bRef, (snap) => {
       bookingsRef.current = /* @__PURE__ */ new Map();
@@ -41181,17 +41583,19 @@ function useJobs(companyId) {
         for (const [key, rec] of Object.entries(val)) {
           const job = jobFromFirebase(key, rec, companyId);
           if (!job) continue;
-          const active = ["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Queued", "Offered"].includes(job.status);
+          const active = ["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Queued", "Offered"].includes(
+            job.status
+          );
           if (active) bookingsRef.current.set(job.id, job);
         }
       }
       sync();
     });
     return () => {
-      unsubPending();
+      for (const unsub of childUnsubs) unsub();
       unsubBookings();
     };
-  }, [companyId, setJobs]);
+  }, [companyId, setJobs, removeJob]);
 }
 function useClosedJobs(companyId, enabled) {
   const [closed, setClosed] = reactExports.useState([]);
@@ -41483,7 +41887,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CtyUln6V.js");
+        const { writeActiveDispatcher } = await import("./notifications-CWbcZ72W.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -41510,7 +41914,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CtyUln6V.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CWbcZ72W.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -41522,6 +41926,7 @@ function settingsFingerprint(s2) {
     timezone: s2.timezone,
     city: s2.city,
     features: s2.features,
+    defaultDispatchWindow: s2.defaultDispatchWindow,
     logoUrl: s2.logoUrl
   });
 }
@@ -41549,6 +41954,7 @@ function useCompanySettings(companyId) {
           businessAccounts: val.businessAccounts !== false
         },
         tmConfig: val.tmConfig || {},
+        defaultDispatchWindow: parseInt(String(val.defaultDispatchWindow ?? 10), 10) || 10,
         logoUrl: val.logoUrl
       };
       const prev = useUiStore.getState().settings;
@@ -41828,4 +42234,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BSgICI4c.js.map
+//# sourceMappingURL=index-bilBvIUV.js.map

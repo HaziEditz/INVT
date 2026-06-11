@@ -18,6 +18,7 @@ import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
+import { renderDrivingRoute } from '@/lib/directions';
 import { Spinner } from '@/components/shared/Spinner';
 import { cn } from '@/lib/utils';
 
@@ -46,7 +47,7 @@ export function DispatchMap({
   const gMapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const jobMarkersRef = useRef<google.maps.Marker[]>([]);
-  const routeLineRef = useRef<google.maps.Polyline | null>(null);
+  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -55,6 +56,7 @@ export function DispatchMap({
   const jobs = useJobStore((s) => s.jobs);
   const mapTraffic = useUiStore((s) => s.mapTraffic);
   const mapZones = useUiStore((s) => s.mapZones);
+  const routePreview = useUiStore((s) => s.routePreview);
   const theme = useUiStore((s) => s.theme);
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
   const setMapZones = useUiStore((s) => s.setMapZones);
@@ -164,42 +166,61 @@ export function DispatchMap({
 
     jobMarkersRef.current.forEach((m) => m.setMap(null));
     jobMarkersRef.current = [];
-    routeLineRef.current?.setMap(null);
-    routeLineRef.current = null;
 
-    if (!selectedJob) return;
-
-    const pick = parseLatLng(selectedJob.pickLatLng);
-    const drop = parseLatLng(selectedJob.dropLatLng);
-    const hasDrop = drop && (Math.abs(drop.lat) > 0.0001 || Math.abs(drop.lng) > 0.0001);
-
-    const bounds = new google.maps.LatLngBounds();
-
-    if (pick && (Math.abs(pick.lat) > 0.0001 || Math.abs(pick.lng) > 0.0001)) {
-      const pickMarker = new google.maps.Marker({
-        position: pick,
-        map: gMapRef.current,
-        title: selectedJob.pickAddress || 'Pickup',
-        label: { text: 'P', color: '#fff', fontSize: '10px', fontWeight: '700' },
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: '#22c55e',
-          fillOpacity: 1,
-          strokeColor: '#fff',
-          strokeWeight: 2,
-        },
+    if (!directionsRendererRef.current) {
+      directionsRendererRef.current = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        polylineOptions: { strokeColor: '#5b7cfa', strokeWeight: 4, strokeOpacity: 0.85 },
       });
-      jobMarkersRef.current.push(pickMarker);
-      bounds.extend(pick);
     }
+    directionsRendererRef.current.setMap(null);
 
-    if (hasDrop && drop) {
+    const target = selectedJob
+      ? {
+          pick: parseLatLng(selectedJob.pickLatLng),
+          drop: parseLatLng(selectedJob.dropLatLng),
+          pickLabel: selectedJob.pickAddress,
+          dropLabel: selectedJob.dropAddress,
+        }
+      : routePreview
+        ? {
+            pick: routePreview.pick,
+            drop: routePreview.drop,
+            pickLabel: 'Pickup',
+            dropLabel: 'Dropoff',
+          }
+        : null;
+
+    if (!target?.pick) return;
+
+    const hasPick =
+      Math.abs(target.pick.lat) > 0.0001 || Math.abs(target.pick.lng) > 0.0001;
+    if (!hasPick) return;
+
+    const pickMarker = new google.maps.Marker({
+      position: target.pick,
+      map: gMapRef.current,
+      title: target.pickLabel || 'Pickup',
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 10,
+        fillColor: '#22c55e',
+        fillOpacity: 1,
+        strokeColor: '#fff',
+        strokeWeight: 2,
+      },
+    });
+    jobMarkersRef.current.push(pickMarker);
+
+    const hasDrop =
+      target.drop &&
+      (Math.abs(target.drop.lat) > 0.0001 || Math.abs(target.drop.lng) > 0.0001);
+
+    if (hasDrop && target.drop) {
       const dropMarker = new google.maps.Marker({
-        position: drop,
+        position: target.drop,
         map: gMapRef.current,
-        title: selectedJob.dropAddress || 'Dropoff',
-        label: { text: 'D', color: '#fff', fontSize: '10px', fontWeight: '700' },
+        title: target.dropLabel || 'Dropoff',
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 10,
@@ -210,24 +231,25 @@ export function DispatchMap({
         },
       });
       jobMarkersRef.current.push(dropMarker);
-      bounds.extend(drop);
-    }
 
-    if (pick && hasDrop && drop) {
-      routeLineRef.current = new google.maps.Polyline({
-        path: [pick, drop],
-        geodesic: true,
-        strokeColor: '#5b7cfa',
-        strokeOpacity: 0.85,
-        strokeWeight: 3,
-        map: gMapRef.current,
+      void renderDrivingRoute(
+        gMapRef.current,
+        directionsRendererRef.current,
+        target.pick,
+        target.drop
+      ).then((info) => {
+        if (info && gMapRef.current) {
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(target.pick!);
+          bounds.extend(target.drop!);
+          gMapRef.current.fitBounds(bounds, 48);
+        }
       });
-      gMapRef.current.fitBounds(bounds, 48);
-    } else if (pick) {
-      gMapRef.current.setCenter(pick);
+    } else {
+      gMapRef.current.setCenter(target.pick);
       gMapRef.current.setZoom(15);
     }
-  }, [selectedJob, mapReady]);
+  }, [selectedJob, routePreview, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;

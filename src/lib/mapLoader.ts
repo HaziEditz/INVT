@@ -44,6 +44,7 @@ export async function loadGoogleMaps(apiKey?: string): Promise<void> {
       importLibrary('maps'),
       importLibrary('places'),
       importLibrary('geometry'),
+      importLibrary('routes'),
     ])
       .then(() => {
         if (typeof google?.maps?.Map !== 'function') {

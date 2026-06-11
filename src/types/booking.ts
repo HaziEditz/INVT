@@ -20,6 +20,7 @@ export interface CompanySettings {
     capAmount?: number;
     hoistUnitCost?: number;
   };
+  defaultDispatchWindow?: number;
   logoUrl?: string;
 }
 

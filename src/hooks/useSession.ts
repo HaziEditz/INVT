@@ -52,6 +52,7 @@ function settingsFingerprint(s: CompanySettings): string {
     timezone: s.timezone,
     city: s.city,
     features: s.features,
+    defaultDispatchWindow: s.defaultDispatchWindow,
     logoUrl: s.logoUrl,
   });
 }
@@ -81,6 +82,7 @@ export function useCompanySettings(companyId: string | null) {
           businessAccounts: val.businessAccounts !== false,
         },
         tmConfig: val.tmConfig || {},
+        defaultDispatchWindow: parseInt(String(val.defaultDispatchWindow ?? 10), 10) || 10,
         logoUrl: val.logoUrl,
       };
       const prev = useUiStore.getState().settings;

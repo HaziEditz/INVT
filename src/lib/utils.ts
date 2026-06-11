@@ -16,14 +16,20 @@ export function serviceBorderColor(service: string): string {
 
 export function sourceLabel(src: string): string {
   const m: Record<string, string> = {
-    hail: 'Hail',
-    web: 'Web',
-    website: 'Web',
-    passenger: 'App',
-    dispatch: 'Phone',
-    phone: 'Phone',
+    hail: 'HAIL',
+    web: 'WEB',
+    website: 'WEB',
+    passenger: 'APP',
+    dispatch: 'DISPATCH',
+    phone: 'DISPATCH',
   };
-  return m[src.toLowerCase()] || src;
+  return m[src.toLowerCase()] || src.toUpperCase();
+}
+
+export function paymentLabel(type: string): string {
+  const t = (type || 'cash').toUpperCase();
+  if (t.includes('STRIPE')) return 'CARD';
+  return t.split(/[\s/]/)[0].slice(0, 12);
 }
 
 export function paymentBadgeColor(type: string): string {

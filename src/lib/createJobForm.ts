@@ -1,4 +1,6 @@
 import type { DataParam } from '@/lib/dispatchApi';
+import type { Job } from '@/types/job';
+import { parseLatLng } from '@/types/job';
 
 export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
 
@@ -245,6 +247,91 @@ export function buildInsertParams(form: CreateJobFormState, dispatcherName: stri
     { name: 'Recieve_payment', Value: receivePayment },
     { name: 'PromoId', Value: '' },
   ];
+}
+
+export function driverBookstatus(form: CreateJobFormState): { dId: string; bookstatus: string } {
+  if (form.driverId === -1) return { dId: '-1', bookstatus: 'No One' };
+  if (form.driverId === -2) return { dId: '0', bookstatus: 'Pending' };
+  if (form.driverId > 0) return { dId: String(form.driverId), bookstatus: 'Offered' };
+  return { dId: '0', bookstatus: 'Pending' };
+}
+
+export function statusFromDriverId(driverId: number): 'Pending' | 'No One' | 'Offered' {
+  if (driverId === -1) return 'No One';
+  if (driverId > 0) return 'Offered';
+  return 'Pending';
+}
+
+export function jobToForm(job: Job): CreateJobFormState {
+  const form = defaultCreateJobForm();
+  const pick = parseLatLng(job.pickLatLng);
+  const drop = parseLatLng(job.dropLatLng);
+  const dt = job.bookingDateTime || '';
+  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(dt);
+
+  let driverId = 0;
+  if (job.status === 'No One' || job.driverId === '-1') driverId = -1;
+  else if (job.driverId && parseInt(job.driverId, 10) > 0) driverId = parseInt(job.driverId, 10);
+  else if (job.status === 'Pending') driverId = -2;
+
+  const payment = (job.paymentType || '').toLowerCase();
+  let paymentType: CreateJobFormState['paymentType'] = '';
+  if (payment.includes('card')) paymentType = 'card';
+  else if (payment.includes('cash')) paymentType = 'cash';
+  else if (payment.includes('eftpos')) paymentType = 'eftpos';
+  else if (payment.includes('account')) paymentType = 'account';
+  else if (payment.includes('tm')) paymentType = 'tm';
+  else if (payment.includes('acc')) paymentType = 'acc';
+
+  return {
+    ...form,
+    pick: { address: job.pickAddress, lat: pick?.lat ?? 0, lng: pick?.lng ?? 0 },
+    pickInput: job.pickAddress,
+    drop: { address: job.dropAddress, lat: drop?.lat ?? 0, lng: drop?.lng ?? 0 },
+    dropInput: job.dropAddress,
+    name: job.passengerName,
+    phone: job.passengerPhone,
+    notes: job.notes || '',
+    serviceType: job.serviceType,
+    timing: isLater ? 'later' : 'now',
+    laterDate: dt.slice(0, 10) || form.laterDate,
+    laterHour: dt.slice(11, 13) || form.laterHour,
+    laterMin: dt.slice(14, 16) || form.laterMin,
+    dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
+    urgent: !!job.urgent,
+    corner: !!job.corner,
+    vehicleType: job.vehicleType || 'Any',
+    tariffId: job.tariffId || '0',
+    driverId,
+    vehicleId: job.vehicleId || '0',
+    paymentType,
+    claimNumber: job.acc?.claimNumber || '',
+    poNumber: job.acc?.poNumber || '',
+    accClientId: job.acc?.clientId || '',
+    fixedFareEnabled: !!job.estimatedFare && job.tariffId === '-1',
+    fixedFareAmount: job.estimatedFare || '',
+  };
+}
+
+function isFutureBooking(dt: string): boolean {
+  try {
+    const d = new Date(dt.replace(' ', 'T'));
+    return !Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60000;
+  } catch {
+    return false;
+  }
+}
+
+export function buildUpdateParams(
+  form: CreateJobFormState,
+  bookingId: number,
+  dispatcherName: string
+): DataParam[] {
+  const { dId, bookstatus } = driverBookstatus(form);
+  const base = buildInsertParams(form, dispatcherName)
+    .filter((p) => p.name !== 'ExternalJobId')
+    .map((p) => (p.name === 'DId' ? { ...p, Value: dId } : p));
+  return [{ name: 'Id', Value: String(bookingId) }, ...base, { name: 'bookstatus', Value: bookstatus }];
 }
 
 export function repeatBookingDates(form: CreateJobFormState): string[] {

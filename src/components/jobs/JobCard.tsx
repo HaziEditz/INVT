@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
-import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
-import { Edit, X, CheckCircle, RotateCcw, MapPin, User } from 'lucide-react';
+import { differenceInMinutes, format, formatDistanceToNow, parseISO } from 'date-fns';
+import { Edit, X, CheckCircle, RotateCcw, User } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
 import {
+  isScheduledJob,
   jobCardBorderColor,
   normalizeJobStatus,
   statusBadgeStyle,
@@ -10,7 +11,7 @@ import {
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
-import { sourceLabel, paymentBadgeColor } from '@/lib/utils';
+import { sourceLabel, paymentLabel, paymentBadgeColor } from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import {
@@ -35,10 +36,21 @@ function waitBadgeClass(minutes: number): string {
   return 'bg-[var(--bw-card)] text-[var(--bw-muted)] border-[var(--bw-border)]';
 }
 
+function formatScheduled(job: Job): string | null {
+  if (!isScheduledJob(job)) return null;
+  try {
+    const d = parseISO(job.bookingDateTime.replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return null;
+    return format(d, 'dd MMM HH:mm');
+  } catch {
+    return null;
+  }
+}
+
 export function JobCard({ job, tab }: JobCardProps) {
   const allDrivers = useDriverStore((s) => s.drivers);
-  const drivers = useMemo(
-    () => allDrivers.filter((d) => d.status === 'Available'),
+  const onlineDrivers = useMemo(
+    () => allDrivers.filter((d) => d.status === 'Available' && d.driverId),
     [allDrivers]
   );
   const addToast = useUiStore((s) => s.addToast);
@@ -48,13 +60,14 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const border = jobCardBorderColor(job);
   const status = normalizeJobStatus(job.status);
-  const badge = statusBadgeStyle(status);
+  const statusBadge = tab === 'ua' ? statusBadgeStyle(status) : statusBadgeStyle(status);
   const selected = selectedJobId === job.id;
+  const scheduledLabel = formatScheduled(job);
 
   const { waitLabel, waitMinutes } = useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
     try {
-      const d = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime);
+      const d = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime.replace(' ', 'T'));
       return {
         waitLabel: formatDistanceToNow(d, { addSuffix: false }),
         waitMinutes: differenceInMinutes(new Date(), d),
@@ -74,8 +87,16 @@ export function JobCard({ job, tab }: JobCardProps) {
   };
 
   const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
-
   const selectJob = () => setSelectedJobId(selected ? null : job.id);
+
+  const handleAssign = (value: string) => {
+    if (value === '__pending__') run(() => setPending(job), 'Set Pending');
+    else if (value === '__noone__') run(() => setNoOne(job), 'Set No One');
+    else {
+      const d = onlineDrivers.find((x) => x.driverId === value);
+      if (d) run(() => assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq), 'Assigned');
+    }
+  };
 
   return (
     <div
@@ -94,40 +115,53 @@ export function JobCard({ job, tab }: JobCardProps) {
       )}
       style={{ borderLeftColor: border }}
     >
-      <div className="flex flex-wrap items-center gap-1 mb-1.5">
-        <span className="font-mono text-xs font-bold bw-text">#{job.id}</span>
-        <span
-          className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
-          style={{ color: badge.color, backgroundColor: badge.bg }}
-        >
-          {badge.label}
-        </span>
-        <Badge color="#94a3b8">{sourceLabel(job.source)}</Badge>
+      <div className="flex flex-wrap items-center gap-1 mb-1">
+        <span className="font-mono text-[10px] font-bold bw-text">#{job.id}</span>
+        <Badge color="#64748b">{sourceLabel(job.source)}</Badge>
+        {statusBadge && (
+          <span
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+            style={{ color: statusBadge.color, backgroundColor: statusBadge.bg }}
+          >
+            {statusBadge.label}
+          </span>
+        )}
         {job.urgent && <Badge color="#ef4444">URGENT</Badge>}
         <span className={cn('ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
           {waitLabel}
         </span>
       </div>
 
-      <div className="space-y-1 text-[11px] mb-1.5 leading-snug">
+      <div className="space-y-1 text-[11px] mb-1 leading-snug">
         <div className="flex gap-1.5 items-start">
-          <MapPin size={11} className="text-emerald-400 shrink-0 mt-0.5" />
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1" />
           <span className="bw-text line-clamp-2">{job.pickAddress || 'No pickup'}</span>
         </div>
         <div className="flex gap-1.5 items-start">
-          <MapPin size={11} className="text-red-400 shrink-0 mt-0.5" />
+          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1" />
           <span className="text-[var(--bw-muted)] line-clamp-2">{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1.5 items-center">
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1 items-center">
         <span className="inline-flex items-center gap-0.5 truncate max-w-full">
           <User size={10} />
           {job.passengerName || '—'}
           {job.passengerPhone ? ` · ${job.passengerPhone}` : ''}
         </span>
-        <Badge color={paymentBadgeColor(job.paymentType)}>{job.paymentType || 'Cash'}</Badge>
-        {job.estimatedFare && <span>${job.estimatedFare}</span>}
+      </div>
+
+      {job.notes && (
+        <div className="text-[10px] text-[var(--bw-muted)] mb-1 line-clamp-2 italic">{job.notes}</div>
+      )}
+
+      <div className="flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center">
+        <Badge color={paymentBadgeColor(job.paymentType)}>{paymentLabel(job.paymentType)}</Badge>
+        {scheduledLabel && <span className="text-amber-400">Sched {scheduledLabel}</span>}
+        {job.dispatcherName && <span className="text-[var(--bw-muted)]">by {job.dispatcherName}</span>}
+        {job.estimatedFare && job.estimatedFare !== '0' && (
+          <span className="text-emerald-400">${job.estimatedFare}</span>
+        )}
       </div>
 
       {tab === 'offer' && job.offeredAt && (
@@ -141,30 +175,33 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <Button
               variant={status === 'Pending' ? 'primary' : 'ghost'}
-              className={cn(status === 'Pending' && 'ring-1 ring-[#4f6ef7]')}
               onClick={() => run(() => setPending(job), 'Set Pending')}
             >
               Pending
             </Button>
             <Button
               variant={status === 'No One' ? 'muted' : 'ghost'}
-              className={cn(status === 'No One' && 'ring-1 ring-[#64748b] bg-[#64748b]/20')}
+              className={cn(status === 'No One' && 'bg-[#64748b]/20')}
               onClick={() => run(() => setNoOne(job), 'Set No One')}
             >
               No One
             </Button>
             <select
-              className="bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[90px] border"
+              className="bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border"
               defaultValue=""
               onChange={(e) => {
-                const d = drivers.find((x) => x.driverId === e.target.value);
-                if (d) run(() => assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq), 'Assigned');
+                handleAssign(e.target.value);
                 e.target.value = '';
               }}
             >
-              <option value="">Assign…</option>
-              {drivers.map((d) => (
-                <option key={d.driverId} value={d.driverId}>{d.vehicleNo} {d.driverName}</option>
+              <option value="">Assign ▼</option>
+              <option value="__pending__">Set Pending</option>
+              <option value="__noone__">Set No One</option>
+              {onlineDrivers.length > 0 && <option disabled>— online —</option>}
+              {onlineDrivers.map((d) => (
+                <option key={d.driverId} value={d.driverId}>
+                  {d.vehicleNo} {d.driverName}
+                </option>
               ))}
             </select>
             <Tooltip label="Edit job">

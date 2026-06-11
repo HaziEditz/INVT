@@ -91,6 +91,7 @@ export interface Job {
   updateSeq?: number;
   createdAt?: number;
   completedAt?: number;
+  dispatcherName?: string;
   timeline?: JobTimelineEvent[];
 }
 
@@ -155,6 +156,7 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     passengers: parseInt(String(rec.Passengers ?? '1'), 10) || 1,
     updateSeq: parseInt(String(rec.updateSeq ?? '0'), 10) || 0,
     createdAt: rec.createdAt ? Number(rec.createdAt) : undefined,
+    dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
   };
 }
 
@@ -185,11 +187,12 @@ export function jobCardBorderColor(job: Job): string {
   return '#4f6ef7';
 }
 
-export function statusBadgeStyle(status: JobStatus): { label: string; color: string; bg: string } {
+export function statusBadgeStyle(status: JobStatus): { label: string; color: string; bg: string } | null {
   const st = normalizeJobStatus(status);
   if (st === 'No One') return { label: 'NO ONE', color: '#94a3b8', bg: 'rgba(100,116,139,0.2)' };
   if (st === 'Pending') return { label: 'PENDING', color: '#5b7cfa', bg: 'rgba(79,110,247,0.2)' };
-  return { label: st.toUpperCase(), color: '#8892a4', bg: 'rgba(136,146,164,0.15)' };
+  if (st === 'Scheduled') return { label: 'SCHEDULED', color: '#f59e0b', bg: 'rgba(245,158,11,0.2)' };
+  return null;
 }
 
 export function jobTabForStatus(job: Job): JobTab {
