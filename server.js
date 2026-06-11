@@ -7287,8 +7287,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       return;
     }
 
-    const _cjIdStr   = newCompanyJobId(_cjCid);
-    const _cjIdNum   = Number(_cjIdStr); // safe: fits in JS float exactly
+    // Always allocate a brand-new booking ID — never match or reuse by pickup address.
+    let _cjIdNum = newCompanyJobId(_cjCid);
+    while (_jobExistsInStore(_cjIdNum, _cjCid)) {
+      console.log(`[/api/job/create] ID ${_cjIdNum} already in store — allocating next (never dedupe by address)`);
+      _cjIdNum = newCompanyJobId(_cjCid);
+    }
+    const _cjIdStr = String(_cjIdNum);
     const _cjCreated = Date.now();
     const _cjNow     = new Date().toISOString();
 
@@ -7353,7 +7358,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // and is not lost if InsertBookingv4 is delayed.
     if (_cjSource === 'dispatch') {
       _cjJob.BookingSource = 'Dispatch Console';
-      _tryPushJobToStore(_cjJob, '/api/job/create');
+      _cjJob.createdVia = '/api/job/create';
+      if (!_tryPushJobToStore(_cjJob, '/api/job/create')) {
+        console.warn(`[/api/job/create] dispatch stub push failed for #${_cjIdNum} — InsertBookingv4 will create fresh row`);
+      }
       (async () => {
         try {
           const _tokD = await getFirebaseServerToken();
@@ -8154,9 +8162,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             newJob.TariffId    = _tId;
           } }
         const _insertExistIdx = jobStore.findIndex(j => j && j.Id === newId);
-        if (_insertExistIdx >= 0) {
+        if (_insertExistIdx >= 0 && jobStore[_insertExistIdx].createdVia === '/api/job/create') {
           Object.assign(jobStore[_insertExistIdx], newJob);
           newJob = jobStore[_insertExistIdx];
+        } else if (_insertExistIdx >= 0) {
+          const _freshId = newCompanyJobId(sessionCompanyId || '000');
+          newJob.Id = _freshId;
+          jobStore.push(newJob);
+          newId = _freshId;
         } else {
           jobStore.push(newJob);
         }

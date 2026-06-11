@@ -32170,6 +32170,14 @@ function jobFromForm(form, cid, bookingId, bookingStatus) {
     dispatcherName: ""
   };
 }
+function withBookingTimeout(promise, ms = 9e4, label = "Booking") {
+  return Promise.race([
+    promise,
+    new Promise((_2, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1e3}s`)), ms);
+    })
+  ]);
+}
 function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const open2 = useUiStore((s2) => s2.openModal === "createJob");
   const modalJobId = useUiStore((s2) => s2.modalJobId);
@@ -32373,15 +32381,22 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const bookOne = async (dateOverride) => {
     const f2 = dateOverride ? { ...form, timing: "later", laterDate: dateOverride } : form;
     const params = buildInsertParams(f2, dispatcherName);
-    console.log("[CreateJob] submitting:", { form: f2, companyId, params });
-    const response = await insertDispatchBooking(companyId, params);
-    console.log("[CreateJob] response:", response);
+    console.log("[Book] Step 3 - calling API", { companyId, params });
+    const response = await withBookingTimeout(
+      insertDispatchBooking(companyId, params),
+      9e4,
+      "Booking API"
+    );
+    console.log("[Book] Step 4 - API response:", response);
+    console.log("[Book] Step 5 - Firebase write done");
     return response;
   };
   const handleSubmit = async () => {
+    console.log("[Book] Step 1 - button clicked");
     if (!validatePickup()) return;
     setLoading(true);
     try {
+      console.log("[Book] Step 2 - form data:", form);
       if (isEdit && editingJob) {
         const changes = buildJobChangesFromForm(form, dispatcherName);
         await updateJob(editingJob.id, companyId, changes, editingJob);
@@ -32391,36 +32406,43 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         return;
       }
       if (form.paymentType === "card" && form.cardAmount && stripePk && !form.cardPaid) {
-        await loadStripeV2();
+        await withBookingTimeout(loadStripeV2(), 3e4, "Stripe load");
         window.Stripe.setPublishableKey(stripePk);
-        const token = await new Promise((resolve, reject) => {
-          window.Stripe.card.createToken(
-            {
-              number: form.cardNumber.replace(/\s/g, ""),
-              cvc: form.cardCvc,
-              exp_month: form.cardExpMonth,
-              exp_year: form.cardExpYear.slice(-2)
-            },
-            (status, res) => {
-              var _a2;
-              if (status === 200 && res.id) resolve(res.id);
-              else reject(new Error(((_a2 = res.error) == null ? void 0 : _a2.message) || "Card token failed"));
-            }
-          );
-        });
-        await chargeStripeCard({
-          token,
-          amount: parseFloat(form.cardAmount) || 0,
-          email: form.email,
-          name: form.name,
-          phone: form.phone
-        });
+        const token = await withBookingTimeout(
+          new Promise((resolve, reject) => {
+            window.Stripe.card.createToken(
+              {
+                number: form.cardNumber.replace(/\s/g, ""),
+                cvc: form.cardCvc,
+                exp_month: form.cardExpMonth,
+                exp_year: form.cardExpYear.slice(-2)
+              },
+              (status, res) => {
+                var _a2;
+                if (status === 200 && res.id) resolve(res.id);
+                else reject(new Error(((_a2 = res.error) == null ? void 0 : _a2.message) || "Card token failed"));
+              }
+            );
+          }),
+          3e4,
+          "Card token"
+        );
+        await withBookingTimeout(
+          chargeStripeCard({
+            token,
+            amount: parseFloat(form.cardAmount) || 0,
+            email: form.email,
+            name: form.name,
+            phone: form.phone
+          }),
+          3e4,
+          "Card charge"
+        );
         patch({ cardPaid: true });
       }
       const dates = form.repeatExpanded ? repeatBookingDates(form) : [];
       if (form.repeatExpanded && dates.length === 0) {
         addToast({ type: "error", title: "Repeat booking", message: "Select days and an until date." });
-        setLoading(false);
         return;
       }
       const targets = dates.length ? dates : [void 0];
@@ -32438,6 +32460,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         throw new Error("Booking was not created — no job ID returned");
       }
       upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
+      console.log("[Book] Step 6 - store updated", { bookingId: lastId, status: lastStatus });
       setActiveTab("ua");
       setSelectedJobId(null);
       setRoutePreview(null);
@@ -32449,6 +32472,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       closeModal();
       resetForm();
     } catch (e) {
+      console.error("[Book] ERROR:", e);
       addToast({
         type: "error",
         title: "Booking failed",
@@ -40508,7 +40532,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Bvkh8qNx.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DPfzEFn5.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42437,7 +42461,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DzKmSmjI.js");
+        const { writeActiveDispatcher } = await import("./notifications-D43u_HJ_.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42464,7 +42488,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DzKmSmjI.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-D43u_HJ_.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42772,4 +42796,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-C7UxStH6.js.map
+//# sourceMappingURL=index-DjxeIo_v.js.map

@@ -135,6 +135,15 @@ function jobFromForm(
   };
 }
 
+function withBookingTimeout<T>(promise: Promise<T>, ms = 90000, label = 'Booking'): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
+    }),
+  ]);
+}
+
 export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJobModalProps) {
   const open = useUiStore((s) => s.openModal === 'createJob');
   const modalJobId = useUiStore((s) => s.modalJobId);
@@ -371,16 +380,25 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       ? { ...form, timing: 'later' as const, laterDate: dateOverride }
       : form;
     const params = buildInsertParams(f, dispatcherName);
-    console.log('[CreateJob] submitting:', { form: f, companyId, params });
-    const response = await insertDispatchBooking(companyId, params);
-    console.log('[CreateJob] response:', response);
+    console.log('[Book] Step 3 - calling API', { companyId, params });
+    const response = await withBookingTimeout(
+      insertDispatchBooking(companyId, params),
+      90000,
+      'Booking API'
+    );
+    console.log('[Book] Step 4 - API response:', response);
+    console.log('[Book] Step 5 - Firebase write done');
     return response;
   };
 
   const handleSubmit = async () => {
+    console.log('[Book] Step 1 - button clicked');
     if (!validatePickup()) return;
+
     setLoading(true);
     try {
+      console.log('[Book] Step 2 - form data:', form);
+
       if (isEdit && editingJob) {
         const changes = buildJobChangesFromForm(form, dispatcherName);
         await updateJob(editingJob.id, companyId, changes, editingJob);
@@ -391,36 +409,43 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       }
 
       if (form.paymentType === 'card' && form.cardAmount && stripePk && !form.cardPaid) {
-        await loadStripeV2();
+        await withBookingTimeout(loadStripeV2(), 30000, 'Stripe load');
         window.Stripe!.setPublishableKey(stripePk);
-        const token = await new Promise<string>((resolve, reject) => {
-          window.Stripe!.card.createToken(
-            {
-              number: form.cardNumber.replace(/\s/g, ''),
-              cvc: form.cardCvc,
-              exp_month: form.cardExpMonth,
-              exp_year: form.cardExpYear.slice(-2),
-            },
-            (status, res) => {
-              if (status === 200 && res.id) resolve(res.id);
-              else reject(new Error(res.error?.message || 'Card token failed'));
-            }
-          );
-        });
-        await chargeStripeCard({
-          token,
-          amount: parseFloat(form.cardAmount) || 0,
-          email: form.email,
-          name: form.name,
-          phone: form.phone,
-        });
+        const token = await withBookingTimeout(
+          new Promise<string>((resolve, reject) => {
+            window.Stripe!.card.createToken(
+              {
+                number: form.cardNumber.replace(/\s/g, ''),
+                cvc: form.cardCvc,
+                exp_month: form.cardExpMonth,
+                exp_year: form.cardExpYear.slice(-2),
+              },
+              (status, res) => {
+                if (status === 200 && res.id) resolve(res.id);
+                else reject(new Error(res.error?.message || 'Card token failed'));
+              }
+            );
+          }),
+          30000,
+          'Card token'
+        );
+        await withBookingTimeout(
+          chargeStripeCard({
+            token,
+            amount: parseFloat(form.cardAmount) || 0,
+            email: form.email,
+            name: form.name,
+            phone: form.phone,
+          }),
+          30000,
+          'Card charge'
+        );
         patch({ cardPaid: true });
       }
 
       const dates = form.repeatExpanded ? repeatBookingDates(form) : [];
       if (form.repeatExpanded && dates.length === 0) {
         addToast({ type: 'error', title: 'Repeat booking', message: 'Select days and an until date.' });
-        setLoading(false);
         return;
       }
 
@@ -441,6 +466,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       }
 
       upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
+      console.log('[Book] Step 6 - store updated', { bookingId: lastId, status: lastStatus });
       setActiveTab('ua');
       setSelectedJobId(null);
       setRoutePreview(null);
@@ -453,6 +479,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       closeModal();
       resetForm();
     } catch (e) {
+      console.error('[Book] ERROR:', e);
       addToast({
         type: 'error',
         title: 'Booking failed',
