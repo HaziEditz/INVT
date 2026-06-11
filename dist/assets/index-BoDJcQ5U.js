@@ -27734,12 +27734,20 @@ function jobTabForStatus(job) {
   if (st2 === "Offered") return "offer";
   return "ua";
 }
+function filterJobsForTab(jobs, tab) {
+  return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
+    const ca = a2.createdAt || 0;
+    const cb = b2.createdAt || 0;
+    if (cb !== ca) return cb - ca;
+    return b2.id - a2.id;
+  });
+}
 const useJobStore = create((set2, get2) => ({
   jobs: [],
   removedJobIds: [],
   selectedJobId: null,
   activeTab: "ua",
-  setJobs: (jobs) => set2({ jobs }),
+  setJobs: (jobs) => set2({ jobs: [...jobs] }),
   upsertJob: (job) => set2((s2) => {
     if (s2.removedJobIds.includes(job.id)) return s2;
     const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
@@ -27766,17 +27774,7 @@ const useJobStore = create((set2, get2) => ({
   clearRemovedJob: (id) => set2((s2) => ({ removedJobIds: s2.removedJobIds.filter((x2) => x2 !== id) })),
   isJobBlacklisted: (id) => get2().removedJobIds.includes(id),
   setSelectedJobId: (id) => set2({ selectedJobId: id }),
-  setActiveTab: (tab) => set2({ activeTab: tab }),
-  jobsForTab: (tab) => {
-    const jobs = get2().jobs;
-    return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
-      const ca = a2.createdAt || 0;
-      const cb = b2.createdAt || 0;
-      if (cb !== ca) return cb - ca;
-      return b2.id - a2.id;
-    });
-  },
-  countForTab: (tab) => get2().jobsForTab(tab).length
+  setActiveTab: (tab) => set2({ activeTab: tab })
 }));
 const THEME_ORDER = ["dark", "dark-blue", "light"];
 const THEME_LABELS = {
@@ -31153,10 +31151,11 @@ const TABS = [
 function JobTabs() {
   const activeTab = useJobStore((s2) => s2.activeTab);
   const setActiveTab = useJobStore((s2) => s2.setActiveTab);
-  const jobsForTab = useJobStore((s2) => s2.jobsForTab);
-  const countForTab = useJobStore((s2) => s2.countForTab);
+  const jobs = useJobStore((s2) => s2.jobs);
   const tabRefs = reactExports.useRef({});
   const [indicator, setIndicator] = reactExports.useState({ left: 0, width: 0 });
+  const tabJobs = reactExports.useMemo(() => filterJobsForTab(jobs, activeTab), [jobs, activeTab]);
+  const countForTab = (tab) => jobs.filter((j2) => jobTabForStatus(j2) === tab).length;
   reactExports.useEffect(() => {
     const el = tabRefs.current[activeTab];
     if (el == null ? void 0 : el.parentElement) {
@@ -31164,7 +31163,7 @@ function JobTabs() {
       const rect = el.getBoundingClientRect();
       setIndicator({ left: rect.left - parent.left, width: rect.width });
     }
-  }, [activeTab]);
+  }, [activeTab, jobs.length]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full bw-surface", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex border-b bw-border bw-surface shrink-0", children: [
       TABS.map((t2) => {
@@ -31206,7 +31205,7 @@ function JobTabs() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2.5", children: jobsForTab(activeTab).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center bw-muted text-sm py-12", children: "No jobs in this tab" }) : jobsForTab(activeTab).map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2.5", children: tabJobs.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center bw-muted text-sm py-12", children: "No jobs in this tab" }) : tabJobs.map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
   ] });
 }
 const MSG_REPEATED_SET_OPTIONS = (options) => `The setOptions() function should only be called once. The options passed to the additional call (${JSON.stringify(options)}) will be ignored.`;
@@ -40338,7 +40337,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Dwz73Woy.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-WLPOjMHk.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42209,7 +42208,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BEbH2eHN.js");
+        const { writeActiveDispatcher } = await import("./notifications-BcRD8U67.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42236,7 +42235,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BEbH2eHN.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BcRD8U67.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42544,4 +42543,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-YqM6NX7C.js.map
+//# sourceMappingURL=index-BoDJcQ5U.js.map

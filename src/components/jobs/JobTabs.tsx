@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState } from 'react';
-import { useJobStore } from '@/store/jobStore';
+import { useRef, useEffect, useState, useMemo } from 'react';
+import { useJobStore, filterJobsForTab } from '@/store/jobStore';
 import type { JobTab } from '@/types/job';
+import { jobTabForStatus } from '@/types/job';
 import { JobCard } from './JobCard';
 import { cn } from '@/lib/utils';
 
@@ -16,10 +17,13 @@ const TABS: { id: JobTab; label: string }[] = [
 export function JobTabs() {
   const activeTab = useJobStore((s) => s.activeTab);
   const setActiveTab = useJobStore((s) => s.setActiveTab);
-  const jobsForTab = useJobStore((s) => s.jobsForTab);
-  const countForTab = useJobStore((s) => s.countForTab);
+  const jobs = useJobStore((s) => s.jobs);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
+
+  const tabJobs = useMemo(() => filterJobsForTab(jobs, activeTab), [jobs, activeTab]);
+
+  const countForTab = (tab: JobTab) => jobs.filter((j) => jobTabForStatus(j) === tab).length;
 
   useEffect(() => {
     const el = tabRefs.current[activeTab];
@@ -28,7 +32,7 @@ export function JobTabs() {
       const rect = el.getBoundingClientRect();
       setIndicator({ left: rect.left - parent.left, width: rect.width });
     }
-  }, [activeTab]);
+  }, [activeTab, jobs.length]);
 
   return (
     <div className="flex flex-col h-full bw-surface">
@@ -64,10 +68,10 @@ export function JobTabs() {
         />
       </div>
       <div className="flex-1 overflow-y-auto p-2.5">
-        {jobsForTab(activeTab).length === 0 ? (
+        {tabJobs.length === 0 ? (
           <div className="text-center bw-muted text-sm py-12">No jobs in this tab</div>
         ) : (
-          jobsForTab(activeTab).map((job) => <JobCard key={job.id} job={job} tab={activeTab} />)
+          tabJobs.map((job) => <JobCard key={job.id} job={job} tab={activeTab} />)
         )}
       </div>
     </div>

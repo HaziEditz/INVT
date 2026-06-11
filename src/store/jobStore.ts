@@ -14,8 +14,17 @@ interface JobStore {
   isJobBlacklisted: (id: number) => boolean;
   setSelectedJobId: (id: number | null) => void;
   setActiveTab: (tab: JobTab) => void;
-  jobsForTab: (tab: JobTab) => Job[];
-  countForTab: (tab: JobTab) => number;
+}
+
+export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
+  return jobs
+    .filter((j) => jobTabForStatus(j) === tab)
+    .sort((a, b) => {
+      const ca = a.createdAt || 0;
+      const cb = b.createdAt || 0;
+      if (cb !== ca) return cb - ca;
+      return b.id - a.id;
+    });
 }
 
 export const useJobStore = create<JobStore>((set, get) => ({
@@ -23,7 +32,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
   removedJobIds: [],
   selectedJobId: null,
   activeTab: 'ua',
-  setJobs: (jobs) => set({ jobs }),
+  setJobs: (jobs) => set({ jobs: [...jobs] }),
   upsertJob: (job) =>
     set((s) => {
       if (s.removedJobIds.includes(job.id)) return s;
@@ -54,16 +63,4 @@ export const useJobStore = create<JobStore>((set, get) => ({
   isJobBlacklisted: (id) => get().removedJobIds.includes(id),
   setSelectedJobId: (id) => set({ selectedJobId: id }),
   setActiveTab: (tab) => set({ activeTab: tab }),
-  jobsForTab: (tab) => {
-    const jobs = get().jobs;
-    return jobs
-      .filter((j) => jobTabForStatus(j) === tab)
-      .sort((a, b) => {
-        const ca = a.createdAt || 0;
-        const cb = b.createdAt || 0;
-        if (cb !== ca) return cb - ca;
-        return b.id - a.id;
-      });
-  },
-  countForTab: (tab) => get().jobsForTab(tab).length,
 }));
