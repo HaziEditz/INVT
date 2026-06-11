@@ -60,6 +60,8 @@ export function DispatchMap({
   const mapZones = useUiStore((s) => s.mapZones);
   const createJobOpen = useUiStore((s) => s.openModal === 'createJob');
   const routePreview = useUiStore((s) => s.routePreview);
+  const routeDrawing = useUiStore((s) => s.routeDrawing);
+  const setRouteDrawing = useUiStore((s) => s.setRouteDrawing);
   const setMapInstance = useUiStore((s) => s.setMapInstance);
   const theme = useUiStore((s) => s.theme);
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
@@ -87,6 +89,7 @@ export function DispatchMap({
 
   const clearDirectionsRenderer = () => {
     routeRequestRef.current += 1;
+    setRouteDrawing(false);
     if (directionsRendererRef.current) {
       directionsRendererRef.current.setMap(null);
       directionsRendererRef.current = null;
@@ -224,6 +227,7 @@ export function DispatchMap({
 
       const directionsService = new google.maps.DirectionsService();
       console.log('[Route] calling DirectionsService');
+      setRouteDrawing(true);
 
       directionsService.route(
         {
@@ -232,6 +236,7 @@ export function DispatchMap({
           travelMode: google.maps.TravelMode.DRIVING,
         },
         (result, status) => {
+          setRouteDrawing(false);
           console.log('[Route] status:', status);
           console.log('[Route] result:', result);
           if (routeRequestRef.current !== requestId || !gMapRef.current) return;
@@ -247,7 +252,7 @@ export function DispatchMap({
         }
       );
     },
-    [mapsKey]
+    [mapsKey, setRouteDrawing]
   );
 
   const drawRouteBetweenCoords = useCallback(
@@ -315,6 +320,7 @@ export function DispatchMap({
           directionsRendererRef.current.setMap(map);
         }
 
+        setRouteDrawing(true);
         const directionsService = new google.maps.DirectionsService();
         directionsService.route(
           {
@@ -323,6 +329,7 @@ export function DispatchMap({
             travelMode: google.maps.TravelMode.DRIVING,
           },
           (result, status) => {
+            setRouteDrawing(false);
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
               directionsRendererRef.current?.setDirections(result);
@@ -344,7 +351,7 @@ export function DispatchMap({
         fitMapView([pick, safeCenter]);
       }
     },
-    [mapsKey, safeCenter.lat, safeCenter.lng]
+    [mapsKey, safeCenter.lat, safeCenter.lng, setRouteDrawing]
   );
 
   useEffect(() => {
@@ -571,6 +578,12 @@ export function DispatchMap({
       {mapError && (
         <div className="absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400 bw-map-bg">
           {mapError}
+        </div>
+      )}
+
+      {routeDrawing && (
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]">
+          Drawing route…
         </div>
       )}
 

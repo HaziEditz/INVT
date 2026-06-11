@@ -1,5 +1,6 @@
-import { Plus, Bell, Moon, Sun, LogOut, Copy, Car, Palette } from 'lucide-react';
+import { Plus, Moon, Sun, LogOut, Copy, Car, Palette } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
+import { NotificationDropdown } from '@/components/layout/NotificationDropdown';
 import { useUiStore } from '@/store/uiStore';
 import { logoutSession } from '@/lib/jobFlow';
 import { dispatcherInitials } from '@/lib/utils';
@@ -32,7 +33,6 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
   const openModalWith = useUiStore((s) => s.openModalWith);
   const theme = useUiStore((s) => s.theme);
   const cycleTheme = useUiStore((s) => s.cycleTheme);
-  const notificationCount = useUiStore((s) => s.notificationCount);
   const billingBanner = useUiStore((s) => s.billingBanner);
   const initials = dispatcherInitials(dispatcherName);
 
@@ -100,14 +100,7 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
         >
           <ThemeIcon theme={theme} />
         </button>
-        <button className="relative bw-icon-btn">
-          <Bell size={16} />
-          {notificationCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">
-              {notificationCount}
-            </span>
-          )}
-        </button>
+        <NotificationDropdown />
       </header>
     </>
   );

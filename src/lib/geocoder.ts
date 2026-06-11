@@ -13,6 +13,10 @@ export function attachPlacesAutocomplete(
   const ac = new g.maps.places.Autocomplete(input, {
     fields: ['formatted_address', 'geometry'],
     componentRestrictions: { country: 'nz' },
+    locationBias: {
+      center: { lat: -46.4132, lng: 168.3538 },
+      radius: 50000,
+    },
   });
   const listener = ac.addListener('place_changed', () => {
     const place = ac.getPlace();

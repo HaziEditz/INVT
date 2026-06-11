@@ -25,6 +25,39 @@ export interface ToastItem {
   type: 'info' | 'success' | 'warning' | 'error';
   title: string;
   message?: string;
+  category?: NotificationCategory;
+}
+
+export type NotificationCategory =
+  | 'job_created'
+  | 'job_cancelled'
+  | 'job_updated'
+  | 'driver_online'
+  | 'new_booking'
+  | 'general';
+
+export interface NotificationItem {
+  id: string;
+  type: ToastItem['type'];
+  title: string;
+  message?: string;
+  category: NotificationCategory;
+  read: boolean;
+  createdAt: number;
+}
+
+function inferCategory(t: Omit<ToastItem, 'id'>): NotificationCategory {
+  if (t.category) return t.category;
+  const hay = `${t.title} ${t.message ?? ''}`.toLowerCase();
+  if (hay.includes('cancel')) return 'job_cancelled';
+  if (hay.includes('updated') || hay.includes('edit')) return 'job_updated';
+  if (hay.includes('booked') || hay.includes('created') || hay.includes('job #')) {
+    if (hay.includes('new job')) return 'new_booking';
+    return 'job_created';
+  }
+  if (hay.includes('driver') && hay.includes('online')) return 'driver_online';
+  if (hay.includes('app') || hay.includes('web') || hay.includes('hail')) return 'new_booking';
+  return 'general';
 }
 
 interface UiStore {
@@ -33,7 +66,9 @@ interface UiStore {
   modalJobId: number | null;
   modalDriverId: string | null;
   notificationCount: number;
+  notifications: NotificationItem[];
   toasts: ToastItem[];
+  routeDrawing: boolean;
   billingBanner: string | null;
   mapTraffic: boolean;
   mapZones: boolean;
@@ -52,6 +87,9 @@ interface UiStore {
   closeModal: () => void;
   addToast: (t: Omit<ToastItem, 'id'>) => void;
   removeToast: (id: string) => void;
+  dismissNotification: (id: string) => void;
+  clearAllNotifications: () => void;
+  setRouteDrawing: (v: boolean) => void;
   setNotificationCount: (n: number) => void;
   setBillingBanner: (msg: string | null) => void;
   setMapTraffic: (v: boolean) => void;
@@ -69,7 +107,9 @@ export const useUiStore = create<UiStore>((set, get) => ({
   modalJobId: null,
   modalDriverId: null,
   notificationCount: 0,
+  notifications: [],
   toasts: [],
+  routeDrawing: false,
   billingBanner: null,
   mapTraffic: true,
   mapZones: true,
@@ -93,11 +133,39 @@ export const useUiStore = create<UiStore>((set, get) => ({
     set({ openModal: m, modalJobId: opts?.jobId ?? null, modalDriverId: opts?.driverId ?? null }),
   closeModal: () =>
     set({ openModal: null, modalJobId: null, modalDriverId: null, routePreview: null }),
-  addToast: (t) =>
+  addToast: (t) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    const category = inferCategory(t);
+    const notification: NotificationItem = {
+      id,
+      type: t.type,
+      title: t.title,
+      message: t.message,
+      category,
+      read: false,
+      createdAt: Date.now(),
+    };
     set((s) => ({
-      toasts: [...s.toasts, { ...t, id: `${Date.now()}-${Math.random()}` }].slice(-8),
-    })),
+      notifications: [notification, ...s.notifications].slice(0, 100),
+      toasts: [...s.toasts, { ...t, id, category }].slice(-2),
+      notificationCount: s.notificationCount + 1,
+    }));
+    setTimeout(() => {
+      get().removeToast(id);
+    }, 3000);
+  },
   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
+  dismissNotification: (id) =>
+    set((s) => {
+      const target = s.notifications.find((n) => n.id === id);
+      const next = s.notifications.filter((n) => n.id !== id);
+      return {
+        notifications: next,
+        notificationCount: Math.max(0, s.notificationCount - (target && !target.read ? 1 : 0)),
+      };
+    }),
+  clearAllNotifications: () => set({ notifications: [], notificationCount: 0 }),
+  setRouteDrawing: (v) => set({ routeDrawing: v }),
   setNotificationCount: (n) => set({ notificationCount: n }),
   setBillingBanner: (msg) => set({ billingBanner: msg }),
   setMapTraffic: (v) => set({ mapTraffic: v }),

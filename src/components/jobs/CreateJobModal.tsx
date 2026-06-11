@@ -179,6 +179,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [accHits, setAccHits] = useState<CustomerSearchResult['acc']>([]);
   const [cityDistLabel, setCityDistLabel] = useState('');
   const [routeSummary, setRouteSummary] = useState('');
+  const [pickFromAutocomplete, setPickFromAutocomplete] = useState(false);
+  const [dropFromAutocomplete, setDropFromAutocomplete] = useState(false);
+  const [pickAddressError, setPickAddressError] = useState('');
 
   const [pos, setPos] = useState(loadPos);
   const dragging = useRef(false);
@@ -210,6 +213,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setAccHits([]);
     setCityDistLabel('');
     setRouteSummary('');
+    setPickFromAutocomplete(false);
+    setDropFromAutocomplete(false);
+    setPickAddressError('');
   }, [settings?.defaultDispatchWindow]);
 
   const onClose = useCallback(() => {
@@ -224,7 +230,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       return;
     }
     if (editingJob) {
-      setForm(jobToForm(editingJob));
+      const loaded = jobToForm(editingJob);
+      setForm(loaded);
+      setPickFromAutocomplete(!!loaded.pick.lat);
+      setDropFromAutocomplete(!!loaded.drop.lat);
+      setPickAddressError('');
     } else {
       resetForm();
     }
@@ -382,6 +392,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   };
 
   const onPickupSelect = (pick: PlaceValue) => {
+    setPickFromAutocomplete(true);
+    setPickAddressError('');
     patch({ pick, pickInput: pick.address });
     if (pick.lat) {
       const preview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } = {
@@ -395,6 +407,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   };
 
   const onDropSelect = (drop: PlaceValue) => {
+    setDropFromAutocomplete(true);
     patch({ drop, dropInput: drop.address });
     if (form.pick.lat && drop.lat) {
       setRoutePreview({
@@ -408,6 +421,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     const addr = form.pick.address || form.pickInput;
     if (!addr.trim()) {
       addToast({ type: 'error', title: 'Pickup address required' });
+      return false;
+    }
+    if (!pickFromAutocomplete || !form.pick.lat) {
+      setPickAddressError('Please select an address from the suggestions');
+      addToast({
+        type: 'error',
+        title: 'Invalid pickup address',
+        message: 'Please select an address from the suggestions',
+      });
       return false;
     }
     return true;
@@ -440,7 +462,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       if (isEdit && editingJob) {
         const changes = buildJobChangesFromForm(form, dispatcherName);
         await updateJob(editingJob.id, companyId, changes, editingJob);
-        addToast({ type: 'success', title: 'Job updated' });
+        addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
         onClose();
         return;
       }
@@ -511,6 +533,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         type: 'success',
         title: targets.length > 1 ? `${targets.length} jobs created` : 'Job booked',
         message: `#${lastId}`,
+        category: 'job_created',
       });
       onClose();
     } catch (e) {
@@ -559,9 +582,17 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             value={form.pickInput}
             placeholder="Pickup address"
             className="cj-input mb-2"
-            onChange={(pickInput) => patch({ pickInput })}
+            invalid={!!pickAddressError || (!pickFromAutocomplete && !!form.pickInput.trim())}
+            onChange={(pickInput) => {
+              patch({ pickInput, pick: { address: '', lat: 0, lng: 0 } });
+              setPickFromAutocomplete(false);
+              setPickAddressError('');
+            }}
             onPlace={onPickupSelect}
           />
+          {pickAddressError && (
+            <div className="text-[10px] text-red-400 mb-2">{pickAddressError}</div>
+          )}
           {cityDistLabel && (
             <div className="text-[10px] text-[#8892a4] mb-2">{cityDistLabel}</div>
           )}
@@ -592,7 +623,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             value={form.dropInput}
             placeholder="Dropoff address (optional)"
             className="cj-input mb-2"
-            onChange={(dropInput) => patch({ dropInput })}
+            invalid={!!form.dropInput.trim() && !dropFromAutocomplete}
+            onChange={(dropInput) => {
+              patch({ dropInput, drop: { address: '', lat: 0, lng: 0 } });
+              setDropFromAutocomplete(false);
+            }}
             onPlace={onDropSelect}
           />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#e8eaf0]">
@@ -993,7 +1028,12 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         <button type="button" className="cj-btn-ghost" onClick={onClose}>
           Cancel
         </button>
-        <button type="button" className="cj-btn-book" onClick={handleSubmit} disabled={loading}>
+        <button
+          type="button"
+          className="cj-btn-book"
+          onClick={handleSubmit}
+          disabled={loading || (!isEdit && (!pickFromAutocomplete || !form.pick.lat))}
+        >
           {loading ? 'Saving…' : isEdit ? 'SAVE ✓' : 'BOOK ✓'}
         </button>
       </div>

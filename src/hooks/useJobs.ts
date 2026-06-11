@@ -72,6 +72,7 @@ export function useJobs(companyId: string | null) {
         type: 'info',
         title: `New job #${job.id}`,
         message: job.pickAddress || undefined,
+        category: 'new_booking',
       });
     };
 

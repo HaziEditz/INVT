@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { attachPlacesAutocompleteAsync } from '@/lib/geocoder';
 import type { PlaceValue } from '@/lib/createJobForm';
+import { cn } from '@/lib/utils';
 
 interface AddressAutocompleteProps {
   mapsKey: string;
@@ -10,6 +11,7 @@ interface AddressAutocompleteProps {
   onChange: (text: string) => void;
   onPlace: (place: PlaceValue) => void;
   className?: string;
+  invalid?: boolean;
 }
 
 export function AddressAutocomplete({
@@ -20,6 +22,7 @@ export function AddressAutocomplete({
   onChange,
   onPlace,
   className = 'bw-field',
+  invalid = false,
 }: AddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
@@ -46,7 +49,7 @@ export function AddressAutocomplete({
     <input
       ref={inputRef}
       type="text"
-      className={className}
+      className={cn(className, invalid && '!border-red-500 !border-2')}
       placeholder={placeholder}
       value={value}
       autoComplete="off"

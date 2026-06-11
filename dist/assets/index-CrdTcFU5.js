@@ -27813,13 +27813,28 @@ function persistTheme(theme) {
   localStorage.setItem(STORAGE_KEY$1, theme);
   applyThemeToDocument(theme);
 }
+function inferCategory(t2) {
+  if (t2.category) return t2.category;
+  const hay = `${t2.title} ${t2.message ?? ""}`.toLowerCase();
+  if (hay.includes("cancel")) return "job_cancelled";
+  if (hay.includes("updated") || hay.includes("edit")) return "job_updated";
+  if (hay.includes("booked") || hay.includes("created") || hay.includes("job #")) {
+    if (hay.includes("new job")) return "new_booking";
+    return "job_created";
+  }
+  if (hay.includes("driver") && hay.includes("online")) return "driver_online";
+  if (hay.includes("app") || hay.includes("web") || hay.includes("hail")) return "new_booking";
+  return "general";
+}
 const useUiStore = create((set2, get2) => ({
   theme: initThemeFromStorage(),
   openModal: null,
   modalJobId: null,
   modalDriverId: null,
   notificationCount: 0,
+  notifications: [],
   toasts: [],
+  routeDrawing: false,
   billingBanner: null,
   mapTraffic: true,
   mapZones: true,
@@ -27841,10 +27856,38 @@ const useUiStore = create((set2, get2) => ({
   },
   openModalWith: (m2, opts) => set2({ openModal: m2, modalJobId: (opts == null ? void 0 : opts.jobId) ?? null, modalDriverId: (opts == null ? void 0 : opts.driverId) ?? null }),
   closeModal: () => set2({ openModal: null, modalJobId: null, modalDriverId: null, routePreview: null }),
-  addToast: (t2) => set2((s2) => ({
-    toasts: [...s2.toasts, { ...t2, id: `${Date.now()}-${Math.random()}` }].slice(-8)
-  })),
+  addToast: (t2) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    const category = inferCategory(t2);
+    const notification = {
+      id,
+      type: t2.type,
+      title: t2.title,
+      message: t2.message,
+      category,
+      read: false,
+      createdAt: Date.now()
+    };
+    set2((s2) => ({
+      notifications: [notification, ...s2.notifications].slice(0, 100),
+      toasts: [...s2.toasts, { ...t2, id, category }].slice(-2),
+      notificationCount: s2.notificationCount + 1
+    }));
+    setTimeout(() => {
+      get2().removeToast(id);
+    }, 3e3);
+  },
   removeToast: (id) => set2((s2) => ({ toasts: s2.toasts.filter((x2) => x2.id !== id) })),
+  dismissNotification: (id) => set2((s2) => {
+    const target = s2.notifications.find((n2) => n2.id === id);
+    const next = s2.notifications.filter((n2) => n2.id !== id);
+    return {
+      notifications: next,
+      notificationCount: Math.max(0, s2.notificationCount - (target && !target.read ? 1 : 0))
+    };
+  }),
+  clearAllNotifications: () => set2({ notifications: [], notificationCount: 0 }),
+  setRouteDrawing: (v2) => set2({ routeDrawing: v2 }),
   setNotificationCount: (n2) => set2({ notificationCount: n2 }),
   setBillingBanner: (msg) => set2({ billingBanner: msg }),
   setMapTraffic: (v2) => set2({ mapTraffic: v2 }),
@@ -27985,7 +28028,8 @@ function useJobs(companyId) {
       useUiStore.getState().addToast({
         type: "info",
         title: `New job #${job.id}`,
-        message: job.pickAddress || void 0
+        message: job.pickAddress || void 0,
+        category: "new_booking"
       });
     };
     const applyPending = (key, rec, notify) => {
@@ -28760,6 +28804,23 @@ const TrafficCone = createLucideIcon("TrafficCone", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const TriangleAlert = createLucideIcon("TriangleAlert", [
+  [
+    "path",
+    {
+      d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3",
+      key: "wmoenq"
+    }
+  ],
+  ["path", { d: "M12 9v4", key: "juzpu7" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const User = createLucideIcon("User", [
   ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", key: "975kel" }],
   ["circle", { cx: "12", cy: "7", r: "4", key: "17ys0d" }]
@@ -28872,6 +28933,84 @@ function LoginPage() {
     ] })
   ] }) });
 }
+const CATEGORY_ICON = {
+  job_created: "✅",
+  job_cancelled: "❌",
+  job_updated: "✏️",
+  driver_online: "🚗",
+  new_booking: "📋",
+  general: "ℹ️"
+};
+function formatTime(ts) {
+  return new Date(ts).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" });
+}
+function NotificationDropdown() {
+  const notifications = useUiStore((s2) => s2.notifications);
+  const unreadCount = useUiStore((s2) => s2.notificationCount);
+  const dismissNotification = useUiStore((s2) => s2.dismissNotification);
+  const clearAllNotifications = useUiStore((s2) => s2.clearAllNotifications);
+  const [open2, setOpen] = reactExports.useState(false);
+  const rootRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    const onDoc = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: rootRef, className: "relative", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        type: "button",
+        className: "relative bw-icon-btn",
+        onClick: () => setOpen((v2) => !v2),
+        "aria-label": "Notifications",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Bell, { size: 16 }),
+          unreadCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] rounded-full min-w-[16px] h-4 px-0.5 flex items-center justify-center font-bold", children: unreadCount > 99 ? "99+" : unreadCount })
+        ]
+      }
+    ),
+    open2 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute right-0 top-full mt-1 w-80 max-h-[min(420px,70vh)] overflow-hidden rounded-lg border border-[#2d3148] bg-[#12151f] shadow-xl z-[3000] flex flex-col", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between px-3 py-2 border-b border-[#2d3148] shrink-0", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs font-semibold bw-text", children: "Notifications" }),
+        notifications.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            className: "text-[10px] text-[#8892a4] hover:text-[#e8eaf0]",
+            onClick: () => clearAllNotifications(),
+            children: "Clear all"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "overflow-y-auto flex-1 min-h-0", children: notifications.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-[#8892a4] px-3 py-6 text-center", children: "No notifications" }) : notifications.map((n2) => /* @__PURE__ */ jsxRuntimeExports.jsx(NotificationRow, { item: n2, onDismiss: () => dismissNotification(n2.id) }, n2.id)) })
+    ] })
+  ] });
+}
+function NotificationRow({ item, onDismiss }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: cn(
+        "flex gap-2 px-3 py-2 border-b border-[#2d3148]/60 last:border-b-0",
+        !item.read && "bg-[#1a1f2e]"
+      ),
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm shrink-0 mt-0.5", children: CATEGORY_ICON[item.category] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-1 min-w-0", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold bw-text", children: item.title }),
+          item.message && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[11px] text-[#8892a4] mt-0.5 line-clamp-2", children: item.message }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#64748b] mt-1", children: formatTime(item.createdAt) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "text-[#8892a4] hover:text-[#e8eaf0] shrink-0", onClick: onDismiss, children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) })
+      ]
+    }
+  );
+}
 const NAV = [
   { id: "searchJobs", label: "Filter" },
   { id: "suspended", label: "Suspended" },
@@ -28890,7 +29029,6 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const theme = useUiStore((s2) => s2.theme);
   const cycleTheme = useUiStore((s2) => s2.cycleTheme);
-  const notificationCount = useUiStore((s2) => s2.notificationCount);
   const billingBanner = useUiStore((s2) => s2.billingBanner);
   const initials = dispatcherInitials(dispatcherName);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -28955,10 +29093,7 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
           children: /* @__PURE__ */ jsxRuntimeExports.jsx(ThemeIcon, { theme })
         }
       ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "relative bw-icon-btn", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Bell, { size: 16 }),
-        notificationCount > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center", children: notificationCount })
-      ] })
+      /* @__PURE__ */ jsxRuntimeExports.jsx(NotificationDropdown, {})
     ] })
   ] });
 }
@@ -31097,11 +31232,16 @@ function JobCard({ job, tab }) {
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
+  const jobs = useJobStore((s2) => s2.jobs);
   const dispatcherName = reactExports.useMemo(
     () => localStorage.getItem("bw_dispatcher_name") || "Dispatcher",
     []
   );
-  const [confirmCancel, setConfirmCancel] = reactExports.useState(false);
+  const [cancelTargetJobId, setCancelTargetJobId] = reactExports.useState(null);
+  const cancelTarget = reactExports.useMemo(
+    () => cancelTargetJobId != null ? jobs.find((j2) => j2.id === cancelTargetJobId) ?? null : null,
+    [cancelTargetJobId, jobs]
+  );
   const border = jobCardBorderColor(job);
   normalizeJobStatus(job.status);
   const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
@@ -31127,11 +31267,26 @@ function JobCard({ job, tab }) {
       addToast({ type: "error", title: "Action failed", message: e instanceof Error ? e.message : "" });
     }
   };
+  const handleCancelClick = (jobId) => {
+    setCancelTargetJobId(jobId);
+  };
   const handleCancelConfirmed = async () => {
-    setConfirmCancel(false);
+    if (cancelTargetJobId == null) return;
+    const target = useJobStore.getState().jobs.find((j2) => j2.id === cancelTargetJobId);
+    if (!target) {
+      addToast({ type: "error", title: "Cancel failed", message: "Job not found" });
+      setCancelTargetJobId(null);
+      return;
+    }
+    const jobId = cancelTargetJobId;
+    setCancelTargetJobId(null);
     try {
-      await cancelJob(job.id, job.companyId, dispatcherName);
-      addToast({ type: "success", title: `Job cancelled by ${dispatcherName}` });
+      await cancelJob(jobId, target.companyId, dispatcherName);
+      addToast({
+        type: "success",
+        title: `Job #${jobId} cancelled`,
+        category: "job_cancelled"
+      });
     } catch (e) {
       addToast({
         type: "error",
@@ -31267,7 +31422,7 @@ function JobCard({ job, tab }) {
                 className: cn(iconBtn, "text-red-400"),
                 onClick: (e) => {
                   e.stopPropagation();
-                  setConfirmCancel(true);
+                  handleCancelClick(job.id);
                 },
                 children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
               }
@@ -31304,7 +31459,7 @@ function JobCard({ job, tab }) {
                 className: cn(iconBtn, "text-red-400"),
                 onClick: (e) => {
                   e.stopPropagation();
-                  setConfirmCancel(true);
+                  handleCancelClick(job.id);
                 },
                 children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
               }
@@ -31373,18 +31528,39 @@ function JobCard({ job, tab }) {
             }
           )
         ] }),
-        confirmCancel && (tab === "ua" || tab === "assign") && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        cancelTargetJobId != null && cancelTarget && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
-            className: "fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4",
-            onClick: () => setConfirmCancel(false),
+            className: "fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 p-4",
+            onClick: () => setCancelTargetJobId(null),
             children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "div",
               {
-                className: "bw-card rounded-lg p-4 shadow-xl max-w-sm w-full",
+                className: "rounded-xl border border-[#3d4260] bg-[#12151f] shadow-2xl max-w-md w-full p-5",
                 onClick: (e) => e.stopPropagation(),
                 children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm bw-text mb-4", children: "Cancel this job?" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-start gap-3 mb-4", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center shrink-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { size: 20, className: "text-red-400" }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "text-base font-bold text-[#e8eaf0]", children: [
+                        "Cancel Job #",
+                        cancelTargetJobId,
+                        "?"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-sm text-[#8892a4] mt-2 leading-relaxed", children: [
+                        "This will cancel the job for",
+                        " ",
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[#e8eaf0]", children: cancelTarget.passengerName || "the passenger" }),
+                        " ",
+                        "from",
+                        " ",
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[#e8eaf0]", children: cancelTarget.pickAddress || "pickup address" }),
+                        ".",
+                        " ",
+                        "This cannot be undone."
+                      ] })
+                    ] })
+                  ] }),
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 justify-end", children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
                       Button,
@@ -31392,7 +31568,7 @@ function JobCard({ job, tab }) {
                         variant: "muted",
                         onClick: (e) => {
                           e.stopPropagation();
-                          setConfirmCancel(false);
+                          setCancelTargetJobId(null);
                         },
                         children: "Keep Job"
                       }
@@ -31405,7 +31581,7 @@ function JobCard({ job, tab }) {
                           e.stopPropagation();
                           void handleCancelConfirmed();
                         },
-                        children: "Yes, Cancel Job"
+                        children: "Cancel Job"
                       }
                     )
                   ] })
@@ -31638,7 +31814,11 @@ function attachPlacesAutocomplete(input, onSelect) {
   };
   const ac = new g2.maps.places.Autocomplete(input, {
     fields: ["formatted_address", "geometry"],
-    componentRestrictions: { country: "nz" }
+    componentRestrictions: { country: "nz" },
+    locationBias: {
+      center: { lat: -46.4132, lng: 168.3538 },
+      radius: 5e4
+    }
   });
   const listener = ac.addListener("place_changed", () => {
     var _a3;
@@ -31663,7 +31843,8 @@ function AddressAutocomplete({
   placeholder,
   onChange,
   onPlace,
-  className = "bw-field"
+  className = "bw-field",
+  invalid = false
 }) {
   const inputRef = reactExports.useRef(null);
   const onChangeRef = reactExports.useRef(onChange);
@@ -31688,7 +31869,7 @@ function AddressAutocomplete({
     {
       ref: inputRef,
       type: "text",
-      className,
+      className: cn(className, invalid && "!border-red-500 !border-2"),
       placeholder,
       value,
       autoComplete: "off",
@@ -32353,6 +32534,9 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const [accHits, setAccHits] = reactExports.useState([]);
   const [cityDistLabel, setCityDistLabel] = reactExports.useState("");
   const [routeSummary, setRouteSummary] = reactExports.useState("");
+  const [pickFromAutocomplete, setPickFromAutocomplete] = reactExports.useState(false);
+  const [dropFromAutocomplete, setDropFromAutocomplete] = reactExports.useState(false);
+  const [pickAddressError, setPickAddressError] = reactExports.useState("");
   const [pos, setPos] = reactExports.useState(loadPos);
   const dragging = reactExports.useRef(false);
   const dragOffset = reactExports.useRef({ x: 0, y: 0 });
@@ -32380,6 +32564,9 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setAccHits([]);
     setCityDistLabel("");
     setRouteSummary("");
+    setPickFromAutocomplete(false);
+    setDropFromAutocomplete(false);
+    setPickAddressError("");
   }, [settings == null ? void 0 : settings.defaultDispatchWindow]);
   const onClose = reactExports.useCallback(() => {
     setRoutePreview(null);
@@ -32392,7 +32579,11 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       return;
     }
     if (editingJob) {
-      setForm(jobToForm(editingJob));
+      const loaded = jobToForm(editingJob);
+      setForm(loaded);
+      setPickFromAutocomplete(!!loaded.pick.lat);
+      setDropFromAutocomplete(!!loaded.drop.lat);
+      setPickAddressError("");
     } else {
       resetForm();
     }
@@ -32529,6 +32720,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     patch({ stops: form.stops.map((s2) => s2.id === id ? { ...s2, ...p2 } : s2) });
   };
   const onPickupSelect = (pick) => {
+    setPickFromAutocomplete(true);
+    setPickAddressError("");
     patch({ pick, pickInput: pick.address });
     if (pick.lat) {
       const preview = {
@@ -32541,6 +32734,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     }
   };
   const onDropSelect = (drop) => {
+    setDropFromAutocomplete(true);
     patch({ drop, dropInput: drop.address });
     if (form.pick.lat && drop.lat) {
       setRoutePreview({
@@ -32553,6 +32747,15 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     const addr = form.pick.address || form.pickInput;
     if (!addr.trim()) {
       addToast({ type: "error", title: "Pickup address required" });
+      return false;
+    }
+    if (!pickFromAutocomplete || !form.pick.lat) {
+      setPickAddressError("Please select an address from the suggestions");
+      addToast({
+        type: "error",
+        title: "Invalid pickup address",
+        message: "Please select an address from the suggestions"
+      });
       return false;
     }
     return true;
@@ -32579,7 +32782,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       if (isEdit && editingJob) {
         const changes = buildJobChangesFromForm(form, dispatcherName);
         await updateJob(editingJob.id, companyId, changes, editingJob);
-        addToast({ type: "success", title: "Job updated" });
+        addToast({ type: "success", title: "Job updated", category: "job_updated" });
         onClose();
         return;
       }
@@ -32644,7 +32847,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       addToast({
         type: "success",
         title: targets.length > 1 ? `${targets.length} jobs created` : "Job booked",
-        message: `#${lastId}`
+        message: `#${lastId}`,
+        category: "job_created"
       });
       onClose();
     } catch (e) {
@@ -32690,10 +32894,16 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 value: form.pickInput,
                 placeholder: "Pickup address",
                 className: "cj-input mb-2",
-                onChange: (pickInput) => patch({ pickInput }),
+                invalid: !!pickAddressError || !pickFromAutocomplete && !!form.pickInput.trim(),
+                onChange: (pickInput) => {
+                  patch({ pickInput, pick: { address: "", lat: 0, lng: 0 } });
+                  setPickFromAutocomplete(false);
+                  setPickAddressError("");
+                },
                 onPlace: onPickupSelect
               }
             ),
+            pickAddressError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-red-400 mb-2", children: pickAddressError }),
             cityDistLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#8892a4] mb-2", children: cityDistLabel }),
             form.stops.map((stop) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 mb-2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -32727,7 +32937,11 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 value: form.dropInput,
                 placeholder: "Dropoff address (optional)",
                 className: "cj-input mb-2",
-                onChange: (dropInput) => patch({ dropInput }),
+                invalid: !!form.dropInput.trim() && !dropFromAutocomplete,
+                onChange: (dropInput) => {
+                  patch({ dropInput, drop: { address: "", lat: 0, lng: 0 } });
+                  setDropFromAutocomplete(false);
+                },
                 onPlace: onDropSelect
               }
             ),
@@ -33099,7 +33313,16 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "shrink-0 flex justify-end gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: resetForm, children: "Clear" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: onClose, children: "Cancel" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-book", onClick: handleSubmit, disabled: loading, children: loading ? "Saving…" : isEdit ? "SAVE ✓" : "BOOK ✓" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              type: "button",
+              className: "cj-btn-book",
+              onClick: handleSubmit,
+              disabled: loading || !isEdit && (!pickFromAutocomplete || !form.pick.lat),
+              children: loading ? "Saving…" : isEdit ? "SAVE ✓" : "BOOK ✓"
+            }
+          )
         ] })
       ]
     }
@@ -40708,7 +40931,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C3dCMmKh.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CmTfsGPP.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41994,6 +42217,8 @@ function DispatchMap({
   const mapZones = useUiStore((s2) => s2.mapZones);
   const createJobOpen = useUiStore((s2) => s2.openModal === "createJob");
   const routePreview = useUiStore((s2) => s2.routePreview);
+  const routeDrawing = useUiStore((s2) => s2.routeDrawing);
+  const setRouteDrawing = useUiStore((s2) => s2.setRouteDrawing);
   const setMapInstance = useUiStore((s2) => s2.setMapInstance);
   const theme = useUiStore((s2) => s2.theme);
   const setMapTraffic = useUiStore((s2) => s2.setMapTraffic);
@@ -42017,6 +42242,7 @@ function DispatchMap({
   );
   const clearDirectionsRenderer = () => {
     routeRequestRef.current += 1;
+    setRouteDrawing(false);
     if (directionsRendererRef.current) {
       directionsRendererRef.current.setMap(null);
       directionsRendererRef.current = null;
@@ -42125,6 +42351,7 @@ function DispatchMap({
       console.log("[Route] renderer:", !!directionsRendererRef.current);
       const directionsService = new google.maps.DirectionsService();
       console.log("[Route] calling DirectionsService");
+      setRouteDrawing(true);
       directionsService.route(
         {
           origin: pick,
@@ -42133,6 +42360,7 @@ function DispatchMap({
         },
         (result, status) => {
           var _a3, _b3;
+          setRouteDrawing(false);
           console.log("[Route] status:", status);
           console.log("[Route] result:", result);
           if (routeRequestRef.current !== requestId || !gMapRef.current) return;
@@ -42148,7 +42376,7 @@ function DispatchMap({
         }
       );
     },
-    [mapsKey]
+    [mapsKey, setRouteDrawing]
   );
   const drawRouteBetweenCoords = reactExports.useCallback(
     async (pick, drop, requestId) => {
@@ -42195,6 +42423,7 @@ function DispatchMap({
           });
           directionsRendererRef.current.setMap(map2);
         }
+        setRouteDrawing(true);
         const directionsService = new google.maps.DirectionsService();
         directionsService.route(
           {
@@ -42204,6 +42433,7 @@ function DispatchMap({
           },
           (result, status) => {
             var _a2, _b2;
+            setRouteDrawing(false);
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
               (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
@@ -42225,7 +42455,7 @@ function DispatchMap({
         fitMapView([pick, safeCenter]);
       }
     },
-    [mapsKey, safeCenter.lat, safeCenter.lng]
+    [mapsKey, safeCenter.lat, safeCenter.lng, setRouteDrawing]
   );
   reactExports.useEffect(() => {
     if (createJobOpen) {
@@ -42415,6 +42645,7 @@ function DispatchMap({
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0" }),
     !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] bw-map-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 bw-muted" }) }),
     mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400 bw-map-bg", children: mapError }),
+    routeDrawing && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-12 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]", children: "Drawing route…" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "rounded-lg border bw-border bw-surface p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: () => {
         var _a2;
@@ -42733,21 +42964,26 @@ function AccModal() {
 }
 function ToastStack() {
   const toasts = useUiStore((s2) => s2.toasts);
-  const removeToast = useUiStore((s2) => s2.removeToast);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fixed top-14 right-3 z-[2000] flex flex-col gap-2 max-w-sm", children: toasts.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-    "div",
-    {
-      className: `bw-card px-3 py-2 shadow-lg border-l-4 ${t2.type === "error" ? "border-l-bw-danger" : t2.type === "success" ? "border-l-bw-success" : t2.type === "warning" ? "border-l-bw-warning" : "border-l-bw-primary"}`,
-      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex justify-between gap-2", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed top-14 right-3 z-[2000] flex flex-col gap-2 max-w-sm pointer-events-none", children: [
+    toasts.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: `bw-card px-3 py-2 shadow-lg border-l-4 animate-in fade-in duration-200 pointer-events-auto ${t2.type === "error" ? "border-l-bw-danger" : t2.type === "success" ? "border-l-bw-success" : t2.type === "warning" ? "border-l-bw-warning" : "border-l-bw-primary"}`,
+        style: { animation: "toastFade 3s ease forwards" },
+        children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold text-bw-text", children: t2.title }),
           t2.message && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[11px] text-bw-muted mt-0.5", children: t2.message })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => removeToast(t2.id), className: "text-bw-muted shrink-0", children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 14 }) })
-      ] })
-    },
-    t2.id
-  )) });
+        ]
+      },
+      t2.id
+    )),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("style", { children: `
+        @keyframes toastFade {
+          0%, 75% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      ` })
+  ] });
 }
 function useFirebaseInit() {
   const [ready, setReady] = reactExports.useState(false);
@@ -42787,7 +43023,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-EW5REs9-.js");
+        const { writeActiveDispatcher } = await import("./notifications-CzIDoNFg.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42814,7 +43050,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-EW5REs9-.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CzIDoNFg.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43142,4 +43378,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-N9-2g9pG.js.map
+//# sourceMappingURL=index-CrdTcFU5.js.map

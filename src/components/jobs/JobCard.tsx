@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { differenceInMinutes, format, formatDistanceToNow, parseISO } from 'date-fns';
-import { Edit, X, CheckCircle, RotateCcw, User } from 'lucide-react';
+import { Edit, X, CheckCircle, RotateCcw, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
 import {
   isScheduledJob,
@@ -59,11 +59,16 @@ export function JobCard({ job, tab }: JobCardProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+  const jobs = useJobStore((s) => s.jobs);
   const dispatcherName = useMemo(
     () => localStorage.getItem('bw_dispatcher_name') || 'Dispatcher',
     []
   );
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
+  const cancelTarget = useMemo(
+    () => (cancelTargetJobId != null ? jobs.find((j) => j.id === cancelTargetJobId) ?? null : null),
+    [cancelTargetJobId, jobs]
+  );
 
   const border = jobCardBorderColor(job);
   const status = normalizeJobStatus(job.status);
@@ -93,11 +98,27 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
+  const handleCancelClick = (jobId: number) => {
+    setCancelTargetJobId(jobId);
+  };
+
   const handleCancelConfirmed = async () => {
-    setConfirmCancel(false);
+    if (cancelTargetJobId == null) return;
+    const target = useJobStore.getState().jobs.find((j) => j.id === cancelTargetJobId);
+    if (!target) {
+      addToast({ type: 'error', title: 'Cancel failed', message: 'Job not found' });
+      setCancelTargetJobId(null);
+      return;
+    }
+    const jobId = cancelTargetJobId;
+    setCancelTargetJobId(null);
     try {
-      await cancelJob(job.id, job.companyId, dispatcherName);
-      addToast({ type: 'success', title: `Job cancelled by ${dispatcherName}` });
+      await cancelJob(jobId, target.companyId, dispatcherName);
+      addToast({
+        type: 'success',
+        title: `Job #${jobId} cancelled`,
+        category: 'job_cancelled',
+      });
     } catch (e) {
       addToast({
         type: 'error',
@@ -240,7 +261,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                 className={cn(iconBtn, 'text-red-400')}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setConfirmCancel(true);
+                  handleCancelClick(job.id);
                 }}
               >
                 <X size={13} />
@@ -279,7 +300,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                 className={cn(iconBtn, 'text-red-400')}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setConfirmCancel(true);
+                  handleCancelClick(job.id);
                 }}
               >
                 <X size={13} />
@@ -351,22 +372,38 @@ export function JobCard({ job, tab }: JobCardProps) {
         </Button>
       </div>
 
-      {confirmCancel && (tab === 'ua' || tab === 'assign') && (
+      {cancelTargetJobId != null && cancelTarget && (
         <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setConfirmCancel(false)}
+          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setCancelTargetJobId(null)}
         >
           <div
-            className="bw-card rounded-lg p-4 shadow-xl max-w-sm w-full"
+            className="rounded-xl border border-[#3d4260] bg-[#12151f] shadow-2xl max-w-md w-full p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-sm bw-text mb-4">Cancel this job?</p>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} className="text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#e8eaf0]">
+                  Cancel Job #{cancelTargetJobId}?
+                </h3>
+                <p className="text-sm text-[#8892a4] mt-2 leading-relaxed">
+                  This will cancel the job for{' '}
+                  <span className="text-[#e8eaf0]">{cancelTarget.passengerName || 'the passenger'}</span>
+                  {' '}from{' '}
+                  <span className="text-[#e8eaf0]">{cancelTarget.pickAddress || 'pickup address'}</span>.
+                  {' '}This cannot be undone.
+                </p>
+              </div>
+            </div>
             <div className="flex gap-2 justify-end">
               <Button
                 variant="muted"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setConfirmCancel(false);
+                  setCancelTargetJobId(null);
                 }}
               >
                 Keep Job
@@ -378,7 +415,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   void handleCancelConfirmed();
                 }}
               >
-                Yes, Cancel Job
+                Cancel Job
               </Button>
             </div>
           </div>
