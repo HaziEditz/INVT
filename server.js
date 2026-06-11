@@ -8072,7 +8072,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // ── /DataSelectorRide — booking write operations ────────────────────────
     if (urlPath.includes('/DataSelectorRide')) {
       if (action === 'InsertBookingv4') {
-        const newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
+        try {
+        let newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
         try { console.timeEnd(`booking-gap-${newId}`); } catch(e) {}
         const pickAddr = param('PickLocation') || param('PickAddress') || 'Unknown pickup';
         const dropAddr = param('DropLocation') || param('DropAddress') || '';
@@ -8107,7 +8108,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           ? param('serviceType').toLowerCase() : 'taxi';
 
         const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
-        const newJob = {
+        let newJob = {
           Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
           useremail: null, usertype: null, webstatus: '0',
           Name: name, PhoneNo: phone,
@@ -8227,6 +8228,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs1 ? new Date(_scheduledMs1).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
+        } catch (err) {
+          console.error('[InsertBookingv4] error:', err);
+          arrayD(res, [{ Result: 'Error: ' + (err && err.message ? err.message : 'InsertBookingv4 failed'), Error: true }]);
+        }
       } else if (action === 'UpdateBooking') {
         // Called by cancelactivejob / close-ride flow.
         // Marks the job as Closed, moves it to closedJobStore, and releases the driver.

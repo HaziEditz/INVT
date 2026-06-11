@@ -88,12 +88,10 @@ export function DispatchMap({
 
   const clearDirectionsRenderer = () => {
     routeRequestRef.current += 1;
-    const renderer = directionsRendererRef.current;
-    if (renderer) {
-      renderer.setDirections(null);
-      renderer.setMap(null);
+    if (directionsRendererRef.current) {
+      directionsRendererRef.current.setMap(null);
+      directionsRendererRef.current = null;
     }
-    directionsRendererRef.current = null;
     jobMarkersRef.current.forEach((m) => m.setMap(null));
     jobMarkersRef.current = [];
   };

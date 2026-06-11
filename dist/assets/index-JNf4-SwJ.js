@@ -40532,7 +40532,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DPfzEFn5.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-IfuNL_9U.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -41840,12 +41840,10 @@ function DispatchMap({
   const selectedJob = !createJobOpen && selectedJobId != null ? jobs.find((j2) => j2.id === selectedJobId) : void 0;
   const clearDirectionsRenderer = () => {
     routeRequestRef.current += 1;
-    const renderer = directionsRendererRef.current;
-    if (renderer) {
-      renderer.setDirections(null);
-      renderer.setMap(null);
+    if (directionsRendererRef.current) {
+      directionsRendererRef.current.setMap(null);
+      directionsRendererRef.current = null;
     }
-    directionsRendererRef.current = null;
     jobMarkersRef.current.forEach((m2) => m2.setMap(null));
     jobMarkersRef.current = [];
   };
@@ -42461,7 +42459,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-D43u_HJ_.js");
+        const { writeActiveDispatcher } = await import("./notifications-B2baVJnO.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42488,7 +42486,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-D43u_HJ_.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B2baVJnO.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42796,4 +42794,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DjxeIo_v.js.map
+//# sourceMappingURL=index-JNf4-SwJ.js.map
