@@ -27580,45 +27580,6 @@ const firebase = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProp
   set,
   update
 }, Symbol.toStringTag, { value: "Module" }));
-const createStoreImpl = (createState) => {
-  let state;
-  const listeners = /* @__PURE__ */ new Set();
-  const setState = (partial, replace) => {
-    const nextState = typeof partial === "function" ? partial(state) : partial;
-    if (!Object.is(nextState, state)) {
-      const previousState = state;
-      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
-      listeners.forEach((listener) => listener(state, previousState));
-    }
-  };
-  const getState = () => state;
-  const getInitialState = () => initialState;
-  const subscribe = (listener) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
-  const api = { setState, getState, getInitialState, subscribe };
-  const initialState = state = createState(setState, getState, api);
-  return api;
-};
-const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
-const identity = (arg) => arg;
-function useStore(api, selector = identity) {
-  const slice = React.useSyncExternalStore(
-    api.subscribe,
-    React.useCallback(() => selector(api.getState()), [api, selector]),
-    React.useCallback(() => selector(api.getInitialState()), [api, selector])
-  );
-  React.useDebugValue(slice);
-  return slice;
-}
-const createImpl = (createState) => {
-  const api = createStore(createState);
-  const useBoundStore = (selector) => useStore(api, selector);
-  Object.assign(useBoundStore, api);
-  return useBoundStore;
-};
-const create = ((createState) => createState ? createImpl(createState) : createImpl);
 function parseLatLng$1(raw) {
   if (!raw) return null;
   const p2 = raw.split(",");
@@ -27742,6 +27703,45 @@ function jobTabForStatus(job) {
   if (st2 === "Offered") return "offer";
   return "ua";
 }
+const createStoreImpl = (createState) => {
+  let state;
+  const listeners = /* @__PURE__ */ new Set();
+  const setState = (partial, replace) => {
+    const nextState = typeof partial === "function" ? partial(state) : partial;
+    if (!Object.is(nextState, state)) {
+      const previousState = state;
+      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
+      listeners.forEach((listener) => listener(state, previousState));
+    }
+  };
+  const getState = () => state;
+  const getInitialState = () => initialState;
+  const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const api = { setState, getState, getInitialState, subscribe };
+  const initialState = state = createState(setState, getState, api);
+  return api;
+};
+const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
+const identity = (arg) => arg;
+function useStore(api, selector = identity) {
+  const slice = React.useSyncExternalStore(
+    api.subscribe,
+    React.useCallback(() => selector(api.getState()), [api, selector]),
+    React.useCallback(() => selector(api.getInitialState()), [api, selector])
+  );
+  React.useDebugValue(slice);
+  return slice;
+}
+const createImpl = (createState) => {
+  const api = createStore(createState);
+  const useBoundStore = (selector) => useStore(api, selector);
+  Object.assign(useBoundStore, api);
+  return useBoundStore;
+};
+const create = ((createState) => createState ? createImpl(createState) : createImpl);
 function filterJobsForTab(jobs, tab) {
   return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
     const ca = a2.createdAt || 0;
@@ -28201,25 +28201,65 @@ function firebasePatchFromChanges(changes) {
   if (changes.Name !== void 0) patch.Name = changes.Name;
   return patch;
 }
-async function updateJob(jobId, companyId, changes, existingJob) {
-  const result = await jsonFetch(`${API}/booking/update`, {
+async function postBookingUpdate(body) {
+  const r = await fetch(`${API}/booking/update`, {
     method: "POST",
-    body: JSON.stringify({
-      bookingId: jobId,
-      companyId,
-      changes,
-      by: "dispatcher",
-      ifSeq: existingJob.updateSeq
-    })
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
   });
-  if (!result.ok) {
-    if (result.stale) {
-      throw new Error(`Job was updated elsewhere (seq ${result.currentSeq ?? "?"}). Refresh and try again.`);
-    }
-    throw new Error(result.error || "Update failed");
+  const data = await r.json().catch(() => ({}));
+  return { ...data, ok: !!data.ok && r.ok, status: r.status };
+}
+function seqFromFirebaseRecord(rec) {
+  const raw = rec._seq ?? rec.version ?? rec.updateSeq ?? 0;
+  return parseInt(String(raw), 10) || 0;
+}
+async function fetchFreshJobFromFirebase(companyId, jobId) {
+  try {
+    const db2 = getDb();
+    const snap = await get(ref(db2, `pendingjobs/${companyId}/${jobId}`));
+    const val = snap.val();
+    if (!val || typeof val !== "object") return null;
+    const rec = val;
+    const job = jobFromFirebase(String(jobId), rec, companyId);
+    if (!job) return null;
+    return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
+  } catch {
+    return null;
   }
-  const patched = applyChangesToJob(existingJob, changes, result.seq);
-  useJobStore.getState().upsertJob(patched);
+}
+async function persistJobUpdate(jobId, companyId, changes, baseJob) {
+  let ifSeq = baseJob.updateSeq;
+  const attempt = async () => postBookingUpdate({
+    bookingId: jobId,
+    companyId,
+    changes,
+    by: "dispatcher",
+    ifSeq
+  });
+  let result = await attempt();
+  if (!result.ok && result.stale) {
+    const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+    ifSeq = (fresh == null ? void 0 : fresh.updateSeq) ?? result.currentSeq ?? ifSeq;
+    if (fresh) {
+      useJobStore.getState().upsertJob(fresh);
+    }
+    result = await attempt();
+  }
+  if (!result.ok) {
+    const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+    if (fresh) useJobStore.getState().upsertJob(fresh);
+    useUiStore.getState().addToast({
+      type: "error",
+      title: "Job update failed",
+      message: result.error || "Could not save changes"
+    });
+    return;
+  }
+  const current = useJobStore.getState().jobs.find((j2) => j2.id === jobId) ?? baseJob;
+  const authoritativeSeq = result.seq ?? (ifSeq != null ? ifSeq + 1 : (current.updateSeq ?? 0) + 1);
+  useJobStore.getState().upsertJob(applyChangesToJob(current, changes, authoritativeSeq));
   try {
     const db2 = getDb();
     const fbPatch = firebasePatchFromChanges(changes);
@@ -28228,6 +28268,12 @@ async function updateJob(jobId, companyId, changes, existingJob) {
     }
   } catch {
   }
+}
+async function updateJob(jobId, companyId, changes, existingJob) {
+  const optimisticSeq = (existingJob.updateSeq ?? 0) + 1;
+  const optimisticJob = applyChangesToJob(existingJob, changes, optimisticSeq);
+  useJobStore.getState().upsertJob(optimisticJob);
+  void persistJobUpdate(jobId, companyId, changes, existingJob);
 }
 async function setJobStatus(companyId, bookingId, status, extra = {}, ifSeq) {
   const { originalStatus, ifVersion, ...rest } = extra;
@@ -40476,7 +40522,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DeUDYuE8.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Cbte7JhT.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42347,7 +42393,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CcLOTuY7.js");
+        const { writeActiveDispatcher } = await import("./notifications-BXJuus81.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -42374,7 +42420,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CcLOTuY7.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BXJuus81.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -42682,4 +42728,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CUYnY8Xr.js.map
+//# sourceMappingURL=index-rK_fi_Qq.js.map
