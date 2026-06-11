@@ -32522,7 +32522,6 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const upsertJob = useJobStore((s2) => s2.upsertJob);
   const jobs = useJobStore((s2) => s2.jobs);
   const setActiveTab = useJobStore((s2) => s2.setActiveTab);
-  const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
   const editingJob = reactExports.useMemo(
     () => modalJobId ? jobs.find((j2) => j2.id === modalJobId) ?? null : null,
     [modalJobId, jobs]
@@ -32851,7 +32850,6 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
       console.log("[Book] Step 6 - store updated", { bookingId: lastId, status: lastStatus });
       setActiveTab("ua");
-      setSelectedJobId(null);
       addToast({
         type: "success",
         title: targets.length > 1 ? `${targets.length} jobs created` : "Job booked",
@@ -40939,7 +40937,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DHYp1lcJ.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BjqFZKVs.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42433,8 +42431,8 @@ function DispatchMap({
               strokeWeight: 4
             }
           });
-          directionsRendererRef.current.setMap(map2);
         }
+        directionsRendererRef.current.setMap(map2);
         setRouteDrawing(true);
         const directionsService = new google.maps.DirectionsService();
         directionsService.route(
@@ -42444,12 +42442,22 @@ function DispatchMap({
             travelMode: google.maps.TravelMode.DRIVING
           },
           (result, status) => {
-            var _a2, _b2;
+            var _a2;
             setRouteDrawing(false);
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
-              (_a2 = directionsRendererRef.current) == null ? void 0 : _a2.setDirections(result);
-              const routeBounds = (_b2 = result.routes[0]) == null ? void 0 : _b2.bounds;
+              if (!directionsRendererRef.current) {
+                directionsRendererRef.current = new google.maps.DirectionsRenderer({
+                  suppressMarkers: true,
+                  polylineOptions: {
+                    strokeColor: "#4f6ef7",
+                    strokeWeight: 4
+                  }
+                });
+              }
+              directionsRendererRef.current.setMap(gMapRef.current);
+              directionsRendererRef.current.setDirections(result);
+              const routeBounds = (_a2 = result.routes[0]) == null ? void 0 : _a2.bounds;
               if (routeBounds) {
                 fitRouteBounds(gMapRef.current, routeBounds);
               }
@@ -43031,7 +43039,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CMEX2Mlw.js");
+        const { writeActiveDispatcher } = await import("./notifications-Cd-qIYig.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43058,7 +43066,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CMEX2Mlw.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Cd-qIYig.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43386,4 +43394,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-fMduLwmG.js.map
+//# sourceMappingURL=index-D_I4QoKY.js.map

@@ -155,7 +155,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const upsertJob = useJobStore((s) => s.upsertJob);
   const jobs = useJobStore((s) => s.jobs);
   const setActiveTab = useJobStore((s) => s.setActiveTab);
-  const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
 
   const editingJob = useMemo(
     () => (modalJobId ? jobs.find((j) => j.id === modalJobId) ?? null : null),
@@ -527,7 +526,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
       console.log('[Book] Step 6 - store updated', { bookingId: lastId, status: lastStatus });
       setActiveTab('ua');
-      setSelectedJobId(null);
 
       addToast({
         type: 'success',

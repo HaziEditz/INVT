@@ -321,8 +321,8 @@ export function DispatchMap({
               strokeWeight: 4,
             },
           });
-          directionsRendererRef.current.setMap(map);
         }
+        directionsRendererRef.current.setMap(map);
 
         setRouteDrawing(true);
         const directionsService = new google.maps.DirectionsService();
@@ -336,7 +336,17 @@ export function DispatchMap({
             setRouteDrawing(false);
             if (routeRequestRef.current !== requestId || !gMapRef.current) return;
             if (status === google.maps.DirectionsStatus.OK && result) {
-              directionsRendererRef.current?.setDirections(result);
+              if (!directionsRendererRef.current) {
+                directionsRendererRef.current = new google.maps.DirectionsRenderer({
+                  suppressMarkers: true,
+                  polylineOptions: {
+                    strokeColor: '#4f6ef7',
+                    strokeWeight: 4,
+                  },
+                });
+              }
+              directionsRendererRef.current.setMap(gMapRef.current);
+              directionsRendererRef.current.setDirections(result);
               const routeBounds = result.routes[0]?.bounds;
               if (routeBounds) {
                 fitRouteBounds(gMapRef.current, routeBounds);
