@@ -66,6 +66,8 @@ export function DispatchMap({
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
   const routeRequestRef = useRef(0);
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
+  const zonePolysRef = useRef<google.maps.Polygon[]>([]);
+  const zoneUnsubRef = useRef<(() => void) | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
@@ -467,9 +469,59 @@ export function DispatchMap({
   }, [safeCenter.lat, safeCenter.lng, mapReady, createJobOpen, routePreview, routeJobId]);
 
   useEffect(() => {
-    if (!gMapRef.current || !trafficRef.current) return;
+    if (!gMapRef.current || !mapReady) return;
+    if (!trafficRef.current) {
+      trafficRef.current = new google.maps.TrafficLayer();
+    }
     trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
   }, [mapTraffic, mapReady]);
+
+  useEffect(() => {
+    const clearZones = () => {
+      zonePolysRef.current.forEach((p) => p.setMap(null));
+      zonePolysRef.current = [];
+      zoneUnsubRef.current?.();
+      zoneUnsubRef.current = null;
+    };
+
+    if (!gMapRef.current || !mapReady || !companyId || !mapZones) {
+      clearZones();
+      return;
+    }
+
+    let cancelled = false;
+
+    import('@/lib/firebase').then(({ getDb, ref, onValue }) => {
+      if (cancelled || !gMapRef.current) return;
+      const r = ref(getDb(), `zones/${companyId}`);
+      zoneUnsubRef.current = onValue(r, (snap) => {
+        zonePolysRef.current.forEach((p) => p.setMap(null));
+        zonePolysRef.current = [];
+        if (!useUiStore.getState().mapZones || !gMapRef.current) return;
+        const val = snap.val();
+        if (!val) return;
+        for (const [, z] of Object.entries(val as Record<string, { paths?: { lat: number; lng: number }[] }>)) {
+          if (!z.paths?.length) continue;
+          zonePolysRef.current.push(
+            new google.maps.Polygon({
+              paths: z.paths,
+              strokeColor: '#4f6ef7',
+              strokeOpacity: 0.8,
+              strokeWeight: 2,
+              fillColor: '#4f6ef7',
+              fillOpacity: 0.08,
+              map: gMapRef.current,
+            })
+          );
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      clearZones();
+    };
+  }, [mapZones, companyId, mapReady]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
@@ -559,52 +611,14 @@ export function DispatchMap({
     };
   }, [createJobOpen, routePreview, mapReady, routeJobId, drawRouteBetweenCoords]);
 
-  useEffect(() => {
-    if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
-    let cancelled = false;
-    let unsub: (() => void) | undefined;
-    const polys: google.maps.Polygon[] = [];
-
-    import('@/lib/firebase').then(({ getDb, ref, onValue }) => {
-      if (cancelled || !gMapRef.current) return;
-      const r = ref(getDb(), `zones/${companyId}`);
-      unsub = onValue(r, (snap) => {
-        polys.forEach((p) => p.setMap(null));
-        polys.length = 0;
-        const val = snap.val();
-        if (!val || !gMapRef.current) return;
-        for (const [, z] of Object.entries(val as Record<string, { paths?: { lat: number; lng: number }[] }>)) {
-          if (!z.paths?.length) continue;
-          polys.push(
-            new google.maps.Polygon({
-              paths: z.paths,
-              strokeColor: '#4f6ef7',
-              strokeOpacity: 0.8,
-              strokeWeight: 2,
-              fillColor: '#4f6ef7',
-              fillOpacity: 0.08,
-              map: gMapRef.current,
-            })
-          );
-        }
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      unsub?.();
-      polys.forEach((p) => p.setMap(null));
-    };
-  }, [mapZones, companyId, mapReady]);
-
   const zoom = (delta: number) => {
     const z = gMapRef.current?.getZoom();
     if (z != null) gMapRef.current?.setZoom(z + delta);
   };
 
-  const ctrlBtn =
-    'flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md text-[11px] font-medium text-[#e8eaf0] hover:bg-[#2d3148] transition-colors';
-  const mapCard = 'rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1.5';
+  const toolbarBtn =
+    'flex items-center gap-1 px-2.5 h-7 rounded text-[11px] font-medium text-[#e8eaf0] hover:bg-[#2d3148] transition-colors whitespace-nowrap';
+  const toolbarBtnActive = 'bg-[#5b7cfa]/20 text-[#5b7cfa]';
 
   return (
     <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden rounded-lg border border-[#2d3148] shadow-[0_2px_8px_rgba(0,0,0,0.3)] bw-text">
@@ -626,48 +640,43 @@ export function DispatchMap({
         </div>
       )}
 
-      <div className={cn('absolute top-2 left-2 z-10 flex flex-col gap-1.5', compactControls && 'scale-90 origin-top-left')}>
-        <div className={cn(mapCard, 'flex flex-col gap-1 min-w-[132px]')}>
-          <button type="button" className={ctrlBtn} onClick={() => gMapRef.current?.setCenter(safeCenter)}>
-            <Home size={14} /> Home
-          </button>
-          <div className="flex gap-1">
-            <button type="button" className={cn(ctrlBtn, 'flex-1 justify-center')} onClick={() => zoom(1)} aria-label="Zoom in">
-              <Plus size={14} />
-            </button>
-            <button type="button" className={cn(ctrlBtn, 'flex-1 justify-center')} onClick={() => zoom(-1)} aria-label="Zoom out">
-              <Minus size={14} />
-            </button>
-          </div>
-          <button
-            type="button"
-            className={cn(ctrlBtn, mapTraffic && 'text-amber-400 bg-amber-500/10')}
-            onClick={() => setMapTraffic(!mapTraffic)}
-          >
-            <TrafficCone size={14} /> Traffic
-          </button>
-          <button
-            type="button"
-            className={cn(ctrlBtn, mapZones && 'text-[#5b7cfa] bg-[#5b7cfa]/10')}
-            onClick={() => setMapZones(!mapZones)}
-          >
-            <Layers size={14} /> Zones
-          </button>
-        </div>
+      <div
+        className={cn(
+          'absolute top-0 left-0 right-0 z-10 flex items-center h-9 px-1.5 gap-0.5 bg-[#1e2235] border-b border-[#2d3148] rounded-t-lg',
+          compactControls && 'scale-95 origin-top'
+        )}
+      >
+        <button type="button" className={toolbarBtn} onClick={() => gMapRef.current?.setCenter(safeCenter)}>
+          <Home size={14} /> Home
+        </button>
+        <button
+          type="button"
+          className={cn(toolbarBtn, mapTraffic && toolbarBtnActive)}
+          onClick={() => setMapTraffic(!mapTraffic)}
+        >
+          <TrafficCone size={14} /> Traffic
+        </button>
+        <button
+          type="button"
+          className={cn(toolbarBtn, mapZones && toolbarBtnActive)}
+          onClick={() => setMapZones(!mapZones)}
+        >
+          <Layers size={14} /> Zones
+        </button>
 
-        <div ref={layoutMenuRef} className={cn(mapCard, 'relative min-w-[132px]')}>
+        <div ref={layoutMenuRef} className="relative">
           <button
             type="button"
-            className={cn(ctrlBtn, layoutMenuOpen && 'bg-[#2d3148]')}
+            className={cn(toolbarBtn, layoutMenuOpen && toolbarBtnActive)}
             onClick={() => setLayoutMenuOpen((o) => !o)}
           >
             <LayoutGrid size={14} /> Layout
           </button>
           {layoutMenuOpen && (
-            <div className="absolute left-0 top-full mt-1 w-full rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20">
+            <div className="absolute left-0 top-full mt-1 min-w-[140px] rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20">
               <button
                 type="button"
-                className={ctrlBtn}
+                className={cn(toolbarBtn, 'w-full justify-start')}
                 onClick={() => {
                   saveLayout();
                   addToast({ type: 'success', title: 'Layout saved' });
@@ -678,7 +687,7 @@ export function DispatchMap({
               </button>
               <button
                 type="button"
-                className={ctrlBtn}
+                className={cn(toolbarBtn, 'w-full justify-start')}
                 onClick={() => {
                   resetLayout();
                   addToast({ type: 'info', title: 'Layout reset to default' });
@@ -689,7 +698,7 @@ export function DispatchMap({
               </button>
               <button
                 type="button"
-                className={cn(ctrlBtn, layoutLocked && 'text-amber-400 bg-amber-500/10')}
+                className={cn(toolbarBtn, 'w-full justify-start', layoutLocked && toolbarBtnActive)}
                 onClick={() => {
                   const next = !layoutLocked;
                   toggleLayoutLock();
@@ -705,23 +714,42 @@ export function DispatchMap({
             </div>
           )}
         </div>
-      </div>
 
-      <div className={cn('absolute top-2 right-2 z-10 flex flex-col gap-1', mapCard, compactControls && 'scale-90 origin-top-right')}>
+        <div className="flex-1" />
+
         {onPopOut && (
-          <button type="button" className={ctrlBtn} onClick={onPopOut}>
+          <button type="button" className={toolbarBtn} onClick={onPopOut}>
             <ExternalLink size={14} />
-            {popOutActive ? 'Close Map Window' : 'Pop Out Map'}
+            {popOutActive ? 'Close Map' : 'Pop Out'}
           </button>
         )}
         {onFullscreen && (
-          <button type="button" className={ctrlBtn} onClick={onFullscreen}>
+          <button type="button" className={toolbarBtn} onClick={onFullscreen}>
             <Maximize2 size={14} /> Fullscreen
           </button>
         )}
       </div>
 
-      <div className="absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]">
+      <div className="absolute bottom-2 left-2 z-10 flex rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] overflow-hidden">
+        <button
+          type="button"
+          className="flex items-center justify-center w-8 h-8 text-[#e8eaf0] hover:bg-[#2d3148] transition-colors border-r border-[#2d3148]"
+          onClick={() => zoom(1)}
+          aria-label="Zoom in"
+        >
+          <Plus size={14} />
+        </button>
+        <button
+          type="button"
+          className="flex items-center justify-center w-8 h-8 text-[#e8eaf0] hover:bg-[#2d3148] transition-colors"
+          onClick={() => zoom(-1)}
+          aria-label="Zoom out"
+        >
+          <Minus size={14} />
+        </button>
+      </div>
+
+      <div className="absolute bottom-2 left-20 z-10 flex gap-1.5 flex-wrap max-w-[60%]">
         {(
           [
             { k: 'all', icon: Users, color: 'bw-text' },

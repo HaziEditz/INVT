@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { ResizeHandle } from './ResizeHandle';
-import { useLayoutStore } from '@/store/layoutStore';
+import { clampPanelSizes, useLayoutStore } from '@/store/layoutStore';
 import { useUiStore } from '@/store/uiStore';
 
 interface ResizableDispatchLayoutProps {
@@ -25,11 +25,17 @@ export function ResizableDispatchLayout({
 
   const leftWidth = useLayoutStore((s) => s.left);
   const rightWidth = useLayoutStore((s) => s.right);
+  const containerWidth = useLayoutStore((s) => s.containerWidth);
   const locked = useLayoutStore((s) => s.locked);
   const setContainerWidth = useLayoutStore((s) => s.setContainerWidth);
   const setDispatcherUid = useLayoutStore((s) => s.setDispatcherUid);
   const resizeLeft = useLayoutStore((s) => s.resizeLeft);
   const resizeRight = useLayoutStore((s) => s.resizeRight);
+
+  const effective = useMemo(
+    () => clampPanelSizes({ left: leftWidth, right: rightWidth }, containerWidth),
+    [leftWidth, rightWidth, containerWidth]
+  );
 
   const showMap = mapVisible && !mapPoppedOut;
 
@@ -40,17 +46,18 @@ export function ResizableDispatchLayout({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width;
-      if (w) setContainerWidth(w);
-    });
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w > 0) setContainerWidth(w);
+    };
+    measure();
+    const ro = new ResizeObserver(() => measure());
     ro.observe(el);
-    setContainerWidth(el.clientWidth);
     return () => ro.disconnect();
   }, [setContainerWidth]);
 
-  const panelTransition = { width: leftWidth, transition: 'width 0.2s ease' };
-  const rightTransition = { width: rightWidth, transition: 'width 0.2s ease' };
+  const panelTransition = { width: effective.left, transition: 'width 0.2s ease' };
+  const rightTransition = { width: effective.right, transition: 'width 0.2s ease' };
 
   return (
     <div ref={containerRef} className="flex flex-1 min-h-0 relative bw-shell">

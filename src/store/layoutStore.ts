@@ -5,6 +5,9 @@ export const DEFAULT_RIGHT_WIDTH = 460;
 const MIN_LEFT = 280;
 const MIN_RIGHT = 320;
 const MIN_MAP = 200;
+const MIN_PANEL = 200;
+const MAX_PANEL = 800;
+const LEGACY_STORAGE_KEY = 'bw_dispatch_panel_sizes';
 
 export interface PanelSizes {
   left: number;
@@ -19,20 +22,51 @@ function layoutKey(dispatcherUid: string) {
   return `bw_dispatch_layout_${dispatcherUid}`;
 }
 
+function sanitizeWidth(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < MIN_PANEL || n > MAX_PANEL) return fallback;
+  return Math.round(n);
+}
+
 function readSavedLayout(dispatcherUid: string): SavedLayout {
+  const defaults: SavedLayout = {
+    left: DEFAULT_LEFT_WIDTH,
+    right: DEFAULT_RIGHT_WIDTH,
+    locked: false,
+  };
+
   try {
-    const raw = localStorage.getItem(layoutKey(dispatcherUid));
+    let raw = localStorage.getItem(layoutKey(dispatcherUid));
+    if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+
     if (!raw) {
-      return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH, locked: false };
+      console.log('[Layout] loaded from localStorage:', null);
+      console.log('[Layout] applying widths:', defaults.left, defaults.right);
+      return defaults;
     }
+
     const parsed = JSON.parse(raw) as Partial<SavedLayout>;
-    return {
-      left: Math.max(MIN_LEFT, Number(parsed.left) || DEFAULT_LEFT_WIDTH),
-      right: Math.max(MIN_RIGHT, Number(parsed.right) || DEFAULT_RIGHT_WIDTH),
+    const leftWidth = sanitizeWidth(parsed.left, DEFAULT_LEFT_WIDTH);
+    const rightWidth = sanitizeWidth(parsed.right, DEFAULT_RIGHT_WIDTH);
+    const savedLayout: SavedLayout = {
+      left: leftWidth,
+      right: rightWidth,
       locked: !!parsed.locked,
     };
-  } catch {
-    return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH, locked: false };
+
+    console.log('[Layout] loaded from localStorage:', savedLayout);
+    console.log('[Layout] applying widths:', leftWidth, rightWidth);
+
+    if (leftWidth !== Number(parsed.left) || rightWidth !== Number(parsed.right)) {
+      writeSavedLayout(dispatcherUid, savedLayout);
+    }
+
+    return savedLayout;
+  } catch (err) {
+    console.warn('[Layout] corrupt localStorage, using defaults', err);
+    console.log('[Layout] applying widths:', defaults.left, defaults.right);
+    writeSavedLayout(dispatcherUid, defaults);
+    return defaults;
   }
 }
 
@@ -40,12 +74,29 @@ function writeSavedLayout(dispatcherUid: string, data: SavedLayout) {
   localStorage.setItem(layoutKey(dispatcherUid), JSON.stringify(data));
 }
 
-function clampSizes(next: PanelSizes, containerWidth: number): PanelSizes {
+/** Clamp panel widths to fit container without mutating saved values in store. */
+export function clampPanelSizes(next: PanelSizes, containerWidth: number): PanelSizes {
+  if (!Number.isFinite(containerWidth) || containerWidth < MIN_LEFT + MIN_RIGHT + MIN_MAP) {
+    return next;
+  }
   const maxLeft = Math.max(MIN_LEFT, containerWidth - next.right - MIN_MAP);
   const maxRight = Math.max(MIN_RIGHT, containerWidth - next.left - MIN_MAP);
   return {
     left: Math.min(Math.max(MIN_LEFT, next.left), maxLeft),
     right: Math.min(Math.max(MIN_RIGHT, next.right), maxRight),
+  };
+}
+
+function getInitialState() {
+  const dispatcherUid =
+    typeof localStorage !== 'undefined' ? localStorage.getItem('bw_session_id') || 'default' : 'default';
+  const saved = readSavedLayout(dispatcherUid);
+  return {
+    dispatcherUid,
+    left: saved.left,
+    right: saved.right,
+    locked: saved.locked ?? false,
+    containerWidth: 0,
   };
 }
 
@@ -65,11 +116,7 @@ interface LayoutStore {
 }
 
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
-  dispatcherUid: localStorage.getItem('bw_session_id') || 'default',
-  left: DEFAULT_LEFT_WIDTH,
-  right: DEFAULT_RIGHT_WIDTH,
-  locked: false,
-  containerWidth: 1200,
+  ...getInitialState(),
 
   setDispatcherUid: (uid) => {
     if (get().dispatcherUid === uid) return;
@@ -83,25 +130,24 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
   },
 
   setContainerWidth: (w) => {
-    const s = get();
-    set({
-      containerWidth: w,
-      ...clampSizes({ left: s.left, right: s.right }, w),
-    });
+    if (!Number.isFinite(w) || w < MIN_LEFT + MIN_RIGHT + MIN_MAP) return;
+    const current = get().containerWidth;
+    if (Math.abs(current - w) < 1) return;
+    set({ containerWidth: w });
   },
 
   resizeLeft: (delta) => {
     const s = get();
     if (s.locked) return;
-    const next = clampSizes({ left: s.left + delta, right: s.right }, s.containerWidth);
-    set(next);
+    const next = clampPanelSizes({ left: s.left + delta, right: s.right }, s.containerWidth);
+    set({ left: next.left, right: next.right });
   },
 
   resizeRight: (delta) => {
     const s = get();
     if (s.locked) return;
-    const next = clampSizes({ left: s.left, right: s.right - delta }, s.containerWidth);
-    set(next);
+    const next = clampPanelSizes({ left: s.left, right: s.right - delta }, s.containerWidth);
+    set({ left: next.left, right: next.right });
   },
 
   saveLayout: () => {
@@ -126,13 +172,3 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     writeSavedLayout(s.dispatcherUid, { left: s.left, right: s.right, locked });
   },
 }));
-
-// Load saved layout on module init
-const initialUid = localStorage.getItem('bw_session_id') || 'default';
-const initialSaved = readSavedLayout(initialUid);
-useLayoutStore.setState({
-  dispatcherUid: initialUid,
-  left: initialSaved.left,
-  right: initialSaved.right,
-  locked: initialSaved.locked ?? false,
-});

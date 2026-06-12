@@ -27715,12 +27715,12 @@ const createStoreImpl = (createState) => {
     }
   };
   const getState = () => state;
-  const getInitialState = () => initialState;
+  const getInitialState2 = () => initialState;
   const subscribe = (listener) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
-  const api = { setState, getState, getInitialState, subscribe };
+  const api = { setState, getState, getInitialState: getInitialState2, subscribe };
   const initialState = state = createState(setState, getState, api);
   return api;
 };
@@ -29298,29 +29298,59 @@ const DEFAULT_RIGHT_WIDTH = 460;
 const MIN_LEFT = 280;
 const MIN_RIGHT = 320;
 const MIN_MAP = 200;
+const MIN_PANEL = 200;
+const MAX_PANEL = 800;
+const LEGACY_STORAGE_KEY = "bw_dispatch_panel_sizes";
 function layoutKey(dispatcherUid) {
   return `bw_dispatch_layout_${dispatcherUid}`;
 }
+function sanitizeWidth(value, fallback) {
+  const n2 = Number(value);
+  if (!Number.isFinite(n2) || n2 < MIN_PANEL || n2 > MAX_PANEL) return fallback;
+  return Math.round(n2);
+}
 function readSavedLayout(dispatcherUid) {
+  const defaults = {
+    left: DEFAULT_LEFT_WIDTH,
+    right: DEFAULT_RIGHT_WIDTH,
+    locked: false
+  };
   try {
-    const raw = localStorage.getItem(layoutKey(dispatcherUid));
+    let raw = localStorage.getItem(layoutKey(dispatcherUid));
+    if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) {
-      return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH, locked: false };
+      console.log("[Layout] loaded from localStorage:", null);
+      console.log("[Layout] applying widths:", defaults.left, defaults.right);
+      return defaults;
     }
     const parsed = JSON.parse(raw);
-    return {
-      left: Math.max(MIN_LEFT, Number(parsed.left) || DEFAULT_LEFT_WIDTH),
-      right: Math.max(MIN_RIGHT, Number(parsed.right) || DEFAULT_RIGHT_WIDTH),
+    const leftWidth = sanitizeWidth(parsed.left, DEFAULT_LEFT_WIDTH);
+    const rightWidth = sanitizeWidth(parsed.right, DEFAULT_RIGHT_WIDTH);
+    const savedLayout = {
+      left: leftWidth,
+      right: rightWidth,
       locked: !!parsed.locked
     };
-  } catch {
-    return { left: DEFAULT_LEFT_WIDTH, right: DEFAULT_RIGHT_WIDTH, locked: false };
+    console.log("[Layout] loaded from localStorage:", savedLayout);
+    console.log("[Layout] applying widths:", leftWidth, rightWidth);
+    if (leftWidth !== Number(parsed.left) || rightWidth !== Number(parsed.right)) {
+      writeSavedLayout(dispatcherUid, savedLayout);
+    }
+    return savedLayout;
+  } catch (err2) {
+    console.warn("[Layout] corrupt localStorage, using defaults", err2);
+    console.log("[Layout] applying widths:", defaults.left, defaults.right);
+    writeSavedLayout(dispatcherUid, defaults);
+    return defaults;
   }
 }
 function writeSavedLayout(dispatcherUid, data) {
   localStorage.setItem(layoutKey(dispatcherUid), JSON.stringify(data));
 }
-function clampSizes(next, containerWidth) {
+function clampPanelSizes(next, containerWidth) {
+  if (!Number.isFinite(containerWidth) || containerWidth < MIN_LEFT + MIN_RIGHT + MIN_MAP) {
+    return next;
+  }
   const maxLeft = Math.max(MIN_LEFT, containerWidth - next.right - MIN_MAP);
   const maxRight = Math.max(MIN_RIGHT, containerWidth - next.left - MIN_MAP);
   return {
@@ -29328,12 +29358,19 @@ function clampSizes(next, containerWidth) {
     right: Math.min(Math.max(MIN_RIGHT, next.right), maxRight)
   };
 }
+function getInitialState() {
+  const dispatcherUid = typeof localStorage !== "undefined" ? localStorage.getItem("bw_session_id") || "default" : "default";
+  const saved = readSavedLayout(dispatcherUid);
+  return {
+    dispatcherUid,
+    left: saved.left,
+    right: saved.right,
+    locked: saved.locked ?? false,
+    containerWidth: 0
+  };
+}
 const useLayoutStore = create((set2, get2) => ({
-  dispatcherUid: localStorage.getItem("bw_session_id") || "default",
-  left: DEFAULT_LEFT_WIDTH,
-  right: DEFAULT_RIGHT_WIDTH,
-  locked: false,
-  containerWidth: 1200,
+  ...getInitialState(),
   setDispatcherUid: (uid) => {
     if (get2().dispatcherUid === uid) return;
     const saved = readSavedLayout(uid);
@@ -29345,23 +29382,22 @@ const useLayoutStore = create((set2, get2) => ({
     });
   },
   setContainerWidth: (w2) => {
-    const s2 = get2();
-    set2({
-      containerWidth: w2,
-      ...clampSizes({ left: s2.left, right: s2.right }, w2)
-    });
+    if (!Number.isFinite(w2) || w2 < MIN_LEFT + MIN_RIGHT + MIN_MAP) return;
+    const current = get2().containerWidth;
+    if (Math.abs(current - w2) < 1) return;
+    set2({ containerWidth: w2 });
   },
   resizeLeft: (delta) => {
     const s2 = get2();
     if (s2.locked) return;
-    const next = clampSizes({ left: s2.left + delta, right: s2.right }, s2.containerWidth);
-    set2(next);
+    const next = clampPanelSizes({ left: s2.left + delta, right: s2.right }, s2.containerWidth);
+    set2({ left: next.left, right: next.right });
   },
   resizeRight: (delta) => {
     const s2 = get2();
     if (s2.locked) return;
-    const next = clampSizes({ left: s2.left, right: s2.right - delta }, s2.containerWidth);
-    set2(next);
+    const next = clampPanelSizes({ left: s2.left, right: s2.right - delta }, s2.containerWidth);
+    set2({ left: next.left, right: next.right });
   },
   saveLayout: () => {
     const s2 = get2();
@@ -29383,14 +29419,6 @@ const useLayoutStore = create((set2, get2) => ({
     writeSavedLayout(s2.dispatcherUid, { left: s2.left, right: s2.right, locked });
   }
 }));
-const initialUid = localStorage.getItem("bw_session_id") || "default";
-const initialSaved = readSavedLayout(initialUid);
-useLayoutStore.setState({
-  dispatcherUid: initialUid,
-  left: initialSaved.left,
-  right: initialSaved.right,
-  locked: initialSaved.locked ?? false
-});
 const panelClass = "shrink-0 min-h-0 overflow-hidden bw-surface border-[var(--bw-border)]";
 function ResizableDispatchLayout({
   left,
@@ -29404,11 +29432,16 @@ function ResizableDispatchLayout({
   const setMapVisible = useUiStore((s2) => s2.setMapVisible);
   const leftWidth = useLayoutStore((s2) => s2.left);
   const rightWidth = useLayoutStore((s2) => s2.right);
+  const containerWidth = useLayoutStore((s2) => s2.containerWidth);
   const locked = useLayoutStore((s2) => s2.locked);
   const setContainerWidth = useLayoutStore((s2) => s2.setContainerWidth);
   const setDispatcherUid = useLayoutStore((s2) => s2.setDispatcherUid);
   const resizeLeft = useLayoutStore((s2) => s2.resizeLeft);
   const resizeRight = useLayoutStore((s2) => s2.resizeRight);
+  const effective = reactExports.useMemo(
+    () => clampPanelSizes({ left: leftWidth, right: rightWidth }, containerWidth),
+    [leftWidth, rightWidth, containerWidth]
+  );
   const showMap = mapVisible && !mapPoppedOut;
   reactExports.useEffect(() => {
     if (dispatcherUid) setDispatcherUid(dispatcherUid);
@@ -29416,17 +29449,17 @@ function ResizableDispatchLayout({
   reactExports.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      var _a2;
-      const w2 = (_a2 = entries[0]) == null ? void 0 : _a2.contentRect.width;
-      if (w2) setContainerWidth(w2);
-    });
+    const measure = () => {
+      const w2 = el.clientWidth;
+      if (w2 > 0) setContainerWidth(w2);
+    };
+    measure();
+    const ro = new ResizeObserver(() => measure());
     ro.observe(el);
-    setContainerWidth(el.clientWidth);
     return () => ro.disconnect();
   }, [setContainerWidth]);
-  const panelTransition = { width: leftWidth, transition: "width 0.2s ease" };
-  const rightTransition = { width: rightWidth, transition: "width 0.2s ease" };
+  const panelTransition = { width: effective.left, transition: "width 0.2s ease" };
+  const rightTransition = { width: effective.right, transition: "width 0.2s ease" };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: "flex flex-1 min-h-0 relative bw-shell", children: [
     showMap ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: panelTransition, className: `${panelClass} border-r`, children: left }),
@@ -41023,7 +41056,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-D1Xhcyp7.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C-vW_1Q3.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42308,6 +42341,8 @@ function DispatchMap({
   const directionsRendererRef = reactExports.useRef(null);
   const routeRequestRef = reactExports.useRef(0);
   const trafficRef = reactExports.useRef(null);
+  const zonePolysRef = reactExports.useRef([]);
+  const zoneUnsubRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
   const [layoutMenuOpen, setLayoutMenuOpen] = reactExports.useState(false);
@@ -42645,9 +42680,59 @@ function DispatchMap({
     gMapRef.current.setCenter(safeCenter);
   }, [safeCenter.lat, safeCenter.lng, mapReady, createJobOpen, routePreview, routeJobId]);
   reactExports.useEffect(() => {
-    if (!gMapRef.current || !trafficRef.current) return;
+    if (!gMapRef.current || !mapReady) return;
+    if (!trafficRef.current) {
+      trafficRef.current = new google.maps.TrafficLayer();
+    }
     trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
   }, [mapTraffic, mapReady]);
+  reactExports.useEffect(() => {
+    const clearZones = () => {
+      var _a2;
+      zonePolysRef.current.forEach((p2) => p2.setMap(null));
+      zonePolysRef.current = [];
+      (_a2 = zoneUnsubRef.current) == null ? void 0 : _a2.call(zoneUnsubRef);
+      zoneUnsubRef.current = null;
+    };
+    if (!gMapRef.current || !mapReady || !companyId || !mapZones) {
+      clearZones();
+      return;
+    }
+    let cancelled = false;
+    __vitePreload(async () => {
+      const { getDb: getDb2, ref: ref2, onValue: onValue2 } = await Promise.resolve().then(() => firebase);
+      return { getDb: getDb2, ref: ref2, onValue: onValue2 };
+    }, true ? void 0 : void 0).then(({ getDb: getDb2, ref: ref2, onValue: onValue2 }) => {
+      if (cancelled || !gMapRef.current) return;
+      const r = ref2(getDb2(), `zones/${companyId}`);
+      zoneUnsubRef.current = onValue2(r, (snap) => {
+        var _a2;
+        zonePolysRef.current.forEach((p2) => p2.setMap(null));
+        zonePolysRef.current = [];
+        if (!useUiStore.getState().mapZones || !gMapRef.current) return;
+        const val = snap.val();
+        if (!val) return;
+        for (const [, z2] of Object.entries(val)) {
+          if (!((_a2 = z2.paths) == null ? void 0 : _a2.length)) continue;
+          zonePolysRef.current.push(
+            new google.maps.Polygon({
+              paths: z2.paths,
+              strokeColor: "#4f6ef7",
+              strokeOpacity: 0.8,
+              strokeWeight: 2,
+              fillColor: "#4f6ef7",
+              fillOpacity: 0.08,
+              map: gMapRef.current
+            })
+          );
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+      clearZones();
+    };
+  }, [mapZones, companyId, mapReady]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     markersRef.current.forEach((m2) => m2.setMap(null));
@@ -42719,122 +42804,42 @@ function DispatchMap({
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
   }, [createJobOpen, routePreview, mapReady, routeJobId, drawRouteBetweenCoords]);
-  reactExports.useEffect(() => {
-    if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
-    let cancelled = false;
-    let unsub;
-    const polys = [];
-    __vitePreload(async () => {
-      const { getDb: getDb2, ref: ref2, onValue: onValue2 } = await Promise.resolve().then(() => firebase);
-      return { getDb: getDb2, ref: ref2, onValue: onValue2 };
-    }, true ? void 0 : void 0).then(({ getDb: getDb2, ref: ref2, onValue: onValue2 }) => {
-      if (cancelled || !gMapRef.current) return;
-      const r = ref2(getDb2(), `zones/${companyId}`);
-      unsub = onValue2(r, (snap) => {
-        var _a2;
-        polys.forEach((p2) => p2.setMap(null));
-        polys.length = 0;
-        const val = snap.val();
-        if (!val || !gMapRef.current) return;
-        for (const [, z2] of Object.entries(val)) {
-          if (!((_a2 = z2.paths) == null ? void 0 : _a2.length)) continue;
-          polys.push(
-            new google.maps.Polygon({
-              paths: z2.paths,
-              strokeColor: "#4f6ef7",
-              strokeOpacity: 0.8,
-              strokeWeight: 2,
-              fillColor: "#4f6ef7",
-              fillOpacity: 0.08,
-              map: gMapRef.current
-            })
-          );
-        }
-      });
-    });
-    return () => {
-      cancelled = true;
-      unsub == null ? void 0 : unsub();
-      polys.forEach((p2) => p2.setMap(null));
-    };
-  }, [mapZones, companyId, mapReady]);
   const zoom = (delta) => {
     var _a2, _b2;
     const z2 = (_a2 = gMapRef.current) == null ? void 0 : _a2.getZoom();
     if (z2 != null) (_b2 = gMapRef.current) == null ? void 0 : _b2.setZoom(z2 + delta);
   };
-  const ctrlBtn = "flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md text-[11px] font-medium text-[#e8eaf0] hover:bg-[#2d3148] transition-colors";
-  const mapCard = "rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1.5";
+  const toolbarBtn = "flex items-center gap-1 px-2.5 h-7 rounded text-[11px] font-medium text-[#e8eaf0] hover:bg-[#2d3148] transition-colors whitespace-nowrap";
+  const toolbarBtnActive = "bg-[#5b7cfa]/20 text-[#5b7cfa]";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "relative flex-1 min-h-0 w-full h-full overflow-hidden rounded-lg border border-[#2d3148] shadow-[0_2px_8px_rgba(0,0,0,0.3)] bw-text", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: mapRef, className: "absolute inset-0 rounded-lg overflow-hidden" }),
     !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] bw-map-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 bw-muted" }) }),
     mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400 bw-map-bg", children: mapError }),
     routeDrawing && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-12 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]", children: "Drawing route…" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("absolute top-2 left-2 z-10 flex flex-col gap-1.5", compactControls && "scale-90 origin-top-left"), children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn(mapCard, "flex flex-col gap-1 min-w-[132px]"), children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: () => {
-          var _a2;
-          return (_a2 = gMapRef.current) == null ? void 0 : _a2.setCenter(safeCenter);
-        }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(House, { size: 14 }),
-          " Home"
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(ctrlBtn, "flex-1 justify-center"), onClick: () => zoom(1), "aria-label": "Zoom in", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: cn(ctrlBtn, "flex-1 justify-center"), onClick: () => zoom(-1), "aria-label": "Zoom out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Minus, { size: 14 }) })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "button",
-          {
-            type: "button",
-            className: cn(ctrlBtn, mapTraffic && "text-amber-400 bg-amber-500/10"),
-            onClick: () => setMapTraffic(!mapTraffic),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(TrafficCone, { size: 14 }),
-              " Traffic"
-            ]
-          }
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: cn(
+          "absolute top-0 left-0 right-0 z-10 flex items-center h-9 px-1.5 gap-0.5 bg-[#1e2235] border-b border-[#2d3148] rounded-t-lg",
+          compactControls && "scale-95 origin-top"
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "button",
-          {
-            type: "button",
-            className: cn(ctrlBtn, mapZones && "text-[#5b7cfa] bg-[#5b7cfa]/10"),
-            onClick: () => setMapZones(!mapZones),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Layers, { size: 14 }),
-              " Zones"
-            ]
-          }
-        )
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: layoutMenuRef, className: cn(mapCard, "relative min-w-[132px]"), children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "button",
-          {
-            type: "button",
-            className: cn(ctrlBtn, layoutMenuOpen && "bg-[#2d3148]"),
-            onClick: () => setLayoutMenuOpen((o2) => !o2),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(LayoutGrid, { size: 14 }),
-              " Layout"
-            ]
-          }
-        ),
-        layoutMenuOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute left-0 top-full mt-1 w-full rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20", children: [
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: toolbarBtn, onClick: () => {
+            var _a2;
+            return (_a2 = gMapRef.current) == null ? void 0 : _a2.setCenter(safeCenter);
+          }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(House, { size: 14 }),
+            " Home"
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "button",
             {
               type: "button",
-              className: ctrlBtn,
-              onClick: () => {
-                saveLayout();
-                addToast({ type: "success", title: "Layout saved" });
-                setLayoutMenuOpen(false);
-              },
+              className: cn(toolbarBtn, mapTraffic && toolbarBtnActive),
+              onClick: () => setMapTraffic(!mapTraffic),
               children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(Save, { size: 14 }),
-                " Save Layout"
+                /* @__PURE__ */ jsxRuntimeExports.jsx(TrafficCone, { size: 14 }),
+                " Traffic"
               ]
             }
           ),
@@ -42842,51 +42847,116 @@ function DispatchMap({
             "button",
             {
               type: "button",
-              className: ctrlBtn,
-              onClick: () => {
-                resetLayout();
-                addToast({ type: "info", title: "Layout reset to default" });
-                setLayoutMenuOpen(false);
-              },
+              className: cn(toolbarBtn, mapZones && toolbarBtnActive),
+              onClick: () => setMapZones(!mapZones),
               children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(LayoutGrid, { size: 14 }),
-                " Reset Layout"
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Layers, { size: 14 }),
+                " Zones"
               ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              type: "button",
-              className: cn(ctrlBtn, layoutLocked && "text-amber-400 bg-amber-500/10"),
-              onClick: () => {
-                const next = !layoutLocked;
-                toggleLayoutLock();
-                addToast({
-                  type: "info",
-                  title: next ? "Layout locked" : "Layout unlocked"
-                });
-              },
-              children: [
-                layoutLocked ? /* @__PURE__ */ jsxRuntimeExports.jsx(LockOpen, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 14 }),
-                layoutLocked ? "Unlock Layout" : "Lock Layout"
-              ]
-            }
-          )
-        ] })
-      ] })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: layoutMenuRef, className: "relative", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "button",
+              {
+                type: "button",
+                className: cn(toolbarBtn, layoutMenuOpen && toolbarBtnActive),
+                onClick: () => setLayoutMenuOpen((o2) => !o2),
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(LayoutGrid, { size: 14 }),
+                  " Layout"
+                ]
+              }
+            ),
+            layoutMenuOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute left-0 top-full mt-1 min-w-[140px] rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "button",
+                {
+                  type: "button",
+                  className: cn(toolbarBtn, "w-full justify-start"),
+                  onClick: () => {
+                    saveLayout();
+                    addToast({ type: "success", title: "Layout saved" });
+                    setLayoutMenuOpen(false);
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Save, { size: 14 }),
+                    " Save Layout"
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "button",
+                {
+                  type: "button",
+                  className: cn(toolbarBtn, "w-full justify-start"),
+                  onClick: () => {
+                    resetLayout();
+                    addToast({ type: "info", title: "Layout reset to default" });
+                    setLayoutMenuOpen(false);
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(LayoutGrid, { size: 14 }),
+                    " Reset Layout"
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "button",
+                {
+                  type: "button",
+                  className: cn(toolbarBtn, "w-full justify-start", layoutLocked && toolbarBtnActive),
+                  onClick: () => {
+                    const next = !layoutLocked;
+                    toggleLayoutLock();
+                    addToast({
+                      type: "info",
+                      title: next ? "Layout locked" : "Layout unlocked"
+                    });
+                  },
+                  children: [
+                    layoutLocked ? /* @__PURE__ */ jsxRuntimeExports.jsx(LockOpen, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 14 }),
+                    layoutLocked ? "Unlock Layout" : "Lock Layout"
+                  ]
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1" }),
+          onPopOut && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: toolbarBtn, onClick: onPopOut, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(ExternalLink, { size: 14 }),
+            popOutActive ? "Close Map" : "Pop Out"
+          ] }),
+          onFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: toolbarBtn, onClick: onFullscreen, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Maximize2, { size: 14 }),
+            " Fullscreen"
+          ] })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute bottom-2 left-2 z-10 flex rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] overflow-hidden", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: "flex items-center justify-center w-8 h-8 text-[#e8eaf0] hover:bg-[#2d3148] transition-colors border-r border-[#2d3148]",
+          onClick: () => zoom(1),
+          "aria-label": "Zoom in",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 })
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: "flex items-center justify-center w-8 h-8 text-[#e8eaf0] hover:bg-[#2d3148] transition-colors",
+          onClick: () => zoom(-1),
+          "aria-label": "Zoom out",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(Minus, { size: 14 })
+        }
+      )
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("absolute top-2 right-2 z-10 flex flex-col gap-1", mapCard, compactControls && "scale-90 origin-top-right"), children: [
-      onPopOut && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: onPopOut, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(ExternalLink, { size: 14 }),
-        popOutActive ? "Close Map Window" : "Pop Out Map"
-      ] }),
-      onFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: ctrlBtn, onClick: onFullscreen, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Maximize2, { size: 14 }),
-        " Fullscreen"
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-2 left-2 z-10 flex gap-1.5 flex-wrap max-w-[70%]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-2 left-20 z-10 flex gap-1.5 flex-wrap max-w-[60%]", children: [
       { k: "all", icon: Users, color: "bw-text" },
       { k: "free", icon: Car, color: "text-status-available" },
       { k: "picking", icon: Navigation, color: "text-status-picking" },
@@ -43216,7 +43286,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-Di8Uh452.js");
+        const { writeActiveDispatcher } = await import("./notifications-CoKSa53Y.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43243,7 +43313,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Di8Uh452.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CoKSa53Y.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43571,4 +43641,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DbIW-H6e.js.map
+//# sourceMappingURL=index-DUAeDaRu.js.map
