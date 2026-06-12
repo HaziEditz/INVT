@@ -245,9 +245,83 @@ export function isScheduledJob(job: Job): boolean {
   return false;
 }
 
+/** Pickup / scheduled time for a job. */
+export function jobScheduledTime(job: Job): Date | null {
+  if (job.scheduledFor) {
+    const d = new Date(job.scheduledFor);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const raw = job.bookingDateTime?.trim();
+  if (!raw) return null;
+  try {
+    const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    return Number.isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+}
+
+/** When the job should release to Pending / enter dispatch window. */
+export function jobDispatchTime(job: Job): Date | null {
+  const pickup = jobScheduledTime(job);
+  if (!pickup) return null;
+  if (job.notifyDispatchAt) {
+    try {
+      const d = new Date(job.notifyDispatchAt.includes('T') ? job.notifyDispatchAt : job.notifyDispatchAt.replace(' ', 'T'));
+      if (!Number.isNaN(d.getTime())) return d;
+    } catch {
+      /* fall through */
+    }
+  }
+  const mins = job.dispatchBeforeMinutes ?? 0;
+  return new Date(pickup.getTime() - mins * 60_000);
+}
+
+function isUnassignedForDispatch(job: Job): boolean {
+  if (job.driverId) return false;
+  const st = normalizeJobStatus(job.status);
+  return st === 'Pending' || st === 'No One' || st === 'Scheduled';
+}
+
+export type ScheduledDispatchState = 'before' | 'dispatch_now' | 'overdue' | 'missed';
+
+export interface ScheduledDispatchUi {
+  state: ScheduledDispatchState;
+  label: string;
+  borderColor: string;
+  flash: boolean;
+  missedBg: boolean;
+}
+
+/** Color-coded dispatch window for scheduled jobs (UA unassigned). */
+export function getScheduledDispatchUi(job: Job, now = new Date()): ScheduledDispatchUi | null {
+  if (!isScheduledJob(job) || !isUnassignedForDispatch(job)) return null;
+
+  const pickup = jobScheduledTime(job);
+  const dispatchAt = jobDispatchTime(job);
+  if (!pickup || !dispatchAt) return null;
+
+  const nowMs = now.getTime();
+  const pickupMs = pickup.getTime();
+  const dispatchMs = dispatchAt.getTime();
+  const pickLabel = pickup.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  if (nowMs > pickupMs) {
+    return { state: 'missed', label: 'MISSED', borderColor: '#ef4444', flash: false, missedBg: true };
+  }
+  if (nowMs > dispatchMs + 5 * 60_000) {
+    return { state: 'overdue', label: 'OVERDUE', borderColor: '#ef4444', flash: true, missedBg: false };
+  }
+  if (nowMs >= dispatchMs - 15 * 60_000) {
+    return { state: 'dispatch_now', label: 'DISPATCH NOW', borderColor: '#4f6ef7', flash: true, missedBg: false };
+  }
+  return { state: 'before', label: `Sched: ${pickLabel}`, borderColor: '#f59e0b', flash: false, missedBg: false };
+}
+
 export function jobCardBorderColor(job: Job): string {
   if (job.urgent) return '#ef4444';
-  if (isScheduledJob(job)) return '#f59e0b';
+  const dispatchUi = getScheduledDispatchUi(job);
+  if (dispatchUi) return dispatchUi.borderColor;
   const st = normalizeJobStatus(job.status);
   if (st === 'No One') return '#64748b';
   if (st === 'Pending') return '#4f6ef7';

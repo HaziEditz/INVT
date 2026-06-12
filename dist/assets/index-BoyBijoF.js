@@ -27686,9 +27686,63 @@ function isScheduledJob(job) {
   }
   return false;
 }
+function jobScheduledTime(job) {
+  var _a2;
+  if (job.scheduledFor) {
+    const d2 = new Date(job.scheduledFor);
+    if (!Number.isNaN(d2.getTime())) return d2;
+  }
+  const raw = (_a2 = job.bookingDateTime) == null ? void 0 : _a2.trim();
+  if (!raw) return null;
+  try {
+    const d2 = new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+    return Number.isNaN(d2.getTime()) ? null : d2;
+  } catch {
+    return null;
+  }
+}
+function jobDispatchTime(job) {
+  const pickup = jobScheduledTime(job);
+  if (!pickup) return null;
+  if (job.notifyDispatchAt) {
+    try {
+      const d2 = new Date(job.notifyDispatchAt.includes("T") ? job.notifyDispatchAt : job.notifyDispatchAt.replace(" ", "T"));
+      if (!Number.isNaN(d2.getTime())) return d2;
+    } catch {
+    }
+  }
+  const mins = job.dispatchBeforeMinutes ?? 0;
+  return new Date(pickup.getTime() - mins * 6e4);
+}
+function isUnassignedForDispatch(job) {
+  if (job.driverId) return false;
+  const st2 = normalizeJobStatus(job.status);
+  return st2 === "Pending" || st2 === "No One" || st2 === "Scheduled";
+}
+function getScheduledDispatchUi(job, now = /* @__PURE__ */ new Date()) {
+  if (!isScheduledJob(job) || !isUnassignedForDispatch(job)) return null;
+  const pickup = jobScheduledTime(job);
+  const dispatchAt = jobDispatchTime(job);
+  if (!pickup || !dispatchAt) return null;
+  const nowMs = now.getTime();
+  const pickupMs = pickup.getTime();
+  const dispatchMs = dispatchAt.getTime();
+  const pickLabel = pickup.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (nowMs > pickupMs) {
+    return { state: "missed", label: "MISSED", borderColor: "#ef4444", flash: false, missedBg: true };
+  }
+  if (nowMs > dispatchMs + 5 * 6e4) {
+    return { state: "overdue", label: "OVERDUE", borderColor: "#ef4444", flash: true, missedBg: false };
+  }
+  if (nowMs >= dispatchMs - 15 * 6e4) {
+    return { state: "dispatch_now", label: "DISPATCH NOW", borderColor: "#4f6ef7", flash: true, missedBg: false };
+  }
+  return { state: "before", label: `Sched: ${pickLabel}`, borderColor: "#f59e0b", flash: false, missedBg: false };
+}
 function jobCardBorderColor(job) {
   if (job.urgent) return "#ef4444";
-  if (isScheduledJob(job)) return "#f59e0b";
+  const dispatchUi = getScheduledDispatchUi(job);
+  if (dispatchUi) return dispatchUi.borderColor;
   const st2 = normalizeJobStatus(job.status);
   if (st2 === "No One") return "#64748b";
   if (st2 === "Pending") return "#4f6ef7";
@@ -31170,19 +31224,6 @@ function waitBadgeClass(minutes) {
   if (minutes >= 5) return "bg-amber-500/20 text-amber-400 border-amber-500/40";
   return "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
 }
-function formatScheduled(job) {
-  var _a2;
-  if (!isScheduledJob(job)) return null;
-  const raw = (_a2 = job.bookingDateTime) == null ? void 0 : _a2.trim();
-  if (!raw) return null;
-  try {
-    const d2 = parseISO(raw.includes("T") ? raw : raw.replace(" ", "T"));
-    if (Number.isNaN(d2.getTime())) return null;
-    return `Sched: ${format(d2, "HH:mm dd/MM")}`;
-  } catch {
-    return null;
-  }
-}
 function JobCard({ job, tab }) {
   const allDrivers = useDriverStore((s2) => s2.drivers);
   const onlineDrivers = reactExports.useMemo(
@@ -31199,15 +31240,19 @@ function JobCard({ job, tab }) {
     []
   );
   const [cancelTargetJobId, setCancelTargetJobId] = reactExports.useState(null);
+  const [now, setNow] = reactExports.useState(() => /* @__PURE__ */ new Date());
   const cancelTarget = reactExports.useMemo(
     () => cancelTargetJobId != null ? jobs.find((j2) => j2.id === cancelTargetJobId) ?? null : null,
     [cancelTargetJobId, jobs]
   );
-  const border = jobCardBorderColor(job);
-  normalizeJobStatus(job.status);
+  reactExports.useEffect(() => {
+    const t2 = setInterval(() => setNow(/* @__PURE__ */ new Date()), 3e4);
+    return () => clearInterval(t2);
+  }, []);
+  const dispatchUi = reactExports.useMemo(() => getScheduledDispatchUi(job, now), [job, now]);
+  const border = job.urgent ? "#ef4444" : (dispatchUi == null ? void 0 : dispatchUi.borderColor) ?? jobCardBorderColor(job);
   const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
-  const scheduledLabel = formatScheduled(job);
   const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
     try {
@@ -31256,7 +31301,7 @@ function JobCard({ job, tab }) {
       });
     }
   };
-  const iconBtn = "p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition";
+  const iconBtn = "p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center";
   const showRoutePreview = (e) => {
     e.stopPropagation();
     setHoveredJobId(job.id);
@@ -31273,84 +31318,83 @@ function JobCard({ job, tab }) {
       if (d2) run(() => assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq), "Assigned");
     }
   };
+  const dispatchLabelClass = (dispatchUi == null ? void 0 : dispatchUi.state) === "missed" ? "text-red-300 font-bold" : (dispatchUi == null ? void 0 : dispatchUi.state) === "overdue" ? "text-red-400 font-bold" : (dispatchUi == null ? void 0 : dispatchUi.state) === "dispatch_now" ? "text-[#5b7cfa] font-bold" : "text-amber-400 font-medium";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       className: cn(
-        "rounded-md px-2.5 py-2 mb-1.5 bw-card-static transition-all duration-150 border-l-[3px]",
-        highlighted && "ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]"
+        "rounded px-1.5 py-1.5 mb-1 bw-card-static transition-all duration-150 border-l-[3px]",
+        highlighted && "ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]",
+        (dispatchUi == null ? void 0 : dispatchUi.missedBg) && "bg-red-500/20",
+        (dispatchUi == null ? void 0 : dispatchUi.flash) && "bw-dispatch-flash"
       ),
       style: { borderLeftColor: border },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1 mb-1", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-[10px] font-bold bw-text", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-0.5 mb-0.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-[9px] font-bold bw-text", children: [
             "#",
             job.id
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", children: sourceBadgeLabel(job.source, job.dispatcherName) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", className: "!text-[9px] !px-1 !py-0", children: sourceBadgeLabel(job.source, job.dispatcherName) }),
           statusBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(
             "span",
             {
-              className: "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide",
+              className: "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide",
               style: { color: statusBadge.color, backgroundColor: statusBadge.bg },
               children: statusBadge.label
             }
           ),
-          scheduledLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] text-amber-400 font-medium", children: scheduledLabel }),
-          job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "URGENT" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
+          dispatchUi && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] uppercase tracking-wide", dispatchLabelClass), children: dispatchUi.label }),
+          job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", className: "!text-[9px] !px-1 !py-0", children: "URGENT" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto text-[9px] px-1 py-0 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1 text-[11px] mb-1 leading-snug", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] leading-tight mb-0.5 space-y-0", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "span",
               {
-                className: "w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer",
+                className: "w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer",
                 onMouseEnter: showRoutePreview,
                 onMouseLeave: clearRoutePreview
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-text line-clamp-2", children: job.pickAddress || "No pickup" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-text truncate", children: job.pickAddress || "No pickup" })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "span",
               {
-                className: "w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer",
+                className: "w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer",
                 onMouseEnter: showRoutePreview,
                 onMouseLeave: clearRoutePreview
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[var(--bw-muted)] line-clamp-2", children: job.dropAddress || "No dropoff" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[var(--bw-muted)] truncate", children: job.dropAddress || "No dropoff" })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1 items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-full", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 10 }),
-          job.passengerName || "—",
-          job.passengerPhone ? ` · ${job.passengerPhone}` : ""
-        ] }) }),
-        job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[var(--bw-muted)] mb-1 line-clamp-2 italic", children: job.notes }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), children: paymentLabel(job.paymentType) }),
-          job.dispatcherName && !sourceBadgeLabel(job.source).startsWith("DESK") && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[var(--bw-muted)]", children: [
-            "by ",
-            job.dispatcherName
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] text-[var(--bw-muted)] mb-0.5 min-h-[14px]", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
+            job.passengerName || "—"
           ] }),
-          job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-emerald-400", children: [
+          job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
+          job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-emerald-400 shrink-0", children: [
             "$",
             job.estimatedFare
           ] })
         ] }),
-        tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[9px] text-amber-400 mb-1.5", children: [
+        job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[9px] text-[var(--bw-muted)] mb-0.5 line-clamp-1 italic", children: job.notes }),
+        tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[9px] text-amber-400 mb-0.5", children: [
           "Offer expires ",
           formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-1 items-center", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-0.5", children: [
           tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "select",
               {
-                className: "bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border",
+                className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border",
                 defaultValue: "",
                 onClick: (e) => e.stopPropagation(),
                 onMouseDown: (e) => e.stopPropagation(),
@@ -31381,7 +31425,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   openModalWith("createJob", { jobId: job.id });
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
               }
             ) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -31393,7 +31437,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   handleCancelClick(job.id);
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
               }
             ) })
           ] }),
@@ -31401,6 +31445,7 @@ function JobCard({ job, tab }) {
             Button,
             {
               variant: "danger",
+              className: "!h-6 !px-1.5 !py-0 !text-[9px]",
               onClick: (e) => {
                 e.stopPropagation();
                 void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Offer cancelled");
@@ -31418,7 +31463,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   void run(() => forceCompleteJob(job.id), "Completed");
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 11 })
               }
             ) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -31430,7 +31475,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   handleCancelClick(job.id);
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
               }
             ) })
           ] }),
@@ -31444,7 +31489,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   void run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A");
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 11 })
               }
             ) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -31456,7 +31501,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled");
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
               }
             ) })
           ] }),
@@ -31465,6 +31510,7 @@ function JobCard({ job, tab }) {
               Button,
               {
                 variant: "primary",
+                className: "!h-6 !px-1.5 !py-0 !text-[9px]",
                 onClick: (e) => {
                   e.stopPropagation();
                   void run(() => setPending(job), "Pending");
@@ -31481,7 +31527,7 @@ function JobCard({ job, tab }) {
                   e.stopPropagation();
                   void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled");
                 },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 13 })
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
               }
             ) })
           ] }),
@@ -31489,6 +31535,7 @@ function JobCard({ job, tab }) {
             Button,
             {
               variant: "ghost",
+              className: "!h-6 !px-1.5 !py-0 !text-[9px]",
               onClick: (e) => {
                 e.stopPropagation();
                 openModalWith("jobDetail", { jobId: job.id });
@@ -40902,7 +40949,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CgGesFIK.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B0P5ELm4.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43060,7 +43107,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BJ-OYpc-.js");
+        const { writeActiveDispatcher } = await import("./notifications-BYwn8DjG.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43087,7 +43134,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BJ-OYpc-.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BYwn8DjG.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43415,4 +43462,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BRUEz2WS.js.map
+//# sourceMappingURL=index-BoyBijoF.js.map

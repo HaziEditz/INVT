@@ -1,11 +1,10 @@
-import { useMemo, useState, type MouseEvent } from 'react';
-import { differenceInMinutes, format, formatDistanceToNow, parseISO } from 'date-fns';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
 import { Edit, X, CheckCircle, RotateCcw, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
 import {
-  isScheduledJob,
+  getScheduledDispatchUi,
   jobCardBorderColor,
-  normalizeJobStatus,
   uaStatusBadge,
 } from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
@@ -36,19 +35,6 @@ function waitBadgeClass(minutes: number): string {
   return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
 }
 
-function formatScheduled(job: Job): string | null {
-  if (!isScheduledJob(job)) return null;
-  const raw = job.bookingDateTime?.trim();
-  if (!raw) return null;
-  try {
-    const d = parseISO(raw.includes('T') ? raw : raw.replace(' ', 'T'));
-    if (Number.isNaN(d.getTime())) return null;
-    return `Sched: ${format(d, 'HH:mm dd/MM')}`;
-  } catch {
-    return null;
-  }
-}
-
 export function JobCard({ job, tab }: JobCardProps) {
   const allDrivers = useDriverStore((s) => s.drivers);
   const onlineDrivers = useMemo(
@@ -65,16 +51,21 @@ export function JobCard({ job, tab }: JobCardProps) {
     []
   );
   const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
+  const [now, setNow] = useState(() => new Date());
   const cancelTarget = useMemo(
     () => (cancelTargetJobId != null ? jobs.find((j) => j.id === cancelTargetJobId) ?? null : null),
     [cancelTargetJobId, jobs]
   );
 
-  const border = jobCardBorderColor(job);
-  const status = normalizeJobStatus(job.status);
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const dispatchUi = useMemo(() => getScheduledDispatchUi(job, now), [job, now]);
+  const border = job.urgent ? '#ef4444' : (dispatchUi?.borderColor ?? jobCardBorderColor(job));
   const statusBadge = tab === 'ua' ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
-  const scheduledLabel = formatScheduled(job);
 
   const { waitLabel, waitMinutes } = useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
@@ -128,7 +119,8 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
+  const iconBtn =
+    'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center';
 
   const showRoutePreview = (e: MouseEvent) => {
     e.stopPropagation();
@@ -149,84 +141,101 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
+  const dispatchLabelClass =
+    dispatchUi?.state === 'missed'
+      ? 'text-red-300 font-bold'
+      : dispatchUi?.state === 'overdue'
+        ? 'text-red-400 font-bold'
+        : dispatchUi?.state === 'dispatch_now'
+          ? 'text-[#5b7cfa] font-bold'
+          : 'text-amber-400 font-medium';
+
   return (
     <div
       className={cn(
-        'rounded-md px-2.5 py-2 mb-1.5 bw-card-static transition-all duration-150 border-l-[3px]',
-        highlighted && 'ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]'
+        'rounded px-1.5 py-1.5 mb-1 bw-card-static transition-all duration-150 border-l-[3px]',
+        highlighted && 'ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]',
+        dispatchUi?.missedBg && 'bg-red-500/20',
+        dispatchUi?.flash && 'bw-dispatch-flash'
       )}
       style={{ borderLeftColor: border }}
     >
-      <div className="flex flex-wrap items-center gap-1 mb-1">
-        <span className="font-mono text-[10px] font-bold bw-text">#{job.id}</span>
-        <Badge color="#64748b">{sourceBadgeLabel(job.source, job.dispatcherName)}</Badge>
+      <div className="flex flex-wrap items-center gap-0.5 mb-0.5">
+        <span className="font-mono text-[9px] font-bold bw-text">#{job.id}</span>
+        <Badge color="#64748b" className="!text-[9px] !px-1 !py-0">
+          {sourceBadgeLabel(job.source, job.dispatcherName)}
+        </Badge>
         {statusBadge && (
           <span
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+            className="text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide"
             style={{ color: statusBadge.color, backgroundColor: statusBadge.bg }}
           >
             {statusBadge.label}
           </span>
         )}
-        {scheduledLabel && <span className="text-[9px] text-amber-400 font-medium">{scheduledLabel}</span>}
-        {job.urgent && <Badge color="#ef4444">URGENT</Badge>}
-        <span className={cn('ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
+        {dispatchUi && (
+          <span className={cn('text-[9px] uppercase tracking-wide', dispatchLabelClass)}>
+            {dispatchUi.label}
+          </span>
+        )}
+        {job.urgent && (
+          <Badge color="#ef4444" className="!text-[9px] !px-1 !py-0">
+            URGENT
+          </Badge>
+        )}
+        <span className={cn('ml-auto text-[9px] px-1 py-0 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
           {waitLabel}
         </span>
       </div>
 
-      <div className="space-y-1 text-[11px] mb-1 leading-snug">
-        <div className="flex gap-1.5 items-start">
+      <div className="text-[10px] leading-tight mb-0.5 space-y-0">
+        <div className="flex gap-1 items-center min-h-[14px]">
           <span
-            className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer"
+            className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer"
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className="bw-text line-clamp-2">{job.pickAddress || 'No pickup'}</span>
+          <span className="bw-text truncate">{job.pickAddress || 'No pickup'}</span>
         </div>
-        <div className="flex gap-1.5 items-start">
+        <div className="flex gap-1 items-center min-h-[14px]">
           <span
-            className="w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer"
+            className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer"
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className="text-[var(--bw-muted)] line-clamp-2">{job.dropAddress || 'No dropoff'}</span>
+          <span className="text-[var(--bw-muted)] truncate">{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1 items-center">
-        <span className="inline-flex items-center gap-0.5 truncate max-w-full">
-          <User size={10} />
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] text-[var(--bw-muted)] mb-0.5 min-h-[14px]">
+        <span className="inline-flex items-center gap-0.5 truncate max-w-[45%]">
+          <User size={9} />
           {job.passengerName || '—'}
-          {job.passengerPhone ? ` · ${job.passengerPhone}` : ''}
         </span>
+        {job.passengerPhone && <span className="truncate">{job.passengerPhone}</span>}
+        <Badge color={paymentBadgeColor(job.paymentType)} className="!text-[9px] !px-1 !py-0 shrink-0">
+          {paymentLabel(job.paymentType)}
+        </Badge>
+        {job.estimatedFare && job.estimatedFare !== '0' && (
+          <span className="text-emerald-400 shrink-0">${job.estimatedFare}</span>
+        )}
       </div>
 
       {job.notes && (
-        <div className="text-[10px] text-[var(--bw-muted)] mb-1 line-clamp-2 italic">{job.notes}</div>
+        <div className="text-[9px] text-[var(--bw-muted)] mb-0.5 line-clamp-1 italic">{job.notes}</div>
       )}
 
-      <div className="flex flex-wrap gap-1.5 text-[9px] mb-1.5 items-center">
-        <Badge color={paymentBadgeColor(job.paymentType)}>{paymentLabel(job.paymentType)}</Badge>
-        {job.dispatcherName && !sourceBadgeLabel(job.source).startsWith('DESK') && (
-          <span className="text-[var(--bw-muted)]">by {job.dispatcherName}</span>
-        )}
-        {job.estimatedFare && job.estimatedFare !== '0' && (
-          <span className="text-emerald-400">${job.estimatedFare}</span>
-        )}
-      </div>
-
       {tab === 'offer' && job.offeredAt && (
-        <div className="text-[9px] text-amber-400 mb-1.5">
+        <div className="text-[9px] text-amber-400 mb-0.5">
           Offer expires {formatDistanceToNow(job.offeredAt + 30000, { addSuffix: true })}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1 items-center">
+      <div className="flex flex-wrap items-center gap-0.5">
         {tab === 'ua' && (
           <>
             <select
-              className="bw-card-static rounded text-[10px] px-1 py-0.5 bw-text max-w-[110px] border"
+              className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border"
               defaultValue=""
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
@@ -255,7 +264,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   openModalWith('createJob', { jobId: job.id });
                 }}
               >
-                <Edit size={13} />
+                <Edit size={11} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
@@ -267,7 +276,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   handleCancelClick(job.id);
                 }}
               >
-                <X size={13} />
+                <X size={11} />
               </button>
             </Tooltip>
           </>
@@ -275,6 +284,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         {tab === 'offer' && (
           <Button
             variant="danger"
+            className="!h-6 !px-1.5 !py-0 !text-[9px]"
             onClick={(e) => {
               e.stopPropagation();
               void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Offer cancelled');
@@ -294,7 +304,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   void run(() => forceCompleteJob(job.id), 'Completed');
                 }}
               >
-                <CheckCircle size={13} />
+                <CheckCircle size={11} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
@@ -306,7 +316,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   handleCancelClick(job.id);
                 }}
               >
-                <X size={13} />
+                <X size={11} />
               </button>
             </Tooltip>
           </>
@@ -322,7 +332,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   void run(() => recallJob(job.id, job.originalStatus || 'Pending'), 'Recalled to U-A');
                 }}
               >
-                <RotateCcw size={13} />
+                <RotateCcw size={11} />
               </button>
             </Tooltip>
             <Tooltip label="Cancel job">
@@ -334,7 +344,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                   void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled');
                 }}
               >
-                <X size={13} />
+                <X size={11} />
               </button>
             </Tooltip>
           </>
@@ -343,6 +353,7 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <Button
               variant="primary"
+              className="!h-6 !px-1.5 !py-0 !text-[9px]"
               onClick={(e) => {
                 e.stopPropagation();
                 void run(() => setPending(job), 'Pending');
@@ -359,13 +370,14 @@ export function JobCard({ job, tab }: JobCardProps) {
                   void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled');
                 }}
               >
-                <X size={13} />
+                <X size={11} />
               </button>
             </Tooltip>
           </>
         )}
         <Button
           variant="ghost"
+          className="!h-6 !px-1.5 !py-0 !text-[9px]"
           onClick={(e) => {
             e.stopPropagation();
             openModalWith('jobDetail', { jobId: job.id });
