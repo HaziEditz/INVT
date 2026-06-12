@@ -1,47 +1,49 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ResizeHandle } from './ResizeHandle';
-import { clampPanelSizes, useLayoutStore } from '@/store/layoutStore';
 import { useUiStore } from '@/store/uiStore';
 
 interface ResizableDispatchLayoutProps {
   left: React.ReactNode;
   center: React.ReactNode;
   right: React.ReactNode;
-  dispatcherUid?: string;
 }
+
+const DEFAULT_LEFT = 380;
+const DEFAULT_RIGHT = 460;
+const MIN_LEFT = 280;
+const MIN_RIGHT = 320;
+const MIN_MAP = 200;
 
 const panelClass = 'shrink-0 min-h-0 overflow-hidden bw-surface border-[var(--bw-border)]';
 
-export function ResizableDispatchLayout({
-  left,
-  center,
-  right,
-  dispatcherUid,
-}: ResizableDispatchLayoutProps) {
+function clampPanelSizes(left: number, right: number, containerWidth: number) {
+  if (!containerWidth || containerWidth < MIN_LEFT + MIN_RIGHT + MIN_MAP) {
+    return { left, right };
+  }
+  const maxLeft = Math.max(MIN_LEFT, containerWidth - right - MIN_MAP);
+  const maxRight = Math.max(MIN_RIGHT, containerWidth - left - MIN_MAP);
+  return {
+    left: Math.min(Math.max(MIN_LEFT, left), maxLeft),
+    right: Math.min(Math.max(MIN_RIGHT, right), maxRight),
+  };
+}
+
+export function ResizableDispatchLayout({ left, center, right }: ResizableDispatchLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapVisible = useUiStore((s) => s.mapVisible);
   const mapPoppedOut = useUiStore((s) => s.mapPoppedOut);
   const setMapVisible = useUiStore((s) => s.setMapVisible);
 
-  const leftWidth = useLayoutStore((s) => s.left);
-  const rightWidth = useLayoutStore((s) => s.right);
-  const containerWidth = useLayoutStore((s) => s.containerWidth);
-  const locked = useLayoutStore((s) => s.locked);
-  const setContainerWidth = useLayoutStore((s) => s.setContainerWidth);
-  const setDispatcherUid = useLayoutStore((s) => s.setDispatcherUid);
-  const resizeLeft = useLayoutStore((s) => s.resizeLeft);
-  const resizeRight = useLayoutStore((s) => s.resizeRight);
+  const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT);
+  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   const effective = useMemo(
-    () => clampPanelSizes({ left: leftWidth, right: rightWidth }, containerWidth),
+    () => clampPanelSizes(leftWidth, rightWidth, containerWidth),
     [leftWidth, rightWidth, containerWidth]
   );
 
   const showMap = mapVisible && !mapPoppedOut;
-
-  useEffect(() => {
-    if (dispatcherUid) setDispatcherUid(dispatcherUid);
-  }, [dispatcherUid, setDispatcherUid]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -54,12 +56,21 @@ export function ResizableDispatchLayout({
     const ro = new ResizeObserver(() => measure());
     ro.observe(el);
     return () => ro.disconnect();
-  }, [setContainerWidth]);
+  }, []);
 
-  useEffect(() => {
-    console.log('[Layout] containerWidth:', containerWidth);
-    console.log('[Layout] final applied widths - left:', effective.left, 'right:', effective.right);
-  }, [containerWidth, effective.left, effective.right]);
+  const resizeLeft = useCallback(
+    (delta: number) => {
+      setLeftWidth((prev) => clampPanelSizes(prev + delta, rightWidth, containerWidth).left);
+    },
+    [rightWidth, containerWidth]
+  );
+
+  const resizeRight = useCallback(
+    (delta: number) => {
+      setRightWidth((prev) => clampPanelSizes(leftWidth, prev - delta, containerWidth).right);
+    },
+    [leftWidth, containerWidth]
+  );
 
   const panelTransition = { width: effective.left, transition: 'width 0.2s ease' };
   const rightTransition = { width: effective.right, transition: 'width 0.2s ease' };
@@ -71,11 +82,11 @@ export function ResizableDispatchLayout({
           <aside style={panelTransition} className={`${panelClass} border-r`}>
             {left}
           </aside>
-          <ResizeHandle onDrag={resizeLeft} disabled={locked} />
+          <ResizeHandle onDrag={resizeLeft} />
           <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden p-1.5">
             {center}
           </main>
-          <ResizeHandle onDrag={resizeRight} disabled={locked} />
+          <ResizeHandle onDrag={resizeRight} />
           <aside style={rightTransition} className={`${panelClass} flex flex-col border-l`}>
             {right}
           </aside>

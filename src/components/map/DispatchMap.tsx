@@ -3,23 +3,18 @@ import {
   Car,
   Home,
   Layers,
-  LayoutGrid,
-  Lock,
   Maximize2,
   Minus,
   Navigation,
   Plus,
-  Save,
   TrafficCone,
   ExternalLink,
-  Unlock,
   Users,
 } from 'lucide-react';
 import { loadGoogleMaps, loadGoogleMapsLibraries } from '@/lib/mapLoader';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
-import { useLayoutStore } from '@/store/layoutStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
@@ -70,9 +65,7 @@ export function DispatchMap({
   const zoneUnsubRef = useRef<(() => void) | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const [zonesEmpty, setZonesEmpty] = useState(false);
-  const layoutMenuRef = useRef<HTMLDivElement>(null);
   const drivers = useDriverStore((s) => s.drivers);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
   const hoveredJobId = useJobStore((s) => s.hoveredJobId);
@@ -91,24 +84,8 @@ export function DispatchMap({
   const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
   const setHoveredJobId = useJobStore((s) => s.setHoveredJobId);
   const openModalWith = useUiStore((s) => s.openModalWith);
-  const layoutLocked = useLayoutStore((s) => s.locked);
-  const saveLayout = useLayoutStore((s) => s.saveLayout);
-  const resetLayout = useLayoutStore((s) => s.resetLayout);
-  const toggleLayoutLock = useLayoutStore((s) => s.toggleLayoutLock);
-  const addToast = useUiStore((s) => s.addToast);
   const createJobOpenRef = useRef(createJobOpen);
   createJobOpenRef.current = createJobOpen;
-
-  useEffect(() => {
-    if (!layoutMenuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (layoutMenuRef.current && !layoutMenuRef.current.contains(e.target as Node)) {
-        setLayoutMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [layoutMenuOpen]);
 
   const mapTheme = useMemo(() => getMapThemeConfig(theme), [theme]);
 
@@ -680,57 +657,6 @@ export function DispatchMap({
         >
           <Layers size={14} /> Zones
         </button>
-
-        <div ref={layoutMenuRef} className="relative">
-          <button
-            type="button"
-            className={cn(toolbarBtn, layoutMenuOpen && toolbarBtnActive)}
-            onClick={() => setLayoutMenuOpen((o) => !o)}
-          >
-            <LayoutGrid size={14} /> Layout
-          </button>
-          {layoutMenuOpen && (
-            <div className="absolute left-0 top-full mt-1 min-w-[140px] rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20">
-              <button
-                type="button"
-                className={cn(toolbarBtn, 'w-full justify-start')}
-                onClick={() => {
-                  saveLayout();
-                  addToast({ type: 'success', title: 'Layout saved' });
-                  setLayoutMenuOpen(false);
-                }}
-              >
-                <Save size={14} /> Save Layout
-              </button>
-              <button
-                type="button"
-                className={cn(toolbarBtn, 'w-full justify-start')}
-                onClick={() => {
-                  resetLayout();
-                  addToast({ type: 'info', title: 'Layout reset to default' });
-                  setLayoutMenuOpen(false);
-                }}
-              >
-                <LayoutGrid size={14} /> Reset Layout
-              </button>
-              <button
-                type="button"
-                className={cn(toolbarBtn, 'w-full justify-start', layoutLocked && toolbarBtnActive)}
-                onClick={() => {
-                  const next = !layoutLocked;
-                  toggleLayoutLock();
-                  addToast({
-                    type: 'info',
-                    title: next ? 'Layout locked' : 'Layout unlocked',
-                  });
-                }}
-              >
-                {layoutLocked ? <Unlock size={14} /> : <Lock size={14} />}
-                {layoutLocked ? 'Unlock Layout' : 'Lock Layout'}
-              </button>
-            </div>
-          )}
-        </div>
 
         <div className="flex-1" />
 

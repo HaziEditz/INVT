@@ -27715,12 +27715,12 @@ const createStoreImpl = (createState) => {
     }
   };
   const getState = () => state;
-  const getInitialState2 = () => initialState;
+  const getInitialState = () => initialState;
   const subscribe = (listener) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
-  const api = { setState, getState, getInitialState: getInitialState2, subscribe };
+  const api = { setState, getState, getInitialState, subscribe };
   const initialState = state = createState(setState, getState, api);
   return api;
 };
@@ -28648,40 +28648,8 @@ const Layers = createLucideIcon("Layers", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const LayoutGrid = createLucideIcon("LayoutGrid", [
-  ["rect", { width: "7", height: "7", x: "3", y: "3", rx: "1", key: "1g98yp" }],
-  ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
-  ["rect", { width: "7", height: "7", x: "14", y: "14", rx: "1", key: "nxv5o0" }],
-  ["rect", { width: "7", height: "7", x: "3", y: "14", rx: "1", key: "1bb6yr" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
 const LoaderCircle = createLucideIcon("LoaderCircle", [
   ["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const LockOpen = createLucideIcon("LockOpen", [
-  ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
-  ["path", { d: "M7 11V7a5 5 0 0 1 9.9-1", key: "1mm8w8" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const Lock = createLucideIcon("Lock", [
-  ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
-  ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -28779,23 +28747,6 @@ const Plus = createLucideIcon("Plus", [
 const RotateCcw = createLucideIcon("RotateCcw", [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const Save = createLucideIcon("Save", [
-  [
-    "path",
-    {
-      d: "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
-      key: "1c8476"
-    }
-  ],
-  ["path", { d: "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7", key: "1ydtos" }],
-  ["path", { d: "M7 3v4a1 1 0 0 0 1 1h7", key: "t51u73" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -29293,160 +29244,36 @@ function ResizeHandle({ onDrag, onDoubleClick, disabled = false, className }) {
     }
   );
 }
-const DEFAULT_LEFT_WIDTH = 380;
-const DEFAULT_RIGHT_WIDTH = 460;
+const DEFAULT_LEFT = 380;
+const DEFAULT_RIGHT = 460;
 const MIN_LEFT = 280;
 const MIN_RIGHT = 320;
 const MIN_MAP = 200;
-const MIN_PANEL = 200;
-const MAX_PANEL = 800;
-const LEGACY_STORAGE_KEY = "bw_dispatch_panel_sizes";
-function layoutKey(dispatcherUid) {
-  return `bw_dispatch_layout_${dispatcherUid}`;
-}
-function sanitizeWidth(value, fallback) {
-  const n2 = Number(value);
-  if (!Number.isFinite(n2) || n2 < MIN_PANEL || n2 > MAX_PANEL) return fallback;
-  return Math.round(n2);
-}
-function readSavedLayout(dispatcherUid) {
-  const defaults = {
-    left: DEFAULT_LEFT_WIDTH,
-    right: DEFAULT_RIGHT_WIDTH,
-    locked: false
-  };
-  try {
-    const key = layoutKey(dispatcherUid);
-    console.log("[Layout] localStorage raw:", localStorage.getItem(key));
-    let raw = localStorage.getItem(key);
-    if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (!raw) {
-      console.log("[Layout] parsed leftWidth:", defaults.left, "rightWidth:", defaults.right);
-      return defaults;
-    }
-    const parsed = JSON.parse(raw);
-    const leftWidth = sanitizeWidth(parsed.left, DEFAULT_LEFT_WIDTH);
-    const rightWidth = sanitizeWidth(parsed.right, DEFAULT_RIGHT_WIDTH);
-    console.log("[Layout] parsed leftWidth:", leftWidth, "rightWidth:", rightWidth);
-    const savedLayout = {
-      left: leftWidth,
-      right: rightWidth,
-      locked: !!parsed.locked
-    };
-    if (leftWidth !== Number(parsed.left) || rightWidth !== Number(parsed.right)) {
-      writeSavedLayout(dispatcherUid, savedLayout);
-    }
-    return savedLayout;
-  } catch (err2) {
-    console.warn("[Layout] corrupt localStorage, using defaults", err2);
-    console.log("[Layout] parsed leftWidth:", defaults.left, "rightWidth:", defaults.right);
-    writeSavedLayout(dispatcherUid, defaults);
-    return defaults;
-  }
-}
-function writeSavedLayout(dispatcherUid, data) {
-  localStorage.setItem(layoutKey(dispatcherUid), JSON.stringify(data));
-}
-function clampPanelSizes(next, containerWidth) {
-  if (!Number.isFinite(containerWidth) || containerWidth < MIN_LEFT + MIN_RIGHT + MIN_MAP) {
-    return next;
-  }
-  const maxLeft = Math.max(MIN_LEFT, containerWidth - next.right - MIN_MAP);
-  const maxRight = Math.max(MIN_RIGHT, containerWidth - next.left - MIN_MAP);
-  return {
-    left: Math.min(Math.max(MIN_LEFT, next.left), maxLeft),
-    right: Math.min(Math.max(MIN_RIGHT, next.right), maxRight)
-  };
-}
-function getInitialState() {
-  const dispatcherUid = typeof localStorage !== "undefined" ? localStorage.getItem("bw_session_id") || "default" : "default";
-  const saved = readSavedLayout(dispatcherUid);
-  return {
-    dispatcherUid,
-    left: saved.left,
-    right: saved.right,
-    locked: saved.locked ?? false,
-    containerWidth: 0
-  };
-}
-const useLayoutStore = create((set2, get2) => ({
-  ...getInitialState(),
-  setDispatcherUid: (uid) => {
-    if (get2().dispatcherUid === uid) return;
-    const saved = readSavedLayout(uid);
-    set2({
-      dispatcherUid: uid,
-      left: saved.left,
-      right: saved.right,
-      locked: saved.locked ?? false
-    });
-  },
-  setContainerWidth: (w2) => {
-    if (!Number.isFinite(w2) || w2 < MIN_LEFT + MIN_RIGHT + MIN_MAP) return;
-    const current = get2().containerWidth;
-    if (Math.abs(current - w2) < 1) return;
-    console.log("[Layout] containerWidth:", w2);
-    set2({ containerWidth: w2 });
-  },
-  resizeLeft: (delta) => {
-    const s2 = get2();
-    if (s2.locked) return;
-    const next = clampPanelSizes({ left: s2.left + delta, right: s2.right }, s2.containerWidth);
-    set2({ left: next.left, right: next.right });
-  },
-  resizeRight: (delta) => {
-    const s2 = get2();
-    if (s2.locked) return;
-    const next = clampPanelSizes({ left: s2.left, right: s2.right - delta }, s2.containerWidth);
-    set2({ left: next.left, right: next.right });
-  },
-  saveLayout: () => {
-    const s2 = get2();
-    writeSavedLayout(s2.dispatcherUid, { left: s2.left, right: s2.right, locked: s2.locked });
-  },
-  resetLayout: () => {
-    const s2 = get2();
-    const next = {
-      left: DEFAULT_LEFT_WIDTH,
-      right: DEFAULT_RIGHT_WIDTH
-    };
-    set2(next);
-    writeSavedLayout(s2.dispatcherUid, { ...next, locked: s2.locked });
-  },
-  toggleLayoutLock: () => {
-    const s2 = get2();
-    const locked = !s2.locked;
-    set2({ locked });
-    writeSavedLayout(s2.dispatcherUid, { left: s2.left, right: s2.right, locked });
-  }
-}));
 const panelClass = "shrink-0 min-h-0 overflow-hidden bw-surface border-[var(--bw-border)]";
-function ResizableDispatchLayout({
-  left,
-  center,
-  right,
-  dispatcherUid
-}) {
+function clampPanelSizes(left, right, containerWidth) {
+  if (!containerWidth || containerWidth < MIN_LEFT + MIN_RIGHT + MIN_MAP) {
+    return { left, right };
+  }
+  const maxLeft = Math.max(MIN_LEFT, containerWidth - right - MIN_MAP);
+  const maxRight = Math.max(MIN_RIGHT, containerWidth - left - MIN_MAP);
+  return {
+    left: Math.min(Math.max(MIN_LEFT, left), maxLeft),
+    right: Math.min(Math.max(MIN_RIGHT, right), maxRight)
+  };
+}
+function ResizableDispatchLayout({ left, center, right }) {
   const containerRef = reactExports.useRef(null);
   const mapVisible = useUiStore((s2) => s2.mapVisible);
   const mapPoppedOut = useUiStore((s2) => s2.mapPoppedOut);
   const setMapVisible = useUiStore((s2) => s2.setMapVisible);
-  const leftWidth = useLayoutStore((s2) => s2.left);
-  const rightWidth = useLayoutStore((s2) => s2.right);
-  const containerWidth = useLayoutStore((s2) => s2.containerWidth);
-  const locked = useLayoutStore((s2) => s2.locked);
-  const setContainerWidth = useLayoutStore((s2) => s2.setContainerWidth);
-  const setDispatcherUid = useLayoutStore((s2) => s2.setDispatcherUid);
-  const resizeLeft = useLayoutStore((s2) => s2.resizeLeft);
-  const resizeRight = useLayoutStore((s2) => s2.resizeRight);
+  const [leftWidth, setLeftWidth] = reactExports.useState(DEFAULT_LEFT);
+  const [rightWidth, setRightWidth] = reactExports.useState(DEFAULT_RIGHT);
+  const [containerWidth, setContainerWidth] = reactExports.useState(0);
   const effective = reactExports.useMemo(
-    () => clampPanelSizes({ left: leftWidth, right: rightWidth }, containerWidth),
+    () => clampPanelSizes(leftWidth, rightWidth, containerWidth),
     [leftWidth, rightWidth, containerWidth]
   );
   const showMap = mapVisible && !mapPoppedOut;
-  reactExports.useEffect(() => {
-    if (dispatcherUid) setDispatcherUid(dispatcherUid);
-  }, [dispatcherUid, setDispatcherUid]);
   reactExports.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -29458,19 +29285,27 @@ function ResizableDispatchLayout({
     const ro = new ResizeObserver(() => measure());
     ro.observe(el);
     return () => ro.disconnect();
-  }, [setContainerWidth]);
-  reactExports.useEffect(() => {
-    console.log("[Layout] containerWidth:", containerWidth);
-    console.log("[Layout] final applied widths - left:", effective.left, "right:", effective.right);
-  }, [containerWidth, effective.left, effective.right]);
+  }, []);
+  const resizeLeft = reactExports.useCallback(
+    (delta) => {
+      setLeftWidth((prev) => clampPanelSizes(prev + delta, rightWidth, containerWidth).left);
+    },
+    [rightWidth, containerWidth]
+  );
+  const resizeRight = reactExports.useCallback(
+    (delta) => {
+      setRightWidth((prev) => clampPanelSizes(leftWidth, prev - delta, containerWidth).right);
+    },
+    [leftWidth, containerWidth]
+  );
   const panelTransition = { width: effective.left, transition: "width 0.2s ease" };
   const rightTransition = { width: effective.right, transition: "width 0.2s ease" };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: "flex flex-1 min-h-0 relative bw-shell", children: [
     showMap ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: panelTransition, className: `${panelClass} border-r`, children: left }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeLeft, disabled: locked }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeLeft }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden p-1.5", children: center }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeRight, disabled: locked }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(ResizeHandle, { onDrag: resizeRight }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { style: rightTransition, className: `${panelClass} flex flex-col border-l`, children: right })
     ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: `flex-1 ${panelClass} border-r`, children: left }),
@@ -41067,7 +40902,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-g7vOvdSn.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CgGesFIK.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42356,9 +42191,7 @@ function DispatchMap({
   const zoneUnsubRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
-  const [layoutMenuOpen, setLayoutMenuOpen] = reactExports.useState(false);
   const [zonesEmpty, setZonesEmpty] = reactExports.useState(false);
-  const layoutMenuRef = reactExports.useRef(null);
   const drivers = useDriverStore((s2) => s2.drivers);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
   const hoveredJobId = useJobStore((s2) => s2.hoveredJobId);
@@ -42377,23 +42210,8 @@ function DispatchMap({
   const setSelectedJobId = useJobStore((s2) => s2.setSelectedJobId);
   const setHoveredJobId = useJobStore((s2) => s2.setHoveredJobId);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
-  const layoutLocked = useLayoutStore((s2) => s2.locked);
-  const saveLayout = useLayoutStore((s2) => s2.saveLayout);
-  const resetLayout = useLayoutStore((s2) => s2.resetLayout);
-  const toggleLayoutLock = useLayoutStore((s2) => s2.toggleLayoutLock);
-  const addToast = useUiStore((s2) => s2.addToast);
   const createJobOpenRef = reactExports.useRef(createJobOpen);
   createJobOpenRef.current = createJobOpen;
-  reactExports.useEffect(() => {
-    if (!layoutMenuOpen) return;
-    const onDocClick = (e) => {
-      if (layoutMenuRef.current && !layoutMenuRef.current.contains(e.target)) {
-        setLayoutMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [layoutMenuOpen]);
   const mapTheme = reactExports.useMemo(() => getMapThemeConfig(theme), [theme]);
   const safeCenter = reactExports.useMemo(
     () => normalizeMapCenter(center.lat, center.lng),
@@ -42878,73 +42696,6 @@ function DispatchMap({
               ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: layoutMenuRef, className: "relative", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "button",
-              {
-                type: "button",
-                className: cn(toolbarBtn, layoutMenuOpen && toolbarBtnActive),
-                onClick: () => setLayoutMenuOpen((o2) => !o2),
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(LayoutGrid, { size: 14 }),
-                  " Layout"
-                ]
-              }
-            ),
-            layoutMenuOpen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "absolute left-0 top-full mt-1 min-w-[140px] rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
-                {
-                  type: "button",
-                  className: cn(toolbarBtn, "w-full justify-start"),
-                  onClick: () => {
-                    saveLayout();
-                    addToast({ type: "success", title: "Layout saved" });
-                    setLayoutMenuOpen(false);
-                  },
-                  children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(Save, { size: 14 }),
-                    " Save Layout"
-                  ]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
-                {
-                  type: "button",
-                  className: cn(toolbarBtn, "w-full justify-start"),
-                  onClick: () => {
-                    resetLayout();
-                    addToast({ type: "info", title: "Layout reset to default" });
-                    setLayoutMenuOpen(false);
-                  },
-                  children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx(LayoutGrid, { size: 14 }),
-                    " Reset Layout"
-                  ]
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
-                {
-                  type: "button",
-                  className: cn(toolbarBtn, "w-full justify-start", layoutLocked && toolbarBtnActive),
-                  onClick: () => {
-                    const next = !layoutLocked;
-                    toggleLayoutLock();
-                    addToast({
-                      type: "info",
-                      title: next ? "Layout locked" : "Layout unlocked"
-                    });
-                  },
-                  children: [
-                    layoutLocked ? /* @__PURE__ */ jsxRuntimeExports.jsx(LockOpen, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 14 }),
-                    layoutLocked ? "Unlock Layout" : "Lock Layout"
-                  ]
-                }
-              )
-            ] })
-          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1" }),
           onPopOut && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: toolbarBtn, onClick: onPopOut, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(ExternalLink, { size: 14 }),
@@ -43309,7 +43060,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DKXxDqhg.js");
+        const { writeActiveDispatcher } = await import("./notifications-BJ-OYpc-.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43336,7 +43087,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DKXxDqhg.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BJ-OYpc-.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43532,7 +43283,7 @@ function DispatchPage() {
         onNameChange: setDispatcherName
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(ResizableDispatchLayout, { dispatcherUid: sessionId, left: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}), center: mapNode, right: rightPanel }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ResizableDispatchLayout, { left: /* @__PURE__ */ jsxRuntimeExports.jsx(JobTabs, {}), center: mapNode, right: rightPanel }),
     mapFullscreen && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fixed inset-x-0 top-11 bottom-[32px] z-40 bw-map-bg", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         DispatchMap,
@@ -43632,44 +43383,25 @@ function MapPopoutPage() {
   ] });
 }
 function App() {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "div",
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(BrowserRouter, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Routes, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/login", element: /* @__PURE__ */ jsxRuntimeExports.jsx(LoginPage, {}) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Route,
       {
-        style: {
-          background: "lime",
-          color: "black",
-          padding: 8,
-          fontSize: 12,
-          fontFamily: "monospace"
-        },
-        children: [
-          "DEBUG TEST - if you see this, App.tsx is rendering. localStorage keys:",
-          " ",
-          typeof localStorage !== "undefined" ? Object.keys(localStorage).join(", ") : "n/a"
-        ]
+        path: "/dispatch/map",
+        element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Map pop-out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(MapPopoutPage, {}) })
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(BrowserRouter, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Routes, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/login", element: /* @__PURE__ */ jsxRuntimeExports.jsx(LoginPage, {}) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        Route,
-        {
-          path: "/dispatch/map",
-          element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Map pop-out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(MapPopoutPage, {}) })
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        Route,
-        {
-          path: "/dispatch",
-          element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch console", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchPage, {}) })
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "*", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) })
-    ] }) }) })
-  ] });
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Route,
+      {
+        path: "/dispatch",
+        element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch console", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchPage, {}) })
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "*", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) })
+  ] }) }) });
 }
 initThemeFromStorage();
 clientExports.createRoot(document.getElementById("root")).render(
@@ -43683,4 +43415,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Cb1jSyHM.js.map
+//# sourceMappingURL=index-BRUEz2WS.js.map
