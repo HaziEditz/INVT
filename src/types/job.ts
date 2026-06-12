@@ -82,6 +82,9 @@ export interface Job {
   tm?: TmDetails;
   acc?: AccDetails;
   tariffId?: string;
+  tariffName?: string;
+  passengerEmail?: string;
+  isFixedPrice?: boolean;
   passengers?: number;
   bags?: number;
   wheelchairs?: number;
@@ -137,7 +140,7 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     passengerName: String(rec.Name ?? rec.passengerName ?? ''),
     passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? ''),
     paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? 'Cash'),
-    estimatedFare: String(rec.EstimatedFare ?? rec.Fare ?? rec.fare ?? ''),
+    estimatedFare: String(rec.EstimatedFare ?? rec.CustomeRate ?? rec.CustomRate ?? rec.RideCost ?? rec.Fare ?? rec.fare ?? ''),
     totalFare: rec.TotalFare != null ? String(rec.TotalFare) : undefined,
     driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : undefined,
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : undefined,
@@ -181,7 +184,18 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     })(),
     accountId: rec.Account_id ? String(rec.Account_id) : undefined,
     accountName: rec.Account_Name ? String(rec.Account_Name) : undefined,
-    tariffId: rec.TariffId ? String(rec.TariffId) : undefined,
+    tariffId: (() => {
+      const id = rec.TarriffId ?? rec.TariffId ?? rec.tariffId;
+      return id != null && String(id) !== '' ? String(id) : undefined;
+    })(),
+    tariffName: String(rec.TarriffName ?? rec.TariffName ?? rec.TarriffType ?? rec.tariffName ?? '').trim() || undefined,
+    vehicleType: String(rec.VehicleType ?? rec.vehicleType ?? '').trim() || undefined,
+    passengerEmail: String(rec.useremail ?? rec.Email ?? rec.email ?? '').trim() || undefined,
+    isFixedPrice: (() => {
+      const tid = String(rec.TarriffId ?? rec.TariffId ?? rec.tariffId ?? '');
+      const tname = String(rec.TarriffName ?? rec.TariffName ?? '').toLowerCase();
+      return tid === '-1' || tname === 'fixed';
+    })(),
     passengers: parseInt(String(rec.Passengers ?? '1'), 10) || 1,
     updateSeq: parseInt(String(rec.updateSeq ?? '0'), 10) || 0,
     createdAt: rec.createdAt ? Number(rec.createdAt) : undefined,
@@ -427,13 +441,21 @@ export function jobTabForStatus(job: Job): JobTab {
   return 'ua';
 }
 
-/** When the job was booked / entered the system. */
-export function jobBookedAtTime(job: Job): Date | null {
-  if (job.createdAt) {
-    const d = new Date(job.createdAt);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
+/** When the job record was created in the system. */
+export function jobCreatedAtTime(job: Job): Date | null {
+  if (!job.createdAt) return null;
+  const d = new Date(job.createdAt);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Booking / pickup datetime from the job record (not creation timestamp). */
+export function jobBookingTime(job: Job): Date | null {
   return jobScheduledTime(job);
+}
+
+/** When the job was booked / entered the system. @deprecated use jobCreatedAtTime or jobBookingTime */
+export function jobBookedAtTime(job: Job): Date | null {
+  return jobCreatedAtTime(job) ?? jobBookingTime(job);
 }
 
 export function formatJobDateTimeShort(d: Date): string {
@@ -511,4 +533,26 @@ export function jobReturnReasonAlert(
     return { kind: 'not_reached', text: r };
   }
   return { kind: 'warning', text: r };
+}
+
+export function jobFareDisplay(job: Job): { label: string; amount: string } | null {
+  const raw = (job.estimatedFare || job.totalFare || '').trim();
+  if (!raw || raw === '0') return null;
+  const amount = raw.startsWith('$') ? raw : `$${raw}`;
+  const label = job.isFixedPrice ? 'Fixed Price' : 'Fare';
+  return { label, amount };
+}
+
+export function jobTariffLabel(job: Job): string | null {
+  const name = (job.tariffName || '').trim();
+  if (name && name.toLowerCase() !== 'automatic') return name;
+  if (job.tariffId && job.tariffId !== '0' && job.tariffId !== '-1') return `Tariff #${job.tariffId}`;
+  if (job.isFixedPrice) return 'Fixed';
+  return job.tariffId === '0' ? 'Automatic' : null;
+}
+
+export function jobVehicleTypeLabel(job: Job): string | null {
+  const v = (job.vehicleType || '').trim();
+  if (!v || v.toLowerCase() === 'not specified') return null;
+  return v;
 }

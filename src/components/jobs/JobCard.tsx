@@ -5,11 +5,15 @@ import type { Job, JobTab } from '@/types/job';
 import {
   formatJobDateTimeShort,
   getJobCardAppearance,
-  jobBookedAtTime,
+  jobBookingTime,
+  jobCreatedAtTime,
+  jobFareDisplay,
   jobOverdueLabel,
   jobPickupTypeLabel,
   jobReturnReasonAlert,
   jobScheduledTime,
+  jobTariffLabel,
+  jobVehicleTypeLabel,
   uaStatusBadge,
 } from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
@@ -90,16 +94,23 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const uaMeta = useMemo(() => {
     if (tab !== 'ua') return null;
-    const booked = jobBookedAtTime(job);
+    const created = jobCreatedAtTime(job);
+    const booked = jobBookingTime(job);
     const pickup = jobScheduledTime(job);
+    const fare = jobFareDisplay(job);
     return {
       sourceName: sourceDisplayName(job.source),
+      createdLabel: created ? formatJobDateTimeShort(created) : null,
       bookedLabel: booked ? formatJobDateTimeShort(booked) : '—',
       pickupLabel: jobPickupTypeLabel(job),
       pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
       overdue: jobOverdueLabel(job, now),
       returnAlert: jobReturnReasonAlert(job),
-      dispatcher: job.dispatcherName?.trim() || null,
+      createdBy: job.dispatcherName?.trim() || null,
+      passengerEmail: job.passengerEmail?.trim() || null,
+      tariffLabel: jobTariffLabel(job),
+      vehicleType: jobVehicleTypeLabel(job),
+      fare,
     };
   }, [job, tab, now]);
 
@@ -186,6 +197,10 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const toneText = onColoredBg ? 'text-[#f1f5f9]' : 'bw-text';
   const toneMuted = onColoredBg ? 'text-[#cbd5e1]' : 'text-[var(--bw-muted)]';
+  /** Address lines — theme tokens on default cards; dark text on soft tinted backgrounds. */
+  const addressPrimary = onColoredBg ? 'text-slate-900' : 'text-[var(--bw-text)]';
+  const addressSecondary = onColoredBg ? 'text-slate-700' : 'text-[var(--bw-muted)]';
+  const metaText = onColoredBg ? toneMuted : 'text-[var(--bw-muted)]';
 
   return (
     <div
@@ -218,7 +233,12 @@ export function JobCard({ job, tab }: JobCardProps) {
       </div>
 
       {tab === 'ua' && uaMeta && (
-        <div className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', toneMuted)}>
+        <div className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}>
+          {uaMeta.createdLabel && (
+            <span>
+              <span className="opacity-70">Created:</span> {uaMeta.createdLabel}
+            </span>
+          )}
           <span>
             <span className="opacity-70">Booked:</span> {uaMeta.bookedLabel}
           </span>
@@ -230,29 +250,31 @@ export function JobCard({ job, tab }: JobCardProps) {
         </div>
       )}
 
-      <div className={cn('text-[10px] leading-tight mb-0.5 space-y-0', toneText)}>
+      <div className="text-[10px] leading-tight mb-0.5 space-y-0">
         <div className="flex gap-1 items-center min-h-[14px]">
           <span
             className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer"
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className="truncate font-medium">{job.pickAddress || 'No pickup'}</span>
+          <span className={cn('truncate font-medium', addressPrimary)}>
+            {job.pickAddress || 'No pickup'}
+          </span>
         </div>
-        <div className={cn('flex gap-1 items-center min-h-[14px]', toneMuted)}>
+        <div className="flex gap-1 items-center min-h-[14px]">
           <span
             className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer"
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className="truncate">{job.dropAddress || 'No dropoff'}</span>
+          <span className={cn('truncate', addressSecondary)}>{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>
 
       <div
         className={cn(
           'flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]',
-          toneMuted
+          metaText
         )}
       >
         <span className="inline-flex items-center gap-0.5 truncate max-w-[45%]">
@@ -263,14 +285,38 @@ export function JobCard({ job, tab }: JobCardProps) {
         <Badge color={paymentBadgeColor(job.paymentType)} className="!text-[9px] !px-1 !py-0 shrink-0">
           {paymentLabel(job.paymentType)}
         </Badge>
-        {job.estimatedFare && job.estimatedFare !== '0' && (
+        {tab !== 'ua' && job.estimatedFare && job.estimatedFare !== '0' && (
           <span className="shrink-0 font-medium text-emerald-400">${job.estimatedFare}</span>
         )}
       </div>
 
-      {tab === 'ua' && uaMeta?.dispatcher && (
-        <div className={cn('text-[9px] mb-0.5 truncate', toneMuted)}>
-          <span className="opacity-70">Dispatcher:</span> {uaMeta.dispatcher}
+      {tab === 'ua' && uaMeta && (
+        <div className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}>
+          {uaMeta.fare && (
+            <span className="font-medium text-emerald-400">
+              {uaMeta.fare.label}: {uaMeta.fare.amount}
+            </span>
+          )}
+          {uaMeta.tariffLabel && (
+            <span>
+              <span className="opacity-70">Tariff:</span> {uaMeta.tariffLabel}
+            </span>
+          )}
+          {uaMeta.vehicleType && (
+            <span>
+              <span className="opacity-70">Vehicle:</span> {uaMeta.vehicleType}
+            </span>
+          )}
+          {uaMeta.createdBy && (
+            <span className="truncate max-w-full">
+              <span className="opacity-70">Created by:</span> {uaMeta.createdBy}
+            </span>
+          )}
+          {uaMeta.passengerEmail && (
+            <span className="truncate max-w-full">
+              <span className="opacity-70">Email:</span> {uaMeta.passengerEmail}
+            </span>
+          )}
         </div>
       )}
 

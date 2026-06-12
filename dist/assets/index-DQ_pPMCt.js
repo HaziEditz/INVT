@@ -27608,7 +27608,7 @@ function jobFromFirebase(key, rec, companyId) {
     passengerName: String(rec.Name ?? rec.passengerName ?? ""),
     passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? ""),
     paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? "Cash"),
-    estimatedFare: String(rec.EstimatedFare ?? rec.Fare ?? rec.fare ?? ""),
+    estimatedFare: String(rec.EstimatedFare ?? rec.CustomeRate ?? rec.CustomRate ?? rec.RideCost ?? rec.Fare ?? rec.fare ?? ""),
     totalFare: rec.TotalFare != null ? String(rec.TotalFare) : void 0,
     driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : void 0,
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : void 0,
@@ -27633,7 +27633,18 @@ function jobFromFirebase(key, rec, companyId) {
     })(),
     accountId: rec.Account_id ? String(rec.Account_id) : void 0,
     accountName: rec.Account_Name ? String(rec.Account_Name) : void 0,
-    tariffId: rec.TariffId ? String(rec.TariffId) : void 0,
+    tariffId: (() => {
+      const id2 = rec.TarriffId ?? rec.TariffId ?? rec.tariffId;
+      return id2 != null && String(id2) !== "" ? String(id2) : void 0;
+    })(),
+    tariffName: String(rec.TarriffName ?? rec.TariffName ?? rec.TarriffType ?? rec.tariffName ?? "").trim() || void 0,
+    vehicleType: String(rec.VehicleType ?? rec.vehicleType ?? "").trim() || void 0,
+    passengerEmail: String(rec.useremail ?? rec.Email ?? rec.email ?? "").trim() || void 0,
+    isFixedPrice: (() => {
+      const tid = String(rec.TarriffId ?? rec.TariffId ?? rec.tariffId ?? "");
+      const tname = String(rec.TarriffName ?? rec.TariffName ?? "").toLowerCase();
+      return tid === "-1" || tname === "fixed";
+    })(),
     passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
     updateSeq: parseInt(String(rec.updateSeq ?? "0"), 10) || 0,
     createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
@@ -27800,11 +27811,12 @@ function jobTabForStatus(job) {
   if (st2 === "Offered") return "offer";
   return "ua";
 }
-function jobBookedAtTime(job) {
-  if (job.createdAt) {
-    const d2 = new Date(job.createdAt);
-    if (!Number.isNaN(d2.getTime())) return d2;
-  }
+function jobCreatedAtTime(job) {
+  if (!job.createdAt) return null;
+  const d2 = new Date(job.createdAt);
+  return Number.isNaN(d2.getTime()) ? null : d2;
+}
+function jobBookingTime(job) {
   return jobScheduledTime(job);
 }
 function formatJobDateTimeShort(d2) {
@@ -27855,6 +27867,25 @@ function jobReturnReasonAlert(job) {
     return { kind: "not_reached", text: r };
   }
   return { kind: "warning", text: r };
+}
+function jobFareDisplay(job) {
+  const raw = (job.estimatedFare || job.totalFare || "").trim();
+  if (!raw || raw === "0") return null;
+  const amount = raw.startsWith("$") ? raw : `$${raw}`;
+  const label = job.isFixedPrice ? "Fixed Price" : "Fare";
+  return { label, amount };
+}
+function jobTariffLabel(job) {
+  const name2 = (job.tariffName || "").trim();
+  if (name2 && name2.toLowerCase() !== "automatic") return name2;
+  if (job.tariffId && job.tariffId !== "0" && job.tariffId !== "-1") return `Tariff #${job.tariffId}`;
+  if (job.isFixedPrice) return "Fixed";
+  return job.tariffId === "0" ? "Automatic" : null;
+}
+function jobVehicleTypeLabel(job) {
+  const v2 = (job.vehicleType || "").trim();
+  if (!v2 || v2.toLowerCase() === "not specified") return null;
+  return v2;
 }
 const createStoreImpl = (createState) => {
   let state;
@@ -31380,18 +31411,25 @@ function JobCard({ job, tab }) {
   const toned = !!cardLook.tone;
   const onColoredBg = toned;
   const uaMeta = reactExports.useMemo(() => {
-    var _a3;
+    var _a3, _b2;
     if (tab !== "ua") return null;
-    const booked = jobBookedAtTime(job);
+    const created = jobCreatedAtTime(job);
+    const booked = jobBookingTime(job);
     const pickup = jobScheduledTime(job);
+    const fare = jobFareDisplay(job);
     return {
       sourceName: sourceDisplayName(job.source),
+      createdLabel: created ? formatJobDateTimeShort(created) : null,
       bookedLabel: booked ? formatJobDateTimeShort(booked) : "—",
       pickupLabel: jobPickupTypeLabel(job),
       pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
       overdue: jobOverdueLabel(job, now),
       returnAlert: jobReturnReasonAlert(job),
-      dispatcher: ((_a3 = job.dispatcherName) == null ? void 0 : _a3.trim()) || null
+      createdBy: ((_a3 = job.dispatcherName) == null ? void 0 : _a3.trim()) || null,
+      passengerEmail: ((_b2 = job.passengerEmail) == null ? void 0 : _b2.trim()) || null,
+      tariffLabel: jobTariffLabel(job),
+      vehicleType: jobVehicleTypeLabel(job),
+      fare
     };
   }, [job, tab, now]);
   const pickupTag = tab === "ua" && uaMeta ? uaMeta.pickupLabel : ((_a2 = cardLook.label) == null ? void 0 : _a2.startsWith("Sched:")) ? cardLook.label : null;
@@ -31462,6 +31500,9 @@ function JobCard({ job, tab }) {
   };
   const toneText = onColoredBg ? "text-[#f1f5f9]" : "bw-text";
   const toneMuted = onColoredBg ? "text-[#cbd5e1]" : "text-[var(--bw-muted)]";
+  const addressPrimary = onColoredBg ? "text-slate-900" : "text-[var(--bw-text)]";
+  const addressSecondary = onColoredBg ? "text-slate-700" : "text-[var(--bw-muted)]";
+  const metaText = onColoredBg ? toneMuted : "text-[var(--bw-muted)]";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -31493,7 +31534,12 @@ function JobCard({ job, tab }) {
           job.urgent && tagChip("URGENT", "text-red-200"),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto", waitBadgeClass(waitMinutes)), children: waitLabel })
         ] }),
-        tab === "ua" && uaMeta && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", toneMuted), children: [
+        tab === "ua" && uaMeta && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", metaText), children: [
+          uaMeta.createdLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Created:" }),
+            " ",
+            uaMeta.createdLabel
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Booked:" }),
             " ",
@@ -31505,7 +31551,7 @@ function JobCard({ job, tab }) {
             uaMeta.pickupTime
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("text-[10px] leading-tight mb-0.5 space-y-0", toneText), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] leading-tight mb-0.5 space-y-0", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "span",
@@ -31515,9 +31561,9 @@ function JobCard({ job, tab }) {
                 onMouseLeave: clearRoutePreview
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate font-medium", children: job.pickAddress || "No pickup" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate font-medium", addressPrimary), children: job.pickAddress || "No pickup" })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex gap-1 items-center min-h-[14px]", toneMuted), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "span",
               {
@@ -31526,7 +31572,7 @@ function JobCard({ job, tab }) {
                 onMouseLeave: clearRoutePreview
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.dropAddress || "No dropoff" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate", addressSecondary), children: job.dropAddress || "No dropoff" })
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -31534,7 +31580,7 @@ function JobCard({ job, tab }) {
           {
             className: cn(
               "flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]",
-              toneMuted
+              metaText
             ),
             children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
@@ -31543,17 +31589,39 @@ function JobCard({ job, tab }) {
               ] }),
               job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
-              job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "shrink-0 font-medium text-emerald-400", children: [
+              tab !== "ua" && job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "shrink-0 font-medium text-emerald-400", children: [
                 "$",
                 job.estimatedFare
               ] })
             ]
           }
         ),
-        tab === "ua" && (uaMeta == null ? void 0 : uaMeta.dispatcher) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("text-[9px] mb-0.5 truncate", toneMuted), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Dispatcher:" }),
-          " ",
-          uaMeta.dispatcher
+        tab === "ua" && uaMeta && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", metaText), children: [
+          uaMeta.fare && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-medium text-emerald-400", children: [
+            uaMeta.fare.label,
+            ": ",
+            uaMeta.fare.amount
+          ] }),
+          uaMeta.tariffLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Tariff:" }),
+            " ",
+            uaMeta.tariffLabel
+          ] }),
+          uaMeta.vehicleType && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Vehicle:" }),
+            " ",
+            uaMeta.vehicleType
+          ] }),
+          uaMeta.createdBy && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "truncate max-w-full", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Created by:" }),
+            " ",
+            uaMeta.createdBy
+          ] }),
+          uaMeta.passengerEmail && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "truncate max-w-full", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Email:" }),
+            " ",
+            uaMeta.passengerEmail
+          ] })
         ] }),
         tab === "ua" && (uaMeta == null ? void 0 : uaMeta.returnAlert) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug bg-[#0f172a] text-white border border-black/50", children: [
           uaMeta.returnAlert.kind === "not_reached" ? "Not reached: " : "",
@@ -41125,7 +41193,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-D_XKqoSS.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CoZ_Tkmw.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43283,7 +43351,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DFdOYpFg.js");
+        const { writeActiveDispatcher } = await import("./notifications-BqjP4slC.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43310,7 +43378,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DFdOYpFg.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BqjP4slC.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43638,4 +43706,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DcXD1CMP.js.map
+//# sourceMappingURL=index-DQ_pPMCt.js.map

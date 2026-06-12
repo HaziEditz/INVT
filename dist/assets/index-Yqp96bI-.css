@@ -897,6 +897,9 @@ video {
 .max-w-\[60\%\] {
   max-width: 60%;
 }
+.max-w-full {
+  max-width: 100%;
+}
 .max-w-md {
   max-width: 28rem;
 }
@@ -1538,6 +1541,9 @@ video {
 .text-\[var\(--bw-muted\)\] {
   color: var(--bw-muted);
 }
+.text-\[var\(--bw-text\)\] {
+  color: var(--bw-text);
+}
 .text-amber-100 {
   --tw-text-opacity: 1;
   color: rgb(254 243 199 / var(--tw-text-opacity, 1));
@@ -1593,6 +1599,14 @@ video {
 .text-red-400 {
   --tw-text-opacity: 1;
   color: rgb(248 113 113 / var(--tw-text-opacity, 1));
+}
+.text-slate-700 {
+  --tw-text-opacity: 1;
+  color: rgb(51 65 85 / var(--tw-text-opacity, 1));
+}
+.text-slate-900 {
+  --tw-text-opacity: 1;
+  color: rgb(15 23 42 / var(--tw-text-opacity, 1));
 }
 .text-status-available {
   --tw-text-opacity: 1;
