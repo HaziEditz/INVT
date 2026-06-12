@@ -28548,14 +28548,56 @@ async function updateJob(jobId, companyId, changes, existingJob) {
   useJobStore.getState().upsertJob(optimisticJob);
   await persistJobUpdate(jobId, companyId, changes, existingJob);
 }
-async function assignJob(bookingId, driverId, vehicleId, ifVersion = 0) {
-  return jobCommand({
+async function postJobCommand(payload) {
+  const r = await fetch(`${API}/job/command`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await r.json().catch(() => ({}));
+  return { ...data, ok: !!data.ok && r.ok, statusCode: r.status };
+}
+function applyAssignResultToJob(job, driverId, vehicleId, result) {
+  const nextStatus = result.status || "Offered";
+  const seq = result.version ?? (job.updateSeq ?? 0) + 1;
+  return {
+    ...job,
+    status: nextStatus,
+    driverId,
+    vehicleId: vehicleId || job.vehicleId,
+    updateSeq: seq
+  };
+}
+async function assignJob(bookingId, driverId, vehicleId, ifVersion, baseJob) {
+  let ifVer = ifVersion;
+  const attempt = async () => postJobCommand({
     bookingId,
     command: "assign",
     by: "dispatcher",
-    ifVersion,
+    ifVersion: ifVer,
     payload: { driverId, vehicleId }
   });
+  let result = await attempt();
+  if (!result.ok && (result.stale || result.error_code === "version_conflict")) {
+    const job2 = baseJob ?? useJobStore.getState().jobs.find((j2) => j2.id === bookingId);
+    ifVer = result.currentVersion ?? (job2 == null ? void 0 : job2.updateSeq) ?? ifVer;
+    if (job2) useJobStore.getState().upsertJob(job2);
+    result = await attempt();
+  }
+  if (!result.ok) {
+    const message2 = result.error || "Could not assign driver";
+    useUiStore.getState().addToast({
+      type: "error",
+      title: "Assign failed",
+      message: message2
+    });
+    throw new Error(message2);
+  }
+  const job = baseJob ?? useJobStore.getState().jobs.find((j2) => j2.id === bookingId);
+  if (job) {
+    useJobStore.getState().upsertJob(applyAssignResultToJob(job, driverId, vehicleId, result));
+  }
 }
 async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   const cancelledAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -28613,12 +28655,12 @@ async function applyJobAssignment(job, selection, onlineDrivers) {
   }
   const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
   if (!d2) throw new Error("Driver not found");
-  await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq);
+  await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq, job);
 }
 async function applyFormDriverAssignment(job, form, availableDrivers) {
   if (form.driverId > 0) {
     const d2 = availableDrivers.find((x2) => parseInt(x2.driverId, 10) === form.driverId) ?? { driverId: String(form.driverId), vehicleId: form.vehicleId || "0" };
-    await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq);
+    await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq, job);
     return;
   }
   if (form.driverId === -1) {
@@ -41275,7 +41317,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BMWVYOlm.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DLREYYu1.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43433,7 +43475,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CLyvvL6v.js");
+        const { writeActiveDispatcher } = await import("./notifications-DRb-XasS.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43460,7 +43502,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CLyvvL6v.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DRb-XasS.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43788,4 +43830,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Bp_ZUwn1.js.map
+//# sourceMappingURL=index-D22HiYDg.js.map

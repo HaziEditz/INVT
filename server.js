@@ -1383,9 +1383,9 @@ function cancelBooking(opts) {
 // `update` is allowed in every active state; terminal states only allow no-op
 // idempotent re-runs of the command that produced them.
 const _BOOKING_STATE_MACHINE = {
-  'Pending':   { assign: 'Assigned', cancel: 'Cancelled', update: 'Pending' },
-  'Offered':   { assign: 'Assigned', accept: 'Assigned', cancel: 'Cancelled', update: 'Offered', recall: 'Pending' },
-  'Assigned':  { accept: 'Assigned', cancel: 'Cancelled', recall: 'Pending', update: 'Assigned', complete: 'Completed' },
+  'Pending':   { assign: 'Offered', cancel: 'Cancelled', update: 'Pending' },
+  'Offered':   { assign: 'Offered', accept: 'Assigned', cancel: 'Cancelled', update: 'Offered', recall: 'Pending' },
+  'Assigned':  { assign: 'Offered', accept: 'Assigned', cancel: 'Cancelled', recall: 'Pending', update: 'Assigned', complete: 'Completed' },
   'Picking':   { cancel: 'Cancelled', update: 'Picking', complete: 'Completed' },
   'OnTrip':    { cancel: 'Cancelled', update: 'OnTrip', complete: 'Completed' },
   'Active':    { cancel: 'Cancelled', update: 'Active',  complete: 'Completed' },
@@ -1393,7 +1393,10 @@ const _BOOKING_STATE_MACHINE = {
   'Queued':    { cancel: 'Cancelled', update: 'Queued' },
   'Completed': { complete: 'Completed' },   // idempotent
   'Cancelled': { cancel: 'Cancelled' },     // idempotent
-  'No One':    { assign: 'Assigned', update: 'No One', cancel: 'Cancelled' }
+  'No One':    { assign: 'Offered', update: 'No One', cancel: 'Cancelled' },
+  'Scheduled': { assign: 'Offered', cancel: 'Cancelled', update: 'Scheduled' },
+  'Unreached': { assign: 'Offered', cancel: 'Cancelled', update: 'Unreached' },
+  'Reject':    { assign: 'Offered', cancel: 'Cancelled', update: 'Reject' },
 };
 
 // §FIX-CMD/1.7 — clientRequestId idempotency cache. Drivers tap on flaky 4G;
@@ -1474,10 +1477,184 @@ function _canTransition(currentStatus, command) {
   return { ok: true, nextStatus: row[_c] };
 }
 
-// §FIX-CMD/1.7 — Idempotent assign. If the booking is already Assigned to the
-// requested driver, returns {idempotent:true}. Otherwise validates state,
-// mutates the job, bumps version, emits bookingEvents + driver notification.
-function assignBooking(opts) {
+// Resolve vehicleId from ZONE_DRIVERS when the client sends driverId as both ids
+// (common on string-ID tenants — e.g. jobs/{cid}/D002/D002 instead of TAXI02/D002).
+function _resolveDriverVehicleIds(driverId, vehicleId) {
+  const did = String(driverId || '').trim();
+  let vid = String(vehicleId == null ? '' : vehicleId).trim();
+  if (!did) return { driverId: '', vehicleId: '' };
+  const _needsResolve = !vid || vid === '0' || vid === '-1' || vid === did ||
+                        vid === 'null' || vid === 'undefined';
+  if (_needsResolve) {
+    const zd = ZONE_DRIVERS.find(d => d && String(d.driverid || '').trim() === did);
+    if (zd) {
+      vid = String(zd.VehicleId || zd.vehiclenumber || zd.CallSign || '').trim();
+    }
+  }
+  return { driverId: did, vehicleId: vid || did };
+}
+
+function _parseLatLngPair(raw) {
+  const p = String(raw || '').split(',');
+  if (p.length !== 2) return null;
+  const lat = parseFloat(p[0]);
+  const lng = parseFloat(p[1]);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return { lat, lng };
+}
+
+function _offerPaymentTypeFromJob(job) {
+  const pm = String(job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '').toLowerCase();
+  if (pm.includes('card') || pm.includes('stripe')) return 'card';
+  if (pm.includes('account')) return 'account';
+  if (pm.includes('eftpos')) return 'eftpos';
+  if (pm.includes('tm')) return 'tm';
+  if (pm.includes('acc')) return 'acc';
+  if (pm.includes('cash')) return 'cash';
+  return pm || 'cash';
+}
+
+// Full manual-offer fanout — mirrors legacy writeJobDetailsToFirebase + pendingjobs patch.
+// Works for any job source (dispatch, website, app) and service type (taxi, food, freight, …).
+async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag) {
+  if (!job || !job.Id || !driverId) return;
+  const cid = String(job.companyId || '').trim();
+  if (!cid) return;
+  const _resolved = _resolveDriverVehicleIds(driverId, vehicleId);
+  const did = _resolved.driverId;
+  const vid = _resolved.vehicleId;
+  if (!did) return;
+
+  const tok = await getFirebaseServerToken();
+  if (!tok) {
+    console.warn(`  [${sourceTag}] _writeManualDriverOffer: no Firebase token — skipped`);
+    return;
+  }
+
+  const bookingId = job.Id;
+  const _src = String(job.BookingSource || job.bookingSource || job.source || 'Dispatch Console');
+  const _svc = String(job.serviceType || job.ServiceType || 'taxi');
+  const _stat = 'Offered';
+  const _bookingidStr = `${bookingId},${_stat},${did},,${by || 'dispatcher'}`;
+  const _payType = _offerPaymentTypeFromJob(job);
+  const _pickLL = _parseLatLngPair(job.PickLatLng);
+  const _dropLL = _parseLatLngPair(job.DropLatLng);
+  const _now = Date.now();
+
+  const notifPayload = {
+    type:           'job_offer',
+    eventType:      'new_offer',
+    bookingid:      _bookingidStr,
+    content:        'You have offered new Job please view details',
+    joboffer:       String(bookingId),
+    bookingId:      bookingId,
+    jobpickup:      String(job.PickAddress || job.PickLocation || job.jobpickup || ''),
+    jobdropoff:     String(job.DropAddress || job.DropLocation || job.jobdropoff || ''),
+    JobphoneNo:     String(job.PhoneNo || job.PassengerPhone || ''),
+    jobname:        String(job.Name || job.PassengerName || job.UserFName || ''),
+    jobbags:        String(job.Bags ?? job.BagsNo ?? 0),
+    jobpassengers:  String(job.Passengers ?? job.PassengersNo ?? 1),
+    jobvehicletype: String(job.VehicleType || ''),
+    jobinfo:        String(job.EntitiesDetails || job.Notes || job.notes || ''),
+    jobFare:        String(job.EstimatedFare || job.RideCost || job.CustomeRate || job.Fare || ''),
+    jobCount:       1,
+    jobServiceType: _svc,
+    jobBookingSrc:  _src,
+    vehicleId:      vid,
+    companyId:      cid,
+    PaymentType:    _payType,
+    paymentType:    _payType,
+    PaymentMethod:  String(job.PaymentMethod || job.paymentMethod || ''),
+    paymentMethod:  String(job.PaymentMethod || job.paymentMethod || ''),
+    paymentStatus:  String(job.paymentStatus || job.PaymentStatus || ''),
+    isPrePaid:      !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid || job.prepaid),
+    jobAccountId:   String(job.Account_id || job.AccountId || ''),
+    jobAccountName: String(job.Account_Name || job.AccountName || ''),
+    pickupTime:     String(job.BookingDateTime || job.Pickingtime || ''),
+    Pickingtime:    String(job.BookingDateTime || job.Pickingtime || ''),
+    scheduledFor:   String(job.BookingDateTime || job.Pickingtime || ''),
+    tarriffType:    String(job.TarriffType || job.TarriffName || ''),
+    TarriffType:    String(job.TarriffType || job.TarriffName || ''),
+    customRate:     String(job.CustomeRate || ''),
+    CustomeRate:    String(job.CustomeRate || ''),
+    originalStatus: 'manual',
+    expiresAt:      _now + 30000,
+    version:        parseInt(job.updateSeq) || 0,
+    updatedAt:      _FB_SERVER_TIMESTAMP,
+    _ts:            _now,
+  };
+
+  await firebaseDbSet(`notification/${did}`, notifPayload, tok)
+    .catch(e => console.warn(`  [${sourceTag}] notification/${did} write failed: ${e && e.message}`));
+
+  if (vid) {
+    await firebaseDbSet(`jobs/${cid}/${vid}/${did}/${bookingId}`, {
+      BookingId:  String(bookingId),
+      Status:       _stat,
+      BookingStatus: _stat,
+      VehicleId:    vid,
+      DriverId:     did,
+      offeredAt:    _now,
+      eventType:    'new_offer',
+      serviceType:  _svc,
+      BookingSource: _src,
+    }, tok).catch(e => console.warn(`  [${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingId} write failed: ${e && e.message}`));
+
+    await firebaseDbPatch(`online/${cid}/${vid}/current`, {
+      joboffer:     String(bookingId),
+      jobpickup:    notifPayload.jobpickup,
+      jobdropoff:   notifPayload.jobdropoff,
+      JobphoneNo:   notifPayload.JobphoneNo,
+      jobname:      notifPayload.jobname,
+      currentJobId: String(bookingId),
+      jobId:        String(bookingId),
+    }, tok).catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid}/current write failed: ${e && e.message}`));
+  }
+
+  const _pjPatch = {
+    BookingId:       String(bookingId),
+    Status:          _stat,
+    BookingStatus:   _stat,
+    DriverId:        did,
+    AssignedDriver:  did,
+    VehicleId:       vid,
+    offeredAt:       _now,
+    PickAddress:     notifPayload.jobpickup,
+    DropAddress:     notifPayload.jobdropoff,
+    PassengerName:   notifPayload.jobname,
+    PhoneNo:         notifPayload.JobphoneNo,
+    Fare:            notifPayload.jobFare,
+    CompanyId:       cid,
+    ServiceType:     _svc,
+    serviceType:     _svc,
+    BookingSource:   _src,
+    paymentMethod:   notifPayload.paymentMethod,
+    paymentStatus:   notifPayload.paymentStatus,
+    PaymentType:     _payType,
+    Pickingtime:     notifPayload.Pickingtime,
+    TarriffType:     notifPayload.TarriffType,
+    CustomeRate:     notifPayload.CustomeRate,
+    Account_Name:    notifPayload.jobAccountName,
+    manualOffer:     true,
+    originalStatus:  'manual',
+    version:         parseInt(job.updateSeq) || 0,
+    updatedAt:       _FB_SERVER_TIMESTAMP,
+    eventType:       'new_offer',
+  };
+  if (_pickLL) _pjPatch.pickupLocation = { address: notifPayload.jobpickup, lat: _pickLL.lat, lng: _pickLL.lng };
+  if (_dropLL) _pjPatch.dropoffLocation = { address: notifPayload.jobdropoff, lat: _dropLL.lat, lng: _dropLL.lng };
+
+  await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, _pjPatch, tok)
+    .catch(e => console.warn(`  [${sourceTag}] pendingjobs patch failed: ${e && e.message}`));
+  await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, _pjPatch, tok)
+    .catch(e => console.warn(`  [${sourceTag}] allbookings patch failed: ${e && e.message}`));
+
+  console.log(`  [${sourceTag}] _writeManualDriverOffer job #${bookingId} → driver ${did} veh ${vid} (${_svc}/${_src})`);
+}
+
+// §FIX-CMD/1.7 — Idempotent assign. Dispatcher manual assign → Offered + full
+// driver-app fanout. Driver must accept via /api/job/accept.
+async function assignBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
   const driverId  = String(opts.driverId  || '').trim();
@@ -1488,7 +1665,6 @@ function assignBooking(opts) {
 
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
   if (idx === -1) {
-    // Maybe already completed/cancelled — check closed store for idempotency.
     const _cl = closedJobStore.find(j => j && j.Id === bookingId);
     if (_cl) return { ok: false, closed: true, error_code: 'already_terminal', error: `job is ${_cl.BookingStatus}`, booking: _publicBooking(_cl) };
     return { ok: false, error_code: 'not_found', error: 'job not found' };
@@ -1496,91 +1672,101 @@ function assignBooking(opts) {
   const job = jobStore[idx];
   const _curStatus = job.BookingStatus || 'Pending';
   const _curDrv    = String(job.DriverId || '').trim();
-  // Optional ifVersion precondition.
+  const _curVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+  const _resolved  = _resolveDriverVehicleIds(driverId, vehicleId);
+  const _targetDrv = _resolved.driverId;
+  const _targetVid = _resolved.vehicleId;
+
   const _vc = _checkIfVersion(job, opts.ifVersion);
   if (_vc) return _vc;
-  // Idempotency — already assigned to the same driver
-  if (_curStatus === 'Assigned' && _curDrv === driverId) {
-    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Assigned to driver ${driverId}`);
-    return { ok: true, idempotent: true, status: 'Assigned', driverId, vehicleId: String(job.VehicleNo || job.CallSign || ''), version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job) };
+
+  // Idempotency — already offered/assigned to the same driver.
+  if ((_curStatus === 'Offered' || _curStatus === 'Assigned') && _curDrv === _targetDrv) {
+    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already ${_curStatus} to driver ${_targetDrv}`);
+    return {
+      ok: true, idempotent: true, status: _curStatus, driverId: _targetDrv,
+      vehicleId: _curVid || _targetVid, version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job)
+    };
   }
+
   const _trans = _canTransition(_curStatus, 'assign');
   if (!_trans.ok) {
     console.warn(`  [${source}] §FIX-CMD assign rejected: ${_trans.error} (job #${bookingId})`);
     return { ok: false, error_code: 'invalid_transition', error: _trans.error, currentStatus: _curStatus, booking: _publicBooking(job) };
   }
-  // Apply mutation.
-  const _seqBefore = parseInt(job.updateSeq) || 0;
-  job.BookingStatus = 'Assigned';
-  job.DriverId      = driverId;
-  if (vehicleId) {
-    job.VehicleId  = vehicleId;
-    job.VehicleNo  = vehicleId;
-    job.CallSign   = vehicleId;
+
+  const _nextStatus = _trans.nextStatus || 'Offered';
+  const _cid = String(job.companyId || '');
+
+  // Reassign — clear stale offer on the previous driver before fanning out anew.
+  if (_curDrv && _curDrv !== _targetDrv && _cid && (_curStatus === 'Offered' || _curStatus === 'Assigned')) {
+    clearOfferOnFirebase(_cid, _curVid || _curDrv, _curDrv, bookingId, `${source}-reassign`);
   }
+
+  const _seqBefore = parseInt(job.updateSeq) || 0;
+  job.BookingStatus = _nextStatus;
+  job.DriverId      = _targetDrv;
+  job.VehicleId     = _targetVid;
+  job.VehicleNo     = _targetVid;
+  job.CallSign      = _targetVid;
   job.updateSeq      = _seqBefore + 1;
   job.lastUpdatedAt  = new Date().toISOString();
   job.lastUpdatedBy  = by;
-  job.AssignedAt     = job.lastUpdatedAt;
-  job.AssignedDriverId  = driverId;
-  job.AssignedVehicleId = vehicleId || String(job.VehicleNo || job.CallSign || '');
-  // Preserve legacy "Take to No One" timeout protection — dispatcher-initiated
-  // assigns are flagged so the auto-dispatch / Unreached timeout treats them
-  // as manual offers (same semantics as the legacy [AssignJob] handler).
-  if (by === 'dispatcher' && opts.manualOffer !== false) {
-    job.manualOffer = true;
-    job.originalStatus = 'manual';
-  } else if (opts.manualOffer === true) {
+  job.offeredAt      = Date.now();
+  job.AssignedDriverId  = _targetDrv;
+  job.AssignedVehicleId = _targetVid;
+  if (_nextStatus === 'Offered') {
+    delete job.DriverAcceptedAt;
+    delete job.AssignedAt;
+  } else {
+    job.AssignedAt = job.lastUpdatedAt;
+  }
+
+  const _isManualOffer = (by === 'dispatcher' && opts.manualOffer !== false) || opts.manualOffer === true;
+  if (_isManualOffer) {
     job.manualOffer = true;
     job.originalStatus = 'manual';
   } else if (by === 'driver' || opts.fromPending) {
+    job.manualOffer = false;
     job.originalStatus = job.originalStatus || 'pending';
   }
+
   saveJobStore();
 
-  const _cid = String(job.companyId || '');
-  // Emit OfferSent bookingEvent (driver app sees lifecycle on same stream as edits).
   if (_cid) {
     _writeBookingEvent(_cid, bookingId, 'StatusChanged',
-      { from: _curStatus, to: 'Assigned', driverId, vehicleId: job.VehicleNo || '', action: 'assign' },
+      { from: _curStatus, to: _nextStatus, driverId: _targetDrv, vehicleId: _targetVid, action: 'assign' },
       by, job.updateSeq).catch(() => {});
   }
-  // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/.
+
   _fanVersionToFirebase(_cid, bookingId, {
     updateSeq:     job.updateSeq,
     lastUpdatedAt: job.lastUpdatedAt,
     lastUpdatedBy: job.lastUpdatedBy,
     BookingStatus: job.BookingStatus,
     DriverId:      job.DriverId,
-    VehicleNo:     job.VehicleNo || ''
+    VehicleId:     job.VehicleId,
+    VehicleNo:     job.VehicleNo || '',
+    offeredAt:     job.offeredAt,
+    manualOffer:   !!job.manualOffer,
   }, false);
-  // Driver notification — new_offer hint. The actual Firebase offer write
-  // (jobs/{cid}/{vid}/{drv}/{bookingId}) is still handled by the legacy
-  // dispatch flow when invoked from Default.aspx. When the API is called
-  // headlessly (passenger app server-to-server), we additionally publish a
-  // notification/{drv} hint so the driver app re-reads via
-  // GET /api/driver/active-bookings.
-  if (_cid && driverId) {
-    (async () => {
-      try {
-        const _tok = await getFirebaseServerToken();
-        if (!_tok) return;
-        await firebaseDbSet(`notification/${driverId}`, {
-          bookingid: `${bookingId},New Offer,${driverId},Server,${by}`,
-          content:   'New Offer',
-          eventType: 'new_offer',
-          version:   job.updateSeq,
-          updatedAt: _FB_SERVER_TIMESTAMP,
-          bookingId: bookingId,
-          joboffer:  String(bookingId),
-          jobpickup: String(job.PickAddress || job.PickupAddress || job.jobpickup || ''),
-          jobdropoff: String(job.DropAddress || job.DropLocation || job.jobdropoff || ''),
-        }, _tok);
-      } catch (e) { console.warn(`  [${source}] notification write failed: ${e && e.message}`); }
-    })();
+
+  const _shouldFanout = _isManualOffer || opts.fanout === true;
+  if (_cid && _targetDrv && _shouldFanout) {
+    try {
+      await _writeManualDriverOffer(job, _targetDrv, _targetVid, by, source);
+    } catch (e) {
+      console.warn(`  [${source}] _writeManualDriverOffer failed: ${e && e.message}`);
+    }
   }
-  console.log(`  [${source}] §FIX-CMD assign job #${bookingId} (${_curStatus}→Assigned) → driver ${driverId} veh ${vehicleId} seq=${job.updateSeq}`);
-  return { ok: true, idempotent: false, status: 'Assigned', driverId, vehicleId, version: job.updateSeq };
+
+  console.log(`  [${source}] §FIX-CMD assign job #${bookingId} (${_curStatus}→${_nextStatus}) → driver ${_targetDrv} veh ${_targetVid} seq=${job.updateSeq}`);
+  return {
+    ok: true, idempotent: false, status: _nextStatus,
+    driverId: _targetDrv, vehicleId: _targetVid, version: job.updateSeq,
+    booking: _publicBooking(job)
+  };
 }
 
 // §FIX-CMD/1.7 — Idempotent complete. Moves job to closedJobStore, restores
@@ -1709,9 +1895,8 @@ async function completeBooking(opts) {
 
 // §FIX-CMD/1.7 — Driver-acceptance ack. When a driver taps Accept on an
 // offered booking, this verb stamps DriverAcceptedAt + bumps updateSeq +
-// emits an OfferAccepted bookingEvent. The booking is already 'Assigned'
-// from assignBooking (dispatcher-initiated offer); this just confirms the
-// driver took the call. Idempotent — re-tapping returns the same payload.
+// emits an OfferAccepted bookingEvent. The booking must be 'Offered'
+// (dispatcher manual assign) before accept transitions it to 'Assigned'.
 function acceptBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
@@ -1895,7 +2080,7 @@ async function acceptPendingJobByDriver(opts) {
     return { ok: true, status: 'Queued', queued: true, driverId, booking: _publicBooking(job) };
   }
 
-  const assignRes = assignBooking({
+  const assignRes = await assignBooking({
     bookingId, driverId, vehicleId, by: 'driver', manualOffer: false, source
   });
   if (!assignRes.ok) return assignRes;
@@ -7030,7 +7215,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           by: _cmdBy, ifSeq: _cmdIfVer, source: _logSrc
         });
       } else if (_cmdName === 'assign') {
-        _result = assignBooking({
+        _result = await assignBooking({
           bookingId: _cmdBooking,
           driverId:  _cmdPayload.driverId  || _cmdPayload.DriverId,
           vehicleId: _cmdPayload.vehicleId || _cmdPayload.VehicleId,
@@ -8242,11 +8427,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
               firebaseDbSet(`allbookings/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
             ]);
-          }).then(() => {
+          }).then(async () => {
             console.log(`  [InsertBookingv4] Firebase pendingjobs+allbookings/${sessionCompanyId}/${newId} written`);
+            if (driverId > 0) {
+              try {
+                await _writeManualDriverOffer(newJob, String(driverId), vehicleId, 'dispatcher', 'InsertBookingv4');
+              } catch (e) {
+                console.warn(`  [InsertBookingv4] driver offer fanout failed (non-fatal): ${e && e.message}`);
+              }
+            }
           }).catch(e => {
             console.warn(`  [InsertBookingv4] Firebase pendingjobs/allbookings write failed (non-fatal): ${e.message}`);
           });
+        } else if (driverId > 0) {
+          _writeManualDriverOffer(newJob, String(driverId), vehicleId, 'dispatcher', 'InsertBookingv4')
+            .catch(e => console.warn(`  [InsertBookingv4] driver offer fanout failed (non-fatal): ${e && e.message}`));
         }
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs1 ? new Date(_scheduledMs1).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);

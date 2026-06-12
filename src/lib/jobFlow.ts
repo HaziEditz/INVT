@@ -264,19 +264,89 @@ export async function setJobStatus(
   });
 }
 
+type JobCommandResult = {
+  ok: boolean;
+  status?: string;
+  version?: number;
+  driverId?: string;
+  vehicleId?: string;
+  error?: string;
+  error_code?: string;
+  stale?: boolean;
+  currentVersion?: number;
+  booking?: Record<string, unknown>;
+  statusCode?: number;
+};
+
+async function postJobCommand(payload: {
+  bookingId: number;
+  command: 'assign' | 'accept' | 'cancel' | 'recall' | 'update' | 'complete';
+  by: 'dispatcher' | 'driver' | 'passenger' | 'website';
+  ifVersion?: number;
+  payload?: Record<string, unknown>;
+}): Promise<JobCommandResult> {
+  const r = await fetch(`${API}/job/command`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = (await r.json().catch(() => ({}))) as JobCommandResult;
+  return { ...data, ok: !!data.ok && r.ok, statusCode: r.status };
+}
+
+function applyAssignResultToJob(job: Job, driverId: string, vehicleId: string, result: JobCommandResult): Job {
+  const nextStatus = (result.status || 'Offered') as Job['status'];
+  const seq = result.version ?? (job.updateSeq ?? 0) + 1;
+  return {
+    ...job,
+    status: nextStatus,
+    driverId,
+    vehicleId: vehicleId || job.vehicleId,
+    updateSeq: seq,
+  };
+}
+
 export async function assignJob(
   bookingId: number,
   driverId: string,
   vehicleId: string,
-  ifVersion = 0
-) {
-  return jobCommand({
-    bookingId,
-    command: 'assign',
-    by: 'dispatcher',
-    ifVersion,
-    payload: { driverId, vehicleId },
-  });
+  ifVersion?: number,
+  baseJob?: Job
+): Promise<void> {
+  let ifVer = ifVersion;
+  const attempt = async (): Promise<JobCommandResult> =>
+    postJobCommand({
+      bookingId,
+      command: 'assign',
+      by: 'dispatcher',
+      ifVersion: ifVer,
+      payload: { driverId, vehicleId },
+    });
+
+  let result = await attempt();
+
+  if (!result.ok && (result.stale || result.error_code === 'version_conflict')) {
+    const job = baseJob ?? useJobStore.getState().jobs.find((j) => j.id === bookingId);
+    ifVer = result.currentVersion ?? job?.updateSeq ?? ifVer;
+    if (job) useJobStore.getState().upsertJob(job);
+    result = await attempt();
+  }
+
+  if (!result.ok) {
+    const message = result.error || 'Could not assign driver';
+    useUiStore.getState().addToast({
+      type: 'error',
+      title: 'Assign failed',
+      message,
+    });
+    throw new Error(message);
+  }
+
+  const job = baseJob ?? useJobStore.getState().jobs.find((j) => j.id === bookingId);
+  if (job) {
+    useJobStore.getState().upsertJob(applyAssignResultToJob(job, driverId, vehicleId, result));
+  }
 }
 
 export async function cancelJob(
@@ -361,7 +431,7 @@ export async function applyJobAssignment(
   }
   const d = onlineDrivers.find((x) => x.driverId === selection);
   if (!d) throw new Error('Driver not found');
-  await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq);
+  await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq, job);
 }
 
 /** Apply driver dropdown choice from the create/edit job form. */
@@ -374,7 +444,7 @@ export async function applyFormDriverAssignment(
     const d =
       availableDrivers.find((x) => parseInt(x.driverId, 10) === form.driverId) ??
       ({ driverId: String(form.driverId), vehicleId: form.vehicleId || '0' } as const);
-    await assignJob(job.id, d.driverId, d.vehicleId || form.vehicleId || '0', job.updateSeq);
+    await assignJob(job.id, d.driverId, d.vehicleId || form.vehicleId || '0', job.updateSeq, job);
     return;
   }
   if (form.driverId === -1) {
