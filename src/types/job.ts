@@ -277,6 +277,18 @@ function isUnassignedForDispatch(job: Job): boolean {
   return st === 'Pending' || st === 'No One' || st === 'Scheduled';
 }
 
+/** Pre-booked / scheduled — not an immediate ASAP pickup. */
+function isPreBookedJob(job: Job, now = new Date()): boolean {
+  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  if (job.notifyDispatchAt) return true;
+  if (normalizeJobStatus(job.status) === 'Scheduled') return true;
+  const pickup = jobScheduledTime(job);
+  if (!pickup) return false;
+  if (pickup.getTime() > now.getTime()) return true;
+  if (job.createdAt && pickup.getTime() - job.createdAt > 60_000) return true;
+  return false;
+}
+
 export type ScheduledDispatchState = 'before' | 'dispatch_now';
 
 export interface JobCardAppearance {
@@ -328,7 +340,7 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
           backgroundColor: CARD_RED_SOLID,
           borderLeftColor: '#ef4444',
           foregroundColor: '#ffffff',
-          flash: true,
+          flash: isPreBookedJob(job, now),
           label: 'DISPATCH NOW',
         };
       }

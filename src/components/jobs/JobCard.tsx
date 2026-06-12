@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
 import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
 import { Edit, X, CheckCircle, RotateCcw, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
@@ -140,23 +140,34 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const dispatchLabelClass = onColoredBg ? 'text-white font-bold' : 'text-amber-400 font-medium';
+  const dispatchLabelClass = onColoredBg ? 'text-white font-bold bw-job-card-solid-text' : 'text-amber-400 font-medium';
 
   return (
     <div
       className={cn(
-        'rounded px-1.5 py-1.5 mb-1 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
+        'rounded mb-1 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
+        onColoredBg ? 'px-2 py-2' : 'px-1.5 py-1.5',
         highlighted && 'ring-1 ring-[var(--bw-accent)]/60',
         cardLook.flash && 'bw-dispatch-flash'
       )}
       style={{
-        backgroundColor: cardLook.backgroundColor,
+        ...(cardLook.flash
+          ? ({
+              ['--bw-card-bg' as string]: cardLook.backgroundColor,
+              ['--bw-card-bg-pulse' as string]: '#991b1b',
+            } as CSSProperties)
+          : { backgroundColor: cardLook.backgroundColor }),
         borderLeftColor: cardLook.borderLeftColor,
         color: cardLook.foregroundColor,
       }}
     >
-      <div className="flex flex-wrap items-center gap-0.5 mb-0.5">
-        <span className={cn('font-mono text-[9px] font-bold', onColoredBg ? 'text-white' : 'bw-text')}>
+      <div className={cn('flex flex-wrap items-center gap-1', onColoredBg ? 'mb-1' : 'mb-0.5')}>
+        <span
+          className={cn(
+            'font-mono text-[9px] font-bold',
+            onColoredBg ? 'text-white bw-job-card-solid-text' : 'bw-text'
+          )}
+        >
           #{job.id}
         </span>
         <Badge color="#64748b" className="!text-[9px] !px-1 !py-0">
@@ -180,29 +191,46 @@ export function JobCard({ job, tab }: JobCardProps) {
             URGENT
           </Badge>
         )}
-        <span className={cn('ml-auto text-[9px] px-1 py-0 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
+        <span
+          className={cn(
+            'ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium',
+            onColoredBg
+              ? 'bg-black/20 border-white/30 text-white bw-job-card-solid-text'
+              : waitBadgeClass(waitMinutes)
+          )}
+        >
           {waitLabel}
         </span>
       </div>
 
-      <div className="text-[10px] leading-tight mb-0.5 space-y-0">
-        <div className="flex gap-1 items-center min-h-[14px]">
+      <div className={cn('mb-1', onColoredBg ? 'text-[11px] leading-snug space-y-1' : 'text-[10px] leading-tight mb-0.5 space-y-0')}>
+        <div className="flex gap-1.5 items-start min-h-[16px]">
           <span
-            className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer"
+            className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer mt-1"
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className={cn('truncate', onColoredBg ? 'text-white/95' : 'bw-text')}>
+          <span
+            className={cn(
+              'truncate font-medium',
+              onColoredBg ? 'text-white bw-job-card-solid-text' : 'bw-text'
+            )}
+          >
             {job.pickAddress || 'No pickup'}
           </span>
         </div>
-        <div className="flex gap-1 items-center min-h-[14px]">
+        <div className="flex gap-1.5 items-start min-h-[16px]">
           <span
-            className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer"
+            className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer mt-1"
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className={cn('truncate', onColoredBg ? 'text-white/80' : 'text-[var(--bw-muted)]')}>
+          <span
+            className={cn(
+              'truncate',
+              onColoredBg ? 'text-white/95 bw-job-card-solid-text' : 'text-[var(--bw-muted)]'
+            )}
+          >
             {job.dropAddress || 'No dropoff'}
           </span>
         </div>
@@ -210,8 +238,8 @@ export function JobCard({ job, tab }: JobCardProps) {
 
       <div
         className={cn(
-          'flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]',
-          onColoredBg ? 'text-white/85' : 'text-[var(--bw-muted)]'
+          'flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1 min-h-[14px]',
+          onColoredBg ? 'text-[10px] text-white/95 bw-job-card-solid-text' : 'text-[9px] mb-0.5 text-[var(--bw-muted)]'
         )}
       >
         <span className="inline-flex items-center gap-0.5 truncate max-w-[45%]">
@@ -223,12 +251,21 @@ export function JobCard({ job, tab }: JobCardProps) {
           {paymentLabel(job.paymentType)}
         </Badge>
         {job.estimatedFare && job.estimatedFare !== '0' && (
-          <span className="text-emerald-400 shrink-0">${job.estimatedFare}</span>
+          <span className={cn('shrink-0 font-medium', onColoredBg ? 'text-emerald-200' : 'text-emerald-400')}>
+            ${job.estimatedFare}
+          </span>
         )}
       </div>
 
       {job.notes && (
-        <div className="text-[9px] text-[var(--bw-muted)] mb-0.5 line-clamp-1 italic">{job.notes}</div>
+        <div
+          className={cn(
+            'text-[9px] mb-1 line-clamp-1 italic',
+            onColoredBg ? 'text-white/85 bw-job-card-solid-text' : 'text-[var(--bw-muted)] mb-0.5'
+          )}
+        >
+          {job.notes}
+        </div>
       )}
 
       {tab === 'offer' && job.offeredAt && (

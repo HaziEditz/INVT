@@ -269,13 +269,18 @@ body {
   animation: bw-wait-flash 0.9s ease-in-out infinite;
 }
 
-@keyframes flash {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0.4; }
+@keyframes bw-dispatch-pulse {
+  0%, 100% { background-color: var(--bw-card-bg, #dc2626); }
+  50% { background-color: var(--bw-card-bg-pulse, #991b1b); }
 }
 
 .bw-dispatch-flash {
-  animation: flash 1s ease-in-out infinite;
+  background-color: var(--bw-card-bg, #dc2626);
+  animation: bw-dispatch-pulse 20s ease-in-out infinite;
+}
+
+.bw-job-card-solid-text {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 /* Google Places dropdown above slide panel */
