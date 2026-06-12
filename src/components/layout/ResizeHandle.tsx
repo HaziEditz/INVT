@@ -4,24 +4,29 @@ import { cn } from '@/lib/utils';
 interface ResizeHandleProps {
   onDrag: (delta: number) => void;
   onDoubleClick?: () => void;
+  disabled?: boolean;
   className?: string;
 }
 
-export function ResizeHandle({ onDrag, onDoubleClick, className }: ResizeHandleProps) {
+export function ResizeHandle({ onDrag, onDoubleClick, disabled = false, className }: ResizeHandleProps) {
   const dragging = useRef(false);
   const lastX = useRef(0);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    lastX.current = e.clientX;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, []);
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (disabled) return;
+      e.preventDefault();
+      dragging.current = true;
+      lastX.current = e.clientX;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [disabled]
+  );
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
+      if (!dragging.current || disabled) return;
       const delta = e.clientX - lastX.current;
       lastX.current = e.clientX;
       onDrag(delta);
@@ -37,19 +42,23 @@ export function ResizeHandle({ onDrag, onDoubleClick, className }: ResizeHandleP
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [onDrag]);
+  }, [onDrag, disabled]);
 
   return (
     <div
       role="separator"
       aria-orientation="vertical"
+      aria-disabled={disabled}
       onMouseDown={onMouseDown}
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={disabled ? undefined : onDoubleClick}
       className={cn(
-        'w-1 shrink-0 cursor-col-resize bw-resize-handle transition-colors z-20',
+        'w-1 shrink-0 transition-colors z-20',
+        disabled
+          ? 'cursor-not-allowed opacity-40 bg-[var(--bw-border)]'
+          : 'cursor-col-resize bw-resize-handle',
         className
       )}
-      title="Drag to resize · double-click to reset"
+      title={disabled ? 'Layout locked' : 'Drag to resize · double-click to reset'}
     />
   );
 }

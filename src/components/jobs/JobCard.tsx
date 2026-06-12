@@ -57,8 +57,8 @@ export function JobCard({ job, tab }: JobCardProps) {
   );
   const addToast = useUiStore((s) => s.addToast);
   const openModalWith = useUiStore((s) => s.openModalWith);
-  const selectedJobId = useJobStore((s) => s.selectedJobId);
-  const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+  const hoveredJobId = useJobStore((s) => s.hoveredJobId);
+  const setHoveredJobId = useJobStore((s) => s.setHoveredJobId);
   const jobs = useJobStore((s) => s.jobs);
   const dispatcherName = useMemo(
     () => localStorage.getItem('bw_dispatcher_name') || 'Dispatcher',
@@ -73,7 +73,7 @@ export function JobCard({ job, tab }: JobCardProps) {
   const border = jobCardBorderColor(job);
   const status = normalizeJobStatus(job.status);
   const statusBadge = tab === 'ua' ? uaStatusBadge(job) : null;
-  const selected = selectedJobId === job.id;
+  const highlighted = hoveredJobId === job.id;
   const scheduledLabel = formatScheduled(job);
 
   const { waitLabel, waitMinutes } = useMemo(() => {
@@ -130,11 +130,14 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const iconBtn = 'p-1 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition';
 
-  const handleCardClick = (e: MouseEvent) => {
+  const showRoutePreview = (e: MouseEvent) => {
     e.stopPropagation();
-    console.log('[JobCard] clicked job:', job.id);
-    setSelectedJobId(job.id);
-    console.log('[JobCard] setSelectedJobId called with:', job.id);
+    setHoveredJobId(job.id);
+  };
+
+  const clearRoutePreview = (e: MouseEvent) => {
+    e.stopPropagation();
+    setHoveredJobId(null);
   };
 
   const handleAssign = (value: string) => {
@@ -148,18 +151,9 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleCardClick();
-        }
-      }}
       className={cn(
-        'rounded-md px-2.5 py-2 mb-1.5 bw-card-static cursor-pointer transition-all duration-150 border-l-[3px]',
-        selected && 'ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]'
+        'rounded-md px-2.5 py-2 mb-1.5 bw-card-static transition-all duration-150 border-l-[3px]',
+        highlighted && 'ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]'
       )}
       style={{ borderLeftColor: border }}
     >
@@ -181,13 +175,17 @@ export function JobCard({ job, tab }: JobCardProps) {
         </span>
       </div>
 
-      <div className="space-y-1 text-[11px] mb-1 leading-snug">
+      <div
+        className="space-y-1 text-[11px] mb-1 leading-snug"
+        onMouseEnter={showRoutePreview}
+        onMouseLeave={clearRoutePreview}
+      >
         <div className="flex gap-1.5 items-start">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1" />
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer" />
           <span className="bw-text line-clamp-2">{job.pickAddress || 'No pickup'}</span>
         </div>
         <div className="flex gap-1.5 items-start">
-          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1" />
+          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer" />
           <span className="text-[var(--bw-muted)] line-clamp-2">{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>

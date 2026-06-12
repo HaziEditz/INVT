@@ -3,18 +3,23 @@ import {
   Car,
   Home,
   Layers,
+  LayoutGrid,
+  Lock,
   Maximize2,
   Minus,
   Navigation,
   Plus,
+  Save,
   TrafficCone,
   ExternalLink,
+  Unlock,
   Users,
 } from 'lucide-react';
 import { loadGoogleMaps, loadGoogleMapsLibraries } from '@/lib/mapLoader';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
+import { useLayoutStore } from '@/store/layoutStore';
 import { useUiStore } from '@/store/uiStore';
 import { statusColor } from '@/types/driver';
 import { parseLatLng } from '@/types/job';
@@ -63,9 +68,13 @@ export function DispatchMap({
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  const layoutMenuRef = useRef<HTMLDivElement>(null);
   const drivers = useDriverStore((s) => s.drivers);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
+  const hoveredJobId = useJobStore((s) => s.hoveredJobId);
   const jobs = useJobStore((s) => s.jobs);
+  const routeJobId = hoveredJobId ?? selectedJobId;
   const mapTraffic = useUiStore((s) => s.mapTraffic);
   const mapZones = useUiStore((s) => s.mapZones);
   const createJobOpen = useUiStore((s) => s.openModal === 'createJob');
@@ -77,9 +86,26 @@ export function DispatchMap({
   const setMapTraffic = useUiStore((s) => s.setMapTraffic);
   const setMapZones = useUiStore((s) => s.setMapZones);
   const setSelectedJobId = useJobStore((s) => s.setSelectedJobId);
+  const setHoveredJobId = useJobStore((s) => s.setHoveredJobId);
   const openModalWith = useUiStore((s) => s.openModalWith);
+  const layoutLocked = useLayoutStore((s) => s.locked);
+  const saveLayout = useLayoutStore((s) => s.saveLayout);
+  const resetLayout = useLayoutStore((s) => s.resetLayout);
+  const toggleLayoutLock = useLayoutStore((s) => s.toggleLayoutLock);
+  const addToast = useUiStore((s) => s.addToast);
   const createJobOpenRef = useRef(createJobOpen);
   createJobOpenRef.current = createJobOpen;
+
+  useEffect(() => {
+    if (!layoutMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (layoutMenuRef.current && !layoutMenuRef.current.contains(e.target as Node)) {
+        setLayoutMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [layoutMenuOpen]);
 
   const mapTheme = useMemo(() => getMapThemeConfig(theme), [theme]);
 
@@ -381,12 +407,13 @@ export function DispatchMap({
     if (!gMapRef.current || !mapReady) return;
     const listener = gMapRef.current.addListener('click', () => {
       if (createJobOpenRef.current) return;
+      setHoveredJobId(null);
       setSelectedJobId(null);
     });
     return () => {
       google.maps.event.removeListener(listener);
     };
-  }, [mapReady, setSelectedJobId]);
+  }, [mapReady, setSelectedJobId, setHoveredJobId]);
 
   useEffect(() => {
     const el = mapRef.current;
@@ -435,9 +462,9 @@ export function DispatchMap({
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     if (createJobOpen && routePreview) return;
-    if (selectedJobId) return;
+    if (routeJobId) return;
     gMapRef.current.setCenter(safeCenter);
-  }, [safeCenter.lat, safeCenter.lng, mapReady, createJobOpen, routePreview, selectedJobId]);
+  }, [safeCenter.lat, safeCenter.lng, mapReady, createJobOpen, routePreview, routeJobId]);
 
   useEffect(() => {
     if (!gMapRef.current || !trafficRef.current) return;
@@ -470,16 +497,16 @@ export function DispatchMap({
   }, [drivers, openModalWith, mapReady]);
 
   useEffect(() => {
-    console.log('[Route] selectedJobId changed:', selectedJobId);
+    console.log('[Route] routeJobId changed:', routeJobId, { hoveredJobId, selectedJobId });
 
     if (createJobOpen) return;
 
-    if (!selectedJobId) {
+    if (!routeJobId) {
       clearDirectionsRenderer();
       return;
     }
 
-    const job = jobs.find((j) => j.id === selectedJobId);
+    const job = jobs.find((j) => j.id === routeJobId);
     const parsedPick = job ? parseLatLng(job.pickLatLng) : null;
     const parsedDrop = job ? parseLatLng(job.dropLatLng) : null;
 
@@ -502,13 +529,13 @@ export function DispatchMap({
     return () => {
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
-  }, [selectedJobId, jobs, mapReady, createJobOpen, drawRouteForJob]);
+  }, [routeJobId, hoveredJobId, selectedJobId, jobs, mapReady, createJobOpen, drawRouteForJob]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
 
     if (!createJobOpen) {
-      if (!selectedJobId && !routePreview) clearDirectionsRenderer();
+      if (!routeJobId && !routePreview) clearDirectionsRenderer();
       return;
     }
 
@@ -530,7 +557,7 @@ export function DispatchMap({
     return () => {
       if (routeRequestRef.current === requestId) clearDirectionsRenderer();
     };
-  }, [createJobOpen, routePreview, mapReady, selectedJobId, drawRouteBetweenCoords]);
+  }, [createJobOpen, routePreview, mapReady, routeJobId, drawRouteBetweenCoords]);
 
   useEffect(() => {
     if (!gMapRef.current || !mapZones || !companyId || !mapReady) return;
@@ -575,11 +602,13 @@ export function DispatchMap({
     if (z != null) gMapRef.current?.setZoom(z + delta);
   };
 
-  const ctrlBtn = 'bw-ctrl-btn';
+  const ctrlBtn =
+    'flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md text-[11px] font-medium text-[#e8eaf0] hover:bg-[#2d3148] transition-colors';
+  const mapCard = 'rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1.5';
 
   return (
-    <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden bw-text">
-      <div ref={mapRef} className="absolute inset-0" />
+    <div className="relative flex-1 min-h-0 w-full h-full overflow-hidden rounded-lg border border-[#2d3148] shadow-[0_2px_8px_rgba(0,0,0,0.3)] bw-text">
+      <div ref={mapRef} className="absolute inset-0 rounded-lg overflow-hidden" />
       {!mapReady && !mapError && (
         <div className="absolute inset-0 flex items-center justify-center z-[1] bw-map-bg">
           <Spinner className="w-8 h-8 bw-muted" />
@@ -598,36 +627,87 @@ export function DispatchMap({
       )}
 
       <div className={cn('absolute top-2 left-2 z-10 flex flex-col gap-1.5', compactControls && 'scale-90 origin-top-left')}>
-        <div className="rounded-lg border bw-border bw-surface p-1.5 shadow-xl backdrop-blur-sm flex flex-col gap-1 min-w-[120px]">
+        <div className={cn(mapCard, 'flex flex-col gap-1 min-w-[132px]')}>
           <button type="button" className={ctrlBtn} onClick={() => gMapRef.current?.setCenter(safeCenter)}>
             <Home size={14} /> Home
           </button>
           <div className="flex gap-1">
-            <button type="button" className={cn(ctrlBtn, 'flex-1')} onClick={() => zoom(1)} aria-label="Zoom in">
+            <button type="button" className={cn(ctrlBtn, 'flex-1 justify-center')} onClick={() => zoom(1)} aria-label="Zoom in">
               <Plus size={14} />
             </button>
-            <button type="button" className={cn(ctrlBtn, 'flex-1')} onClick={() => zoom(-1)} aria-label="Zoom out">
+            <button type="button" className={cn(ctrlBtn, 'flex-1 justify-center')} onClick={() => zoom(-1)} aria-label="Zoom out">
               <Minus size={14} />
             </button>
           </div>
           <button
             type="button"
-            className={cn(ctrlBtn, mapTraffic && 'border-amber-500/50 text-amber-400')}
+            className={cn(ctrlBtn, mapTraffic && 'text-amber-400 bg-amber-500/10')}
             onClick={() => setMapTraffic(!mapTraffic)}
           >
             <TrafficCone size={14} /> Traffic
           </button>
           <button
             type="button"
-            className={cn(ctrlBtn, mapZones && 'border-[color-mix(in_srgb,var(--bw-accent)_50%,transparent)] bw-accent')}
+            className={cn(ctrlBtn, mapZones && 'text-[#5b7cfa] bg-[#5b7cfa]/10')}
             onClick={() => setMapZones(!mapZones)}
           >
             <Layers size={14} /> Zones
           </button>
         </div>
+
+        <div ref={layoutMenuRef} className={cn(mapCard, 'relative min-w-[132px]')}>
+          <button
+            type="button"
+            className={cn(ctrlBtn, layoutMenuOpen && 'bg-[#2d3148]')}
+            onClick={() => setLayoutMenuOpen((o) => !o)}
+          >
+            <LayoutGrid size={14} /> Layout
+          </button>
+          {layoutMenuOpen && (
+            <div className="absolute left-0 top-full mt-1 w-full rounded-lg border border-[#2d3148] bg-[#1e2235] shadow-[0_2px_8px_rgba(0,0,0,0.3)] p-1 flex flex-col gap-0.5 z-20">
+              <button
+                type="button"
+                className={ctrlBtn}
+                onClick={() => {
+                  saveLayout();
+                  addToast({ type: 'success', title: 'Layout saved' });
+                  setLayoutMenuOpen(false);
+                }}
+              >
+                <Save size={14} /> Save Layout
+              </button>
+              <button
+                type="button"
+                className={ctrlBtn}
+                onClick={() => {
+                  resetLayout();
+                  addToast({ type: 'info', title: 'Layout reset to default' });
+                  setLayoutMenuOpen(false);
+                }}
+              >
+                <LayoutGrid size={14} /> Reset Layout
+              </button>
+              <button
+                type="button"
+                className={cn(ctrlBtn, layoutLocked && 'text-amber-400 bg-amber-500/10')}
+                onClick={() => {
+                  const next = !layoutLocked;
+                  toggleLayoutLock();
+                  addToast({
+                    type: 'info',
+                    title: next ? 'Layout locked' : 'Layout unlocked',
+                  });
+                }}
+              >
+                {layoutLocked ? <Unlock size={14} /> : <Lock size={14} />}
+                {layoutLocked ? 'Unlock Layout' : 'Lock Layout'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1">
+      <div className={cn('absolute top-2 right-2 z-10 flex flex-col gap-1', mapCard, compactControls && 'scale-90 origin-top-right')}>
         {onPopOut && (
           <button type="button" className={ctrlBtn} onClick={onPopOut}>
             <ExternalLink size={14} />

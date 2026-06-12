@@ -6,6 +6,7 @@ interface JobStore {
   jobs: Job[];
   removedJobIds: number[];
   selectedJobId: number | null;
+  hoveredJobId: number | null;
   activeTab: JobTab;
   setJobs: (jobs: Job[]) => void;
   upsertJob: (job: Job) => void;
@@ -13,6 +14,7 @@ interface JobStore {
   clearRemovedJob: (id: number) => void;
   isJobBlacklisted: (id: number) => boolean;
   setSelectedJobId: (id: number | null) => void;
+  setHoveredJobId: (id: number | null) => void;
   setActiveTab: (tab: JobTab) => void;
 }
 
@@ -31,6 +33,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
   jobs: [],
   removedJobIds: [],
   selectedJobId: null,
+  hoveredJobId: null,
   activeTab: 'ua',
   setJobs: (jobs) => set({ jobs: [...jobs] }),
   upsertJob: (job) =>
@@ -50,12 +53,14 @@ export const useJobStore = create<JobStore>((set, get) => ({
         return {
           jobs: s.jobs.filter((j) => j.id !== id),
           selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
+          hoveredJobId: s.hoveredJobId === id ? null : s.hoveredJobId,
         };
       }
       return {
         jobs: s.jobs.filter((j) => j.id !== id),
         removedJobIds: [...s.removedJobIds, id],
         selectedJobId: s.selectedJobId === id ? null : s.selectedJobId,
+        hoveredJobId: s.hoveredJobId === id ? null : s.hoveredJobId,
       };
     }),
   clearRemovedJob: (id) =>
@@ -65,5 +70,6 @@ export const useJobStore = create<JobStore>((set, get) => ({
     if (id === null) console.trace('[Store] selectedJobId cleared to null');
     set({ selectedJobId: id });
   },
+  setHoveredJobId: (id) => set({ hoveredJobId: id }),
   setActiveTab: (tab) => set({ activeTab: tab }),
 }));

@@ -155,7 +155,7 @@ export function DispatchPage() {
         onNameChange={setDispatcherName}
       />
 
-      <ResizableDispatchLayout left={<JobTabs />} center={mapNode} right={rightPanel} />
+      <ResizableDispatchLayout dispatcherUid={sessionId} left={<JobTabs />} center={mapNode} right={rightPanel} />
 
       {mapFullscreen && (
         <div className="fixed inset-x-0 top-11 bottom-[32px] z-40 bw-map-bg">
