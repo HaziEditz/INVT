@@ -270,12 +270,12 @@ body {
 }
 
 @keyframes bw-dispatch-pulse {
-  0%, 100% { background-color: var(--bw-card-bg, rgba(248, 113, 113, 0.34)); }
-  50% { background-color: var(--bw-card-bg-pulse, rgba(239, 68, 68, 0.48)); }
+  0%, 100% { background-color: var(--bw-card-bg, #F7C1C1); }
+  50% { background-color: var(--bw-card-bg-pulse, #F0A0A0); }
 }
 
 .bw-dispatch-flash {
-  background-color: var(--bw-card-bg, rgba(248, 113, 113, 0.34));
+  background-color: var(--bw-card-bg, #F7C1C1);
   animation: bw-dispatch-pulse 20s ease-in-out infinite;
 }
 

@@ -312,22 +312,32 @@ export type ScheduledDispatchState = 'before' | 'dispatch_now';
 export interface JobCardAppearance {
   backgroundColor: string;
   borderLeftColor: string;
+  borderColor?: string;
   foregroundColor?: string;
+  foregroundMuted?: string;
   flash: boolean;
   label: string | null;
-  tone?: 'blue' | 'red';
+  tone?: 'blue' | 'pink';
 }
 
-const CARD_BLUE_SOFT = 'rgba(96, 165, 250, 0.34)';
-const CARD_BLUE_TINT = 'rgba(79, 110, 247, 0.32)';
-const CARD_RED_SOFT = 'rgba(248, 113, 113, 0.34)';
-const CARD_RED_LIGHT = 'rgba(239, 68, 68, 0.28)';
+/** U-A / tab card palette */
+const CARD_PINK_BG = '#F7C1C1';
+const CARD_PINK_BORDER = '#E24B4A';
+const CARD_PINK_TEXT = '#2C2C2A';
+
+const CARD_BLUE_WAIT_BG = '#E6F1FB';
+const CARD_BLUE_WAIT_BORDER = '#85B7EB';
+const CARD_BLUE_TEXT = '#042C53';
+const CARD_BLUE_TEXT_MUTED = '#0C447C';
+
+const CARD_ASSIGN_TINT = 'rgba(79, 110, 247, 0.18)';
+const CARD_ACTIVE_TINT = 'rgba(239, 68, 68, 0.14)';
 
 /** Card background/border for dispatch console — use inline styles to beat .bw-card-static. */
 export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): JobCardAppearance {
   if (tab === 'active') {
     return {
-      backgroundColor: CARD_RED_LIGHT,
+      backgroundColor: CARD_ACTIVE_TINT,
       borderLeftColor: '#ef4444',
       flash: false,
       label: null,
@@ -336,7 +346,7 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
 
   if (tab === 'assign') {
     return {
-      backgroundColor: CARD_BLUE_TINT,
+      backgroundColor: CARD_ASSIGN_TINT,
       borderLeftColor: '#4f6ef7',
       flash: false,
       label: null,
@@ -344,6 +354,19 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
   }
 
   if (tab === 'ua' && isUnassignedForDispatch(job)) {
+    if (!isPreBookedJob(job, now)) {
+      return {
+        backgroundColor: CARD_PINK_BG,
+        borderLeftColor: CARD_PINK_BORDER,
+        borderColor: CARD_PINK_BORDER,
+        foregroundColor: CARD_PINK_TEXT,
+        foregroundMuted: CARD_PINK_TEXT,
+        tone: 'pink',
+        flash: false,
+        label: null,
+      };
+    }
+
     const pickup = jobScheduledTime(job);
     if (pickup) {
       const dispatchAt = jobDispatchTime(job) ?? pickup;
@@ -356,17 +379,23 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
 
       if (now.getTime() >= dispatchMs) {
         return {
-          backgroundColor: CARD_RED_SOFT,
-          borderLeftColor: '#f87171',
-          tone: 'red',
-          flash: isPreBookedJob(job, now),
+          backgroundColor: CARD_PINK_BG,
+          borderLeftColor: CARD_PINK_BORDER,
+          borderColor: CARD_PINK_BORDER,
+          foregroundColor: CARD_PINK_TEXT,
+          foregroundMuted: CARD_PINK_TEXT,
+          tone: 'pink',
+          flash: true,
           label: 'DISPATCH NOW',
         };
       }
       if (isScheduledJob(job)) {
         return {
-          backgroundColor: CARD_BLUE_SOFT,
-          borderLeftColor: '#60a5fa',
+          backgroundColor: CARD_BLUE_WAIT_BG,
+          borderLeftColor: CARD_BLUE_WAIT_BORDER,
+          borderColor: CARD_BLUE_WAIT_BORDER,
+          foregroundColor: CARD_BLUE_TEXT,
+          foregroundMuted: CARD_BLUE_TEXT_MUTED,
           tone: 'blue',
           flash: false,
           label: `Sched: ${pickLabel}`,

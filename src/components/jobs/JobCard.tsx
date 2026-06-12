@@ -36,21 +36,21 @@ interface JobCardProps {
   tab: JobTab;
 }
 
+const BADGE_BG = '#2C2C2A';
+const BADGE_TEXT = '#F1EFE8';
+
 function waitBadgeClass(minutes: number): string {
-  const base = 'text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 bg-[#0f172a] text-white border border-black/50';
-  if (minutes >= 10) return `${base} text-red-200 bw-wait-flash`;
-  if (minutes >= 5) return `${base} text-amber-200`;
-  return `${base} text-emerald-200`;
+  const base =
+    'text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 border border-black/20';
+  if (minutes >= 10) return `${base} bw-wait-flash`;
+  return base;
 }
 
-function tagChip(label: string, extra?: string) {
+function tagChip(label: string) {
   return (
     <span
-      className={cn(
-        'text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0',
-        'bg-[#0f172a] text-white border border-black/50',
-        extra
-      )}
+      className="text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 border border-black/20"
+      style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
     >
       {label}
     </span>
@@ -89,7 +89,11 @@ export function JobCard({ job, tab }: JobCardProps) {
   const statusBadge = tab === 'ua' ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
   const toned = !!cardLook.tone;
-  const onColoredBg = toned;
+  const onThemedBg = !!cardLook.foregroundColor;
+  const themeStyle = cardLook.foregroundColor ? { color: cardLook.foregroundColor } : undefined;
+  const themeMutedStyle = cardLook.foregroundMuted
+    ? { color: cardLook.foregroundMuted }
+    : themeStyle;
 
   const uaMeta = useMemo(() => {
     if (tab !== 'ua') return null;
@@ -274,18 +278,14 @@ export function JobCard({ job, tab }: JobCardProps) {
     </>
   ) : null;
 
-  const toneText = onColoredBg ? 'text-[#f1f5f9]' : 'bw-text';
-  const toneMuted = onColoredBg ? 'text-[#cbd5e1]' : 'text-[var(--bw-muted)]';
-  /** Address lines — theme tokens on default cards; dark text on soft tinted backgrounds. */
-  const addressPrimary = onColoredBg ? 'text-slate-900' : 'text-[var(--bw-text)]';
-  const addressSecondary = onColoredBg ? 'text-slate-700' : 'text-[var(--bw-muted)]';
-  const metaText = onColoredBg ? toneMuted : 'text-[var(--bw-muted)]';
+  const toneText = onThemedBg ? '' : 'bw-text';
+  const metaText = onThemedBg ? '' : 'text-[var(--bw-muted)]';
 
   return (
     <div
       className={cn(
         'rounded px-1.5 py-1 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
-        onColoredBg && 'bw-job-card-toned',
+        toned && 'bw-job-card-toned',
         highlighted && 'ring-1 ring-[var(--bw-accent)]/60',
         cardLook.flash && 'bw-dispatch-flash'
       )}
@@ -293,26 +293,35 @@ export function JobCard({ job, tab }: JobCardProps) {
         ...(cardLook.flash
           ? ({
               ['--bw-card-bg' as string]: cardLook.backgroundColor,
-              ['--bw-card-bg-pulse' as string]: 'rgba(239, 68, 68, 0.48)',
+              ['--bw-card-bg-pulse' as string]: '#F0A0A0',
             } as CSSProperties)
           : { backgroundColor: cardLook.backgroundColor }),
+        ...(cardLook.borderColor ? { borderColor: cardLook.borderColor } : {}),
         borderLeftColor: cardLook.borderLeftColor,
         color: cardLook.foregroundColor,
       }}
     >
       <div className="flex flex-wrap items-center gap-0.5 mb-0.5">
-        <span className={cn('font-mono text-[9px] font-bold', toneText)}>#{job.id}</span>
+        <span className={cn('font-mono text-[9px] font-bold', toneText)} style={themeStyle}>#{job.id}</span>
         {tagChip(tab === 'ua' && uaMeta ? uaMeta.sourceName : sourceDisplayName(job.source))}
         {statusBadge && tagChip(statusBadge.label)}
         {pickupTag && tagChip(pickupTag)}
-        {cardLook.label === 'DISPATCH NOW' && tagChip('DISPATCH NOW', 'text-amber-100')}
-        {tab === 'ua' && uaMeta?.overdue && tagChip(uaMeta.overdue, 'text-amber-100')}
-        {job.urgent && tagChip('URGENT', 'text-red-200')}
-        <span className={cn('ml-auto', waitBadgeClass(waitMinutes))}>{waitLabel}</span>
+        {cardLook.label === 'DISPATCH NOW' && tagChip('DISPATCH NOW')}
+        {tab === 'ua' && uaMeta?.overdue && tagChip(uaMeta.overdue)}
+        {job.urgent && tagChip('URGENT')}
+        <span
+          className={cn('ml-auto', waitBadgeClass(waitMinutes))}
+          style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
+        >
+          {waitLabel}
+        </span>
       </div>
 
       {tab === 'ua' && uaMeta && (
-        <div className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}>
+        <div
+          className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
+          style={themeMutedStyle}
+        >
           {uaMeta.createdLabel && (
             <span>
               <span className="opacity-70">Created:</span> {uaMeta.createdLabel}
@@ -336,7 +345,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className={cn('truncate font-medium', addressPrimary)}>
+          <span className={cn('truncate font-medium', onThemedBg ? '' : 'text-[var(--bw-text)]')} style={themeStyle}>
             {job.pickAddress || 'No pickup'}
           </span>
         </div>
@@ -346,7 +355,9 @@ export function JobCard({ job, tab }: JobCardProps) {
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span className={cn('truncate', addressSecondary)}>{job.dropAddress || 'No dropoff'}</span>
+          <span className={cn('truncate', onThemedBg ? '' : 'text-[var(--bw-muted)]')} style={themeMutedStyle}>
+            {job.dropAddress || 'No dropoff'}
+          </span>
         </div>
       </div>
 
@@ -355,6 +366,7 @@ export function JobCard({ job, tab }: JobCardProps) {
           'flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]',
           metaText
         )}
+        style={themeMutedStyle}
       >
         <span className="inline-flex items-center gap-0.5 truncate max-w-[45%]">
           <User size={9} />
@@ -370,9 +382,12 @@ export function JobCard({ job, tab }: JobCardProps) {
       </div>
 
       {tab === 'ua' && uaMeta && (
-        <div className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}>
+        <div
+          className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
+          style={themeMutedStyle}
+        >
           {uaMeta.fare && (
-            <span className="font-medium text-emerald-400">
+            <span className={cn('font-medium', onThemedBg ? '' : 'text-emerald-400')} style={themeStyle}>
               {uaMeta.fare.label}: {uaMeta.fare.amount}
             </span>
           )}
@@ -400,7 +415,10 @@ export function JobCard({ job, tab }: JobCardProps) {
       )}
 
       {tab === 'ua' && uaMeta?.returnAlert && (
-        <div className="text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug bg-[#0f172a] text-white border border-black/50">
+        <div
+          className="text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug border border-black/20"
+          style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
+        >
           {uaMeta.returnAlert.kind === 'not_reached' ? 'Not reached: ' : ''}
           {uaMeta.returnAlert.kind === 'reject' ? 'Rejected: ' : ''}
           {uaMeta.returnAlert.text}
@@ -408,7 +426,12 @@ export function JobCard({ job, tab }: JobCardProps) {
       )}
 
       {job.notes && (
-        <div className={cn('text-[9px] mb-0.5 line-clamp-1 italic', toneMuted)}>{job.notes}</div>
+        <div
+          className={cn('text-[9px] mb-0.5 line-clamp-1 italic', metaText)}
+          style={themeMutedStyle}
+        >
+          {job.notes}
+        </div>
       )}
 
       {tab === 'offer' && job.offeredAt && (
