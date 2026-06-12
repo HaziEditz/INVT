@@ -28393,9 +28393,6 @@ async function createJob(body) {
     body: JSON.stringify(body)
   });
 }
-async function updateBooking(body) {
-  return jsonFetch(`${API}/booking/update`, { method: "POST", body: JSON.stringify(body) });
-}
 function applyChangesToJob(job, changes, seq) {
   const status = changes.BookingStatus ?? changes.Status;
   return {
@@ -28412,8 +28409,8 @@ function applyChangesToJob(job, changes, seq) {
     bookingDateTime: String(changes.BookingDateTime ?? changes.Pickingtime ?? job.bookingDateTime),
     dispatchBeforeMinutes: parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) || 0,
     status: status != null ? String(status) : job.status,
-    driverId: changes.DriverId != null ? String(changes.DriverId) : job.driverId,
-    vehicleId: changes.VehicleId != null ? String(changes.VehicleId) : job.vehicleId,
+    driverId: changes.DriverId != null ? Number(changes.DriverId) === -1 ? "-1" : Number(changes.DriverId) <= 0 ? void 0 : String(changes.DriverId) : job.driverId,
+    vehicleId: changes.VehicleId != null ? Number(changes.VehicleId) === 0 ? void 0 : String(changes.VehicleId) : job.vehicleId,
     vehicleType: String(changes.VehicleType ?? job.vehicleType ?? ""),
     tariffId: changes.TarriffId != null ? String(changes.TarriffId) : job.tariffId,
     estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ""),
@@ -28447,6 +28444,10 @@ function firebasePatchFromChanges(changes) {
     if (changes[from] !== void 0) patch[to] = changes[from];
   }
   if (changes.Name !== void 0) patch.Name = changes.Name;
+  if (changes.DriverId !== void 0) patch.DriverId = changes.DriverId;
+  if (changes.VehicleId !== void 0) patch.VehicleId = changes.VehicleId;
+  if (changes.releasedAt !== void 0) patch.releasedAt = changes.releasedAt;
+  if (changes.manualOffer !== void 0) patch.manualOffer = changes.manualOffer;
   return patch;
 }
 async function postBookingUpdate(body) {
@@ -28498,12 +28499,13 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   if (!result.ok) {
     const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
     if (fresh) useJobStore.getState().upsertJob(fresh);
+    const message2 = result.error || "Could not save changes";
     useUiStore.getState().addToast({
       type: "error",
       title: "Job update failed",
-      message: result.error || "Could not save changes"
+      message: message2
     });
-    return;
+    throw new Error(message2);
   }
   const current = useJobStore.getState().jobs.find((j2) => j2.id === jobId) ?? baseJob;
   const authoritativeSeq = result.seq ?? (ifSeq != null ? ifSeq + 1 : (current.updateSeq ?? 0) + 1);
@@ -28521,16 +28523,7 @@ async function updateJob(jobId, companyId, changes, existingJob) {
   const optimisticSeq = (existingJob.updateSeq ?? 0) + 1;
   const optimisticJob = applyChangesToJob(existingJob, changes, optimisticSeq);
   useJobStore.getState().upsertJob(optimisticJob);
-  void persistJobUpdate(jobId, companyId, changes, existingJob);
-}
-async function setJobStatus(companyId, bookingId, status, extra = {}, ifSeq) {
-  const { originalStatus, ifVersion, ...rest } = extra;
-  return updateBooking({
-    bookingId,
-    by: "dispatcher",
-    ifSeq: ifSeq ?? (typeof ifVersion === "number" ? ifVersion : void 0),
-    changes: { BookingStatus: status, Status: status, ...rest }
-  });
+  await persistJobUpdate(jobId, companyId, changes, existingJob);
 }
 async function assignJob(bookingId, driverId, vehicleId, ifVersion = 0) {
   return jobCommand({
@@ -28595,10 +28588,22 @@ async function forceCompleteJob(bookingId) {
   });
 }
 async function setPending(job) {
-  return setJobStatus(job.companyId, job.id, "Pending", { originalStatus: "pending" }, job.updateSeq);
+  return updateJob(job.id, job.companyId, {
+    BookingStatus: "Pending",
+    Status: "Pending",
+    DriverId: 0,
+    VehicleId: 0,
+    releasedAt: null,
+    manualOffer: false
+  }, job);
 }
 async function setNoOne(job) {
-  return setJobStatus(job.companyId, job.id, "No One", { originalStatus: "no_one" }, job.updateSeq);
+  return updateJob(job.id, job.companyId, {
+    BookingStatus: "No One",
+    Status: "No One",
+    DriverId: -1,
+    VehicleId: 0
+  }, job);
 }
 function logoutSession() {
   document.cookie = "BW_SID=; Max-Age=0; path=/";
@@ -28616,10 +28621,8 @@ const jobFlow = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   recallJob,
   sessionLogin,
   sessionMe,
-  setJobStatus,
   setNoOne,
   setPending,
-  updateBooking,
   updateJob
 }, Symbol.toStringTag, { value: "Module" }));
 /**
@@ -31396,6 +31399,7 @@ function JobCard({ job, tab }) {
     []
   );
   const [cancelTargetJobId, setCancelTargetJobId] = reactExports.useState(null);
+  const [assignSelection, setAssignSelection] = reactExports.useState("");
   const [now, setNow] = reactExports.useState(() => /* @__PURE__ */ new Date());
   const cancelTarget = reactExports.useMemo(
     () => cancelTargetJobId != null ? jobs.find((j2) => j2.id === cancelTargetJobId) ?? null : null,
@@ -31490,12 +31494,34 @@ function JobCard({ job, tab }) {
     e.stopPropagation();
     setHoveredJobId(null);
   };
-  const handleAssign = (value) => {
-    if (value === "__pending__") run(() => setPending(job), "Set Pending");
-    else if (value === "__noone__") run(() => setNoOne(job), "Set No One");
-    else {
-      const d2 = onlineDrivers.find((x2) => x2.driverId === value);
-      if (d2) run(() => assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq), "Assigned");
+  const handleApplyAssign = async () => {
+    if (!assignSelection) return;
+    const selection = assignSelection;
+    try {
+      if (selection === "__pending__") await setPending(job);
+      else if (selection === "__noone__") await setNoOne(job);
+      else {
+        const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
+        if (!d2) {
+          addToast({ type: "error", title: "Driver not found", message: "Refresh and try again." });
+          return;
+        }
+        await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq);
+      }
+      addToast({
+        type: "success",
+        title: selection === "__pending__" ? "Set Pending" : selection === "__noone__" ? "Set No One" : "Driver assigned"
+      });
+      setAssignSelection("");
+    } catch (e) {
+      const statusChange = selection === "__pending__" || selection === "__noone__";
+      if (!statusChange) {
+        addToast({
+          type: "error",
+          title: "Assign failed",
+          message: e instanceof Error ? e.message : ""
+        });
+      }
     }
   };
   const toneText = onColoredBg ? "text-[#f1f5f9]" : "bw-text";
@@ -31639,18 +31665,17 @@ function JobCard({ job, tab }) {
               "select",
               {
                 className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border",
-                defaultValue: "",
+                value: assignSelection,
                 onClick: (e) => e.stopPropagation(),
                 onMouseDown: (e) => e.stopPropagation(),
                 onChange: (e) => {
                   e.stopPropagation();
-                  handleAssign(e.target.value);
-                  e.target.value = "";
+                  setAssignSelection(e.target.value);
                 },
                 children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Set Pending" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "Set No One" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "No One" }),
                   onlineDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— online —" }),
                   onlineDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
                     d2.vehicleNo,
@@ -31658,6 +31683,19 @@ function JobCard({ job, tab }) {
                     d2.driverName
                   ] }, d2.driverId))
                 ]
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Button,
+              {
+                variant: "primary",
+                className: "!h-6 !px-1.5 !py-0 !text-[9px] shrink-0",
+                disabled: !assignSelection,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  void handleApplyAssign();
+                },
+                children: "Apply"
               }
             ),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -41193,7 +41231,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CoZ_Tkmw.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DRXKfoup.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43351,7 +43389,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BqjP4slC.js");
+        const { writeActiveDispatcher } = await import("./notifications-BdXF6ja4.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43378,7 +43416,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BqjP4slC.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BdXF6ja4.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43706,4 +43744,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DQ_pPMCt.js.map
+//# sourceMappingURL=index-Cv6QRMIE.js.map

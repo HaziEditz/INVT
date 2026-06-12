@@ -83,8 +83,20 @@ function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: num
       parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) ||
       0,
     status: status != null ? (String(status) as Job['status']) : job.status,
-    driverId: changes.DriverId != null ? String(changes.DriverId) : job.driverId,
-    vehicleId: changes.VehicleId != null ? String(changes.VehicleId) : job.vehicleId,
+    driverId:
+      changes.DriverId != null
+        ? Number(changes.DriverId) === -1
+          ? '-1'
+          : Number(changes.DriverId) <= 0
+            ? undefined
+            : String(changes.DriverId)
+        : job.driverId,
+    vehicleId:
+      changes.VehicleId != null
+        ? Number(changes.VehicleId) === 0
+          ? undefined
+          : String(changes.VehicleId)
+        : job.vehicleId,
     vehicleType: String(changes.VehicleType ?? job.vehicleType ?? ''),
     tariffId: changes.TarriffId != null ? String(changes.TarriffId) : job.tariffId,
     estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ''),
@@ -119,6 +131,10 @@ function firebasePatchFromChanges(changes: Record<string, unknown>): Record<stri
     if (changes[from] !== undefined) patch[to] = changes[from];
   }
   if (changes.Name !== undefined) patch.Name = changes.Name;
+  if (changes.DriverId !== undefined) patch.DriverId = changes.DriverId;
+  if (changes.VehicleId !== undefined) patch.VehicleId = changes.VehicleId;
+  if (changes.releasedAt !== undefined) patch.releasedAt = changes.releasedAt;
+  if (changes.manualOffer !== undefined) patch.manualOffer = changes.manualOffer;
   return patch;
 }
 
@@ -193,12 +209,13 @@ async function persistJobUpdate(
   if (!result.ok) {
     const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
     if (fresh) useJobStore.getState().upsertJob(fresh);
+    const message = result.error || 'Could not save changes';
     useUiStore.getState().addToast({
       type: 'error',
       title: 'Job update failed',
-      message: result.error || 'Could not save changes',
+      message,
     });
-    return;
+    throw new Error(message);
   }
 
   const current = useJobStore.getState().jobs.find((j) => j.id === jobId) ?? baseJob;
@@ -226,7 +243,7 @@ export async function updateJob(
   const optimisticJob = applyChangesToJob(existingJob, changes, optimisticSeq);
   useJobStore.getState().upsertJob(optimisticJob);
 
-  void persistJobUpdate(jobId, companyId, changes, existingJob);
+  await persistJobUpdate(jobId, companyId, changes, existingJob);
 }
 
 export async function setJobStatus(
@@ -330,11 +347,23 @@ export async function forceCompleteJob(bookingId: number) {
 }
 
 export async function setPending(job: Job) {
-  return setJobStatus(job.companyId, job.id, 'Pending', { originalStatus: 'pending' }, job.updateSeq);
+  return updateJob(job.id, job.companyId, {
+    BookingStatus: 'Pending',
+    Status: 'Pending',
+    DriverId: 0,
+    VehicleId: 0,
+    releasedAt: null,
+    manualOffer: false,
+  }, job);
 }
 
 export async function setNoOne(job: Job) {
-  return setJobStatus(job.companyId, job.id, 'No One', { originalStatus: 'no_one' }, job.updateSeq);
+  return updateJob(job.id, job.companyId, {
+    BookingStatus: 'No One',
+    Status: 'No One',
+    DriverId: -1,
+    VehicleId: 0,
+  }, job);
 }
 
 export function logoutSession() {

@@ -75,6 +75,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     []
   );
   const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
+  const [assignSelection, setAssignSelection] = useState('');
   const [now, setNow] = useState(() => new Date());
   const cancelTarget = useMemo(
     () => (cancelTargetJobId != null ? jobs.find((j) => j.id === cancelTargetJobId) ?? null : null),
@@ -186,12 +187,39 @@ export function JobCard({ job, tab }: JobCardProps) {
     setHoveredJobId(null);
   };
 
-  const handleAssign = (value: string) => {
-    if (value === '__pending__') run(() => setPending(job), 'Set Pending');
-    else if (value === '__noone__') run(() => setNoOne(job), 'Set No One');
-    else {
-      const d = onlineDrivers.find((x) => x.driverId === value);
-      if (d) run(() => assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq), 'Assigned');
+  const handleApplyAssign = async () => {
+    if (!assignSelection) return;
+    const selection = assignSelection;
+    try {
+      if (selection === '__pending__') await setPending(job);
+      else if (selection === '__noone__') await setNoOne(job);
+      else {
+        const d = onlineDrivers.find((x) => x.driverId === selection);
+        if (!d) {
+          addToast({ type: 'error', title: 'Driver not found', message: 'Refresh and try again.' });
+          return;
+        }
+        await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq);
+      }
+      addToast({
+        type: 'success',
+        title:
+          selection === '__pending__'
+            ? 'Set Pending'
+            : selection === '__noone__'
+              ? 'Set No One'
+              : 'Driver assigned',
+      });
+      setAssignSelection('');
+    } catch (e) {
+      const statusChange = selection === '__pending__' || selection === '__noone__';
+      if (!statusChange) {
+        addToast({
+          type: 'error',
+          title: 'Assign failed',
+          message: e instanceof Error ? e.message : '',
+        });
+      }
     }
   };
 
@@ -343,18 +371,17 @@ export function JobCard({ job, tab }: JobCardProps) {
           <>
             <select
               className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border"
-              defaultValue=""
+              value={assignSelection}
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               onChange={(e) => {
                 e.stopPropagation();
-                handleAssign(e.target.value);
-                e.target.value = '';
+                setAssignSelection(e.target.value);
               }}
             >
               <option value="">Assign ▼</option>
-              <option value="__pending__">Set Pending</option>
-              <option value="__noone__">Set No One</option>
+              <option value="__pending__">Pending</option>
+              <option value="__noone__">No One</option>
               {onlineDrivers.length > 0 && <option disabled>— online —</option>}
               {onlineDrivers.map((d) => (
                 <option key={d.driverId} value={d.driverId}>
@@ -362,6 +389,17 @@ export function JobCard({ job, tab }: JobCardProps) {
                 </option>
               ))}
             </select>
+            <Button
+              variant="primary"
+              className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
+              disabled={!assignSelection}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleApplyAssign();
+              }}
+            >
+              Apply
+            </Button>
             <Tooltip label="Edit job">
               <button
                 type="button"
