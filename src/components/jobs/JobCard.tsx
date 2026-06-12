@@ -175,17 +175,21 @@ export function JobCard({ job, tab }: JobCardProps) {
         </span>
       </div>
 
-      <div
-        className="space-y-1 text-[11px] mb-1 leading-snug"
-        onMouseEnter={showRoutePreview}
-        onMouseLeave={clearRoutePreview}
-      >
+      <div className="space-y-1 text-[11px] mb-1 leading-snug">
         <div className="flex gap-1.5 items-start">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer" />
+          <span
+            className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer"
+            onMouseEnter={showRoutePreview}
+            onMouseLeave={clearRoutePreview}
+          />
           <span className="bw-text line-clamp-2">{job.pickAddress || 'No pickup'}</span>
         </div>
         <div className="flex gap-1.5 items-start">
-          <span className="w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer" />
+          <span
+            className="w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer"
+            onMouseEnter={showRoutePreview}
+            onMouseLeave={clearRoutePreview}
+          />
           <span className="text-[var(--bw-muted)] line-clamp-2">{job.dropAddress || 'No dropoff'}</span>
         </div>
       </div>

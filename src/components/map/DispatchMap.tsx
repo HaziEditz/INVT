@@ -71,6 +71,7 @@ export function DispatchMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  const [zonesEmpty, setZonesEmpty] = useState(false);
   const layoutMenuRef = useRef<HTMLDivElement>(null);
   const drivers = useDriverStore((s) => s.drivers);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
@@ -482,6 +483,7 @@ export function DispatchMap({
       zonePolysRef.current = [];
       zoneUnsubRef.current?.();
       zoneUnsubRef.current = null;
+      setZonesEmpty(false);
     };
 
     if (!gMapRef.current || !mapReady || !companyId || !mapZones) {
@@ -497,9 +499,16 @@ export function DispatchMap({
       zoneUnsubRef.current = onValue(r, (snap) => {
         zonePolysRef.current.forEach((p) => p.setMap(null));
         zonePolysRef.current = [];
-        if (!useUiStore.getState().mapZones || !gMapRef.current) return;
+        if (!useUiStore.getState().mapZones || !gMapRef.current) {
+          setZonesEmpty(false);
+          return;
+        }
         const val = snap.val();
-        if (!val) return;
+        if (!val) {
+          setZonesEmpty(true);
+          return;
+        }
+        let drew = 0;
         for (const [, z] of Object.entries(val as Record<string, { paths?: { lat: number; lng: number }[] }>)) {
           if (!z.paths?.length) continue;
           zonePolysRef.current.push(
@@ -513,7 +522,9 @@ export function DispatchMap({
               map: gMapRef.current,
             })
           );
+          drew++;
         }
+        setZonesEmpty(drew === 0);
       });
     });
 
@@ -637,6 +648,12 @@ export function DispatchMap({
       {routeDrawing && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]">
           Drawing route…
+        </div>
+      )}
+
+      {mapZones && zonesEmpty && mapReady && (
+        <div className="absolute top-10 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]">
+          No zones configured
         </div>
       )}
 

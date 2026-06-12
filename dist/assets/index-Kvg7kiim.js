@@ -29316,30 +29316,30 @@ function readSavedLayout(dispatcherUid) {
     locked: false
   };
   try {
-    let raw = localStorage.getItem(layoutKey(dispatcherUid));
+    const key = layoutKey(dispatcherUid);
+    console.log("[Layout] localStorage raw:", localStorage.getItem(key));
+    let raw = localStorage.getItem(key);
     if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) {
-      console.log("[Layout] loaded from localStorage:", null);
-      console.log("[Layout] applying widths:", defaults.left, defaults.right);
+      console.log("[Layout] parsed leftWidth:", defaults.left, "rightWidth:", defaults.right);
       return defaults;
     }
     const parsed = JSON.parse(raw);
     const leftWidth = sanitizeWidth(parsed.left, DEFAULT_LEFT_WIDTH);
     const rightWidth = sanitizeWidth(parsed.right, DEFAULT_RIGHT_WIDTH);
+    console.log("[Layout] parsed leftWidth:", leftWidth, "rightWidth:", rightWidth);
     const savedLayout = {
       left: leftWidth,
       right: rightWidth,
       locked: !!parsed.locked
     };
-    console.log("[Layout] loaded from localStorage:", savedLayout);
-    console.log("[Layout] applying widths:", leftWidth, rightWidth);
     if (leftWidth !== Number(parsed.left) || rightWidth !== Number(parsed.right)) {
       writeSavedLayout(dispatcherUid, savedLayout);
     }
     return savedLayout;
   } catch (err2) {
     console.warn("[Layout] corrupt localStorage, using defaults", err2);
-    console.log("[Layout] applying widths:", defaults.left, defaults.right);
+    console.log("[Layout] parsed leftWidth:", defaults.left, "rightWidth:", defaults.right);
     writeSavedLayout(dispatcherUid, defaults);
     return defaults;
   }
@@ -29385,6 +29385,7 @@ const useLayoutStore = create((set2, get2) => ({
     if (!Number.isFinite(w2) || w2 < MIN_LEFT + MIN_RIGHT + MIN_MAP) return;
     const current = get2().containerWidth;
     if (Math.abs(current - w2) < 1) return;
+    console.log("[Layout] containerWidth:", w2);
     set2({ containerWidth: w2 });
   },
   resizeLeft: (delta) => {
@@ -29458,6 +29459,10 @@ function ResizableDispatchLayout({
     ro.observe(el);
     return () => ro.disconnect();
   }, [setContainerWidth]);
+  reactExports.useEffect(() => {
+    console.log("[Layout] containerWidth:", containerWidth);
+    console.log("[Layout] final applied widths - left:", effective.left, "right:", effective.right);
+  }, [containerWidth, effective.left, effective.right]);
   const panelTransition = { width: effective.left, transition: "width 0.2s ease" };
   const rightTransition = { width: effective.right, transition: "width 0.2s ease" };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: "flex flex-1 min-h-0 relative bw-shell", children: [
@@ -31460,24 +31465,30 @@ function JobCard({ job, tab }) {
           job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "URGENT" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: "space-y-1 text-[11px] mb-1 leading-snug",
-            onMouseEnter: showRoutePreview,
-            onMouseLeave: clearRoutePreview,
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-text line-clamp-2", children: job.pickAddress || "No pickup" })
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[var(--bw-muted)] line-clamp-2", children: job.dropAddress || "No dropoff" })
-              ] })
-            ]
-          }
-        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-1 text-[11px] mb-1 leading-snug", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: "w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 cursor-pointer",
+                onMouseEnter: showRoutePreview,
+                onMouseLeave: clearRoutePreview
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-text line-clamp-2", children: job.pickAddress || "No pickup" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: "w-2 h-2 rounded-full bg-red-400 shrink-0 mt-1 cursor-pointer",
+                onMouseEnter: showRoutePreview,
+                onMouseLeave: clearRoutePreview
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[var(--bw-muted)] line-clamp-2", children: job.dropAddress || "No dropoff" })
+          ] })
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--bw-muted)] mb-1 items-center", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-full", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 10 }),
           job.passengerName || "—",
@@ -41056,7 +41067,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C-vW_1Q3.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Dq5pUkt8.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42346,6 +42357,7 @@ function DispatchMap({
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
   const [layoutMenuOpen, setLayoutMenuOpen] = reactExports.useState(false);
+  const [zonesEmpty, setZonesEmpty] = reactExports.useState(false);
   const layoutMenuRef = reactExports.useRef(null);
   const drivers = useDriverStore((s2) => s2.drivers);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
@@ -42693,6 +42705,7 @@ function DispatchMap({
       zonePolysRef.current = [];
       (_a2 = zoneUnsubRef.current) == null ? void 0 : _a2.call(zoneUnsubRef);
       zoneUnsubRef.current = null;
+      setZonesEmpty(false);
     };
     if (!gMapRef.current || !mapReady || !companyId || !mapZones) {
       clearZones();
@@ -42709,9 +42722,16 @@ function DispatchMap({
         var _a2;
         zonePolysRef.current.forEach((p2) => p2.setMap(null));
         zonePolysRef.current = [];
-        if (!useUiStore.getState().mapZones || !gMapRef.current) return;
+        if (!useUiStore.getState().mapZones || !gMapRef.current) {
+          setZonesEmpty(false);
+          return;
+        }
         const val = snap.val();
-        if (!val) return;
+        if (!val) {
+          setZonesEmpty(true);
+          return;
+        }
+        let drew = 0;
         for (const [, z2] of Object.entries(val)) {
           if (!((_a2 = z2.paths) == null ? void 0 : _a2.length)) continue;
           zonePolysRef.current.push(
@@ -42725,7 +42745,9 @@ function DispatchMap({
               map: gMapRef.current
             })
           );
+          drew++;
         }
+        setZonesEmpty(drew === 0);
       });
     });
     return () => {
@@ -42816,6 +42838,7 @@ function DispatchMap({
     !mapReady && !mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] bw-map-bg", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { className: "w-8 h-8 bw-muted" }) }),
     mapError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute inset-0 flex items-center justify-center z-[1] px-4 text-center text-sm text-red-400 bw-map-bg", children: mapError }),
     routeDrawing && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-12 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]", children: "Drawing route…" }),
+    mapZones && zonesEmpty && mapReady && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute top-10 left-1/2 -translate-x-1/2 z-[5] px-3 py-1.5 rounded-full bg-[#12151f]/90 border border-[#2d3148] text-[11px] text-[#8892a4]", children: "No zones configured" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",
       {
@@ -43286,7 +43309,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CoKSa53Y.js");
+        const { writeActiveDispatcher } = await import("./notifications-kxk7ZppL.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43313,7 +43336,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CoKSa53Y.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-kxk7ZppL.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43641,4 +43664,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DUAeDaRu.js.map
+//# sourceMappingURL=index-Kvg7kiim.js.map

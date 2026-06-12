@@ -56,6 +56,11 @@ export function ResizableDispatchLayout({
     return () => ro.disconnect();
   }, [setContainerWidth]);
 
+  useEffect(() => {
+    console.log('[Layout] containerWidth:', containerWidth);
+    console.log('[Layout] final applied widths - left:', effective.left, 'right:', effective.right);
+  }, [containerWidth, effective.left, effective.right]);
+
   const panelTransition = { width: effective.left, transition: 'width 0.2s ease' };
   const rightTransition = { width: effective.right, transition: 'width 0.2s ease' };
 

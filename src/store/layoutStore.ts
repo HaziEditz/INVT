@@ -36,26 +36,26 @@ function readSavedLayout(dispatcherUid: string): SavedLayout {
   };
 
   try {
-    let raw = localStorage.getItem(layoutKey(dispatcherUid));
+    const key = layoutKey(dispatcherUid);
+    console.log('[Layout] localStorage raw:', localStorage.getItem(key));
+
+    let raw = localStorage.getItem(key);
     if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
 
     if (!raw) {
-      console.log('[Layout] loaded from localStorage:', null);
-      console.log('[Layout] applying widths:', defaults.left, defaults.right);
+      console.log('[Layout] parsed leftWidth:', defaults.left, 'rightWidth:', defaults.right);
       return defaults;
     }
 
     const parsed = JSON.parse(raw) as Partial<SavedLayout>;
     const leftWidth = sanitizeWidth(parsed.left, DEFAULT_LEFT_WIDTH);
     const rightWidth = sanitizeWidth(parsed.right, DEFAULT_RIGHT_WIDTH);
+    console.log('[Layout] parsed leftWidth:', leftWidth, 'rightWidth:', rightWidth);
     const savedLayout: SavedLayout = {
       left: leftWidth,
       right: rightWidth,
       locked: !!parsed.locked,
     };
-
-    console.log('[Layout] loaded from localStorage:', savedLayout);
-    console.log('[Layout] applying widths:', leftWidth, rightWidth);
 
     if (leftWidth !== Number(parsed.left) || rightWidth !== Number(parsed.right)) {
       writeSavedLayout(dispatcherUid, savedLayout);
@@ -64,7 +64,7 @@ function readSavedLayout(dispatcherUid: string): SavedLayout {
     return savedLayout;
   } catch (err) {
     console.warn('[Layout] corrupt localStorage, using defaults', err);
-    console.log('[Layout] applying widths:', defaults.left, defaults.right);
+    console.log('[Layout] parsed leftWidth:', defaults.left, 'rightWidth:', defaults.right);
     writeSavedLayout(dispatcherUid, defaults);
     return defaults;
   }
@@ -133,6 +133,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
     if (!Number.isFinite(w) || w < MIN_LEFT + MIN_RIGHT + MIN_MAP) return;
     const current = get().containerWidth;
     if (Math.abs(current - w) < 1) return;
+    console.log('[Layout] containerWidth:', w);
     set({ containerWidth: w });
   },
 
