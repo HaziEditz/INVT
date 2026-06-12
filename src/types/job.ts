@@ -234,14 +234,8 @@ function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
 export function isScheduledJob(job: Job): boolean {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
-  if (job.scheduledFor && job.scheduledFor > Date.now() + 60000) return true;
-  try {
-    const raw = job.bookingDateTime.replace(' ', 'T');
-    const d = new Date(raw);
-    if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60000) return true;
-  } catch {
-    /* ignore */
-  }
+  const pickup = jobScheduledTime(job);
+  if (pickup && pickup.getTime() > Date.now()) return true;
   return false;
 }
 
@@ -283,8 +277,80 @@ function isUnassignedForDispatch(job: Job): boolean {
   return st === 'Pending' || st === 'No One' || st === 'Scheduled';
 }
 
-export type ScheduledDispatchState = 'before' | 'dispatch_now' | 'overdue' | 'missed';
+export type ScheduledDispatchState = 'before' | 'dispatch_now';
 
+export interface JobCardAppearance {
+  backgroundColor: string;
+  borderLeftColor: string;
+  foregroundColor?: string;
+  flash: boolean;
+  label: string | null;
+}
+
+const CARD_BLUE_SOLID = '#2563eb';
+const CARD_BLUE_TINT = 'rgba(79, 110, 247, 0.32)';
+const CARD_RED_SOLID = '#dc2626';
+const CARD_RED_LIGHT = 'rgba(239, 68, 68, 0.28)';
+
+/** Card background/border for dispatch console — use inline styles to beat .bw-card-static. */
+export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): JobCardAppearance {
+  if (tab === 'active') {
+    return {
+      backgroundColor: CARD_RED_LIGHT,
+      borderLeftColor: '#ef4444',
+      flash: false,
+      label: null,
+    };
+  }
+
+  if (tab === 'assign') {
+    return {
+      backgroundColor: CARD_BLUE_TINT,
+      borderLeftColor: '#4f6ef7',
+      flash: false,
+      label: null,
+    };
+  }
+
+  if (tab === 'ua' && isScheduledJob(job) && isUnassignedForDispatch(job)) {
+    const pickup = jobScheduledTime(job);
+    const dispatchAt = jobDispatchTime(job);
+    if (pickup && dispatchAt) {
+      const dispatchMs = dispatchAt.getTime();
+      const pickLabel = pickup.toLocaleTimeString('en-NZ', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+
+      if (now.getTime() >= dispatchMs) {
+        return {
+          backgroundColor: CARD_RED_SOLID,
+          borderLeftColor: '#ef4444',
+          foregroundColor: '#ffffff',
+          flash: true,
+          label: 'DISPATCH NOW',
+        };
+      }
+      return {
+        backgroundColor: CARD_BLUE_SOLID,
+        borderLeftColor: '#4f6ef7',
+        foregroundColor: '#ffffff',
+        flash: false,
+        label: `Sched: ${pickLabel}`,
+      };
+    }
+  }
+
+  return {
+    backgroundColor: 'var(--bw-card)',
+    borderLeftColor: jobCardBorderColor(job),
+    flash: false,
+    label: null,
+  };
+}
+
+/** @deprecated Use getJobCardAppearance */
 export interface ScheduledDispatchUi {
   state: ScheduledDispatchState;
   label: string;
@@ -293,35 +359,31 @@ export interface ScheduledDispatchUi {
   missedBg: boolean;
 }
 
-/** Color-coded dispatch window for scheduled jobs (UA unassigned). */
 export function getScheduledDispatchUi(job: Job, now = new Date()): ScheduledDispatchUi | null {
-  if (!isScheduledJob(job) || !isUnassignedForDispatch(job)) return null;
-
-  const pickup = jobScheduledTime(job);
-  const dispatchAt = jobDispatchTime(job);
-  if (!pickup || !dispatchAt) return null;
-
-  const nowMs = now.getTime();
-  const pickupMs = pickup.getTime();
-  const dispatchMs = dispatchAt.getTime();
-  const pickLabel = pickup.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-  if (nowMs > pickupMs) {
-    return { state: 'missed', label: 'MISSED', borderColor: '#ef4444', flash: false, missedBg: true };
+  const appearance = getJobCardAppearance(job, 'ua', now);
+  if (appearance.label?.startsWith('Sched:')) {
+    return {
+      state: 'before',
+      label: appearance.label,
+      borderColor: appearance.borderLeftColor,
+      flash: false,
+      missedBg: false,
+    };
   }
-  if (nowMs > dispatchMs + 5 * 60_000) {
-    return { state: 'overdue', label: 'OVERDUE', borderColor: '#ef4444', flash: true, missedBg: false };
+  if (appearance.label === 'DISPATCH NOW') {
+    return {
+      state: 'dispatch_now',
+      label: appearance.label,
+      borderColor: appearance.borderLeftColor,
+      flash: true,
+      missedBg: false,
+    };
   }
-  if (nowMs >= dispatchMs - 15 * 60_000) {
-    return { state: 'dispatch_now', label: 'DISPATCH NOW', borderColor: '#4f6ef7', flash: true, missedBg: false };
-  }
-  return { state: 'before', label: `Sched: ${pickLabel}`, borderColor: '#f59e0b', flash: false, missedBg: false };
+  return null;
 }
 
 export function jobCardBorderColor(job: Job): string {
   if (job.urgent) return '#ef4444';
-  const dispatchUi = getScheduledDispatchUi(job);
-  if (dispatchUi) return dispatchUi.borderColor;
   const st = normalizeJobStatus(job.status);
   if (st === 'No One') return '#64748b';
   if (st === 'Pending') return '#4f6ef7';

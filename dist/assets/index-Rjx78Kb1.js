@@ -27677,13 +27677,8 @@ function resolveJobStatus(rec) {
 function isScheduledJob(job) {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
-  if (job.scheduledFor && job.scheduledFor > Date.now() + 6e4) return true;
-  try {
-    const raw = job.bookingDateTime.replace(" ", "T");
-    const d2 = new Date(raw);
-    if (!Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4) return true;
-  } catch {
-  }
+  const pickup = jobScheduledTime(job);
+  if (pickup && pickup.getTime() > Date.now()) return true;
   return false;
 }
 function jobScheduledTime(job) {
@@ -27719,30 +27714,64 @@ function isUnassignedForDispatch(job) {
   const st2 = normalizeJobStatus(job.status);
   return st2 === "Pending" || st2 === "No One" || st2 === "Scheduled";
 }
-function getScheduledDispatchUi(job, now = /* @__PURE__ */ new Date()) {
-  if (!isScheduledJob(job) || !isUnassignedForDispatch(job)) return null;
-  const pickup = jobScheduledTime(job);
-  const dispatchAt = jobDispatchTime(job);
-  if (!pickup || !dispatchAt) return null;
-  const nowMs = now.getTime();
-  const pickupMs = pickup.getTime();
-  const dispatchMs = dispatchAt.getTime();
-  const pickLabel = pickup.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
-  if (nowMs > pickupMs) {
-    return { state: "missed", label: "MISSED", borderColor: "#ef4444", flash: false, missedBg: true };
+const CARD_BLUE_SOLID = "#2563eb";
+const CARD_BLUE_TINT = "rgba(79, 110, 247, 0.32)";
+const CARD_RED_SOLID = "#dc2626";
+const CARD_RED_LIGHT = "rgba(239, 68, 68, 0.28)";
+function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
+  if (tab === "active") {
+    return {
+      backgroundColor: CARD_RED_LIGHT,
+      borderLeftColor: "#ef4444",
+      flash: false,
+      label: null
+    };
   }
-  if (nowMs > dispatchMs + 5 * 6e4) {
-    return { state: "overdue", label: "OVERDUE", borderColor: "#ef4444", flash: true, missedBg: false };
+  if (tab === "assign") {
+    return {
+      backgroundColor: CARD_BLUE_TINT,
+      borderLeftColor: "#4f6ef7",
+      flash: false,
+      label: null
+    };
   }
-  if (nowMs >= dispatchMs - 15 * 6e4) {
-    return { state: "dispatch_now", label: "DISPATCH NOW", borderColor: "#4f6ef7", flash: true, missedBg: false };
+  if (tab === "ua" && isScheduledJob(job) && isUnassignedForDispatch(job)) {
+    const pickup = jobScheduledTime(job);
+    const dispatchAt = jobDispatchTime(job);
+    if (pickup && dispatchAt) {
+      const dispatchMs = dispatchAt.getTime();
+      const pickLabel = pickup.toLocaleTimeString("en-NZ", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      });
+      if (now.getTime() >= dispatchMs) {
+        return {
+          backgroundColor: CARD_RED_SOLID,
+          borderLeftColor: "#ef4444",
+          foregroundColor: "#ffffff",
+          flash: true,
+          label: "DISPATCH NOW"
+        };
+      }
+      return {
+        backgroundColor: CARD_BLUE_SOLID,
+        borderLeftColor: "#4f6ef7",
+        foregroundColor: "#ffffff",
+        flash: false,
+        label: `Sched: ${pickLabel}`
+      };
+    }
   }
-  return { state: "before", label: `Sched: ${pickLabel}`, borderColor: "#f59e0b", flash: false, missedBg: false };
+  return {
+    backgroundColor: "var(--bw-card)",
+    borderLeftColor: jobCardBorderColor(job),
+    flash: false,
+    label: null
+  };
 }
 function jobCardBorderColor(job) {
   if (job.urgent) return "#ef4444";
-  const dispatchUi = getScheduledDispatchUi(job);
-  if (dispatchUi) return dispatchUi.borderColor;
   const st2 = normalizeJobStatus(job.status);
   if (st2 === "No One") return "#64748b";
   if (st2 === "Pending") return "#4f6ef7";
@@ -31249,10 +31278,10 @@ function JobCard({ job, tab }) {
     const t2 = setInterval(() => setNow(/* @__PURE__ */ new Date()), 3e4);
     return () => clearInterval(t2);
   }, []);
-  const dispatchUi = reactExports.useMemo(() => getScheduledDispatchUi(job, now), [job, now]);
-  const border = job.urgent ? "#ef4444" : (dispatchUi == null ? void 0 : dispatchUi.borderColor) ?? jobCardBorderColor(job);
+  const cardLook = reactExports.useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
   const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
+  const onColoredBg = !!cardLook.foregroundColor;
   const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
     try {
@@ -31318,20 +31347,23 @@ function JobCard({ job, tab }) {
       if (d2) run(() => assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq), "Assigned");
     }
   };
-  const dispatchLabelClass = (dispatchUi == null ? void 0 : dispatchUi.state) === "missed" ? "text-red-300 font-bold" : (dispatchUi == null ? void 0 : dispatchUi.state) === "overdue" ? "text-red-400 font-bold" : (dispatchUi == null ? void 0 : dispatchUi.state) === "dispatch_now" ? "text-[#5b7cfa] font-bold" : "text-amber-400 font-medium";
+  const dispatchLabelClass = onColoredBg ? "text-white font-bold" : "text-amber-400 font-medium";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       className: cn(
-        "rounded px-1.5 py-1.5 mb-1 bw-card-static transition-all duration-150 border-l-[3px]",
-        highlighted && "ring-1 ring-[var(--bw-accent)]/60 bg-[var(--bw-card-hover)]",
-        (dispatchUi == null ? void 0 : dispatchUi.missedBg) && "bg-red-500/20",
-        (dispatchUi == null ? void 0 : dispatchUi.flash) && "bw-dispatch-flash"
+        "rounded px-1.5 py-1.5 mb-1 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150",
+        highlighted && "ring-1 ring-[var(--bw-accent)]/60",
+        cardLook.flash && "bw-dispatch-flash"
       ),
-      style: { borderLeftColor: border },
+      style: {
+        backgroundColor: cardLook.backgroundColor,
+        borderLeftColor: cardLook.borderLeftColor,
+        color: cardLook.foregroundColor
+      },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-0.5 mb-0.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono text-[9px] font-bold bw-text", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("font-mono text-[9px] font-bold", onColoredBg ? "text-white" : "bw-text"), children: [
             "#",
             job.id
           ] }),
@@ -31344,7 +31376,7 @@ function JobCard({ job, tab }) {
               children: statusBadge.label
             }
           ),
-          dispatchUi && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] uppercase tracking-wide", dispatchLabelClass), children: dispatchUi.label }),
+          cardLook.label && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] uppercase tracking-wide", dispatchLabelClass), children: cardLook.label }),
           job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", className: "!text-[9px] !px-1 !py-0", children: "URGENT" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("ml-auto text-[9px] px-1 py-0 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
         ] }),
@@ -31358,7 +31390,7 @@ function JobCard({ job, tab }) {
                 onMouseLeave: clearRoutePreview
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "bw-text truncate", children: job.pickAddress || "No pickup" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate", onColoredBg ? "text-white/95" : "bw-text"), children: job.pickAddress || "No pickup" })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -31369,21 +31401,30 @@ function JobCard({ job, tab }) {
                 onMouseLeave: clearRoutePreview
               }
             ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[var(--bw-muted)] truncate", children: job.dropAddress || "No dropoff" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate", onColoredBg ? "text-white/80" : "text-[var(--bw-muted)]"), children: job.dropAddress || "No dropoff" })
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] text-[var(--bw-muted)] mb-0.5 min-h-[14px]", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
-            job.passengerName || "—"
-          ] }),
-          job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
-          job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-emerald-400 shrink-0", children: [
-            "$",
-            job.estimatedFare
-          ] })
-        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: cn(
+              "flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]",
+              onColoredBg ? "text-white/85" : "text-[var(--bw-muted)]"
+            ),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
+                job.passengerName || "—"
+              ] }),
+              job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
+              job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-emerald-400 shrink-0", children: [
+                "$",
+                job.estimatedFare
+              ] })
+            ]
+          }
+        ),
         job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[9px] text-[var(--bw-muted)] mb-0.5 line-clamp-1 italic", children: job.notes }),
         tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[9px] text-amber-400 mb-0.5", children: [
           "Offer expires ",
@@ -40949,7 +40990,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B0P5ELm4.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-0c8UcTPU.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43107,7 +43148,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BYwn8DjG.js");
+        const { writeActiveDispatcher } = await import("./notifications-BCZeFTwO.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43134,7 +43175,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BYwn8DjG.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BCZeFTwO.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43462,4 +43503,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BoyBijoF.js.map
+//# sourceMappingURL=index-Rjx78Kb1.js.map
