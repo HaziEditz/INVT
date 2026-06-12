@@ -6,7 +6,20 @@ import { MapPopoutPage } from '@/pages/MapPopout';
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <>
+      <div
+        style={{
+          background: 'lime',
+          color: 'black',
+          padding: 8,
+          fontSize: 12,
+          fontFamily: 'monospace',
+        }}
+      >
+        DEBUG TEST - if you see this, App.tsx is rendering. localStorage keys:{' '}
+        {typeof localStorage !== 'undefined' ? Object.keys(localStorage).join(', ') : 'n/a'}
+      </div>
+      <BrowserRouter>
       <ErrorBoundary label="Dispatch">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -31,5 +44,6 @@ export default function App() {
         </Routes>
       </ErrorBoundary>
     </BrowserRouter>
+    </>
   );
 }

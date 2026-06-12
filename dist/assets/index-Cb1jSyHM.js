@@ -41067,7 +41067,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Dq5pUkt8.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-g7vOvdSn.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43309,7 +43309,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-kxk7ZppL.js");
+        const { writeActiveDispatcher } = await import("./notifications-DKXxDqhg.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43336,7 +43336,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-kxk7ZppL.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DKXxDqhg.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43632,25 +43632,44 @@ function MapPopoutPage() {
   ] });
 }
 function App() {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(BrowserRouter, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Routes, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/login", element: /* @__PURE__ */ jsxRuntimeExports.jsx(LoginPage, {}) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Route,
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
       {
-        path: "/dispatch/map",
-        element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Map pop-out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(MapPopoutPage, {}) })
+        style: {
+          background: "lime",
+          color: "black",
+          padding: 8,
+          fontSize: 12,
+          fontFamily: "monospace"
+        },
+        children: [
+          "DEBUG TEST - if you see this, App.tsx is rendering. localStorage keys:",
+          " ",
+          typeof localStorage !== "undefined" ? Object.keys(localStorage).join(", ") : "n/a"
+        ]
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Route,
-      {
-        path: "/dispatch",
-        element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch console", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchPage, {}) })
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "*", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) })
-  ] }) }) });
+    /* @__PURE__ */ jsxRuntimeExports.jsx(BrowserRouter, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Routes, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/login", element: /* @__PURE__ */ jsxRuntimeExports.jsx(LoginPage, {}) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Route,
+        {
+          path: "/dispatch/map",
+          element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Map pop-out", children: /* @__PURE__ */ jsxRuntimeExports.jsx(MapPopoutPage, {}) })
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Route,
+        {
+          path: "/dispatch",
+          element: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { label: "Dispatch console", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DispatchPage, {}) })
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "/", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Route, { path: "*", element: /* @__PURE__ */ jsxRuntimeExports.jsx(Navigate, { to: "/dispatch", replace: true }) })
+    ] }) }) })
+  ] });
 }
 initThemeFromStorage();
 clientExports.createRoot(document.getElementById("root")).render(
@@ -43664,4 +43683,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Kvg7kiim.js.map
+//# sourceMappingURL=index-Cb1jSyHM.js.map
