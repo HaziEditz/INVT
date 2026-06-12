@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Job, JobTab } from '@/types/job';
-import { jobTabForStatus } from '@/types/job';
+import { jobScheduledTime, jobTabForStatus } from '@/types/job';
 
 interface JobStore {
   jobs: Job[];
@@ -18,10 +18,20 @@ interface JobStore {
   setActiveTab: (tab: JobTab) => void;
 }
 
+function uaPickupSortKey(job: Job): number {
+  return jobScheduledTime(job)?.getTime() ?? job.createdAt ?? Number.MAX_SAFE_INTEGER;
+}
+
 export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
   return jobs
     .filter((j) => jobTabForStatus(j) === tab)
     .sort((a, b) => {
+      if (tab === 'ua') {
+        const pa = uaPickupSortKey(a);
+        const pb = uaPickupSortKey(b);
+        if (pa !== pb) return pa - pb;
+        return a.id - b.id;
+      }
       const ca = a.createdAt || 0;
       const cb = b.createdAt || 0;
       if (ca !== cb) return ca - cb;

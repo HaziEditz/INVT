@@ -312,10 +312,10 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
     };
   }
 
-  if (tab === 'ua' && isScheduledJob(job) && isUnassignedForDispatch(job)) {
+  if (tab === 'ua' && isUnassignedForDispatch(job)) {
     const pickup = jobScheduledTime(job);
-    const dispatchAt = jobDispatchTime(job);
-    if (pickup && dispatchAt) {
+    if (pickup) {
+      const dispatchAt = jobDispatchTime(job) ?? pickup;
       const dispatchMs = dispatchAt.getTime();
       const pickLabel = pickup.toLocaleTimeString('en-NZ', {
         hour: '2-digit',
@@ -332,13 +332,15 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
           label: 'DISPATCH NOW',
         };
       }
-      return {
-        backgroundColor: CARD_BLUE_SOLID,
-        borderLeftColor: '#4f6ef7',
-        foregroundColor: '#ffffff',
-        flash: false,
-        label: `Sched: ${pickLabel}`,
-      };
+      if (isScheduledJob(job)) {
+        return {
+          backgroundColor: CARD_BLUE_SOLID,
+          borderLeftColor: '#4f6ef7',
+          foregroundColor: '#ffffff',
+          flash: false,
+          label: `Sched: ${pickLabel}`,
+        };
+      }
     }
   }
 

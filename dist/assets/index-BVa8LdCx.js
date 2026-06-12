@@ -27735,10 +27735,10 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
       label: null
     };
   }
-  if (tab === "ua" && isScheduledJob(job) && isUnassignedForDispatch(job)) {
+  if (tab === "ua" && isUnassignedForDispatch(job)) {
     const pickup = jobScheduledTime(job);
-    const dispatchAt = jobDispatchTime(job);
-    if (pickup && dispatchAt) {
+    if (pickup) {
+      const dispatchAt = jobDispatchTime(job) ?? pickup;
       const dispatchMs = dispatchAt.getTime();
       const pickLabel = pickup.toLocaleTimeString("en-NZ", {
         hour: "2-digit",
@@ -27754,13 +27754,15 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
           label: "DISPATCH NOW"
         };
       }
-      return {
-        backgroundColor: CARD_BLUE_SOLID,
-        borderLeftColor: "#4f6ef7",
-        foregroundColor: "#ffffff",
-        flash: false,
-        label: `Sched: ${pickLabel}`
-      };
+      if (isScheduledJob(job)) {
+        return {
+          backgroundColor: CARD_BLUE_SOLID,
+          borderLeftColor: "#4f6ef7",
+          foregroundColor: "#ffffff",
+          flash: false,
+          label: `Sched: ${pickLabel}`
+        };
+      }
     }
   }
   return {
@@ -27825,8 +27827,18 @@ const createImpl = (createState) => {
   return useBoundStore;
 };
 const create = ((createState) => createState ? createImpl(createState) : createImpl);
+function uaPickupSortKey(job) {
+  var _a2;
+  return ((_a2 = jobScheduledTime(job)) == null ? void 0 : _a2.getTime()) ?? job.createdAt ?? Number.MAX_SAFE_INTEGER;
+}
 function filterJobsForTab(jobs, tab) {
   return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
+    if (tab === "ua") {
+      const pa = uaPickupSortKey(a2);
+      const pb = uaPickupSortKey(b2);
+      if (pa !== pb) return pa - pb;
+      return a2.id - b2.id;
+    }
     const ca = a2.createdAt || 0;
     const cb = b2.createdAt || 0;
     if (ca !== cb) return ca - cb;
@@ -40990,7 +41002,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-0c8UcTPU.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-D-qtU34D.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43148,7 +43160,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BCZeFTwO.js");
+        const { writeActiveDispatcher } = await import("./notifications-QPVCMzod.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43175,7 +43187,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BCZeFTwO.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-QPVCMzod.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43503,4 +43515,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Rjx78Kb1.js.map
+//# sourceMappingURL=index-BVa8LdCx.js.map
