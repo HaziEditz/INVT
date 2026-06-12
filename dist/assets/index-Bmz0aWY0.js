@@ -28571,14 +28571,6 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   } catch {
   }
 }
-async function recallJob(bookingId, originalStatus) {
-  return jobCommand({
-    bookingId,
-    command: "recall",
-    by: "dispatcher",
-    payload: { originalStatus }
-  });
-}
 async function forceCompleteJob(bookingId) {
   return jobCommand({
     bookingId,
@@ -28586,6 +28578,31 @@ async function forceCompleteJob(bookingId) {
     by: "dispatcher",
     payload: {}
   });
+}
+async function applyJobAssignment(job, selection, onlineDrivers) {
+  if (selection === "__pending__") {
+    await setPending(job);
+    return;
+  }
+  if (selection === "__noone__") {
+    await setNoOne(job);
+    return;
+  }
+  const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
+  if (!d2) throw new Error("Driver not found");
+  await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq);
+}
+async function applyFormDriverAssignment(job, form, availableDrivers) {
+  if (form.driverId > 0) {
+    const d2 = availableDrivers.find((x2) => parseInt(x2.driverId, 10) === form.driverId) ?? { driverId: String(form.driverId), vehicleId: form.vehicleId || "0" };
+    await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq);
+    return;
+  }
+  if (form.driverId === -1) {
+    await setNoOne(job);
+    return;
+  }
+  await setPending(job);
 }
 async function setPending(job) {
   return updateJob(job.id, job.companyId, {
@@ -28612,13 +28629,14 @@ function logoutSession() {
 const jobFlow = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   accountStatus,
+  applyFormDriverAssignment,
+  applyJobAssignment,
   assignJob,
   cancelJob,
   createJob,
   forceCompleteJob,
   jobCommand,
   logoutSession,
-  recallJob,
   sessionLogin,
   sessionMe,
   setNoOne,
@@ -28935,16 +28953,6 @@ const Palette = createLucideIcon("Palette", [
 const Plus = createLucideIcon("Plus", [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const RotateCcw = createLucideIcon("RotateCcw", [
-  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
-  ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -31498,16 +31506,7 @@ function JobCard({ job, tab }) {
     if (!assignSelection) return;
     const selection = assignSelection;
     try {
-      if (selection === "__pending__") await setPending(job);
-      else if (selection === "__noone__") await setNoOne(job);
-      else {
-        const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
-        if (!d2) {
-          addToast({ type: "error", title: "Driver not found", message: "Refresh and try again." });
-          return;
-        }
-        await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq);
-      }
+      await applyJobAssignment(job, selection, onlineDrivers);
       addToast({
         type: "success",
         title: selection === "__pending__" ? "Set Pending" : selection === "__noone__" ? "Set No One" : "Driver assigned"
@@ -31524,6 +31523,70 @@ function JobCard({ job, tab }) {
       }
     }
   };
+  const showAssignControls = tab === "ua" || tab === "assign" || tab === "queue";
+  const assignControls = showAssignControls ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "select",
+      {
+        className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border",
+        value: assignSelection,
+        onClick: (e) => e.stopPropagation(),
+        onMouseDown: (e) => e.stopPropagation(),
+        onChange: (e) => {
+          e.stopPropagation();
+          setAssignSelection(e.target.value);
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "No One" }),
+          onlineDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— online —" }),
+          onlineDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
+            d2.vehicleNo,
+            " ",
+            d2.driverName
+          ] }, d2.driverId))
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Button,
+      {
+        variant: "primary",
+        className: "!h-6 !px-1.5 !py-0 !text-[9px] shrink-0",
+        disabled: !assignSelection,
+        onClick: (e) => {
+          e.stopPropagation();
+          void handleApplyAssign();
+        },
+        children: "Apply"
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        className: iconBtn,
+        onClick: (e) => {
+          e.stopPropagation();
+          openModalWith("createJob", { jobId: job.id });
+        },
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
+      }
+    ) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        className: cn(iconBtn, "text-red-400"),
+        onClick: (e) => {
+          e.stopPropagation();
+          handleCancelClick(job.id);
+        },
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
+      }
+    ) })
+  ] }) : null;
   const toneText = onColoredBg ? "text-[#f1f5f9]" : "bw-text";
   const toneMuted = onColoredBg ? "text-[#cbd5e1]" : "text-[var(--bw-muted)]";
   const addressPrimary = onColoredBg ? "text-slate-900" : "text-[var(--bw-text)]";
@@ -31660,69 +31723,7 @@ function JobCard({ job, tab }) {
           formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-0.5", children: [
-          tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "select",
-              {
-                className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border",
-                value: assignSelection,
-                onClick: (e) => e.stopPropagation(),
-                onMouseDown: (e) => e.stopPropagation(),
-                onChange: (e) => {
-                  e.stopPropagation();
-                  setAssignSelection(e.target.value);
-                },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "No One" }),
-                  onlineDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— online —" }),
-                  onlineDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
-                    d2.vehicleNo,
-                    " ",
-                    d2.driverName
-                  ] }, d2.driverId))
-                ]
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              Button,
-              {
-                variant: "primary",
-                className: "!h-6 !px-1.5 !py-0 !text-[9px] shrink-0",
-                disabled: !assignSelection,
-                onClick: (e) => {
-                  e.stopPropagation();
-                  void handleApplyAssign();
-                },
-                children: "Apply"
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: iconBtn,
-                onClick: (e) => {
-                  e.stopPropagation();
-                  openModalWith("createJob", { jobId: job.id });
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
-              }
-            ) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: cn(iconBtn, "text-red-400"),
-                onClick: (e) => {
-                  e.stopPropagation();
-                  handleCancelClick(job.id);
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
-              }
-            ) })
-          ] }),
+          assignControls,
           tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(
             Button,
             {
@@ -31735,7 +31736,7 @@ function JobCard({ job, tab }) {
               children: "Cancel Offer"
             }
           ),
-          (tab === "assign" || tab === "active") && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          tab === "active" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
               "button",
               {
@@ -31756,32 +31757,6 @@ function JobCard({ job, tab }) {
                 onClick: (e) => {
                   e.stopPropagation();
                   handleCancelClick(job.id);
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
-              }
-            ) })
-          ] }),
-          tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall to U-A", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: iconBtn,
-                onClick: (e) => {
-                  e.stopPropagation();
-                  void run(() => recallJob(job.id, job.originalStatus || "Pending"), "Recalled to U-A");
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 11 })
-              }
-            ) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: cn(iconBtn, "text-red-400"),
-                onClick: (e) => {
-                  e.stopPropagation();
-                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled");
                 },
                 children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
               }
@@ -32533,11 +32508,19 @@ function buildInsertParams(form, dispatcherName) {
     { name: "PromoId", Value: "" }
   ];
 }
-function driverBookstatus(form) {
-  if (form.driverId === -1) return { dId: "-1", bookstatus: "No One" };
-  if (form.driverId === -2) return { dId: "0", bookstatus: "Pending" };
-  if (form.driverId > 0) return { dId: String(form.driverId), bookstatus: "Offered" };
-  return { dId: "0", bookstatus: "Pending" };
+function formDriverIdFromJob(job) {
+  if (job.status === "No One" || job.driverId === "-1") return -1;
+  if (job.driverId && parseInt(job.driverId, 10) > 0) return parseInt(job.driverId, 10);
+  if (job.status === "Pending") return -2;
+  return 0;
+}
+function driverAssignmentChanged(job, form) {
+  const orig = formDriverIdFromJob(job);
+  if (form.driverId !== orig) return true;
+  if (form.driverId > 0) {
+    return String(form.vehicleId || "0") !== String(job.vehicleId || "0");
+  }
+  return false;
 }
 function statusFromDriverId(driverId) {
   if (driverId === -1) return "No One";
@@ -32559,11 +32542,10 @@ function paymentLabelFromType(paymentType) {
   if (paymentType === "acc") return "ACC";
   return "";
 }
-function buildJobChangesFromForm(form, dispatcherName) {
+function buildJobChangesFromForm(form, dispatcherName, opts) {
   const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
   const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
   const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
-  const { dId, bookstatus } = driverBookstatus(form);
   const pickAddr = form.pick.address || form.pickInput;
   const dropAddr = form.drop.address || form.dropInput;
   const tariffId = form.fixedFareEnabled ? "-1" : form.tariffId;
@@ -32573,7 +32555,7 @@ function buildJobChangesFromForm(form, dispatcherName) {
   if (form.paymentType === "tm") serviceType = "tm";
   if (form.paymentType === "acc") serviceType = "acc";
   const paymentMethod = paymentLabelFromType(form.paymentType);
-  return {
+  const changes = {
     PickAddress: pickAddr,
     PickLocation: pickAddr,
     DropAddress: dropAddr,
@@ -32590,10 +32572,6 @@ function buildJobChangesFromForm(form, dispatcherName) {
     Pickingtime: bookingDateTime,
     DispatchTimebefore: dispatchBefore,
     Dispatchbefore: String(dispatchBefore),
-    BookingStatus: bookstatus,
-    Status: bookstatus,
-    DriverId: parseInt(dId, 10),
-    VehicleId: form.vehicleId || "0",
     Urgent: form.urgent ? "Yes" : "No",
     VehicleType: form.vehicleType === "Any" ? "Not Specified" : form.vehicleType,
     PaymentMethod: paymentMethod,
@@ -32610,6 +32588,7 @@ function buildJobChangesFromForm(form, dispatcherName) {
     Acc_manager_id: form.accManagerId,
     Account_id: form.accountId
   };
+  return changes;
 }
 function jobToForm(job) {
   var _a2, _b2, _c, _d;
@@ -32620,9 +32599,7 @@ function jobToForm(job) {
   const parsed = parseBookingDateTime(bookingDt);
   const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(bookingDt) || job.scheduledFor != null && job.scheduledFor > Date.now() + 6e4;
   let driverId = 0;
-  if (job.status === "No One" || job.driverId === "-1") driverId = -1;
-  else if (job.driverId && parseInt(job.driverId, 10) > 0) driverId = parseInt(job.driverId, 10);
-  else if (job.status === "Pending") driverId = -2;
+  driverId = formDriverIdFromJob(job);
   const payment = (job.paymentType || "").toLowerCase();
   let paymentType = "";
   if (payment.includes("card") || payment.includes("stripe")) paymentType = "card";
@@ -32824,7 +32801,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const fbTariffs = useTariffs(companyId);
   const drivers = useDriverStore((s2) => s2.drivers);
   const availableDrivers = reactExports.useMemo(
-    () => drivers.filter((d2) => d2.status === "Available"),
+    () => drivers.filter((d2) => d2.status === "Available" && d2.driverId),
     [drivers]
   );
   const [form, setForm] = reactExports.useState(defaultCreateJobForm);
@@ -33081,8 +33058,13 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     try {
       console.log("[Book] Step 2 - form data:", form);
       if (isEdit && editingJob) {
-        const changes = buildJobChangesFromForm(form, dispatcherName);
-        await updateJob(editingJob.id, companyId, changes, editingJob);
+        const metadataChanges = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+        const assignmentChanged = driverAssignmentChanged(editingJob, form);
+        await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+        if (assignmentChanged) {
+          const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
+          await applyFormDriverAssignment(workingJob, form, availableDrivers);
+        }
         addToast({ type: "success", title: "Job updated", category: "job_updated" });
         onClose();
         return;
@@ -33425,10 +33407,15 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                       patch({ driverId, vehicleId: (d2 == null ? void 0 : d2.vehicleId) || "0", queueNumber: 0 });
                     },
                     children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 0, children: "Driver: Auto" }),
+                      !isEdit && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 0, children: "Driver: Auto" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: -2, children: "Pending" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: -1, children: "No One" }),
-                      availableDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: parseInt(d2.driverId, 10) || d2.driverId, children: d2.driverName }, d2.driverId))
+                      availableDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, value: -999, children: "— online —" }),
+                      availableDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: parseInt(d2.driverId, 10) || d2.driverId, children: [
+                        d2.vehicleNo,
+                        " ",
+                        d2.driverName
+                      ] }, d2.driverId))
                     ]
                   }
                 )
@@ -41231,7 +41218,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DRXKfoup.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-R9BbzUhb.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43389,7 +43376,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BdXF6ja4.js");
+        const { writeActiveDispatcher } = await import("./notifications-kdV29HTs.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43416,7 +43403,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BdXF6ja4.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-kdV29HTs.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43744,4 +43731,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Cv6QRMIE.js.map
+//# sourceMappingURL=index-Bmz0aWY0.js.map

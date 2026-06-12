@@ -275,6 +275,52 @@ export function driverBookstatus(form: CreateJobFormState): { dId: string; books
   return { dId: '0', bookstatus: 'Pending' };
 }
 
+/** Map a live job to the create/edit form driver dropdown value. */
+export function formDriverIdFromJob(job: Job): number {
+  if (job.status === 'No One' || job.driverId === '-1') return -1;
+  if (job.driverId && parseInt(job.driverId, 10) > 0) return parseInt(job.driverId, 10);
+  if (job.status === 'Pending') return -2;
+  return 0;
+}
+
+/** Assignment-only payload — same fields as card Assign / setPending / setNoOne. */
+export function buildAssignmentChanges(form: CreateJobFormState): Record<string, unknown> {
+  if (form.driverId === -1) {
+    return {
+      BookingStatus: 'No One',
+      Status: 'No One',
+      DriverId: -1,
+      VehicleId: 0,
+    };
+  }
+  if (form.driverId === -2 || form.driverId === 0) {
+    return {
+      BookingStatus: 'Pending',
+      Status: 'Pending',
+      DriverId: 0,
+      VehicleId: 0,
+      releasedAt: null,
+      manualOffer: false,
+    };
+  }
+  return {
+    BookingStatus: 'Offered',
+    Status: 'Offered',
+    DriverId: form.driverId,
+    VehicleId: parseInt(form.vehicleId, 10) || 0,
+    manualOffer: true,
+  };
+}
+
+export function driverAssignmentChanged(job: Job, form: CreateJobFormState): boolean {
+  const orig = formDriverIdFromJob(job);
+  if (form.driverId !== orig) return true;
+  if (form.driverId > 0) {
+    return String(form.vehicleId || '0') !== String(job.vehicleId || '0');
+  }
+  return false;
+}
+
 export function statusFromDriverId(driverId: number): 'Pending' | 'No One' | 'Offered' {
   if (driverId === -1) return 'No One';
   if (driverId > 0) return 'Offered';
@@ -313,12 +359,13 @@ function paymentLabelFromType(paymentType: PaymentType): string {
 
 export function buildJobChangesFromForm(
   form: CreateJobFormState,
-  dispatcherName: string
+  dispatcherName: string,
+  opts?: { includeAssignment?: boolean }
 ): Record<string, unknown> {
+  const includeAssignment = opts?.includeAssignment !== false;
   const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
   const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : '0,0';
   const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : '0,0';
-  const { dId, bookstatus } = driverBookstatus(form);
   const pickAddr = form.pick.address || form.pickInput;
   const dropAddr = form.drop.address || form.dropInput;
   const tariffId = form.fixedFareEnabled ? '-1' : form.tariffId;
@@ -331,7 +378,7 @@ export function buildJobChangesFromForm(
 
   const paymentMethod = paymentLabelFromType(form.paymentType);
 
-  return {
+  const changes: Record<string, unknown> = {
     PickAddress: pickAddr,
     PickLocation: pickAddr,
     DropAddress: dropAddr,
@@ -348,10 +395,6 @@ export function buildJobChangesFromForm(
     Pickingtime: bookingDateTime,
     DispatchTimebefore: dispatchBefore,
     Dispatchbefore: String(dispatchBefore),
-    BookingStatus: bookstatus,
-    Status: bookstatus,
-    DriverId: parseInt(dId, 10),
-    VehicleId: form.vehicleId || '0',
     Urgent: form.urgent ? 'Yes' : 'No',
     VehicleType: form.vehicleType === 'Any' ? 'Not Specified' : form.vehicleType,
     PaymentMethod: paymentMethod,
@@ -368,6 +411,12 @@ export function buildJobChangesFromForm(
     Acc_manager_id: form.accManagerId,
     Account_id: form.accountId,
   };
+
+  if (includeAssignment) {
+    Object.assign(changes, buildAssignmentChanges(form));
+  }
+
+  return changes;
 }
 
 export function jobToForm(job: Job): CreateJobFormState {
@@ -384,9 +433,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     (job.scheduledFor != null && job.scheduledFor > Date.now() + 60000);
 
   let driverId = 0;
-  if (job.status === 'No One' || job.driverId === '-1') driverId = -1;
-  else if (job.driverId && parseInt(job.driverId, 10) > 0) driverId = parseInt(job.driverId, 10);
-  else if (job.status === 'Pending') driverId = -2;
+  driverId = formDriverIdFromJob(job);
 
   const payment = (job.paymentType || '').toLowerCase();
   let paymentType: CreateJobFormState['paymentType'] = '';

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
 import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
-import { Edit, X, CheckCircle, RotateCcw, User, AlertTriangle } from 'lucide-react';
+import { Edit, X, CheckCircle, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
 import {
   formatJobDateTimeShort,
@@ -23,11 +23,9 @@ import { sourceDisplayName, paymentLabel, paymentBadgeColor } from '@/lib/utils'
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import {
-  assignJob,
+  applyJobAssignment,
   cancelJob,
   forceCompleteJob,
-  recallJob,
-  setNoOne,
   setPending,
 } from '@/lib/jobFlow';
 import { useUiStore } from '@/store/uiStore';
@@ -191,16 +189,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     if (!assignSelection) return;
     const selection = assignSelection;
     try {
-      if (selection === '__pending__') await setPending(job);
-      else if (selection === '__noone__') await setNoOne(job);
-      else {
-        const d = onlineDrivers.find((x) => x.driverId === selection);
-        if (!d) {
-          addToast({ type: 'error', title: 'Driver not found', message: 'Refresh and try again.' });
-          return;
-        }
-        await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq);
-      }
+      await applyJobAssignment(job, selection, onlineDrivers);
       addToast({
         type: 'success',
         title:
@@ -222,6 +211,68 @@ export function JobCard({ job, tab }: JobCardProps) {
       }
     }
   };
+
+  const showAssignControls = tab === 'ua' || tab === 'assign' || tab === 'queue';
+
+  const assignControls = showAssignControls ? (
+    <>
+      <select
+        className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border"
+        value={assignSelection}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          e.stopPropagation();
+          setAssignSelection(e.target.value);
+        }}
+      >
+        <option value="">Assign ▼</option>
+        <option value="__pending__">Pending</option>
+        <option value="__noone__">No One</option>
+        {onlineDrivers.length > 0 && <option disabled>— online —</option>}
+        {onlineDrivers.map((d) => (
+          <option key={d.driverId} value={d.driverId}>
+            {d.vehicleNo} {d.driverName}
+          </option>
+        ))}
+      </select>
+      <Button
+        variant="primary"
+        className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
+        disabled={!assignSelection}
+        onClick={(e) => {
+          e.stopPropagation();
+          void handleApplyAssign();
+        }}
+      >
+        Apply
+      </Button>
+      <Tooltip label="Edit job">
+        <button
+          type="button"
+          className={iconBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            openModalWith('createJob', { jobId: job.id });
+          }}
+        >
+          <Edit size={11} />
+        </button>
+      </Tooltip>
+      <Tooltip label="Cancel job">
+        <button
+          type="button"
+          className={cn(iconBtn, 'text-red-400')}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleCancelClick(job.id);
+          }}
+        >
+          <X size={11} />
+        </button>
+      </Tooltip>
+    </>
+  ) : null;
 
   const toneText = onColoredBg ? 'text-[#f1f5f9]' : 'bw-text';
   const toneMuted = onColoredBg ? 'text-[#cbd5e1]' : 'text-[var(--bw-muted)]';
@@ -367,65 +418,7 @@ export function JobCard({ job, tab }: JobCardProps) {
       )}
 
       <div className="flex flex-wrap items-center gap-0.5">
-        {tab === 'ua' && (
-          <>
-            <select
-              className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border"
-              value={assignSelection}
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onChange={(e) => {
-                e.stopPropagation();
-                setAssignSelection(e.target.value);
-              }}
-            >
-              <option value="">Assign ▼</option>
-              <option value="__pending__">Pending</option>
-              <option value="__noone__">No One</option>
-              {onlineDrivers.length > 0 && <option disabled>— online —</option>}
-              {onlineDrivers.map((d) => (
-                <option key={d.driverId} value={d.driverId}>
-                  {d.vehicleNo} {d.driverName}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="primary"
-              className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
-              disabled={!assignSelection}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleApplyAssign();
-              }}
-            >
-              Apply
-            </Button>
-            <Tooltip label="Edit job">
-              <button
-                type="button"
-                className={iconBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openModalWith('createJob', { jobId: job.id });
-                }}
-              >
-                <Edit size={11} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Cancel job">
-              <button
-                type="button"
-                className={cn(iconBtn, 'text-red-400')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCancelClick(job.id);
-                }}
-              >
-                <X size={11} />
-              </button>
-            </Tooltip>
-          </>
-        )}
+        {assignControls}
         {tab === 'offer' && (
           <Button
             variant="danger"
@@ -438,7 +431,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             Cancel Offer
           </Button>
         )}
-        {(tab === 'assign' || tab === 'active') && (
+        {tab === 'active' && (
           <>
             <Tooltip label="Complete job">
               <button
@@ -459,34 +452,6 @@ export function JobCard({ job, tab }: JobCardProps) {
                 onClick={(e) => {
                   e.stopPropagation();
                   handleCancelClick(job.id);
-                }}
-              >
-                <X size={11} />
-              </button>
-            </Tooltip>
-          </>
-        )}
-        {tab === 'queue' && (
-          <>
-            <Tooltip label="Recall to U-A">
-              <button
-                type="button"
-                className={iconBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void run(() => recallJob(job.id, job.originalStatus || 'Pending'), 'Recalled to U-A');
-                }}
-              >
-                <RotateCcw size={11} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Cancel job">
-              <button
-                type="button"
-                className={cn(iconBtn, 'text-red-400')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled');
                 }}
               >
                 <X size={11} />

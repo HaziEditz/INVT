@@ -12,11 +12,12 @@ import {
   searchCustomers,
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
-import { updateJob } from '@/lib/jobFlow';
+import { updateJob, applyFormDriverAssignment } from '@/lib/jobFlow';
 import {
   buildInsertParams,
   buildJobChangesFromForm,
   buildBookingDateTime,
+  driverAssignmentChanged,
   jobToForm,
   statusFromDriverId,
   CJ_SERVICES,
@@ -166,7 +167,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   const drivers = useDriverStore((s) => s.drivers);
   const availableDrivers = useMemo(
-    () => drivers.filter((d) => d.status === 'Available'),
+    () => drivers.filter((d) => d.status === 'Available' && d.driverId),
     [drivers]
   );
 
@@ -459,8 +460,14 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       console.log('[Book] Step 2 - form data:', form);
 
       if (isEdit && editingJob) {
-        const changes = buildJobChangesFromForm(form, dispatcherName);
-        await updateJob(editingJob.id, companyId, changes, editingJob);
+        const metadataChanges = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+        const assignmentChanged = driverAssignmentChanged(editingJob, form);
+        await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+        if (assignmentChanged) {
+          const workingJob =
+            useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
+          await applyFormDriverAssignment(workingJob, form, availableDrivers);
+        }
         addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
         onClose();
         return;
@@ -805,12 +812,17 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                     patch({ driverId, vehicleId: d?.vehicleId || '0', queueNumber: 0 });
                   }}
                 >
-                  <option value={0}>Driver: Auto</option>
+                  {!isEdit && <option value={0}>Driver: Auto</option>}
                   <option value={-2}>Pending</option>
                   <option value={-1}>No One</option>
+                  {availableDrivers.length > 0 && (
+                    <option disabled value={-999}>
+                      — online —
+                    </option>
+                  )}
                   {availableDrivers.map((d) => (
                     <option key={d.driverId} value={parseInt(d.driverId, 10) || d.driverId}>
-                      {d.driverName}
+                      {d.vehicleNo} {d.driverName}
                     </option>
                   ))}
                 </select>

@@ -346,6 +346,44 @@ export async function forceCompleteJob(bookingId: number) {
   });
 }
 
+export async function applyJobAssignment(
+  job: Job,
+  selection: string,
+  onlineDrivers: Array<{ driverId: string; vehicleId: string }>
+): Promise<void> {
+  if (selection === '__pending__') {
+    await setPending(job);
+    return;
+  }
+  if (selection === '__noone__') {
+    await setNoOne(job);
+    return;
+  }
+  const d = onlineDrivers.find((x) => x.driverId === selection);
+  if (!d) throw new Error('Driver not found');
+  await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq);
+}
+
+/** Apply driver dropdown choice from the create/edit job form. */
+export async function applyFormDriverAssignment(
+  job: Job,
+  form: { driverId: number; vehicleId: string },
+  availableDrivers: Array<{ driverId: string; vehicleId: string }>
+): Promise<void> {
+  if (form.driverId > 0) {
+    const d =
+      availableDrivers.find((x) => parseInt(x.driverId, 10) === form.driverId) ??
+      ({ driverId: String(form.driverId), vehicleId: form.vehicleId || '0' } as const);
+    await assignJob(job.id, d.driverId, d.vehicleId || form.vehicleId || '0', job.updateSeq);
+    return;
+  }
+  if (form.driverId === -1) {
+    await setNoOne(job);
+    return;
+  }
+  await setPending(job);
+}
+
 export async function setPending(job: Job) {
   return updateJob(job.id, job.companyId, {
     BookingStatus: 'Pending',
