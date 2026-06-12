@@ -67,9 +67,15 @@ export function JobTabs() {
           style={{ left: indicator.left, width: indicator.width }}
         />
       </div>
-      <div className="flex-1 overflow-y-auto p-2.5">
+      <div className="flex-1 overflow-y-auto p-2">
         {tabJobs.length === 0 ? (
           <div className="text-center bw-muted text-sm py-12">No jobs in this tab</div>
+        ) : activeTab === 'ua' ? (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-1.5 auto-rows-min content-start">
+            {tabJobs.map((job) => (
+              <JobCard key={job.id} job={job} tab={activeTab} />
+            ))}
+          </div>
         ) : (
           tabJobs.map((job) => <JobCard key={job.id} job={job} tab={activeTab} />)
         )}

@@ -3,13 +3,19 @@ import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
 import { Edit, X, CheckCircle, RotateCcw, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
 import {
+  formatJobDateTimeShort,
   getJobCardAppearance,
+  jobBookedAtTime,
+  jobOverdueLabel,
+  jobPickupTypeLabel,
+  jobReturnReasonAlert,
+  jobScheduledTime,
   uaStatusBadge,
 } from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
-import { sourceBadgeLabel, paymentLabel, paymentBadgeColor } from '@/lib/utils';
+import { sourceBadgeLabel, sourceDisplayName, paymentLabel, paymentBadgeColor } from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import {
@@ -64,7 +70,23 @@ export function JobCard({ job, tab }: JobCardProps) {
   const cardLook = useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
   const statusBadge = tab === 'ua' ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
-  const onColoredBg = !!cardLook.foregroundColor;
+  const toned = !!cardLook.tone;
+  const onColoredBg = toned;
+
+  const uaMeta = useMemo(() => {
+    if (tab !== 'ua') return null;
+    const booked = jobBookedAtTime(job);
+    const pickup = jobScheduledTime(job);
+    return {
+      sourceName: sourceDisplayName(job.source),
+      bookedLabel: booked ? formatJobDateTimeShort(booked) : '—',
+      pickupLabel: jobPickupTypeLabel(job),
+      pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
+      overdue: jobOverdueLabel(job, now),
+      returnAlert: jobReturnReasonAlert(job),
+      dispatcher: job.dispatcherName?.trim() || null,
+    };
+  }, [job, tab, now]);
 
   const { waitLabel, waitMinutes } = useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
@@ -140,13 +162,19 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const dispatchLabelClass = onColoredBg ? 'text-white font-bold bw-job-card-solid-text' : 'text-amber-400 font-medium';
+  const dispatchLabelClass = onColoredBg
+    ? 'text-[#fef3c7] font-bold'
+    : 'text-amber-400 font-medium';
+
+  const toneText = onColoredBg ? 'text-[#f1f5f9]' : 'bw-text';
+  const toneMuted = onColoredBg ? 'text-[#cbd5e1]' : 'text-[var(--bw-muted)]';
+  const toneLabel = onColoredBg ? 'text-[#94a3b8]' : 'text-[var(--bw-muted)]';
 
   return (
     <div
       className={cn(
-        'rounded mb-1 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
-        onColoredBg ? 'px-2 py-2' : 'px-1.5 py-1.5',
+        'rounded mb-0 min-w-0 w-full border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
+        onColoredBg ? 'px-2 py-2 bw-job-card-toned' : 'px-1.5 py-1.5 mb-1',
         highlighted && 'ring-1 ring-[var(--bw-accent)]/60',
         cardLook.flash && 'bw-dispatch-flash'
       )}
@@ -154,18 +182,140 @@ export function JobCard({ job, tab }: JobCardProps) {
         ...(cardLook.flash
           ? ({
               ['--bw-card-bg' as string]: cardLook.backgroundColor,
-              ['--bw-card-bg-pulse' as string]: '#991b1b',
+              ['--bw-card-bg-pulse' as string]: 'rgba(239, 68, 68, 0.48)',
             } as CSSProperties)
           : { backgroundColor: cardLook.backgroundColor }),
         borderLeftColor: cardLook.borderLeftColor,
         color: cardLook.foregroundColor,
       }}
     >
+      {tab === 'ua' && uaMeta ? (
+        <>
+          <div className="flex flex-wrap items-center gap-1 mb-1">
+            <span className={cn('font-mono text-[9px] font-bold', toneText)}>#{job.id}</span>
+            <Badge color="#64748b" className="!text-[9px] !px-1 !py-0 shrink-0">
+              {uaMeta.sourceName}
+            </Badge>
+            {statusBadge && (
+              <span
+                className="text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0"
+                style={{ color: statusBadge.color, backgroundColor: statusBadge.bg }}
+              >
+                {statusBadge.label}
+              </span>
+            )}
+            <span
+              className={cn(
+                'text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0',
+                uaMeta.pickupLabel === 'ASAP'
+                  ? 'bg-emerald-500/25 text-emerald-300'
+                  : 'bg-blue-500/25 text-blue-200'
+              )}
+            >
+              {uaMeta.pickupLabel}
+            </span>
+            {cardLook.label === 'DISPATCH NOW' && (
+              <span className={cn('text-[9px] uppercase tracking-wide', dispatchLabelClass)}>
+                {cardLook.label}
+              </span>
+            )}
+            {job.urgent && (
+              <Badge color="#ef4444" className="!text-[9px] !px-1 !py-0">
+                URGENT
+              </Badge>
+            )}
+          </div>
+
+          <div className={cn('grid grid-cols-1 gap-0.5 mb-1 text-[9px] leading-snug', toneMuted)}>
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+              <span>
+                <span className={toneLabel}>Booked:</span> {uaMeta.bookedLabel}
+              </span>
+              {uaMeta.pickupLabel !== 'ASAP' && uaMeta.pickupTime && (
+                <span>
+                  <span className={toneLabel}>Pickup:</span> {uaMeta.pickupTime}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-center">
+              {uaMeta.overdue && (
+                <span className="text-[9px] font-semibold text-amber-300 bg-amber-500/15 px-1 py-0.5 rounded">
+                  {uaMeta.overdue}
+                </span>
+              )}
+              <span className={cn('text-[9px] px-1 py-0.5 rounded-full border font-medium', waitBadgeClass(waitMinutes))}>
+                {waitLabel}
+              </span>
+            </div>
+          </div>
+
+          <div className={cn('mb-1 text-[10px] leading-snug space-y-1', toneText)}>
+            <div className="flex gap-1.5 items-start min-h-[14px]">
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer mt-1"
+                onMouseEnter={showRoutePreview}
+                onMouseLeave={clearRoutePreview}
+              />
+              <span className="truncate font-medium">{job.pickAddress || 'No pickup'}</span>
+            </div>
+            <div className={cn('flex gap-1.5 items-start min-h-[14px]', toneMuted)}>
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer mt-1"
+                onMouseEnter={showRoutePreview}
+                onMouseLeave={clearRoutePreview}
+              />
+              <span className="truncate">{job.dropAddress || 'No dropoff'}</span>
+            </div>
+          </div>
+
+          <div className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[9px] mb-1', toneMuted)}>
+            <span className="inline-flex items-center gap-0.5 truncate max-w-full">
+              <User size={9} />
+              {job.passengerName || '—'}
+            </span>
+            {job.passengerPhone && <span className="truncate">{job.passengerPhone}</span>}
+            <Badge color={paymentBadgeColor(job.paymentType)} className="!text-[9px] !px-1 !py-0 shrink-0">
+              {paymentLabel(job.paymentType)}
+            </Badge>
+            {job.estimatedFare && job.estimatedFare !== '0' && (
+              <span className="shrink-0 font-medium text-emerald-400">${job.estimatedFare}</span>
+            )}
+          </div>
+
+          {uaMeta.dispatcher && (
+            <div className={cn('text-[9px] mb-1 truncate', toneMuted)}>
+              <span className={toneLabel}>Dispatcher:</span> {uaMeta.dispatcher}
+            </div>
+          )}
+
+          {uaMeta.returnAlert && (
+            <div
+              className={cn(
+                'text-[9px] mb-1 px-1 py-0.5 rounded leading-snug',
+                uaMeta.returnAlert.kind === 'reject' && 'bg-red-500/20 text-red-300',
+                uaMeta.returnAlert.kind === 'not_reached' && 'bg-purple-500/20 text-purple-200',
+                uaMeta.returnAlert.kind === 'warning' && 'bg-amber-500/15 text-amber-200'
+              )}
+            >
+              {uaMeta.returnAlert.kind === 'not_reached' ? 'Not reached: ' : ''}
+              {uaMeta.returnAlert.kind === 'reject' ? 'Rejected: ' : ''}
+              {uaMeta.returnAlert.text}
+            </div>
+          )}
+
+          {job.notes && (
+            <div className={cn('text-[9px] mb-1 line-clamp-2 italic leading-snug', toneMuted)}>
+              {job.notes}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
       <div className={cn('flex flex-wrap items-center gap-1', onColoredBg ? 'mb-1' : 'mb-0.5')}>
         <span
           className={cn(
             'font-mono text-[9px] font-bold',
-            onColoredBg ? 'text-white bw-job-card-solid-text' : 'bw-text'
+            onColoredBg ? 'text-[#f1f5f9]' : 'bw-text'
           )}
         >
           #{job.id}
@@ -194,9 +344,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         <span
           className={cn(
             'ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium',
-            onColoredBg
-              ? 'bg-black/20 border-white/30 text-white bw-job-card-solid-text'
-              : waitBadgeClass(waitMinutes)
+            waitBadgeClass(waitMinutes)
           )}
         >
           {waitLabel}
@@ -210,12 +358,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span
-            className={cn(
-              'truncate font-medium',
-              onColoredBg ? 'text-white bw-job-card-solid-text' : 'bw-text'
-            )}
-          >
+          <span className={cn('truncate font-medium', toneText)}>
             {job.pickAddress || 'No pickup'}
           </span>
         </div>
@@ -225,12 +368,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             onMouseEnter={showRoutePreview}
             onMouseLeave={clearRoutePreview}
           />
-          <span
-            className={cn(
-              'truncate',
-              onColoredBg ? 'text-white/95 bw-job-card-solid-text' : 'text-[var(--bw-muted)]'
-            )}
-          >
+          <span className={cn('truncate', toneMuted)}>
             {job.dropAddress || 'No dropoff'}
           </span>
         </div>
@@ -239,7 +377,8 @@ export function JobCard({ job, tab }: JobCardProps) {
       <div
         className={cn(
           'flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1 min-h-[14px]',
-          onColoredBg ? 'text-[10px] text-white/95 bw-job-card-solid-text' : 'text-[9px] mb-0.5 text-[var(--bw-muted)]'
+          onColoredBg ? 'text-[10px]' : 'text-[9px] mb-0.5',
+          toneMuted
         )}
       >
         <span className="inline-flex items-center gap-0.5 truncate max-w-[45%]">
@@ -251,21 +390,16 @@ export function JobCard({ job, tab }: JobCardProps) {
           {paymentLabel(job.paymentType)}
         </Badge>
         {job.estimatedFare && job.estimatedFare !== '0' && (
-          <span className={cn('shrink-0 font-medium', onColoredBg ? 'text-emerald-200' : 'text-emerald-400')}>
-            ${job.estimatedFare}
-          </span>
+          <span className="shrink-0 font-medium text-emerald-400">${job.estimatedFare}</span>
         )}
       </div>
 
       {job.notes && (
-        <div
-          className={cn(
-            'text-[9px] mb-1 line-clamp-1 italic',
-            onColoredBg ? 'text-white/85 bw-job-card-solid-text' : 'text-[var(--bw-muted)] mb-0.5'
-          )}
-        >
+        <div className={cn('text-[9px] mb-1 line-clamp-1 italic', toneMuted)}>
           {job.notes}
         </div>
+      )}
+        </>
       )}
 
       {tab === 'offer' && job.offeredAt && (

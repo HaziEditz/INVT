@@ -27638,6 +27638,8 @@ function jobFromFirebase(key, rec, companyId) {
     updateSeq: parseInt(String(rec.updateSeq ?? "0"), 10) || 0,
     createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ""),
+    returnReason: String(rec.returnReason ?? rec.ReturnReason ?? "").trim() || void 0,
+    bookingType: String(rec.bookingType ?? rec.BookingType ?? "").trim() || void 0,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ""),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ""),
     cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? "")
@@ -27724,9 +27726,9 @@ function isPreBookedJob(job, now = /* @__PURE__ */ new Date()) {
   if (job.createdAt && pickup.getTime() - job.createdAt > 6e4) return true;
   return false;
 }
-const CARD_BLUE_SOLID = "#2563eb";
+const CARD_BLUE_SOFT = "rgba(96, 165, 250, 0.34)";
 const CARD_BLUE_TINT = "rgba(79, 110, 247, 0.32)";
-const CARD_RED_SOLID = "#dc2626";
+const CARD_RED_SOFT = "rgba(248, 113, 113, 0.34)";
 const CARD_RED_LIGHT = "rgba(239, 68, 68, 0.28)";
 function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
   if (tab === "active") {
@@ -27757,18 +27759,18 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
       });
       if (now.getTime() >= dispatchMs) {
         return {
-          backgroundColor: CARD_RED_SOLID,
-          borderLeftColor: "#ef4444",
-          foregroundColor: "#ffffff",
+          backgroundColor: CARD_RED_SOFT,
+          borderLeftColor: "#f87171",
+          tone: "red",
           flash: isPreBookedJob(job, now),
           label: "DISPATCH NOW"
         };
       }
       if (isScheduledJob(job)) {
         return {
-          backgroundColor: CARD_BLUE_SOLID,
-          borderLeftColor: "#4f6ef7",
-          foregroundColor: "#ffffff",
+          backgroundColor: CARD_BLUE_SOFT,
+          borderLeftColor: "#60a5fa",
+          tone: "blue",
           flash: false,
           label: `Sched: ${pickLabel}`
         };
@@ -27797,6 +27799,63 @@ function jobTabForStatus(job) {
   if (st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived") return "assign";
   if (st2 === "Offered") return "offer";
   return "ua";
+}
+function jobBookedAtTime(job) {
+  if (job.createdAt) {
+    const d2 = new Date(job.createdAt);
+    if (!Number.isNaN(d2.getTime())) return d2;
+  }
+  return jobScheduledTime(job);
+}
+function formatJobDateTimeShort(d2) {
+  const now = /* @__PURE__ */ new Date();
+  const sameDay = d2.getFullYear() === now.getFullYear() && d2.getMonth() === now.getMonth() && d2.getDate() === now.getDate();
+  const time = d2.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (sameDay) return time;
+  return d2.toLocaleString("en-NZ", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+function jobPickupTypeLabel(job) {
+  var _a2;
+  if (((_a2 = job.bookingType) == null ? void 0 : _a2.toUpperCase()) === "ASAP" && (job.dispatchBeforeMinutes ?? 0) === 0) {
+    return "ASAP";
+  }
+  if (isScheduledJob(job) || (job.dispatchBeforeMinutes ?? 0) > 0) {
+    const pickup = jobScheduledTime(job);
+    if (pickup) {
+      const t2 = pickup.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
+      return `Sched: ${t2}`;
+    }
+  }
+  return "ASAP";
+}
+function jobOverdueMinutes(job, now = /* @__PURE__ */ new Date()) {
+  const dispatchAt = jobDispatchTime(job);
+  if (!dispatchAt) return null;
+  const mins = Math.floor((now.getTime() - dispatchAt.getTime()) / 6e4);
+  return mins > 0 ? mins : null;
+}
+function jobOverdueLabel(job, now = /* @__PURE__ */ new Date()) {
+  const mins = jobOverdueMinutes(job, now);
+  if (mins == null) return null;
+  return mins === 1 ? "Overdue 1 min" : `Overdue ${mins} min`;
+}
+function jobReturnReasonAlert(job) {
+  const r = (job.returnReason || "").trim();
+  if (!r) return null;
+  const lower = r.toLowerCase();
+  if (lower.includes("reject") || lower.includes("declined")) {
+    return { kind: "reject", text: r };
+  }
+  if (lower.includes("network") || lower.includes("no response") || lower.includes("timeout") || lower.includes("unreached") || lower.includes("not reached") || lower.includes("no-response")) {
+    return { kind: "not_reached", text: r };
+  }
+  return { kind: "warning", text: r };
 }
 const createStoreImpl = (createState) => {
   let state;
@@ -28057,6 +28116,14 @@ function sourceLabel(src) {
   if (s2.includes("passenger") || s2 === "app") return "APP";
   if (s2.includes("web") || s2.includes("website")) return "WEB";
   return s2.slice(0, 8).toUpperCase();
+}
+function sourceDisplayName(src) {
+  const label = sourceLabel(src);
+  if (label === "DESK") return "Dispatcher";
+  if (label === "WEB") return "Website";
+  if (label === "APP") return "Passenger App";
+  if (label === "HAIL") return "Hail";
+  return label;
 }
 function sourceBadgeLabel(src, dispatcherName) {
   const label = sourceLabel(src);
@@ -31303,7 +31370,23 @@ function JobCard({ job, tab }) {
   const cardLook = reactExports.useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
   const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
-  const onColoredBg = !!cardLook.foregroundColor;
+  const toned = !!cardLook.tone;
+  const onColoredBg = toned;
+  const uaMeta = reactExports.useMemo(() => {
+    var _a2;
+    if (tab !== "ua") return null;
+    const booked = jobBookedAtTime(job);
+    const pickup = jobScheduledTime(job);
+    return {
+      sourceName: sourceDisplayName(job.source),
+      bookedLabel: booked ? formatJobDateTimeShort(booked) : "—",
+      pickupLabel: jobPickupTypeLabel(job),
+      pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
+      overdue: jobOverdueLabel(job, now),
+      returnAlert: jobReturnReasonAlert(job),
+      dispatcher: ((_a2 = job.dispatcherName) == null ? void 0 : _a2.trim()) || null
+    };
+  }, [job, tab, now]);
   const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
     try {
@@ -31369,134 +31452,217 @@ function JobCard({ job, tab }) {
       if (d2) run(() => assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq), "Assigned");
     }
   };
-  const dispatchLabelClass = onColoredBg ? "text-white font-bold bw-job-card-solid-text" : "text-amber-400 font-medium";
+  const dispatchLabelClass = onColoredBg ? "text-[#fef3c7] font-bold" : "text-amber-400 font-medium";
+  const toneText = onColoredBg ? "text-[#f1f5f9]" : "bw-text";
+  const toneMuted = onColoredBg ? "text-[#cbd5e1]" : "text-[var(--bw-muted)]";
+  const toneLabel = onColoredBg ? "text-[#94a3b8]" : "text-[var(--bw-muted)]";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       className: cn(
-        "rounded mb-1 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150",
-        onColoredBg ? "px-2 py-2" : "px-1.5 py-1.5",
+        "rounded mb-0 min-w-0 w-full border border-[var(--bw-border)] border-l-[3px] transition-all duration-150",
+        onColoredBg ? "px-2 py-2 bw-job-card-toned" : "px-1.5 py-1.5 mb-1",
         highlighted && "ring-1 ring-[var(--bw-accent)]/60",
         cardLook.flash && "bw-dispatch-flash"
       ),
       style: {
         ...cardLook.flash ? {
           ["--bw-card-bg"]: cardLook.backgroundColor,
-          ["--bw-card-bg-pulse"]: "#991b1b"
+          ["--bw-card-bg-pulse"]: "rgba(239, 68, 68, 0.48)"
         } : { backgroundColor: cardLook.backgroundColor },
         borderLeftColor: cardLook.borderLeftColor,
         color: cardLook.foregroundColor
       },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex flex-wrap items-center gap-1", onColoredBg ? "mb-1" : "mb-0.5"), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "span",
+        tab === "ua" && uaMeta ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-1 mb-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("font-mono text-[9px] font-bold", toneText), children: [
+              "#",
+              job.id
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", className: "!text-[9px] !px-1 !py-0 shrink-0", children: uaMeta.sourceName }),
+            statusBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0",
+                style: { color: statusBadge.color, backgroundColor: statusBadge.bg },
+                children: statusBadge.label
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: cn(
+                  "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0",
+                  uaMeta.pickupLabel === "ASAP" ? "bg-emerald-500/25 text-emerald-300" : "bg-blue-500/25 text-blue-200"
+                ),
+                children: uaMeta.pickupLabel
+              }
+            ),
+            cardLook.label === "DISPATCH NOW" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] uppercase tracking-wide", dispatchLabelClass), children: cardLook.label }),
+            job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", className: "!text-[9px] !px-1 !py-0", children: "URGENT" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("grid grid-cols-1 gap-0.5 mb-1 text-[9px] leading-snug", toneMuted), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: toneLabel, children: "Booked:" }),
+                " ",
+                uaMeta.bookedLabel
+              ] }),
+              uaMeta.pickupLabel !== "ASAP" && uaMeta.pickupTime && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: toneLabel, children: "Pickup:" }),
+                " ",
+                uaMeta.pickupTime
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap gap-x-2 gap-y-0.5 items-center", children: [
+              uaMeta.overdue && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-semibold text-amber-300 bg-amber-500/15 px-1 py-0.5 rounded", children: uaMeta.overdue }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] px-1 py-0.5 rounded-full border font-medium", waitBadgeClass(waitMinutes)), children: waitLabel })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("mb-1 text-[10px] leading-snug space-y-1", toneText), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start min-h-[14px]", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  className: "w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer mt-1",
+                  onMouseEnter: showRoutePreview,
+                  onMouseLeave: clearRoutePreview
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate font-medium", children: job.pickAddress || "No pickup" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex gap-1.5 items-start min-h-[14px]", toneMuted), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  className: "w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer mt-1",
+                  onMouseEnter: showRoutePreview,
+                  onMouseLeave: clearRoutePreview
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.dropAddress || "No dropoff" })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[9px] mb-1", toneMuted), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-full", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
+              job.passengerName || "—"
+            ] }),
+            job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
+            job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "shrink-0 font-medium text-emerald-400", children: [
+              "$",
+              job.estimatedFare
+            ] })
+          ] }),
+          uaMeta.dispatcher && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("text-[9px] mb-1 truncate", toneMuted), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: toneLabel, children: "Dispatcher:" }),
+            " ",
+            uaMeta.dispatcher
+          ] }),
+          uaMeta.returnAlert && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
             {
               className: cn(
-                "font-mono text-[9px] font-bold",
-                onColoredBg ? "text-white bw-job-card-solid-text" : "bw-text"
+                "text-[9px] mb-1 px-1 py-0.5 rounded leading-snug",
+                uaMeta.returnAlert.kind === "reject" && "bg-red-500/20 text-red-300",
+                uaMeta.returnAlert.kind === "not_reached" && "bg-purple-500/20 text-purple-200",
+                uaMeta.returnAlert.kind === "warning" && "bg-amber-500/15 text-amber-200"
               ),
               children: [
-                "#",
-                job.id
+                uaMeta.returnAlert.kind === "not_reached" ? "Not reached: " : "",
+                uaMeta.returnAlert.kind === "reject" ? "Rejected: " : "",
+                uaMeta.returnAlert.text
               ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", className: "!text-[9px] !px-1 !py-0", children: sourceBadgeLabel(job.source, job.dispatcherName) }),
-          statusBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "span",
-            {
-              className: "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide",
-              style: { color: statusBadge.color, backgroundColor: statusBadge.bg },
-              children: statusBadge.label
-            }
-          ),
-          cardLook.label && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] uppercase tracking-wide", dispatchLabelClass), children: cardLook.label }),
-          job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", className: "!text-[9px] !px-1 !py-0", children: "URGENT" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "span",
-            {
-              className: cn(
-                "ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium",
-                onColoredBg ? "bg-black/20 border-white/30 text-white bw-job-card-solid-text" : waitBadgeClass(waitMinutes)
-              ),
-              children: waitLabel
-            }
-          )
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("mb-1", onColoredBg ? "text-[11px] leading-snug space-y-1" : "text-[10px] leading-tight mb-0.5 space-y-0"), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start min-h-[16px]", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
+          job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("text-[9px] mb-1 line-clamp-2 italic leading-snug", toneMuted), children: job.notes })
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("flex flex-wrap items-center gap-1", onColoredBg ? "mb-1" : "mb-0.5"), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "span",
               {
-                className: "w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer mt-1",
-                onMouseEnter: showRoutePreview,
-                onMouseLeave: clearRoutePreview
+                className: cn(
+                  "font-mono text-[9px] font-bold",
+                  onColoredBg ? "text-[#f1f5f9]" : "bw-text"
+                ),
+                children: [
+                  "#",
+                  job.id
+                ]
               }
             ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#64748b", className: "!text-[9px] !px-1 !py-0", children: sourceBadgeLabel(job.source, job.dispatcherName) }),
+            statusBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide",
+                style: { color: statusBadge.color, backgroundColor: statusBadge.bg },
+                children: statusBadge.label
+              }
+            ),
+            cardLook.label && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("text-[9px] uppercase tracking-wide", dispatchLabelClass), children: cardLook.label }),
+            job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", className: "!text-[9px] !px-1 !py-0", children: "URGENT" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "span",
               {
                 className: cn(
-                  "truncate font-medium",
-                  onColoredBg ? "text-white bw-job-card-solid-text" : "bw-text"
+                  "ml-auto text-[9px] px-1.5 py-0.5 rounded-full border font-medium",
+                  waitBadgeClass(waitMinutes)
                 ),
-                children: job.pickAddress || "No pickup"
+                children: waitLabel
               }
             )
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start min-h-[16px]", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "span",
-              {
-                className: "w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer mt-1",
-                onMouseEnter: showRoutePreview,
-                onMouseLeave: clearRoutePreview
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "span",
-              {
-                className: cn(
-                  "truncate",
-                  onColoredBg ? "text-white/95 bw-job-card-solid-text" : "text-[var(--bw-muted)]"
-                ),
-                children: job.dropAddress || "No dropoff"
-              }
-            )
-          ] })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: cn("mb-1", onColoredBg ? "text-[11px] leading-snug space-y-1" : "text-[10px] leading-tight mb-0.5 space-y-0"), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start min-h-[16px]", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  className: "w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer mt-1",
+                  onMouseEnter: showRoutePreview,
+                  onMouseLeave: clearRoutePreview
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate font-medium", toneText), children: job.pickAddress || "No pickup" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1.5 items-start min-h-[16px]", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  className: "w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer mt-1",
+                  onMouseEnter: showRoutePreview,
+                  onMouseLeave: clearRoutePreview
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate", toneMuted), children: job.dropAddress || "No dropoff" })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              className: cn(
+                "flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1 min-h-[14px]",
+                onColoredBg ? "text-[10px]" : "text-[9px] mb-0.5",
+                toneMuted
+              ),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
+                  job.passengerName || "—"
+                ] }),
+                job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
+                job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "shrink-0 font-medium text-emerald-400", children: [
+                  "$",
+                  job.estimatedFare
+                ] })
+              ]
+            }
+          ),
+          job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: cn("text-[9px] mb-1 line-clamp-1 italic", toneMuted), children: job.notes })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: cn(
-              "flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1 min-h-[14px]",
-              onColoredBg ? "text-[10px] text-white/95 bw-job-card-solid-text" : "text-[9px] mb-0.5 text-[var(--bw-muted)]"
-            ),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
-                job.passengerName || "—"
-              ] }),
-              job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
-              job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("shrink-0 font-medium", onColoredBg ? "text-emerald-200" : "text-emerald-400"), children: [
-                "$",
-                job.estimatedFare
-              ] })
-            ]
-          }
-        ),
-        job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "div",
-          {
-            className: cn(
-              "text-[9px] mb-1 line-clamp-1 italic",
-              onColoredBg ? "text-white/85 bw-job-card-solid-text" : "text-[var(--bw-muted)] mb-0.5"
-            ),
-            children: job.notes
-          }
-        ),
         tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[9px] text-amber-400 mb-0.5", children: [
           "Offer expires ",
           formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
@@ -31787,7 +31953,7 @@ function JobTabs() {
         }
       )
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2.5", children: tabJobs.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center bw-muted text-sm py-12", children: "No jobs in this tab" }) : tabJobs.map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-2", children: tabJobs.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center bw-muted text-sm py-12", children: "No jobs in this tab" }) : activeTab === "ua" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-1.5 auto-rows-min content-start", children: tabJobs.map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) }) : tabJobs.map((job) => /* @__PURE__ */ jsxRuntimeExports.jsx(JobCard, { job, tab: activeTab }, job.id)) })
   ] });
 }
 const MSG_REPEATED_SET_OPTIONS = (options) => `The setOptions() function should only be called once. The options passed to the additional call (${JSON.stringify(options)}) will be ignored.`;
@@ -41061,7 +41227,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-YqxnG3_c.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-yh1VLJL6.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43219,7 +43385,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-GbR6ronW.js");
+        const { writeActiveDispatcher } = await import("./notifications-BxorJv-H.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43246,7 +43412,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-GbR6ronW.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BxorJv-H.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43574,4 +43740,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BtLtYasJ.js.map
+//# sourceMappingURL=index-BJ7oKK_b.js.map

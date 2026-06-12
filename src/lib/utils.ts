@@ -23,6 +23,16 @@ export function sourceLabel(src: string): string {
   return s.slice(0, 8).toUpperCase();
 }
 
+/** Full booking source name for job cards. */
+export function sourceDisplayName(src: string): string {
+  const label = sourceLabel(src);
+  if (label === 'DESK') return 'Dispatcher';
+  if (label === 'WEB') return 'Website';
+  if (label === 'APP') return 'Passenger App';
+  if (label === 'HAIL') return 'Hail';
+  return label;
+}
+
 /** Source badge text — DESK shows dispatcher initials/name when available. */
 export function sourceBadgeLabel(src: string, dispatcherName?: string): string {
   const label = sourceLabel(src);

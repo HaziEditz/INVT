@@ -95,6 +95,8 @@ export interface Job {
   cancelledAt?: string;
   cancelReason?: string;
   dispatcherName?: string;
+  returnReason?: string;
+  bookingType?: string;
   timeline?: JobTimelineEvent[];
 }
 
@@ -184,6 +186,8 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     updateSeq: parseInt(String(rec.updateSeq ?? '0'), 10) || 0,
     createdAt: rec.createdAt ? Number(rec.createdAt) : undefined,
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
+    returnReason: String(rec.returnReason ?? rec.ReturnReason ?? '').trim() || undefined,
+    bookingType: String(rec.bookingType ?? rec.BookingType ?? '').trim() || undefined,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ''),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ''),
     cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? ''),
@@ -297,11 +301,12 @@ export interface JobCardAppearance {
   foregroundColor?: string;
   flash: boolean;
   label: string | null;
+  tone?: 'blue' | 'red';
 }
 
-const CARD_BLUE_SOLID = '#2563eb';
+const CARD_BLUE_SOFT = 'rgba(96, 165, 250, 0.34)';
 const CARD_BLUE_TINT = 'rgba(79, 110, 247, 0.32)';
-const CARD_RED_SOLID = '#dc2626';
+const CARD_RED_SOFT = 'rgba(248, 113, 113, 0.34)';
 const CARD_RED_LIGHT = 'rgba(239, 68, 68, 0.28)';
 
 /** Card background/border for dispatch console — use inline styles to beat .bw-card-static. */
@@ -337,18 +342,18 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
 
       if (now.getTime() >= dispatchMs) {
         return {
-          backgroundColor: CARD_RED_SOLID,
-          borderLeftColor: '#ef4444',
-          foregroundColor: '#ffffff',
+          backgroundColor: CARD_RED_SOFT,
+          borderLeftColor: '#f87171',
+          tone: 'red',
           flash: isPreBookedJob(job, now),
           label: 'DISPATCH NOW',
         };
       }
       if (isScheduledJob(job)) {
         return {
-          backgroundColor: CARD_BLUE_SOLID,
-          borderLeftColor: '#4f6ef7',
-          foregroundColor: '#ffffff',
+          backgroundColor: CARD_BLUE_SOFT,
+          borderLeftColor: '#60a5fa',
+          tone: 'blue',
           flash: false,
           label: `Sched: ${pickLabel}`,
         };
@@ -389,7 +394,7 @@ export function getScheduledDispatchUi(job: Job, now = new Date()): ScheduledDis
       state: 'dispatch_now',
       label: appearance.label,
       borderColor: appearance.borderLeftColor,
-      flash: true,
+      flash: appearance.flash,
       missedBg: false,
     };
   }
@@ -420,4 +425,90 @@ export function jobTabForStatus(job: Job): JobTab {
   if (st === 'Assigned' || st === 'Picking' || st === 'Arrived') return 'assign';
   if (st === 'Offered') return 'offer';
   return 'ua';
+}
+
+/** When the job was booked / entered the system. */
+export function jobBookedAtTime(job: Job): Date | null {
+  if (job.createdAt) {
+    const d = new Date(job.createdAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return jobScheduledTime(job);
+}
+
+export function formatJobDateTimeShort(d: Date): string {
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (sameDay) return time;
+  return d.toLocaleString('en-NZ', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/** Pickup label for UA cards — ASAP or Sched: HH:MM. */
+export function jobPickupTypeLabel(job: Job): string {
+  const preBooked =
+    (job.dispatchBeforeMinutes ?? 0) > 0 ||
+    !!job.notifyDispatchAt ||
+    normalizeJobStatus(job.status) === 'Scheduled' ||
+    (job.createdAt &&
+      jobScheduledTime(job) &&
+      jobScheduledTime(job)!.getTime() - job.createdAt > 60_000);
+
+  if (!preBooked && job.bookingType?.toUpperCase() !== 'SCHEDULED') {
+    return 'ASAP';
+  }
+
+  const pickup = jobScheduledTime(job);
+  if (pickup) {
+    const t = pickup.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `Sched: ${t}`;
+  }
+  return 'ASAP';
+}
+
+/** Minutes past dispatch window — null if not overdue. */
+export function jobOverdueMinutes(job: Job, now = new Date()): number | null {
+  const dispatchAt = jobDispatchTime(job);
+  if (!dispatchAt) return null;
+  const mins = Math.floor((now.getTime() - dispatchAt.getTime()) / 60_000);
+  return mins > 0 ? mins : null;
+}
+
+export function jobOverdueLabel(job: Job, now = new Date()): string | null {
+  const mins = jobOverdueMinutes(job, now);
+  if (mins == null) return null;
+  return mins === 1 ? 'Overdue 1 min' : `Overdue ${mins} min`;
+}
+
+export type JobReturnAlertKind = 'reject' | 'not_reached' | 'warning';
+
+export function jobReturnReasonAlert(
+  job: Job
+): { kind: JobReturnAlertKind; text: string } | null {
+  const r = (job.returnReason || '').trim();
+  if (!r) return null;
+  const lower = r.toLowerCase();
+  if (lower.includes('reject') || lower.includes('declined')) {
+    return { kind: 'reject', text: r };
+  }
+  if (
+    lower.includes('network') ||
+    lower.includes('no response') ||
+    lower.includes('timeout') ||
+    lower.includes('unreached') ||
+    lower.includes('not reached') ||
+    lower.includes('no-response')
+  ) {
+    return { kind: 'not_reached', text: r };
+  }
+  return { kind: 'warning', text: r };
 }

@@ -1,4 +1,4 @@
-import { g as getDb, s as set, r as ref } from "./index-BtLtYasJ.js";
+import { g as getDb, s as set, r as ref } from "./index-BJ7oKK_b.js";
 async function writeActiveDispatcher(companyId, sessionId, data) {
   const db = getDb();
   await set(ref(db, `activeDispatchers/${companyId}/${sessionId}`), {
@@ -9,4 +9,4 @@ async function writeActiveDispatcher(companyId, sessionId, data) {
 export {
   writeActiveDispatcher
 };
-//# sourceMappingURL=notifications-GbR6ronW.js.map
+//# sourceMappingURL=notifications-BxorJv-H.js.map
