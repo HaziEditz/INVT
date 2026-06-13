@@ -27949,6 +27949,45 @@ function mergeJobUpdate(existing, incoming) {
   }
   return merged;
 }
+const createStoreImpl = (createState) => {
+  let state;
+  const listeners = /* @__PURE__ */ new Set();
+  const setState = (partial, replace) => {
+    const nextState = typeof partial === "function" ? partial(state) : partial;
+    if (!Object.is(nextState, state)) {
+      const previousState = state;
+      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
+      listeners.forEach((listener) => listener(state, previousState));
+    }
+  };
+  const getState = () => state;
+  const getInitialState = () => initialState;
+  const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+  const api = { setState, getState, getInitialState, subscribe };
+  const initialState = state = createState(setState, getState, api);
+  return api;
+};
+const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
+const identity = (arg) => arg;
+function useStore(api, selector = identity) {
+  const slice = React.useSyncExternalStore(
+    api.subscribe,
+    React.useCallback(() => selector(api.getState()), [api, selector]),
+    React.useCallback(() => selector(api.getInitialState()), [api, selector])
+  );
+  React.useDebugValue(slice);
+  return slice;
+}
+const createImpl = (createState) => {
+  const api = createStore(createState);
+  const useBoundStore = (selector) => useStore(api, selector);
+  Object.assign(useBoundStore, api);
+  return useBoundStore;
+};
+const create = ((createState) => createState ? createImpl(createState) : createImpl);
 function uaPickupSortKey(job) {
   var _a2;
   return ((_a2 = jobScheduledTime(job)) == null ? void 0 : _a2.getTime()) ?? job.createdAt ?? Number.MAX_SAFE_INTEGER;
@@ -28008,45 +28047,6 @@ const useJobStore = create((set2, get2) => ({
   setHoveredJobId: (id) => set2({ hoveredJobId: id }),
   setActiveTab: (tab) => set2({ activeTab: tab })
 }));
-const createStoreImpl = (createState) => {
-  let state;
-  const listeners = /* @__PURE__ */ new Set();
-  const setState = (partial, replace) => {
-    const nextState = typeof partial === "function" ? partial(state) : partial;
-    if (!Object.is(nextState, state)) {
-      const previousState = state;
-      state = (replace != null ? replace : typeof nextState !== "object" || nextState === null) ? nextState : Object.assign({}, state, nextState);
-      listeners.forEach((listener) => listener(state, previousState));
-    }
-  };
-  const getState = () => state;
-  const getInitialState = () => initialState;
-  const subscribe = (listener) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  };
-  const api = { setState, getState, getInitialState, subscribe };
-  const initialState = state = createState(setState, getState, api);
-  return api;
-};
-const createStore = ((createState) => createState ? createStoreImpl(createState) : createStoreImpl);
-const identity = (arg) => arg;
-function useStore(api, selector = identity) {
-  const slice = React.useSyncExternalStore(
-    api.subscribe,
-    React.useCallback(() => selector(api.getState()), [api, selector]),
-    React.useCallback(() => selector(api.getInitialState()), [api, selector])
-  );
-  React.useDebugValue(slice);
-  return slice;
-}
-const createImpl = (createState) => {
-  const api = createStore(createState);
-  const useBoundStore = (selector) => useStore(api, selector);
-  Object.assign(useBoundStore, api);
-  return useBoundStore;
-};
-const create$1 = ((createState) => createState ? createImpl(createState) : createImpl);
 const THEME_ORDER = ["dark", "dark-blue", "light"];
 const THEME_LABELS = {
   dark: "Dark",
@@ -28089,7 +28089,7 @@ function inferCategory(t2) {
   if (hay.includes("app") || hay.includes("web") || hay.includes("hail")) return "new_booking";
   return "general";
 }
-const useUiStore = create$1((set2, get2) => ({
+const useUiStore = create((set2, get2) => ({
   theme: initThemeFromStorage(),
   openModal: null,
   modalJobId: null,
@@ -29827,7 +29827,7 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
     ] })
   ] });
 }
-const useDriverStore = create$1((set2, get2) => ({
+const useDriverStore = create((set2, get2) => ({
   drivers: [],
   serviceFilter: "All",
   statusFilter: "All",
@@ -41525,7 +41525,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BO9KiGuF.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CYTmW5ru.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43683,7 +43683,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-Dlnm8-qD.js");
+        const { writeActiveDispatcher } = await import("./notifications-VeaUDAZE.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43710,7 +43710,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Dlnm8-qD.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-VeaUDAZE.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44038,4 +44038,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CW_9sd9z.js.map
+//# sourceMappingURL=index-DouBAaKk.js.map

@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import { mergeJobUpdate } from '@/lib/mergeJob';
 import type { Job, JobTab } from '@/types/job';
 import { jobScheduledTime, jobTabForStatus } from '@/types/job';
