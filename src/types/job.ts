@@ -121,6 +121,11 @@ export function parseLatLng(raw?: string): { lat: number; lng: number } | null {
   return { lat, lng };
 }
 
+export function jobUpdateSeqFromRecord(rec: Record<string, unknown>): number {
+  const raw = rec._seq ?? rec.version ?? rec.updateSeq ?? 0;
+  return parseInt(String(raw), 10) || 0;
+}
+
 export function jobFromFirebase(key: string, rec: Record<string, unknown>, companyId: string): Job | null {
   const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
   if (!id) return null;
@@ -197,7 +202,7 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
       return tid === '-1' || tname === 'fixed';
     })(),
     passengers: parseInt(String(rec.Passengers ?? '1'), 10) || 1,
-    updateSeq: parseInt(String(rec.updateSeq ?? '0'), 10) || 0,
+    updateSeq: jobUpdateSeqFromRecord(rec),
     createdAt: rec.createdAt ? Number(rec.createdAt) : undefined,
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? '').trim() || undefined,

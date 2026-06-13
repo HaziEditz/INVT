@@ -1,5 +1,5 @@
 import type { Job, JobStatus } from '@/types/job';
-import { jobFromFirebase } from '@/types/job';
+import { jobFromFirebase, jobUpdateSeqFromRecord } from '@/types/job';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
 import { useJobStore } from '@/store/jobStore';
@@ -159,23 +159,25 @@ async function postBookingUpdate(body: Record<string, unknown>): Promise<Booking
 }
 
 function seqFromFirebaseRecord(rec: Record<string, unknown>): number {
-  const raw = rec._seq ?? rec.version ?? rec.updateSeq ?? 0;
-  return parseInt(String(raw), 10) || 0;
+  return jobUpdateSeqFromRecord(rec);
 }
 
 async function fetchFreshJobFromFirebase(companyId: string, jobId: number): Promise<Job | null> {
-  try {
-    const db = getDb();
-    const snap = await get(ref(db, `pendingjobs/${companyId}/${jobId}`));
-    const val = snap.val();
-    if (!val || typeof val !== 'object') return null;
-    const rec = val as Record<string, unknown>;
-    const job = jobFromFirebase(String(jobId), rec, companyId);
-    if (!job) return null;
-    return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
-  } catch {
-    return null;
-  }
+  const readPath = async (path: string): Promise<Job | null> => {
+    try {
+      const db = getDb();
+      const snap = await get(ref(db, `${path}/${companyId}/${jobId}`));
+      const val = snap.val();
+      if (!val || typeof val !== 'object') return null;
+      const rec = val as Record<string, unknown>;
+      const job = jobFromFirebase(String(jobId), rec, companyId);
+      if (!job) return null;
+      return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
+    } catch {
+      return null;
+    }
+  };
+  return (await readPath('pendingjobs')) ?? (await readPath('allbookings'));
 }
 
 async function persistJobUpdate(
@@ -184,7 +186,9 @@ async function persistJobUpdate(
   changes: Record<string, unknown>,
   baseJob: Job
 ): Promise<void> {
-  let ifSeq = baseJob.updateSeq;
+  if (Object.keys(changes).length === 0) return;
+
+  let ifSeq = baseJob.updateSeq ?? 0;
 
   const attempt = async (): Promise<BookingUpdateResult> =>
     postBookingUpdate({
@@ -195,21 +199,32 @@ async function persistJobUpdate(
       ifSeq,
     });
 
-  let result = await attempt();
-
-  if (!result.ok && result.stale) {
-    const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
-    ifSeq = fresh?.updateSeq ?? result.currentSeq ?? ifSeq;
-    if (fresh) {
-      useJobStore.getState().upsertJob(fresh);
+  let result: BookingUpdateResult | null = null;
+  for (let tries = 0; tries < 3; tries++) {
+    const live = useJobStore.getState().jobs.find((j) => j.id === jobId);
+    if (tries > 0 && live?.updateSeq != null) {
+      ifSeq = live.updateSeq;
     }
+
     result = await attempt();
+    if (result.ok) break;
+
+    if (result.stale) {
+      if (result.currentSeq != null) ifSeq = result.currentSeq;
+      const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+      if (fresh) {
+        ifSeq = fresh.updateSeq ?? ifSeq;
+        useJobStore.getState().upsertJob(fresh);
+      }
+      continue;
+    }
+    break;
   }
 
-  if (!result.ok) {
+  if (!result?.ok) {
     const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
     if (fresh) useJobStore.getState().upsertJob(fresh);
-    const message = result.error || 'Could not save changes';
+    const message = result?.error || 'Could not save changes';
     useUiStore.getState().addToast({
       type: 'error',
       title: 'Job update failed',
@@ -226,6 +241,9 @@ async function persistJobUpdate(
     const db = getDb();
     const fbPatch = firebasePatchFromChanges(changes);
     if (Object.keys(fbPatch).length > 0) {
+      fbPatch._seq = authoritativeSeq;
+      fbPatch.version = authoritativeSeq;
+      fbPatch.updateSeq = authoritativeSeq;
       await update(ref(db, `pendingjobs/${companyId}/${jobId}`), fbPatch);
     }
   } catch {
@@ -239,6 +257,8 @@ export async function updateJob(
   changes: Record<string, unknown>,
   existingJob: Job
 ): Promise<void> {
+  if (Object.keys(changes).length === 0) return;
+
   const optimisticSeq = (existingJob.updateSeq ?? 0) + 1;
   const optimisticJob = applyChangesToJob(existingJob, changes, optimisticSeq);
   useJobStore.getState().upsertJob(optimisticJob);

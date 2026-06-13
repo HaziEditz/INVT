@@ -27589,6 +27589,10 @@ function parseLatLng$1(raw) {
   if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
   return { lat, lng };
 }
+function jobUpdateSeqFromRecord(rec) {
+  const raw = rec._seq ?? rec.version ?? rec.updateSeq ?? 0;
+  return parseInt(String(raw), 10) || 0;
+}
 function jobFromFirebase(key, rec, companyId) {
   const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
   if (!id) return null;
@@ -27646,7 +27650,7 @@ function jobFromFirebase(key, rec, companyId) {
       return tid === "-1" || tname === "fixed";
     })(),
     passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
-    updateSeq: parseInt(String(rec.updateSeq ?? "0"), 10) || 0,
+    updateSeq: jobUpdateSeqFromRecord(rec),
     createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ""),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? "").trim() || void 0,
@@ -28484,8 +28488,7 @@ async function postBookingUpdate(body) {
   return { ...data, ok: !!data.ok && r.ok, status: r.status };
 }
 function seqFromFirebaseRecord(rec) {
-  const raw = rec._seq ?? rec.version ?? rec.updateSeq ?? 0;
-  return parseInt(String(raw), 10) || 0;
+  return jobUpdateSeqFromRecord(rec);
 }
 async function fetchFreshJobFromFirebase(companyId, jobId) {
   try {
@@ -28502,7 +28505,8 @@ async function fetchFreshJobFromFirebase(companyId, jobId) {
   }
 }
 async function persistJobUpdate(jobId, companyId, changes, baseJob) {
-  let ifSeq = baseJob.updateSeq;
+  if (Object.keys(changes).length === 0) return;
+  let ifSeq = baseJob.updateSeq ?? 0;
   const attempt = async () => postBookingUpdate({
     bookingId: jobId,
     companyId,
@@ -28510,19 +28514,29 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
     by: "dispatcher",
     ifSeq
   });
-  let result = await attempt();
-  if (!result.ok && result.stale) {
-    const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
-    ifSeq = (fresh == null ? void 0 : fresh.updateSeq) ?? result.currentSeq ?? ifSeq;
-    if (fresh) {
-      useJobStore.getState().upsertJob(fresh);
+  let result = null;
+  for (let tries = 0; tries < 3; tries++) {
+    const live = useJobStore.getState().jobs.find((j2) => j2.id === jobId);
+    if (tries > 0 && (live == null ? void 0 : live.updateSeq) != null) {
+      ifSeq = live.updateSeq;
     }
     result = await attempt();
+    if (result.ok) break;
+    if (result.stale) {
+      if (result.currentSeq != null) ifSeq = result.currentSeq;
+      const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+      if (fresh) {
+        ifSeq = fresh.updateSeq ?? ifSeq;
+        useJobStore.getState().upsertJob(fresh);
+      }
+      continue;
+    }
+    break;
   }
-  if (!result.ok) {
+  if (!(result == null ? void 0 : result.ok)) {
     const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
     if (fresh) useJobStore.getState().upsertJob(fresh);
-    const message2 = result.error || "Could not save changes";
+    const message2 = (result == null ? void 0 : result.error) || "Could not save changes";
     useUiStore.getState().addToast({
       type: "error",
       title: "Job update failed",
@@ -28537,12 +28551,16 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
     const db2 = getDb();
     const fbPatch = firebasePatchFromChanges(changes);
     if (Object.keys(fbPatch).length > 0) {
+      fbPatch._seq = authoritativeSeq;
+      fbPatch.version = authoritativeSeq;
+      fbPatch.updateSeq = authoritativeSeq;
       await update(ref(db2, `pendingjobs/${companyId}/${jobId}`), fbPatch);
     }
   } catch {
   }
 }
 async function updateJob(jobId, companyId, changes, existingJob) {
+  if (Object.keys(changes).length === 0) return;
   const optimisticSeq = (existingJob.updateSeq ?? 0) + 1;
   const optimisticJob = applyChangesToJob(existingJob, changes, optimisticSeq);
   useJobStore.getState().upsertJob(optimisticJob);
@@ -32628,6 +32646,33 @@ function formDriverIdFromJob(job) {
   if (job.status === "Pending") return -2;
   return 0;
 }
+function buildAssignmentChanges(form) {
+  if (form.driverId === -1) {
+    return {
+      BookingStatus: "No One",
+      Status: "No One",
+      DriverId: -1,
+      VehicleId: 0
+    };
+  }
+  if (form.driverId === -2 || form.driverId === 0) {
+    return {
+      BookingStatus: "Pending",
+      Status: "Pending",
+      DriverId: 0,
+      VehicleId: 0,
+      releasedAt: null,
+      manualOffer: false
+    };
+  }
+  return {
+    BookingStatus: "Offered",
+    Status: "Offered",
+    DriverId: form.driverId,
+    VehicleId: parseInt(form.vehicleId, 10) || 0,
+    manualOffer: true
+  };
+}
 function driverAssignmentChanged(job, form) {
   const orig = formDriverIdFromJob(job);
   if (form.driverId !== orig) return true;
@@ -32657,6 +32702,7 @@ function paymentLabelFromType(paymentType) {
   return "";
 }
 function buildJobChangesFromForm(form, dispatcherName, opts) {
+  const includeAssignment = (opts == null ? void 0 : opts.includeAssignment) !== false;
   const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
   const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
   const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
@@ -32702,7 +32748,29 @@ function buildJobChangesFromForm(form, dispatcherName, opts) {
     Acc_manager_id: form.accManagerId,
     Account_id: form.accountId
   };
+  if (includeAssignment) {
+    Object.assign(changes, buildAssignmentChanges(form));
+  }
   return changes;
+}
+function normEditChangeValue(key, value) {
+  if (value == null) return "";
+  const s2 = String(value).trim();
+  if (key === "BookingDateTime" || key === "Pickingtime") {
+    return s2.replace("T", " ").replace(/:\d{2}$/, "").slice(0, 16);
+  }
+  return s2;
+}
+function buildJobEditChangesDelta(job, form, dispatcherName) {
+  const next = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+  const prev = buildJobChangesFromForm(jobToForm(job), dispatcherName, { includeAssignment: false });
+  const delta = {};
+  for (const key of Object.keys(next)) {
+    if (normEditChangeValue(key, next[key]) !== normEditChangeValue(key, prev[key])) {
+      delta[key] = next[key];
+    }
+  }
+  return delta;
 }
 function jobToForm(job) {
   var _a2, _b2, _c, _d;
@@ -33172,9 +33240,16 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     try {
       console.log("[Book] Step 2 - form data:", form);
       if (isEdit && editingJob) {
-        const metadataChanges = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+        const metadataChanges = buildJobEditChangesDelta(editingJob, form, dispatcherName);
         const assignmentChanged = driverAssignmentChanged(editingJob, form);
-        await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+        if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
+          addToast({ type: "info", title: "No changes to save" });
+          onClose();
+          return;
+        }
+        if (Object.keys(metadataChanges).length > 0) {
+          await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+        }
         if (assignmentChanged) {
           const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
           await applyFormDriverAssignment(workingJob, form, availableDrivers);
@@ -41332,7 +41407,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CekMSjnw.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Dp1kH4ot.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43490,7 +43565,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BtKx5rpM.js");
+        const { writeActiveDispatcher } = await import("./notifications-CAtjKdNF.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43517,7 +43592,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BtKx5rpM.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CAtjKdNF.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43845,4 +43920,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-ChUQjlOj.js.map
+//# sourceMappingURL=index-D1CaCVBH.js.map

@@ -2624,11 +2624,12 @@ function updateBooking(opts) {
       return raw;
     })());
     _fbChanged._seq            = _newSeq;
+    _fbChanged.version         = _newSeq;
+    _fbChanged.updateSeq       = _newSeq;
     _fbChanged.jobUpdatedAt    = Date.now();
     _fbChanged.jobUpdatedAtIso = new Date().toISOString();
     // §FIX-DA-G5/G4 — driver-app public contract: version + serverTimestamp
     // + 6-value eventType on every booking write.
-    _fbChanged.version         = _newSeq;
     _fbChanged.updatedAt       = _FB_SERVER_TIMESTAMP;
     _fbChanged.eventType       = _ubMapEventType(_eventTypes[0] || 'JobUpdated');
     (async () => {

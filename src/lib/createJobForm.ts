@@ -419,6 +419,32 @@ export function buildJobChangesFromForm(
   return changes;
 }
 
+function normEditChangeValue(key: string, value: unknown): string {
+  if (value == null) return '';
+  const s = String(value).trim();
+  if (key === 'BookingDateTime' || key === 'Pickingtime') {
+    return s.replace('T', ' ').replace(/:\d{2}$/, '').slice(0, 16);
+  }
+  return s;
+}
+
+/** Only fields that differ from the current job — avoids overwriting unrelated server fields. */
+export function buildJobEditChangesDelta(
+  job: Job,
+  form: CreateJobFormState,
+  dispatcherName: string
+): Record<string, unknown> {
+  const next = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+  const prev = buildJobChangesFromForm(jobToForm(job), dispatcherName, { includeAssignment: false });
+  const delta: Record<string, unknown> = {};
+  for (const key of Object.keys(next)) {
+    if (normEditChangeValue(key, next[key]) !== normEditChangeValue(key, prev[key])) {
+      delta[key] = next[key];
+    }
+  }
+  return delta;
+}
+
 export function jobToForm(job: Job): CreateJobFormState {
   const form = defaultCreateJobForm();
   const pick = parseLatLng(job.pickLatLng);

@@ -15,7 +15,7 @@ import {
 import { updateJob, applyFormDriverAssignment } from '@/lib/jobFlow';
 import {
   buildInsertParams,
-  buildJobChangesFromForm,
+  buildJobEditChangesDelta,
   buildBookingDateTime,
   driverAssignmentChanged,
   jobToForm,
@@ -460,9 +460,18 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       console.log('[Book] Step 2 - form data:', form);
 
       if (isEdit && editingJob) {
-        const metadataChanges = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+        const metadataChanges = buildJobEditChangesDelta(editingJob, form, dispatcherName);
         const assignmentChanged = driverAssignmentChanged(editingJob, form);
-        await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+
+        if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
+          addToast({ type: 'info', title: 'No changes to save' });
+          onClose();
+          return;
+        }
+
+        if (Object.keys(metadataChanges).length > 0) {
+          await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+        }
         if (assignmentChanged) {
           const workingJob =
             useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
