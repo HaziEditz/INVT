@@ -28647,15 +28647,18 @@ async function forceCompleteJob(bookingId) {
 async function applyJobAssignment(job, selection, onlineDrivers) {
   if (selection === "__pending__") {
     await setPending(job);
-    return;
+    return "pending";
   }
   if (selection === "__noone__") {
     await setNoOne(job);
-    return;
+    return "noone";
   }
   const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
   if (!d2) throw new Error("Driver not found");
+  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+  const isReassign = hadDriver && job.driverId !== d2.driverId;
   await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq, job);
+  return isReassign ? "reassign" : "assign";
 }
 async function applyFormDriverAssignment(job, form, availableDrivers) {
   if (form.driverId > 0) {
@@ -28680,11 +28683,13 @@ async function setPending(job) {
   }, job);
 }
 async function setNoOne(job) {
+  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
   return updateJob(job.id, job.companyId, {
     BookingStatus: "No One",
     Status: "No One",
     DriverId: -1,
-    VehicleId: 0
+    VehicleId: 0,
+    ...hadDriver ? { manualOffer: true } : {}
   }, job);
 }
 function logoutSession() {
@@ -31571,24 +31576,22 @@ function JobCard({ job, tab }) {
     if (!assignSelection) return;
     const selection = assignSelection;
     try {
-      await applyJobAssignment(job, selection, onlineDrivers);
+      const result = await applyJobAssignment(job, selection, onlineDrivers);
+      const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
       addToast({
         type: "success",
-        title: selection === "__pending__" ? "Set Pending" : selection === "__noone__" ? "Set No One" : "Driver assigned"
+        title: result === "pending" ? hadDriver ? "Job unassigned (Pending)" : "Set Pending" : result === "noone" ? hadDriver ? "Job unassigned (No One)" : "Set No One" : result === "reassign" ? "Driver reassigned" : "Driver assigned"
       });
       setAssignSelection("");
     } catch (e) {
-      const statusChange = selection === "__pending__" || selection === "__noone__";
-      if (!statusChange) {
-        addToast({
-          type: "error",
-          title: "Assign failed",
-          message: e instanceof Error ? e.message : ""
-        });
-      }
+      addToast({
+        type: "error",
+        title: selection === "__pending__" || selection === "__noone__" ? "Unassign failed" : "Assign failed",
+        message: e instanceof Error ? e.message : ""
+      });
     }
   };
-  const showAssignControls = tab === "ua" || tab === "assign" || tab === "queue";
+  const showAssignControls = tab === "ua" || tab === "assign" || tab === "queue" || tab === "offer";
   const assignControls = showAssignControls ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "select",
@@ -41317,7 +41320,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DLREYYu1.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CC8xQzzC.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43475,7 +43478,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DRb-XasS.js");
+        const { writeActiveDispatcher } = await import("./notifications-B4ucjQ-Q.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43502,7 +43505,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DRb-XasS.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B4ucjQ-Q.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43830,4 +43833,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-D22HiYDg.js.map
+//# sourceMappingURL=index-BK92mv6g.js.map

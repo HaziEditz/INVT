@@ -1170,6 +1170,62 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
   } catch(e) { console.warn(`  [CancelNotify #${bookingId}] failed: ${e && e.message}`); }
 }
 
+// Statuses where a driver may be holding this booking in their app UI.
+const _DRIVER_ATTACHED_STATUSES = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Busy', 'Queued']);
+
+function _normJobDriverId(raw) {
+  if (raw === null || raw === undefined) return '';
+  const s = String(raw).trim();
+  if (!s || s === '0' || s === '-1' || s === '-2') return '';
+  return s;
+}
+
+// Withdraw a job from a driver — clear Firebase offer/active paths and notify job_removed.
+// Used when dispatcher unassigns (Pending/No One) or reassigns to another driver.
+async function _withdrawJobFromDriver(opts) {
+  opts = opts || {};
+  const cid = String(opts.cid || opts.companyId || '').trim();
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const drvId = _normJobDriverId(opts.driverId || opts.drvId);
+  let vid = String(opts.vehicleId || opts.vid || '').trim();
+  const source = opts.source || 'withdrawJobFromDriver';
+  const version = opts.version != null ? opts.version : 0;
+  const prevStatus = String(opts.prevStatus || '');
+  if (!cid || !bookingId || !drvId) return;
+
+  if (!vid || vid === '0' || vid === drvId) {
+    const _resolved = _resolveDriverVehicleIds(drvId, vid);
+    vid = _resolved.vehicleId || drvId;
+  }
+
+  clearOfferOnFirebase(cid, vid, drvId, bookingId, source);
+
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) {
+      console.warn(`  [${source}] _withdrawJobFromDriver: no Firebase token — skipped notify`);
+      return;
+    }
+    await firebaseDbSet(`notification/${drvId}`, {
+      bookingid: `${bookingId},Job Removed,${drvId},Server,Dispatcher`,
+      content:   'Job has been taken back by dispatcher',
+      type:      'job_removed',
+      eventType: 'job_removed',
+      version,
+      updatedAt: _FB_SERVER_TIMESTAMP,
+      bookingId,
+    }, tok);
+    console.log(`  [${source}] _withdrawJobFromDriver notification/${drvId} → job_removed (#${bookingId})`);
+  } catch (e) {
+    console.warn(`  [${source}] _withdrawJobFromDriver notify failed: ${e && e.message}`);
+  }
+
+  const _restoreStates = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy']);
+  if (_restoreStates.has(prevStatus)) {
+    _maybeRestoreDriverState(drvId, vid, cid, bookingId, false, source);
+  }
+}
+
 // Decide and apply driver state change after a booking is cancelled/recalled.
 // Returns { driverFreed: bool, driverState: 'Available'|'Away'|'unchanged'|'unknown', queueNo: number|null }
 function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBookingId, driverFault, source) {
@@ -1699,9 +1755,17 @@ async function assignBooking(opts) {
   const _nextStatus = _trans.nextStatus || 'Offered';
   const _cid = String(job.companyId || '');
 
-  // Reassign — clear stale offer on the previous driver before fanning out anew.
-  if (_curDrv && _curDrv !== _targetDrv && _cid && (_curStatus === 'Offered' || _curStatus === 'Assigned')) {
-    clearOfferOnFirebase(_cid, _curVid || _curDrv, _curDrv, bookingId, `${source}-reassign`);
+  // Reassign — notify previous driver and clear their offer/active UI before new fanout.
+  if (_curDrv && _curDrv !== _targetDrv && _cid && _DRIVER_ATTACHED_STATUSES.has(_curStatus)) {
+    try {
+      await _withdrawJobFromDriver({
+        cid: _cid, bookingId, driverId: _curDrv,
+        vehicleId: _curVid || _curDrv, prevStatus: _curStatus,
+        version: parseInt(job.updateSeq) || 0, source: `${source}-reassign`,
+      });
+    } catch (e) {
+      console.warn(`  [${source}] _withdrawJobFromDriver (reassign) failed: ${e && e.message}`);
+    }
   }
 
   const _seqBefore = parseInt(job.updateSeq) || 0;
@@ -2446,6 +2510,10 @@ function updateBooking(opts) {
   }
   const job = jobStore[idx];
 
+  const _prevStatus = job.BookingStatus || 'Pending';
+  const _prevDrv    = _normJobDriverId(job.DriverId);
+  const _prevVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+
   // Race-safety check.
   const _curSeq = parseInt(job.updateSeq) || 0;
   if (ifSeq !== null && ifSeq !== _curSeq) {
@@ -2473,9 +2541,26 @@ function updateBooking(opts) {
   const _eventTypes = _classifyDiff(_diff);
   const _cid = String(job.companyId || '');
   const _vid = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
-  const _drv = (job.DriverId === 0 || job.DriverId === '0' || job.DriverId === -1 || job.DriverId === -2)
-                ? '' : String(job.DriverId || '').trim();
+  const _drv = _normJobDriverId(job.DriverId);
   const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
+
+  // Dispatcher unassign — job returned to Pending/No One; notify the previous driver.
+  const _newStatus = job.BookingStatus || 'Pending';
+  const _unassignToPool = (_newStatus === 'Pending' || _newStatus === 'No One') && !_drv;
+  if (_prevDrv && _DRIVER_ATTACHED_STATUSES.has(_prevStatus) && _unassignToPool) {
+    if (typeof markDispatcherRecalled === 'function') markDispatcherRecalled(bookingId);
+    (async () => {
+      try {
+        await _withdrawJobFromDriver({
+          cid: _cid, bookingId, driverId: _prevDrv,
+          vehicleId: _prevVid || _prevDrv, prevStatus: _prevStatus,
+          version: _newSeq, source: `${source}/unassign`,
+        });
+      } catch (e) {
+        console.warn(`  [${source}] _withdrawJobFromDriver (unassign) failed: ${e && e.message}`);
+      }
+    })();
+  }
 
   // Field-level events — data carries { field: { from, to }, ... } per changed field.
   if (_cid && bookingId) {

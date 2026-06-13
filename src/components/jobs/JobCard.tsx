@@ -193,30 +193,37 @@ export function JobCard({ job, tab }: JobCardProps) {
     if (!assignSelection) return;
     const selection = assignSelection;
     try {
-      await applyJobAssignment(job, selection, onlineDrivers);
+      const result = await applyJobAssignment(job, selection, onlineDrivers);
+      const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
       addToast({
         type: 'success',
         title:
-          selection === '__pending__'
-            ? 'Set Pending'
-            : selection === '__noone__'
-              ? 'Set No One'
-              : 'Driver assigned',
+          result === 'pending'
+            ? hadDriver
+              ? 'Job unassigned (Pending)'
+              : 'Set Pending'
+            : result === 'noone'
+              ? hadDriver
+                ? 'Job unassigned (No One)'
+                : 'Set No One'
+              : result === 'reassign'
+                ? 'Driver reassigned'
+                : 'Driver assigned',
       });
       setAssignSelection('');
     } catch (e) {
-      const statusChange = selection === '__pending__' || selection === '__noone__';
-      if (!statusChange) {
-        addToast({
-          type: 'error',
-          title: 'Assign failed',
-          message: e instanceof Error ? e.message : '',
-        });
-      }
+      addToast({
+        type: 'error',
+        title:
+          selection === '__pending__' || selection === '__noone__'
+            ? 'Unassign failed'
+            : 'Assign failed',
+        message: e instanceof Error ? e.message : '',
+      });
     }
   };
 
-  const showAssignControls = tab === 'ua' || tab === 'assign' || tab === 'queue';
+  const showAssignControls = tab === 'ua' || tab === 'assign' || tab === 'queue' || tab === 'offer';
 
   const assignControls = showAssignControls ? (
     <>

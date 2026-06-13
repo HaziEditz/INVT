@@ -420,18 +420,21 @@ export async function applyJobAssignment(
   job: Job,
   selection: string,
   onlineDrivers: Array<{ driverId: string; vehicleId: string }>
-): Promise<void> {
+): Promise<'pending' | 'noone' | 'assign' | 'reassign'> {
   if (selection === '__pending__') {
     await setPending(job);
-    return;
+    return 'pending';
   }
   if (selection === '__noone__') {
     await setNoOne(job);
-    return;
+    return 'noone';
   }
   const d = onlineDrivers.find((x) => x.driverId === selection);
   if (!d) throw new Error('Driver not found');
+  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+  const isReassign = hadDriver && job.driverId !== d.driverId;
   await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq, job);
+  return isReassign ? 'reassign' : 'assign';
 }
 
 /** Apply driver dropdown choice from the create/edit job form. */
@@ -466,11 +469,13 @@ export async function setPending(job: Job) {
 }
 
 export async function setNoOne(job: Job) {
+  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
   return updateJob(job.id, job.companyId, {
     BookingStatus: 'No One',
     Status: 'No One',
     DriverId: -1,
     VehicleId: 0,
+    ...(hadDriver ? { manualOffer: true } : {}),
   }, job);
 }
 
