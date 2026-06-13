@@ -515,8 +515,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setSubmitPhase(isEdit ? 'saving' : 'creating');
     try {
       if (isEdit && editingJob) {
-        const metadataChanges = buildJobEditChangesDelta(editingJob, form, dispatcherName);
-        const assignmentChanged = driverAssignmentChanged(editingJob, form);
+        const liveJob =
+          useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
+        const metadataChanges = buildJobEditChangesDelta(liveJob, form, dispatcherName);
+        const assignmentChanged = driverAssignmentChanged(liveJob, form);
 
         if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
           addToast({ type: 'info', title: 'No changes to save' });
@@ -525,7 +527,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         }
 
         if (Object.keys(metadataChanges).length > 0) {
-          await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+          await updateJob(liveJob.id, companyId, metadataChanges, liveJob);
         }
 
         addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
@@ -533,8 +535,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
         if (assignmentChanged) {
           const workingJob =
-            useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
-          void applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
+            useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? liveJob;
+          await applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
             addToast({
               type: 'error',
               title: 'Driver assignment failed',
@@ -627,15 +629,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       if (needsClientOffer) {
         const workingJob =
           useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
-        void applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true }).catch(
-          (e) => {
-            addToast({
-              type: 'error',
-              title: 'Driver offer failed',
-              message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`,
-            });
-          }
-        );
+        try {
+          await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
+        } catch (e) {
+          addToast({
+            type: 'error',
+            title: 'Driver offer failed',
+            message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`,
+          });
+        }
       }
     } catch (e) {
       console.error('[Book] ERROR:', e);

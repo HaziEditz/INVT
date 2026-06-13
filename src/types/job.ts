@@ -306,7 +306,9 @@ export function jobDispatchTime(job: Job): Date | null {
 }
 
 function isUnassignedForDispatch(job: Job): boolean {
-  if (job.driverId) return false;
+  const drv = String(job.driverId ?? '').trim();
+  const hasRealDriver = drv !== '' && drv !== '0' && drv !== '-1' && drv !== '-2';
+  if (hasRealDriver) return false;
   const st = normalizeJobStatus(job.status);
   return st === 'Pending' || st === 'No One' || st === 'Scheduled';
 }

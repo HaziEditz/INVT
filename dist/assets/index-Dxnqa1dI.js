@@ -27738,7 +27738,9 @@ function jobDispatchTime(job) {
   return new Date(pickup.getTime() - mins * 6e4);
 }
 function isUnassignedForDispatch(job) {
-  if (job.driverId) return false;
+  const drv = String(job.driverId ?? "").trim();
+  const hasRealDriver = drv !== "" && drv !== "0" && drv !== "-1" && drv !== "-2";
+  if (hasRealDriver) return false;
   const st2 = normalizeJobStatus(job.status);
   return st2 === "Pending" || st2 === "No One" || st2 === "Scheduled";
 }
@@ -29153,13 +29155,15 @@ async function applyFormDriverAssignment(job, form, availableDrivers, opts) {
   await setPending(job);
 }
 async function setPending(job) {
+  const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   return updateJob(job.id, job.companyId, {
     BookingStatus: "Pending",
     Status: "Pending",
     DriverId: 0,
     VehicleId: 0,
     releasedAt: null,
-    manualOffer: false
+    manualOffer: false,
+    ...hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}
   }, job);
 }
 async function setNoOne(job) {
@@ -29169,7 +29173,8 @@ async function setNoOne(job) {
     Status: "No One",
     DriverId: -1,
     VehicleId: 0,
-    ...hadDriver ? { manualOffer: true } : {}
+    ...hadDriver ? { manualOffer: true } : {},
+    ...hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}
   }, job);
 }
 function logoutSession() {
@@ -33395,21 +33400,22 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setSubmitPhase(isEdit ? "saving" : "creating");
     try {
       if (isEdit && editingJob) {
-        const metadataChanges = buildJobEditChangesDelta(editingJob, form, dispatcherName);
-        const assignmentChanged = driverAssignmentChanged(editingJob, form);
+        const liveJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
+        const metadataChanges = buildJobEditChangesDelta(liveJob, form, dispatcherName);
+        const assignmentChanged = driverAssignmentChanged(liveJob, form);
         if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
           addToast({ type: "info", title: "No changes to save" });
           onClose();
           return;
         }
         if (Object.keys(metadataChanges).length > 0) {
-          await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
+          await updateJob(liveJob.id, companyId, metadataChanges, liveJob);
         }
         addToast({ type: "success", title: "Job updated", category: "job_updated" });
         onClose();
         if (assignmentChanged) {
-          const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
-          void applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
+          const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? liveJob;
+          await applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
             addToast({
               type: "error",
               title: "Driver assignment failed",
@@ -33494,15 +33500,15 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       onClose();
       if (needsClientOffer) {
         const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === lastId) ?? createdJob;
-        void applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true }).catch(
-          (e) => {
-            addToast({
-              type: "error",
-              title: "Driver offer failed",
-              message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`
-            });
-          }
-        );
+        try {
+          await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
+        } catch (e) {
+          addToast({
+            type: "error",
+            title: "Driver offer failed",
+            message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`
+          });
+        }
       }
     } catch (e) {
       console.error("[Book] ERROR:", e);
@@ -41616,7 +41622,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Cbj1OPKJ.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-ClfkD7zo.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43774,7 +43780,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-Begj7Gxe.js");
+        const { writeActiveDispatcher } = await import("./notifications-DJ8Ev1bf.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43801,7 +43807,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Begj7Gxe.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DJ8Ev1bf.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44129,4 +44135,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Ds33ztir.js.map
+//# sourceMappingURL=index-Dxnqa1dI.js.map

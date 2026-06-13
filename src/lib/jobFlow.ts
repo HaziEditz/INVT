@@ -481,6 +481,7 @@ export async function applyFormDriverAssignment(
 }
 
 export async function setPending(job: Job) {
+  const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   return updateJob(job.id, job.companyId, {
     BookingStatus: 'Pending',
     Status: 'Pending',
@@ -488,6 +489,7 @@ export async function setPending(job: Job) {
     VehicleId: 0,
     releasedAt: null,
     manualOffer: false,
+    ...(hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}),
   }, job);
 }
 
@@ -499,6 +501,7 @@ export async function setNoOne(job: Job) {
     DriverId: -1,
     VehicleId: 0,
     ...(hadDriver ? { manualOffer: true } : {}),
+    ...(hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}),
   }, job);
 }
 

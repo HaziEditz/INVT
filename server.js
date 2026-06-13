@@ -1214,7 +1214,7 @@ async function _withdrawJobFromDriver(opts) {
   opts = opts || {};
   const cid = String(opts.cid || opts.companyId || '').trim();
   const bookingId = parseInt(opts.bookingId) || 0;
-  const drvId = _normJobDriverId(opts.driverId || opts.drvId);
+  const drvId = _attachedDriverIdFromJob({ DriverId: opts.driverId || opts.drvId });
   let vid = String(opts.vehicleId || opts.vid || '').trim();
   const source = opts.source || 'withdrawJobFromDriver';
   const version = opts.version != null ? opts.version : 0;
@@ -1587,10 +1587,18 @@ function _resolveDriverVehicleIds(driverId, vehicleId) {
   return { driverId: did, vehicleId: vid || did };
 }
 
-function _driverFirebaseIdsFromJob(job) {
+function _attachedDriverIdFromJob(job, withdrawHint) {
+  const hint = _normJobDriverId(withdrawHint);
   const drv = _normJobDriverId(job && job.DriverId)
            || _normJobDriverId(job && job.AssignedDriverId)
-           || _normJobDriverId(job && job.AssignedDriver);
+           || _normJobDriverId(job && job.AssignedDriver)
+           || hint;
+  if (!drv) return '';
+  return _normalizeNotifyDriverId(drv) || drv;
+}
+
+function _driverFirebaseIdsFromJob(job) {
+  const drv = _attachedDriverIdFromJob(job);
   if (!drv) return { driverId: '', vehicleId: '' };
   const rawVid = String((job && (job.VehicleNo || job.CallSign || job.VehicleId || job.AssignedVehicleId)) || '').trim();
   const resolved = _resolveDriverVehicleIds(drv, rawVid);
@@ -2077,15 +2085,25 @@ function acceptBooking(opts) {
   const _seqBefore = parseInt(job.updateSeq) || 0;
   job.BookingStatus     = 'Assigned';
   job.DriverAcceptedAt  = new Date().toISOString();
+  // Stamp driver attribution when accept arrives before assign fanout lands (direct-create race).
+  if (driverId && !_normJobDriverId(_jobDrv)) {
+    const _resolved = _resolveDriverVehicleIds(driverId, opts.vehicleId || job.VehicleId || job.VehicleNo);
+    const _stampDrv = _normalizeNotifyDriverId(_resolved.driverId) || _resolved.driverId;
+    job.DriverId         = _stampDrv;
+    job.AssignedDriverId = _stampDrv;
+    job.VehicleId        = _resolved.vehicleId;
+    job.VehicleNo        = _resolved.vehicleId;
+    job.CallSign         = _resolved.vehicleId;
+  }
   job.updateSeq         = _seqBefore + 1;
   job.lastUpdatedAt     = job.DriverAcceptedAt;
   job.lastUpdatedBy     = by;
   saveJobStore();
 
-  const _cid = String(job.companyId || '');
+  const _finalDrv = String(job.DriverId || '').trim() || _jobDrv;
   if (_cid) {
     _writeBookingEvent(_cid, bookingId, 'StatusChanged',
-      { from: _curStatus, to: 'Assigned', driverId: _jobDrv, action: 'accept' },
+      { from: _curStatus, to: 'Assigned', driverId: _finalDrv, action: 'accept' },
       by, job.updateSeq).catch(() => {});
   }
   // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/ so
@@ -2095,16 +2113,18 @@ function acceptBooking(opts) {
     lastUpdatedAt:    job.lastUpdatedAt,
     lastUpdatedBy:    job.lastUpdatedBy,
     BookingStatus:    job.BookingStatus,
+    DriverId:         job.DriverId || _finalDrv,
+    VehicleId:        job.VehicleId || '',
     DriverAcceptedAt: job.DriverAcceptedAt,
     PickAddress:      job.PickAddress || '',
     DropAddress:      job.DropAddress || '',
     PickLatLng:       job.PickLatLng || '',
     DropLatLng:       job.DropLatLng || '',
   }, false);
-  console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_jobDrv} seq=${job.updateSeq}`);
+  console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_finalDrv} seq=${job.updateSeq}`);
   return {
     ok: true, idempotent: false, status: 'Assigned',
-    driverId: _jobDrv, vehicleId: String(job.VehicleNo || job.CallSign || ''),
+    driverId: _finalDrv, vehicleId: String(job.VehicleNo || job.CallSign || ''),
     version: job.updateSeq,
     booking: _publicBooking(job)
   };
@@ -2644,9 +2664,12 @@ function updateBooking(opts) {
   }
   const job = jobStore[idx];
 
+  const _withdrawHint = _normJobDriverId(changes._withdrawDriverId);
+  if (_withdrawHint) delete changes._withdrawDriverId;
+
   const _prevStatus = job.BookingStatus || 'Pending';
-  const _prevDrv    = _normJobDriverId(job.DriverId);
-  const _prevVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+  const _prevDrv    = _attachedDriverIdFromJob(job, _withdrawHint);
+  const _prevVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || job.AssignedVehicleId || '').trim();
 
   // Race-safety check.
   const _curSeq = parseInt(job.updateSeq) || 0;
@@ -2675,14 +2698,15 @@ function updateBooking(opts) {
   const _eventTypes = _classifyDiff(_diff);
   const _cid = String(job.companyId || '');
   const _fbIds = _driverFirebaseIdsFromJob(job);
-  const _drv = _fbIds.driverId;
+  let _drv = _fbIds.driverId;
   const _vid = _fbIds.vehicleId;
   const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
 
   // Dispatcher unassign — job returned to Pending/No One; notify the previous driver.
   const _newStatus = job.BookingStatus || 'Pending';
   const _unassignToPool = (_newStatus === 'Pending' || _newStatus === 'No One') && !_drv;
-  if (_prevDrv && _DRIVER_ATTACHED_STATUSES.has(_prevStatus) && _unassignToPool) {
+  const _notifyDrvOnEdit = _drv || (_visible ? _prevDrv : '');
+  if (_prevDrv && (_DRIVER_ATTACHED_STATUSES.has(_prevStatus) || _withdrawHint) && _unassignToPool) {
     if (typeof markDispatcherRecalled === 'function') markDispatcherRecalled(bookingId);
     (async () => {
       try {
@@ -2748,13 +2772,14 @@ function updateBooking(opts) {
     })();
   }
 
-  // Notify the driver app — only when the booking is currently in their UI.
+  // Notify the driver app — use attached driver id even if status just left their UI.
   let _driverNotified = false;
-  if (_visible && _cid && _drv) {
+  if (_cid && _notifyDrvOnEdit && !_unassignToPool) {
     (async () => {
       try {
+        const _notifyJob = Object.assign({}, job, { DriverId: _notifyDrvOnEdit, AssignedDriverId: _notifyDrvOnEdit });
         await _writeDriverJobUpdatedNotification({
-          job, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
+          job: _notifyJob, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
           eventTypes: _eventTypes,
         });
       } catch (_e) {
