@@ -31833,12 +31833,24 @@ function JobCard({ job, tab }) {
               className: "!h-6 !px-1.5 !py-0 !text-[9px]",
               onClick: (e) => {
                 e.stopPropagation();
-                void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Offer cancelled");
+                handleCancelClick(job.id);
               },
               children: "Cancel Offer"
             }
           ),
           tab === "active" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: iconBtn,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  openModalWith("createJob", { jobId: job.id });
+                },
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
+              }
+            ) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
               "button",
               {
@@ -31884,7 +31896,7 @@ function JobCard({ job, tab }) {
                 className: cn(iconBtn, "text-red-400"),
                 onClick: (e) => {
                   e.stopPropagation();
-                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), "Cancelled");
+                  handleCancelClick(job.id);
                 },
                 children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
               }
@@ -41320,7 +41332,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CC8xQzzC.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CekMSjnw.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43478,7 +43490,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-B4ucjQ-Q.js");
+        const { writeActiveDispatcher } = await import("./notifications-BtKx5rpM.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43505,7 +43517,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-B4ucjQ-Q.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BtKx5rpM.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43833,4 +43845,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BK92mv6g.js.map
+//# sourceMappingURL=index-ChUQjlOj.js.map

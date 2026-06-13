@@ -1053,8 +1053,13 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
           const n = g.body || {};
           const refId = String(n.BookingId || n.bookingId || n.jobId || n._jobId || n.Id || '');
           if (refId && refId === _bId) {
-            const d = await fbRequest(`${FB_DB_URL}/notification/${_dId}.json?auth=${auth}`, 'DELETE', null);
-            console.log(`${_tag} notification/${_dId} deleted [${d.status}]`);
+            const _nType = String(n.type || n.eventType || n.content || '').toLowerCase();
+            if (_final === 'Cancelled' && (_nType.includes('cancel') || _nType === 'job_cancelled')) {
+              console.log(`${_tag} notification/${_dId} kept (cancel payload for #${_bId})`);
+            } else {
+              const d = await fbRequest(`${FB_DB_URL}/notification/${_dId}.json?auth=${auth}`, 'DELETE', null);
+              console.log(`${_tag} notification/${_dId} deleted [${d.status}]`);
+            }
           } else if (refId) {
             console.log(`${_tag} notification/${_dId} kept (refs job #${refId}, not #${_bId})`);
           }
@@ -1145,7 +1150,7 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
     // §FIX-DA-G4/G5 — driver-app public contract on the cancel notification.
     const _pubType = (opts && opts.recalled) ? 'recalled' : 'cancelled';
     const _ver     = (opts && opts.version != null) ? opts.version : 0;
-    firebaseDbSet(`notification/${drvId}`, {
+    await firebaseDbSet(`notification/${drvId}`, {
       bookingid: `${bookingId},Job Cancel,${drvId},Server,${_srcPretty}`,
       content: 'Job has been cancelled',
       type: 'job_cancelled',
@@ -1153,9 +1158,8 @@ async function _writeCancelNotify(cid, vehId, drvId, bookingId, cancelledBy, opt
       version:   _ver,
       updatedAt: _FB_SERVER_TIMESTAMP,
       bookingId: bookingId
-    }, _tok)
-      .then(() => console.log(`  [CancelNotify #${bookingId}] notification/${drvId} → Job Cancel (by ${_srcPretty})`))
-      .catch(e => console.warn(`  [CancelNotify #${bookingId}] notification write failed: ${e && e.message}`));
+    }, _tok);
+    console.log(`  [CancelNotify #${bookingId}] notification/${drvId} → Job Cancel (by ${_srcPretty})`);
     if (vehId) {
       // §FIX-DA-G2 + C2 — write eventType into the child first so the driver
       // app reads it off the onChildRemoved snapshot, then remove the node.
@@ -1399,15 +1403,24 @@ function cancelBooking(opts) {
 
   let driverFreed = false, driverState = 'unchanged', queueNo = null;
   if (_hasDriver) {
-    // 1. Per-booking Firebase cleanup (jobs/, pendingjobs/, online/current — booking-scoped via ETag).
-    _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Cancelled');
-    // 2. Driver cancel notification — only when not driver-initiated (driver-initiated already cleared their own UI).
-    if (cancelledBy !== 'driver') {
-      _writeCancelNotify(_cid, _vehId, _drvId, bookingId, _cancelledByPretty,
-        { recalled: !!recallToPending, version: job.updateSeq });
-    }
-    // 3. Driver state — restore only if no remaining active assignments.
-    const _ds = _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, driverFault, source);
+    const _resolvedCancel = _resolveDriverVehicleIds(_drvId, _vehId);
+    const _rDrv = _resolvedCancel.driverId;
+    const _rVid = _resolvedCancel.vehicleId;
+    (async () => {
+      try {
+        if (_cancelStage === 'Queued') {
+          await _removeDriverQueueFirebase(_cid, _rDrv, bookingId);
+        }
+        if (cancelledBy !== 'driver') {
+          await _writeCancelNotify(_cid, _rVid, _rDrv, bookingId, _cancelledByPretty,
+            { recalled: !!recallToPending, version: job.updateSeq });
+        }
+        await _bwClearJobFromFirebase(_cid, bookingId, _rVid, _rDrv, 'Cancelled');
+      } catch (e) {
+        console.warn(`  [${source}] driver cancel fanout failed: ${e && e.message}`);
+      }
+    })();
+    const _ds = _maybeRestoreDriverState(_rDrv, _rVid, _cid, bookingId, driverFault, source);
     driverFreed = _ds.driverFreed;
     driverState = _ds.driverState;
     queueNo     = _ds.queueNo;
@@ -1548,6 +1561,32 @@ function _resolveDriverVehicleIds(driverId, vehicleId) {
     }
   }
   return { driverId: did, vehicleId: vid || did };
+}
+
+function _driverFirebaseIdsFromJob(job) {
+  const drv = _normJobDriverId(job && job.DriverId);
+  if (!drv) return { driverId: '', vehicleId: '' };
+  const rawVid = String((job && (job.VehicleNo || job.CallSign || job.VehicleId)) || '').trim();
+  return _resolveDriverVehicleIds(drv, rawVid);
+}
+
+// Mirror canonical + alias fields so all job sources/types (taxi, food, freight, web, app)
+// update the same Firebase paths the driver app reads.
+function _mirrorFbJobFields(changed) {
+  const out = Object.assign({}, changed);
+  if (out.Name != null) {
+    out.PassengerName = out.Name;
+    out.passengername = out.Name;
+  }
+  if (out.PickAddress != null) out.pickAddress = out.PickAddress;
+  if (out.DropAddress != null) out.dropAddress = out.DropAddress;
+  if (out.PhoneNo != null) out.passengerPhone = out.PhoneNo;
+  if (out.Pickingtime != null && out.BookingDateTime == null) out.BookingDateTime = out.Pickingtime;
+  if (out.BookingDateTime != null && out.Pickingtime == null) out.Pickingtime = out.BookingDateTime;
+  if (out.PaymentMethod != null && out.PaymentType == null) out.PaymentType = out.PaymentMethod;
+  if (out.serviceType != null && out.ServiceType == null) out.ServiceType = out.serviceType;
+  if (out.ServiceType != null && out.serviceType == null) out.serviceType = out.ServiceType;
+  return out;
 }
 
 function _parseLatLngPair(raw) {
@@ -2540,8 +2579,9 @@ function updateBooking(opts) {
 
   const _eventTypes = _classifyDiff(_diff);
   const _cid = String(job.companyId || '');
-  const _vid = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
-  const _drv = _normJobDriverId(job.DriverId);
+  const _fbIds = _driverFirebaseIdsFromJob(job);
+  const _drv = _fbIds.driverId;
+  const _vid = _fbIds.vehicleId;
   const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
 
   // Dispatcher unassign — job returned to Pending/No One; notify the previous driver.
@@ -2578,8 +2618,11 @@ function updateBooking(opts) {
   // a booking-identity check to prevent overwriting Job A's fields when an
   // edit lands on the same driver's Job B.
   if (_cid && bookingId) {
-    const _fbChanged = {};
-    for (const _k of Object.keys(_diff)) _fbChanged[_k] = _diff[_k].to;
+    const _fbChanged = _mirrorFbJobFields((() => {
+      const raw = {};
+      for (const _k of Object.keys(_diff)) raw[_k] = _diff[_k].to;
+      return raw;
+    })());
     _fbChanged._seq            = _newSeq;
     _fbChanged.jobUpdatedAt    = Date.now();
     _fbChanged.jobUpdatedAtIso = new Date().toISOString();
@@ -2628,18 +2671,26 @@ function updateBooking(opts) {
           bookingId: bookingId,
           eventType: 'job_updated',
           version:   _newSeq,
-          updatedAt: _FB_SERVER_TIMESTAMP
+          updatedAt: _FB_SERVER_TIMESTAMP,
+          editNotice: 'Details changed',
         };
         if (_diff.PickAddress) { _payload.pickup = _diff.PickAddress.to; _payload.jobpickup = _diff.PickAddress.to; }
         if (_diff.DropAddress) { _payload.dropoff = _diff.DropAddress.to; _payload.jobdropoff = _diff.DropAddress.to; }
         if (_diff.Pickingtime || _diff.BookingDateTime) {
           _payload.Pickingtime = (_diff.Pickingtime || _diff.BookingDateTime).to;
+          _payload.pickupTime = _payload.Pickingtime;
         }
         if (_diff.Notes || _diff.JobInfo || _diff.Instructions) {
           _payload.notes = (_diff.Notes || _diff.JobInfo || _diff.Instructions).to;
           _payload.jobinfo = _payload.notes;
         }
-        await firebaseDbPatch(`notification/${_drv}`, _payload, _tok);
+        if (_diff.Name || _diff.PassengerName) {
+          _payload.jobname = (_diff.Name || _diff.PassengerName).to;
+        }
+        if (_diff.PhoneNo) _payload.JobphoneNo = _diff.PhoneNo.to;
+        if (!_payload.jobpickup) _payload.jobpickup = String(job.PickAddress || job.PickLocation || '');
+        if (!_payload.jobdropoff) _payload.jobdropoff = String(job.DropAddress || job.DropLocation || '');
+        await firebaseDbSet(`notification/${_drv}`, _payload, _tok);
         console.log(`  [${source}] §FIX-UB notification/${_drv} → ${_primaryType} seq=${_newSeq}`);
       } catch (_e) {
         console.warn(`  [${source}] §FIX-UB notification write failed: ${_e && _e.message}`);

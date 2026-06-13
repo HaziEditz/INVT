@@ -455,7 +455,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             className="!h-6 !px-1.5 !py-0 !text-[9px]"
             onClick={(e) => {
               e.stopPropagation();
-              void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Offer cancelled');
+              handleCancelClick(job.id);
             }}
           >
             Cancel Offer
@@ -463,6 +463,18 @@ export function JobCard({ job, tab }: JobCardProps) {
         )}
         {tab === 'active' && (
           <>
+            <Tooltip label="Edit job">
+              <button
+                type="button"
+                className={iconBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openModalWith('createJob', { jobId: job.id });
+                }}
+              >
+                <Edit size={11} />
+              </button>
+            </Tooltip>
             <Tooltip label="Complete job">
               <button
                 type="button"
@@ -507,7 +519,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                 className={cn(iconBtn, 'text-red-400')}
                 onClick={(e) => {
                   e.stopPropagation();
-                  void run(() => cancelJob(job.id, job.companyId, dispatcherName), 'Cancelled');
+                  handleCancelClick(job.id);
                 }}
               >
                 <X size={11} />
