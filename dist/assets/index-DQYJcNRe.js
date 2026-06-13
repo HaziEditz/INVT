@@ -33043,6 +33043,14 @@ function withBookingTimeout(promise, ms = 9e4, label = "Booking") {
     })
   ]);
 }
+const DISPATCHER_SETTINGS_TTL_MS = 5 * 60 * 1e3;
+const dispatcherSettingsCache = /* @__PURE__ */ new Map();
+function submitPhaseLabel(phase, isEdit) {
+  if (phase === "creating") return "Creating booking…";
+  if (phase === "offering") return "Sending driver offer…";
+  if (phase === "saving") return isEdit ? "Saving changes…" : "Saving…";
+  return "";
+}
 function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const open2 = useUiStore((s2) => s2.openModal === "createJob");
   const modalJobId = useUiStore((s2) => s2.modalJobId);
@@ -33066,6 +33074,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   );
   const [form, setForm] = reactExports.useState(defaultCreateJobForm);
   const [loading, setLoading] = reactExports.useState(false);
+  const [submitPhase, setSubmitPhase] = reactExports.useState(null);
+  const [cityDistLoading, setCityDistLoading] = reactExports.useState(false);
   const [tariffs, setTariffs] = reactExports.useState([]);
   const [stripePk, setStripePk] = reactExports.useState("");
   const [accountHits, setAccountHits] = reactExports.useState([]);
@@ -33081,6 +33091,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const dragging = reactExports.useRef(false);
   const dragOffset = reactExports.useRef({ x: 0, y: 0 });
   const posRef = reactExports.useRef(pos);
+  const submittingRef = reactExports.useRef(false);
   posRef.current = pos;
   const patch = reactExports.useCallback((p2) => {
     setForm((f2) => ({ ...f2, ...p2 }));
@@ -33138,7 +33149,18 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   }, [open2, editingJob, resetForm, setRoutePreview]);
   reactExports.useEffect(() => {
     if (!open2 || !companyId) return;
+    const cached = dispatcherSettingsCache.get(companyId);
+    if (cached && Date.now() - cached.at < DISPATCHER_SETTINGS_TTL_MS) {
+      setTariffs(cached.tariffs);
+      setStripePk(cached.stripePublicKey);
+      return;
+    }
     fetchDispatcherSettings().then((s2) => {
+      dispatcherSettingsCache.set(companyId, {
+        tariffs: s2.tariffs,
+        stripePublicKey: s2.stripePublicKey,
+        at: Date.now()
+      });
       setTariffs(s2.tariffs);
       setStripePk(s2.stripePublicKey);
     }).catch(() => {
@@ -33175,14 +33197,24 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   reactExports.useEffect(() => {
     if (!open2 || !form.pick.lat || !(settings == null ? void 0 : settings.city)) {
       setCityDistLabel("");
+      setCityDistLoading(false);
       return;
     }
     let cancelled = false;
-    fetchDrivingRoute(settings.city, form.pick).then((r) => {
-      if (!cancelled && r) setCityDistLabel(formatCityDistance(r.distanceKm, r.durationMin));
-    });
+    setCityDistLoading(true);
+    const t2 = setTimeout(() => {
+      fetchDrivingRoute(settings.city, form.pick).then((r) => {
+        if (!cancelled) {
+          setCityDistLabel(r ? formatCityDistance(r.distanceKm, r.durationMin) : "");
+        }
+      }).finally(() => {
+        if (!cancelled) setCityDistLoading(false);
+      });
+    }, 450);
     return () => {
       cancelled = true;
+      clearTimeout(t2);
+      setCityDistLoading(false);
     };
   }, [open2, form.pick.lat, form.pick.lng, settings == null ? void 0 : settings.city]);
   reactExports.useEffect(() => {
@@ -33321,22 +33353,15 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const bookOne = async (dateOverride) => {
     const f2 = dateOverride ? { ...form, timing: "later", laterDate: dateOverride } : form;
     const params = buildInsertParams(f2, dispatcherName);
-    console.log("[Book] Step 3 - calling API", { companyId, params });
-    const response = await withBookingTimeout(
-      insertDispatchBooking(companyId, params),
-      9e4,
-      "Booking API"
-    );
-    console.log("[Book] Step 4 - API response:", response);
-    console.log("[Book] Step 5 - Firebase write done");
-    return response;
+    return withBookingTimeout(insertDispatchBooking(companyId, params), 9e4, "Booking API");
   };
   const handleSubmit = async () => {
-    console.log("[Book] Step 1 - button clicked");
+    if (submittingRef.current || loading) return;
     if (!validatePickup()) return;
+    submittingRef.current = true;
     setLoading(true);
+    setSubmitPhase(isEdit ? "saving" : "creating");
     try {
-      console.log("[Book] Step 2 - form data:", form);
       if (isEdit && editingJob) {
         const metadataChanges = buildJobEditChangesDelta(editingJob, form, dispatcherName);
         const assignmentChanged = driverAssignmentChanged(editingJob, form);
@@ -33348,12 +33373,18 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         if (Object.keys(metadataChanges).length > 0) {
           await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
         }
-        if (assignmentChanged) {
-          const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
-          await applyFormDriverAssignment(workingJob, form, availableDrivers);
-        }
         addToast({ type: "success", title: "Job updated", category: "job_updated" });
         onClose();
+        if (assignmentChanged) {
+          const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
+          void applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
+            addToast({
+              type: "error",
+              title: "Driver assignment failed",
+              message: e instanceof Error ? e.message : ""
+            });
+          });
+        }
         return;
       }
       if (form.paymentType === "card" && form.cardAmount && stripePk && !form.cardPaid) {
@@ -33399,6 +33430,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       const targets = dates.length ? dates : [void 0];
       let lastId = 0;
       let lastStatus = "Pending";
+      setSubmitPhase("creating");
       for (const d2 of targets) {
         const res = await bookOne(d2);
         if (!(res == null ? void 0 : res.bookingId)) {
@@ -33410,26 +33442,36 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       if (!lastId) {
         throw new Error("Booking was not created — no job ID returned");
       }
+      const driverSelected = isAssignedDriverSelection(form.driverId);
+      const serverOffered = lastStatus === "Offered";
+      const needsClientOffer = driverSelected && !serverOffered;
       const createdJob = {
         ...jobFromForm(form, companyId, lastId, lastStatus),
         dispatcherName,
-        driverId: isAssignedDriverSelection(form.driverId) ? form.driverId : void 0,
-        vehicleId: isAssignedDriverSelection(form.driverId) ? form.vehicleId : void 0
+        driverId: driverSelected ? form.driverId : void 0,
+        vehicleId: driverSelected ? form.vehicleId : void 0
       };
       upsertJob(createdJob);
-      console.log("[Book] Step 6 - store updated", { bookingId: lastId, status: lastStatus });
-      if (isAssignedDriverSelection(form.driverId)) {
-        const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === lastId) ?? createdJob;
-        await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
-      }
       setActiveTab("ua");
       addToast({
         type: "success",
         title: targets.length > 1 ? `${targets.length} jobs created` : "Job booked",
-        message: `#${lastId}`,
+        message: `#${lastId}${serverOffered && driverSelected ? " · offer sent" : ""}`,
         category: "job_created"
       });
       onClose();
+      if (needsClientOffer) {
+        const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === lastId) ?? createdJob;
+        void applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true }).catch(
+          (e) => {
+            addToast({
+              type: "error",
+              title: "Driver offer failed",
+              message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`
+            });
+          }
+        );
+      }
     } catch (e) {
       console.error("[Book] ERROR:", e);
       addToast({
@@ -33438,9 +33480,17 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         message: e instanceof Error ? e.message : "Unknown error"
       });
     } finally {
+      submittingRef.current = false;
       setLoading(false);
+      setSubmitPhase(null);
     }
   };
+  const bookButtonLabel = reactExports.useMemo(() => {
+    if (!loading) return isEdit ? "SAVE ✓" : "BOOK ✓";
+    if (submitPhase === "creating") return "Creating…";
+    if (submitPhase === "saving") return "Saving…";
+    return "Working…";
+  }, [loading, submitPhase, isEdit]);
   const clearPayment = () => patch({ paymentType: "", cardPaid: false });
   if (!open2) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -33484,7 +33534,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
               }
             ),
             pickAddressError && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-red-400 mb-2", children: pickAddressError }),
-            cityDistLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#8892a4] mb-2", children: cityDistLabel }),
+            cityDistLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#8892a4] mb-2", children: "Calculating city distance…" }),
+            !cityDistLoading && cityDistLabel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] text-[#8892a4] mb-2", children: cityDistLabel }),
             form.stops.map((stop) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 mb-2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 AddressAutocomplete,
@@ -33904,17 +33955,25 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
             )
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "shrink-0 flex justify-end gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: resetForm, children: "Clear" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: onClose, children: "Cancel" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "shrink-0 flex items-center gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]", children: [
+          loading && submitPhase ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "cj-submit-status", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "cj-submit-spinner", "aria-hidden": true }),
+            submitPhaseLabel(submitPhase, isEdit)
+          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: resetForm, disabled: loading, children: "Clear" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cj-btn-ghost", onClick: onClose, disabled: loading, children: "Cancel" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "button",
             {
               type: "button",
               className: "cj-btn-book",
               onClick: handleSubmit,
               disabled: loading || !isEdit && (!pickFromAutocomplete || !form.pick.lat),
-              children: loading ? "Saving…" : isEdit ? "SAVE ✓" : "BOOK ✓"
+              "aria-busy": loading,
+              children: [
+                loading && /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { size: 14, className: "animate-spin" }),
+                bookButtonLabel
+              ]
             }
           )
         ] })
@@ -41525,7 +41584,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CR1kR3PA.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DpktQYbP.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43683,7 +43742,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-C7GgnH0R.js");
+        const { writeActiveDispatcher } = await import("./notifications-AVOVgWwR.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43710,7 +43769,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-C7GgnH0R.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-AVOVgWwR.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44038,4 +44097,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Dn2TM4BN.js.map
+//# sourceMappingURL=index-DQYJcNRe.js.map

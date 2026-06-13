@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, Minus, Plus, X } from 'lucide-react';
+import { ArrowUpDown, Loader2, Minus, Plus, X } from 'lucide-react';
 import { AddressAutocomplete } from '@/components/jobs/AddressAutocomplete';
 import { useTariffs } from '@/hooks/useTariffs';
 import { useUiStore } from '@/store/uiStore';
@@ -147,6 +147,21 @@ function withBookingTimeout<T>(promise: Promise<T>, ms = 90000, label = 'Booking
   ]);
 }
 
+type SubmitPhase = 'creating' | 'offering' | 'saving' | null;
+
+const DISPATCHER_SETTINGS_TTL_MS = 5 * 60 * 1000;
+const dispatcherSettingsCache = new Map<
+  string,
+  { tariffs: Array<{ Id: string | number; TariffName: string }>; stripePublicKey: string; at: number }
+>();
+
+function submitPhaseLabel(phase: SubmitPhase, isEdit: boolean): string {
+  if (phase === 'creating') return 'Creating booking…';
+  if (phase === 'offering') return 'Sending driver offer…';
+  if (phase === 'saving') return isEdit ? 'Saving changes…' : 'Saving…';
+  return '';
+}
+
 export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJobModalProps) {
   const open = useUiStore((s) => s.openModal === 'createJob');
   const modalJobId = useUiStore((s) => s.modalJobId);
@@ -174,6 +189,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   const [form, setForm] = useState<CreateJobFormState>(defaultCreateJobForm);
   const [loading, setLoading] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>(null);
+  const [cityDistLoading, setCityDistLoading] = useState(false);
   const [tariffs, setTariffs] = useState<Array<{ Id: string | number; TariffName: string }>>([]);
   const [stripePk, setStripePk] = useState('');
   const [accountHits, setAccountHits] = useState<CustomerSearchResult['accounts']>([]);
@@ -190,6 +207,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const posRef = useRef(pos);
+  const submittingRef = useRef(false);
   posRef.current = pos;
 
   const patch = useCallback((p: Partial<CreateJobFormState>) => {
@@ -254,8 +272,19 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   useEffect(() => {
     if (!open || !companyId) return;
+    const cached = dispatcherSettingsCache.get(companyId);
+    if (cached && Date.now() - cached.at < DISPATCHER_SETTINGS_TTL_MS) {
+      setTariffs(cached.tariffs);
+      setStripePk(cached.stripePublicKey);
+      return;
+    }
     fetchDispatcherSettings()
       .then((s) => {
+        dispatcherSettingsCache.set(companyId, {
+          tariffs: s.tariffs,
+          stripePublicKey: s.stripePublicKey,
+          at: Date.now(),
+        });
         setTariffs(s.tariffs);
         setStripePk(s.stripePublicKey);
       })
@@ -305,14 +334,26 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   useEffect(() => {
     if (!open || !form.pick.lat || !settings?.city) {
       setCityDistLabel('');
+      setCityDistLoading(false);
       return;
     }
     let cancelled = false;
-    fetchDrivingRoute(settings.city, form.pick).then((r) => {
-      if (!cancelled && r) setCityDistLabel(formatCityDistance(r.distanceKm, r.durationMin));
-    });
+    setCityDistLoading(true);
+    const t = setTimeout(() => {
+      fetchDrivingRoute(settings.city!, form.pick)
+        .then((r) => {
+          if (!cancelled) {
+            setCityDistLabel(r ? formatCityDistance(r.distanceKm, r.durationMin) : '');
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setCityDistLoading(false);
+        });
+    }, 450);
     return () => {
       cancelled = true;
+      clearTimeout(t);
+      setCityDistLoading(false);
     };
   }, [open, form.pick.lat, form.pick.lng, settings?.city]);
 
@@ -463,25 +504,17 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       ? { ...form, timing: 'later' as const, laterDate: dateOverride }
       : form;
     const params = buildInsertParams(f, dispatcherName);
-    console.log('[Book] Step 3 - calling API', { companyId, params });
-    const response = await withBookingTimeout(
-      insertDispatchBooking(companyId, params),
-      90000,
-      'Booking API'
-    );
-    console.log('[Book] Step 4 - API response:', response);
-    console.log('[Book] Step 5 - Firebase write done');
-    return response;
+    return withBookingTimeout(insertDispatchBooking(companyId, params), 90000, 'Booking API');
   };
 
   const handleSubmit = async () => {
-    console.log('[Book] Step 1 - button clicked');
+    if (submittingRef.current || loading) return;
     if (!validatePickup()) return;
 
+    submittingRef.current = true;
     setLoading(true);
+    setSubmitPhase(isEdit ? 'saving' : 'creating');
     try {
-      console.log('[Book] Step 2 - form data:', form);
-
       if (isEdit && editingJob) {
         const metadataChanges = buildJobEditChangesDelta(editingJob, form, dispatcherName);
         const assignmentChanged = driverAssignmentChanged(editingJob, form);
@@ -495,13 +528,21 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         if (Object.keys(metadataChanges).length > 0) {
           await updateJob(editingJob.id, companyId, metadataChanges, editingJob);
         }
+
+        addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
+        onClose();
+
         if (assignmentChanged) {
           const workingJob =
             useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
-          await applyFormDriverAssignment(workingJob, form, availableDrivers);
+          void applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
+            addToast({
+              type: 'error',
+              title: 'Driver assignment failed',
+              message: e instanceof Error ? e.message : '',
+            });
+          });
         }
-        addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
-        onClose();
         return;
       }
 
@@ -549,6 +590,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       const targets = dates.length ? dates : [undefined];
       let lastId = 0;
       let lastStatus = 'Pending';
+      setSubmitPhase('creating');
       for (const d of targets) {
         const res = await bookOne(d);
         if (!res?.bookingId) {
@@ -562,30 +604,40 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         throw new Error('Booking was not created — no job ID returned');
       }
 
+      const driverSelected = isAssignedDriverSelection(form.driverId);
+      const serverOffered = lastStatus === 'Offered';
+      const needsClientOffer = driverSelected && !serverOffered;
+
       const createdJob = {
         ...jobFromForm(form, companyId, lastId, lastStatus),
         dispatcherName,
-        driverId: isAssignedDriverSelection(form.driverId) ? form.driverId : undefined,
-        vehicleId: isAssignedDriverSelection(form.driverId) ? form.vehicleId : undefined,
+        driverId: driverSelected ? form.driverId : undefined,
+        vehicleId: driverSelected ? form.vehicleId : undefined,
       };
       upsertJob(createdJob);
-      console.log('[Book] Step 6 - store updated', { bookingId: lastId, status: lastStatus });
-
-      if (isAssignedDriverSelection(form.driverId)) {
-        const workingJob =
-          useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
-        await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
-      }
-
       setActiveTab('ua');
 
       addToast({
         type: 'success',
         title: targets.length > 1 ? `${targets.length} jobs created` : 'Job booked',
-        message: `#${lastId}`,
+        message: `#${lastId}${serverOffered && driverSelected ? ' · offer sent' : ''}`,
         category: 'job_created',
       });
       onClose();
+
+      if (needsClientOffer) {
+        const workingJob =
+          useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
+        void applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true }).catch(
+          (e) => {
+            addToast({
+              type: 'error',
+              title: 'Driver offer failed',
+              message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`,
+            });
+          }
+        );
+      }
     } catch (e) {
       console.error('[Book] ERROR:', e);
       addToast({
@@ -594,9 +646,18 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         message: e instanceof Error ? e.message : 'Unknown error',
       });
     } finally {
+      submittingRef.current = false;
       setLoading(false);
+      setSubmitPhase(null);
     }
   };
+
+  const bookButtonLabel = useMemo(() => {
+    if (!loading) return isEdit ? 'SAVE ✓' : 'BOOK ✓';
+    if (submitPhase === 'creating') return 'Creating…';
+    if (submitPhase === 'saving') return 'Saving…';
+    return 'Working…';
+  }, [loading, submitPhase, isEdit]);
 
   const clearPayment = () => patch({ paymentType: '', cardPaid: false });
 
@@ -647,7 +708,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
           {pickAddressError && (
             <div className="text-[10px] text-red-400 mb-2">{pickAddressError}</div>
           )}
-          {cityDistLabel && (
+          {cityDistLoading && (
+            <div className="text-[10px] text-[#8892a4] mb-2">Calculating city distance…</div>
+          )}
+          {!cityDistLoading && cityDistLabel && (
             <div className="text-[10px] text-[#8892a4] mb-2">{cityDistLabel}</div>
           )}
           {form.stops.map((stop) => (
@@ -1089,11 +1153,19 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       </div>
 
       {/* 7. FOOTER */}
-      <div className="shrink-0 flex justify-end gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]">
-        <button type="button" className="cj-btn-ghost" onClick={resetForm}>
+      <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-[#3d4260] bg-[#0f1420]">
+        {loading && submitPhase ? (
+          <div className="cj-submit-status">
+            <span className="cj-submit-spinner" aria-hidden />
+            {submitPhaseLabel(submitPhase, isEdit)}
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
+        <button type="button" className="cj-btn-ghost" onClick={resetForm} disabled={loading}>
           Clear
         </button>
-        <button type="button" className="cj-btn-ghost" onClick={onClose}>
+        <button type="button" className="cj-btn-ghost" onClick={onClose} disabled={loading}>
           Cancel
         </button>
         <button
@@ -1101,8 +1173,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
           className="cj-btn-book"
           onClick={handleSubmit}
           disabled={loading || (!isEdit && (!pickFromAutocomplete || !form.pick.lat))}
+          aria-busy={loading}
         >
-          {loading ? 'Saving…' : isEdit ? 'SAVE ✓' : 'BOOK ✓'}
+          {loading && <Loader2 size={14} className="animate-spin" />}
+          {bookButtonLabel}
         </button>
       </div>
     </div>
