@@ -1777,6 +1777,13 @@ async function assignBooking(opts) {
 
   // Idempotency — already offered/assigned to the same driver.
   if ((_curStatus === 'Offered' || _curStatus === 'Assigned') && _curDrv === _targetDrv) {
+    if (opts.fanout === true) {
+      try {
+        await _writeManualDriverOffer(job, _targetDrv, _curVid || _targetVid, by, source);
+      } catch (e) {
+        console.warn(`  [${source}] _writeManualDriverOffer (idempotent refanout) failed: ${e && e.message}`);
+      }
+    }
     console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already ${_curStatus} to driver ${_targetDrv}`);
     return {
       ok: true, idempotent: true, status: _curStatus, driverId: _targetDrv,
@@ -7357,6 +7364,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           driverId:  _cmdPayload.driverId  || _cmdPayload.DriverId,
           vehicleId: _cmdPayload.vehicleId || _cmdPayload.VehicleId,
           ifVersion: _cmdIfVer,
+          fanout:    !!(_cmdPayload.fanout),
           by: _cmdBy, source: _logSrc
         });
       } else if (_cmdName === 'accept') {
@@ -8416,6 +8424,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // ── /DataSelectorRide — booking write operations ────────────────────────
     if (urlPath.includes('/DataSelectorRide')) {
       if (action === 'InsertBookingv4') {
+        (async () => {
         try {
         let newId = parseInt(param('ExternalJobId') || '', 10) || newCompanyJobId(sessionCompanyId || '000');
         try { console.timeEnd(`booking-gap-${newId}`); } catch(e) {}
@@ -8452,6 +8461,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           ? param('serviceType').toLowerCase() : 'taxi';
 
         const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
+        const _resolvedAtCreate = driverId > 0
+          ? _resolveDriverVehicleIds(String(driverId), vehicleId)
+          : null;
         let newJob = {
           Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
           useremail: null, usertype: null, webstatus: '0',
@@ -8460,7 +8472,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           Pickingtime: pickingDT,
           Recieve_payment: param('Recieve_payment') || '',
           DispatchTimebefore: String(dispatchBefore),
-          VehicleId: vehicleId, DriverId: driverId,
+          VehicleId: _resolvedAtCreate ? _resolvedAtCreate.vehicleId : vehicleId,
+          DriverId: _resolvedAtCreate ? _resolvedAtCreate.driverId : driverId,
           DispatcherName: dispatcherName,
           Nextstop: String(param('nextstop') || '0'), nextstopdata: param('nextstopdata') || '',
           Passengers: passengers, passengername: name || '', PassengerName: name || '',
@@ -8488,6 +8501,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
           // displayed countdown is correct regardless of server/client timezone.
           ...(_scheduledMs1 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs1 } : {}),
+          ...(driverId > 0 ? {
+            manualOffer: true,
+            originalStatus: 'manual',
+            offeredAt: Date.now(),
+            VehicleNo: _resolvedAtCreate.vehicleId,
+            CallSign: _resolvedAtCreate.vehicleId,
+          } : {}),
         };
         // Server-side past-date guard — prevents bookings set in the past from being
         // silently treated as ASAP.  Allow 90 s grace for clock skew / submit delay.
@@ -8525,7 +8545,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             'dispatcher', 1).catch(() => {});
         }
         // §97 — Write to Firebase pendingjobs so the auto-assign engine can find console jobs.
-        // Fire-and-forget: do not block the HTTP response on the Firebase write.
         if (sessionCompanyId) {
           const _fbPendingJob1 = {
             BookingId:        String(newId),
@@ -8546,12 +8565,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             VehicleType:      newJob.VehicleType || 'Not Specified',
             BookingSource:    newJob.BookingSource || 'Dispatch Console',
             ZoneId:           0,
-            // §99 — createdAt as Unix ms so wait-timer formula works correctly
             createdAt:        newJob.createdAt,
             CreatedAt:        new Date(newJob.createdAt).toISOString(),
             WebBooking:       false,
-            // §FIXED-PRICE / pickup-time / account name — driver app reads these
-            // to suppress the meter on fixed-price jobs and display scheduled pickup.
             Pickingtime:      String(newJob.BookingDateTime || ''),
             TarriffType:      String(newJob.TarriffType || ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
@@ -8559,33 +8575,35 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           };
           getFirebaseServerToken().then(tok => {
             if (!tok) return;
-            // Write to pendingjobs AND allbookings (§99)
             return Promise.all([
               firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
               firebaseDbSet(`allbookings/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
             ]);
-          }).then(async () => {
+          }).then(() => {
             console.log(`  [InsertBookingv4] Firebase pendingjobs+allbookings/${sessionCompanyId}/${newId} written`);
-            if (driverId > 0) {
-              try {
-                await _writeManualDriverOffer(newJob, String(driverId), vehicleId, 'dispatcher', 'InsertBookingv4');
-              } catch (e) {
-                console.warn(`  [InsertBookingv4] driver offer fanout failed (non-fatal): ${e && e.message}`);
-              }
-            }
           }).catch(e => {
             console.warn(`  [InsertBookingv4] Firebase pendingjobs/allbookings write failed (non-fatal): ${e.message}`);
           });
-        } else if (driverId > 0) {
-          _writeManualDriverOffer(newJob, String(driverId), vehicleId, 'dispatcher', 'InsertBookingv4')
-            .catch(e => console.warn(`  [InsertBookingv4] driver offer fanout failed (non-fatal): ${e && e.message}`));
         }
+
+        // Await driver offer fanout before responding — same path as U-A assign.
+        if (driverId > 0) {
+          const _drv = _resolvedAtCreate || _resolveDriverVehicleIds(String(driverId), vehicleId);
+          try {
+            await _writeManualDriverOffer(newJob, _drv.driverId, _drv.vehicleId, 'dispatcher', 'InsertBookingv4');
+          } catch (e) {
+            console.warn(`  [InsertBookingv4] driver offer fanout failed (non-fatal): ${e && e.message}`);
+          }
+        }
+
         console.log(`200: POST ${urlPath} [action=InsertBookingv4] -> created job #${newId} (${bookingDT} → sched ${_scheduledMs1 ? new Date(_scheduledMs1).toISOString() : 'ASAP'}) companyId=${sessionCompanyId}`);
         arrayD(res, [{ Result: 'Booking Information Successfully Submitted', BookingStatus: bookstatus, BookingId: newId }]);
         } catch (err) {
           console.error('[InsertBookingv4] error:', err);
           arrayD(res, [{ Result: 'Error: ' + (err && err.message ? err.message : 'InsertBookingv4 failed'), Error: true }]);
         }
+        })();
+        return;
       } else if (action === 'UpdateBooking') {
         // Called by cancelactivejob / close-ride flow.
         // Marks the job as Closed, moves it to closedJobStore, and releases the driver.

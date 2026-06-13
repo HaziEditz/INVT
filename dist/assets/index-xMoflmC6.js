@@ -28491,18 +28491,21 @@ function seqFromFirebaseRecord(rec) {
   return jobUpdateSeqFromRecord(rec);
 }
 async function fetchFreshJobFromFirebase(companyId, jobId) {
-  try {
-    const db2 = getDb();
-    const snap = await get(ref(db2, `pendingjobs/${companyId}/${jobId}`));
-    const val = snap.val();
-    if (!val || typeof val !== "object") return null;
-    const rec = val;
-    const job = jobFromFirebase(String(jobId), rec, companyId);
-    if (!job) return null;
-    return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
-  } catch {
-    return null;
-  }
+  const readPath = async (path) => {
+    try {
+      const db2 = getDb();
+      const snap = await get(ref(db2, `${path}/${companyId}/${jobId}`));
+      const val = snap.val();
+      if (!val || typeof val !== "object") return null;
+      const rec = val;
+      const job = jobFromFirebase(String(jobId), rec, companyId);
+      if (!job) return null;
+      return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
+    } catch {
+      return null;
+    }
+  };
+  return await readPath("pendingjobs") ?? await readPath("allbookings");
 }
 async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   if (Object.keys(changes).length === 0) return;
@@ -28587,14 +28590,14 @@ function applyAssignResultToJob(job, driverId, vehicleId, result) {
     updateSeq: seq
   };
 }
-async function assignJob(bookingId, driverId, vehicleId, ifVersion, baseJob) {
+async function assignJob(bookingId, driverId, vehicleId, ifVersion, baseJob, opts) {
   let ifVer = ifVersion;
   const attempt = async () => postJobCommand({
     bookingId,
     command: "assign",
     by: "dispatcher",
     ifVersion: ifVer,
-    payload: { driverId, vehicleId }
+    payload: { driverId, vehicleId, fanout: (opts == null ? void 0 : opts.fanout) === true }
   });
   let result = await attempt();
   if (!result.ok && (result.stale || result.error_code === "version_conflict")) {
@@ -28678,10 +28681,10 @@ async function applyJobAssignment(job, selection, onlineDrivers) {
   await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq, job);
   return isReassign ? "reassign" : "assign";
 }
-async function applyFormDriverAssignment(job, form, availableDrivers) {
+async function applyFormDriverAssignment(job, form, availableDrivers, opts) {
   if (form.driverId > 0) {
     const d2 = availableDrivers.find((x2) => parseInt(x2.driverId, 10) === form.driverId) ?? { driverId: String(form.driverId), vehicleId: form.vehicleId || "0" };
-    await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq, job);
+    await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq, job, opts);
     return;
   }
   if (form.driverId === -1) {
@@ -32996,6 +32999,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const [routeSummary, setRouteSummary] = reactExports.useState("");
   const [pickFromAutocomplete, setPickFromAutocomplete] = reactExports.useState(false);
   const [dropFromAutocomplete, setDropFromAutocomplete] = reactExports.useState(false);
+  const [pickDirty, setPickDirty] = reactExports.useState(false);
+  const [dropDirty, setDropDirty] = reactExports.useState(false);
   const [pickAddressError, setPickAddressError] = reactExports.useState("");
   const [pos, setPos] = reactExports.useState(loadPos);
   const dragging = reactExports.useRef(false);
@@ -33026,6 +33031,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setRouteSummary("");
     setPickFromAutocomplete(false);
     setDropFromAutocomplete(false);
+    setPickDirty(false);
+    setDropDirty(false);
     setPickAddressError("");
   }, [settings == null ? void 0 : settings.defaultDispatchWindow]);
   const onClose = reactExports.useCallback(() => {
@@ -33043,6 +33050,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       setForm(loaded);
       setPickFromAutocomplete(!!loaded.pick.lat);
       setDropFromAutocomplete(!!loaded.drop.lat);
+      setPickDirty(false);
+      setDropDirty(false);
       setPickAddressError("");
     } else {
       resetForm();
@@ -33173,6 +33182,10 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       pickInput: f2.dropInput,
       dropInput: f2.pickInput
     }));
+    setPickDirty(true);
+    setDropDirty(true);
+    setPickFromAutocomplete(false);
+    setDropFromAutocomplete(false);
   };
   const addStop = () => patch({ stops: [...form.stops, newStop()] });
   const removeStop = (id) => patch({ stops: form.stops.filter((s2) => s2.id !== id) });
@@ -33181,6 +33194,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   };
   const onPickupSelect = (pick) => {
     setPickFromAutocomplete(true);
+    setPickDirty(false);
     setPickAddressError("");
     patch({ pick, pickInput: pick.address });
     if (pick.lat) {
@@ -33195,6 +33209,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   };
   const onDropSelect = (drop) => {
     setDropFromAutocomplete(true);
+    setDropDirty(false);
     patch({ drop, dropInput: drop.address });
     if (form.pick.lat && drop.lat) {
       setRoutePreview({
@@ -33208,6 +33223,10 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     if (!addr.trim()) {
       addToast({ type: "error", title: "Pickup address required" });
       return false;
+    }
+    if (isEdit && editingJob && !pickDirty) {
+      const hasCoords = !!(form.pick.lat && form.pick.lng) || editingJob.pickLatLng !== "0,0";
+      if (hasCoords || addr.trim()) return true;
     }
     if (!pickFromAutocomplete || !form.pick.lat) {
       setPickAddressError("Please select an address from the suggestions");
@@ -33312,8 +33331,18 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       if (!lastId) {
         throw new Error("Booking was not created — no job ID returned");
       }
-      upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
+      const createdJob = {
+        ...jobFromForm(form, companyId, lastId, lastStatus),
+        dispatcherName,
+        driverId: form.driverId > 0 ? String(form.driverId) : void 0,
+        vehicleId: form.driverId > 0 ? form.vehicleId : void 0
+      };
+      upsertJob(createdJob);
       console.log("[Book] Step 6 - store updated", { bookingId: lastId, status: lastStatus });
+      if (form.driverId > 0) {
+        const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === lastId) ?? createdJob;
+        await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
+      }
       setActiveTab("ua");
       addToast({
         type: "success",
@@ -33365,9 +33394,10 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 value: form.pickInput,
                 placeholder: "Pickup address",
                 className: "cj-input mb-2",
-                invalid: !!pickAddressError || !pickFromAutocomplete && !!form.pickInput.trim(),
+                invalid: !!pickAddressError || pickDirty && !pickFromAutocomplete && !!form.pickInput.trim(),
                 onChange: (pickInput) => {
                   patch({ pickInput, pick: { address: "", lat: 0, lng: 0 } });
+                  setPickDirty(true);
                   setPickFromAutocomplete(false);
                   setPickAddressError("");
                 },
@@ -33408,9 +33438,10 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                 value: form.dropInput,
                 placeholder: "Dropoff address (optional)",
                 className: "cj-input mb-2",
-                invalid: !!form.dropInput.trim() && !dropFromAutocomplete,
+                invalid: dropDirty && !!form.dropInput.trim() && !dropFromAutocomplete,
                 onChange: (dropInput) => {
                   patch({ dropInput, drop: { address: "", lat: 0, lng: 0 } });
+                  setDropDirty(true);
                   setDropFromAutocomplete(false);
                 },
                 onPlace: onDropSelect
@@ -41407,7 +41438,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Dp1kH4ot.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-hzKQ8e2Q.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43565,7 +43596,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CAtjKdNF.js");
+        const { writeActiveDispatcher } = await import("./notifications-Kj-ibfSw.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43592,7 +43623,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CAtjKdNF.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Kj-ibfSw.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43920,4 +43951,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-D1CaCVBH.js.map
+//# sourceMappingURL=index-xMoflmC6.js.map

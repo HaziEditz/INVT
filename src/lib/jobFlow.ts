@@ -332,7 +332,8 @@ export async function assignJob(
   driverId: string,
   vehicleId: string,
   ifVersion?: number,
-  baseJob?: Job
+  baseJob?: Job,
+  opts?: { fanout?: boolean }
 ): Promise<void> {
   let ifVer = ifVersion;
   const attempt = async (): Promise<JobCommandResult> =>
@@ -341,7 +342,7 @@ export async function assignJob(
       command: 'assign',
       by: 'dispatcher',
       ifVersion: ifVer,
-      payload: { driverId, vehicleId },
+      payload: { driverId, vehicleId, fanout: opts?.fanout === true },
     });
 
   let result = await attempt();
@@ -461,13 +462,14 @@ export async function applyJobAssignment(
 export async function applyFormDriverAssignment(
   job: Job,
   form: { driverId: number; vehicleId: string },
-  availableDrivers: Array<{ driverId: string; vehicleId: string }>
+  availableDrivers: Array<{ driverId: string; vehicleId: string }>,
+  opts?: { fanout?: boolean }
 ): Promise<void> {
   if (form.driverId > 0) {
     const d =
       availableDrivers.find((x) => parseInt(x.driverId, 10) === form.driverId) ??
       ({ driverId: String(form.driverId), vehicleId: form.vehicleId || '0' } as const);
-    await assignJob(job.id, d.driverId, d.vehicleId || form.vehicleId || '0', job.updateSeq, job);
+    await assignJob(job.id, d.driverId, d.vehicleId || form.vehicleId || '0', job.updateSeq, job, opts);
     return;
   }
   if (form.driverId === -1) {

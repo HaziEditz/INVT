@@ -181,6 +181,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [routeSummary, setRouteSummary] = useState('');
   const [pickFromAutocomplete, setPickFromAutocomplete] = useState(false);
   const [dropFromAutocomplete, setDropFromAutocomplete] = useState(false);
+  const [pickDirty, setPickDirty] = useState(false);
+  const [dropDirty, setDropDirty] = useState(false);
   const [pickAddressError, setPickAddressError] = useState('');
 
   const [pos, setPos] = useState(loadPos);
@@ -215,6 +217,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setRouteSummary('');
     setPickFromAutocomplete(false);
     setDropFromAutocomplete(false);
+    setPickDirty(false);
+    setDropDirty(false);
     setPickAddressError('');
   }, [settings?.defaultDispatchWindow]);
 
@@ -234,6 +238,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setForm(loaded);
       setPickFromAutocomplete(!!loaded.pick.lat);
       setDropFromAutocomplete(!!loaded.drop.lat);
+      setPickDirty(false);
+      setDropDirty(false);
       setPickAddressError('');
     } else {
       resetForm();
@@ -383,6 +389,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       pickInput: f.dropInput,
       dropInput: f.pickInput,
     }));
+    setPickDirty(true);
+    setDropDirty(true);
+    setPickFromAutocomplete(false);
+    setDropFromAutocomplete(false);
   };
 
   const addStop = () => patch({ stops: [...form.stops, newStop()] });
@@ -393,6 +403,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   const onPickupSelect = (pick: PlaceValue) => {
     setPickFromAutocomplete(true);
+    setPickDirty(false);
     setPickAddressError('');
     patch({ pick, pickInput: pick.address });
     if (pick.lat) {
@@ -408,6 +419,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   const onDropSelect = (drop: PlaceValue) => {
     setDropFromAutocomplete(true);
+    setDropDirty(false);
     patch({ drop, dropInput: drop.address });
     if (form.pick.lat && drop.lat) {
       setRoutePreview({
@@ -422,6 +434,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     if (!addr.trim()) {
       addToast({ type: 'error', title: 'Pickup address required' });
       return false;
+    }
+    // Edit: untouched pickup from the existing job does not need re-selection.
+    if (isEdit && editingJob && !pickDirty) {
+      const hasCoords = !!(form.pick.lat && form.pick.lng) || editingJob.pickLatLng !== '0,0';
+      if (hasCoords || addr.trim()) return true;
     }
     if (!pickFromAutocomplete || !form.pick.lat) {
       setPickAddressError('Please select an address from the suggestions');
@@ -539,8 +556,21 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         throw new Error('Booking was not created — no job ID returned');
       }
 
-      upsertJob({ ...jobFromForm(form, companyId, lastId, lastStatus), dispatcherName });
+      const createdJob = {
+        ...jobFromForm(form, companyId, lastId, lastStatus),
+        dispatcherName,
+        driverId: form.driverId > 0 ? String(form.driverId) : undefined,
+        vehicleId: form.driverId > 0 ? form.vehicleId : undefined,
+      };
+      upsertJob(createdJob);
       console.log('[Book] Step 6 - store updated', { bookingId: lastId, status: lastStatus });
+
+      if (form.driverId > 0) {
+        const workingJob =
+          useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
+        await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
+      }
+
       setActiveTab('ua');
 
       addToast({
@@ -596,9 +626,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             value={form.pickInput}
             placeholder="Pickup address"
             className="cj-input mb-2"
-            invalid={!!pickAddressError || (!pickFromAutocomplete && !!form.pickInput.trim())}
+            invalid={
+              !!pickAddressError ||
+              (pickDirty && !pickFromAutocomplete && !!form.pickInput.trim())
+            }
             onChange={(pickInput) => {
               patch({ pickInput, pick: { address: '', lat: 0, lng: 0 } });
+              setPickDirty(true);
               setPickFromAutocomplete(false);
               setPickAddressError('');
             }}
@@ -637,9 +671,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             value={form.dropInput}
             placeholder="Dropoff address (optional)"
             className="cj-input mb-2"
-            invalid={!!form.dropInput.trim() && !dropFromAutocomplete}
+            invalid={dropDirty && !!form.dropInput.trim() && !dropFromAutocomplete}
             onChange={(dropInput) => {
               patch({ dropInput, drop: { address: '', lat: 0, lng: 0 } });
+              setDropDirty(true);
               setDropFromAutocomplete(false);
             }}
             onPlace={onDropSelect}
