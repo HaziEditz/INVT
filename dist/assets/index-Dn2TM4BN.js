@@ -28264,9 +28264,9 @@ function useJobs(companyId) {
   const upsertJob = useJobStore((s2) => s2.upsertJob);
   const removeJob = useJobStore((s2) => s2.removeJob);
   const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
-  const pendingRef = useRef(/* @__PURE__ */ new Map());
-  const bookingsRef = useRef(/* @__PURE__ */ new Map());
-  useEffect(() => {
+  const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
     const unsubs = [];
@@ -28361,8 +28361,8 @@ function useJobs(companyId) {
   }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
 }
 function useClosedJobs(companyId, enabled) {
-  const [closed, setClosed] = useState([]);
-  useEffect(() => {
+  const [closed, setClosed] = reactExports.useState([]);
+  reactExports.useEffect(() => {
     if (!companyId || !enabled) return;
     const db2 = getDb();
     const maps = [[], [], []];
@@ -41525,7 +41525,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CYTmW5ru.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CR1kR3PA.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43683,7 +43683,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-VeaUDAZE.js");
+        const { writeActiveDispatcher } = await import("./notifications-C7GgnH0R.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43710,7 +43710,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-VeaUDAZE.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-C7GgnH0R.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44038,4 +44038,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DouBAaKk.js.map
+//# sourceMappingURL=index-Dn2TM4BN.js.map

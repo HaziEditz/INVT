@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { mergeJobUpdate } from '@/lib/mergeJob';
 import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
