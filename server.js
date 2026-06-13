@@ -1184,6 +1184,30 @@ function _normJobDriverId(raw) {
   return s;
 }
 
+// Match driver-app AuthContext.normalizeDriverId — notification/{id} must use the same key.
+function _normalizeNotifyDriverId(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const m = s.match(/^([dD])(\d+)$/i);
+  if (m) return 'D' + String(parseInt(m[2], 10)).padStart(3, '0');
+  return s;
+}
+
+// Parse DId from InsertBookingv4 / create-job form — preserves string IDs (e.g. "D002").
+function _parseInsertDriverIdParam(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '-1') return { driverId: '-1', bookstatus: 'No One', hasDriver: false };
+  if (!s || s === '0' || s === '-2') return { driverId: '0', bookstatus: 'Pending', hasDriver: false };
+  const parsedNum = parseInt(s, 10);
+  const driverId = (!Number.isNaN(parsedNum) && parsedNum > 0 && String(parsedNum) === s)
+    ? String(parsedNum)
+    : s;
+  if (!_normJobDriverId(driverId)) {
+    return { driverId: '0', bookstatus: 'Pending', hasDriver: false };
+  }
+  return { driverId, bookstatus: 'Offered', hasDriver: true };
+}
+
 // Withdraw a job from a driver — clear Firebase offer/active paths and notify job_removed.
 // Used when dispatcher unassigns (Pending/No One) or reassigns to another driver.
 async function _withdrawJobFromDriver(opts) {
@@ -1564,10 +1588,16 @@ function _resolveDriverVehicleIds(driverId, vehicleId) {
 }
 
 function _driverFirebaseIdsFromJob(job) {
-  const drv = _normJobDriverId(job && job.DriverId);
+  const drv = _normJobDriverId(job && job.DriverId)
+           || _normJobDriverId(job && job.AssignedDriverId)
+           || _normJobDriverId(job && job.AssignedDriver);
   if (!drv) return { driverId: '', vehicleId: '' };
-  const rawVid = String((job && (job.VehicleNo || job.CallSign || job.VehicleId)) || '').trim();
-  return _resolveDriverVehicleIds(drv, rawVid);
+  const rawVid = String((job && (job.VehicleNo || job.CallSign || job.VehicleId || job.AssignedVehicleId)) || '').trim();
+  const resolved = _resolveDriverVehicleIds(drv, rawVid);
+  return {
+    driverId: _normalizeNotifyDriverId(resolved.driverId) || resolved.driverId,
+    vehicleId: resolved.vehicleId,
+  };
 }
 
 // Mirror canonical + alias fields so all job sources/types (taxi, food, freight, web, app)
@@ -1616,7 +1646,7 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag) 
   const cid = String(job.companyId || '').trim();
   if (!cid) return;
   const _resolved = _resolveDriverVehicleIds(driverId, vehicleId);
-  const did = _resolved.driverId;
+  const did = _normalizeNotifyDriverId(_resolved.driverId) || _resolved.driverId;
   const vid = _resolved.vehicleId;
   if (!did) return;
 
@@ -1816,7 +1846,7 @@ async function assignBooking(opts) {
 
   const _seqBefore = parseInt(job.updateSeq) || 0;
   job.BookingStatus = _nextStatus;
-  job.DriverId      = _targetDrv;
+  job.DriverId      = _normalizeNotifyDriverId(_targetDrv) || _targetDrv;
   job.VehicleId     = _targetVid;
   job.VehicleNo     = _targetVid;
   job.CallSign      = _targetVid;
@@ -1824,7 +1854,7 @@ async function assignBooking(opts) {
   job.lastUpdatedAt  = new Date().toISOString();
   job.lastUpdatedBy  = by;
   job.offeredAt      = Date.now();
-  job.AssignedDriverId  = _targetDrv;
+  job.AssignedDriverId  = job.DriverId;
   job.AssignedVehicleId = _targetVid;
   if (_nextStatus === 'Offered') {
     delete job.DriverAcceptedAt;
@@ -2533,6 +2563,60 @@ const _FB_SERVER_TIMESTAMP = { '.sv': 'timestamp' };
 // Statuses where the booking is currently visible inside the driver app.
 const _UB_DRIVER_VISIBLE = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
 
+// Unified driver-app edit notification — used by updateBooking(), ProcUpdateJobv6, and any future edit path.
+async function _writeDriverJobUpdatedNotification(opts) {
+  opts = opts || {};
+  const job = opts.job;
+  const diff = opts.diff || {};
+  const seq = parseInt(opts.seq) || 0;
+  const by = String(opts.by || 'dispatcher').toLowerCase();
+  const source = opts.source || '_writeDriverJobUpdatedNotification';
+  if (!job || !job.Id) return false;
+
+  const _fbIds = _driverFirebaseIdsFromJob(job);
+  const _drv = _fbIds.driverId;
+  const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
+  if (!_visible || !_drv) return false;
+
+  const bookingId = job.Id;
+  const _eventTypes = opts.eventTypes || _classifyDiff(diff);
+  const _primaryType = _eventTypes[0] || 'JobUpdated';
+  const _tok = await getFirebaseServerToken();
+  if (!_tok) return false;
+
+  const _payload = {
+    bookingid: `${bookingId},${_primaryType},${_drv},${by},Dispatcher`,
+    content:   'Job has been updated',
+    type:      'job_updated',
+    seq:       seq,
+    bookingId: bookingId,
+    eventType: 'job_updated',
+    version:   seq,
+    updatedAt: _FB_SERVER_TIMESTAMP,
+    editNotice: 'Details changed',
+  };
+  if (diff.PickAddress) { _payload.pickup = diff.PickAddress.to; _payload.jobpickup = diff.PickAddress.to; }
+  if (diff.DropAddress) { _payload.dropoff = diff.DropAddress.to; _payload.jobdropoff = diff.DropAddress.to; }
+  if (diff.Pickingtime || diff.BookingDateTime) {
+    _payload.Pickingtime = (diff.Pickingtime || diff.BookingDateTime).to;
+    _payload.pickupTime = _payload.Pickingtime;
+  }
+  if (diff.Notes || diff.JobInfo || diff.Instructions) {
+    _payload.notes = (diff.Notes || diff.JobInfo || diff.Instructions).to;
+    _payload.jobinfo = _payload.notes;
+  }
+  if (diff.Name || diff.PassengerName) {
+    _payload.jobname = (diff.Name || diff.PassengerName).to;
+  }
+  if (diff.PhoneNo) _payload.JobphoneNo = diff.PhoneNo.to;
+  if (!_payload.jobpickup) _payload.jobpickup = String(job.PickAddress || job.PickLocation || '');
+  if (!_payload.jobdropoff) _payload.jobdropoff = String(job.DropAddress || job.DropLocation || '');
+
+  await firebaseDbSet(`notification/${_drv}`, _payload, _tok);
+  console.log(`  [${source}] notification/${_drv} → job_updated seq=${seq}`);
+  return true;
+}
+
 // updateBooking({bookingId, changes, by, ifSeq?, source})
 //   - Diff-based, per-booking, race-safe via updateSeq.
 //   - Refuses if job is already closed (Cancelled / Completed / etc.).
@@ -2665,45 +2749,14 @@ function updateBooking(opts) {
   }
 
   // Notify the driver app — only when the booking is currently in their UI.
-  // Payload mirrors §FIX-Q's shape but carries type+seq so the driver app can
-  // pull the booking-scoped node and update only that card.
   let _driverNotified = false;
   if (_visible && _cid && _drv) {
     (async () => {
       try {
-        const _tok = await getFirebaseServerToken();
-        if (!_tok) return;
-        const _primaryType = _eventTypes[0] || 'JobUpdated';
-        const _pubType     = _ubMapEventType(_primaryType);
-        const _payload = {
-          bookingid: `${bookingId},${_primaryType},${_drv},${by},Dispatcher`,
-          content:   `Job has been updated`,
-          type:      'job_updated',
-          seq:       _newSeq,
-          bookingId: bookingId,
-          eventType: 'job_updated',
-          version:   _newSeq,
-          updatedAt: _FB_SERVER_TIMESTAMP,
-          editNotice: 'Details changed',
-        };
-        if (_diff.PickAddress) { _payload.pickup = _diff.PickAddress.to; _payload.jobpickup = _diff.PickAddress.to; }
-        if (_diff.DropAddress) { _payload.dropoff = _diff.DropAddress.to; _payload.jobdropoff = _diff.DropAddress.to; }
-        if (_diff.Pickingtime || _diff.BookingDateTime) {
-          _payload.Pickingtime = (_diff.Pickingtime || _diff.BookingDateTime).to;
-          _payload.pickupTime = _payload.Pickingtime;
-        }
-        if (_diff.Notes || _diff.JobInfo || _diff.Instructions) {
-          _payload.notes = (_diff.Notes || _diff.JobInfo || _diff.Instructions).to;
-          _payload.jobinfo = _payload.notes;
-        }
-        if (_diff.Name || _diff.PassengerName) {
-          _payload.jobname = (_diff.Name || _diff.PassengerName).to;
-        }
-        if (_diff.PhoneNo) _payload.JobphoneNo = _diff.PhoneNo.to;
-        if (!_payload.jobpickup) _payload.jobpickup = String(job.PickAddress || job.PickLocation || '');
-        if (!_payload.jobdropoff) _payload.jobdropoff = String(job.DropAddress || job.DropLocation || '');
-        await firebaseDbSet(`notification/${_drv}`, _payload, _tok);
-        console.log(`  [${source}] §FIX-UB notification/${_drv} → ${_primaryType} seq=${_newSeq}`);
+        await _writeDriverJobUpdatedNotification({
+          job, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
+          eventTypes: _eventTypes,
+        });
       } catch (_e) {
         console.warn(`  [${source}] §FIX-UB notification write failed: ${_e && _e.message}`);
       }
@@ -8444,9 +8497,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const bookingDT = _dtRaw1 || fmtDT(new Date());
         const pickingDT = param('PickingDateTime') || bookingDT;
         const vehicleType = param('VehicleType') || 'Not Specified';
-        const _rawDId   = parseInt(param('DId') || '0') || 0;
-        // Clamp stale sentinels (e.g. -2 "recalled") to 0 (Pending/no driver). Only -1 ("No One") is intentional.
-        const driverId  = (_rawDId === -1) ? -1 : Math.max(0, _rawDId);
+        const _dIdParsed = _parseInsertDriverIdParam(param('DId'));
+        const driverIdStr = _dIdParsed.driverId;
+        const hasAssignedDriver = _dIdParsed.hasDriver;
         // VehicleId is a string call-sign (e.g. "T201") — do NOT parseInt it or 'T201' becomes 0.
         const vehicleId = param('VId') || '0';
         const passengers = parseInt(param('PassengersNo') || '1') || 1;
@@ -8464,10 +8517,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const serviceType = (['taxi','food','freight','tm'].includes((param('serviceType') || '').toLowerCase()))
           ? param('serviceType').toLowerCase() : 'taxi';
 
-        const bookstatus = driverId > 0 ? 'Offered' : (driverId === -1 ? 'No One' : 'Pending');
-        const _resolvedAtCreate = driverId > 0
-          ? _resolveDriverVehicleIds(String(driverId), vehicleId)
+        const bookstatus = _dIdParsed.bookstatus;
+        const _resolvedAtCreate = hasAssignedDriver
+          ? _resolveDriverVehicleIds(driverIdStr, vehicleId)
           : null;
+        const _createDrvId = _resolvedAtCreate
+          ? (_normalizeNotifyDriverId(_resolvedAtCreate.driverId) || _resolvedAtCreate.driverId)
+          : driverIdStr;
         let newJob = {
           Id: newId, AccountId: '', VehicleNo: null, CallSign: null,
           useremail: null, usertype: null, webstatus: '0',
@@ -8477,7 +8533,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           Recieve_payment: param('Recieve_payment') || '',
           DispatchTimebefore: String(dispatchBefore),
           VehicleId: _resolvedAtCreate ? _resolvedAtCreate.vehicleId : vehicleId,
-          DriverId: _resolvedAtCreate ? _resolvedAtCreate.driverId : driverId,
+          DriverId: _createDrvId,
+          AssignedDriverId: hasAssignedDriver ? _createDrvId : undefined,
           DispatcherName: dispatcherName,
           Nextstop: String(param('nextstop') || '0'), nextstopdata: param('nextstopdata') || '',
           Passengers: passengers, passengername: name || '', PassengerName: name || '',
@@ -8505,7 +8562,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
           // displayed countdown is correct regardless of server/client timezone.
           ...(_scheduledMs1 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs1 } : {}),
-          ...(driverId > 0 ? {
+          ...(hasAssignedDriver ? {
             manualOffer: true,
             originalStatus: 'manual',
             offeredAt: Date.now(),
@@ -8576,23 +8633,32 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             TarriffType:      String(newJob.TarriffType || ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
+            ...(hasAssignedDriver && _resolvedAtCreate ? {
+              DriverId:       _createDrvId,
+              AssignedDriver: _createDrvId,
+              VehicleId:      _resolvedAtCreate.vehicleId,
+              BookingStatus:  bookstatus,
+              manualOffer:    true,
+              originalStatus: 'manual',
+            } : {}),
           };
-          getFirebaseServerToken().then(tok => {
-            if (!tok) return;
-            return Promise.all([
-              firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
-              firebaseDbSet(`allbookings/${sessionCompanyId}/${newId}`, _fbPendingJob1, tok),
-            ]);
-          }).then(() => {
-            console.log(`  [InsertBookingv4] Firebase pendingjobs+allbookings/${sessionCompanyId}/${newId} written`);
-          }).catch(e => {
-            console.warn(`  [InsertBookingv4] Firebase pendingjobs/allbookings write failed (non-fatal): ${e.message}`);
-          });
+          try {
+            const _fbTok = await getFirebaseServerToken();
+            if (_fbTok) {
+              await Promise.all([
+                firebaseDbSet(`pendingjobs/${sessionCompanyId}/${newId}`, _fbPendingJob1, _fbTok),
+                firebaseDbSet(`allbookings/${sessionCompanyId}/${newId}`, _fbPendingJob1, _fbTok),
+              ]);
+              console.log(`  [InsertBookingv4] Firebase pendingjobs+allbookings/${sessionCompanyId}/${newId} written`);
+            }
+          } catch (e) {
+            console.warn(`  [InsertBookingv4] Firebase pendingjobs/allbookings write failed (non-fatal): ${e && e.message}`);
+          }
         }
 
         // Await driver offer fanout before responding — same path as U-A assign.
-        if (driverId > 0) {
-          const _drv = _resolvedAtCreate || _resolveDriverVehicleIds(String(driverId), vehicleId);
+        if (hasAssignedDriver) {
+          const _drv = _resolvedAtCreate || _resolveDriverVehicleIds(driverIdStr, vehicleId);
           try {
             await _writeManualDriverOffer(newJob, _drv.driverId, _drv.vehicleId, 'dispatcher', 'InsertBookingv4');
           } catch (e) {
@@ -9139,8 +9205,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // ── rentals / towing) because we patch by job.Id without any
           // ── serviceType branching.
           const _euCid = job.companyId || sessionCompanyId || '';
-          const _euVid = job.VehicleNo || job.CallSign || job.VehicleId || '';
-          const _euDid = String(job.DriverId || '');
+          const _euFbIds = _driverFirebaseIdsFromJob(job);
+          const _euDid = _euFbIds.driverId;
+          const _euVid = job.VehicleNo || job.CallSign || job.VehicleId || _euFbIds.vehicleId || '';
           if (_euCid) {
             // Build the patch from the live job object so every field we just
             // updated above is mirrored. Only include keys that exist to avoid
@@ -9291,24 +9358,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                   _writeBookingEvent(_euCid, job.Id, _t, _eventData, 'dispatcher', _ubNewSeq).catch(() => {});
                 }
               }
-              if (_UB_DRIVER_VISIBLE.has(job.BookingStatus || '') && _euDid && _euDid !== '0' && _euDid !== '-1') {
+              if (_UB_DRIVER_VISIBLE.has(job.BookingStatus || '') && _euDid) {
               (async () => {
                 try {
-                  const _tok = await getFirebaseServerToken();
-                  if (!_tok) return;
-                  const _pt = _ubTypes[0] || 'JobUpdated';
-                  await firebaseDbPatch(`notification/${_euDid}`, {
-                    bookingid: `${job.Id},${_pt},${_euDid},dispatcher,Dispatcher`,
-                    content:   `Booking ${_pt}`,
-                    type:      _pt,
-                    seq:       _ubNewSeq,
-                    bookingId: job.Id,
-                    // §FIX-DA-G4/G5 — driver-app public contract.
-                    eventType: _ubMapEventType(_pt),
-                    version:   _ubNewSeq,
-                    updatedAt: _FB_SERVER_TIMESTAMP
-                  }, _tok);
-                  console.log(`  [ProcUpdateJobv6] §FIX-UB notification/${_euDid} → ${_pt} seq=${_ubNewSeq}`);
+                  await _writeDriverJobUpdatedNotification({
+                    job, diff: _ubDiff, seq: _ubNewSeq, by: 'dispatcher',
+                    source: 'ProcUpdateJobv6/notify', eventTypes: _ubTypes,
+                  });
                 } catch (_e) { console.warn(`  [ProcUpdateJobv6] §FIX-UB notify failed: ${_e && _e.message}`); }
               })();
               }

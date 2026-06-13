@@ -147,7 +147,7 @@ function withBookingTimeout<T>(promise: Promise<T>, ms = 90000, label = 'Booking
   ]);
 }
 
-type SubmitPhase = 'creating' | 'offering' | 'saving' | null;
+type SubmitPhase = 'creating' | 'saving' | null;
 
 const DISPATCHER_SETTINGS_TTL_MS = 5 * 60 * 1000;
 const dispatcherSettingsCache = new Map<
@@ -157,7 +157,6 @@ const dispatcherSettingsCache = new Map<
 
 function submitPhaseLabel(phase: SubmitPhase, isEdit: boolean): string {
   if (phase === 'creating') return 'Creating booking…';
-  if (phase === 'offering') return 'Sending driver offer…';
   if (phase === 'saving') return isEdit ? 'Saving changes…' : 'Saving…';
   return '';
 }

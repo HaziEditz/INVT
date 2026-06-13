@@ -28076,6 +28076,47 @@ function persistTheme(theme) {
   localStorage.setItem(STORAGE_KEY, theme);
   applyThemeToDocument(theme);
 }
+let audioCtx = null;
+function ensureAudioContext() {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    const ctx = audioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+function playTone(freqs, duration = 0.32, volume = 0.15) {
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  freqs.forEach((f2, i2) => {
+    osc.frequency.setValueAtTime(f2, ctx.currentTime + i2 * 0.1);
+  });
+  gain.gain.setValueAtTime(1e-4, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(1e-4, ctx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + duration + 0.02);
+}
+const SOUND_PROFILES = {
+  new_booking: [880, 1100],
+  job_created: [740, 880],
+  job_updated: [660, 780],
+  job_cancelled: [520, 420],
+  driver_online: [600, 720],
+  general: [700, 620],
+  alert: [980, 820, 980],
+  error: [440, 360]
+};
+function playNotificationSound(kind = "general") {
+  playTone(SOUND_PROFILES[kind] ?? SOUND_PROFILES.general);
+}
 function inferCategory(t2) {
   if (t2.category) return t2.category;
   const hay = `${t2.title} ${t2.message ?? ""}`.toLowerCase();
@@ -28087,6 +28128,19 @@ function inferCategory(t2) {
   }
   if (hay.includes("driver") && hay.includes("online")) return "driver_online";
   if (hay.includes("app") || hay.includes("web") || hay.includes("hail")) return "new_booking";
+  return "general";
+}
+function soundForToast(t2) {
+  if (t2.category) {
+    if (t2.category === "job_created") return "job_created";
+    if (t2.category === "job_updated") return "job_updated";
+    if (t2.category === "job_cancelled") return "job_cancelled";
+    if (t2.category === "driver_online") return "driver_online";
+    if (t2.category === "new_booking") return "new_booking";
+    return "general";
+  }
+  if (t2.type === "error") return "error";
+  if (t2.type === "warning") return "alert";
   return "general";
 }
 const useUiStore = create((set2, get2) => ({
@@ -28122,6 +28176,7 @@ const useUiStore = create((set2, get2) => ({
   addToast: (t2) => {
     const id = `${Date.now()}-${Math.random()}`;
     const category = inferCategory(t2);
+    playNotificationSound(soundForToast({ ...t2, category }));
     const notification = {
       id,
       type: t2.type,
@@ -28166,27 +28221,6 @@ const useUiStore = create((set2, get2) => ({
   setRoutePreview: (r) => set2({ routePreview: r }),
   setMapInstance: (map2) => set2({ mapInstance: map2 })
 }));
-let audioCtx = null;
-function playNewJobSound() {
-  try {
-    if (!audioCtx) audioCtx = new AudioContext();
-    const ctx = audioCtx;
-    if (ctx.state === "suspended") void ctx.resume();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
-    gain.gain.setValueAtTime(1e-4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(1e-4, ctx.currentTime + 0.35);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.36);
-  } catch {
-  }
-}
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
 }
@@ -28288,7 +28322,6 @@ function useJobs(companyId) {
     };
     const notifyNewJob = (job) => {
       if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
-      playNewJobSound();
       useUiStore.getState().addToast({
         type: "info",
         title: `New job #${job.id}`,
@@ -33047,7 +33080,6 @@ const DISPATCHER_SETTINGS_TTL_MS = 5 * 60 * 1e3;
 const dispatcherSettingsCache = /* @__PURE__ */ new Map();
 function submitPhaseLabel(phase, isEdit) {
   if (phase === "creating") return "Creating booking…";
-  if (phase === "offering") return "Sending driver offer…";
   if (phase === "saving") return isEdit ? "Saving changes…" : "Saving…";
   return "";
 }
@@ -41584,7 +41616,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DpktQYbP.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-Cbj1OPKJ.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43742,7 +43774,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-AVOVgWwR.js");
+        const { writeActiveDispatcher } = await import("./notifications-Begj7Gxe.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43769,7 +43801,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-AVOVgWwR.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Begj7Gxe.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44097,4 +44129,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DQYJcNRe.js.map
+//# sourceMappingURL=index-Ds33ztir.js.map

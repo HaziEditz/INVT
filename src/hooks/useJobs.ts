@@ -4,7 +4,6 @@ import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved } fro
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, type Job } from '@/types/job';
-import { playNewJobSound } from '@/lib/notifySound';
 import { isExternalJobSource } from '@/lib/utils';
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
@@ -68,7 +67,6 @@ export function useJobs(companyId: string | null) {
 
     const notifyNewJob = (job: Job) => {
       if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
-      playNewJobSound();
       useUiStore.getState().addToast({
         type: 'info',
         title: `New job #${job.id}`,

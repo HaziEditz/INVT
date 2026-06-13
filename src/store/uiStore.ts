@@ -6,6 +6,7 @@ import {
   nextTheme,
   persistTheme,
 } from '@/lib/theme';
+import { playNotificationSound, type NotifySoundKind } from '@/lib/notifySound';
 
 export type ModalId =
   | 'createJob'
@@ -57,6 +58,20 @@ function inferCategory(t: Omit<ToastItem, 'id'>): NotificationCategory {
   }
   if (hay.includes('driver') && hay.includes('online')) return 'driver_online';
   if (hay.includes('app') || hay.includes('web') || hay.includes('hail')) return 'new_booking';
+  return 'general';
+}
+
+function soundForToast(t: Omit<ToastItem, 'id'>): NotifySoundKind {
+  if (t.category) {
+    if (t.category === 'job_created') return 'job_created';
+    if (t.category === 'job_updated') return 'job_updated';
+    if (t.category === 'job_cancelled') return 'job_cancelled';
+    if (t.category === 'driver_online') return 'driver_online';
+    if (t.category === 'new_booking') return 'new_booking';
+    return 'general';
+  }
+  if (t.type === 'error') return 'error';
+  if (t.type === 'warning') return 'alert';
   return 'general';
 }
 
@@ -136,6 +151,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   addToast: (t) => {
     const id = `${Date.now()}-${Math.random()}`;
     const category = inferCategory(t);
+    playNotificationSound(soundForToast({ ...t, category }));
     const notification: NotificationItem = {
       id,
       type: t.type,
