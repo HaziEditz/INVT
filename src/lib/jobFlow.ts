@@ -131,6 +131,14 @@ function firebasePatchFromChanges(changes: Record<string, unknown>): Record<stri
   for (const [from, to] of Object.entries(map)) {
     if (changes[from] !== undefined) patch[to] = changes[from];
   }
+  if (changes.BookingStatus !== undefined) {
+    patch.BookingStatus = changes.BookingStatus;
+    if (patch.Status === undefined) patch.Status = changes.BookingStatus;
+  }
+  if (changes.Status !== undefined) {
+    patch.Status = changes.Status;
+    if (patch.BookingStatus === undefined) patch.BookingStatus = changes.Status;
+  }
   if (changes.Name !== undefined) patch.Name = changes.Name;
   if (changes.DriverId !== undefined) patch.DriverId = changes.DriverId;
   if (changes.VehicleId !== undefined) patch.VehicleId = changes.VehicleId;
@@ -245,7 +253,9 @@ async function persistJobUpdate(
       fbPatch._seq = authoritativeSeq;
       fbPatch.version = authoritativeSeq;
       fbPatch.updateSeq = authoritativeSeq;
+      fbPatch.eventType = 'updated';
       await update(ref(db, `pendingjobs/${companyId}/${jobId}`), fbPatch);
+      await update(ref(db, `allbookings/${companyId}/${jobId}`), fbPatch);
     }
   } catch {
     /* server may have already updated Firebase */

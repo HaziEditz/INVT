@@ -27927,6 +27927,35 @@ function jobVehicleTypeLabel(job) {
   if (!v2 || v2.toLowerCase() === "not specified") return null;
   return v2;
 }
+const STATUS_RANK = {
+  "No One": 0,
+  Pending: 1,
+  Scheduled: 1,
+  Offered: 2,
+  Queued: 3,
+  Assigned: 4,
+  Picking: 5,
+  Arrived: 6,
+  Active: 7,
+  OnTrip: 7,
+  Completed: 100,
+  Cancelled: 100,
+  "No Show": 100
+};
+function statusRank(status) {
+  if (!status) return -1;
+  return STATUS_RANK[normalizeJobStatus(String(status))] ?? 1;
+}
+function mergeJobStatus(existing, incoming, existingSeq, incomingSeq) {
+  if (!incoming) return existing;
+  const ex = normalizeJobStatus(existing);
+  const inc = normalizeJobStatus(incoming);
+  if (inc === "Cancelled" || inc === "Completed" || inc === "No Show") return inc;
+  if ((inc === "No One" || inc === "Pending") && incomingSeq >= existingSeq) return inc;
+  if (statusRank(inc) < statusRank(ex)) return ex;
+  if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;
+  return inc;
+}
 const PRESERVE_IF_EMPTY = [
   "pickAddress",
   "dropAddress",
@@ -27948,6 +27977,17 @@ function mergeJobUpdate(existing, incoming) {
   }
   if (incoming.createdAt == null && existing.createdAt != null) {
     merged.createdAt = existing.createdAt;
+  }
+  const existingSeq = existing.updateSeq ?? 0;
+  const incomingSeq = incoming.updateSeq ?? existingSeq;
+  if (incoming.status != null) {
+    merged.status = mergeJobStatus(existing.status, incoming.status, existingSeq, incomingSeq);
+  }
+  if (incoming.driverId != null && incomingSeq < existingSeq && statusRank(merged.status) > statusRank("Offered")) {
+    if (existing.driverId) merged.driverId = existing.driverId;
+  }
+  if (incoming.updateSeq == null || incomingSeq < existingSeq) {
+    merged.updateSeq = existingSeq;
   }
   return merged;
 }
@@ -28931,6 +28971,14 @@ function firebasePatchFromChanges(changes) {
   for (const [from, to] of Object.entries(map2)) {
     if (changes[from] !== void 0) patch[to] = changes[from];
   }
+  if (changes.BookingStatus !== void 0) {
+    patch.BookingStatus = changes.BookingStatus;
+    if (patch.Status === void 0) patch.Status = changes.BookingStatus;
+  }
+  if (changes.Status !== void 0) {
+    patch.Status = changes.Status;
+    if (patch.BookingStatus === void 0) patch.BookingStatus = changes.Status;
+  }
   if (changes.Name !== void 0) patch.Name = changes.Name;
   if (changes.DriverId !== void 0) patch.DriverId = changes.DriverId;
   if (changes.VehicleId !== void 0) patch.VehicleId = changes.VehicleId;
@@ -29018,7 +29066,9 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
       fbPatch._seq = authoritativeSeq;
       fbPatch.version = authoritativeSeq;
       fbPatch.updateSeq = authoritativeSeq;
+      fbPatch.eventType = "updated";
       await update(ref(db2, `pendingjobs/${companyId}/${jobId}`), fbPatch);
+      await update(ref(db2, `allbookings/${companyId}/${jobId}`), fbPatch);
     }
   } catch {
   }
@@ -41622,7 +41672,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-ClfkD7zo.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CSazbB5f.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43780,7 +43830,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DJ8Ev1bf.js");
+        const { writeActiveDispatcher } = await import("./notifications-DlgLtd1Y.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43807,7 +43857,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DJ8Ev1bf.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DlgLtd1Y.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44135,4 +44185,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-Dxnqa1dI.js.map
+//# sourceMappingURL=index-CK-XJE9-.js.map

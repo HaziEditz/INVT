@@ -1226,8 +1226,6 @@ async function _withdrawJobFromDriver(opts) {
     vid = _resolved.vehicleId || drvId;
   }
 
-  clearOfferOnFirebase(cid, vid, drvId, bookingId, source);
-
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) {
@@ -1247,6 +1245,8 @@ async function _withdrawJobFromDriver(opts) {
   } catch (e) {
     console.warn(`  [${source}] _withdrawJobFromDriver notify failed: ${e && e.message}`);
   }
+
+  clearOfferOnFirebase(cid, vid, drvId, bookingId, source, 'withdraw');
 
   const _restoreStates = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy']);
   if (_restoreStates.has(prevStatus)) {
@@ -1893,6 +1893,7 @@ async function assignBooking(opts) {
     lastUpdatedAt: job.lastUpdatedAt,
     lastUpdatedBy: job.lastUpdatedBy,
     BookingStatus: job.BookingStatus,
+    Status:        job.BookingStatus,
     DriverId:      job.DriverId,
     VehicleId:     job.VehicleId,
     VehicleNo:     job.VehicleNo || '',
@@ -2108,11 +2109,12 @@ function acceptBooking(opts) {
   }
   // §FIX-CMD/ver-fanout — mirror version into allbookings/ + pendingjobs/ so
   // the driver app can read updateSeq from Firebase on cold-start.
-  _fanVersionToFirebase(_cid, bookingId, {
+  const _fanPatch = {
     updateSeq:        job.updateSeq,
     lastUpdatedAt:    job.lastUpdatedAt,
     lastUpdatedBy:    job.lastUpdatedBy,
     BookingStatus:    job.BookingStatus,
+    Status:           job.BookingStatus,
     DriverId:         job.DriverId || _finalDrv,
     VehicleId:        job.VehicleId || '',
     DriverAcceptedAt: job.DriverAcceptedAt,
@@ -2120,7 +2122,17 @@ function acceptBooking(opts) {
     DropAddress:      job.DropAddress || '',
     PickLatLng:       job.PickLatLng || '',
     DropLatLng:       job.DropLatLng || '',
-  }, false);
+    eventType:        'updated',
+  };
+  if (_cid) {
+    (async () => {
+      try {
+        await _fanVersionToFirebaseAwait(_cid, bookingId, _fanPatch, false);
+      } catch (e) {
+        console.warn(`  [${source}] accept fanout failed: ${e && e.message}`);
+      }
+    })();
+  }
   console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_finalDrv} seq=${job.updateSeq}`);
   return {
     ok: true, idempotent: false, status: 'Assigned',
@@ -2502,18 +2514,23 @@ function _fanVersionToFirebase(cid, bookingId, patch, isTerminal) {
   if (!cid || !bookingId || !patch) return;
   (async () => {
     try {
-      const _tok = await getFirebaseServerToken();
-      if (!_tok) return;
-      await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, _tok)
-        .catch(_e => console.warn(`  [ver-fanout] allbookings/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
-      if (!isTerminal) {
-        await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, _tok)
-          .catch(_e => console.warn(`  [ver-fanout] pendingjobs/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
-      }
+      await _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal);
     } catch (_e) {
       console.warn(`  [ver-fanout] cid=${cid} bid=${bookingId} failed: ${_e && _e.message}`);
     }
   })();
+}
+
+async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
+  if (!cid || !bookingId || !patch) return;
+  const _tok = await getFirebaseServerToken();
+  if (!_tok) return;
+  await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, _tok)
+    .catch(_e => console.warn(`  [ver-fanout] allbookings/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+  if (!isTerminal) {
+    await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, _tok)
+      .catch(_e => console.warn(`  [ver-fanout] pendingjobs/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+  }
 }
 
 // Diff incoming changes against the live job. Returns {field: {from, to}} for
@@ -3406,7 +3423,54 @@ function _fixsNormalizeClosedLog(c, cid, bid) {
   return out;
 }
 
-async function reconcileClosedJobsFromFirebase(opts) {
+async function repairBookingFirebaseSync(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const action = String(opts.action || 'sync').toLowerCase();
+  const source = opts.source || 'repairBookingFirebaseSync';
+  if (!bookingId) return { ok: false, error: 'bookingId required' };
+
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) {
+    return { ok: false, error: 'job not found in jobStore' };
+  }
+  const job = jobStore[idx];
+  const cid = String(job.companyId || opts.companyId || '').trim();
+  if (!cid) return { ok: false, error: 'companyId missing on job' };
+
+  if (action === 'no_one' || action === 'cancel') {
+    const ub = updateBooking({
+      bookingId,
+      changes: {
+        BookingStatus: 'No One',
+        Status: 'No One',
+        DriverId: -1,
+        VehicleId: 0,
+        ...(job.DriverId ? { _withdrawDriverId: job.DriverId } : {}),
+      },
+      by: 'admin',
+      source: `${source}/${action}`,
+    });
+    return { ok: !!ub.ok, action, booking: _publicBooking(jobStore.find(j => j && j.Id === bookingId) || job), ...ub };
+  }
+
+  const seq = parseInt(job.updateSeq) || 0;
+  const patch = {
+    BookingStatus: job.BookingStatus || 'Pending',
+    Status:        job.BookingStatus || 'Pending',
+    DriverId:      job.DriverId ?? -1,
+    VehicleId:     job.VehicleId || 0,
+    DriverAcceptedAt: job.DriverAcceptedAt || null,
+    updateSeq:     seq,
+    _seq:          seq,
+    version:       seq,
+    eventType:     'updated',
+  };
+  await _fanVersionToFirebaseAwait(cid, bookingId, patch, false);
+  console.log(`  [${source}] synced Firebase #${bookingId} → ${patch.BookingStatus} seq=${seq}`);
+  return { ok: true, action: 'sync', patch, booking: _publicBooking(job) };
+}
+
   opts = opts || {};
   const verbose = opts.verbose !== false;
   if (_FIXS_RUNNING) {
@@ -5682,6 +5746,25 @@ const server = http.createServer(async (req, res) => {
       try {
         const _rcReport = await reconcileClosedJobsFromFirebase({ verbose: true });
         jsonReply(res, { ok: true, report: _rcReport, last: _FIXS_LAST_REPORT });
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // POST /admin/repairBooking — sync Firebase pending+allbookings from jobStore, or force No One
+    // body: { bookingId, action?: 'sync'|'no_one' }
+    if (urlPath === '/admin/repairBooking' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const report = await repairBookingFirebaseSync({
+          bookingId: parsed.bookingId,
+          companyId: parsed.companyId,
+          action: parsed.action || 'sync',
+          source: '/admin/repairBooking',
+        });
+        jsonReply(res, report);
       } catch (e) {
         jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
       }
@@ -13492,7 +13575,9 @@ setInterval(() => {
 //   - DELETE joback/{bookingId}                (legacy ack path)
 //   - DELETE notification/{driverId}           (push payload)
 // All writes are fire-and-forget; failures log but never throw.
-function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
+function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason) {
+  const _reason = reason === 'withdraw' ? 'withdraw' : 'stale';
+  const _jobsEventType = _reason === 'withdraw' ? 'removed' : 'cancelled';
   if (!process.env.BW_FIREBASE_SECRET) {
     console.log(`[§FIX-OfferClear/${sourceTag}] BW_FIREBASE_SECRET not set — skipping driver-app clear`);
     return;
@@ -13524,15 +13609,15 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
       try {
         // §FIX-DA-G2 + C2 — write eventType into the child as the last update
         // so the driver app reads it off the onChildRemoved snapshot, then
-        // delete the node. Offer-clear → 'cancelled' (offer no longer valid).
+        // delete the node. Stale watchdog → 'cancelled'; dispatcher withdraw → 'removed'.
         const _ocUrl = `${FB_DB_URL}/jobs/${cid}/${vid}/${did}/${bookingIdStr}.json?auth=${auth}`;
         try {
-          await fbRequest(_ocUrl, 'PATCH', { eventType: 'cancelled' });
+          await fbRequest(_ocUrl, 'PATCH', { eventType: _jobsEventType });
         } catch (ePatch) {
           console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child eventType PATCH failed:`, ePatch && ePatch.message);
         }
         const _delResp = await fbRequest(_ocUrl, 'DELETE', null);
-        console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingIdStr} → eventType=cancelled then deleted [${_delResp && _delResp.status}]`);
+        console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingIdStr} → eventType=${_jobsEventType} then deleted [${_delResp && _delResp.status}]`);
       } catch (e2) { console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child DELETE failed:`, e2 && e2.message); }
       // 2. online/{cid}/{vid}/current — only clear if it still references THIS booking.
       try {
@@ -13561,6 +13646,8 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
         await fbRequest(`${FB_DB_URL}/joback/${bookingId}.json?auth=${auth}`, 'DELETE', null);
       } catch (e3) { console.warn(`[§FIX-OfferClear/${sourceTag}] joback/ DELETE failed:`, e3 && e3.message); }
       // 4. notification/{driverId} — guarded: only delete if it still references THIS booking.
+      // Skip on dispatcher withdraw — _withdrawJobFromDriver already wrote job_removed.
+      if (_reason !== 'withdraw') {
       try {
         const resp = await fbRequest(`${FB_DB_URL}/notification/${did}.json?auth=${auth}`, 'GET', null);
         if (!resp || resp.status !== 200) {
@@ -13577,6 +13664,7 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag) {
           }
         }
       } catch (e4) { console.warn(`[§FIX-OfferClear/${sourceTag}] notification/ guarded-DELETE failed:`, e4 && e4.message); }
+      }
     } catch (eOuter) {
       console.warn(`[§FIX-OfferClear/${sourceTag}] outer failure:`, eOuter && eOuter.message);
     }
