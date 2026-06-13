@@ -203,7 +203,18 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     })(),
     passengers: parseInt(String(rec.Passengers ?? '1'), 10) || 1,
     updateSeq: jobUpdateSeqFromRecord(rec),
-    createdAt: rec.createdAt ? Number(rec.createdAt) : undefined,
+    createdAt: (() => {
+      if (rec.createdAt != null) {
+        const n = Number(rec.createdAt);
+        if (!Number.isNaN(n) && n > 0) return n;
+      }
+      const ca = rec.CreatedAt;
+      if (ca != null) {
+        const ms = typeof ca === 'number' ? ca : Date.parse(String(ca));
+        if (!Number.isNaN(ms) && ms > 0) return ms;
+      }
+      return undefined;
+    })(),
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? '').trim() || undefined,
     bookingType: String(rec.bookingType ?? rec.BookingType ?? '').trim() || undefined,

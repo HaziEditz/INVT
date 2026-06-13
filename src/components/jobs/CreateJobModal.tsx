@@ -18,6 +18,7 @@ import {
   buildJobEditChangesDelta,
   buildBookingDateTime,
   driverAssignmentChanged,
+  isAssignedDriverSelection,
   jobToForm,
   statusFromDriverId,
   CJ_SERVICES,
@@ -194,6 +195,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const patch = useCallback((p: Partial<CreateJobFormState>) => {
     setForm((f) => ({ ...f, ...p }));
   }, []);
+
+  const selectedDriver = useMemo(() => {
+    if (!isAssignedDriverSelection(form.driverId)) return null;
+    return availableDrivers.find((d) => d.driverId === form.driverId) ?? null;
+  }, [form.driverId, availableDrivers]);
 
   const dispatchAtLabel = useMemo(() => {
     if (form.timing !== 'later') return null;
@@ -559,13 +565,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       const createdJob = {
         ...jobFromForm(form, companyId, lastId, lastStatus),
         dispatcherName,
-        driverId: form.driverId > 0 ? String(form.driverId) : undefined,
-        vehicleId: form.driverId > 0 ? form.vehicleId : undefined,
+        driverId: isAssignedDriverSelection(form.driverId) ? form.driverId : undefined,
+        vehicleId: isAssignedDriverSelection(form.driverId) ? form.vehicleId : undefined,
       };
       upsertJob(createdJob);
       console.log('[Book] Step 6 - store updated', { bookingId: lastId, status: lastStatus });
 
-      if (form.driverId > 0) {
+      if (isAssignedDriverSelection(form.driverId)) {
         const workingJob =
           useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
         await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
@@ -851,25 +857,33 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   className="cj-input"
                   value={form.driverId}
                   onChange={(e) => {
-                    const driverId = parseInt(e.target.value, 10);
-                    const d = availableDrivers.find((x) => parseInt(x.driverId, 10) === driverId);
+                    const driverId = e.target.value;
+                    const d = availableDrivers.find((x) => x.driverId === driverId);
                     patch({ driverId, vehicleId: d?.vehicleId || '0', queueNumber: 0 });
                   }}
                 >
-                  {!isEdit && <option value={0}>Driver: Auto</option>}
-                  <option value={-2}>Pending</option>
-                  <option value={-1}>No One</option>
+                  {!isEdit && <option value="0">Driver: Auto</option>}
+                  <option value="-2">Pending</option>
+                  <option value="-1">No One</option>
                   {availableDrivers.length > 0 && (
-                    <option disabled value={-999}>
+                    <option disabled value="__online__">
                       — online —
                     </option>
                   )}
                   {availableDrivers.map((d) => (
-                    <option key={d.driverId} value={parseInt(d.driverId, 10) || d.driverId}>
+                    <option key={d.driverId} value={d.driverId}>
                       {d.vehicleNo} {d.driverName}
                     </option>
                   ))}
                 </select>
+                {selectedDriver && (
+                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-[#8892a4]">Selected driver:</span>
+                    <span className="text-[10px] font-semibold text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10">
+                      {selectedDriver.vehicleNo} {selectedDriver.driverName}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

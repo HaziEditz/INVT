@@ -2065,7 +2065,11 @@ function acceptBooking(opts) {
     lastUpdatedAt:    job.lastUpdatedAt,
     lastUpdatedBy:    job.lastUpdatedBy,
     BookingStatus:    job.BookingStatus,
-    DriverAcceptedAt: job.DriverAcceptedAt
+    DriverAcceptedAt: job.DriverAcceptedAt,
+    PickAddress:      job.PickAddress || '',
+    DropAddress:      job.DropAddress || '',
+    PickLatLng:       job.PickLatLng || '',
+    DropLatLng:       job.DropLatLng || '',
   }, false);
   console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_jobDrv} seq=${job.updateSeq}`);
   return {

@@ -27651,7 +27651,18 @@ function jobFromFirebase(key, rec, companyId) {
     })(),
     passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
     updateSeq: jobUpdateSeqFromRecord(rec),
-    createdAt: rec.createdAt ? Number(rec.createdAt) : void 0,
+    createdAt: (() => {
+      if (rec.createdAt != null) {
+        const n2 = Number(rec.createdAt);
+        if (!Number.isNaN(n2) && n2 > 0) return n2;
+      }
+      const ca = rec.CreatedAt;
+      if (ca != null) {
+        const ms = typeof ca === "number" ? ca : Date.parse(String(ca));
+        if (!Number.isNaN(ms) && ms > 0) return ms;
+      }
+      return void 0;
+    })(),
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ""),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? "").trim() || void 0,
     bookingType: String(rec.bookingType ?? rec.BookingType ?? "").trim() || void 0,
@@ -27914,6 +27925,89 @@ function jobVehicleTypeLabel(job) {
   if (!v2 || v2.toLowerCase() === "not specified") return null;
   return v2;
 }
+const PRESERVE_IF_EMPTY = [
+  "pickAddress",
+  "dropAddress",
+  "pickLatLng",
+  "dropLatLng",
+  "passengerName",
+  "passengerPhone",
+  "estimatedFare",
+  "dispatcherName"
+];
+function mergeJobUpdate(existing, incoming) {
+  const merged = { ...existing, ...incoming };
+  for (const key of PRESERVE_IF_EMPTY) {
+    const nextVal = incoming[key];
+    const prevVal = existing[key];
+    if (typeof nextVal === "string" && !nextVal.trim() && typeof prevVal === "string" && prevVal.trim()) {
+      merged[key] = prevVal;
+    }
+  }
+  if (incoming.createdAt == null && existing.createdAt != null) {
+    merged.createdAt = existing.createdAt;
+  }
+  return merged;
+}
+function uaPickupSortKey(job) {
+  var _a2;
+  return ((_a2 = jobScheduledTime(job)) == null ? void 0 : _a2.getTime()) ?? job.createdAt ?? Number.MAX_SAFE_INTEGER;
+}
+function filterJobsForTab(jobs, tab) {
+  return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
+    if (tab === "ua") {
+      const pa = uaPickupSortKey(a2);
+      const pb = uaPickupSortKey(b2);
+      if (pa !== pb) return pa - pb;
+      return a2.id - b2.id;
+    }
+    const ca = a2.createdAt || 0;
+    const cb = b2.createdAt || 0;
+    if (ca !== cb) return ca - cb;
+    return a2.id - b2.id;
+  });
+}
+const useJobStore = create((set2, get2) => ({
+  jobs: [],
+  removedJobIds: [],
+  selectedJobId: null,
+  hoveredJobId: null,
+  activeTab: "ua",
+  setJobs: (jobs) => set2({ jobs: [...jobs] }),
+  upsertJob: (job) => set2((s2) => {
+    if (s2.removedJobIds.includes(job.id)) return s2;
+    const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
+    if (idx >= 0) {
+      const next = [...s2.jobs];
+      next[idx] = mergeJobUpdate(next[idx], job);
+      return { jobs: next };
+    }
+    return { jobs: [...s2.jobs, job] };
+  }),
+  removeJob: (id) => set2((s2) => {
+    if (s2.removedJobIds.includes(id)) {
+      return {
+        jobs: s2.jobs.filter((j2) => j2.id !== id),
+        selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId,
+        hoveredJobId: s2.hoveredJobId === id ? null : s2.hoveredJobId
+      };
+    }
+    return {
+      jobs: s2.jobs.filter((j2) => j2.id !== id),
+      removedJobIds: [...s2.removedJobIds, id],
+      selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId,
+      hoveredJobId: s2.hoveredJobId === id ? null : s2.hoveredJobId
+    };
+  }),
+  clearRemovedJob: (id) => set2((s2) => ({ removedJobIds: s2.removedJobIds.filter((x2) => x2 !== id) })),
+  isJobBlacklisted: (id) => get2().removedJobIds.includes(id),
+  setSelectedJobId: (id) => {
+    if (id === null) console.trace("[Store] selectedJobId cleared to null");
+    set2({ selectedJobId: id });
+  },
+  setHoveredJobId: (id) => set2({ hoveredJobId: id }),
+  setActiveTab: (tab) => set2({ activeTab: tab })
+}));
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -27952,66 +28046,7 @@ const createImpl = (createState) => {
   Object.assign(useBoundStore, api);
   return useBoundStore;
 };
-const create = ((createState) => createState ? createImpl(createState) : createImpl);
-function uaPickupSortKey(job) {
-  var _a2;
-  return ((_a2 = jobScheduledTime(job)) == null ? void 0 : _a2.getTime()) ?? job.createdAt ?? Number.MAX_SAFE_INTEGER;
-}
-function filterJobsForTab(jobs, tab) {
-  return jobs.filter((j2) => jobTabForStatus(j2) === tab).sort((a2, b2) => {
-    if (tab === "ua") {
-      const pa = uaPickupSortKey(a2);
-      const pb = uaPickupSortKey(b2);
-      if (pa !== pb) return pa - pb;
-      return a2.id - b2.id;
-    }
-    const ca = a2.createdAt || 0;
-    const cb = b2.createdAt || 0;
-    if (ca !== cb) return ca - cb;
-    return a2.id - b2.id;
-  });
-}
-const useJobStore = create((set2, get2) => ({
-  jobs: [],
-  removedJobIds: [],
-  selectedJobId: null,
-  hoveredJobId: null,
-  activeTab: "ua",
-  setJobs: (jobs) => set2({ jobs: [...jobs] }),
-  upsertJob: (job) => set2((s2) => {
-    if (s2.removedJobIds.includes(job.id)) return s2;
-    const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
-    if (idx >= 0) {
-      const next = [...s2.jobs];
-      next[idx] = { ...next[idx], ...job };
-      return { jobs: next };
-    }
-    return { jobs: [...s2.jobs, job] };
-  }),
-  removeJob: (id) => set2((s2) => {
-    if (s2.removedJobIds.includes(id)) {
-      return {
-        jobs: s2.jobs.filter((j2) => j2.id !== id),
-        selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId,
-        hoveredJobId: s2.hoveredJobId === id ? null : s2.hoveredJobId
-      };
-    }
-    return {
-      jobs: s2.jobs.filter((j2) => j2.id !== id),
-      removedJobIds: [...s2.removedJobIds, id],
-      selectedJobId: s2.selectedJobId === id ? null : s2.selectedJobId,
-      hoveredJobId: s2.hoveredJobId === id ? null : s2.hoveredJobId
-    };
-  }),
-  clearRemovedJob: (id) => set2((s2) => ({ removedJobIds: s2.removedJobIds.filter((x2) => x2 !== id) })),
-  isJobBlacklisted: (id) => get2().removedJobIds.includes(id),
-  setSelectedJobId: (id) => {
-    if (id === null) console.trace("[Store] selectedJobId cleared to null");
-    set2({ selectedJobId: id });
-  },
-  setHoveredJobId: (id) => set2({ hoveredJobId: id }),
-  setActiveTab: (tab) => set2({ activeTab: tab })
-}));
+const create$1 = ((createState) => createState ? createImpl(createState) : createImpl);
 const THEME_ORDER = ["dark", "dark-blue", "light"];
 const THEME_LABELS = {
   dark: "Dark",
@@ -28054,7 +28089,7 @@ function inferCategory(t2) {
   if (hay.includes("app") || hay.includes("web") || hay.includes("hail")) return "new_booking";
   return "general";
 }
-const useUiStore = create((set2, get2) => ({
+const useUiStore = create$1((set2, get2) => ({
   theme: initThemeFromStorage(),
   openModal: null,
   modalJobId: null,
@@ -28207,7 +28242,7 @@ function mergeJobs(maps) {
   for (const m2 of maps) {
     for (const [id, job] of m2) {
       const prev = byId.get(id);
-      byId.set(id, prev ? { ...prev, ...job } : job);
+      byId.set(id, prev ? mergeJobUpdate(prev, job) : job);
     }
   }
   return Array.from(byId.values());
@@ -28229,9 +28264,9 @@ function useJobs(companyId) {
   const upsertJob = useJobStore((s2) => s2.upsertJob);
   const removeJob = useJobStore((s2) => s2.removeJob);
   const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
-  const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
-  const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
-  reactExports.useEffect(() => {
+  const pendingRef = useRef(/* @__PURE__ */ new Map());
+  const bookingsRef = useRef(/* @__PURE__ */ new Map());
+  useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
     const unsubs = [];
@@ -28268,7 +28303,7 @@ function useJobs(companyId) {
       if (!job || isBlacklisted(job.id)) return;
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
-      const merged = booking ? { ...booking, ...job } : job;
+      const merged = booking ? mergeJobUpdate(booking, job) : job;
       upsertJob(merged);
       syncAll();
       if (notify) notifyNewJob(job);
@@ -28326,8 +28361,8 @@ function useJobs(companyId) {
   }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
 }
 function useClosedJobs(companyId, enabled) {
-  const [closed, setClosed] = reactExports.useState([]);
-  reactExports.useEffect(() => {
+  const [closed, setClosed] = useState([]);
+  useEffect(() => {
     if (!companyId || !enabled) return;
     const db2 = getDb();
     const maps = [[], [], []];
@@ -28387,6 +28422,397 @@ function useClosedJobs(companyId, enabled) {
     };
   }, [companyId, enabled]);
   return closed;
+}
+const CJ_VEHICLE_TYPES = ["Any", "Car", "Van", "WAV", "Minibus"];
+const CJ_SERVICES = ["taxi", "food", "freight", "tm", "acc", "rental"];
+function defaultCreateJobForm() {
+  const { date } = nzNowParts();
+  return {
+    pick: { address: "", lat: 0, lng: 0 },
+    pickInput: "",
+    drop: { address: "", lat: 0, lng: 0 },
+    dropInput: "",
+    stops: [],
+    name: "",
+    phone: "",
+    email: "",
+    showEmail: false,
+    notes: "",
+    serviceType: "taxi",
+    timing: "now",
+    laterDate: date,
+    laterHour: "12",
+    laterMin: "00",
+    dispatchBeforeMin: 10,
+    corner: false,
+    urgent: false,
+    vehicleType: "Any",
+    tariffId: "0",
+    tariffName: "Automatic",
+    driverId: "0",
+    vehicleId: "0",
+    queueNumber: 0,
+    paymentType: "",
+    cardNumber: "",
+    cardCvc: "",
+    cardExpMonth: "",
+    cardExpYear: "",
+    cardAmount: "",
+    cardPaid: false,
+    eftposRef: "",
+    eftposSurcharge: false,
+    accountSearch: "",
+    accountId: "",
+    accountName: "",
+    accountCredit: "",
+    tmCardNumber: "",
+    tmCardExpiry: "",
+    tmCouncilPercent: "",
+    tmPassengerPercent: "",
+    claimNumber: "",
+    poNumber: "",
+    accSearchQuery: "",
+    accClientId: "",
+    accJobId: "",
+    accManagerId: "",
+    repeatExpanded: false,
+    repeatUntil: "",
+    repeatDays: [false, false, false, false, false, false, false],
+    fixedFareEnabled: false,
+    fixedFareAmount: ""
+  };
+}
+function nzNowParts() {
+  const sv = (/* @__PURE__ */ new Date()).toLocaleString("sv", { timeZone: "Pacific/Auckland" });
+  return { date: sv.slice(0, 10), h: sv.slice(11, 13), m: sv.slice(14, 16) };
+}
+function parseBookingDateTime(dt2) {
+  if (!dt2.trim()) {
+    const now2 = nzNowParts();
+    return { date: now2.date, hour: now2.h, min: now2.m };
+  }
+  const normalized = dt2.includes("T") ? dt2 : dt2.trim().replace(" ", "T");
+  const d2 = new Date(normalized);
+  if (!Number.isNaN(d2.getTime())) {
+    const sv = d2.toLocaleString("sv", { timeZone: "Pacific/Auckland" });
+    return { date: sv.slice(0, 10), hour: sv.slice(11, 13), min: sv.slice(14, 16) };
+  }
+  const now = nzNowParts();
+  return {
+    date: dt2.slice(0, 10) || now.date,
+    hour: dt2.slice(11, 13) || now.h,
+    min: dt2.slice(14, 16) || now.m
+  };
+}
+function pad2(n2) {
+  return String(n2).padStart(2, "0");
+}
+function buildBookingDateTime(form) {
+  if (form.timing === "later") {
+    const bookingDateTime = `${form.laterDate} ${pad2(parseInt(form.laterHour, 10))}:${pad2(parseInt(form.laterMin, 10))}:00`;
+    return { bookingDateTime, dispatchBefore: form.dispatchBeforeMin };
+  }
+  const now = nzNowParts();
+  return {
+    bookingDateTime: `${now.date} ${now.h}:${now.m}`,
+    dispatchBefore: 0
+  };
+}
+function stopsPayload(stops) {
+  return stops.filter((s2) => s2.address).map((s2) => `${s2.lat}@${s2.lng}@${s2.address}=`).join("");
+}
+function bookingType(form) {
+  if (form.paymentType === "acc" || form.accClientId || form.serviceType === "acc") return "ACC Ride";
+  if (form.paymentType === "account" || form.accountId) return "Account Ride";
+  return "Normal Ride";
+}
+function paymentExtras(form) {
+  const bits2 = [];
+  if (form.paymentType === "cash") bits2.push("Payment: Cash");
+  if (form.paymentType === "eftpos") {
+    bits2.push("Payment: EFTPOS");
+    if (form.eftposRef) bits2.push(`Ref: ${form.eftposRef}`);
+    if (form.eftposSurcharge) bits2.push("EFTPOS surcharge applied");
+  }
+  if (form.paymentType === "card") bits2.push("Payment: Card (Stripe)");
+  if (form.notes) bits2.push(form.notes);
+  if (form.tmCardNumber) bits2.push(`TM Card: ${form.tmCardNumber}`);
+  if (form.tmCardExpiry) bits2.push(`TM Expiry: ${form.tmCardExpiry}`);
+  if (form.tmCouncilPercent) bits2.push(`Council %: ${form.tmCouncilPercent}`);
+  if (form.tmPassengerPercent) bits2.push(`Passenger %: ${form.tmPassengerPercent}`);
+  return bits2.filter(Boolean).join(" | ");
+}
+function buildInsertParams(form, dispatcherName) {
+  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
+  const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
+  const tariffId = form.fixedFareEnabled ? "-1" : form.tariffId;
+  const tariffName = form.fixedFareEnabled ? "Fixed" : form.tariffName;
+  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : "";
+  let serviceType = form.serviceType;
+  if (form.paymentType === "tm") serviceType = "tm";
+  if (form.paymentType === "acc") serviceType = "acc";
+  const receivePayment = form.paymentType === "card" && form.cardPaid ? form.cardAmount : form.fixedFareEnabled ? form.fixedFareAmount : "";
+  return [
+    { name: "Name", Value: form.name },
+    { name: "PassengerId", Value: form.phone },
+    { name: "Email", Value: form.showEmail ? form.email : "" },
+    { name: "Account_id", Value: form.accountId },
+    { name: "VId", Value: form.vehicleId || "0" },
+    { name: "DId", Value: String(form.driverId) },
+    { name: "PickLatLng", Value: pickLatLng },
+    { name: "DropLatLng", Value: dropLatLng },
+    { name: "PickLocation", Value: form.pick.address || form.pickInput },
+    { name: "DropLocation", Value: form.drop.address || form.dropInput },
+    { name: "VehicleType", Value: form.vehicleType === "Any" ? "Not Specified" : form.vehicleType },
+    { name: "PassengersNo", Value: "1" },
+    { name: "BagsNo", Value: "0" },
+    { name: "WheelChairsNo", Value: "0" },
+    { name: "VRequired", Value: "1" },
+    { name: "TarriffId", Value: tariffId },
+    { name: "TarriffName", Value: tariffName },
+    { name: "CustomeRate", Value: customRate },
+    { name: "Urgent", Value: form.urgent ? "Yes" : "No" },
+    { name: "FlightNo", Value: "" },
+    { name: "RoomNo", Value: "" },
+    { name: "EntitiesDetails", Value: paymentExtras(form) },
+    { name: "DateTime", Value: bookingDateTime },
+    { name: "DispatchMinutes", Value: "" },
+    { name: "Dispatchbefore", Value: String(dispatchBefore) },
+    { name: "Source", Value: "Dispatch Console" },
+    { name: "serviceType", Value: serviceType },
+    { name: "Distance", Value: "0" },
+    { name: "Time", Value: "0" },
+    { name: "EstimatedCost", Value: customRate || form.cardAmount || "0" },
+    { name: "CornerAddress", Value: form.corner ? "Corner pickup" : "" },
+    { name: "DispatcherName", value: dispatcherName },
+    { name: "nextstop", Value: String(form.stops.length) },
+    { name: "nextstopdata", Value: stopsPayload(form.stops) },
+    { name: "ZoneId", Value: "0" },
+    { name: "Acc_job_id", Value: form.accJobId },
+    { name: "po_id", Value: form.poNumber || form.accJobId },
+    { name: "Acc_claim_id", Value: form.claimNumber },
+    { name: "Acc_client_id", Value: form.accClientId },
+    { name: "Acc_manager_id", Value: form.accManagerId },
+    { name: "Acc_trip_status", Value: "" },
+    { name: "Bookingtype", Value: bookingType(form) },
+    { name: "quenumber", Value: String(form.queueNumber) },
+    { name: "Recieve_payment", Value: receivePayment },
+    { name: "PromoId", Value: "" }
+  ];
+}
+const DRIVER_AUTO = "0";
+const DRIVER_PENDING = "-2";
+const DRIVER_NOONE = "-1";
+function isAssignedDriverSelection(driverId) {
+  return driverId !== DRIVER_AUTO && driverId !== DRIVER_PENDING && driverId !== DRIVER_NOONE && driverId.trim() !== "";
+}
+function formDriverIdFromJob(job) {
+  if (job.status === "No One" || job.driverId === "-1") return DRIVER_NOONE;
+  if (job.driverId && isAssignedDriverSelection(job.driverId)) return job.driverId;
+  if (job.status === "Pending") return DRIVER_PENDING;
+  return DRIVER_AUTO;
+}
+function buildAssignmentChanges(form) {
+  if (form.driverId === DRIVER_NOONE) {
+    return {
+      BookingStatus: "No One",
+      Status: "No One",
+      DriverId: -1,
+      VehicleId: 0
+    };
+  }
+  if (form.driverId === DRIVER_PENDING || form.driverId === DRIVER_AUTO) {
+    return {
+      BookingStatus: "Pending",
+      Status: "Pending",
+      DriverId: 0,
+      VehicleId: 0,
+      releasedAt: null,
+      manualOffer: false
+    };
+  }
+  return {
+    BookingStatus: "Offered",
+    Status: "Offered",
+    DriverId: form.driverId,
+    VehicleId: form.vehicleId || "0",
+    manualOffer: true
+  };
+}
+function driverAssignmentChanged(job, form) {
+  const orig = formDriverIdFromJob(job);
+  if (form.driverId !== orig) return true;
+  if (isAssignedDriverSelection(form.driverId)) {
+    return String(form.vehicleId || "0") !== String(job.vehicleId || "0");
+  }
+  return false;
+}
+function statusFromDriverId(driverId) {
+  if (driverId === DRIVER_NOONE) return "No One";
+  if (isAssignedDriverSelection(driverId)) return "Offered";
+  return "Pending";
+}
+function parseNotesFromEntitiesDetails(raw) {
+  if (!(raw == null ? void 0 : raw.trim())) return "";
+  return raw.split("|").map((s2) => s2.trim()).filter(
+    (s2) => s2 && !/^Payment:/i.test(s2) && !/^Ref:/i.test(s2) && !/^TM Card:/i.test(s2) && !/^TM Expiry:/i.test(s2) && !/^Council %:/i.test(s2) && !/^Passenger %:/i.test(s2) && !/^EFTPOS surcharge/i.test(s2)
+  ).join(" | ").trim();
+}
+function paymentLabelFromType(paymentType) {
+  if (paymentType === "cash") return "Cash";
+  if (paymentType === "card") return "Card";
+  if (paymentType === "eftpos") return "EFTPOS";
+  if (paymentType === "account") return "Account";
+  if (paymentType === "tm") return "TM";
+  if (paymentType === "acc") return "ACC";
+  return "";
+}
+function buildJobChangesFromForm(form, dispatcherName, opts) {
+  const includeAssignment = (opts == null ? void 0 : opts.includeAssignment) !== false;
+  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
+  const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
+  const pickAddr = form.pick.address || form.pickInput;
+  const dropAddr = form.drop.address || form.dropInput;
+  const tariffId = form.fixedFareEnabled ? "-1" : form.tariffId;
+  const tariffName = form.fixedFareEnabled ? "Fixed" : form.tariffName;
+  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : "";
+  let serviceType = form.serviceType;
+  if (form.paymentType === "tm") serviceType = "tm";
+  if (form.paymentType === "acc") serviceType = "acc";
+  const paymentMethod = paymentLabelFromType(form.paymentType);
+  const changes = {
+    PickAddress: pickAddr,
+    PickLocation: pickAddr,
+    DropAddress: dropAddr,
+    DropLocation: dropAddr,
+    PickLatLng: pickLatLng,
+    DropLatLng: dropLatLng,
+    Name: form.name,
+    PhoneNo: form.phone,
+    Notes: form.notes,
+    EntitiesDetails: paymentExtras(form),
+    serviceType,
+    ServiceType: serviceType,
+    BookingDateTime: bookingDateTime,
+    Pickingtime: bookingDateTime,
+    DispatchTimebefore: dispatchBefore,
+    Dispatchbefore: String(dispatchBefore),
+    Urgent: form.urgent ? "Yes" : "No",
+    VehicleType: form.vehicleType === "Any" ? "Not Specified" : form.vehicleType,
+    PaymentMethod: paymentMethod,
+    PaymentType: paymentMethod,
+    TarriffId: tariffId,
+    TarriffName: tariffName,
+    CustomeRate: customRate,
+    EstimatedFare: customRate || form.cardAmount || "",
+    CornerAddress: form.corner ? "Corner pickup" : "",
+    DispatcherName: dispatcherName,
+    Acc_job_id: form.accJobId,
+    Acc_claim_id: form.claimNumber,
+    Acc_client_id: form.accClientId,
+    Acc_manager_id: form.accManagerId,
+    Account_id: form.accountId
+  };
+  if (includeAssignment) {
+    Object.assign(changes, buildAssignmentChanges(form));
+  }
+  return changes;
+}
+function normEditChangeValue(key, value) {
+  if (value == null) return "";
+  const s2 = String(value).trim();
+  if (key === "BookingDateTime" || key === "Pickingtime") {
+    return s2.replace("T", " ").replace(/:\d{2}$/, "").slice(0, 16);
+  }
+  return s2;
+}
+function buildJobEditChangesDelta(job, form, dispatcherName) {
+  const next = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
+  const prev = buildJobChangesFromForm(jobToForm(job), dispatcherName, { includeAssignment: false });
+  const delta = {};
+  for (const key of Object.keys(next)) {
+    if (normEditChangeValue(key, next[key]) !== normEditChangeValue(key, prev[key])) {
+      delta[key] = next[key];
+    }
+  }
+  return delta;
+}
+function jobToForm(job) {
+  var _a2, _b2, _c, _d;
+  const form = defaultCreateJobForm();
+  const pick = parseLatLng$1(job.pickLatLng);
+  const drop = parseLatLng$1(job.dropLatLng);
+  const bookingDt = job.bookingDateTime || (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace("T", " ").slice(0, 16) : "");
+  const parsed = parseBookingDateTime(bookingDt);
+  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(bookingDt) || job.scheduledFor != null && job.scheduledFor > Date.now() + 6e4;
+  const driverId = formDriverIdFromJob(job);
+  const payment = (job.paymentType || "").toLowerCase();
+  let paymentType = "";
+  if (payment.includes("card") || payment.includes("stripe")) paymentType = "card";
+  else if (payment.includes("cash")) paymentType = "cash";
+  else if (payment.includes("eftpos")) paymentType = "eftpos";
+  else if (payment.includes("account")) paymentType = "account";
+  else if (payment.includes("tm")) paymentType = "tm";
+  else if (payment.includes("acc")) paymentType = "acc";
+  const entitiesRaw = String(
+    job.entitiesDetails ?? job.EntitiesDetails ?? ""
+  );
+  const notes = ((_a2 = job.notes) == null ? void 0 : _a2.trim()) || parseNotesFromEntitiesDetails(entitiesRaw);
+  const svc = String(job.serviceType || "taxi").toLowerCase();
+  const serviceType = CJ_SERVICES.includes(svc) ? svc : "taxi";
+  return {
+    ...form,
+    pick: { address: job.pickAddress || "", lat: (pick == null ? void 0 : pick.lat) ?? 0, lng: (pick == null ? void 0 : pick.lng) ?? 0 },
+    pickInput: job.pickAddress || "",
+    drop: { address: job.dropAddress || "", lat: (drop == null ? void 0 : drop.lat) ?? 0, lng: (drop == null ? void 0 : drop.lng) ?? 0 },
+    dropInput: job.dropAddress || "",
+    name: job.passengerName || "",
+    phone: job.passengerPhone || "",
+    notes,
+    serviceType,
+    timing: isLater ? "later" : "now",
+    laterDate: parsed.date,
+    laterHour: parsed.hour,
+    laterMin: parsed.min,
+    dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
+    urgent: !!job.urgent,
+    corner: !!job.corner,
+    vehicleType: job.vehicleType || "Any",
+    tariffId: job.tariffId || "0",
+    driverId,
+    vehicleId: job.vehicleId || "0",
+    paymentType,
+    claimNumber: ((_b2 = job.acc) == null ? void 0 : _b2.claimNumber) || "",
+    poNumber: ((_c = job.acc) == null ? void 0 : _c.poNumber) || "",
+    accClientId: ((_d = job.acc) == null ? void 0 : _d.clientId) || "",
+    fixedFareEnabled: !!job.estimatedFare && job.tariffId === "-1",
+    fixedFareAmount: job.estimatedFare || ""
+  };
+}
+function isFutureBooking(dt2) {
+  try {
+    const d2 = new Date(dt2.replace(" ", "T"));
+    return !Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4;
+  } catch {
+    return false;
+  }
+}
+function repeatBookingDates(form) {
+  if (!form.repeatExpanded || !form.repeatUntil) return [];
+  const startDate = form.timing === "later" ? form.laterDate : nzNowParts().date;
+  const start = new Date(startDate);
+  const end = new Date(form.repeatUntil);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
+  const out = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    const dow = (cur.getDay() + 6) % 7;
+    if (form.repeatDays[dow]) out.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
 }
 const API = "/api";
 async function jsonFetch(url, init) {
@@ -28676,18 +29102,18 @@ async function applyJobAssignment(job, selection, onlineDrivers) {
   }
   const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
   if (!d2) throw new Error("Driver not found");
-  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+  const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   const isReassign = hadDriver && job.driverId !== d2.driverId;
   await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq, job);
   return isReassign ? "reassign" : "assign";
 }
 async function applyFormDriverAssignment(job, form, availableDrivers, opts) {
-  if (form.driverId > 0) {
-    const d2 = availableDrivers.find((x2) => parseInt(x2.driverId, 10) === form.driverId) ?? { driverId: String(form.driverId), vehicleId: form.vehicleId || "0" };
+  if (isAssignedDriverSelection(form.driverId)) {
+    const d2 = availableDrivers.find((x2) => x2.driverId === form.driverId) ?? { driverId: form.driverId, vehicleId: form.vehicleId || "0" };
     await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq, job, opts);
     return;
   }
-  if (form.driverId === -1) {
+  if (form.driverId === "-1") {
     await setNoOne(job);
     return;
   }
@@ -28704,7 +29130,7 @@ async function setPending(job) {
   }, job);
 }
 async function setNoOne(job) {
-  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+  const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   return updateJob(job.id, job.companyId, {
     BookingStatus: "No One",
     Status: "No One",
@@ -29401,7 +29827,7 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
     ] })
   ] });
 }
-const useDriverStore = create((set2, get2) => ({
+const useDriverStore = create$1((set2, get2) => ({
   drivers: [],
   serviceFilter: "All",
   statusFilter: "All",
@@ -31535,6 +31961,17 @@ function JobCard({ job, tab }) {
       fare
     };
   }, [job, tab, now]);
+  const opsMeta = reactExports.useMemo(() => {
+    if (tab === "ua" || tab === "dy") return null;
+    const created = jobCreatedAtTime(job);
+    const booked = jobBookingTime(job);
+    const assignedDriver = allDrivers.find((d2) => d2.driverId === job.driverId);
+    return {
+      createdLabel: created ? formatJobDateTimeShort(created) : null,
+      bookedLabel: booked ? formatJobDateTimeShort(booked) : null,
+      driverLabel: assignedDriver ? `${assignedDriver.vehicleNo} ${assignedDriver.driverName}`.trim() : job.driverId && job.driverId !== "-1" && job.driverId !== "0" ? job.vehicleNo || `Driver ${job.driverId}` : null
+    };
+  }, [job, tab, now, allDrivers]);
   const pickupTag = tab === "ua" && uaMeta ? uaMeta.pickupLabel : ((_a2 = cardLook.label) == null ? void 0 : _a2.startsWith("Sched:")) ? cardLook.label : null;
   const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
@@ -31598,7 +32035,7 @@ function JobCard({ job, tab }) {
     const selection = assignSelection;
     try {
       const result = await applyJobAssignment(job, selection, onlineDrivers);
-      const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+      const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
       addToast({
         type: "success",
         title: result === "pending" ? hadDriver ? "Job unassigned (Pending)" : "Set Pending" : result === "noone" ? hadDriver ? "Job unassigned (No One)" : "Set No One" : result === "reassign" ? "Driver reassigned" : "Driver assigned"
@@ -31737,6 +32174,30 @@ function JobCard({ job, tab }) {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Pickup:" }),
                 " ",
                 uaMeta.pickupTime
+              ] })
+            ]
+          }
+        ),
+        opsMeta && (opsMeta.createdLabel || opsMeta.bookedLabel || opsMeta.driverLabel) && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", metaText),
+            style: themeMutedStyle,
+            children: [
+              opsMeta.createdLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Created:" }),
+                " ",
+                opsMeta.createdLabel
+              ] }),
+              opsMeta.bookedLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Booked:" }),
+                " ",
+                opsMeta.bookedLabel
+              ] }),
+              opsMeta.driverLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Driver:" }),
+                " ",
+                opsMeta.driverLabel
               ] })
             ]
           }
@@ -32465,392 +32926,6 @@ async function chargeStripeCard(opts) {
   const msg = String(json.d || "");
   if (msg.startsWith("error")) throw new Error(msg.replace(/^error:\s*/i, ""));
 }
-const CJ_VEHICLE_TYPES = ["Any", "Car", "Van", "WAV", "Minibus"];
-const CJ_SERVICES = ["taxi", "food", "freight", "tm", "acc", "rental"];
-function defaultCreateJobForm() {
-  const { date } = nzNowParts();
-  return {
-    pick: { address: "", lat: 0, lng: 0 },
-    pickInput: "",
-    drop: { address: "", lat: 0, lng: 0 },
-    dropInput: "",
-    stops: [],
-    name: "",
-    phone: "",
-    email: "",
-    showEmail: false,
-    notes: "",
-    serviceType: "taxi",
-    timing: "now",
-    laterDate: date,
-    laterHour: "12",
-    laterMin: "00",
-    dispatchBeforeMin: 10,
-    corner: false,
-    urgent: false,
-    vehicleType: "Any",
-    tariffId: "0",
-    tariffName: "Automatic",
-    driverId: 0,
-    vehicleId: "0",
-    queueNumber: 0,
-    paymentType: "",
-    cardNumber: "",
-    cardCvc: "",
-    cardExpMonth: "",
-    cardExpYear: "",
-    cardAmount: "",
-    cardPaid: false,
-    eftposRef: "",
-    eftposSurcharge: false,
-    accountSearch: "",
-    accountId: "",
-    accountName: "",
-    accountCredit: "",
-    tmCardNumber: "",
-    tmCardExpiry: "",
-    tmCouncilPercent: "",
-    tmPassengerPercent: "",
-    claimNumber: "",
-    poNumber: "",
-    accSearchQuery: "",
-    accClientId: "",
-    accJobId: "",
-    accManagerId: "",
-    repeatExpanded: false,
-    repeatUntil: "",
-    repeatDays: [false, false, false, false, false, false, false],
-    fixedFareEnabled: false,
-    fixedFareAmount: ""
-  };
-}
-function nzNowParts() {
-  const sv = (/* @__PURE__ */ new Date()).toLocaleString("sv", { timeZone: "Pacific/Auckland" });
-  return { date: sv.slice(0, 10), h: sv.slice(11, 13), m: sv.slice(14, 16) };
-}
-function parseBookingDateTime(dt2) {
-  if (!dt2.trim()) {
-    const now2 = nzNowParts();
-    return { date: now2.date, hour: now2.h, min: now2.m };
-  }
-  const normalized = dt2.includes("T") ? dt2 : dt2.trim().replace(" ", "T");
-  const d2 = new Date(normalized);
-  if (!Number.isNaN(d2.getTime())) {
-    const sv = d2.toLocaleString("sv", { timeZone: "Pacific/Auckland" });
-    return { date: sv.slice(0, 10), hour: sv.slice(11, 13), min: sv.slice(14, 16) };
-  }
-  const now = nzNowParts();
-  return {
-    date: dt2.slice(0, 10) || now.date,
-    hour: dt2.slice(11, 13) || now.h,
-    min: dt2.slice(14, 16) || now.m
-  };
-}
-function pad2(n2) {
-  return String(n2).padStart(2, "0");
-}
-function buildBookingDateTime(form) {
-  if (form.timing === "later") {
-    const bookingDateTime = `${form.laterDate} ${pad2(parseInt(form.laterHour, 10))}:${pad2(parseInt(form.laterMin, 10))}:00`;
-    return { bookingDateTime, dispatchBefore: form.dispatchBeforeMin };
-  }
-  const now = nzNowParts();
-  return {
-    bookingDateTime: `${now.date} ${now.h}:${now.m}`,
-    dispatchBefore: 0
-  };
-}
-function stopsPayload(stops) {
-  return stops.filter((s2) => s2.address).map((s2) => `${s2.lat}@${s2.lng}@${s2.address}=`).join("");
-}
-function bookingType(form) {
-  if (form.paymentType === "acc" || form.accClientId || form.serviceType === "acc") return "ACC Ride";
-  if (form.paymentType === "account" || form.accountId) return "Account Ride";
-  return "Normal Ride";
-}
-function paymentExtras(form) {
-  const bits2 = [];
-  if (form.paymentType === "cash") bits2.push("Payment: Cash");
-  if (form.paymentType === "eftpos") {
-    bits2.push("Payment: EFTPOS");
-    if (form.eftposRef) bits2.push(`Ref: ${form.eftposRef}`);
-    if (form.eftposSurcharge) bits2.push("EFTPOS surcharge applied");
-  }
-  if (form.paymentType === "card") bits2.push("Payment: Card (Stripe)");
-  if (form.notes) bits2.push(form.notes);
-  if (form.tmCardNumber) bits2.push(`TM Card: ${form.tmCardNumber}`);
-  if (form.tmCardExpiry) bits2.push(`TM Expiry: ${form.tmCardExpiry}`);
-  if (form.tmCouncilPercent) bits2.push(`Council %: ${form.tmCouncilPercent}`);
-  if (form.tmPassengerPercent) bits2.push(`Passenger %: ${form.tmPassengerPercent}`);
-  return bits2.filter(Boolean).join(" | ");
-}
-function buildInsertParams(form, dispatcherName) {
-  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
-  const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
-  const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
-  const tariffId = form.fixedFareEnabled ? "-1" : form.tariffId;
-  const tariffName = form.fixedFareEnabled ? "Fixed" : form.tariffName;
-  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : "";
-  let serviceType = form.serviceType;
-  if (form.paymentType === "tm") serviceType = "tm";
-  if (form.paymentType === "acc") serviceType = "acc";
-  const receivePayment = form.paymentType === "card" && form.cardPaid ? form.cardAmount : form.fixedFareEnabled ? form.fixedFareAmount : "";
-  return [
-    { name: "Name", Value: form.name },
-    { name: "PassengerId", Value: form.phone },
-    { name: "Email", Value: form.showEmail ? form.email : "" },
-    { name: "Account_id", Value: form.accountId },
-    { name: "VId", Value: form.vehicleId || "0" },
-    { name: "DId", Value: String(form.driverId) },
-    { name: "PickLatLng", Value: pickLatLng },
-    { name: "DropLatLng", Value: dropLatLng },
-    { name: "PickLocation", Value: form.pick.address || form.pickInput },
-    { name: "DropLocation", Value: form.drop.address || form.dropInput },
-    { name: "VehicleType", Value: form.vehicleType === "Any" ? "Not Specified" : form.vehicleType },
-    { name: "PassengersNo", Value: "1" },
-    { name: "BagsNo", Value: "0" },
-    { name: "WheelChairsNo", Value: "0" },
-    { name: "VRequired", Value: "1" },
-    { name: "TarriffId", Value: tariffId },
-    { name: "TarriffName", Value: tariffName },
-    { name: "CustomeRate", Value: customRate },
-    { name: "Urgent", Value: form.urgent ? "Yes" : "No" },
-    { name: "FlightNo", Value: "" },
-    { name: "RoomNo", Value: "" },
-    { name: "EntitiesDetails", Value: paymentExtras(form) },
-    { name: "DateTime", Value: bookingDateTime },
-    { name: "DispatchMinutes", Value: "" },
-    { name: "Dispatchbefore", Value: String(dispatchBefore) },
-    { name: "Source", Value: "Dispatch Console" },
-    { name: "serviceType", Value: serviceType },
-    { name: "Distance", Value: "0" },
-    { name: "Time", Value: "0" },
-    { name: "EstimatedCost", Value: customRate || form.cardAmount || "0" },
-    { name: "CornerAddress", Value: form.corner ? "Corner pickup" : "" },
-    { name: "DispatcherName", value: dispatcherName },
-    { name: "nextstop", Value: String(form.stops.length) },
-    { name: "nextstopdata", Value: stopsPayload(form.stops) },
-    { name: "ZoneId", Value: "0" },
-    { name: "Acc_job_id", Value: form.accJobId },
-    { name: "po_id", Value: form.poNumber || form.accJobId },
-    { name: "Acc_claim_id", Value: form.claimNumber },
-    { name: "Acc_client_id", Value: form.accClientId },
-    { name: "Acc_manager_id", Value: form.accManagerId },
-    { name: "Acc_trip_status", Value: "" },
-    { name: "Bookingtype", Value: bookingType(form) },
-    { name: "quenumber", Value: String(form.queueNumber) },
-    { name: "Recieve_payment", Value: receivePayment },
-    { name: "PromoId", Value: "" }
-  ];
-}
-function formDriverIdFromJob(job) {
-  if (job.status === "No One" || job.driverId === "-1") return -1;
-  if (job.driverId && parseInt(job.driverId, 10) > 0) return parseInt(job.driverId, 10);
-  if (job.status === "Pending") return -2;
-  return 0;
-}
-function buildAssignmentChanges(form) {
-  if (form.driverId === -1) {
-    return {
-      BookingStatus: "No One",
-      Status: "No One",
-      DriverId: -1,
-      VehicleId: 0
-    };
-  }
-  if (form.driverId === -2 || form.driverId === 0) {
-    return {
-      BookingStatus: "Pending",
-      Status: "Pending",
-      DriverId: 0,
-      VehicleId: 0,
-      releasedAt: null,
-      manualOffer: false
-    };
-  }
-  return {
-    BookingStatus: "Offered",
-    Status: "Offered",
-    DriverId: form.driverId,
-    VehicleId: parseInt(form.vehicleId, 10) || 0,
-    manualOffer: true
-  };
-}
-function driverAssignmentChanged(job, form) {
-  const orig = formDriverIdFromJob(job);
-  if (form.driverId !== orig) return true;
-  if (form.driverId > 0) {
-    return String(form.vehicleId || "0") !== String(job.vehicleId || "0");
-  }
-  return false;
-}
-function statusFromDriverId(driverId) {
-  if (driverId === -1) return "No One";
-  if (driverId > 0) return "Offered";
-  return "Pending";
-}
-function parseNotesFromEntitiesDetails(raw) {
-  if (!(raw == null ? void 0 : raw.trim())) return "";
-  return raw.split("|").map((s2) => s2.trim()).filter(
-    (s2) => s2 && !/^Payment:/i.test(s2) && !/^Ref:/i.test(s2) && !/^TM Card:/i.test(s2) && !/^TM Expiry:/i.test(s2) && !/^Council %:/i.test(s2) && !/^Passenger %:/i.test(s2) && !/^EFTPOS surcharge/i.test(s2)
-  ).join(" | ").trim();
-}
-function paymentLabelFromType(paymentType) {
-  if (paymentType === "cash") return "Cash";
-  if (paymentType === "card") return "Card";
-  if (paymentType === "eftpos") return "EFTPOS";
-  if (paymentType === "account") return "Account";
-  if (paymentType === "tm") return "TM";
-  if (paymentType === "acc") return "ACC";
-  return "";
-}
-function buildJobChangesFromForm(form, dispatcherName, opts) {
-  const includeAssignment = (opts == null ? void 0 : opts.includeAssignment) !== false;
-  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
-  const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
-  const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
-  const pickAddr = form.pick.address || form.pickInput;
-  const dropAddr = form.drop.address || form.dropInput;
-  const tariffId = form.fixedFareEnabled ? "-1" : form.tariffId;
-  const tariffName = form.fixedFareEnabled ? "Fixed" : form.tariffName;
-  const customRate = form.fixedFareEnabled ? form.fixedFareAmount : "";
-  let serviceType = form.serviceType;
-  if (form.paymentType === "tm") serviceType = "tm";
-  if (form.paymentType === "acc") serviceType = "acc";
-  const paymentMethod = paymentLabelFromType(form.paymentType);
-  const changes = {
-    PickAddress: pickAddr,
-    PickLocation: pickAddr,
-    DropAddress: dropAddr,
-    DropLocation: dropAddr,
-    PickLatLng: pickLatLng,
-    DropLatLng: dropLatLng,
-    Name: form.name,
-    PhoneNo: form.phone,
-    Notes: form.notes,
-    EntitiesDetails: paymentExtras(form),
-    serviceType,
-    ServiceType: serviceType,
-    BookingDateTime: bookingDateTime,
-    Pickingtime: bookingDateTime,
-    DispatchTimebefore: dispatchBefore,
-    Dispatchbefore: String(dispatchBefore),
-    Urgent: form.urgent ? "Yes" : "No",
-    VehicleType: form.vehicleType === "Any" ? "Not Specified" : form.vehicleType,
-    PaymentMethod: paymentMethod,
-    PaymentType: paymentMethod,
-    TarriffId: tariffId,
-    TarriffName: tariffName,
-    CustomeRate: customRate,
-    EstimatedFare: customRate || form.cardAmount || "",
-    CornerAddress: form.corner ? "Corner pickup" : "",
-    DispatcherName: dispatcherName,
-    Acc_job_id: form.accJobId,
-    Acc_claim_id: form.claimNumber,
-    Acc_client_id: form.accClientId,
-    Acc_manager_id: form.accManagerId,
-    Account_id: form.accountId
-  };
-  if (includeAssignment) {
-    Object.assign(changes, buildAssignmentChanges(form));
-  }
-  return changes;
-}
-function normEditChangeValue(key, value) {
-  if (value == null) return "";
-  const s2 = String(value).trim();
-  if (key === "BookingDateTime" || key === "Pickingtime") {
-    return s2.replace("T", " ").replace(/:\d{2}$/, "").slice(0, 16);
-  }
-  return s2;
-}
-function buildJobEditChangesDelta(job, form, dispatcherName) {
-  const next = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
-  const prev = buildJobChangesFromForm(jobToForm(job), dispatcherName, { includeAssignment: false });
-  const delta = {};
-  for (const key of Object.keys(next)) {
-    if (normEditChangeValue(key, next[key]) !== normEditChangeValue(key, prev[key])) {
-      delta[key] = next[key];
-    }
-  }
-  return delta;
-}
-function jobToForm(job) {
-  var _a2, _b2, _c, _d;
-  const form = defaultCreateJobForm();
-  const pick = parseLatLng$1(job.pickLatLng);
-  const drop = parseLatLng$1(job.dropLatLng);
-  const bookingDt = job.bookingDateTime || (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace("T", " ").slice(0, 16) : "");
-  const parsed = parseBookingDateTime(bookingDt);
-  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(bookingDt) || job.scheduledFor != null && job.scheduledFor > Date.now() + 6e4;
-  let driverId = 0;
-  driverId = formDriverIdFromJob(job);
-  const payment = (job.paymentType || "").toLowerCase();
-  let paymentType = "";
-  if (payment.includes("card") || payment.includes("stripe")) paymentType = "card";
-  else if (payment.includes("cash")) paymentType = "cash";
-  else if (payment.includes("eftpos")) paymentType = "eftpos";
-  else if (payment.includes("account")) paymentType = "account";
-  else if (payment.includes("tm")) paymentType = "tm";
-  else if (payment.includes("acc")) paymentType = "acc";
-  const entitiesRaw = String(
-    job.entitiesDetails ?? job.EntitiesDetails ?? ""
-  );
-  const notes = ((_a2 = job.notes) == null ? void 0 : _a2.trim()) || parseNotesFromEntitiesDetails(entitiesRaw);
-  const svc = String(job.serviceType || "taxi").toLowerCase();
-  const serviceType = CJ_SERVICES.includes(svc) ? svc : "taxi";
-  return {
-    ...form,
-    pick: { address: job.pickAddress || "", lat: (pick == null ? void 0 : pick.lat) ?? 0, lng: (pick == null ? void 0 : pick.lng) ?? 0 },
-    pickInput: job.pickAddress || "",
-    drop: { address: job.dropAddress || "", lat: (drop == null ? void 0 : drop.lat) ?? 0, lng: (drop == null ? void 0 : drop.lng) ?? 0 },
-    dropInput: job.dropAddress || "",
-    name: job.passengerName || "",
-    phone: job.passengerPhone || "",
-    notes,
-    serviceType,
-    timing: isLater ? "later" : "now",
-    laterDate: parsed.date,
-    laterHour: parsed.hour,
-    laterMin: parsed.min,
-    dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
-    urgent: !!job.urgent,
-    corner: !!job.corner,
-    vehicleType: job.vehicleType || "Any",
-    tariffId: job.tariffId || "0",
-    driverId,
-    vehicleId: job.vehicleId || "0",
-    paymentType,
-    claimNumber: ((_b2 = job.acc) == null ? void 0 : _b2.claimNumber) || "",
-    poNumber: ((_c = job.acc) == null ? void 0 : _c.poNumber) || "",
-    accClientId: ((_d = job.acc) == null ? void 0 : _d.clientId) || "",
-    fixedFareEnabled: !!job.estimatedFare && job.tariffId === "-1",
-    fixedFareAmount: job.estimatedFare || ""
-  };
-}
-function isFutureBooking(dt2) {
-  try {
-    const d2 = new Date(dt2.replace(" ", "T"));
-    return !Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4;
-  } catch {
-    return false;
-  }
-}
-function repeatBookingDates(form) {
-  if (!form.repeatExpanded || !form.repeatUntil) return [];
-  const startDate = form.timing === "later" ? form.laterDate : nzNowParts().date;
-  const start = new Date(startDate);
-  const end = new Date(form.repeatUntil);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [];
-  const out = [];
-  const cur = new Date(start);
-  while (cur <= end) {
-    const dow = (cur.getDay() + 6) % 7;
-    if (form.repeatDays[dow]) out.push(cur.toISOString().slice(0, 10));
-    cur.setDate(cur.getDate() + 1);
-  }
-  return out;
-}
 function validCoord(p2) {
   return Math.abs(p2.lat) > 1e-4 || Math.abs(p2.lng) > 1e-4;
 }
@@ -33010,6 +33085,10 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const patch = reactExports.useCallback((p2) => {
     setForm((f2) => ({ ...f2, ...p2 }));
   }, []);
+  const selectedDriver = reactExports.useMemo(() => {
+    if (!isAssignedDriverSelection(form.driverId)) return null;
+    return availableDrivers.find((d2) => d2.driverId === form.driverId) ?? null;
+  }, [form.driverId, availableDrivers]);
   const dispatchAtLabel = reactExports.useMemo(() => {
     if (form.timing !== "later") return null;
     try {
@@ -33334,12 +33413,12 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       const createdJob = {
         ...jobFromForm(form, companyId, lastId, lastStatus),
         dispatcherName,
-        driverId: form.driverId > 0 ? String(form.driverId) : void 0,
-        vehicleId: form.driverId > 0 ? form.vehicleId : void 0
+        driverId: isAssignedDriverSelection(form.driverId) ? form.driverId : void 0,
+        vehicleId: isAssignedDriverSelection(form.driverId) ? form.vehicleId : void 0
       };
       upsertJob(createdJob);
       console.log("[Book] Step 6 - store updated", { bookingId: lastId, status: lastStatus });
-      if (form.driverId > 0) {
+      if (isAssignedDriverSelection(form.driverId)) {
         const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === lastId) ?? createdJob;
         await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
       }
@@ -33622,23 +33701,31 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                     className: "cj-input",
                     value: form.driverId,
                     onChange: (e) => {
-                      const driverId = parseInt(e.target.value, 10);
-                      const d2 = availableDrivers.find((x2) => parseInt(x2.driverId, 10) === driverId);
+                      const driverId = e.target.value;
+                      const d2 = availableDrivers.find((x2) => x2.driverId === driverId);
                       patch({ driverId, vehicleId: (d2 == null ? void 0 : d2.vehicleId) || "0", queueNumber: 0 });
                     },
                     children: [
-                      !isEdit && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 0, children: "Driver: Auto" }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: -2, children: "Pending" }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: -1, children: "No One" }),
-                      availableDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, value: -999, children: "— online —" }),
-                      availableDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: parseInt(d2.driverId, 10) || d2.driverId, children: [
+                      !isEdit && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "0", children: "Driver: Auto" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "-2", children: "Pending" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "-1", children: "No One" }),
+                      availableDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, value: "__online__", children: "— online —" }),
+                      availableDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
                         d2.vehicleNo,
                         " ",
                         d2.driverName
                       ] }, d2.driverId))
                     ]
                   }
-                )
+                ),
+                selectedDriver && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1.5 flex items-center gap-1.5 flex-wrap", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[10px] text-[#8892a4]", children: "Selected driver:" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-[10px] font-semibold text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10", children: [
+                    selectedDriver.vehicleNo,
+                    " ",
+                    selectedDriver.driverName
+                  ] })
+                ] })
               ] })
             ] })
           ] }) }),
@@ -41438,7 +41525,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-hzKQ8e2Q.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BO9KiGuF.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -43596,7 +43683,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-Kj-ibfSw.js");
+        const { writeActiveDispatcher } = await import("./notifications-Dlnm8-qD.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43623,7 +43710,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Kj-ibfSw.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Dlnm8-qD.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43951,4 +44038,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-xMoflmC6.js.map
+//# sourceMappingURL=index-CW_9sd9z.js.map

@@ -39,7 +39,8 @@ export interface CreateJobFormState {
   vehicleType: string;
   tariffId: string;
   tariffName: string;
-  driverId: number;
+  /** "0" = Auto, "-2" = Pending, "-1" = No One, else driver id string (may be non-numeric). */
+  driverId: string;
   vehicleId: string;
   queueNumber: number;
   paymentType: PaymentType;
@@ -99,7 +100,7 @@ export function defaultCreateJobForm(): CreateJobFormState {
     vehicleType: 'Any',
     tariffId: '0',
     tariffName: 'Automatic',
-    driverId: 0,
+    driverId: '0',
     vehicleId: '0',
     queueNumber: 0,
     paymentType: '',
@@ -268,24 +269,37 @@ export function buildInsertParams(form: CreateJobFormState, dispatcherName: stri
   ];
 }
 
+export const DRIVER_AUTO = '0';
+export const DRIVER_PENDING = '-2';
+export const DRIVER_NOONE = '-1';
+
+export function isAssignedDriverSelection(driverId: string): boolean {
+  return (
+    driverId !== DRIVER_AUTO &&
+    driverId !== DRIVER_PENDING &&
+    driverId !== DRIVER_NOONE &&
+    driverId.trim() !== ''
+  );
+}
+
 export function driverBookstatus(form: CreateJobFormState): { dId: string; bookstatus: string } {
-  if (form.driverId === -1) return { dId: '-1', bookstatus: 'No One' };
-  if (form.driverId === -2) return { dId: '0', bookstatus: 'Pending' };
-  if (form.driverId > 0) return { dId: String(form.driverId), bookstatus: 'Offered' };
+  if (form.driverId === DRIVER_NOONE) return { dId: '-1', bookstatus: 'No One' };
+  if (form.driverId === DRIVER_PENDING) return { dId: '0', bookstatus: 'Pending' };
+  if (isAssignedDriverSelection(form.driverId)) return { dId: form.driverId, bookstatus: 'Offered' };
   return { dId: '0', bookstatus: 'Pending' };
 }
 
 /** Map a live job to the create/edit form driver dropdown value. */
-export function formDriverIdFromJob(job: Job): number {
-  if (job.status === 'No One' || job.driverId === '-1') return -1;
-  if (job.driverId && parseInt(job.driverId, 10) > 0) return parseInt(job.driverId, 10);
-  if (job.status === 'Pending') return -2;
-  return 0;
+export function formDriverIdFromJob(job: Job): string {
+  if (job.status === 'No One' || job.driverId === '-1') return DRIVER_NOONE;
+  if (job.driverId && isAssignedDriverSelection(job.driverId)) return job.driverId;
+  if (job.status === 'Pending') return DRIVER_PENDING;
+  return DRIVER_AUTO;
 }
 
 /** Assignment-only payload — same fields as card Assign / setPending / setNoOne. */
 export function buildAssignmentChanges(form: CreateJobFormState): Record<string, unknown> {
-  if (form.driverId === -1) {
+  if (form.driverId === DRIVER_NOONE) {
     return {
       BookingStatus: 'No One',
       Status: 'No One',
@@ -293,7 +307,7 @@ export function buildAssignmentChanges(form: CreateJobFormState): Record<string,
       VehicleId: 0,
     };
   }
-  if (form.driverId === -2 || form.driverId === 0) {
+  if (form.driverId === DRIVER_PENDING || form.driverId === DRIVER_AUTO) {
     return {
       BookingStatus: 'Pending',
       Status: 'Pending',
@@ -307,7 +321,7 @@ export function buildAssignmentChanges(form: CreateJobFormState): Record<string,
     BookingStatus: 'Offered',
     Status: 'Offered',
     DriverId: form.driverId,
-    VehicleId: parseInt(form.vehicleId, 10) || 0,
+    VehicleId: form.vehicleId || '0',
     manualOffer: true,
   };
 }
@@ -315,15 +329,15 @@ export function buildAssignmentChanges(form: CreateJobFormState): Record<string,
 export function driverAssignmentChanged(job: Job, form: CreateJobFormState): boolean {
   const orig = formDriverIdFromJob(job);
   if (form.driverId !== orig) return true;
-  if (form.driverId > 0) {
+  if (isAssignedDriverSelection(form.driverId)) {
     return String(form.vehicleId || '0') !== String(job.vehicleId || '0');
   }
   return false;
 }
 
-export function statusFromDriverId(driverId: number): 'Pending' | 'No One' | 'Offered' {
-  if (driverId === -1) return 'No One';
-  if (driverId > 0) return 'Offered';
+export function statusFromDriverId(driverId: string): 'Pending' | 'No One' | 'Offered' {
+  if (driverId === DRIVER_NOONE) return 'No One';
+  if (isAssignedDriverSelection(driverId)) return 'Offered';
   return 'Pending';
 }
 
@@ -458,8 +472,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     isFutureBooking(bookingDt) ||
     (job.scheduledFor != null && job.scheduledFor > Date.now() + 60000);
 
-  let driverId = 0;
-  driverId = formDriverIdFromJob(job);
+  const driverId = formDriverIdFromJob(job);
 
   const payment = (job.paymentType || '').toLowerCase();
   let paymentType: CreateJobFormState['paymentType'] = '';

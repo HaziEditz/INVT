@@ -2,6 +2,7 @@ import type { Job, JobStatus } from '@/types/job';
 import { jobFromFirebase, jobUpdateSeqFromRecord } from '@/types/job';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
+import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 
@@ -452,7 +453,7 @@ export async function applyJobAssignment(
   }
   const d = onlineDrivers.find((x) => x.driverId === selection);
   if (!d) throw new Error('Driver not found');
-  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+  const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   const isReassign = hadDriver && job.driverId !== d.driverId;
   await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq, job);
   return isReassign ? 'reassign' : 'assign';
@@ -461,18 +462,18 @@ export async function applyJobAssignment(
 /** Apply driver dropdown choice from the create/edit job form. */
 export async function applyFormDriverAssignment(
   job: Job,
-  form: { driverId: number; vehicleId: string },
+  form: { driverId: string; vehicleId: string },
   availableDrivers: Array<{ driverId: string; vehicleId: string }>,
   opts?: { fanout?: boolean }
 ): Promise<void> {
-  if (form.driverId > 0) {
+  if (isAssignedDriverSelection(form.driverId)) {
     const d =
-      availableDrivers.find((x) => parseInt(x.driverId, 10) === form.driverId) ??
-      ({ driverId: String(form.driverId), vehicleId: form.vehicleId || '0' } as const);
+      availableDrivers.find((x) => x.driverId === form.driverId) ??
+      ({ driverId: form.driverId, vehicleId: form.vehicleId || '0' } as const);
     await assignJob(job.id, d.driverId, d.vehicleId || form.vehicleId || '0', job.updateSeq, job, opts);
     return;
   }
-  if (form.driverId === -1) {
+  if (form.driverId === '-1') {
     await setNoOne(job);
     return;
   }
@@ -491,7 +492,7 @@ export async function setPending(job: Job) {
 }
 
 export async function setNoOne(job: Job) {
-  const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+  const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   return updateJob(job.id, job.companyId, {
     BookingStatus: 'No One',
     Status: 'No One',

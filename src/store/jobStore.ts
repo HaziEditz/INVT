@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { mergeJobUpdate } from '@/lib/mergeJob';
 import type { Job, JobTab } from '@/types/job';
 import { jobScheduledTime, jobTabForStatus } from '@/types/job';
 
@@ -52,7 +52,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {
         const next = [...s.jobs];
-        next[idx] = { ...next[idx], ...job };
+        next[idx] = mergeJobUpdate(next[idx], job);
         return { jobs: next };
       }
       return { jobs: [...s.jobs, job] };

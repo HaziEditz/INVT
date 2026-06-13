@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { mergeJobUpdate } from '@/lib/mergeJob';
 import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
@@ -11,7 +11,7 @@ function mergeJobs(maps: Map<number, Job>[]): Job[] {
   for (const m of maps) {
     for (const [id, job] of m) {
       const prev = byId.get(id);
-      byId.set(id, prev ? { ...prev, ...job } : job);
+      byId.set(id, prev ? mergeJobUpdate(prev, job) : job);
     }
   }
   return Array.from(byId.values());
@@ -85,7 +85,7 @@ export function useJobs(companyId: string | null) {
 
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
-      const merged = booking ? { ...booking, ...job } : job;
+      const merged = booking ? mergeJobUpdate(booking, job) : job;
       upsertJob(merged);
       syncAll();
       if (notify) notifyNewJob(job);

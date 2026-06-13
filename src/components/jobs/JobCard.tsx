@@ -28,6 +28,7 @@ import {
   forceCompleteJob,
   setPending,
 } from '@/lib/jobFlow';
+import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useUiStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 
@@ -117,6 +118,22 @@ export function JobCard({ job, tab }: JobCardProps) {
     };
   }, [job, tab, now]);
 
+  const opsMeta = useMemo(() => {
+    if (tab === 'ua' || tab === 'dy') return null;
+    const created = jobCreatedAtTime(job);
+    const booked = jobBookingTime(job);
+    const assignedDriver = allDrivers.find((d) => d.driverId === job.driverId);
+    return {
+      createdLabel: created ? formatJobDateTimeShort(created) : null,
+      bookedLabel: booked ? formatJobDateTimeShort(booked) : null,
+      driverLabel: assignedDriver
+        ? `${assignedDriver.vehicleNo} ${assignedDriver.driverName}`.trim()
+        : job.driverId && job.driverId !== '-1' && job.driverId !== '0'
+          ? job.vehicleNo || `Driver ${job.driverId}`
+          : null,
+    };
+  }, [job, tab, now, allDrivers]);
+
   const pickupTag =
     tab === 'ua' && uaMeta
       ? uaMeta.pickupLabel
@@ -194,7 +211,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     const selection = assignSelection;
     try {
       const result = await applyJobAssignment(job, selection, onlineDrivers);
-      const hadDriver = !!(job.driverId && parseInt(job.driverId, 10) > 0);
+      const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
       addToast({
         type: 'success',
         title:
@@ -340,6 +357,29 @@ export function JobCard({ job, tab }: JobCardProps) {
           {uaMeta.pickupLabel !== 'ASAP' && uaMeta.pickupTime && (
             <span>
               <span className="opacity-70">Pickup:</span> {uaMeta.pickupTime}
+            </span>
+          )}
+        </div>
+      )}
+
+      {opsMeta && (opsMeta.createdLabel || opsMeta.bookedLabel || opsMeta.driverLabel) && (
+        <div
+          className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
+          style={themeMutedStyle}
+        >
+          {opsMeta.createdLabel && (
+            <span>
+              <span className="opacity-70">Created:</span> {opsMeta.createdLabel}
+            </span>
+          )}
+          {opsMeta.bookedLabel && (
+            <span>
+              <span className="opacity-70">Booked:</span> {opsMeta.bookedLabel}
+            </span>
+          )}
+          {opsMeta.driverLabel && (
+            <span>
+              <span className="opacity-70">Driver:</span> {opsMeta.driverLabel}
             </span>
           )}
         </div>
