@@ -1317,8 +1317,31 @@ function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBookingId, 
   return { driverFreed: true, driverState: 'Available', queueNo: _q };
 }
 
+// Block IngestPassengerJob from re-creating jobs mid-cancel or immediately after cancel.
+const _CANCEL_IN_FLIGHT = new Set();
+const _RECENTLY_CANCELLED = new Map();
+const _RECENTLY_CANCELLED_TTL_MS = 10 * 60 * 1000;
+
+function _markRecentlyCancelled(bookingId) {
+  if (!bookingId) return;
+  _RECENTLY_CANCELLED.set(String(bookingId), Date.now());
+}
+
+function _isBlockedFromReIngest(bookingId) {
+  const key = String(bookingId || '');
+  if (!key || key === '0') return false;
+  if (_CANCEL_IN_FLIGHT.has(key)) return true;
+  const t = _RECENTLY_CANCELLED.get(key);
+  if (!t) return false;
+  if (Date.now() - t > _RECENTLY_CANCELLED_TTL_MS) {
+    _RECENTLY_CANCELLED.delete(key);
+    return false;
+  }
+  return true;
+}
+
 // Unified cancel/recall front door. See big comment block above for rules.
-function cancelBooking(opts) {
+async function cancelBooking(opts) {
   opts = opts || {};
   const bookingId       = parseInt(opts.bookingId) || 0;
   const cancelledBy     = String(opts.cancelledBy || 'dispatcher').toLowerCase();
@@ -1373,6 +1396,8 @@ function cancelBooking(opts) {
   const _cancelStage = job.BookingStatus || 'unknown';
   const _cancelledByPretty = cancelledBy.charAt(0).toUpperCase() + cancelledBy.slice(1);
   const _nowIso = new Date().toISOString();
+  const _cancelKey = String(bookingId);
+  _CANCEL_IN_FLIGHT.add(_cancelKey);
 
   // Cancellation snapshot fields (for the payout pipeline downstream).
   job.CancelledBy        = _cancelledByPretty;
@@ -1441,41 +1466,53 @@ function cancelBooking(opts) {
   }, !recallToPending);
 
   let driverFreed = false, driverState = 'unchanged', queueNo = null;
-  if (_hasDriver) {
-    const _resolvedCancel = _resolveDriverVehicleIds(_drvId, _vehId);
+  try {
+    const _resolvedCancel = _hasDriver ? _resolveDriverVehicleIds(_drvId, _vehId) : { driverId: '', vehicleId: '' };
     const _rDrv = _resolvedCancel.driverId;
     const _rVid = _resolvedCancel.vehicleId;
-    (async () => {
-      try {
-        if (_cancelStage === 'Queued') {
-          await _removeDriverQueueFirebase(_cid, _rDrv, bookingId);
-        }
-        if (cancelledBy !== 'driver') {
-          await _writeCancelNotify(_cid, _rVid, _rDrv, bookingId, _cancelledByPretty,
-            { recalled: !!recallToPending, version: job.updateSeq });
-        }
-        await _bwClearJobFromFirebase(_cid, bookingId, _rVid, _rDrv, 'Cancelled');
-      } catch (e) {
-        console.warn(`  [${source}] driver cancel fanout failed: ${e && e.message}`);
+    try {
+      if (_hasDriver && _cancelStage === 'Queued') {
+        await _removeDriverQueueFirebase(_cid, _rDrv, bookingId);
       }
-    })();
-    const _ds = _maybeRestoreDriverState(_rDrv, _rVid, _cid, bookingId, driverFault, source);
-    driverFreed = _ds.driverFreed;
-    driverState = _ds.driverState;
-    queueNo     = _ds.queueNo;
-  }
+      if (_hasDriver && cancelledBy !== 'driver') {
+        await _writeCancelNotify(_cid, _rVid, _rDrv, bookingId, _cancelledByPretty,
+          { recalled: !!recallToPending, version: job.updateSeq });
+      }
+      if (!recallToPending) {
+        _markRecentlyCancelled(bookingId);
+        await _bwClearJobFromFirebase(_cid, bookingId, _rVid, _rDrv, 'Cancelled');
+        await _signalDispatchConsoleRefresh(_cid, {
+          bookingId, action: 'cancel', status: job.BookingStatus, driverId: _rDrv || _drvId,
+        });
+      } else if (_cid) {
+        await _signalDispatchConsoleRefresh(_cid, {
+          bookingId, action: 'recall', status: job.BookingStatus, driverId: _rDrv || _drvId,
+        });
+      }
+    } catch (e) {
+      console.warn(`  [${source}] cancel firebase fanout failed: ${e && e.message}`);
+    }
+    if (_hasDriver) {
+      const _ds = _maybeRestoreDriverState(_rDrv, _rVid, _cid, bookingId, driverFault, source);
+      driverFreed = _ds.driverFreed;
+      driverState = _ds.driverState;
+      queueNo     = _ds.queueNo;
+    }
 
-  return {
-    ok: true, idempotent: false,
-    cancelStage: _cancelStage,
-    cancelledBy: _cancelledByPretty,
-    driverId: _drvId,
-    vehicleId: _vehId,
-    driverFreed, driverState, queueNo,
-    recalled: recallToPending,
-    version: job.updateSeq,
-    booking: _publicBooking(job)
-  };
+    return {
+      ok: true, idempotent: false,
+      cancelStage: _cancelStage,
+      cancelledBy: _cancelledByPretty,
+      driverId: _drvId,
+      vehicleId: _vehId,
+      driverFreed, driverState, queueNo,
+      recalled: recallToPending,
+      version: job.updateSeq,
+      booking: _publicBooking(job)
+    };
+  } finally {
+    _CANCEL_IN_FLIGHT.delete(_cancelKey);
+  }
 }
 
 // ─── §FIX-CMD — State machine + assign/complete helpers + /api/job/command ───
@@ -2076,6 +2113,7 @@ function acceptBooking(opts) {
     return { ok: false, error_code: 'not_found', error: 'job not found' };
   }
   const job = jobStore[idx];
+  const _cid = String(job.companyId || opts.companyId || '');
   const _curStatus = job.BookingStatus || '';
   const _jobDrv    = String(job.DriverId || '').trim();
 
@@ -2276,20 +2314,24 @@ async function acceptPendingJobByDriver(opts) {
   });
   if (!assignRes.ok) return assignRes;
   const acceptRes = acceptBooking({ bookingId, driverId, by: 'driver', source });
+  if (!acceptRes.ok) return acceptRes;
   if (_cid && driverId) {
-    getFirebaseServerToken().then(async tok => {
-      if (!tok) return;
-      await firebaseDbSet(`notification/${driverId}`, {
-        bookingid: `${bookingId},Assigned,${driverId},Server,driver`,
-        content: 'Assigned',
-        eventType: 'assigned',
-        bookingId,
-        joboffer: String(bookingId),
-        jobpickup: String(job.PickAddress || ''),
-        jobdropoff: String(job.DropAddress || ''),
-        updatedAt: _FB_SERVER_TIMESTAMP,
-      }, tok).catch(() => {});
-      await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+    try {
+      const tok = await getFirebaseServerToken();
+      if (tok) {
+        await firebaseDbSet(`notification/${driverId}`, {
+          bookingId,
+          content: 'Assigned',
+          eventType: 'assigned',
+          updatedAt: _FB_SERVER_TIMESTAMP,
+        }, tok).catch(() => {});
+        await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+      }
+    } catch (e) {
+      console.warn(`  [${source}] accept notification/pendingjobs cleanup failed: ${e && e.message}`);
+    }
+    await _signalDispatchConsoleRefresh(_cid, {
+      bookingId, action: 'accept', status: 'Assigned', driverId,
     });
   }
   return Object.assign({}, acceptRes, { queued: false });
@@ -2545,6 +2587,18 @@ async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
   if (!isTerminal) {
     await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, _tok)
       .catch(_e => console.warn(`  [ver-fanout] pendingjobs/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+  }
+}
+
+// Nudge dispatch console to refresh job tabs immediately (Offer/Assign/U-A).
+async function _signalDispatchConsoleRefresh(cid, payload) {
+  if (!cid) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    await firebaseDbPatch(`dispatchConsole/${cid}/refresh`, Object.assign({ at: Date.now() }, payload || {}), tok);
+  } catch (e) {
+    console.warn(`  [dispatchRefresh] cid=${cid} failed: ${e && e.message}`);
   }
 }
 
@@ -5972,7 +6026,7 @@ const server = http.createServer(async (req, res) => {
           if (_scCid && String(_scJob.companyId) !== _scCid) {
             jsonReply(res, { ok:false, error:'companyId mismatch — refusing to clear' }); return;
           }
-          const _scResult = cancelBooking({
+          const _scResult = await cancelBooking({
             bookingId:    _scBid,
             cancelledBy:  'dispatcher',
             reason:       _scReason,
@@ -7626,7 +7680,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _logSrc = 'api/job/command/' + _cmdName + '/' + _cmdBy;
     try {
       if (_cmdName === 'cancel') {
-        _result = cancelBooking({
+        _result = await cancelBooking({
           bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
           driverFault: !!_cmdPayload.driverFault, recallToPending: false,
           ifVersion: _cmdIfVer,
@@ -7642,7 +7696,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             source: _logSrc
           });
         } else {
-          _result = cancelBooking({
+          _result = await cancelBooking({
             bookingId: _cmdBooking, cancelledBy: _cmdBy, reason: _cmdPayload.reason || '',
             driverFault: !!_cmdPayload.driverFault, recallToPending: true,
             ifVersion: _cmdIfVer,
@@ -7874,7 +7928,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _ccDriverFault = (_ccBy === 'driver');
     const _ccRecall      = (_ccBy === 'driver');
-    const _ccResult = cancelBooking({
+    const _ccResult = await cancelBooking({
       bookingId: _ccBooking, cancelledBy: _ccBy, reason: _ccReason,
       driverFault: _ccDriverFault, recallToPending: _ccRecall,
       companyId: _ccCid, source: 'api/cancel/' + _ccBy
@@ -9627,7 +9681,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // §FIX-CB — unified cancel flow
         const bookingId = parseInt(param('BookingId')) || 0;
         const _rentalKey = (jobStore.find(j => j.Id === bookingId) || {}).rentalRequestId || null;
-        const _r = cancelBooking({
+        const _r = await cancelBooking({
           bookingId, cancelledBy: 'dispatcher', driverFault: false,
           companyId: sessionCompanyId, source: 'CancelUnAssignedJobStatusFromJobList',
           reason: param('reason') || ''
@@ -10315,7 +10369,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // driverHasRemainingAssignments — Job A active stays untouched.
             const _dcDriverId = job.DriverId;
             const _dcIsPicking = currentStatus === 'Picking';
-            const _r = cancelBooking({
+            const _r = await cancelBooking({
               bookingId: job.Id,
               cancelledBy: 'driver',
               driverFault: true,                   // post-accept driver cancel/recall = driver fault
@@ -11255,7 +11309,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const _cjBookingId = parseInt(param('BookingId')) || 0;
         const _cjPrev = jobStore.find(j => j.Id === _cjBookingId) || closedJobStore.find(j => j.Id === _cjBookingId) || {};
         const _cjPrevDrv = String(_cjPrev.DriverId || _cjPrev.AssignedDriverId || '0');
-        const _r = cancelBooking({
+        const _r = await cancelBooking({
           bookingId: _cjBookingId, cancelledBy: 'dispatcher', driverFault: false,
           companyId: sessionCompanyId, source: 'CancelJobStatusFromJobList/DP',
           reason: param('reason') || ''
@@ -11691,7 +11745,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const bookingId = parseInt(param('BookingId')) || 0;
         const _csPrev = jobStore.find(j => j.Id === bookingId) || closedJobStore.find(j => j.Id === bookingId) || {};
         const _csPrevDrv = String(_csPrev.DriverId || _csPrev.AssignedDriverId || '0');
-        const _r = cancelBooking({
+        const _r = await cancelBooking({
           bookingId, cancelledBy: 'dispatcher', driverFault: false,
           companyId: sessionCompanyId, source: 'CancelJobStatusFromJobList/DS',
           reason: param('reason') || ''
@@ -12488,7 +12542,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // §FIX-CB — DS twin: see DP variant. Picking → close; Assigned → recall.
             const _dcDriverId2 = job.DriverId;
             const _dcIsPicking2 = currentStatus2 === 'Picking';
-            const _r2 = cancelBooking({
+            const _r2 = await cancelBooking({
               bookingId: job.Id,
               cancelledBy: 'driver',
               driverFault: true,
@@ -13330,6 +13384,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Also fired by the client-side NotifyDispatchAt timer to promote a Scheduled job.
           // FIX — also match by numeric Id so dispatch-console jobs (no _fbKey yet) are recognised.
           const _ipjNumId = parseInt(_ipjJobId, 10) || 0;
+          if (_isBlockedFromReIngest(_ipjNumId)) {
+            console.log(`[IngestPassengerJob] blocked re-ingest for cancelled/in-flight job #${_ipjNumId} (status='${_ipjStatus}')`);
+            objectD(res, { ok: true, action: 'blocked_cancelled' });
+            return;
+          }
           const already = jobStore.find(j => j._fbKey === _ipjFbKey || (_ipjNumId > 0 && j.Id === _ipjNumId));
           const alreadyClosed = _ipjFindClosed(_ipjNumId);
           console.log(`[IngestPassengerJob/diag] Waiting/Pending branch — already=${already ? 'job#'+already.Id+'/'+already.BookingStatus : 'no'} alreadyClosed=${alreadyClosed ? 'closed#'+alreadyClosed.Id+'/completedAtMs='+(alreadyClosed.completedAtMs||0) : 'no'}`);
@@ -13413,7 +13472,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             const _cancelledBy = (_src === 'website' || _src === 'website booking') ? 'website' : 'passenger';
             // For Scheduled/Pending/No One/Unreached/'' jobs that never had a driver: still
             // funnel through cancelBooking — it idempotently closes them and snapshots fields.
-            const _r = cancelBooking({
+            const _r = await cancelBooking({
               bookingId: _cJob.Id, cancelledBy: _cancelledBy, driverFault: false,
               companyId: sessionCompanyId, source: 'IngestPassengerJob/Cancelled',
               reason: _ipjJob.cancelReason || _ipjJob.CancelReason || ''

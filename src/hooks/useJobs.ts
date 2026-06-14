@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { mergeJobUpdate } from '@/lib/mergeJob';
-import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved } from '@/lib/firebase';
+import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, type Job } from '@/types/job';
@@ -34,6 +34,68 @@ export function purgeCancelledJobFromListeners(jobId: number) {
 let listenerPendingCache: Map<number, Job> | null = null;
 let listenerBookingsCache: Map<number, Job> | null = null;
 
+const ACTIVE_BOOKING_STATUSES = new Set([
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+  'Queued',
+  'Offered',
+]);
+
+/** Server wrote dispatchConsole/{cid}/refresh — re-read Firebase for one job (or full sync). */
+async function refreshJobFromFirebaseCaches(
+  companyId: string,
+  bookingId: number,
+  action: string | undefined,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+  hooks: {
+    applyPending: (key: string, rec: Record<string, unknown>, notify: boolean) => void;
+    removeJob: (id: number) => void;
+    clearRemovedJob: (id: number) => void;
+    syncAll: () => void;
+  },
+) {
+  const db = getDb();
+  const [abSnap, pjSnap] = await Promise.all([
+    get(ref(db, `allbookings/${companyId}/${bookingId}`)),
+    get(ref(db, `pendingjobs/${companyId}/${bookingId}`)),
+  ]);
+
+  pendingRef.delete(bookingId);
+
+  const abVal = abSnap.val();
+  if (abVal && typeof abVal === 'object') {
+    const rec = abVal as Record<string, unknown>;
+    const job = jobFromFirebase(String(bookingId), rec, companyId);
+    if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
+      const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
+      if (ACTIVE_BOOKING_STATUSES.has(st)) {
+        bookingsRef.set(job.id, job);
+      } else {
+        bookingsRef.delete(bookingId);
+      }
+    }
+  } else if (action === 'accept' || action === 'cancel') {
+    bookingsRef.delete(bookingId);
+  }
+
+  const pjVal = pjSnap.val();
+  if (pjVal && typeof pjVal === 'object') {
+    hooks.applyPending(String(bookingId), pjVal as Record<string, unknown>, false);
+  } else {
+    pendingRef.delete(bookingId);
+    if (action === 'accept' || action === 'cancel') {
+      hooks.removeJob(bookingId);
+      hooks.clearRemovedJob(bookingId);
+    }
+  }
+
+  hooks.syncAll();
+}
+
 export function useJobs(companyId: string | null) {
   const setJobs = useJobStore((s) => s.setJobs);
   const upsertJob = useJobStore((s) => s.upsertJob);
@@ -41,6 +103,7 @@ export function useJobs(companyId: string | null) {
   const clearRemovedJob = useJobStore((s) => s.clearRemovedJob);
   const pendingRef = useRef<Map<number, Job>>(new Map());
   const bookingsRef = useRef<Map<number, Job>>(new Map());
+  const lastDispatchRefreshAtRef = useRef(0);
 
   useEffect(() => {
     if (!companyId) return;
@@ -138,13 +201,30 @@ export function useJobs(companyId: string | null) {
             const job = jobFromFirebase(key, rec, companyId);
             if (!job || isBlacklisted(job.id)) continue;
 
-            const active = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued', 'Offered'].includes(
-              job.status
-            );
+            const active = ACTIVE_BOOKING_STATUSES.has(job.status);
             if (active) bookingsRef.current.set(job.id, job);
           }
         }
         syncAll();
+      })
+    );
+
+    unsubs.push(
+      onValue(ref(db, `dispatchConsole/${companyId}/refresh`), (snap) => {
+        const v = snap.val() as { at?: number; bookingId?: number; action?: string } | null;
+        if (!v?.at || v.at === lastDispatchRefreshAtRef.current) return;
+        lastDispatchRefreshAtRef.current = v.at;
+        const bid = parseInt(String(v.bookingId ?? '0'), 10);
+        if (!bid) {
+          syncAll();
+          return;
+        }
+        void refreshJobFromFirebaseCaches(companyId, bid, v.action, pendingRef.current, bookingsRef.current, {
+          applyPending,
+          removeJob,
+          clearRemovedJob,
+          syncAll,
+        });
       })
     );
 

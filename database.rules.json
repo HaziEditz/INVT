@@ -230,6 +230,12 @@
         }
       }
     },
+    "dispatchConsole": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
     "pendingjobs": {
       "$companyId": {
         ".read": true,
