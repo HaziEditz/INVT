@@ -12,7 +12,7 @@ import dotenv from 'dotenv';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '..', '.env') });
 
-const companyId = process.argv[2] || '620611';
+const companyId = process.argv[2] || '860869';
 const filterId = process.argv[3] ? String(process.argv[3]) : null;
 const dbUrl = (process.env.FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;

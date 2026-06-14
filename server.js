@@ -14,7 +14,8 @@ process.env.TZ = 'Pacific/Auckland';
 //
 // Per-company IANA timezone map.  Add new companies here as they onboard.
 const companyTZMap = {
-  '620611': 'Pacific/Auckland',   // BookaWaka NZ (default tenant)
+  '620611': 'Pacific/Auckland',   // Legacy Invercargill tenant
+  '860869': 'Pacific/Auckland',   // Invercargill Taxis Southland Limited (active test)
 };
 function getCompanyTZ(cid) {
   return (cid && companyTZMap[String(cid)]) || 'Pacific/Auckland';
@@ -233,6 +234,14 @@ try {
   }
 } catch(e) { console.log('[persist] registrations load error:', e.message); }
 
+// Pre-cutover company IDs — keep in local .data for history but never auto-stamp base
+// coordinates or mirror geo updates for them. All live Firebase I/O uses bookawaka2026-564e1 only.
+const _LEGACY_COMPANY_IDS = new Set(['620611']);
+function _skipBaseGeoForRegistration(reg) {
+  const cid = String(reg && reg.companyId || '').trim();
+  return !cid || _LEGACY_COMPANY_IDS.has(cid);
+}
+
 // ── ACC & Business Account stores ──────────────────────────────────────────
 let accManagerStore   = [];
 let accClientStore    = [];
@@ -315,6 +324,9 @@ function _safeSignupSnapshot(r) {
     rejectionNote:  r.rejectedReason || '',   // ← rejectedReason
     activatedAt:    r.activatedAt || null,
     deactivatedAt:  r.deactivatedAt || null,
+    baseLat:        r.baseLat != null ? Number(r.baseLat) : null,
+    baseLng:        r.baseLng != null ? Number(r.baseLng) : null,
+    baseGeoSource:  r.baseGeoSource || null,
     source:         'dispatch',
     mirroredAt:     Date.now(),
   };
@@ -392,6 +404,7 @@ function upsertRegistrationFromOnboard(remoteId, v) {
 
   if (idx === -1) {
     registrationStore.push(mapped);
+    if (mapped.companyId) void _stampRegistrationBaseCoords(mapped, 'onboard-sync/new');
     return true;
   }
 
@@ -403,6 +416,7 @@ function upsertRegistrationFromOnboard(remoteId, v) {
       changed = true;
     }
   }
+  if (changed && existing.companyId) void _stampRegistrationBaseCoords(existing, 'onboard-sync/update');
   return changed;
 }
 
@@ -522,6 +536,7 @@ async function reconcileDispatchSignupsOnBoot() {
 }
 setTimeout(reconcileDispatchSignupsOnBoot, 3000);
 setTimeout(startOnboardRequestsListener, 5000);
+setTimeout(() => { _healMissingRegistrationBaseCoords('boot'); }, 8000);
 
 // Run every 10 minutes — expire trials, move to grace period, then deactivate
 setInterval(() => {
@@ -3810,6 +3825,118 @@ function _reverseGeocode(lat, lng) {
   return p;
 }
 
+// Forward geocode — resolve registration city/area + country to depot coordinates.
+const _forwardGeocodeCache = new Map(); // normalized query -> {lat,lng}
+const _forwardGeocodeInflight = new Map();
+function _registrationGeoQuery(reg) {
+  if (!reg) return '';
+  const city = String(reg.area || reg.city || '').trim();
+  const country = String(reg.country || 'New Zealand').trim();
+  if (!city) return '';
+  return country ? `${city}, ${country}` : city;
+}
+function _cityCenterFromArea(areaRaw) {
+  const area = String(areaRaw || '').trim().toLowerCase();
+  if (!area) return null;
+  const table = [
+    { keys: ['invercargill'], lat: -46.4127, lng: 168.3538 },
+    { keys: ['auckland'], lat: -36.8485, lng: 174.7633 },
+    { keys: ['wellington'], lat: -41.2865, lng: 174.7762 },
+    { keys: ['christchurch'], lat: -43.5321, lng: 172.6362 },
+    { keys: ['hamilton'], lat: -37.7870, lng: 175.2793 },
+    { keys: ['tauranga'], lat: -37.6878, lng: 176.1651 },
+    { keys: ['dunedin'], lat: -45.8788, lng: 170.5028 },
+    { keys: ['queenstown'], lat: -45.0312, lng: 168.6626 },
+  ];
+  for (const row of table) {
+    if (row.keys.some(k => area.includes(k))) return { lat: row.lat, lng: row.lng };
+  }
+  return null;
+}
+function _forwardGeocode(query) {
+  const q = String(query || '').trim();
+  if (!q || !GOOGLE_MAPS_GEOCODE_KEY) return Promise.resolve(null);
+  const key = q.toLowerCase();
+  if (_forwardGeocodeCache.has(key)) return Promise.resolve(_forwardGeocodeCache.get(key));
+  if (_forwardGeocodeInflight.has(key)) return _forwardGeocodeInflight.get(key);
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${GOOGLE_MAPS_GEOCODE_KEY}`;
+  const p = new Promise(function(resolve) {
+    const req = https.get(url, function(resp) {
+      let buf = '';
+      resp.on('data', function(c) { buf += c; });
+      resp.on('end', function() {
+        try {
+          const json = JSON.parse(buf);
+          if (json && json.status === 'OK' && Array.isArray(json.results) && json.results.length) {
+            const loc = json.results[0].geometry && json.results[0].geometry.location;
+            const lat = loc && Number(loc.lat);
+            const lng = loc && Number(loc.lng);
+            if (isFinite(lat) && isFinite(lng)) {
+              const out = { lat, lng };
+              if (_forwardGeocodeCache.size > 500) {
+                const oldest = _forwardGeocodeCache.keys().next().value;
+                if (oldest) _forwardGeocodeCache.delete(oldest);
+              }
+              _forwardGeocodeCache.set(key, out);
+              console.log(`  [base-geo] forward geocode "${q}" → ${lat},${lng}`);
+              return resolve(out);
+            }
+          }
+          console.warn(`  [base-geo] forward geocode "${q}" status=${json && json.status} no results`);
+          resolve(null);
+        } catch (e) {
+          console.warn(`  [base-geo] forward geocode "${q}" parse failed:`, e.message);
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', function(e) {
+      console.warn(`  [base-geo] forward geocode "${q}" request failed:`, e.message);
+      resolve(null);
+    });
+    req.setTimeout(5000, function() { req.destroy(); resolve(null); });
+  }).then(function(v) { _forwardGeocodeInflight.delete(key); return v; });
+  _forwardGeocodeInflight.set(key, p);
+  return p;
+}
+async function _stampRegistrationBaseCoords(reg, source) {
+  if (!reg || !reg.companyId || _skipBaseGeoForRegistration(reg)) return false;
+  if (reg.baseLat != null && reg.baseLng != null && isFinite(Number(reg.baseLat)) && isFinite(Number(reg.baseLng))) {
+    return false;
+  }
+  const query = _registrationGeoQuery(reg);
+  if (!query) return false;
+  let coords = await _forwardGeocode(query);
+  let geoSource = 'geocode';
+  if (!coords) {
+    coords = _cityCenterFromArea(reg.area || reg.city || '');
+    geoSource = coords ? 'city_lookup' : null;
+  }
+  if (!coords) {
+    console.warn(`  [base-geo] ${source} cid=${reg.companyId} could not resolve "${query}"`);
+    return false;
+  }
+  reg.baseLat = coords.lat;
+  reg.baseLng = coords.lng;
+  reg.baseGeoSource = geoSource;
+  saveRegistrations();
+  console.log(`  [base-geo] ${source} cid=${reg.companyId} "${query}" → ${coords.lat},${coords.lng} (${geoSource})`);
+  return true;
+}
+async function _healMissingRegistrationBaseCoords(source) {
+  const needs = registrationStore.filter(r =>
+    r && r.companyId && !_skipBaseGeoForRegistration(r) && _registrationGeoQuery(r) &&
+    (r.baseLat == null || r.baseLng == null || !isFinite(Number(r.baseLat)) || !isFinite(Number(r.baseLng)))
+  );
+  if (!needs.length) return;
+  console.log(`[base-geo] ${source} healing ${needs.length} registration(s) missing baseLat/baseLng`);
+  for (const reg of needs) {
+    try { await _stampRegistrationBaseCoords(reg, source); } catch (e) {
+      console.warn(`[base-geo] heal failed cid=${reg.companyId}:`, e && e.message);
+    }
+  }
+}
+
 // ─── §FIX-J — lazy-resolve hail addresses on the active in-memory jobStore ────
 // When [ActiveJobsv3] / [JobDetails] sees a hail job whose local PickAddress
 // is still "Hail - <lat,lng>" (the placeholder we set at hail-start), kick off
@@ -4524,17 +4651,19 @@ function _haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 // Company base / depot location — used as the "from" point for distance estimation.
-// Checks the registration record for baseLat/baseLng (SA portal can set these).
-// Falls back to known NZ city defaults, then Auckland.
-// SA portal should write baseLat / baseLng to the registration record to improve accuracy.
+// Primary source: registration record baseLat/baseLng (set at approval from area+city geocode).
+// Fallback: city-name lookup from registration area, then Auckland.
 function _companyBaseLocation(companyId) {
   const reg = registrationStore.find(r => String(r.companyId) === String(companyId));
-  if (reg && reg.baseLat && reg.baseLng) return { lat: Number(reg.baseLat), lng: Number(reg.baseLng) };
-  const knownCenters = {
-    '620611': { lat: -46.4127, lng: 168.3538 }, // Invercargill city center
-    // Add more companyId → lat/lng as new companies register
-  };
-  return knownCenters[String(companyId)] || { lat: -36.8485, lng: 174.7633 }; // Auckland fallback
+  if (reg && reg.baseLat != null && reg.baseLng != null) {
+    const lat = Number(reg.baseLat), lng = Number(reg.baseLng);
+    if (isFinite(lat) && isFinite(lng)) return { lat, lng };
+  }
+  if (reg) {
+    const fromArea = _cityCenterFromArea(reg.area || reg.city || '');
+    if (fromArea) return fromArea;
+  }
+  return { lat: -36.8485, lng: 174.7633 }; // Auckland when no registration geo data
 }
 
 // Estimate dispatch lead time in minutes from company base to pickup coordinates.
@@ -5560,6 +5689,7 @@ const server = http.createServer(async (req, res) => {
         reg.trialEnd   = trialDays > 0 ? now + trialDays * 24 * 60 * 60 * 1000 : null;
         reg.graceEnd   = null;
         saveRegistrations();
+        void _stampRegistrationBaseCoords(reg, 'approve');
         void syncCompanySettingsBilling(companyId, {
           type: reg.plan || 'free_trial',
           name: reg.planLabel || 'Free Trial',
@@ -6139,6 +6269,7 @@ const server = http.createServer(async (req, res) => {
       newReg.trialEnd   = now + planCfg.trialDays * 24 * 60 * 60 * 1000;
       newReg.graceEnd   = null;
       saveRegistrations();
+      void _stampRegistrationBaseCoords(newReg, 'register/auto-approve');
       console.log(`[registration] Free trial live: ${reqEmail} companyId=${companyId} trialEnd=${new Date(newReg.trialEnd).toISOString()}`);
 
       jsonReply(res, {
@@ -6506,7 +6637,7 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === '/dev/smoketest' && (req.method === 'GET' || req.method === 'POST')) {
     const _stQs       = new URL('http://x' + req.url).searchParams;
     const _stKey      = (req.headers['x-admin-key'] || _stQs.get('adminKey') || '').trim();
-    const _stCid      = (_stQs.get('cid')      || '620611').trim();
+    const _stCid      = (_stQs.get('cid')      || '').trim();
     const _stDriverId = (_stQs.get('driverId') || 'smoketest_driver_1').trim();
     const _stVehicleId= (_stQs.get('vehicleId')|| 'smoketest_vehicle_1').trim();
 
@@ -14154,8 +14285,6 @@ async function _syncBizAccountsFromFirebase() {
     const tok = await getFirebaseServerToken();
     if (!tok) return;
     const cids = [...new Set(registrationStore.map(r => r.companyId).filter(Boolean))];
-    // Always include default companyId even if no registrations yet
-    if (!cids.includes('620611')) cids.push('620611');
     let added = 0;
     for (const cid of cids) {
       let snap;
