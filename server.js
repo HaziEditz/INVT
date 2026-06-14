@@ -3486,6 +3486,7 @@ async function repairBookingFirebaseSync(opts) {
   return { ok: true, action: 'sync', patch, booking: _publicBooking(job) };
 }
 
+async function reconcileClosedJobsFromFirebase(opts) {
   opts = opts || {};
   const verbose = opts.verbose !== false;
   if (_FIXS_RUNNING) {
