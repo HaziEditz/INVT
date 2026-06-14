@@ -6014,7 +6014,7 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === '/admin/stuck-active/clear' && req.method === 'POST') {
       let _scBody = '';
       req.on('data', c => _scBody += c);
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const _scIn = JSON.parse(_scBody || '{}');
           const _scBid = parseInt(_scIn.bookingId) || 0;
