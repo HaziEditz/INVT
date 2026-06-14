@@ -3,7 +3,7 @@ import { mergeJobUpdate } from '@/lib/mergeJob';
 import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, type Job } from '@/types/job';
+import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, type Job, type JobTab } from '@/types/job';
 import { isExternalJobSource } from '@/lib/utils';
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
@@ -44,11 +44,32 @@ const ACTIVE_BOOKING_STATUSES = new Set([
   'Offered',
 ]);
 
+const LIVE_DISPATCH_TABS = new Set<JobTab>(['offer', 'assign', 'active', 'queue']);
+
+type DispatchRefreshPayload = {
+  action?: string;
+  status?: string;
+  driverId?: string;
+};
+
+function existingJobSnapshot(
+  bookingId: number,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+): Job | null {
+  return (
+    bookingsRef.get(bookingId) ??
+    pendingRef.get(bookingId) ??
+    useJobStore.getState().jobs.find((j) => j.id === bookingId) ??
+    null
+  );
+}
+
 /** Server wrote dispatchConsole/{cid}/refresh — re-read Firebase for one job (or full sync). */
 async function refreshJobFromFirebaseCaches(
   companyId: string,
   bookingId: number,
-  action: string | undefined,
+  refresh: DispatchRefreshPayload,
   pendingRef: Map<number, Job>,
   bookingsRef: Map<number, Job>,
   hooks: {
@@ -58,6 +79,8 @@ async function refreshJobFromFirebaseCaches(
     syncAll: () => void;
   },
 ) {
+  const action = refresh.action;
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
   const db = getDb();
   const [abSnap, pjSnap] = await Promise.all([
     get(ref(db, `allbookings/${companyId}/${bookingId}`)),
@@ -66,20 +89,39 @@ async function refreshJobFromFirebaseCaches(
 
   pendingRef.delete(bookingId);
 
+  let job: Job | null = null;
   const abVal = abSnap.val();
   if (abVal && typeof abVal === 'object') {
     const rec = abVal as Record<string, unknown>;
-    const job = jobFromFirebase(String(bookingId), rec, companyId);
-    if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
-      const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
+    const parsed = jobFromFirebase(String(bookingId), rec, companyId);
+    if (parsed && !useJobStore.getState().isJobBlacklisted(parsed.id)) {
+      const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? parsed.status));
       if (ACTIVE_BOOKING_STATUSES.has(st)) {
-        bookingsRef.set(job.id, job);
-      } else {
+        job = parsed;
+      } else if (action !== 'accept') {
         bookingsRef.delete(bookingId);
       }
     }
-  } else if (action === 'accept' || action === 'cancel') {
+  } else if (action === 'cancel') {
     bookingsRef.delete(bookingId);
+  }
+
+  // Accept deletes pendingjobs before allbookings fanout may land — trust refresh payload + store.
+  if (action === 'accept' && refresh.status) {
+    const targetStatus = normalizeJobStatus(refresh.status);
+    const driverId = refresh.driverId ?? job?.driverId ?? prior?.driverId;
+    if (job) {
+      job = mergeJobUpdate(job, { status: targetStatus, driverId } as Job);
+    } else if (prior && !useJobStore.getState().isJobBlacklisted(bookingId)) {
+      job = mergeJobUpdate(prior, { status: targetStatus, driverId } as Job);
+    }
+  }
+
+  if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
+    const st = normalizeJobStatus(job.status);
+    if (ACTIVE_BOOKING_STATUSES.has(st)) {
+      bookingsRef.set(job.id, job);
+    }
   }
 
   const pjVal = pjSnap.val();
@@ -87,7 +129,8 @@ async function refreshJobFromFirebaseCaches(
     hooks.applyPending(String(bookingId), pjVal as Record<string, unknown>, false);
   } else {
     pendingRef.delete(bookingId);
-    if (action === 'accept' || action === 'cancel') {
+    // pendingjobs removal on accept is expected — do not drop the job from the store.
+    if (action === 'cancel') {
       hooks.removeJob(bookingId);
       hooks.clearRemovedJob(bookingId);
     }
@@ -121,7 +164,9 @@ export function useJobs(companyId: string | null) {
       );
       const byId = new Map(merged.map((j) => [j.id, j]));
       for (const j of useJobStore.getState().jobs) {
-        if (!byId.has(j.id) && jobTabForStatus(j) === 'ua' && !removed.has(j.id)) {
+        if (byId.has(j.id) || removed.has(j.id)) continue;
+        const tab = jobTabForStatus(j);
+        if (tab === 'ua' || LIVE_DISPATCH_TABS.has(tab)) {
           byId.set(j.id, j);
         }
       }
@@ -176,8 +221,14 @@ export function useJobs(companyId: string | null) {
       const jobId = parseInt(snap.key || '0', 10);
       if (!jobId) return;
       pendingRef.current.delete(jobId);
-      removeJob(jobId);
-      clearRemovedJob(jobId);
+      const storeJob = useJobStore.getState().jobs.find((j) => j.id === jobId);
+      const stillLive =
+        !!storeJob &&
+        (LIVE_DISPATCH_TABS.has(jobTabForStatus(storeJob)) || bookingsRef.current.has(jobId));
+      if (!stillLive) {
+        removeJob(jobId);
+        clearRemovedJob(jobId);
+      }
       syncAll();
     };
 
@@ -211,7 +262,13 @@ export function useJobs(companyId: string | null) {
 
     unsubs.push(
       onValue(ref(db, `dispatchConsole/${companyId}/refresh`), (snap) => {
-        const v = snap.val() as { at?: number; bookingId?: number; action?: string } | null;
+        const v = snap.val() as {
+          at?: number;
+          bookingId?: number;
+          action?: string;
+          status?: string;
+          driverId?: string | number;
+        } | null;
         if (!v?.at || v.at === lastDispatchRefreshAtRef.current) return;
         lastDispatchRefreshAtRef.current = v.at;
         const bid = parseInt(String(v.bookingId ?? '0'), 10);
@@ -219,12 +276,23 @@ export function useJobs(companyId: string | null) {
           syncAll();
           return;
         }
-        void refreshJobFromFirebaseCaches(companyId, bid, v.action, pendingRef.current, bookingsRef.current, {
-          applyPending,
-          removeJob,
-          clearRemovedJob,
-          syncAll,
-        });
+        void refreshJobFromFirebaseCaches(
+          companyId,
+          bid,
+          {
+            action: v.action,
+            status: v.status,
+            driverId: v.driverId != null ? String(v.driverId) : undefined,
+          },
+          pendingRef.current,
+          bookingsRef.current,
+          {
+            applyPending,
+            removeJob,
+            clearRemovedJob,
+            syncAll,
+          },
+        );
       })
     );
 
