@@ -2625,16 +2625,68 @@ function _applyPoolStatusFields(job, poolStatus) {
 
 function _logJobPoolState(job, tag) {
   if (!job) return;
-  console.log(
-    `  [pool-trace/${tag}] job #${job.Id} BookingStatus=${job.BookingStatus}` +
+  const line =
+    `[pool-trace/${tag}] job #${job.Id} BookingStatus=${job.BookingStatus}` +
     ` _preOfferStatus=${job._preOfferStatus || '-'}` +
     ` originalStatus=${job.originalStatus || '-'}` +
     ` manualOffer=${!!job.manualOffer}` +
     ` DriverId=${job.DriverId}` +
     ` releasedAt=${job.releasedAt || '-'}` +
-    ` updateSeq=${job.updateSeq || 0}`
-  );
+    ` updateSeq=${job.updateSeq || 0}`;
+  console.log(`  ${line}`);
+  _recordPoolTrace(job.Id, tag, line, job);
 }
+
+// In-memory ring buffer — last N pool-trace lines per booking (survives until process restart).
+const _JOB_POOL_TRACE = new Map(); // bookingId → [{ at, tag, line, snapshot }]
+const _JOB_POOL_TRACE_MAX = 40;
+
+function _recordPoolTrace(bookingId, tag, line, job) {
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return;
+  const key = String(bid);
+  const arr = _JOB_POOL_TRACE.get(key) || [];
+  arr.push({
+    at: new Date().toISOString(),
+    tag,
+    line,
+    snapshot: _jobLifecycleSnapshot(job),
+  });
+  while (arr.length > _JOB_POOL_TRACE_MAX) arr.shift();
+  _JOB_POOL_TRACE.set(key, arr);
+}
+
+function _jobLifecycleSnapshot(job) {
+  if (!job) return null;
+  return {
+    Id: job.Id,
+    companyId: job.companyId || '',
+    BookingStatus: job.BookingStatus || '',
+    Status: job.Status || job.BookingStatus || '',
+    _preOfferStatus: job._preOfferStatus || null,
+    _origStatus: job._origStatus || null,
+    originalStatus: job.originalStatus || null,
+    manualOffer: !!job.manualOffer,
+    DriverId: job.DriverId,
+    VehicleId: job.VehicleId,
+    VehicleNo: job.VehicleNo || job.CallSign || '',
+    AssignedDriverId: job.AssignedDriverId || null,
+    releasedAt: job.releasedAt || null,
+    offeredAt: job.offeredAt || null,
+    OfferedAt: job.OfferedAt || null,
+    updateSeq: parseInt(job.updateSeq) || 0,
+    lastUpdatedAt: job.lastUpdatedAt || null,
+    lastUpdatedBy: job.lastUpdatedBy || null,
+    returnReason: job.returnReason || null,
+    _hydratedFromFirebase: !!job._hydratedFromFirebase,
+  };
+}
+
+const _AUTO_DISPATCH_LAST = {
+  at: null,
+  perCompany: {},
+  error: null,
+};
 
 function _bumpJobUpdateSeq(job, by) {
   const seq = (parseInt(job.updateSeq) || 0) + 1;
@@ -2709,6 +2761,176 @@ async function _mirrorDriverAwayOnUnreached(cid, vehicleNo, driverId) {
   } catch (e) {
     console.warn(`  [pool-restore] online Away mirror failed: ${e && e.message}`);
   }
+}
+
+function _analyzeAutoDispatchForJob(job, cid) {
+  const now = Date.now();
+  const companyId = String(cid || job?.companyId || '');
+  const reasons = [];
+  let eligible = false;
+  if (!job) {
+    return { eligible: false, reasons: ['job not in jobStore'], lastTick: _AUTO_DISPATCH_LAST };
+  }
+  const offeredBlockers = jobStore.filter(j =>
+    String(j.companyId) === companyId && j.BookingStatus === 'Offered'
+  );
+  if (offeredBlockers.length) {
+    reasons.push(`company blocked: ${offeredBlockers.length} Offered job(s) in store (${offeredBlockers.map(j => j.Id).join(', ')})`);
+  }
+  const st = String(job.BookingStatus || '');
+  if (st !== 'Pending' && st !== 'No One') {
+    reasons.push(`status is ${st || '?'} (needs Pending or No One)`);
+  }
+  if (job.manualOffer === true) {
+    reasons.push('manualOffer=true (auto-dispatch skips manual-only jobs)');
+  }
+  if (job.releasedAt && (now - job.releasedAt) < 10000) {
+    reasons.push(`releasedAt cooldown (${Math.round((now - job.releasedAt) / 1000)}s ago, need 10s)`);
+  }
+  if (!_isValidJobRecord(job, { requireSource: true, companyId })) {
+    reasons.push('_isValidJobRecord failed (missing source/fields?)');
+  }
+  const drivers = ZONE_DRIVERS.filter(d =>
+    String(d.companyId || '') === companyId &&
+    String(d.vehiclestatus || '') === 'Available' &&
+    !isAwayLocked(d.driverid) &&
+    d.lat && d.lng
+  );
+  if (!drivers.length) {
+    reasons.push('no Available drivers with GPS in ZONE_DRIVERS');
+  }
+  eligible = reasons.length === 0 && _isDispatchableJob(job, companyId);
+  if (eligible) reasons.push('eligible for next auto-dispatch tick');
+  return {
+    eligible,
+    reasons,
+    availableDrivers: drivers.map(d => ({
+      driverId: d.driverid,
+      vehicleId: d.VehicleId || d.vehiclenumber,
+      vehicleNo: d.vehiclenumber,
+      status: d.vehiclestatus,
+      awayLocked: isAwayLocked(d.driverid),
+    })),
+    companyOfferedJobs: offeredBlockers.map(j => ({ id: j.Id, driverId: j.DriverId, offeredAt: j.offeredAt || null })),
+    lastTick: _AUTO_DISPATCH_LAST,
+  };
+}
+
+async function _buildAdminJobTraceReport(bookingId, opts) {
+  opts = opts || {};
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return { ok: false, error: 'bookingId required' };
+
+  let job = jobStore.find(j => j && j.Id === bid) || null;
+  let closed = closedJobStore.find(j => j && j.Id === bid) || null;
+  const cid = String(opts.companyId || job?.companyId || closed?.companyId || '').trim();
+
+  if (!job && cid) {
+    await _hydrateSingleJobFromFirebase(cid, bid).catch(() => {});
+    job = jobStore.find(j => j && j.Id === bid) || null;
+  }
+
+  const tok = await getFirebaseServerToken().catch(() => null);
+  const fb = {
+    pendingjobs: null,
+    allbookings: null,
+    jobsDriverNode: null,
+    notification: null,
+    errors: [],
+  };
+
+  async function safeGet(label, path) {
+    if (!tok || !path) return null;
+    try {
+      return await firebaseDbGet(path, tok);
+    } catch (e) {
+      fb.errors.push({ path: label, error: e && e.message });
+      return null;
+    }
+  }
+
+  if (cid) {
+    fb.pendingjobs = await safeGet(`pendingjobs/${cid}/${bid}`, `pendingjobs/${cid}/${bid}`);
+    fb.allbookings = await safeGet(`allbookings/${cid}/${bid}`, `allbookings/${cid}/${bid}`);
+  }
+
+  const driverIds = new Set();
+  const vehicleIds = new Set();
+  const attach = (rec) => {
+    if (!rec || typeof rec !== 'object') return;
+    const drv = _normJobDriverId(rec.DriverId || rec.driverId || rec.AssignedDriver || rec.AssignedDriverId);
+    const veh = String(rec.VehicleNo || rec.CallSign || rec.VehicleId || rec.vehicleId || '').trim();
+    if (drv) driverIds.add(drv);
+    if (veh && veh !== '0') vehicleIds.add(veh);
+  };
+  attach(job);
+  attach(closed);
+  attach(fb.pendingjobs);
+  attach(fb.allbookings);
+
+  if (cid && driverIds.size && vehicleIds.size) {
+    const jobsNodes = {};
+    for (const veh of vehicleIds) {
+      for (const drv of driverIds) {
+        const path = `jobs/${cid}/${veh}/${drv}/${bid}`;
+        jobsNodes[path] = await safeGet(path, path);
+      }
+    }
+    fb.jobsDriverNode = jobsNodes;
+  }
+
+  const notifications = {};
+  for (const drv of driverIds) {
+    notifications[drv] = await safeGet(`notification/${drv}`, `notification/${drv}`);
+  }
+  fb.notification = notifications;
+
+  const poolTrace = _JOB_POOL_TRACE.get(String(bid)) || [];
+  const autoDispatch = _analyzeAutoDispatchForJob(job, cid);
+
+  return {
+    ok: true,
+    bookingId: bid,
+    companyId: cid || null,
+    generatedAt: new Date().toISOString(),
+    jobStore: {
+      found: !!job,
+      closedFound: !!closed,
+      lifecycle: _jobLifecycleSnapshot(job || closed),
+      rawFlags: job ? {
+        _preOfferStatus: job._preOfferStatus,
+        _origStatus: job._origStatus,
+        originalStatus: job.originalStatus,
+        manualOffer: job.manualOffer,
+        releasedAt: job.releasedAt,
+        offeredAt: job.offeredAt,
+        returnReason: job.returnReason,
+        updateSeq: job.updateSeq,
+        lastUpdatedBy: job.lastUpdatedBy,
+        lastUpdatedAt: job.lastUpdatedAt,
+      } : null,
+    },
+    firebase: fb,
+    poolTrace,
+    autoDispatch,
+    dispatchUiHint: {
+      expectedTab: job ? (String(job.BookingStatus) === 'Offered' ? 'offer'
+        : ['Assigned', 'Picking', 'Arrived'].includes(String(job.BookingStatus)) ? 'assign'
+        : ['Active', 'OnTrip'].includes(String(job.BookingStatus)) ? 'active'
+        : ['Pending', 'No One'].includes(String(job.BookingStatus)) ? 'ua'
+        : String(job.BookingStatus)) : null,
+      pendingVsAllbookingsMismatch: fb.pendingjobs && fb.allbookings ? (
+        String(fb.pendingjobs.BookingStatus || fb.pendingjobs.Status || '') !==
+        String(fb.allbookings.BookingStatus || fb.allbookings.Status || '')
+      ) : null,
+      jobStoreVsAllbookingsMismatch: job && fb.allbookings ? (
+        String(job.BookingStatus || '') !== String(fb.allbookings.BookingStatus || fb.allbookings.Status || '')
+      ) : null,
+      jobStoreVsPendingMismatch: job && fb.pendingjobs ? (
+        String(job.BookingStatus || '') !== String(fb.pendingjobs.BookingStatus || fb.pendingjobs.Status || '')
+      ) : null,
+    },
+  };
 }
 
 function _dispatchRefreshActionForStatus(status) {
@@ -6164,6 +6386,52 @@ const server = http.createServer(async (req, res) => {
       try {
         const _rcReport = await reconcileClosedJobsFromFirebase({ verbose: true });
         jsonReply(res, { ok: true, report: _rcReport, last: _FIXS_LAST_REPORT });
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // GET /admin/jobTrace/:bookingId?cid=860869 — lifecycle + Firebase snapshot + pool-trace buffer
+    const _jobTraceMatch = urlPath.match(/^\/admin\/jobTrace\/(\d+)$/);
+    if (_jobTraceMatch && req.method === 'GET') {
+      try {
+        const _jtBid = parseInt(_jobTraceMatch[1]) || 0;
+        const _jtQs = new URL('http://x' + req.url).searchParams;
+        const _jtCid = (_jtQs.get('cid') || '').trim();
+        const report = await _buildAdminJobTraceReport(_jtBid, { companyId: _jtCid });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // GET /admin/jobTrace?cid=860869&status=Offered — list active jobs matching status (discover stuck jobs)
+    if (urlPath === '/admin/jobTrace' && req.method === 'GET') {
+      try {
+        const _jtQs = new URL('http://x' + req.url).searchParams;
+        const _jtCid = (_jtQs.get('cid') || '').trim();
+        const _jtStatus = (_jtQs.get('status') || '').trim();
+        let list = jobStore.filter(j => j && j.Id);
+        if (_jtCid) list = list.filter(j => String(j.companyId) === _jtCid);
+        if (_jtStatus) list = list.filter(j => String(j.BookingStatus || '') === _jtStatus);
+        jsonReply(res, {
+          ok: true,
+          companyId: _jtCid || null,
+          status: _jtStatus || null,
+          count: list.length,
+          jobs: list.map(j => ({
+            id: j.Id,
+            status: j.BookingStatus,
+            driverId: j.DriverId,
+            manualOffer: !!j.manualOffer,
+            releasedAt: j.releasedAt || null,
+            offeredAt: j.offeredAt || null,
+            updateSeq: j.updateSeq || 0,
+          })),
+          lastAutoDispatchTick: _AUTO_DISPATCH_LAST,
+        });
       } catch (e) {
         jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
       }
@@ -14676,7 +14944,12 @@ server.listen(PORT, HOST, () => {
   _syncBizAccountsFromFirebase();
   setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
   setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
-  setInterval(() => { _serverAutoDispatchTick().catch(e => console.warn('[server-auto-dispatch]', e && e.message)); }, 30000);
+  setInterval(() => {
+    _serverAutoDispatchTick().catch(e => {
+      _AUTO_DISPATCH_LAST.error = e && e.message;
+      console.warn('[server-auto-dispatch]', e && e.message);
+    });
+  }, 30000);
 });
 
 // ─── Firebase → jobStore hydration (survives Railway ephemeral disk) ─────────
@@ -14864,8 +15137,24 @@ async function _serverAutoDispatchTick() {
   const now = Date.now();
   _purgeInvalidJobsFromStore('server-auto-dispatch');
   const cids = _fixsCollectCompanyIds();
+  const tickReport = { at: new Date(now).toISOString(), companies: {} };
   for (const cid of cids) {
-    if (jobStore.some(j => String(j.companyId) === String(cid) && j.BookingStatus === 'Offered')) continue;
+    const companyReport = {
+      offeredCount: 0,
+      pendingEligible: 0,
+      availableDrivers: 0,
+      action: 'none',
+      skipReason: null,
+      targetJobId: null,
+      targetDriverId: null,
+    };
+    const offeredJobs = jobStore.filter(j => String(j.companyId) === String(cid) && j.BookingStatus === 'Offered');
+    companyReport.offeredCount = offeredJobs.length;
+    if (offeredJobs.length) {
+      companyReport.skipReason = `company has ${offeredJobs.length} Offered job(s): ${offeredJobs.map(j => j.Id).join(', ')}`;
+      tickReport.companies[cid] = companyReport;
+      continue;
+    }
     const pending = jobStore.filter(j => {
       if (String(j.companyId) !== String(cid)) return false;
       if (j.BookingStatus !== 'Pending' && j.BookingStatus !== 'No One') return false;
@@ -14873,10 +15162,20 @@ async function _serverAutoDispatchTick() {
       if (j.releasedAt && (now - j.releasedAt) < 10000) return false;
       return _isDispatchableJob(j, cid);
     });
-    if (!pending.length) continue;
+    companyReport.pendingEligible = pending.length;
+    if (!pending.length) {
+      companyReport.skipReason = 'no eligible Pending jobs';
+      tickReport.companies[cid] = companyReport;
+      continue;
+    }
     pending.sort((a, b) => (a.Pickingtime || a.BookingDateTime || '').localeCompare(b.Pickingtime || b.BookingDateTime || ''));
     const job = pending[0];
-    if (!_isDispatchableJob(job, cid)) continue;
+    companyReport.targetJobId = job.Id;
+    if (!_isDispatchableJob(job, cid)) {
+      companyReport.skipReason = `top pending #${job.Id} failed _isDispatchableJob`;
+      tickReport.companies[cid] = companyReport;
+      continue;
+    }
     const pick = _parseLatLng(job.PickLatLng);
     const drivers = ZONE_DRIVERS.filter(d =>
       String(d.companyId || '') === String(cid) &&
@@ -14884,7 +15183,12 @@ async function _serverAutoDispatchTick() {
       !isAwayLocked(d.driverid) &&
       d.lat && d.lng
     );
-    if (!drivers.length) continue;
+    companyReport.availableDrivers = drivers.length;
+    if (!drivers.length) {
+      companyReport.skipReason = 'no Available drivers with GPS in ZONE_DRIVERS';
+      tickReport.companies[cid] = companyReport;
+      continue;
+    }
     let best = drivers[0];
     if (pick) {
       let bestDist = Infinity;
@@ -14894,7 +15198,11 @@ async function _serverAutoDispatchTick() {
       }
     }
     const fresh = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
-    if (!fresh || !_isDispatchableJob(fresh, cid)) continue;
+    if (!fresh || !_isDispatchableJob(fresh, cid)) {
+      companyReport.skipReason = 'job changed before offer';
+      tickReport.companies[cid] = companyReport;
+      continue;
+    }
     const _autoPrev = fresh.BookingStatus;
     _stampPreOfferPoolStatus(fresh, _autoPrev);
     fresh.BookingStatus = 'Offered';
@@ -14912,8 +15220,15 @@ async function _serverAutoDispatchTick() {
       action: 'offer',
       driverId: best.driverid,
     });
+    companyReport.action = 'offered';
+    companyReport.targetDriverId = best.driverid;
     console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
+    tickReport.companies[cid] = companyReport;
   }
+  _AUTO_DISPATCH_LAST.at = tickReport.at;
+  _AUTO_DISPATCH_LAST.perCompany = tickReport.companies;
+  _AUTO_DISPATCH_LAST.error = null;
+  console.log(`[server-auto-dispatch] tick ${JSON.stringify(tickReport)}`);
 }
 
 async function _releaseScheduledJobs() {
