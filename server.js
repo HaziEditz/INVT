@@ -2727,7 +2727,7 @@ async function _writeDriverJobUpdatedNotification(opts) {
 //   - Diff-based, per-booking, race-safe via updateSeq.
 //   - Refuses if job is already closed (Cancelled / Completed / etc.).
 //   - Returns {ok, idempotent?, stale?, currentSeq?, eventTypes, diff, seq, driverNotified}.
-function updateBooking(opts) {
+async function updateBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
   const changes   = (opts.changes && typeof opts.changes === 'object') ? opts.changes : {};
@@ -2794,17 +2794,15 @@ function updateBooking(opts) {
   const _notifyDrvOnEdit = _drv || (_visible ? _prevDrv : '');
   if (_prevDrv && (_DRIVER_ATTACHED_STATUSES.has(_prevStatus) || _withdrawHint) && _unassignToPool) {
     if (typeof markDispatcherRecalled === 'function') markDispatcherRecalled(bookingId);
-    (async () => {
-      try {
-        await _withdrawJobFromDriver({
-          cid: _cid, bookingId, driverId: _prevDrv,
-          vehicleId: _prevVid || _prevDrv, prevStatus: _prevStatus,
-          version: _newSeq, source: `${source}/unassign`,
-        });
-      } catch (e) {
-        console.warn(`  [${source}] _withdrawJobFromDriver (unassign) failed: ${e && e.message}`);
-      }
-    })();
+    try {
+      await _withdrawJobFromDriver({
+        cid: _cid, bookingId, driverId: _prevDrv,
+        vehicleId: _prevVid || _prevDrv, prevStatus: _prevStatus,
+        version: _newSeq, source: `${source}/unassign`,
+      });
+    } catch (e) {
+      console.warn(`  [${source}] _withdrawJobFromDriver (unassign) failed: ${e && e.message}`);
+    }
   }
 
   // Field-level events — data carries { field: { from, to }, ... } per changed field.
@@ -2861,18 +2859,15 @@ function updateBooking(opts) {
   // Notify the driver app — use attached driver id even if status just left their UI.
   let _driverNotified = false;
   if (_cid && _notifyDrvOnEdit && !_unassignToPool) {
-    (async () => {
-      try {
-        const _notifyJob = Object.assign({}, job, { DriverId: _notifyDrvOnEdit, AssignedDriverId: _notifyDrvOnEdit });
-        await _writeDriverJobUpdatedNotification({
-          job: _notifyJob, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
-          eventTypes: _eventTypes,
-        });
-      } catch (_e) {
-        console.warn(`  [${source}] §FIX-UB notification write failed: ${_e && _e.message}`);
-      }
-    })();
-    _driverNotified = true;
+    try {
+      const _notifyJob = Object.assign({}, job, { DriverId: _notifyDrvOnEdit, AssignedDriverId: _notifyDrvOnEdit });
+      _driverNotified = await _writeDriverJobUpdatedNotification({
+        job: _notifyJob, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
+        eventTypes: _eventTypes,
+      });
+    } catch (_e) {
+      console.warn(`  [${source}] §FIX-UB notification write failed: ${_e && _e.message}`);
+    }
   }
 
   console.log(`  [${source}] §FIX-UB job #${bookingId} seq ${_curSeq}→${_newSeq} types=[${_eventTypes.join(',')}] by=${by} fields=[${Object.keys(_diff).join(',')}]`);
@@ -3508,7 +3503,7 @@ async function repairBookingFirebaseSync(opts) {
   if (!cid) return { ok: false, error: 'companyId missing on job' };
 
   if (action === 'no_one' || action === 'cancel') {
-    const ub = updateBooking({
+    const ub = await updateBooking({
       bookingId,
       changes: {
         BookingStatus: 'No One',
@@ -7477,7 +7472,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         return;
       }
     }
-    const _ubResult = updateBooking({
+    const _ubResult = await updateBooking({
       bookingId: _ubBooking, changes: _ubChanges,
       by: _ubBy, ifSeq: _ubIfSeq, source: 'api/booking/update/' + _ubBy
     });
@@ -7705,7 +7700,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }
       } else if (_cmdName === 'update') {
         const _changes = (_cmdPayload.changes && typeof _cmdPayload.changes === 'object') ? _cmdPayload.changes : _cmdPayload;
-        _result = updateBooking({
+        _result = await updateBooking({
           bookingId: _cmdBooking, changes: _changes,
           by: _cmdBy, ifSeq: _cmdIfVer, source: _logSrc
         });

@@ -1,5 +1,5 @@
 import type { Job, JobStatus } from '@/types/job';
-import { jobFromFirebase, jobUpdateSeqFromRecord } from '@/types/job';
+import { jobFromFirebase, jobUpdateSeqFromRecord, normalizeJobStatus } from '@/types/job';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
@@ -147,6 +147,38 @@ function firebasePatchFromChanges(changes: Record<string, unknown>): Record<stri
   return patch;
 }
 
+function shouldMirrorToPendingJobs(status: JobStatus | string): boolean {
+  const st = normalizeJobStatus(String(status));
+  return st === 'Pending' || st === 'No One' || st === 'Offered' || st === 'Scheduled';
+}
+
+/** Best-effort client mirror — server fanout is authoritative; must not block Save. */
+function mirrorJobChangesToFirebase(
+  companyId: string,
+  jobId: number,
+  changes: Record<string, unknown>,
+  status: JobStatus | string,
+  authoritativeSeq: number,
+): void {
+  void (async () => {
+    try {
+      const db = getDb();
+      const fbPatch = firebasePatchFromChanges(changes);
+      if (Object.keys(fbPatch).length === 0) return;
+      fbPatch._seq = authoritativeSeq;
+      fbPatch.version = authoritativeSeq;
+      fbPatch.updateSeq = authoritativeSeq;
+      fbPatch.eventType = 'updated';
+      if (shouldMirrorToPendingJobs(status)) {
+        await update(ref(db, `pendingjobs/${companyId}/${jobId}`), fbPatch);
+      }
+      await update(ref(db, `allbookings/${companyId}/${jobId}`), fbPatch);
+    } catch {
+      /* non-fatal */
+    }
+  })();
+}
+
 type BookingUpdateResult = {
   ok: boolean;
   seq?: number;
@@ -186,7 +218,7 @@ async function fetchFreshJobFromFirebase(companyId: string, jobId: number): Prom
       return null;
     }
   };
-  return (await readPath('pendingjobs')) ?? (await readPath('allbookings'));
+  return (await readPath('allbookings')) ?? (await readPath('pendingjobs'));
 }
 
 async function persistJobUpdate(
@@ -244,22 +276,9 @@ async function persistJobUpdate(
 
   const current = useJobStore.getState().jobs.find((j) => j.id === jobId) ?? baseJob;
   const authoritativeSeq = result.seq ?? (ifSeq != null ? ifSeq + 1 : (current.updateSeq ?? 0) + 1);
-  useJobStore.getState().upsertJob(applyChangesToJob(current, changes, authoritativeSeq));
-
-  try {
-    const db = getDb();
-    const fbPatch = firebasePatchFromChanges(changes);
-    if (Object.keys(fbPatch).length > 0) {
-      fbPatch._seq = authoritativeSeq;
-      fbPatch.version = authoritativeSeq;
-      fbPatch.updateSeq = authoritativeSeq;
-      fbPatch.eventType = 'updated';
-      await update(ref(db, `pendingjobs/${companyId}/${jobId}`), fbPatch);
-      await update(ref(db, `allbookings/${companyId}/${jobId}`), fbPatch);
-    }
-  } catch {
-    /* server may have already updated Firebase */
-  }
+  const merged = applyChangesToJob(current, changes, authoritativeSeq);
+  useJobStore.getState().upsertJob(merged);
+  mirrorJobChangesToFirebase(companyId, jobId, changes, merged.status, authoritativeSeq);
 }
 
 export async function updateJob(
