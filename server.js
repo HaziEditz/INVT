@@ -2269,19 +2269,21 @@ async function _removeDriverQueueFirebase(cid, driverId, bookingId) {
   } catch (e) { /* non-fatal */ }
 }
 
-async function _writePendingJobFirebase(cid, bookingId, job) {
+async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
   try {
     if (!cid || !bookingId || !job) return;
     const tok = await getFirebaseServerToken();
     if (!tok) return;
+    const restored = poolStatus === 'No One' ? 'No One' : 'Pending';
     const normed = _normFbJob(job);
     const fbJob = {
       BookingId: bookingId,
-      Status: 'Pending',
-      BookingStatus: 'Pending',
-      DriverId: '0',
+      Status: restored,
+      BookingStatus: restored,
+      DriverId: restored === 'No One' ? '-1' : '0',
       VehicleId: '0',
       AssignedDriver: '',
+      manualOffer: restored === 'No One',
       PassengerName: normed.name,
       PhoneNo: normed.phone,
       PickAddress: normed.pickAddress,
@@ -2404,13 +2406,7 @@ async function driverRecallJob(opts) {
   job.returnReason = driverId ? `Recalled by ${driverId}` : 'Recalled by Driver';
   saveJobStore();
   if (_cid) {
-    if (_restoredPool === 'No One') {
-      getFirebaseServerToken().then(tok => {
-        if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-      });
-    } else {
-      await _writePendingJobFirebase(_cid, bookingId, job);
-    }
+    await _writePendingJobFirebase(_cid, bookingId, job, _restoredPool);
     await _dispatchRefreshForJob(job, {
       cid: _cid,
       previousStatus: _prevSt,
@@ -2448,6 +2444,7 @@ async function driverDeclineJob(opts) {
 
   const _prevSt = _cur;
   const _restoredPool = _restorePoolStatusAfterOfferRelease(job);
+  const _offerCtx = _offerCtxFromJob(job, driverId);
 
   _applyPoolStatusFields(job, _restoredPool);
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
@@ -2474,7 +2471,7 @@ async function driverDeclineJob(opts) {
   }
 
   if (_cid) {
-    await _releaseOfferToPoolFirebase(_cid, bookingId, job, _restoredPool);
+    await _releaseOfferToPoolFirebase(_cid, bookingId, job, _restoredPool, _offerCtx);
     getFirebaseServerToken().then(async _tok => {
       if (!_tok) return;
       await fbRequest(`${FB_DB_URL}/notification/${driverId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
@@ -2610,6 +2607,9 @@ function _applyPoolStatusFields(job, poolStatus) {
   job.BookingStatus = restored;
   job.DriverId = 0;
   job.VehicleId = 0;
+  job.AssignedDriverId = '';
+  job.AssignedDriver = '';
+  job.offeredAt = null;
   job.releasedAt = Date.now();
   if (restored === 'No One') {
     job.manualOffer = true;
@@ -2621,6 +2621,21 @@ function _applyPoolStatusFields(job, poolStatus) {
     }
   }
   return restored;
+}
+
+/** Capture driver/vehicle ids for jobs/{cid}/{vid}/{drv}/{bid} cleanup before pool fields are cleared. */
+function _offerCtxFromJob(job, fallbackDriverId) {
+  if (!job) return { driverId: '', vehicleId: '' };
+  const driverId = String(job.DriverId || job.AssignedDriverId || fallbackDriverId || '').trim();
+  let vehicleId = String(job.VehicleNo || job.CallSign || '').trim();
+  if (!vehicleId && driverId) {
+    const zd = ZONE_DRIVERS.find(d => d && (String(d.driverid) === driverId || String(d.VehicleId) === driverId));
+    if (zd) vehicleId = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+  }
+  if (!vehicleId && job.VehicleId && String(job.VehicleId) !== '0') {
+    vehicleId = String(job.VehicleId);
+  }
+  return { driverId, vehicleId };
 }
 
 function _logJobPoolState(job, tag) {
@@ -2696,7 +2711,7 @@ function _bumpJobUpdateSeq(job, by) {
   return seq;
 }
 
-async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus) {
+async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus, offerCtx) {
   if (!cid || !bookingId || !job) return;
   try {
     const tok = await getFirebaseServerToken();
@@ -2712,6 +2727,7 @@ async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus) {
       AssignedDriver: '',
       AssignedDriverId: '',
       manualOffer: restored === 'No One',
+      eventType: 'updated',
       releasedAt: job.releasedAt || Date.now(),
       updateSeq: seq,
       version: seq,
@@ -2719,11 +2735,10 @@ async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus) {
       lastUpdatedAt: job.lastUpdatedAt || new Date().toISOString(),
     };
     await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok);
-    if (restored === 'No One') {
-      await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-    } else {
-      await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-      await _writePendingJobFirebase(cid, bookingId, job);
+    await _writePendingJobFirebase(cid, bookingId, job, restored);
+    const ctx = offerCtx || _offerCtxFromJob(job, '');
+    if (ctx.driverId && ctx.vehicleId) {
+      clearOfferOnFirebase(cid, ctx.vehicleId, ctx.driverId, bookingId, 'pool-restore', 'stale');
     }
     console.log(`  [pool-restore] Firebase allbookings/${cid}/${bookingId} → ${restored} (seq=${seq})`);
   } catch (e) {
@@ -10896,6 +10911,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const effectiveStatus = newStatus === 'Unreached'
             ? _restorePoolStatusAfterOfferRelease(job)
             : newStatus;
+          const _poolOfferCtx = newStatus === 'Unreached' ? _offerCtxFromJob(job, incomingDriverId) : null;
           const _refreshPrevDP = currentStatus;
           job.BookingStatus = effectiveStatus;
           if (newStatus === 'Unreached') {
@@ -11010,7 +11026,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }).catch(() => {});
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {
-            _releaseOfferToPoolFirebase(sessionCompanyId, bookingId, job, effectiveStatus).catch(() => {});
+            _releaseOfferToPoolFirebase(sessionCompanyId, bookingId, job, effectiveStatus, _poolOfferCtx).catch(() => {});
           }
           // Patch Firebase pendingjobs so driver app sees 'Offered' status.
           // Without this, a stale 'Assigned' entry from a previous session causes
@@ -13090,6 +13106,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const effectiveStatus2 = newStatus === 'Unreached'
             ? _restorePoolStatusAfterOfferRelease(job)
             : newStatus;
+          const _poolOfferCtx2 = newStatus === 'Unreached' ? _offerCtxFromJob(job, incomingDriverId2) : null;
           const _refreshPrevDS = currentStatus2;
           job.BookingStatus = effectiveStatus2;
           if (newStatus === 'Unreached') {
@@ -13186,7 +13203,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }).catch(() => {});
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {
-            _releaseOfferToPoolFirebase(sessionCompanyId, bookingId, job, effectiveStatus2).catch(() => {});
+            _releaseOfferToPoolFirebase(sessionCompanyId, bookingId, job, effectiveStatus2, _poolOfferCtx2).catch(() => {});
           }
           // Patch Firebase pendingjobs so driver app sees 'Offered' status.
           // Without this, a stale 'Assigned' entry from a previous session causes

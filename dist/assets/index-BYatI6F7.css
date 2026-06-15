@@ -701,6 +701,9 @@ video {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.block {
+  display: block;
+}
 .inline-block {
   display: inline-block;
 }
@@ -1978,7 +1981,7 @@ body {
 
 .bw-dispatch-flash {
   background-color: var(--bw-card-bg, #F7C1C1);
-  animation: bw-dispatch-pulse 20s ease-in-out infinite;
+  animation: bw-dispatch-pulse 1.5s ease-in-out infinite;
 }
 
 .bw-job-card-toned {

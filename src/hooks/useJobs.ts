@@ -56,7 +56,36 @@ type DispatchRefreshPayload = {
 };
 
 const POOL_RESTORE_ACTIONS = new Set(['status', 'timeout', 'decline', 'recall', 'scheduled_release']);
+
+const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One']);
 const LIVE_OFFER_STATUSES = new Set(['Offered', 'Assigned']);
+
+function isPoolUaStatus(status: string): boolean {
+  return POOL_UA_STATUSES.has(normalizeJobStatus(status) as Job['status']);
+}
+
+function shouldPreserveAbsentStoreJob(
+  job: Job,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+): boolean {
+  const tab = jobTabForStatus(job);
+  if (tab === 'ua') return true;
+  if (!LIVE_DISPATCH_TABS.has(tab)) return false;
+  if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
+  if (isPoolUaStatus(job.status)) return true;
+  return false;
+}
+
+function pendingjobsAbsentIsPoolRestore(
+  job: Job | null,
+  refresh: DispatchRefreshPayload,
+): boolean {
+  if (!job) return false;
+  if (!isPoolUaStatus(job.status)) return false;
+  if (POOL_RESTORE_ACTIONS.has(refresh.action || '')) return true;
+  return normalizeJobStatus(refresh.status || '') === normalizeJobStatus(job.status);
+}
 
 function pendingSnapshotWouldRegressPool(
   refresh: DispatchRefreshPayload,
@@ -230,7 +259,11 @@ async function refreshJobFromFirebaseCaches(
       hooks.applyPending(String(bookingId), pjRecord, false);
     }
   } else {
-    pendingRef.delete(bookingId);
+    if (!pendingjobsAbsentIsPoolRestore(job, refresh)) {
+      pendingRef.delete(bookingId);
+    } else if (job) {
+      pendingRef.set(job.id, job);
+    }
     const liveActions = new Set(['accept', 'assign', 'offer', 'queue', 'active', 'status', 'timeout', 'decline', 'recall', 'scheduled_release']);
     if (action === 'cancel') {
       hooks.removeJob(bookingId);
@@ -270,8 +303,7 @@ export function useJobs(companyId: string | null) {
       const byId = new Map(merged.map((j) => [j.id, j]));
       for (const j of useJobStore.getState().jobs) {
         if (byId.has(j.id) || removed.has(j.id)) continue;
-        const tab = jobTabForStatus(j);
-        if (tab === 'ua' || LIVE_DISPATCH_TABS.has(tab)) {
+        if (shouldPreserveAbsentStoreJob(j, pendingRef.current, bookingsRef.current)) {
           byId.set(j.id, j);
         }
       }
@@ -329,6 +361,7 @@ export function useJobs(companyId: string | null) {
       const storeJob = useJobStore.getState().jobs.find((j) => j.id === jobId);
       const stillLive =
         !!storeJob &&
+        !isPoolUaStatus(storeJob.status) &&
         (LIVE_DISPATCH_TABS.has(jobTabForStatus(storeJob)) || bookingsRef.current.has(jobId));
       if (!stillLive) {
         removeJob(jobId);
@@ -358,7 +391,11 @@ export function useJobs(companyId: string | null) {
             if (!job || isBlacklisted(job.id)) continue;
 
             const active = ACTIVE_BOOKING_STATUSES.has(job.status);
-            if (active) bookingsRef.current.set(job.id, job);
+            if (active) {
+              bookingsRef.current.set(job.id, job);
+            } else if (isPoolUaStatus(job.status)) {
+              pendingRef.current.set(job.id, job);
+            }
           }
         }
         syncAll();

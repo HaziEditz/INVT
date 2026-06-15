@@ -27675,6 +27675,7 @@ function normalizeJobStatus(raw) {
   const s2 = String(raw || "").trim();
   if (s2 === "NoOne" || s2 === "no_one" || s2 === "NO ONE") return "No One";
   if (s2 === "pending" || s2 === "PENDING") return "Pending";
+  if (s2 === "OnBoard" || s2 === "onboard" || s2 === "On Board") return "Active";
   return s2;
 }
 function uaStatusBadge(job) {
@@ -27842,6 +27843,16 @@ function jobCardBorderColor(job) {
   if (st2 === "Pending") return "#4f6ef7";
   return "#4f6ef7";
 }
+function isPreDispatchWindow(job, now = /* @__PURE__ */ new Date()) {
+  const dispatchAt = jobDispatchTime(job);
+  if (!dispatchAt) return false;
+  return now.getTime() < dispatchAt.getTime();
+}
+function preDispatchAssignBlockMessage(job) {
+  const pickup = jobScheduledTime(job);
+  const timeLabel = pickup ? pickup.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false }) : "the scheduled time";
+  return `This job is pre-booked for ${timeLabel}. To send it now, change it to 'Now' first.`;
+}
 function jobTabForStatus(job) {
   if (job.serviceType === "food" || job.serviceType === "freight") return "dy";
   const st2 = normalizeJobStatus(job.status);
@@ -27982,6 +27993,12 @@ function mergeJobUpdate(existing, incoming) {
   const incomingSeq = incoming.updateSeq ?? existingSeq;
   if (incoming.status != null) {
     merged.status = mergeJobStatus(existing.status, incoming.status, existingSeq, incomingSeq);
+  }
+  const incDriver = incoming.driverId != null ? String(incoming.driverId) : null;
+  if (incDriver === "0" || incDriver === "-1") {
+    if (incoming.status != null && (normalizeJobStatus(String(incoming.status)) === "Pending" || normalizeJobStatus(String(incoming.status)) === "No One")) {
+      merged.driverId = incDriver;
+    }
   }
   if (incoming.driverId != null && incomingSeq < existingSeq && statusRank(merged.status) > statusRank("Offered")) {
     if (existing.driverId) merged.driverId = existing.driverId;
@@ -28173,6 +28190,7 @@ function inferCategory(t2) {
   return "general";
 }
 function soundForToast(t2) {
+  if (t2.title.toUpperCase().includes("DISPATCH NOW")) return "alert";
   if (t2.category) {
     if (t2.category === "job_created") return "job_created";
     if (t2.category === "job_updated") return "job_updated";
@@ -28335,6 +28353,168 @@ function purgeCancelledJobFromListeners(jobId) {
 }
 let listenerPendingCache = null;
 let listenerBookingsCache = null;
+const ACTIVE_BOOKING_STATUSES = /* @__PURE__ */ new Set([
+  "Assigned",
+  "Picking",
+  "Arrived",
+  "Active",
+  "OnTrip",
+  "Queued",
+  "Offered"
+]);
+const TERMINAL_BOOKING_STATUSES = /* @__PURE__ */ new Set(["Completed", "Cancelled", "No Show"]);
+const LIVE_DISPATCH_TABS = /* @__PURE__ */ new Set(["offer", "assign", "active", "queue"]);
+const POOL_RESTORE_ACTIONS = /* @__PURE__ */ new Set(["status", "timeout", "decline", "recall", "scheduled_release"]);
+const POOL_UA_STATUSES = /* @__PURE__ */ new Set(["Pending", "No One"]);
+const LIVE_OFFER_STATUSES = /* @__PURE__ */ new Set(["Offered", "Assigned"]);
+function isPoolUaStatus(status) {
+  return POOL_UA_STATUSES.has(normalizeJobStatus(status));
+}
+function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef) {
+  const tab = jobTabForStatus(job);
+  if (tab === "ua") return true;
+  if (!LIVE_DISPATCH_TABS.has(tab)) return false;
+  if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
+  if (isPoolUaStatus(job.status)) return true;
+  return false;
+}
+function pendingjobsAbsentIsPoolRestore(job, refresh) {
+  if (!job) return false;
+  if (!isPoolUaStatus(job.status)) return false;
+  if (POOL_RESTORE_ACTIONS.has(refresh.action || "")) return true;
+  return normalizeJobStatus(refresh.status || "") === normalizeJobStatus(job.status);
+}
+function pendingSnapshotWouldRegressPool(refresh, pjVal) {
+  if (!refresh.status) return false;
+  const target = normalizeJobStatus(refresh.status);
+  if (target !== "Pending" && target !== "No One") return false;
+  if (!POOL_RESTORE_ACTIONS.has(refresh.action || "")) return false;
+  const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ""));
+  return LIVE_OFFER_STATUSES.has(pjSt);
+}
+function seqFromFirebaseRecord$1(rec) {
+  if (!rec || typeof rec !== "object") return void 0;
+  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
+  const n2 = parseInt(String(raw ?? ""), 10);
+  return Number.isNaN(n2) ? void 0 : n2;
+}
+function resolveRefreshDriverId(refresh, targetStatus, job, prior) {
+  if (targetStatus === "No One") return "-1";
+  if (targetStatus === "Pending") {
+    if (POOL_RESTORE_ACTIONS.has(refresh.action || "")) return "0";
+    if (refresh.driverId === "0" || refresh.driverId === "") return "0";
+  }
+  if (refresh.driverId !== void 0 && refresh.driverId !== null && refresh.driverId !== "") {
+    return String(refresh.driverId);
+  }
+  return (job == null ? void 0 : job.driverId) ?? (prior == null ? void 0 : prior.driverId) ?? "0";
+}
+function existingJobSnapshot(bookingId, pendingRef, bookingsRef) {
+  return bookingsRef.get(bookingId) ?? pendingRef.get(bookingId) ?? useJobStore.getState().jobs.find((j2) => j2.id === bookingId) ?? null;
+}
+function refreshImpliesTerminal(refresh) {
+  if (refresh.action === "cancel" || refresh.action === "complete") return true;
+  if (!refresh.status) return false;
+  return TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(refresh.status));
+}
+function applyRefreshStatusHint(job, prior, refresh, bookingId) {
+  if (!refresh.status) return job;
+  const targetStatus = normalizeJobStatus(refresh.status);
+  const driverId = resolveRefreshDriverId(refresh, targetStatus, job, prior);
+  const updateSeq = refresh.updateSeq ?? (job == null ? void 0 : job.updateSeq) ?? (prior == null ? void 0 : prior.updateSeq);
+  const patch = { status: targetStatus, driverId, ...updateSeq != null ? { updateSeq } : {} };
+  if (job) {
+    return mergeJobUpdate(job, patch);
+  }
+  if (prior && !useJobStore.getState().isJobBlacklisted(bookingId)) {
+    return mergeJobUpdate(prior, patch);
+  }
+  return job;
+}
+async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendingRef, bookingsRef, hooks) {
+  const action = refresh.action;
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  if (refreshImpliesTerminal(refresh)) {
+    pendingRef.delete(bookingId);
+    bookingsRef.delete(bookingId);
+    hooks.removeJob(bookingId);
+    hooks.clearRemovedJob(bookingId);
+    hooks.syncAll();
+    return;
+  }
+  const db2 = getDb();
+  const [abSnap, pjSnap] = await Promise.all([
+    get(ref(db2, `allbookings/${companyId}/${bookingId}`)),
+    get(ref(db2, `pendingjobs/${companyId}/${bookingId}`))
+  ]);
+  pendingRef.delete(bookingId);
+  let job = null;
+  const abVal = abSnap.val();
+  if (abVal && typeof abVal === "object") {
+    const rec = abVal;
+    const parsed = jobFromFirebase(String(bookingId), rec, companyId);
+    if (parsed && !useJobStore.getState().isJobBlacklisted(parsed.id)) {
+      const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? parsed.status));
+      if (ACTIVE_BOOKING_STATUSES.has(st2)) {
+        job = parsed;
+      } else if (TERMINAL_BOOKING_STATUSES.has(st2)) {
+        bookingsRef.delete(bookingId);
+        hooks.removeJob(bookingId);
+        hooks.clearRemovedJob(bookingId);
+        hooks.syncAll();
+        return;
+      } else if (action !== "accept" && action !== "assign" && action !== "offer" && action !== "queue" && action !== "active") {
+        bookingsRef.delete(bookingId);
+      }
+    }
+  } else if (action === "cancel") {
+    bookingsRef.delete(bookingId);
+  }
+  job = applyRefreshStatusHint(job, prior, refresh, bookingId);
+  const pjVal = pjSnap.val();
+  const pjRecord = pjVal && typeof pjVal === "object" ? pjVal : null;
+  const fbSeq = seqFromFirebaseRecord$1(abVal) ?? seqFromFirebaseRecord$1(pjRecord);
+  if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq) {
+    job = mergeJobUpdate(job, { updateSeq: fbSeq });
+  }
+  if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
+    const st2 = normalizeJobStatus(job.status);
+    if (ACTIVE_BOOKING_STATUSES.has(st2)) {
+      bookingsRef.set(job.id, job);
+    } else if (st2 === "Pending" || st2 === "No One") {
+      pendingRef.set(job.id, job);
+      bookingsRef.delete(bookingId);
+    } else if (TERMINAL_BOOKING_STATUSES.has(st2)) {
+      bookingsRef.delete(bookingId);
+      hooks.removeJob(bookingId);
+      hooks.clearRemovedJob(bookingId);
+      hooks.syncAll();
+      return;
+    }
+  }
+  if (pjRecord) {
+    if (pendingSnapshotWouldRegressPool(refresh, pjRecord)) {
+      if (job) pendingRef.set(job.id, job);
+    } else {
+      hooks.applyPending(String(bookingId), pjRecord, false);
+    }
+  } else {
+    if (!pendingjobsAbsentIsPoolRestore(job, refresh)) {
+      pendingRef.delete(bookingId);
+    } else if (job) {
+      pendingRef.set(job.id, job);
+    }
+    const liveActions = /* @__PURE__ */ new Set(["accept", "assign", "offer", "queue", "active", "status", "timeout", "decline", "recall", "scheduled_release"]);
+    if (action === "cancel") {
+      hooks.removeJob(bookingId);
+      hooks.clearRemovedJob(bookingId);
+    } else if (!liveActions.has(action || "") && !job) {
+      hooks.removeJob(bookingId);
+      hooks.clearRemovedJob(bookingId);
+    }
+  }
+  hooks.syncAll();
+}
 function useJobs(companyId) {
   const setJobs = useJobStore((s2) => s2.setJobs);
   const upsertJob = useJobStore((s2) => s2.upsertJob);
@@ -28342,6 +28522,7 @@ function useJobs(companyId) {
   const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
   const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
   const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const lastDispatchRefreshAtRef = reactExports.useRef(0);
   reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
@@ -28351,12 +28532,13 @@ function useJobs(companyId) {
     listenerBookingsCache = bookingsRef.current;
     const syncAll = () => {
       const removed = new Set(useJobStore.getState().removedJobIds);
-      const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
+      const merged = mergeJobs([pendingRef.current, bookingsRef.current]).filter(
         (j2) => !removed.has(j2.id)
       );
       const byId = new Map(merged.map((j2) => [j2.id, j2]));
       for (const j2 of useJobStore.getState().jobs) {
-        if (!byId.has(j2.id) && jobTabForStatus(j2) === "ua" && !removed.has(j2.id)) {
+        if (byId.has(j2.id) || removed.has(j2.id)) continue;
+        if (shouldPreserveAbsentStoreJob(j2, pendingRef.current, bookingsRef.current)) {
           byId.set(j2.id, j2);
         }
       }
@@ -28403,8 +28585,12 @@ function useJobs(companyId) {
       const jobId = parseInt(snap.key || "0", 10);
       if (!jobId) return;
       pendingRef.current.delete(jobId);
-      removeJob(jobId);
-      clearRemovedJob(jobId);
+      const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === jobId);
+      const stillLive = !!storeJob && !isPoolUaStatus(storeJob.status) && (LIVE_DISPATCH_TABS.has(jobTabForStatus(storeJob)) || bookingsRef.current.has(jobId));
+      if (!stillLive) {
+        removeJob(jobId);
+        clearRemovedJob(jobId);
+      }
       syncAll();
     };
     unsubs.push(onChildAdded(jobsRef, addJobToStore));
@@ -28421,19 +28607,73 @@ function useJobs(companyId) {
             if (!jobId || isBlacklisted(jobId)) continue;
             const job = jobFromFirebase(key, rec, companyId);
             if (!job || isBlacklisted(job.id)) continue;
-            const active = ["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Queued", "Offered"].includes(
-              job.status
-            );
-            if (active) bookingsRef.current.set(job.id, job);
+            const active = ACTIVE_BOOKING_STATUSES.has(job.status);
+            if (active) {
+              bookingsRef.current.set(job.id, job);
+            } else if (isPoolUaStatus(job.status)) {
+              pendingRef.current.set(job.id, job);
+            }
           }
         }
         syncAll();
       })
     );
+    unsubs.push(
+      onValue(ref(db2, `dispatchConsole/${companyId}/refresh`), (snap) => {
+        const v2 = snap.val();
+        if (!(v2 == null ? void 0 : v2.at) || v2.at === lastDispatchRefreshAtRef.current) return;
+        lastDispatchRefreshAtRef.current = v2.at;
+        const bid = parseInt(String(v2.bookingId ?? "0"), 10);
+        if (!bid) {
+          syncAll();
+          return;
+        }
+        void refreshJobFromFirebaseCaches(
+          companyId,
+          bid,
+          {
+            action: v2.action,
+            status: v2.status,
+            driverId: v2.driverId != null ? String(v2.driverId) : void 0,
+            updateSeq: v2.updateSeq != null ? parseInt(String(v2.updateSeq), 10) : void 0
+          },
+          pendingRef.current,
+          bookingsRef.current,
+          {
+            applyPending,
+            removeJob,
+            clearRemovedJob,
+            syncAll
+          }
+        );
+      })
+    );
     return () => {
-      for (const unsub of unsubs) unsub();
+      for (const u2 of unsubs) u2();
+      if (listenerPendingCache === pendingRef.current) listenerPendingCache = null;
+      if (listenerBookingsCache === bookingsRef.current) listenerBookingsCache = null;
     };
   }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
+  return useJobStore((s2) => s2.jobs);
+}
+const dispatchNowNotifiedRef = { current: /* @__PURE__ */ new Set() };
+function useDispatchWindowAlerts(jobs) {
+  reactExports.useEffect(() => {
+    const now = /* @__PURE__ */ new Date();
+    for (const job of jobs) {
+      if (jobTabForStatus(job) !== "ua" || !isPreBookedJob(job, now)) continue;
+      const dispatchAt = jobDispatchTime(job);
+      if (!dispatchAt || now.getTime() < dispatchAt.getTime()) continue;
+      if (dispatchNowNotifiedRef.current.has(job.id)) continue;
+      dispatchNowNotifiedRef.current.add(job.id);
+      useUiStore.getState().addToast({
+        type: "warning",
+        title: "DISPATCH NOW",
+        message: `#${job.id} ${job.pickAddress || "Ready to assign"}`,
+        category: "general"
+      });
+    }
+  }, [jobs]);
 }
 function useClosedJobs(companyId, enabled) {
   const [closed, setClosed] = reactExports.useState([]);
@@ -28441,6 +28681,15 @@ function useClosedJobs(companyId, enabled) {
     if (!companyId || !enabled) return;
     const db2 = getDb();
     const maps = [[], [], []];
+    const mergeAndSet = () => {
+      const merged = /* @__PURE__ */ new Map();
+      for (const arr of maps) {
+        for (const j2 of arr) merged.set(j2.id, j2);
+      }
+      setClosed(
+        Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
+      );
+    };
     const ingestClosed = (idx, snap) => {
       const list = [];
       const val = snap.val();
@@ -28452,7 +28701,7 @@ function useClosedJobs(companyId, enabled) {
           if (st2 === "Cancelled") {
             job.status = "Cancelled";
             const at2 = job.cancelledAt || job.completedAt;
-            job.completedAt = at2 ? Date.parse(at2) || job.completedAt : job.completedAt;
+            job.completedAt = at2 ? Date.parse(String(at2)) || job.completedAt : job.completedAt;
           } else {
             job.status = "Completed";
           }
@@ -28460,11 +28709,7 @@ function useClosedJobs(companyId, enabled) {
         }
       }
       maps[idx] = list;
-      const merged = /* @__PURE__ */ new Map();
-      for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
-      setClosed(
-        Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
-      );
+      mergeAndSet();
     };
     const unsubs = [
       onValue(ref(db2, `completedJobs/${companyId}`), (snap) => ingestClosed(0, snap)),
@@ -28485,15 +28730,11 @@ function useClosedJobs(companyId, enabled) {
           }
         }
         maps[2] = list;
-        const merged = /* @__PURE__ */ new Map();
-        for (const arr of maps) for (const j2 of arr) merged.set(j2.id, j2);
-        setClosed(
-          Array.from(merged.values()).sort((a2, b2) => (b2.completedAt || 0) - (a2.completedAt || 0))
-        );
+        mergeAndSet();
       })
     ];
     return () => {
-      for (const unsub of unsubs) unsub();
+      for (const u2 of unsubs) u2();
     };
   }, [companyId, enabled]);
   return closed;
@@ -28684,9 +28925,34 @@ function isAssignedDriverSelection(driverId) {
 }
 function formDriverIdFromJob(job) {
   if (job.status === "No One" || job.driverId === "-1") return DRIVER_NOONE;
-  if (job.driverId && isAssignedDriverSelection(job.driverId)) return job.driverId;
+  const drv = String(job.driverId ?? "").trim();
+  if (drv && isAssignedDriverSelection(drv)) return drv;
   if (job.status === "Pending") return DRIVER_PENDING;
+  const st2 = normalizeJobStatus(job.status);
+  if ((st2 === "Offered" || st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived" || st2 === "Active" || st2 === "OnTrip" || st2 === "Queued") && drv) {
+    return drv;
+  }
   return DRIVER_AUTO;
+}
+function driverOptionFromJob(job, drivers) {
+  const driverId = String(job.driverId ?? "").trim();
+  if (!driverId || !isAssignedDriverSelection(driverId)) return null;
+  return drivers.find((d2) => d2.driverId === driverId) ?? {
+    driverId,
+    vehicleId: String(job.vehicleId || "0"),
+    vehicleNo: String(job.vehicleNo || job.vehicleId || driverId),
+    driverName: String(job.driverName || driverId),
+    status: "Busy"
+  };
+}
+function driversForAssignDropdown(availableDrivers, allDrivers, editingJob) {
+  const byId = /* @__PURE__ */ new Map();
+  if (editingJob) {
+    const assigned = driverOptionFromJob(editingJob, allDrivers);
+    if (assigned) byId.set(assigned.driverId, assigned);
+  }
+  for (const d2 of availableDrivers) byId.set(d2.driverId, d2);
+  return Array.from(byId.values());
 }
 function buildAssignmentChanges(form) {
   if (form.driverId === DRIVER_NOONE) {
@@ -28986,6 +29252,28 @@ function firebasePatchFromChanges(changes) {
   if (changes.manualOffer !== void 0) patch.manualOffer = changes.manualOffer;
   return patch;
 }
+function shouldMirrorToPendingJobs(status) {
+  const st2 = normalizeJobStatus(String(status));
+  return st2 === "Pending" || st2 === "No One" || st2 === "Offered" || st2 === "Scheduled";
+}
+function mirrorJobChangesToFirebase(companyId, jobId, changes, status, authoritativeSeq) {
+  void (async () => {
+    try {
+      const db2 = getDb();
+      const fbPatch = firebasePatchFromChanges(changes);
+      if (Object.keys(fbPatch).length === 0) return;
+      fbPatch._seq = authoritativeSeq;
+      fbPatch.version = authoritativeSeq;
+      fbPatch.updateSeq = authoritativeSeq;
+      fbPatch.eventType = "updated";
+      if (shouldMirrorToPendingJobs(status)) {
+        await update(ref(db2, `pendingjobs/${companyId}/${jobId}`), fbPatch);
+      }
+      await update(ref(db2, `allbookings/${companyId}/${jobId}`), fbPatch);
+    } catch {
+    }
+  })();
+}
 async function postBookingUpdate(body) {
   const r = await fetch(`${API}/booking/update`, {
     method: "POST",
@@ -29014,7 +29302,7 @@ async function fetchFreshJobFromFirebase(companyId, jobId) {
       return null;
     }
   };
-  return await readPath("pendingjobs") ?? await readPath("allbookings");
+  return await readPath("allbookings") ?? await readPath("pendingjobs");
 }
 async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   if (Object.keys(changes).length === 0) return;
@@ -29058,20 +29346,9 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   }
   const current = useJobStore.getState().jobs.find((j2) => j2.id === jobId) ?? baseJob;
   const authoritativeSeq = result.seq ?? (ifSeq != null ? ifSeq + 1 : (current.updateSeq ?? 0) + 1);
-  useJobStore.getState().upsertJob(applyChangesToJob(current, changes, authoritativeSeq));
-  try {
-    const db2 = getDb();
-    const fbPatch = firebasePatchFromChanges(changes);
-    if (Object.keys(fbPatch).length > 0) {
-      fbPatch._seq = authoritativeSeq;
-      fbPatch.version = authoritativeSeq;
-      fbPatch.updateSeq = authoritativeSeq;
-      fbPatch.eventType = "updated";
-      await update(ref(db2, `pendingjobs/${companyId}/${jobId}`), fbPatch);
-      await update(ref(db2, `allbookings/${companyId}/${jobId}`), fbPatch);
-    }
-  } catch {
-  }
+  const merged = applyChangesToJob(current, changes, authoritativeSeq);
+  useJobStore.getState().upsertJob(merged);
+  mirrorJobChangesToFirebase(companyId, jobId, changes, merged.status, authoritativeSeq);
 }
 async function updateJob(jobId, companyId, changes, existingJob) {
   if (Object.keys(changes).length === 0) return;
@@ -29187,6 +29464,11 @@ async function applyJobAssignment(job, selection, onlineDrivers) {
   }
   const d2 = onlineDrivers.find((x2) => x2.driverId === selection);
   if (!d2) throw new Error("Driver not found");
+  if (isPreDispatchWindow(job)) {
+    const message2 = preDispatchAssignBlockMessage(job);
+    useUiStore.getState().addToast({ type: "error", title: "Cannot assign yet", message: message2 });
+    throw new Error(message2);
+  }
   const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   const isReassign = hadDriver && job.driverId !== d2.driverId;
   await assignJob(job.id, d2.driverId, d2.vehicleId, job.updateSeq, job);
@@ -29194,6 +29476,11 @@ async function applyJobAssignment(job, selection, onlineDrivers) {
 }
 async function applyFormDriverAssignment(job, form, availableDrivers, opts) {
   if (isAssignedDriverSelection(form.driverId)) {
+    if (isPreDispatchWindow(job)) {
+      const message2 = preDispatchAssignBlockMessage(job);
+      useUiStore.getState().addToast({ type: "error", title: "Cannot assign yet", message: message2 });
+      throw new Error(message2);
+    }
     const d2 = availableDrivers.find((x2) => x2.driverId === form.driverId) ?? { driverId: form.driverId, vehicleId: form.vehicleId || "0" };
     await assignJob(job.id, d2.driverId, d2.vehicleId || form.vehicleId || "0", job.updateSeq, job, opts);
     return;
@@ -32017,7 +32304,7 @@ function JobCard({ job, tab }) {
     [cancelTargetJobId, jobs]
   );
   reactExports.useEffect(() => {
-    const t2 = setInterval(() => setNow(/* @__PURE__ */ new Date()), 3e4);
+    const t2 = setInterval(() => setNow(/* @__PURE__ */ new Date()), 1e3);
     return () => clearInterval(t2);
   }, []);
   const cardLook = reactExports.useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
@@ -32120,6 +32407,14 @@ function JobCard({ job, tab }) {
   };
   const handleApplyAssign = async () => {
     if (!assignSelection) return;
+    if (assignSelection !== "__pending__" && assignSelection !== "__noone__" && isPreDispatchWindow(job, now)) {
+      addToast({
+        type: "error",
+        title: "Cannot assign yet",
+        message: preDispatchAssignBlockMessage(job)
+      });
+      return;
+    }
     const selection = assignSelection;
     try {
       const result = await applyJobAssignment(job, selection, onlineDrivers);
@@ -32138,12 +32433,15 @@ function JobCard({ job, tab }) {
     }
   };
   const showAssignControls = tab === "ua" || tab === "assign" || tab === "queue" || tab === "offer";
+  const assignBlockedBySchedule = isPreDispatchWindow(job, now);
   const assignControls = showAssignControls ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "select",
       {
         className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border",
         value: assignSelection,
+        disabled: assignBlockedBySchedule,
+        title: assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : void 0,
         onClick: (e) => e.stopPropagation(),
         onMouseDown: (e) => e.stopPropagation(),
         onChange: (e) => {
@@ -32168,7 +32466,8 @@ function JobCard({ job, tab }) {
       {
         variant: "primary",
         className: "!h-6 !px-1.5 !py-0 !text-[9px] shrink-0",
-        disabled: !assignSelection,
+        disabled: !assignSelection || assignBlockedBySchedule,
+        title: assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : void 0,
         onClick: (e) => {
           e.stopPropagation();
           void handleApplyAssign();
@@ -33159,6 +33458,14 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     () => drivers.filter((d2) => d2.status === "Available" && d2.driverId),
     [drivers]
   );
+  const assignDropdownDrivers = reactExports.useMemo(
+    () => driversForAssignDropdown(availableDrivers, drivers, editingJob),
+    [availableDrivers, drivers, editingJob]
+  );
+  const assignedEditDriver = reactExports.useMemo(
+    () => editingJob ? driverOptionFromJob(editingJob, drivers) : null,
+    [editingJob, drivers]
+  );
   const [form, setForm] = reactExports.useState(defaultCreateJobForm);
   const [loading, setLoading] = reactExports.useState(false);
   const [submitPhase, setSubmitPhase] = reactExports.useState(null);
@@ -33185,8 +33492,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   }, []);
   const selectedDriver = reactExports.useMemo(() => {
     if (!isAssignedDriverSelection(form.driverId)) return null;
-    return availableDrivers.find((d2) => d2.driverId === form.driverId) ?? null;
-  }, [form.driverId, availableDrivers]);
+    return drivers.find((d2) => d2.driverId === form.driverId) ?? assignDropdownDrivers.find((d2) => d2.driverId === form.driverId) ?? null;
+  }, [form.driverId, drivers, assignDropdownDrivers]);
   const dispatchAtLabel = reactExports.useMemo(() => {
     if (form.timing !== "later") return null;
     try {
@@ -33841,13 +34148,21 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                     value: form.driverId,
                     onChange: (e) => {
                       const driverId = e.target.value;
-                      const d2 = availableDrivers.find((x2) => x2.driverId === driverId);
+                      const d2 = assignDropdownDrivers.find((x2) => x2.driverId === driverId);
                       patch({ driverId, vehicleId: (d2 == null ? void 0 : d2.vehicleId) || "0", queueNumber: 0 });
                     },
                     children: [
                       !isEdit && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "0", children: "Driver: Auto" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "-2", children: "Pending" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "-1", children: "No One" }),
+                      assignedEditDriver && !availableDrivers.some((d2) => d2.driverId === assignedEditDriver.driverId) && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, value: "__assigned__", children: "— assigned —" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: assignedEditDriver.driverId, children: [
+                          assignedEditDriver.vehicleNo,
+                          " ",
+                          assignedEditDriver.driverName
+                        ] })
+                      ] }),
                       availableDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, value: "__online__", children: "— online —" }),
                       availableDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
                         d2.vehicleNo,
@@ -41672,7 +41987,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CSazbB5f.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DHgRELzS.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42587,7 +42902,9 @@ function JobDetailModal() {
 }
 function driverFromFirebase(vehicleId, rec, companyId) {
   const current = rec.current || {};
-  const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
+  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
+  const curStatus = String(current.vehiclestatus ?? "").trim();
+  const status = topStatus === "Available" && (curStatus === "Away" || curStatus === "Picking" || curStatus === "Active") ? curStatus : topStatus;
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? ""),
     vehicleId,
@@ -42600,9 +42917,9 @@ function driverFromFirebase(vehicleId, rec, companyId) {
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ""),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : void 0,
     jobCount: rec.jobCount != null ? Number(rec.jobCount) : void 0,
-    bookingId: String(rec.BookingId ?? current.bookingId ?? current.joboffer ?? ""),
-    jobPickup: String(rec.jobpickup ?? current.jobpickup ?? ""),
-    jobDropoff: String(rec.jobdropoff ?? current.jobdropoff ?? ""),
+    bookingId: status === "Away" ? "" : String(rec.BookingId ?? current.bookingId ?? current.joboffer ?? ""),
+    jobPickup: status === "Away" ? "" : String(rec.jobpickup ?? current.jobpickup ?? ""),
+    jobDropoff: status === "Away" ? "" : String(rec.jobdropoff ?? current.jobdropoff ?? ""),
     passengerName: String(rec.jobname ?? current.jobname ?? ""),
     passengerPhone: String(rec.JobphoneNo ?? current.JobphoneNo ?? ""),
     services: Array.isArray(rec.allowedServices) ? rec.allowedServices : ["Taxi"],
@@ -43830,7 +44147,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DlgLtd1Y.js");
+        const { writeActiveDispatcher } = await import("./notifications-ChlQ4Jp6.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -43857,7 +44174,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DlgLtd1Y.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-ChlQ4Jp6.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -43965,6 +44282,7 @@ function DispatchPage() {
   const mapPoppedOut = useUiStore((s2) => s2.mapPoppedOut);
   const setMapPoppedOut = useUiStore((s2) => s2.setMapPoppedOut);
   const selectedJobId = useJobStore((s2) => s2.selectedJobId);
+  const jobs = useJobStore((s2) => s2.jobs);
   const activeCompanyId = ready && companyId ? companyId : null;
   reactExports.useEffect(() => {
     sessionMe().then(async (s2) => {
@@ -43979,6 +44297,7 @@ function DispatchPage() {
     }).catch(() => navigate("/login", { replace: true }));
   }, [navigate, setBillingBanner]);
   useJobs(activeCompanyId);
+  useDispatchWindowAlerts(jobs);
   useDrivers(activeCompanyId);
   useSession(activeCompanyId, sessionId, dispatcherName);
   useCompanySettings(activeCompanyId);
@@ -44185,4 +44504,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-CK-XJE9-.js.map
+//# sourceMappingURL=index-DQ0P4__O.js.map
