@@ -2233,6 +2233,7 @@ async function acceptBooking(opts) {
           updateSeq:     job.updateSeq,
         }, _tok).catch(e => console.warn(`  [${source}] jobs/${_cid}/${_vid}/${_did}/${bookingId} accept write failed: ${e && e.message}`));
       }
+      await _mirrorDriverOnlineStatus(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, 'Assigned', source);
     } catch (e) {
       console.warn(`  [${source}] accept fanout failed: ${e && e.message}`);
     }
@@ -2449,6 +2450,38 @@ async function driverRecallJob(opts) {
   return { ok: true, restoredStatus: job.BookingStatus, previousStatus: _prevSt, booking: _publicBooking(job) };
 }
 
+/** Mirror booking trip stage to online/{cid}/{vid} vehiclestatus for dispatch status bar + map. */
+async function _mirrorDriverOnlineStatus(cid, driverId, vehicleId, bookingStatus, sourceTag) {
+  const pres =
+    bookingStatus === 'Assigned' ? 'Picking'
+    : bookingStatus === 'Picking' ? 'Picking'
+    : bookingStatus === 'Arrived' ? 'Arrived'
+    : (bookingStatus === 'Active' || bookingStatus === 'OnTrip') ? 'Active'
+    : null;
+  if (!pres || !cid) return;
+  const did = String(driverId || '').trim();
+  const vid = String(vehicleId || '').trim();
+  if (!vid || vid === '0') return;
+
+  const zd = ZONE_DRIVERS.find(d =>
+    d && String(d.companyId || '') === String(cid) &&
+    (String(d.driverid || '') === did || String(d.VehicleId || '') === vid)
+  );
+  if (zd) zd.vehiclestatus = pres;
+
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const patch = { vehiclestatus: pres, VehicleStatus: pres, lastSeen: Date.now() };
+    await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok)
+      .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid} status mirror failed: ${e && e.message}`));
+    await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok)
+      .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid}/current status mirror failed: ${e && e.message}`));
+  } catch (e) {
+    console.warn(`  [${sourceTag}] _mirrorDriverOnlineStatus failed: ${e && e.message}`);
+  }
+}
+
 /** Driver trip stage — Arrived / Active / Assigned (same transitions as [DriverStatusChanged]). */
 async function driverStageJob(opts) {
   opts = opts || {};
@@ -2517,6 +2550,8 @@ async function driverStageJob(opts) {
       ActiveAt:      job.ActiveAt,
       eventType:     'updated',
     }, false);
+    const _vid = String(job.VehicleNo || job.VehicleId || job.CallSign || '').trim();
+    await _mirrorDriverOnlineStatus(_cid, driverId, _vid, job.BookingStatus, source);
   }
 
   console.log(`  [${source}] job #${bookingId} (was ${prev}) → ${job.BookingStatus} by driver ${driverId}`);

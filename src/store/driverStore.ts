@@ -45,7 +45,7 @@ export const useDriverStore = create<DriverStore>((set, get) => ({
       all: ds.length,
       free: ds.filter((d) => d.status === 'Available').length,
       picking: ds.filter((d) => d.status === 'Picking').length,
-      busy: ds.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned'].includes(d.status)).length,
+      busy: ds.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned', 'Arrived'].includes(d.status)).length,
       away: ds.filter((d) => d.status === 'Away').length,
     };
   },

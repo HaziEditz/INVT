@@ -6,8 +6,49 @@ export type DriverStatus =
   | 'OnTrip'
   | 'Away'
   | 'Assigned'
+  | 'Arrived'
   | 'Clearing'
   | 'Suspended';
+
+/** Trip lifecycle rank — higher = further along (used to resolve top vs current/ drift). */
+const DRIVER_STATUS_RANK: Partial<Record<DriverStatus, number>> = {
+  Away: 0,
+  Available: 1,
+  Assigned: 2,
+  Picking: 3,
+  Arrived: 4,
+  Busy: 4,
+  Active: 5,
+  OnTrip: 5,
+};
+
+function driverStatusRank(status: string): number {
+  const s = String(status || '').trim() as DriverStatus;
+  return DRIVER_STATUS_RANK[s] ?? (s === 'Suspended' || s === 'Clearing' ? -1 : 1);
+}
+
+function resolveDriverPresenceStatus(
+  topRaw: string,
+  currentRaw: string,
+): DriverStatus {
+  const top = String(topRaw || 'Away').trim() as DriverStatus;
+  const cur = String(currentRaw || '').trim() as DriverStatus;
+
+  // Stale top-level Available with a live current/ subnode (offer-timeout recovery).
+  if (
+    top === 'Available' &&
+    (cur === 'Away' || cur === 'Picking' || cur === 'Arrived' || cur === 'Active' || cur === 'Assigned')
+  ) {
+    return cur;
+  }
+
+  // current/ often updates first (driver app); top-level can lag at Arrived after On Board.
+  if (cur && driverStatusRank(cur) > driverStatusRank(top) && driverStatusRank(cur) >= driverStatusRank('Assigned')) {
+    return cur;
+  }
+
+  return top;
+}
 
 export interface Driver {
   driverId: string;
@@ -39,13 +80,9 @@ export function driverFromFirebase(
   companyId: string
 ): Driver {
   const current = (rec.current as Record<string, unknown>) || {};
-  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away') as DriverStatus;
-  const curStatus = String(current.vehiclestatus ?? '').trim() as DriverStatus;
-  // Prefer current/ subnode when top-level vehiclestatus is stale (e.g. after offer timeout).
-  const status =
-    topStatus === 'Available' && (curStatus === 'Away' || curStatus === 'Picking' || curStatus === 'Active')
-      ? curStatus
-      : topStatus;
+  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
+  const curStatus = String(current.vehiclestatus ?? '').trim();
+  const status = resolveDriverPresenceStatus(topStatus, curStatus);
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? ''),
     vehicleId,
@@ -73,11 +110,12 @@ export function driverFromFirebase(
 export function statusColor(status: DriverStatus): string {
   switch (status) {
     case 'Available': return '#22c55e';
-    case 'Picking': return '#3b82f6';
+    case 'Picking':
+    case 'Assigned': return '#3b82f6';
+    case 'Arrived': return '#8b5cf6';
     case 'Active':
     case 'OnTrip': return '#f59e0b';
-    case 'Busy':
-    case 'Assigned': return '#f97316';
+    case 'Busy': return '#f97316';
     case 'Suspended': return '#ef4444';
     default: return '#64748b';
   }

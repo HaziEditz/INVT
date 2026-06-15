@@ -27,7 +27,7 @@ export function StatusBar() {
       all: drivers.length,
       free: drivers.filter((d) => d.status === 'Available').length,
       picking: drivers.filter((d) => d.status === 'Picking').length,
-      busy: drivers.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned'].includes(d.status)).length,
+      busy: drivers.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned', 'Arrived'].includes(d.status)).length,
       away: drivers.filter((d) => d.status === 'Away').length,
     }),
     [drivers]

@@ -172,6 +172,34 @@ function applyRefreshStatusHint(
   return job;
 }
 
+/** Apply dispatchConsole refresh hint immediately — avoids Assign-tab flash while Firebase catches up. */
+function optimisticDispatchRefresh(
+  bookingId: number,
+  refresh: DispatchRefreshPayload,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+  upsertJob: (job: Job) => void,
+  syncAll: () => void,
+): void {
+  if (refreshImpliesTerminal(refresh) || !refresh.status) return;
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  if (!prior || useJobStore.getState().isJobBlacklisted(bookingId)) return;
+
+  let job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  if (!job) return;
+
+  pendingRef.delete(bookingId);
+  const st = normalizeJobStatus(job.status);
+  if (ACTIVE_BOOKING_STATUSES.has(st)) {
+    bookingsRef.set(job.id, job);
+  } else if (st === 'Pending' || st === 'No One') {
+    pendingRef.set(job.id, job);
+    bookingsRef.delete(bookingId);
+  }
+  upsertJob(job);
+  syncAll();
+}
+
 /** Server wrote dispatchConsole/{cid}/refresh — re-read Firebase for one job (or full sync). */
 async function refreshJobFromFirebaseCaches(
   companyId: string,
@@ -227,6 +255,10 @@ async function refreshJobFromFirebaseCaches(
     }
   } else if (action === 'cancel') {
     bookingsRef.delete(bookingId);
+  }
+
+  if (!job && prior && ['accept', 'assign', 'offer', 'active', 'queue'].includes(action || '')) {
+    job = applyRefreshStatusHint(null, prior, refresh, bookingId);
   }
 
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
@@ -375,15 +407,8 @@ export function useJobs(companyId: string | null) {
       const jobId = parseInt(snap.key || '0', 10);
       if (!jobId) return;
       pendingRef.current.delete(jobId);
-      const storeJob = useJobStore.getState().jobs.find((j) => j.id === jobId);
-      const stillLive =
-        !!storeJob &&
-        !isPoolUaStatus(storeJob.status) &&
-        (LIVE_DISPATCH_TABS.has(jobTabForStatus(storeJob)) || bookingsRef.current.has(jobId));
-      if (!stillLive) {
-        removeJob(jobId);
-        clearRemovedJob(jobId);
-      }
+      // pendingjobs DELETE is normal after accept/queue — do not purge live jobs here.
+      // refreshJobFromFirebaseCaches + allbookings own removal; deleting here caused Assign-tab flash.
       syncAll();
     };
 
@@ -440,6 +465,22 @@ export function useJobs(companyId: string | null) {
           syncAll();
           return;
         }
+        optimisticDispatchRefresh(
+          bid,
+          {
+            action: v.action,
+            status: v.status,
+            driverId: v.driverId != null ? String(v.driverId) : undefined,
+            updateSeq:
+              v.updateSeq != null
+                ? parseInt(String(v.updateSeq), 10)
+                : undefined,
+          },
+          pendingRef.current,
+          bookingsRef.current,
+          upsertJob,
+          syncAll,
+        );
         void refreshJobFromFirebaseCaches(
           companyId,
           bid,
