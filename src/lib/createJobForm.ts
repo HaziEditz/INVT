@@ -1,6 +1,7 @@
 import type { DataParam } from '@/lib/dispatchApi';
+import type { Driver } from '@/types/driver';
 import type { Job } from '@/types/job';
-import { parseLatLng } from '@/types/job';
+import { normalizeJobStatus, parseLatLng } from '@/types/job';
 
 export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
 
@@ -292,9 +293,53 @@ export function driverBookstatus(form: CreateJobFormState): { dId: string; books
 /** Map a live job to the create/edit form driver dropdown value. */
 export function formDriverIdFromJob(job: Job): string {
   if (job.status === 'No One' || job.driverId === '-1') return DRIVER_NOONE;
-  if (job.driverId && isAssignedDriverSelection(job.driverId)) return job.driverId;
+  const drv = String(job.driverId ?? '').trim();
+  if (drv && isAssignedDriverSelection(drv)) return drv;
   if (job.status === 'Pending') return DRIVER_PENDING;
+  const st = normalizeJobStatus(job.status);
+  if (
+    (st === 'Offered' ||
+      st === 'Assigned' ||
+      st === 'Picking' ||
+      st === 'Arrived' ||
+      st === 'Active' ||
+      st === 'OnTrip' ||
+      st === 'Queued') &&
+    drv
+  ) {
+    return drv;
+  }
   return DRIVER_AUTO;
+}
+
+/** Resolve assigned driver for edit dropdown — includes busy/non-available drivers. */
+export function driverOptionFromJob(job: Job, drivers: Driver[]): Driver | null {
+  const driverId = String(job.driverId ?? '').trim();
+  if (!driverId || !isAssignedDriverSelection(driverId)) return null;
+  return (
+    drivers.find((d) => d.driverId === driverId) ?? {
+      driverId,
+      vehicleId: String(job.vehicleId || '0'),
+      vehicleNo: String(job.vehicleNo || job.vehicleId || driverId),
+      driverName: String(job.driverName || driverId),
+      status: 'Busy',
+    }
+  );
+}
+
+/** Online drivers plus the job's current assignee (so edit `<select>` value matches an option). */
+export function driversForAssignDropdown(
+  availableDrivers: Driver[],
+  allDrivers: Driver[],
+  editingJob: Job | null,
+): Driver[] {
+  const byId = new Map<string, Driver>();
+  if (editingJob) {
+    const assigned = driverOptionFromJob(editingJob, allDrivers);
+    if (assigned) byId.set(assigned.driverId, assigned);
+  }
+  for (const d of availableDrivers) byId.set(d.driverId, d);
+  return Array.from(byId.values());
 }
 
 /** Assignment-only payload — same fields as card Assign / setPending / setNoOne. */

@@ -18,6 +18,8 @@ import {
   buildJobEditChangesDelta,
   buildBookingDateTime,
   driverAssignmentChanged,
+  driversForAssignDropdown,
+  driverOptionFromJob,
   isAssignedDriverSelection,
   jobToForm,
   statusFromDriverId,
@@ -185,6 +187,14 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     () => drivers.filter((d) => d.status === 'Available' && d.driverId),
     [drivers]
   );
+  const assignDropdownDrivers = useMemo(
+    () => driversForAssignDropdown(availableDrivers, drivers, editingJob),
+    [availableDrivers, drivers, editingJob]
+  );
+  const assignedEditDriver = useMemo(
+    () => (editingJob ? driverOptionFromJob(editingJob, drivers) : null),
+    [editingJob, drivers]
+  );
 
   const [form, setForm] = useState<CreateJobFormState>(defaultCreateJobForm);
   const [loading, setLoading] = useState(false);
@@ -215,8 +225,12 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   const selectedDriver = useMemo(() => {
     if (!isAssignedDriverSelection(form.driverId)) return null;
-    return availableDrivers.find((d) => d.driverId === form.driverId) ?? null;
-  }, [form.driverId, availableDrivers]);
+    return (
+      drivers.find((d) => d.driverId === form.driverId) ??
+      assignDropdownDrivers.find((d) => d.driverId === form.driverId) ??
+      null
+    );
+  }, [form.driverId, drivers, assignDropdownDrivers]);
 
   const dispatchAtLabel = useMemo(() => {
     if (form.timing !== 'later') return null;
@@ -923,13 +937,24 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   value={form.driverId}
                   onChange={(e) => {
                     const driverId = e.target.value;
-                    const d = availableDrivers.find((x) => x.driverId === driverId);
+                    const d = assignDropdownDrivers.find((x) => x.driverId === driverId);
                     patch({ driverId, vehicleId: d?.vehicleId || '0', queueNumber: 0 });
                   }}
                 >
                   {!isEdit && <option value="0">Driver: Auto</option>}
                   <option value="-2">Pending</option>
                   <option value="-1">No One</option>
+                  {assignedEditDriver &&
+                    !availableDrivers.some((d) => d.driverId === assignedEditDriver.driverId) && (
+                      <>
+                        <option disabled value="__assigned__">
+                          — assigned —
+                        </option>
+                        <option value={assignedEditDriver.driverId}>
+                          {assignedEditDriver.vehicleNo} {assignedEditDriver.driverName}
+                        </option>
+                      </>
+                    )}
                   {availableDrivers.length > 0 && (
                     <option disabled value="__online__">
                       — online —
