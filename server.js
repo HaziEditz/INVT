@@ -2778,6 +2778,180 @@ async function _mirrorDriverAwayOnUnreached(cid, vehicleNo, driverId) {
   }
 }
 
+function _autoDispatchDriverChecks(d, companyId) {
+  const cid = String(companyId || '');
+  const latRaw = d && d.lat != null ? String(d.lat).trim() : '';
+  const lngRaw = d && d.lng != null ? String(d.lng).trim() : '';
+  const latNum = latRaw ? parseFloat(latRaw) : NaN;
+  const lngNum = lngRaw ? parseFloat(lngRaw) : NaN;
+  const checks = {
+    companyIdMatch: !!(d && String(d.companyId || '') === cid),
+    statusAvailable: !!(d && String(d.vehiclestatus || '') === 'Available'),
+    notAwayLocked: !!(d && !isAwayLocked(d.driverid)),
+    hasGpsLat: !!(latRaw && Number.isFinite(latNum) && latNum !== 0),
+    hasGpsLng: !!(lngRaw && Number.isFinite(lngNum) && lngNum !== 0),
+  };
+  const failedChecks = Object.entries(checks).filter(([, v]) => !v).map(([k]) => k);
+  return {
+    eligible: failedChecks.length === 0,
+    failedChecks,
+    checkLabels: {
+      companyIdMatch: `companyId === ${cid}`,
+      statusAvailable: 'vehiclestatus === Available',
+      notAwayLocked: 'not in AWAY_LOCKED (or lock expired)',
+      hasGpsLat: 'lat present and non-zero in ZONE_DRIVERS',
+      hasGpsLng: 'lng present and non-zero in ZONE_DRIVERS',
+    },
+  };
+}
+
+function _serializeZoneDriverRow(d) {
+  if (!d) return null;
+  const awayLock = AWAY_LOCKED[String(d.driverid)] || null;
+  return {
+    driverId: d.driverid,
+    vehicleId: d.VehicleId,
+    vehicleNo: d.vehiclenumber,
+    driverName: d.drivername,
+    companyId: d.companyId || '',
+    vehiclestatus: d.vehiclestatus || '',
+    lat: d.lat || null,
+    lng: d.lng || null,
+    zonename: d.zonename || '',
+    zonequeue: d.zonequeue || 0,
+    queueWaitSince: d.queueWaitSince || null,
+    awayLocked: isAwayLocked(d.driverid),
+    awayLockDetail: awayLock ? {
+      since: new Date(awayLock.ts).toISOString(),
+      ageSec: Math.round((Date.now() - awayLock.ts) / 1000),
+      ackAway: !!awayLock.ackAway,
+      ttlRemainingSec: Math.max(0, Math.round((AWAY_LOCK_TTL_MS - (Date.now() - awayLock.ts)) / 1000)),
+      unlockRequires: 'driver app must send Away heartbeat (ackAway), then manual Available',
+    } : null,
+    _fbSeeded: !!d._fbSeeded,
+    _forcedOnline: !!d._forcedOnline,
+  };
+}
+
+async function _buildAdminDriverStatusReport(companyId, opts) {
+  opts = opts || {};
+  const cid = String(companyId || '').trim();
+  if (!cid) return { ok: false, error: 'cid required' };
+
+  const filterDriverId = String(opts.driverId || opts.vehicleId || '').trim();
+  const allCompanyDrivers = ZONE_DRIVERS.filter(d => String(d.companyId || '') === cid);
+  let matched = allCompanyDrivers;
+  if (filterDriverId) {
+    matched = allCompanyDrivers.filter(d =>
+      String(d.driverid) === filterDriverId ||
+      String(d.VehicleId) === filterDriverId ||
+      String(d.vehiclenumber) === filterDriverId
+    );
+  }
+
+  const drivers = (filterDriverId ? matched : allCompanyDrivers).map(d => ({
+    ..._serializeZoneDriverRow(d),
+    autoDispatchChecks: _autoDispatchDriverChecks(d, cid),
+  }));
+
+  const eligibleDrivers = allCompanyDrivers
+    .filter(d => _autoDispatchDriverChecks(d, cid).eligible)
+    .map(d => _serializeZoneDriverRow(d));
+
+  const fbOnline = { vehicles: {}, errors: [] };
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (tok) {
+    try {
+      const raw = await firebaseDbGet(`online/${cid}`, tok);
+      if (raw && typeof raw === 'object') {
+        for (const [vid, node] of Object.entries(raw)) {
+          if (!node || typeof node !== 'object') continue;
+          const cur = (node.current && typeof node.current === 'object') ? node.current : {};
+          const lastSeenMs = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+          fbOnline.vehicles[vid] = {
+            vehicleKey: vid,
+            vehiclestatus: node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || null,
+            driverId: cur.driverid || cur.driverId || node.driverid || null,
+            driverName: cur.drivername || cur.driverName || node.drivername || null,
+            vehiclenumber: cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber || vid,
+            lat: cur.lat || node.lat || cur.Lat || node.Lat || null,
+            lng: cur.lng || node.lng || cur.Lng || node.Lng || null,
+            lastSeen: node.lastSeen || cur.lastSeen || null,
+            lastSeenIso: lastSeenMs ? new Date(lastSeenMs).toISOString() : null,
+            lastSeenAgeSec: lastSeenMs ? Math.round((Date.now() - lastSeenMs) / 1000) : null,
+            zonequeue: cur.zonequeue || node.zonequeue || null,
+            zonename: cur.zonename || node.zonename || null,
+            currentJobId: cur.currentJobId || cur.jobId || null,
+            joboffer: cur.joboffer ?? null,
+          };
+        }
+      }
+    } catch (e) {
+      fbOnline.errors.push(e && e.message);
+    }
+  } else {
+    fbOnline.errors.push('no Firebase token (BW_FIREBASE_SECRET unset?)');
+  }
+
+  const fbOnlyNotInZoneDrivers = [];
+  for (const [vid, info] of Object.entries(fbOnline.vehicles)) {
+    const inZone = allCompanyDrivers.some(d =>
+      String(d.VehicleId) === vid ||
+      String(d.vehiclenumber) === vid ||
+      (info.driverId && String(d.driverid) === String(info.driverId))
+    );
+    const st = String(info.vehiclestatus || '');
+    if (!inZone && st && !/offline|loggedout|logoff|inactive/i.test(st)) {
+      fbOnlyNotInZoneDrivers.push({
+        ...info,
+        note: 'Present in Firebase online/ but absent from ZONE_DRIVERS — auto-dispatch only reads ZONE_DRIVERS; driver must send [DriverStatusChanged] or wait for seed-drivers',
+      });
+    }
+  }
+
+  const zoneMissesFirebase = [];
+  for (const d of (filterDriverId ? matched : allCompanyDrivers)) {
+    const vid = String(d.VehicleId || d.vehiclenumber || '');
+    const fbNode = fbOnline.vehicles[vid] || null;
+    zoneMissesFirebase.push({
+      driverId: d.driverid,
+      vehicleId: vid,
+      zoneStatus: d.vehiclestatus,
+      firebaseStatus: fbNode ? fbNode.vehiclestatus : null,
+      zoneHasGps: !!(d.lat && d.lng),
+      firebaseHasGps: fbNode ? !!(fbNode.lat && fbNode.lng) : false,
+      statusMismatch: fbNode ? String(d.vehiclestatus || '') !== String(fbNode.vehiclestatus || '') : null,
+      gpsOnlyInFirebase: fbNode && fbNode.lat && fbNode.lng && !(d.lat && d.lng),
+    });
+  }
+
+  return {
+    ok: true,
+    companyId: cid,
+    filterDriverId: filterDriverId || null,
+    generatedAt: new Date().toISOString(),
+    serverUptimeSec: Math.round((Date.now() - SERVER_START_TIME) / 1000),
+    firstDriverSeenAfterStart: _firstDriverSeenAfterStart,
+    zoneDriversCount: allCompanyDrivers.length,
+    autoDispatchEligibleCount: eligibleDrivers.length,
+    autoDispatchEligibleDrivers: eligibleDrivers,
+    autoDispatchFilter:
+      'ZONE_DRIVERS where companyId match AND vehiclestatus===Available AND !AWAY_LOCKED AND lat AND lng',
+    drivers,
+    firebaseOnline: fbOnline,
+    firebaseOnlyNotInZoneDrivers: fbOnlyNotInZoneDrivers,
+    zoneVsFirebase: zoneMissesFirebase,
+    awayLocksActive: Object.entries(AWAY_LOCKED).map(([did, lock]) => ({
+      driverId: did,
+      since: new Date(lock.ts).toISOString(),
+      ageSec: Math.round((Date.now() - lock.ts) / 1000),
+      ackAway: !!lock.ackAway,
+      stillLocked: isAwayLocked(did),
+    })),
+    lastAutoDispatchTick: _AUTO_DISPATCH_LAST,
+  };
+}
+
 function _analyzeAutoDispatchForJob(job, cid) {
   const now = Date.now();
   const companyId = String(cid || job?.companyId || '');
@@ -2811,6 +2985,11 @@ function _analyzeAutoDispatchForJob(job, cid) {
     !isAwayLocked(d.driverid) &&
     d.lat && d.lng
   );
+  const allCompanyDrivers = ZONE_DRIVERS.filter(d => String(d.companyId || '') === companyId);
+  const driverDiagnostics = allCompanyDrivers.map(d => ({
+    ..._serializeZoneDriverRow(d),
+    autoDispatchChecks: _autoDispatchDriverChecks(d, companyId),
+  }));
   if (!drivers.length) {
     reasons.push('no Available drivers with GPS in ZONE_DRIVERS');
   }
@@ -2825,9 +3004,67 @@ function _analyzeAutoDispatchForJob(job, cid) {
       vehicleNo: d.vehiclenumber,
       status: d.vehiclestatus,
       awayLocked: isAwayLocked(d.driverid),
+      lat: d.lat,
+      lng: d.lng,
     })),
+    driverDiagnostics,
+    autoDispatchFilter:
+      'companyId match AND vehiclestatus===Available AND !AWAY_LOCKED AND lat AND lng',
     companyOfferedJobs: offeredBlockers.map(j => ({ id: j.Id, driverId: j.DriverId, offeredAt: j.offeredAt || null })),
     lastTick: _AUTO_DISPATCH_LAST,
+  };
+}
+
+function _assessStaleOfferFields(job, fb, poolTrace) {
+  const issues = [];
+  const poolSt = job ? String(job.BookingStatus || '') : '';
+  const isPool = poolSt === 'Pending' || poolSt === 'No One';
+  const ab = fb.allbookings;
+  const abSt = ab ? String(ab.BookingStatus || ab.Status || '') : null;
+  const abEvent = ab ? String(ab.eventType || '') : null;
+  const abAssigned = ab ? String(ab.AssignedDriver || ab.AssignedDriverId || '').trim() : '';
+  const poolLike = isPool || abSt === 'Pending' || abSt === 'No One';
+
+  if (poolLike) {
+    if (abEvent === 'new_offer') {
+      issues.push({ field: 'allbookings.eventType', value: abEvent, expected: 'updated (or absent) after pool restore' });
+    }
+    if (abAssigned && abAssigned !== '0' && abAssigned !== '-1') {
+      issues.push({ field: 'allbookings.AssignedDriver/Id', value: abAssigned, expected: 'empty after pool restore' });
+    }
+  }
+
+  if (fb.jobsDriverNode && typeof fb.jobsDriverNode === 'object') {
+    for (const [path, node] of Object.entries(fb.jobsDriverNode)) {
+      if (!node || typeof node !== 'object') continue;
+      const jst = String(node.BookingStatus || node.Status || '');
+      if (poolLike && (jst === 'Offered' || jst === 'Assigned')) {
+        issues.push({ field: path, value: jst, expected: 'deleted after offer timeout (3e589de+ runs clearOfferOnFirebase)' });
+      }
+    }
+  }
+
+  if (job && isPool && String(job.AssignedDriverId || '').trim()) {
+    issues.push({ field: 'jobStore.AssignedDriverId', value: job.AssignedDriverId, expected: 'cleared on pool restore (3e589de+)' });
+  }
+
+  const trace = poolTrace || [];
+  const hadPoolRestore = trace.some(e =>
+    /after-timeout|after-unreached|after-decline|pool-restore/.test(String(e.tag || '')) ||
+    /pool-restore|after-timeout|Unreached/.test(String(e.line || ''))
+  );
+  const lastTrace = trace.length ? trace[trace.length - 1] : null;
+
+  return {
+    hasStaleOfferFields: issues.length > 0,
+    issues,
+    poolTraceShowsRestore: hadPoolRestore,
+    assessment: issues.length === 0
+      ? 'clean'
+      : hadPoolRestore
+        ? 'likely_pre_fix_artifact — pool-restore ran under old server code before 3e589de Firebase cleanup; use POST /admin/repairBooking to resync, or re-timeout after deploy'
+        : 'investigate — stale offer fields without pool-restore trace; restore may not have run',
+    lastPoolTraceEntry: lastTrace,
   };
 }
 
@@ -2902,6 +3139,8 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
 
   const poolTrace = _JOB_POOL_TRACE.get(String(bid)) || [];
   const autoDispatch = _analyzeAutoDispatchForJob(job, cid);
+  const driverAvailability = cid ? await _buildAdminDriverStatusReport(cid, {}) : null;
+  const staleOfferAssessment = _assessStaleOfferFields(job, fb, poolTrace);
 
   return {
     ok: true,
@@ -2928,6 +3167,8 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     firebase: fb,
     poolTrace,
     autoDispatch,
+    driverAvailability,
+    staleOfferAssessment,
     dispatchUiHint: {
       expectedTab: job ? (String(job.BookingStatus) === 'Offered' ? 'offer'
         : ['Assigned', 'Picking', 'Arrived'].includes(String(job.BookingStatus)) ? 'assign'
@@ -6401,6 +6642,20 @@ const server = http.createServer(async (req, res) => {
       try {
         const _rcReport = await reconcileClosedJobsFromFirebase({ verbose: true });
         jsonReply(res, { ok: true, report: _rcReport, last: _FIXS_LAST_REPORT });
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // GET /admin/driverStatus?cid=860869&driverId=D001 — ZONE_DRIVERS vs Firebase online/ + auto-dispatch eligibility
+    if (urlPath === '/admin/driverStatus' && req.method === 'GET') {
+      try {
+        const _dsQs = new URL('http://x' + req.url).searchParams;
+        const _dsCid = (_dsQs.get('cid') || '').trim();
+        const _dsDrv = (_dsQs.get('driverId') || _dsQs.get('vehicleId') || '').trim();
+        const report = await _buildAdminDriverStatusReport(_dsCid, { driverId: _dsDrv });
+        jsonReply(res, report);
       } catch (e) {
         jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
       }
