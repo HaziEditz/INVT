@@ -2838,6 +2838,8 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
   const cid = String(companyId || '').trim();
   if (!cid) return { ok: false, error: 'cid required' };
 
+  await _syncZoneDriversFromFirebase({ quiet: true });
+
   const filterDriverId = String(opts.driverId || opts.vehicleId || '').trim();
   const allCompanyDrivers = ZONE_DRIVERS.filter(d => String(d.companyId || '') === cid);
   let matched = allCompanyDrivers;
@@ -2904,7 +2906,7 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
     if (!inZone && st && !/offline|loggedout|logoff|inactive/i.test(st)) {
       fbOnlyNotInZoneDrivers.push({
         ...info,
-        note: 'Present in Firebase online/ but absent from ZONE_DRIVERS — auto-dispatch only reads ZONE_DRIVERS; driver must send [DriverStatusChanged] or wait for seed-drivers',
+        note: 'Present in Firebase online/ but absent from ZONE_DRIVERS after sync — check identity fields on online node or closedJobStore recovery',
       });
     }
   }
@@ -2949,6 +2951,7 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
       stillLocked: isAwayLocked(did),
     })),
     lastAutoDispatchTick: _AUTO_DISPATCH_LAST,
+    lastZoneSync: _ZONE_SYNC_LAST,
   };
 }
 
@@ -2979,19 +2982,14 @@ function _analyzeAutoDispatchForJob(job, cid) {
   if (!_isValidJobRecord(job, { requireSource: true, companyId })) {
     reasons.push('_isValidJobRecord failed (missing source/fields?)');
   }
-  const drivers = ZONE_DRIVERS.filter(d =>
-    String(d.companyId || '') === companyId &&
-    String(d.vehiclestatus || '') === 'Available' &&
-    !isAwayLocked(d.driverid) &&
-    d.lat && d.lng
-  );
+  const drivers = _collectAutoDispatchEligibleDrivers(companyId);
   const allCompanyDrivers = ZONE_DRIVERS.filter(d => String(d.companyId || '') === companyId);
   const driverDiagnostics = allCompanyDrivers.map(d => ({
     ..._serializeZoneDriverRow(d),
     autoDispatchChecks: _autoDispatchDriverChecks(d, companyId),
   }));
   if (!drivers.length) {
-    reasons.push('no Available drivers with GPS in ZONE_DRIVERS');
+    reasons.push('no Available drivers with GPS in ZONE_DRIVERS (synced from Firebase online/ before each tick)');
   }
   eligible = reasons.length === 0 && _isDispatchableJob(job, companyId);
   if (eligible) reasons.push('eligible for next auto-dispatch tick');
@@ -14874,191 +14872,219 @@ server.on('error', (err) => {
 // and pre-populates ZONE_DRIVERS so dispatching works immediately after restart.
 // Entries are marked _fbSeeded=true so they can be identified; the first real
 // heartbeat from each driver app overwrites them with fresh data.
-async function _seedZoneDriversFromFirebase() {
-  try {
-    const token = await getFirebaseServerToken();
-    if (!token) { console.warn('[seed-drivers] no Firebase token — skipping startup seed'); return; }
+const _ZONE_SYNC_LAST = { at: null, added: 0, updated: 0, skipped: 0, error: null };
 
-    const r = await fbRequest(
-      `${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null
-    );
-    if (r.status !== 200 || !r.body || typeof r.body !== 'object') {
-      console.log('[seed-drivers] online/ node empty or unavailable — skipping');
-      return;
-    }
+function _collectAutoDispatchEligibleDrivers(cid) {
+  const companyId = String(cid || '');
+  return ZONE_DRIVERS.filter(d =>
+    String(d.companyId || '') === companyId &&
+    String(d.vehiclestatus || '') === 'Available' &&
+    !isAwayLocked(d.driverid) &&
+    d.lat && d.lng
+  );
+}
 
-    const _OFFLINE = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
-    let seeded = 0, recovered = 0, skippedOrphan = 0, skippedStub = 0, deletedStale = 0;
-    const _toDeleteAtBoot = []; // {cid, vid, reason}
-
-    // Build a per-company {vehicleId → identity} index from the most-recent
-    // closed job for that vehicle. closedJobStore is our persistent source of
-    // truth for driver/vehicle identity — every completed job carries full
-    // DriverId/DriverName/VehicleNo. We use this to recover identity for
-    // Firebase nodes whose `current/` lost identity fields (e.g. driver app
-    // went offline mid-trip and only job/GPS state survived).
-    const _idIndex = {};  // { cid: { vehicleId: { driverid, drivername, vehiclenumber, vehicletype } } }
-    for (let i = closedJobStore.length - 1; i >= 0; i--) {
+function _buildClosedJobIdIndex() {
+  const _idIndex = {};
+  for (let i = closedJobStore.length - 1; i >= 0; i--) {
       const cj = closedJobStore[i];
       const _cid = String(cj.companyId || cj.CompanyId || '');
-      // Index by BOTH VehicleNo and VehicleId (legacy jobs sometimes store
-      // the driver-id in VehicleId and the real plate number in VehicleNo;
-      // Firebase online/{cid} keys are the plate number). Indexing both
-      // keys means lookup by either succeeds.
       const _vno = String(cj.VehicleNo || cj.vehiclenumber || '').trim();
       const _vid = String(cj.VehicleId || '').trim();
       const _did = String(cj.DriverId || cj.driverId || '').trim();
-      // Skip jobs with no real driver (placeholder ids -1/-2/0 mean "unassigned")
       const _BAD_DRV = new Set(['', '0', '-1', '-2', 'undefined', 'null']);
       if (!_cid || _BAD_DRV.has(_did) || (!_vno && !_vid)) continue;
       if (!_idIndex[_cid]) _idIndex[_cid] = {};
       const _entry = {
         driverid:      _did,
-        // NOTE: do NOT fall back to cj.Name — that is the passenger's name.
         drivername:    cj.DriverName || cj.drivername || '',
         vehiclenumber: _vno || _vid,
         vehicletype:   cj.VehicleType|| cj.vehicletype || '',
       };
-      // Newest hit wins per key (we iterate newest-first)
       if (_vno && !_idIndex[_cid][_vno]) _idIndex[_cid][_vno] = _entry;
       if (_vid && _vid !== _vno && !_idIndex[_cid][_vid]) _idIndex[_cid][_vid] = _entry;
+  }
+  return _idIndex;
+}
+
+function _findZoneDriverEntry(cid, driverId, vehicleId) {
+  const _cid = String(cid || '');
+  const _did = String(driverId || '');
+  const _vid = String(vehicleId || '');
+  return ZONE_DRIVERS.find(d => {
+    if (_cid && _vid && String(d.companyId || '') === _cid && String(d.VehicleId) === _vid) return true;
+    if (_did && String(d.driverid) === _did) return true;
+    return false;
+  }) || null;
+}
+
+function _upsertZoneDriverFromFirebase(record) {
+  const existing = _findZoneDriverEntry(record.companyId, record.driverid, record.VehicleId);
+  if (existing) {
+    existing.vehiclestatus = record.vehiclestatus;
+    if (record.lat) existing.lat = record.lat;
+    if (record.lng) existing.lng = record.lng;
+    if (record.zonename) existing.zonename = record.zonename;
+    if (record.zoneid) existing.zoneid = record.zoneid;
+    if (record.zonequeue) existing.zonequeue = record.zonequeue;
+    if (record.drivername) existing.drivername = record.drivername;
+    if (record.vehiclenumber) existing.vehiclenumber = record.vehiclenumber;
+    if (record.vehicletype) existing.vehicletype = record.vehicletype;
+    if (!existing.companyId && record.companyId) existing.companyId = record.companyId;
+    existing._fbSyncedAt = Date.now();
+    return 'updated';
+  }
+  const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
+  ZONE_DRIVERS.push(Object.assign({}, record, {
+    zonequeue: record.zonequeue || maxQ + 1,
+    queueWaitSince: Date.now(),
+    _fbSeeded: true,
+    _fbSyncedAt: Date.now(),
+  }));
+  _firstDriverSeenAfterStart = true;
+  return 'added';
+}
+
+function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) {
+  stats = stats || {};
+  if (!node || typeof node !== 'object') return null;
+  const cur = (node.current && typeof node.current === 'object') ? node.current : {};
+  const _OFFLINE = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
+
+  const _looksOrphanKey = (vehicleId === '0' || /^D\d+$/i.test(vehicleId));
+  const _hasAnyIdentity = !!(cur.driverid || cur.driverId || cur.drivername || cur.driverName ||
+                             cur.vehiclenumber || cur.vehicleNumber ||
+                             node.driverid || node.drivername || node.vehiclenumber);
+  if (_looksOrphanKey && !_hasAnyIdentity && !node.vehiclestatus) {
+    if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: 'orphan-no-identity' });
+    stats.skippedOrphan = (stats.skippedOrphan || 0) + 1;
+    return null;
+  }
+
+  const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
+  if (!status || _OFFLINE.has(status)) return null;
+
+  const _lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+  if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
+    if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
+    return null;
+  }
+
+  let _driverId    = cur.driverid      || cur.driverId      || node.driverid      || '';
+  let _drivername  = cur.drivername    || cur.driverName    || node.drivername    || '';
+  let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber || '';
+  let _vehtype     = cur.vehicletype   || cur.vehicleType   || node.vehicletype   || '';
+
+  if (!_driverId && !_drivername && !_vehnum) {
+    const rec = idIndex[cid] && idIndex[cid][vehicleId];
+    if (rec && (rec.driverid || rec.drivername)) {
+      _driverId   = rec.driverid;
+      _drivername = rec.drivername;
+      _vehnum     = rec.vehiclenumber;
+      _vehtype    = _vehtype || rec.vehicletype;
+      stats.recovered = (stats.recovered || 0) + 1;
+    } else {
+      const _looksReal = !!(cur.currentJobId || cur.jobId || cur.lat || cur.lng || node.lat || node.lng);
+      if (_looksReal) {
+        console.warn(`[sync-drivers] SKIP cid=${cid} vehId=${vehicleId} — active node without identity`);
+      } else {
+        stats.skippedStub = (stats.skippedStub || 0) + 1;
+      }
+      return null;
     }
+  }
+
+  const driverId = String(_driverId || vehicleId);
+  const _savedZone = getSavedZone(driverId);
+  const lat = cur.lat || node.lat || cur.Lat || node.Lat || cur.latitude || node.latitude || '';
+  const lng = cur.lng || node.lng || cur.Lng || node.Lng || cur.longitude || node.longitude || '';
+  const zonequeue = parseInt(cur.zonequeue || cur.zoneQueue || node.zonequeue || '0') || 0;
+
+  return {
+    driverid: driverId,
+    VehicleId: vehicleId,
+    drivername: _drivername || '',
+    vehiclenumber: _vehnum || vehicleId,
+    vehicletype: _vehtype || '',
+    vehiclestatus: status,
+    zonename: cur.zonename || cur.zoneName || node.zonename || (_savedZone && _savedZone.zonename) || '',
+    zoneid: cur.zoneid || cur.zoneId || node.zoneid || (_savedZone && _savedZone.zoneid) || '',
+    zonequeue,
+    lat,
+    lng,
+    companyId: cid,
+  };
+}
+
+// Merge Firebase online/{cid}/* into ZONE_DRIVERS. Runs at boot, every 45 s,
+// and before each auto-dispatch tick so redeploys cannot leave eligible drivers invisible.
+async function _syncZoneDriversFromFirebase(opts) {
+  opts = opts || {};
+  const quiet = !!opts.quiet;
+  const deleteStaleOrphans = !!opts.deleteStaleOrphans;
+  try {
+    const token = await getFirebaseServerToken();
+    if (!token) {
+      if (!quiet) console.warn('[sync-drivers] no Firebase token — skipping');
+      _ZONE_SYNC_LAST.error = 'no Firebase token';
+      return _ZONE_SYNC_LAST;
+    }
+
+    const r = await fbRequest(
+      `${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null
+    );
+    if (r.status !== 200 || !r.body || typeof r.body !== 'object') {
+      if (!quiet) console.log('[sync-drivers] online/ empty or unavailable — skipping');
+      _ZONE_SYNC_LAST.at = new Date().toISOString();
+      _ZONE_SYNC_LAST.error = 'online/ unavailable';
+      return _ZONE_SYNC_LAST;
+    }
+
+    const idIndex = _buildClosedJobIdIndex();
+    const stats = { added: 0, updated: 0, skipped: 0, recovered: 0, skippedOrphan: 0, skippedStub: 0, toDelete: [] };
 
     for (const [cid, vehicles] of Object.entries(r.body)) {
       if (!vehicles || typeof vehicles !== 'object') continue;
       for (const [vehicleId, node] of Object.entries(vehicles)) {
-        if (!node || typeof node !== 'object') continue;
-
-        // Driver fields may be flat on the node or nested under current/
-        const cur = (node.current && typeof node.current === 'object') ? node.current : {};
-
-        // Skip orphan keys: stray writes that used a driverId or "0" as the
-        // key instead of the vehicleId (we've seen `online/{cid}/0` and
-        // `online/{cid}/D002` polluting the tree). To avoid dropping any
-        // tenant that legitimately uses D### as its vehicle key, only treat
-        // the key as orphan when it matches the suspicious pattern AND the
-        // node has no identity AND no top-level vehiclestatus — i.e. it's
-        // a partial stub that couldn't possibly be a real vehicle.
-        const _looksOrphanKey = (vehicleId === '0' || /^D\d+$/i.test(vehicleId));
-        const _hasAnyIdentity = !!(cur.driverid || cur.driverId || cur.drivername || cur.driverName ||
-                                   cur.vehiclenumber || cur.vehicleNumber ||
-                                   node.driverid || node.drivername || node.vehiclenumber);
-        if (_looksOrphanKey && !_hasAnyIdentity && !node.vehiclestatus) {
-          // Stray PATCH-write garbage. Schedule for deletion so it can never be
-          // re-seeded and so dispatch UI's child_added can't pick it up either.
-          _toDeleteAtBoot.push({ cid, vid: vehicleId, reason: 'orphan-no-identity' });
-          skippedOrphan++;
-          continue;
-        }
-
-        const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
-        // Skip offline / logged-out drivers — they are genuinely not available
-        if (!status || _OFFLINE.has(status)) continue;
-
-        // Stale-presence guard (ghost driver, see [ghost-presence-sweeper]):
-        // The driver app is supposed to delete its `online/{cid}/{vid}` node on
-        // sign-out, but in practice a stray background heartbeat can resurrect
-        // the node AFTER the deletion fires (with `vehiclestatus=Available` and
-        // a frozen `lastSeen`). The dispatch console then re-shows the driver
-        // forever. If the most-recent `lastSeen` is older than STALE_PRESENCE_MS,
-        // treat the node as a corpse — DON'T seed it, and DELETE it from
-        // Firebase so dispatch UI's child_removed clears the row immediately.
-        const _lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
-        if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
-          _toDeleteAtBoot.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
-          continue;
-        }
-
-        let _driverId    = cur.driverid      || cur.driverId      || node.driverid      || '';
-        let _drivername  = cur.drivername    || cur.driverName    || node.drivername    || '';
-        let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber || '';
-        let _vehtype     = cur.vehicletype   || cur.vehicleType   || node.vehicletype   || '';
-
-        // Identity fallback: if Firebase has no identity for this vehicle,
-        // recover it from the most-recent closed job (built above). This
-        // covers the common case where the driver app went offline mid-trip
-        // and only wrote partial state back — closedJobStore still knows who
-        // was driving this vehicle.
-        if (!_driverId && !_drivername && !_vehnum) {
-          const rec = _idIndex[cid] && _idIndex[cid][vehicleId];
-          if (rec && (rec.driverid || rec.drivername)) {
-            _driverId   = rec.driverid;
-            _drivername = rec.drivername;
-            _vehnum     = rec.vehiclenumber;
-            _vehtype    = _vehtype || rec.vehicletype;
-            recovered++;
-            console.log(`[seed-drivers] RECOVERED cid=${cid} vehId=${vehicleId} from closedJobStore — driver=${_driverId} (${_drivername})`);
-          } else {
-            // Genuinely unrecoverable — node has status but no identity
-            // anywhere. Distinguish a real-looking node (has job/GPS state)
-            // from a trivial stale stub.
-            const _looksReal = !!(cur.currentJobId || cur.jobId || cur.lat || cur.lng);
-            if (_looksReal) {
-              console.warn(`[seed-drivers] SKIP cid=${cid} vehId=${vehicleId} — node looks active (status=${status}, has job/GPS) but no identity in Firebase or closedJobStore`);
-            } else {
-              skippedStub++;
-            }
-            continue;
-          }
-        }
-
-        const driverId     = String(_driverId || vehicleId);
-        const drivername   = _drivername || '';
-        const vehiclenumber= _vehnum     || vehicleId;
-        const vehicletype  = _vehtype    || '';
-        // Zone fallback: prefer Firebase value, then fall back to the driver's
-        // last persisted zone from .data/zone_assignments.json so a returning
-        // driver lands in their previous zone instead of "" until the next
-        // GPS-driven re-detection runs.
-        const _savedZone   = getSavedZone(driverId);
-        const zonename     = cur.zonename     || cur.zoneName     || node.zonename     || (_savedZone && _savedZone.zonename) || '';
-        const zoneid       = cur.zoneid       || cur.zoneId       || node.zoneid       || (_savedZone && _savedZone.zoneid)   || '';
-        const zonequeue    = parseInt(cur.zonequeue || cur.zoneQueue || node.zonequeue || '0') || 0;
-        const lat          = cur.lat || node.lat || '';
-        const lng          = cur.lng || node.lng || '';
-
-        // Don't overwrite an entry that the driver app has already re-registered
-        const already = ZONE_DRIVERS.find(d =>
-          String(d.driverid) === driverId || String(d.VehicleId) === vehicleId
-        );
-        if (already) continue;
-
-        const maxQ = ZONE_DRIVERS.reduce((m, d) => Math.max(m, d.zonequeue || 0), 0);
-        ZONE_DRIVERS.push({
-          driverid:      driverId,
-          VehicleId:     vehicleId,
-          drivername,
-          vehiclenumber,
-          vehicletype,
-          vehiclestatus: status,
-          zonename,
-          zoneid,
-          zonequeue:     zonequeue || maxQ + 1,
-          queueWaitSince: Date.now(),
-          lat,
-          lng,
-          companyId:     cid,
-          _fbSeeded:     true,  // replaced by real heartbeat on driver's next update
-        });
-        seeded++;
+        const record = _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats);
+        if (!record) { stats.skipped++; continue; }
+        const action = _upsertZoneDriverFromFirebase(record);
+        if (action === 'added') stats.added++;
+        else if (action === 'updated') stats.updated++;
       }
     }
-    // Fire-and-forget: delete the stale/orphan presence nodes we identified
-    // above. This makes the cleanup permanent (next boot won't re-find them)
-    // and triggers child_removed on every connected dispatch console so any
-    // ghost rows disappear within seconds.
-    if (_toDeleteAtBoot.length) {
+
+    if (deleteStaleOrphans && stats.toDelete.length) {
       const _delAuth = encodeURIComponent(token);
-      for (const { cid, vid, reason } of _toDeleteAtBoot) {
+      for (const { cid, vid, reason } of stats.toDelete) {
         fbRequest(`${FB_DB_URL}/online/${cid}/${vid}.json?auth=${_delAuth}`, 'DELETE', null)
-          .then(() => { deletedStale++; console.log(`[seed-drivers] deleted stale online/${cid}/${vid} (${reason})`); })
-          .catch(e => console.warn(`[seed-drivers] DELETE online/${cid}/${vid} failed: ${e && e.message}`));
+          .then(() => console.log(`[sync-drivers] deleted stale online/${cid}/${vid} (${reason})`))
+          .catch(e => console.warn(`[sync-drivers] DELETE online/${cid}/${vid} failed: ${e && e.message}`));
       }
     }
-    console.log(`[seed-drivers] seeded ${seeded} driver(s) from Firebase online/ into ZONE_DRIVERS (recovered=${recovered} skippedOrphan=${skippedOrphan} skippedStub=${skippedStub} scheduledForDelete=${_toDeleteAtBoot.length})`);
+
+    _ZONE_SYNC_LAST.at = new Date().toISOString();
+    _ZONE_SYNC_LAST.added = stats.added;
+    _ZONE_SYNC_LAST.updated = stats.updated;
+    _ZONE_SYNC_LAST.skipped = stats.skipped;
+    _ZONE_SYNC_LAST.error = null;
+
+    if (!quiet || stats.added || stats.updated) {
+      console.log(
+        `[sync-drivers] ZONE_DRIVERS +${stats.added} ~${stats.updated} skip=${stats.skipped}` +
+        ` recovered=${stats.recovered || 0} total=${ZONE_DRIVERS.length}`
+      );
+    }
+    return _ZONE_SYNC_LAST;
   } catch (e) {
-    console.warn('[seed-drivers] startup seed failed (non-fatal):', e.message);
+    _ZONE_SYNC_LAST.error = e && e.message;
+    if (!quiet) console.warn('[sync-drivers] failed (non-fatal):', e && e.message);
+    return _ZONE_SYNC_LAST;
   }
+}
+
+async function _seedZoneDriversFromFirebase() {
+  return _syncZoneDriversFromFirebase({ boot: true, deleteStaleOrphans: true });
 }
 
 // ─── Ghost-presence sweeper ─────────────────────────────────────────────────
@@ -15216,6 +15242,10 @@ server.listen(PORT, HOST, () => {
   _syncBizAccountsFromFirebase();
   setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
   setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
+  setInterval(() => {
+    _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
+      console.warn('[sync-drivers]', e && e.message));
+  }, 45000);
   setInterval(() => {
     _serverAutoDispatchTick().catch(e => {
       _AUTO_DISPATCH_LAST.error = e && e.message;
@@ -15407,6 +15437,7 @@ async function _writeDriverOfferNotification(cid, driver, job) {
 
 async function _serverAutoDispatchTick() {
   const now = Date.now();
+  await _syncZoneDriversFromFirebase({ quiet: true });
   _purgeInvalidJobsFromStore('server-auto-dispatch');
   const cids = _fixsCollectCompanyIds();
   const tickReport = { at: new Date(now).toISOString(), companies: {} };
@@ -15449,15 +15480,10 @@ async function _serverAutoDispatchTick() {
       continue;
     }
     const pick = _parseLatLng(job.PickLatLng);
-    const drivers = ZONE_DRIVERS.filter(d =>
-      String(d.companyId || '') === String(cid) &&
-      String(d.vehiclestatus || '') === 'Available' &&
-      !isAwayLocked(d.driverid) &&
-      d.lat && d.lng
-    );
+    const drivers = _collectAutoDispatchEligibleDrivers(cid);
     companyReport.availableDrivers = drivers.length;
     if (!drivers.length) {
-      companyReport.skipReason = 'no Available drivers with GPS in ZONE_DRIVERS';
+      companyReport.skipReason = 'no Available drivers with GPS in ZONE_DRIVERS (after Firebase online/ sync)';
       tickReport.companies[cid] = companyReport;
       continue;
     }
