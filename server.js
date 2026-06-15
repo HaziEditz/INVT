@@ -1432,16 +1432,13 @@ async function cancelBooking(opts) {
   }
 
   if (recallToPending) {
-    // Driver recalled an Assigned booking — keep job alive, return to Pending.
-    job.BookingStatus = 'Pending';
-    job.DriverId      = 0;
-    job.VehicleId     = 0;
-    job.returnReason  = 'Recalled by Driver';
-    job.releasedAt    = Date.now();   // §FIX-G cooldown — prevent immediate re-offer to same driver
-    job.manualOffer   = false;
+    // Driver recalled an Assigned booking — restore pre-offer U-A pool status.
+    const _restoredPool = _restorePoolStatusAfterOfferRelease(job);
+    _applyPoolStatusFields(job, _restoredPool);
+    job.returnReason = 'Recalled by Driver';
     delete job.JobCompleteTime;
     saveJobStore();
-    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → Pending+releasedAt (recall by ${_cancelledByPretty}, prevDriver=${_drvId || 'none'})`);
+    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${_restoredPool}+releasedAt (recall by ${_cancelledByPretty}, prevDriver=${_drvId || 'none'})`);
   } else {
     // Hard cancel — close the job.
     const _isNoShow = /no\s*show/i.test(reason);
@@ -1888,8 +1885,19 @@ async function assignBooking(opts) {
     return { ok: false, error_code: 'invalid_transition', error: _trans.error, currentStatus: _curStatus, booking: _publicBooking(job) };
   }
 
+  const _isManualAssign = (by === 'dispatcher' && opts.manualOffer !== false) || opts.manualOffer === true;
+  if (_isManualAssign && _isBeforeDispatchWindow(job)) {
+    const _msg = _preDispatchAssignBlockMessage(job);
+    console.warn(`  [${source}] assign blocked — dispatch window not open (job #${bookingId})`);
+    return { ok: false, error_code: 'dispatch_window_closed', error: _msg, booking: _publicBooking(job) };
+  }
+
   const _nextStatus = _trans.nextStatus || 'Offered';
   const _cid = String(job.companyId || '');
+
+  if (_nextStatus === 'Offered') {
+    _stampPreOfferPoolStatus(job, _curStatus);
+  }
 
   // Reassign — notify previous driver and clear their offer/active UI before new fanout.
   if (_curDrv && _curDrv !== _targetDrv && _cid && _DRIVER_ATTACHED_STATUSES.has(_curStatus)) {
@@ -1963,6 +1971,15 @@ async function assignBooking(opts) {
   }
 
   console.log(`  [${source}] §FIX-CMD assign job #${bookingId} (${_curStatus}→${_nextStatus}) → driver ${_targetDrv} veh ${_targetVid} seq=${job.updateSeq}`);
+  if (_cid) {
+    await _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _curStatus,
+      status: _nextStatus,
+      action: _nextStatus === 'Offered' ? 'offer' : 'assign',
+      driverId: _targetDrv,
+    });
+  }
   return {
     ok: true, idempotent: false, status: _nextStatus,
     driverId: _targetDrv, vehicleId: _targetVid, version: job.updateSeq,
@@ -2083,6 +2100,15 @@ async function completeBooking(opts) {
   }
   // Driver state restore — respects remainingAssignments rule.
   const _ds = _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, false, source);
+  if (_cid) {
+    await _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _curStatus,
+      status: 'Completed',
+      action: 'complete',
+      driverId: _drvId,
+    });
+  }
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
   return {
     ok: true, idempotent: false, status: 'Completed',
@@ -2187,6 +2213,15 @@ function acceptBooking(opts) {
     })();
   }
   console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_finalDrv} seq=${job.updateSeq}`);
+  if (_cid) {
+    _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _curStatus,
+      status: 'Assigned',
+      action: 'accept',
+      driverId: _finalDrv,
+    }).catch(() => {});
+  }
   return {
     ok: true, idempotent: false, status: 'Assigned',
     driverId: _finalDrv, vehicleId: String(job.VehicleNo || job.CallSign || ''),
@@ -2306,6 +2341,15 @@ async function acceptPendingJobByDriver(opts) {
       });
     }
     console.log(`  [${source}] job #${bookingId} → Queued for busy driver ${driverId}`);
+    if (_cid) {
+      await _dispatchRefreshForJob(job, {
+        cid: _cid,
+        previousStatus: _cur,
+        status: 'Queued',
+        action: 'queue',
+        driverId,
+      });
+    }
     return { ok: true, status: 'Queued', queued: true, driverId, booking: _publicBooking(job) };
   }
 
@@ -2330,9 +2374,6 @@ async function acceptPendingJobByDriver(opts) {
     } catch (e) {
       console.warn(`  [${source}] accept notification/pendingjobs cleanup failed: ${e && e.message}`);
     }
-    await _signalDispatchConsoleRefresh(_cid, {
-      bookingId, action: 'accept', status: 'Assigned', driverId,
-    });
   }
   return Object.assign({}, acceptRes, { queued: false });
 }
@@ -2349,32 +2390,28 @@ async function driverRecallJob(opts) {
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
   const _cid = String(job.companyId || opts.companyId || '');
-  const orig = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
   const _prevSt = job.BookingStatus || '';
   const _drvId = String(job.DriverId || driverId || '').trim();
+  const _restoredPool = _restorePoolStatusAfterOfferRelease(job);
 
-  if (orig === 'manual') {
-    job.BookingStatus = 'No One';
-    job.DriverId = 0;
-    job.VehicleId = 0;
-    job.returnReason = driverId ? `Recalled by ${driverId}` : 'Recalled by Driver';
-    job.releasedAt = Date.now();
-    job.manualOffer = true;
-    saveJobStore();
-    if (_cid) {
+  _applyPoolStatusFields(job, _restoredPool);
+  job.returnReason = driverId ? `Recalled by ${driverId}` : 'Recalled by Driver';
+  saveJobStore();
+  if (_cid) {
+    if (_restoredPool === 'No One') {
       getFirebaseServerToken().then(tok => {
         if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
       });
+    } else {
+      await _writePendingJobFirebase(_cid, bookingId, job);
     }
-  } else {
-    job.BookingStatus = 'Pending';
-    job.DriverId = 0;
-    job.VehicleId = 0;
-    job.returnReason = 'Recalled by Driver';
-    job.releasedAt = Date.now();
-    job.manualOffer = false;
-    saveJobStore();
-    if (_cid) await _writePendingJobFirebase(_cid, bookingId, job);
+    await _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _prevSt,
+      status: job.BookingStatus,
+      action: 'status',
+      driverId: _drvId,
+    });
   }
 
   if (_cid && _drvId) await _removeDriverQueueFirebase(_cid, _drvId, bookingId);
@@ -2403,22 +2440,10 @@ async function driverDeclineJob(opts) {
     return { ok: false, error_code: 'invalid_transition', error: `cannot decline job in status ${_cur}`, currentStatus: _cur };
   }
 
-  const origRaw = String(job.originalStatus || opts.originalStatus || (job.manualOffer ? 'manual' : 'pending')).toLowerCase();
-  const isManual = origRaw === 'manual' || job.manualOffer === true;
   const _prevSt = _cur;
+  const _restoredPool = _restorePoolStatusAfterOfferRelease(job);
 
-  if (isManual) {
-    job.BookingStatus = 'No One';
-    job.manualOffer = true;
-    job.DriverId = 0;
-    job.VehicleId = 0;
-  } else {
-    job.BookingStatus = 'Pending';
-    job.manualOffer = false;
-    job.DriverId = 0;
-    job.VehicleId = 0;
-    job.releasedAt = Date.now();
-  }
+  _applyPoolStatusFields(job, _restoredPool);
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
   saveJobStore();
 
@@ -2453,13 +2478,20 @@ async function driverDeclineJob(opts) {
     getFirebaseServerToken().then(async _tok => {
       if (!_tok) return;
       await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
-      if (!isManual) await _writePendingJobFirebase(_cid, bookingId, job);
+      if (_restoredPool === 'Pending') await _writePendingJobFirebase(_cid, bookingId, job);
       await fbRequest(`${FB_DB_URL}/notification/${driverId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
+    });
+    await _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _prevSt,
+      status: job.BookingStatus,
+      action: timedOut ? 'timeout' : 'decline',
+      driverId,
     });
   }
 
-  console.log(`  [${source}] job #${bookingId} → ${job.BookingStatus} (manual=${isManual}, timedOut=${timedOut})`);
-  return { ok: true, status: job.BookingStatus, timedOut, driverSetAway: !_hasOther, previousStatus: _prevSt, booking: _publicBooking(job) };
+  console.log(`  [${source}] job #${bookingId} → ${job.BookingStatus} (pool=${_restoredPool}, timedOut=${timedOut})`);
+  return { ok: true, status: job.BookingStatus, timedOut, driverSetAway: !_hasOther && timedOut, previousStatus: _prevSt, booking: _publicBooking(job) };
 }
 
 // ─── §FIX-UB — Unified booking update lifecycle ───────────────────────────────
@@ -2554,9 +2586,117 @@ function _bumpSeqAndEmitStatus(job, previousStatus, by, source, extra) {
   return seq;
 }
 
+function _stampPreOfferPoolStatus(job, fromStatus) {
+  if (!job) return;
+  const st = String(fromStatus || job.BookingStatus || 'Pending');
+  if (st === 'No One') job._preOfferStatus = 'No One';
+  else if (st === 'Pending' || st === 'Scheduled') job._preOfferStatus = 'Pending';
+  else if (!job._preOfferStatus) {
+    const orig = String(job.originalStatus || '').toLowerCase();
+    job._preOfferStatus = orig === 'manual' ? 'No One' : 'Pending';
+  }
+}
+
+function _restorePoolStatusAfterOfferRelease(job) {
+  if (!job) return 'Pending';
+  const stamped = String(job._preOfferStatus || job._origStatus || '').trim();
+  if (stamped === 'No One') return 'No One';
+  if (stamped === 'Pending') return 'Pending';
+  const orig = String(job.originalStatus || '').toLowerCase();
+  if (orig === 'manual') return 'No One';
+  return 'Pending';
+}
+
+function _applyPoolStatusFields(job, poolStatus) {
+  const restored = poolStatus === 'No One' ? 'No One' : 'Pending';
+  job.BookingStatus = restored;
+  job.DriverId = 0;
+  job.VehicleId = 0;
+  job.releasedAt = Date.now();
+  if (restored === 'No One') {
+    job.manualOffer = true;
+    job.originalStatus = 'manual';
+  } else {
+    job.manualOffer = false;
+    if (!job.originalStatus || String(job.originalStatus).toLowerCase() === 'manual') {
+      job.originalStatus = 'pending';
+    }
+  }
+  return restored;
+}
+
+function _dispatchRefreshActionForStatus(status) {
+  const st = String(status || '');
+  if (st === 'Completed') return 'complete';
+  if (st === 'Cancelled' || st === 'No Show') return 'cancel';
+  if (st === 'Queued') return 'queue';
+  if (st === 'Offered') return 'offer';
+  if (st === 'Assigned') return 'assign';
+  if (st === 'Pending' || st === 'No One' || st === 'Scheduled') return 'status';
+  if (st === 'Picking' || st === 'Arrived') return 'assign';
+  if (st === 'Active' || st === 'OnTrip') return 'active';
+  return 'status';
+}
+
+function _dispatchRefreshForJob(job, opts) {
+  opts = opts || {};
+  if (!job || !job.Id) return Promise.resolve();
+  const cid = String(opts.cid || job.companyId || '');
+  if (!cid) return Promise.resolve();
+  const status = opts.status || job.BookingStatus || '';
+  const action = opts.action || _dispatchRefreshActionForStatus(status);
+  const driverId = opts.driverId != null ? opts.driverId : (job.DriverId || '');
+  return _signalDispatchConsoleRefresh(cid, {
+    bookingId: job.Id,
+    action,
+    status,
+    previousStatus: opts.previousStatus,
+    driverId,
+  });
+}
+
+function _jobDispatchTimeMs(job) {
+  if (!job) return null;
+  const notifyAt = job.NotifyDispatchAt || job.notifyDispatchAt;
+  if (notifyAt) {
+    const ms = Date.parse(String(notifyAt));
+    if (!Number.isNaN(ms)) return ms;
+  }
+  const db = parseInt(job.DispatchTimebefore || '0', 10) || 0;
+  const pickRef = job.Pickingtime || job.BookingDateTime;
+  let pickupMs = job.ScheduledFor || 0;
+  if (!pickupMs && pickRef) {
+    pickupMs = _parseLocalDT(pickRef, job.companyId);
+    if (!pickupMs) pickupMs = new Date(_toDateStr(pickRef)).getTime();
+  }
+  if (!pickupMs || isNaN(pickupMs)) return null;
+  return pickupMs - db * 60000;
+}
+
+function _isBeforeDispatchWindow(job) {
+  const dispatchMs = _jobDispatchTimeMs(job);
+  if (!dispatchMs) return false;
+  return Date.now() < dispatchMs;
+}
+
+function _preDispatchAssignBlockMessage(job) {
+  const pickRef = job.Pickingtime || job.BookingDateTime || '';
+  if (pickRef) {
+    try {
+      const d = new Date(_toDateStr(pickRef).replace(' ', 'T'));
+      if (!Number.isNaN(d.getTime())) {
+        const t = d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+        return `This job is pre-booked for ${t}. To send it now, change it to 'Now' first.`;
+      }
+    } catch (_e) { /* fall through */ }
+  }
+  return "This job is pre-booked for a later pickup. To send it now, change it to 'Now' first.";
+}
+
 function _afterJobStatusChange(job, previousStatus, by, source) {
   if (!job || previousStatus === job.BookingStatus) return;
   _bumpSeqAndEmitStatus(job, previousStatus, by, source);
+  _dispatchRefreshForJob(job, { previousStatus, source }).catch(() => {});
 }
 
 // §FIX-CMD/ver-fanout — Mirror updateSeq + lastUpdatedAt + BookingStatus into
@@ -2871,6 +3011,14 @@ async function updateBooking(opts) {
   }
 
   console.log(`  [${source}] §FIX-UB job #${bookingId} seq ${_curSeq}→${_newSeq} types=[${_eventTypes.join(',')}] by=${by} fields=[${Object.keys(_diff).join(',')}]`);
+  if (_cid && _diff.BookingStatus) {
+    await _dispatchRefreshForJob(job, {
+      cid: _cid,
+      previousStatus: _prevStatus,
+      status: job.BookingStatus,
+      driverId: _drv || _prevDrv,
+    });
+  }
   return {
     ok: true, idempotent: false,
     eventTypes: _eventTypes,
@@ -10385,30 +10533,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
           // won't misread the driver's resulting Available heartbeat as a driver-initiated cancel.
           if (rr.includes('manually unassigned') && bookingId > 0) markDispatcherRecalled(bookingId);
-          // §FIX-U2 — Unreached (no-response 27 s timeout) lands on 'Pending' so auto-dispatch
-          // keeps trying drivers, but we ALSO stamp `releasedAt` so the §FIX-G 30 s cooldown
-          // (~line 8030) prevents the auto-loop from immediately re-offering the SAME job to
-          // the SAME driver who just failed to respond. After 30 s, if no other driver picked
-          // up, auto-dispatch may retry; the dispatcher can also manually unassign sooner.
-          // (Previous §FIX-U parked as 'No One' which broke the auto-dispatch retry loop.)
-          // §FIX-M — if this was a dispatcher-driven manual offer (AssignJobStatusFromJobList*),
-          // a 27 s no-response should park as 'No One' (dispatcher decides next), not Pending
-          // (auto-dispatch retries). Flag is consumed on first use. Auto-dispatch offers leave
-          // manualOffer unset → keep the legacy §FIX-U2 Pending+cooldown behaviour.
-          const _wasManualOffer = newStatus === 'Unreached' && job.manualOffer === true;
+          // §FIX-U2 — Unreached (no-response timeout) restores the job's pre-offer U-A pool
+          // status (_preOfferStatus): Pending for auto-dispatch jobs, No One for manual-only.
           const effectiveStatus = newStatus === 'Unreached'
-            ? (_wasManualOffer ? 'No One' : 'Pending')
+            ? _restorePoolStatusAfterOfferRelease(job)
             : newStatus;
+          const _refreshPrevDP = currentStatus;
           job.BookingStatus = effectiveStatus;
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
-            if (_wasManualOffer) {
-              job.manualOffer = false;
+            if (effectiveStatus === 'No One') {
+              job.manualOffer = true;
+              job.originalStatus = 'manual';
               job.DriverId = 0;
               job.VehicleId = 0;
-              console.log(`  [§FIX-M/changeriddestatusforoffer/DP] job #${bookingId} manual-offer Unreached → No One (cleared manualOffer, driver/vehicle reset)`);
+              console.log(`  [changeriddestatusforoffer/DP] job #${bookingId} Unreached → No One (pre-offer pool restored)`);
             } else {
-              console.log(`  [§FIX-U2/changeriddestatusforoffer/DP] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+              job.manualOffer = false;
+              console.log(`  [changeriddestatusforoffer/DP] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
             }
           }
           if (returnReason) job.returnReason = returnReason;
@@ -10491,6 +10633,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (_clearDrv) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
+          if (sessionCompanyId && job.BookingStatus !== _refreshPrevDP) {
+            _dispatchRefreshForJob(job, {
+              cid: sessionCompanyId,
+              previousStatus: _refreshPrevDP,
+              status: job.BookingStatus,
+              driverId: job.DriverId,
+            }).catch(() => {});
+          }
+          if (newStatus === 'Unreached' && sessionCompanyId) {
+            if (effectiveStatus === 'Pending') {
+              _writePendingJobFirebase(sessionCompanyId, bookingId, job).catch(() => {});
+            } else if (effectiveStatus === 'No One') {
+              getFirebaseServerToken().then(tok => {
+                if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+              });
+            }
+          }
           // Patch Firebase pendingjobs so driver app sees 'Offered' status.
           // Without this, a stale 'Assigned' entry from a previous session causes
           // the driver app to skip the offer screen (it thinks the job is already theirs).
@@ -10875,6 +11034,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
+              const _hailJob = jobStore.find(j => j && j.Id === hailId);
+              if (_hailJob && sessionCompanyId) {
+                _dispatchRefreshForJob(_hailJob, {
+                  cid: sessionCompanyId,
+                  action: 'active',
+                  status: 'Active',
+                  driverId,
+                }).catch(() => {});
+              }
               if (sessionCompanyId) {
                 _writeBookingEvent(sessionCompanyId, hailId, 'StatusChanged',
                   { from: null, to: 'Active', driverId, vehicleId: vehiclenumber || driverId, action: 'created', source: 'hail' },
@@ -10956,8 +11124,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString();
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned`);
+            } else if (newStatus === 'Arrived' &&
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
+              job.BookingStatus = 'Arrived';
+              if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+              _stampDriverName(job);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Arrived`);
+            } else if (newStatus === 'Active' && !activatedOne &&
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived')) {
+              job.BookingStatus = 'Active';
+              activatedOne = true;
+              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString();
+              _stampDriverName(job);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active (on board)`);
             } else if (newStatus === 'Busy' && !activatedOne &&
-                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered' ||
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived' || job.BookingStatus === 'Offered' ||
                         (job.BookingStatus === 'Pending' && !orphaned))) {
               // Pending + Busy: driver skipped the Accept step (e.g. Away→Busy after dispatch timeout)
               // but the job's DriverId still matches — activate it so dispatch shows Active.
@@ -10967,11 +11148,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               _stampDriverName(job);
               console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
-              job.BookingStatus = 'Assigned';
+              job.BookingStatus = 'Picking';
               job.assignedAt = Date.now();
               if (!job.PickingAt) job.PickingAt = new Date().toISOString();
               _stampDriverName(job);
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
+              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Picking`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
                 // Hail-flicker debounce: driver app sometimes rapid-toggles
@@ -12139,10 +12320,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           objectD(res, { ok: false, alreadyStatus: _pqaJob.BookingStatus, driverId: _pqaJob.DriverId });
         } else {
           const _pqaDriverId = _pqaJob.DriverId;
+          const _pqaPrev = _pqaJob.BookingStatus;
           _pqaJob.BookingStatus = 'Assigned';
           _pqaJob.assignedAt = Date.now();
           _pqaJob.queuedAt = null;
           saveJobStore();
+          _afterJobStatusChange(_pqaJob, _pqaPrev, 'driver', 'PromoteQueuedToAssigned');
           console.log(`[PromoteQueuedToAssigned] job #${_pqaBookingId} Queued → Assigned (driver ${_pqaDriverId})`);
           objectD(res, { ok: true, driverId: _pqaDriverId });
         }
@@ -12558,26 +12741,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // If the dispatcher manually unassigned this job, flag it so [DriverStatusChanged]
           // won't misread the driver's resulting Available heartbeat as a driver-initiated cancel.
           if (rr2.includes('manually unassigned') && bookingId > 0) markDispatcherRecalled(bookingId);
-          // §FIX-U2 — Unreached (no-response 27 s timeout) lands on 'Pending' so auto-dispatch
-          // keeps trying drivers, but we ALSO stamp `releasedAt` so the §FIX-G 30 s cooldown
-          // (~line 8030) prevents the auto-loop from immediately re-offering the SAME job to
-          // the SAME driver who just failed to respond. After 30 s, if no other driver picked
-          // up, auto-dispatch may retry; the dispatcher can also manually unassign sooner.
-          // §FIX-M — see DP-site comment. Manual-offer timeout → No One; auto-offer → Pending+cooldown.
-          const _wasManualOffer2 = newStatus === 'Unreached' && job.manualOffer === true;
+          // §FIX-U2 — Unreached restores pre-offer U-A pool status (see DP path).
           const effectiveStatus2 = newStatus === 'Unreached'
-            ? (_wasManualOffer2 ? 'No One' : 'Pending')
+            ? _restorePoolStatusAfterOfferRelease(job)
             : newStatus;
+          const _refreshPrevDS = currentStatus2;
           job.BookingStatus = effectiveStatus2;
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
-            if (_wasManualOffer2) {
-              job.manualOffer = false;
+            if (effectiveStatus2 === 'No One') {
+              job.manualOffer = true;
+              job.originalStatus = 'manual';
               job.DriverId = 0;
               job.VehicleId = 0;
-              console.log(`  [§FIX-M/changeriddestatusforoffer/DS] job #${bookingId} manual-offer Unreached → No One (cleared manualOffer, driver/vehicle reset)`);
+              console.log(`  [changeriddestatusforoffer/DS] job #${bookingId} Unreached → No One (pre-offer pool restored)`);
             } else {
-              console.log(`  [§FIX-U2/changeriddestatusforoffer/DS] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+              job.manualOffer = false;
+              console.log(`  [changeriddestatusforoffer/DS] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
             }
           }
           if (returnReason) job.returnReason = returnReason;
@@ -12642,6 +12822,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (_clearDrv2) { job.DriverId = 0; job.VehicleId = 0; }
           }
           saveJobStore();
+          if (sessionCompanyId && job.BookingStatus !== _refreshPrevDS) {
+            _dispatchRefreshForJob(job, {
+              cid: sessionCompanyId,
+              previousStatus: _refreshPrevDS,
+              status: job.BookingStatus,
+              driverId: job.DriverId,
+            }).catch(() => {});
+          }
+          if (newStatus === 'Unreached' && sessionCompanyId) {
+            if (effectiveStatus2 === 'Pending') {
+              _writePendingJobFirebase(sessionCompanyId, bookingId, job).catch(() => {});
+            } else if (effectiveStatus2 === 'No One') {
+              getFirebaseServerToken().then(tok => {
+                if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+              });
+            }
+          }
           // Patch Firebase pendingjobs so driver app sees 'Offered' status.
           // Without this, a stale 'Assigned' entry from a previous session causes
           // the driver app to skip the offer screen (it thinks the job is already theirs).
@@ -12921,6 +13118,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 Route: '', bookingidx: hailId,
               });
               saveJobStore();
+              const _hailJobDS = jobStore.find(j => j && j.Id === hailId);
+              if (_hailJobDS && sessionCompanyId) {
+                _dispatchRefreshForJob(_hailJobDS, {
+                  cid: sessionCompanyId,
+                  action: 'active',
+                  status: 'Active',
+                  driverId,
+                }).catch(() => {});
+              }
               if (sessionCompanyId) {
                 _writeBookingEvent(sessionCompanyId, hailId, 'StatusChanged',
                   { from: null, to: 'Active', driverId, vehicleId: vehiclenumber || driverId, action: 'created', source: 'hail' },
@@ -12980,8 +13186,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString();
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned`);
+            } else if (newStatus === 'Arrived' &&
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered')) {
+              job.BookingStatus = 'Arrived';
+              if (!job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+              _stampDriverNameDS(job);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Arrived`);
+            } else if (newStatus === 'Active' && !activatedOneDS &&
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived')) {
+              job.BookingStatus = 'Active';
+              activatedOneDS = true;
+              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString();
+              _stampDriverNameDS(job);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active (on board)`);
             } else if (newStatus === 'Busy' && !activatedOneDS &&
-                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Offered' ||
+                       (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived' || job.BookingStatus === 'Offered' ||
                         (job.BookingStatus === 'Pending' && !orphanedDS))) {
               job.BookingStatus = 'Active';
               activatedOneDS = true;
@@ -12989,11 +13208,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               _stampDriverNameDS(job);
               console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
-              job.BookingStatus = 'Assigned';
+              job.BookingStatus = 'Picking';
               job.assignedAt = Date.now();
               if (!job.PickingAt) job.PickingAt = new Date().toISOString();
               _stampDriverNameDS(job);
-              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Assigned (Picking)`);
+              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Picking`);
             } else if (newStatus === 'Available') {
               if (job.BookingStatus === 'Active') {
                 // Hail-flicker debounce: driver app sometimes rapid-toggles
@@ -14610,6 +14829,8 @@ async function _serverAutoDispatchTick() {
     }
     const fresh = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
     if (!fresh || !_isDispatchableJob(fresh, cid)) continue;
+    const _autoPrev = fresh.BookingStatus;
+    _stampPreOfferPoolStatus(fresh, _autoPrev);
     fresh.BookingStatus = 'Offered';
     fresh.DriverId = best.driverid;
     fresh.VehicleId = best.VehicleId || best.vehiclenumber;
@@ -14618,6 +14839,13 @@ async function _serverAutoDispatchTick() {
     fresh.originalStatus = 'pending';
     saveJobStore();
     await _writeDriverOfferNotification(cid, best, fresh);
+    await _dispatchRefreshForJob(fresh, {
+      cid,
+      previousStatus: _autoPrev,
+      status: 'Offered',
+      action: 'offer',
+      driverId: best.driverid,
+    });
     console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
   }
 }
@@ -14669,5 +14897,13 @@ async function _releaseScheduledJobs() {
   if (promoted.length) {
     saveJobStore();
     console.log(`[sched-release] promoted ${promoted.length} scheduled job(s) → Pending`);
+    for (const j of promoted) {
+      await _dispatchRefreshForJob(j, {
+        cid: j.companyId,
+        previousStatus: 'Scheduled',
+        status: 'Pending',
+        action: 'scheduled_release',
+      });
+    }
   }
 }

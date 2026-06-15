@@ -228,6 +228,7 @@ export function normalizeJobStatus(raw: string): JobStatus {
   const s = String(raw || '').trim();
   if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
   if (s === 'pending' || s === 'PENDING') return 'Pending';
+  if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
   return s as JobStatus;
 }
 
@@ -476,6 +477,22 @@ export function statusBadgeStyle(status: JobStatus): { label: string; color: str
   if (st === 'Pending') return { label: 'PENDING', color: '#5b7cfa', bg: 'rgba(79,110,247,0.2)' };
   if (st === 'Scheduled') return { label: 'SCHEDULED', color: '#f59e0b', bg: 'rgba(245,158,11,0.2)' };
   return null;
+}
+
+/** True while a pre-booked job is still before its dispatch window opens. */
+export function isPreDispatchWindow(job: Job, now = new Date()): boolean {
+  const dispatchAt = jobDispatchTime(job);
+  if (!dispatchAt) return false;
+  return now.getTime() < dispatchAt.getTime();
+}
+
+/** Message when dispatcher tries to assign before the dispatch window opens. */
+export function preDispatchAssignBlockMessage(job: Job): string {
+  const pickup = jobScheduledTime(job);
+  const timeLabel = pickup
+    ? pickup.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : 'the scheduled time';
+  return `This job is pre-booked for ${timeLabel}. To send it now, change it to 'Now' first.`;
 }
 
 export function jobTabForStatus(job: Job): JobTab {

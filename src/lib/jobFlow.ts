@@ -1,5 +1,5 @@
 import type { Job, JobStatus } from '@/types/job';
-import { jobFromFirebase, jobUpdateSeqFromRecord, normalizeJobStatus } from '@/types/job';
+import { jobFromFirebase, jobUpdateSeqFromRecord, normalizeJobStatus, isPreDispatchWindow, preDispatchAssignBlockMessage } from '@/types/job';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
@@ -482,6 +482,11 @@ export async function applyJobAssignment(
   }
   const d = onlineDrivers.find((x) => x.driverId === selection);
   if (!d) throw new Error('Driver not found');
+  if (isPreDispatchWindow(job)) {
+    const message = preDispatchAssignBlockMessage(job);
+    useUiStore.getState().addToast({ type: 'error', title: 'Cannot assign yet', message });
+    throw new Error(message);
+  }
   const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
   const isReassign = hadDriver && job.driverId !== d.driverId;
   await assignJob(job.id, d.driverId, d.vehicleId, job.updateSeq, job);
@@ -496,6 +501,11 @@ export async function applyFormDriverAssignment(
   opts?: { fanout?: boolean }
 ): Promise<void> {
   if (isAssignedDriverSelection(form.driverId)) {
+    if (isPreDispatchWindow(job)) {
+      const message = preDispatchAssignBlockMessage(job);
+      useUiStore.getState().addToast({ type: 'error', title: 'Cannot assign yet', message });
+      throw new Error(message);
+    }
     const d =
       availableDrivers.find((x) => x.driverId === form.driverId) ??
       ({ driverId: form.driverId, vehicleId: form.vehicleId || '0' } as const);

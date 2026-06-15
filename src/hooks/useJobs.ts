@@ -44,6 +44,8 @@ const ACTIVE_BOOKING_STATUSES = new Set([
   'Offered',
 ]);
 
+const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
+
 const LIVE_DISPATCH_TABS = new Set<JobTab>(['offer', 'assign', 'active', 'queue']);
 
 type DispatchRefreshPayload = {
@@ -65,6 +67,30 @@ function existingJobSnapshot(
   );
 }
 
+function refreshImpliesTerminal(refresh: DispatchRefreshPayload): boolean {
+  if (refresh.action === 'cancel' || refresh.action === 'complete') return true;
+  if (!refresh.status) return false;
+  return TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(refresh.status));
+}
+
+function applyRefreshStatusHint(
+  job: Job | null,
+  prior: Job | null,
+  refresh: DispatchRefreshPayload,
+  bookingId: number,
+): Job | null {
+  if (!refresh.status) return job;
+  const targetStatus = normalizeJobStatus(refresh.status);
+  const driverId = refresh.driverId ?? job?.driverId ?? prior?.driverId;
+  if (job) {
+    return mergeJobUpdate(job, { status: targetStatus, driverId } as Job);
+  }
+  if (prior && !useJobStore.getState().isJobBlacklisted(bookingId)) {
+    return mergeJobUpdate(prior, { status: targetStatus, driverId } as Job);
+  }
+  return job;
+}
+
 /** Server wrote dispatchConsole/{cid}/refresh — re-read Firebase for one job (or full sync). */
 async function refreshJobFromFirebaseCaches(
   companyId: string,
@@ -81,6 +107,16 @@ async function refreshJobFromFirebaseCaches(
 ) {
   const action = refresh.action;
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+
+  if (refreshImpliesTerminal(refresh)) {
+    pendingRef.delete(bookingId);
+    bookingsRef.delete(bookingId);
+    hooks.removeJob(bookingId);
+    hooks.clearRemovedJob(bookingId);
+    hooks.syncAll();
+    return;
+  }
+
   const db = getDb();
   const [abSnap, pjSnap] = await Promise.all([
     get(ref(db, `allbookings/${companyId}/${bookingId}`)),
@@ -98,7 +134,13 @@ async function refreshJobFromFirebaseCaches(
       const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? parsed.status));
       if (ACTIVE_BOOKING_STATUSES.has(st)) {
         job = parsed;
-      } else if (action !== 'accept') {
+      } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
+        bookingsRef.delete(bookingId);
+        hooks.removeJob(bookingId);
+        hooks.clearRemovedJob(bookingId);
+        hooks.syncAll();
+        return;
+      } else if (action !== 'accept' && action !== 'assign' && action !== 'offer' && action !== 'queue' && action !== 'active') {
         bookingsRef.delete(bookingId);
       }
     }
@@ -106,21 +148,21 @@ async function refreshJobFromFirebaseCaches(
     bookingsRef.delete(bookingId);
   }
 
-  // Accept deletes pendingjobs before allbookings fanout may land — trust refresh payload + store.
-  if (action === 'accept' && refresh.status) {
-    const targetStatus = normalizeJobStatus(refresh.status);
-    const driverId = refresh.driverId ?? job?.driverId ?? prior?.driverId;
-    if (job) {
-      job = mergeJobUpdate(job, { status: targetStatus, driverId } as Job);
-    } else if (prior && !useJobStore.getState().isJobBlacklisted(bookingId)) {
-      job = mergeJobUpdate(prior, { status: targetStatus, driverId } as Job);
-    }
-  }
+  job = applyRefreshStatusHint(job, prior, refresh, bookingId);
 
   if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
     const st = normalizeJobStatus(job.status);
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
       bookingsRef.set(job.id, job);
+    } else if (st === 'Pending' || st === 'No One') {
+      pendingRef.set(job.id, job);
+      bookingsRef.delete(bookingId);
+    } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
+      bookingsRef.delete(bookingId);
+      hooks.removeJob(bookingId);
+      hooks.clearRemovedJob(bookingId);
+      hooks.syncAll();
+      return;
     }
   }
 
@@ -129,8 +171,11 @@ async function refreshJobFromFirebaseCaches(
     hooks.applyPending(String(bookingId), pjVal as Record<string, unknown>, false);
   } else {
     pendingRef.delete(bookingId);
-    // pendingjobs removal on accept is expected — do not drop the job from the store.
+    const liveActions = new Set(['accept', 'assign', 'offer', 'queue', 'active', 'status', 'timeout', 'decline', 'recall', 'scheduled_release']);
     if (action === 'cancel') {
+      hooks.removeJob(bookingId);
+      hooks.clearRemovedJob(bookingId);
+    } else if (!liveActions.has(action || '') && !job) {
       hooks.removeJob(bookingId);
       hooks.clearRemovedJob(bookingId);
     }
@@ -297,9 +342,13 @@ export function useJobs(companyId: string | null) {
     );
 
     return () => {
-      for (const unsub of unsubs) unsub();
+      for (const u of unsubs) u();
+      if (listenerPendingCache === pendingRef.current) listenerPendingCache = null;
+      if (listenerBookingsCache === bookingsRef.current) listenerBookingsCache = null;
     };
   }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
+
+  return useJobStore((s) => s.jobs);
 }
 
 export function useClosedJobs(companyId: string | null, enabled: boolean) {
@@ -309,6 +358,16 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
     if (!companyId || !enabled) return;
     const db = getDb();
     const maps: Job[][] = [[], [], []];
+
+    const mergeAndSet = () => {
+      const merged = new Map<number, Job>();
+      for (const arr of maps) {
+        for (const j of arr) merged.set(j.id, j);
+      }
+      setClosed(
+        Array.from(merged.values()).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
+      );
+    };
 
     const ingestClosed = (idx: number, snap: { val: () => unknown }) => {
       const list: Job[] = [];
@@ -321,7 +380,7 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
           if (st === 'Cancelled') {
             job.status = 'Cancelled';
             const at = job.cancelledAt || job.completedAt;
-            job.completedAt = at ? Date.parse(at) || job.completedAt : job.completedAt;
+            job.completedAt = at ? Date.parse(String(at)) || job.completedAt : job.completedAt;
           } else {
             job.status = 'Completed';
           }
@@ -329,11 +388,7 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
         }
       }
       maps[idx] = list;
-      const merged = new Map<number, Job>();
-      for (const arr of maps) for (const j of arr) merged.set(j.id, j);
-      setClosed(
-        Array.from(merged.values()).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0))
-      );
+      mergeAndSet();
     };
 
     const unsubs = [
@@ -355,16 +410,12 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
           }
         }
         maps[2] = list;
-        const merged = new Map<number, Job>();
-        for (const arr of maps) for (const j of arr) merged.set(j.id, j);
-        setClosed(
-          Array.from(merged.values()).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0))
-        );
+        mergeAndSet();
       }),
     ];
 
     return () => {
-      for (const unsub of unsubs) unsub();
+      for (const u of unsubs) u();
     };
   }, [companyId, enabled]);
 

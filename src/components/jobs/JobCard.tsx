@@ -5,6 +5,7 @@ import type { Job, JobTab } from '@/types/job';
 import {
   formatJobDateTimeShort,
   getJobCardAppearance,
+  isPreDispatchWindow,
   jobBookingTime,
   jobCreatedAtTime,
   jobFareDisplay,
@@ -14,6 +15,7 @@ import {
   jobScheduledTime,
   jobTariffLabel,
   jobVehicleTypeLabel,
+  preDispatchAssignBlockMessage,
   uaStatusBadge,
 } from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
@@ -208,6 +210,18 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const handleApplyAssign = async () => {
     if (!assignSelection) return;
+    if (
+      assignSelection !== '__pending__' &&
+      assignSelection !== '__noone__' &&
+      isPreDispatchWindow(job, now)
+    ) {
+      addToast({
+        type: 'error',
+        title: 'Cannot assign yet',
+        message: preDispatchAssignBlockMessage(job),
+      });
+      return;
+    }
     const selection = assignSelection;
     try {
       const result = await applyJobAssignment(job, selection, onlineDrivers);
@@ -241,12 +255,15 @@ export function JobCard({ job, tab }: JobCardProps) {
   };
 
   const showAssignControls = tab === 'ua' || tab === 'assign' || tab === 'queue' || tab === 'offer';
+  const assignBlockedBySchedule = isPreDispatchWindow(job, now);
 
   const assignControls = showAssignControls ? (
     <>
       <select
         className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border"
         value={assignSelection}
+        disabled={assignBlockedBySchedule}
+        title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onChange={(e) => {
@@ -267,7 +284,8 @@ export function JobCard({ job, tab }: JobCardProps) {
       <Button
         variant="primary"
         className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
-        disabled={!assignSelection}
+        disabled={!assignSelection || assignBlockedBySchedule}
+        title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
         onClick={(e) => {
           e.stopPropagation();
           void handleApplyAssign();
