@@ -2429,6 +2429,125 @@ async function driverRecallJob(opts) {
   return { ok: true, restoredStatus: job.BookingStatus, previousStatus: _prevSt, booking: _publicBooking(job) };
 }
 
+/** Driver trip stage — Arrived / Active / Assigned (same transitions as [DriverStatusChanged]). */
+async function driverStageJob(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId || '').trim();
+  const newStatus = String(opts.status || opts.stage || '').trim();
+  const source    = opts.source || 'driverStageJob';
+  const _allowed  = new Set(['Assigned', 'Arrived', 'Active', 'Picking']);
+  if (!bookingId || !driverId || !_allowed.has(newStatus)) {
+    return { ok: false, error_code: 'bad_request', error: 'bookingId, driverId, status ∈ {Assigned,Arrived,Active,Picking} required' };
+  }
+  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const job = jobStore[idx];
+  const _cid = String(job.companyId || opts.companyId || '');
+  const prev = job.BookingStatus || '';
+  const _TERM = new Set(['Dispatched', 'Done', 'Cancel', 'Cancelled', 'Closed', 'Completed', 'No Show', 'NoShow', 'Reject']);
+  if (_TERM.has(prev)) {
+    return { ok: false, error_code: 'already_terminal', error: `job is ${prev}`, booking: _publicBooking(job) };
+  }
+  const _jobDrv = _normJobDriverId(job.DriverId) || String(job.DriverId || '').trim();
+  if (_jobDrv && _jobDrv !== driverId && String(job.DriverId) !== driverId) {
+    return { ok: false, error_code: 'forbidden', error: 'job assigned to another driver' };
+  }
+
+  let nextStatus = null;
+  if (newStatus === 'Arrived' && ['Assigned', 'Picking', 'Offered'].includes(prev)) {
+    nextStatus = 'Arrived';
+  } else if (newStatus === 'Active' && ['Assigned', 'Picking', 'Arrived'].includes(prev)) {
+    nextStatus = 'Active';
+  } else if (newStatus === 'Assigned' && !_TERM.has(prev) && prev !== 'Active' && prev !== 'Completed') {
+    nextStatus = 'Assigned';
+  } else if (newStatus === 'Picking' && ['Offered', 'Pending', 'Assigned'].includes(prev)) {
+    nextStatus = 'Picking';
+  } else if (newStatus === prev) {
+    return {
+      ok: true, idempotent: true, status: prev,
+      version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job),
+    };
+  } else {
+    return {
+      ok: false, error_code: 'invalid_transition',
+      error: `cannot set ${newStatus} from ${prev}`, currentStatus: prev,
+    };
+  }
+
+  if (nextStatus === 'Arrived' && !job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+  if (nextStatus === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
+  if (nextStatus === 'Assigned') {
+    if (!job.assignedAt) job.assignedAt = Date.now();
+    if (!job.AcceptedAt) job.AcceptedAt = new Date().toISOString();
+  }
+  if (nextStatus === 'Picking' && !job.PickingAt) job.PickingAt = new Date().toISOString();
+
+  job.BookingStatus = nextStatus;
+  _afterJobStatusChange(job, prev, 'driver', source);
+  saveJobStore();
+
+  if (_cid) {
+    _fanVersionToFirebase(_cid, bookingId, {
+      BookingStatus: job.BookingStatus,
+      Status:        job.BookingStatus,
+      updateSeq:     job.updateSeq,
+      ArrivedAt:     job.ArrivedAt,
+      ActiveAt:      job.ActiveAt,
+      eventType:     'updated',
+    }, false);
+  }
+
+  console.log(`  [${source}] job #${bookingId} (was ${prev}) → ${job.BookingStatus} by driver ${driverId}`);
+  return {
+    ok: true, status: job.BookingStatus,
+    version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job),
+  };
+}
+
+/** Promote Queued → Assigned when driver finishes prior trip (replaces legacy [PromoteQueuedToAssigned]). */
+async function promoteQueuedJobByDriver(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const driverId  = String(opts.driverId || '').trim();
+  const source    = opts.source || 'promoteQueuedJobByDriver';
+  if (!bookingId || !driverId) {
+    return { ok: false, error_code: 'bad_request', error: 'bookingId and driverId required' };
+  }
+  const job = jobStore.find(j => j && j.Id === bookingId);
+  if (!job) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  if (job.BookingStatus !== 'Queued') {
+    return {
+      ok: false, error_code: 'invalid_transition',
+      alreadyStatus: job.BookingStatus, driverId: job.DriverId,
+    };
+  }
+  if (String(job.DriverId) !== String(driverId)) {
+    return { ok: false, error_code: 'forbidden', error: 'queued job belongs to another driver' };
+  }
+  const prev = job.BookingStatus;
+  job.BookingStatus = 'Assigned';
+  job.assignedAt = Date.now();
+  job.queuedAt = null;
+  _afterJobStatusChange(job, prev, 'driver', source);
+  saveJobStore();
+  const _cid = String(job.companyId || opts.companyId || '');
+  if (_cid) {
+    await _removeDriverQueueFirebase(_cid, driverId, bookingId).catch(() => {});
+    _fanVersionToFirebase(_cid, bookingId, {
+      BookingStatus: 'Assigned',
+      Status:        'Assigned',
+      updateSeq:     job.updateSeq,
+      eventType:     'updated',
+    }, false);
+  }
+  console.log(`  [${source}] job #${bookingId} Queued → Assigned (driver ${driverId})`);
+  return {
+    ok: true, status: 'Assigned',
+    version: parseInt(job.updateSeq) || 0, booking: _publicBooking(job),
+  };
+}
+
 // Driver declines or times out on a broadcast offer — restore job to U-A and set driver Away.
 async function driverDeclineJob(opts) {
   opts = opts || {};
@@ -3384,7 +3503,7 @@ function _ubMapEventType(internalType) {
 const _FB_SERVER_TIMESTAMP = { '.sv': 'timestamp' };
 
 // Statuses where the booking is currently visible inside the driver app.
-const _UB_DRIVER_VISIBLE = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
+const _UB_DRIVER_VISIBLE = new Set(['Offered', 'Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Queued']);
 
 // Unified driver-app edit notification — used by updateBooking(), ProcUpdateJobv6, and any future edit path.
 async function _writeDriverJobUpdatedNotification(opts) {
@@ -3491,6 +3610,11 @@ async function updateBooking(opts) {
   // Apply diff to the in-memory job.
   for (const _k of Object.keys(_diff)) {
     job[_k] = _diff[_k].to;
+  }
+  if (_diff.BookingStatus) {
+    const _toSt = String(_diff.BookingStatus.to || '');
+    if (_toSt === 'Arrived' && !job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
+    if (_toSt === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
   }
   const _newSeq = _curSeq + 1;
   job.updateSeq      = _newSeq;
@@ -8643,6 +8767,69 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     });
     res.writeHead(_result.ok ? 200 : 404, JSON_HEADERS);
     res.end(JSON.stringify(_result));
+    return;
+  }
+
+  // ── POST /api/job/stage — driver marks Arrived / On board (Active) ───────────
+  if (urlPath === '/api/job/stage' && req.method === 'POST') {
+    const _sb = await readBody(req);
+    let _s = {};
+    try { _s = JSON.parse(_sb); } catch (e) {}
+    const _sJob = parseInt(_s.bookingId || _s.jobId || _s.BookingId || 0) || 0;
+    let _sDrv = String(_s.driverId || _s.DriverId || '').trim();
+    const _sStatus = String(_s.status || _s.stage || _s.BookingStatus || '').trim();
+    const _userKeyS = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_sDrv && _userKeyS) {
+      const _drs = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _userKeyS ||
+        String(d.userKey || '').trim() === _userKeyS
+      ));
+      if (_drs) _sDrv = String(_drs.driverid || '').trim();
+    }
+    if (!_sJob || !_sDrv || !_sStatus) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId, driverId, status required' }));
+      return;
+    }
+    const _result = await driverStageJob({
+      bookingId: _sJob, driverId: _sDrv, status: _sStatus, source: '/api/job/stage',
+    });
+    const _status = _result.ok ? 200
+      : (_result.error_code === 'not_found' ? 404
+      : (_result.error_code === 'forbidden' ? 403
+      : (_result.error_code === 'already_terminal' ? 410 : 409)));
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/stage #${_sJob} driver=${_sDrv} → ${_sStatus} ok=${_result.ok}`);
+    return;
+  }
+
+  // ── POST /api/job/promote-queued — Queued → Assigned after prior trip ends ───
+  if (urlPath === '/api/job/promote-queued' && req.method === 'POST') {
+    const _pb = await readBody(req);
+    let _p = {};
+    try { _p = JSON.parse(_pb); } catch (e) {}
+    const _pJob = parseInt(_p.bookingId || _p.jobId || 0) || 0;
+    let _pDrv = String(_p.driverId || '').trim();
+    const _userKeyP = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    if (!_pDrv && _userKeyP) {
+      const _drp = ZONE_DRIVERS.find(d => d && String(d.passforlink || '').trim() === _userKeyP);
+      if (_drp) _pDrv = String(_drp.driverid || '').trim();
+    }
+    if (!_pJob || !_pDrv) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId and driverId required' }));
+      return;
+    }
+    const _result = await promoteQueuedJobByDriver({
+      bookingId: _pJob, driverId: _pDrv, source: '/api/job/promote-queued',
+    });
+    const _status = _result.ok ? 200
+      : (_result.error_code === 'not_found' ? 404
+      : (_result.error_code === 'forbidden' ? 403 : 409));
+    res.writeHead(_status, JSON_HEADERS);
+    res.end(JSON.stringify(_result));
+    console.log(`${_status}: POST /api/job/promote-queued #${_pJob} driver=${_pDrv} ok=${_result.ok}`);
     return;
   }
 
