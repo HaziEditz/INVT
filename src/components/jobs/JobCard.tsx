@@ -84,7 +84,7 @@ export function JobCard({ job, tab }: JobCardProps) {
   );
 
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 30_000);
+    const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 

@@ -62,6 +62,7 @@ function inferCategory(t: Omit<ToastItem, 'id'>): NotificationCategory {
 }
 
 function soundForToast(t: Omit<ToastItem, 'id'>): NotifySoundKind {
+  if (t.title.toUpperCase().includes('DISPATCH NOW')) return 'alert';
   if (t.category) {
     if (t.category === 'job_created') return 'job_created';
     if (t.category === 'job_updated') return 'job_updated';

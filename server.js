@@ -1529,6 +1529,7 @@ const _BOOKING_STATE_MACHINE = {
   'Offered':   { assign: 'Offered', accept: 'Assigned', cancel: 'Cancelled', update: 'Offered', recall: 'Pending' },
   'Assigned':  { assign: 'Offered', accept: 'Assigned', cancel: 'Cancelled', recall: 'Pending', update: 'Assigned', complete: 'Completed' },
   'Picking':   { cancel: 'Cancelled', update: 'Picking', complete: 'Completed' },
+  'Arrived':   { cancel: 'Cancelled', update: 'Arrived', complete: 'Completed' },
   'OnTrip':    { cancel: 'Cancelled', update: 'OnTrip', complete: 'Completed' },
   'Active':    { cancel: 'Cancelled', update: 'Active',  complete: 'Completed' },
   'Busy':      { cancel: 'Cancelled', update: 'Busy',    complete: 'Completed' },
@@ -1897,6 +1898,7 @@ async function assignBooking(opts) {
 
   if (_nextStatus === 'Offered') {
     _stampPreOfferPoolStatus(job, _curStatus);
+    _logJobPoolState(job, 'before-offer');
   }
 
   // Reassign — notify previous driver and clear their offer/active UI before new fanout.
@@ -2276,6 +2278,10 @@ async function _writePendingJobFirebase(cid, bookingId, job) {
     const fbJob = {
       BookingId: bookingId,
       Status: 'Pending',
+      BookingStatus: 'Pending',
+      DriverId: '0',
+      VehicleId: '0',
+      AssignedDriver: '',
       PassengerName: normed.name,
       PhoneNo: normed.phone,
       PickAddress: normed.pickAddress,
@@ -2445,7 +2451,9 @@ async function driverDeclineJob(opts) {
 
   _applyPoolStatusFields(job, _restoredPool);
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
+  _bumpJobUpdateSeq(job, 'driver');
   saveJobStore();
+  _logJobPoolState(job, timedOut ? 'after-timeout' : 'after-decline');
 
   const _hasOther = driverHasRemainingAssignments(driverId, bookingId, _cid);
   if (!_hasOther && timedOut) {
@@ -2459,26 +2467,16 @@ async function driverDeclineJob(opts) {
       setAwayLock(driverId);
       const _fbVehId = zd.VehicleId || zd.vehiclenumber || '';
       if (_cid && _fbVehId) {
-        getFirebaseServerToken().then(_tok => {
-          if (!_tok) return;
-          firebaseDbPatch(`online/${_cid}/${_fbVehId}/current`, {
-            vehiclestatus: 'Away',
-            jobId: '',
-            jobpickup: '',
-            jobdropoff: '',
-            JobphoneNo: '',
-          }, _tok).catch(() => {});
-        });
+        void _mirrorDriverAwayOnUnreached(_cid, _fbVehId, driverId);
       }
       console.log(`  [${source}] driver ${driverId} → Away (timedOut=${timedOut})`);
     }
   }
 
   if (_cid) {
+    await _releaseOfferToPoolFirebase(_cid, bookingId, job, _restoredPool);
     getFirebaseServerToken().then(async _tok => {
       if (!_tok) return;
-      await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
-      if (_restoredPool === 'Pending') await _writePendingJobFirebase(_cid, bookingId, job);
       await fbRequest(`${FB_DB_URL}/notification/${driverId}.json?auth=${encodeURIComponent(_tok)}`, 'DELETE').catch(() => {});
     });
     await _dispatchRefreshForJob(job, {
@@ -2486,7 +2484,7 @@ async function driverDeclineJob(opts) {
       previousStatus: _prevSt,
       status: job.BookingStatus,
       action: timedOut ? 'timeout' : 'decline',
-      driverId,
+      driverId: '0',
     });
   }
 
@@ -2625,6 +2623,94 @@ function _applyPoolStatusFields(job, poolStatus) {
   return restored;
 }
 
+function _logJobPoolState(job, tag) {
+  if (!job) return;
+  console.log(
+    `  [pool-trace/${tag}] job #${job.Id} BookingStatus=${job.BookingStatus}` +
+    ` _preOfferStatus=${job._preOfferStatus || '-'}` +
+    ` originalStatus=${job.originalStatus || '-'}` +
+    ` manualOffer=${!!job.manualOffer}` +
+    ` DriverId=${job.DriverId}` +
+    ` releasedAt=${job.releasedAt || '-'}` +
+    ` updateSeq=${job.updateSeq || 0}`
+  );
+}
+
+function _bumpJobUpdateSeq(job, by) {
+  const seq = (parseInt(job.updateSeq) || 0) + 1;
+  job.updateSeq = seq;
+  job.lastUpdatedAt = new Date().toISOString();
+  job.lastUpdatedBy = by || 'system';
+  return seq;
+}
+
+async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus) {
+  if (!cid || !bookingId || !job) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const restored = poolStatus === 'No One' ? 'No One' : 'Pending';
+    const seq = parseInt(job.updateSeq) || 0;
+    const patch = {
+      BookingId: String(bookingId),
+      BookingStatus: restored,
+      Status: restored,
+      DriverId: restored === 'No One' ? '-1' : '0',
+      VehicleId: '0',
+      AssignedDriver: '',
+      AssignedDriverId: '',
+      manualOffer: restored === 'No One',
+      releasedAt: job.releasedAt || Date.now(),
+      updateSeq: seq,
+      version: seq,
+      _seq: seq,
+      lastUpdatedAt: job.lastUpdatedAt || new Date().toISOString(),
+    };
+    await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok);
+    if (restored === 'No One') {
+      await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+    } else {
+      await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+      await _writePendingJobFirebase(cid, bookingId, job);
+    }
+    console.log(`  [pool-restore] Firebase allbookings/${cid}/${bookingId} → ${restored} (seq=${seq})`);
+  } catch (e) {
+    console.warn(`  [pool-restore] Firebase fanout failed: ${e && e.message}`);
+  }
+}
+
+async function _mirrorDriverAwayOnUnreached(cid, vehicleNo, driverId) {
+  if (!cid || !vehicleNo) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const topPatch = {
+      vehiclestatus: 'Away',
+      VehicleStatus: 'Away',
+      jobpickup: '',
+      jobdropoff: '',
+      JobphoneNo: '',
+      jobname: '',
+      BookingId: '',
+      jobCount: 0,
+    };
+    await firebaseDbPatch(`online/${cid}/${vehicleNo}`, topPatch, tok);
+    await firebaseDbPatch(`online/${cid}/${vehicleNo}/current`, {
+      vehiclestatus: 'Away',
+      currentJobId: null,
+      jobId: null,
+      joboffer: 0,
+      jobpickup: '',
+      jobdropoff: '',
+      JobphoneNo: '',
+      jobname: '',
+    }, tok);
+    console.log(`  [pool-restore] online/${cid}/${vehicleNo} → Away (driver ${driverId || '-'})`);
+  } catch (e) {
+    console.warn(`  [pool-restore] online Away mirror failed: ${e && e.message}`);
+  }
+}
+
 function _dispatchRefreshActionForStatus(status) {
   const st = String(status || '');
   if (st === 'Completed') return 'complete';
@@ -2645,13 +2731,16 @@ function _dispatchRefreshForJob(job, opts) {
   if (!cid) return Promise.resolve();
   const status = opts.status || job.BookingStatus || '';
   const action = opts.action || _dispatchRefreshActionForStatus(status);
-  const driverId = opts.driverId != null ? opts.driverId : (job.DriverId || '');
+  const driverId = opts.driverId != null
+    ? opts.driverId
+    : (_normJobDriverId(job.DriverId) || '0');
   return _signalDispatchConsoleRefresh(cid, {
     bookingId: job.Id,
     action,
     status,
     previousStatus: opts.previousStatus,
     driverId,
+    updateSeq: parseInt(job.updateSeq) || 0,
   });
 }
 
@@ -3016,6 +3105,7 @@ async function updateBooking(opts) {
       cid: _cid,
       previousStatus: _prevStatus,
       status: job.BookingStatus,
+      action: _dispatchRefreshActionForStatus(job.BookingStatus),
       driverId: _drv || _prevDrv,
     });
   }
@@ -10617,8 +10707,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 zd.vehiclestatus = newDriverStatus;
                 zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
               }
-              if (newDriverStatus === 'Away') setAwayLock(_releaseDriverId);
-              else {
+              if (newDriverStatus === 'Away') {
+                setAwayLock(_releaseDriverId);
+                const _unrVeh = (job.VehicleNo || job.CallSign || (zd && (zd.vehiclenumber || zd.VehicleId)) || '').toString().trim();
+                if (sessionCompanyId && _unrVeh) {
+                  void _mirrorDriverAwayOnUnreached(sessionCompanyId, _unrVeh, _releaseDriverId);
+                }
+              } else {
                 clearAwayLock(_releaseDriverId);
                 clearDriverHomeState(_releaseDriverId); // home state consumed
               }
@@ -10632,23 +10727,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                               (_rawDrv !== undefined && _rawDrv !== null && parseInt(_rawDrv) === 0);
             if (_clearDrv) { job.DriverId = 0; job.VehicleId = 0; }
           }
+          if (newStatus === 'Unreached') {
+            _bumpJobUpdateSeq(job, 'driver');
+            _logJobPoolState(job, 'after-unreached-dp');
+          }
           saveJobStore();
           if (sessionCompanyId && job.BookingStatus !== _refreshPrevDP) {
             _dispatchRefreshForJob(job, {
               cid: sessionCompanyId,
               previousStatus: _refreshPrevDP,
               status: job.BookingStatus,
-              driverId: job.DriverId,
+              action: newStatus === 'Unreached' ? 'timeout' : undefined,
+              driverId: '0',
             }).catch(() => {});
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {
-            if (effectiveStatus === 'Pending') {
-              _writePendingJobFirebase(sessionCompanyId, bookingId, job).catch(() => {});
-            } else if (effectiveStatus === 'No One') {
-              getFirebaseServerToken().then(tok => {
-                if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-              });
-            }
+            _releaseOfferToPoolFirebase(sessionCompanyId, bookingId, job, effectiveStatus).catch(() => {});
           }
           // Patch Firebase pendingjobs so driver app sees 'Offered' status.
           // Without this, a stale 'Assigned' entry from a previous session causes
@@ -10740,23 +10834,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 }
               } catch(_eA) { console.warn('  [changeriddestatusforoffer/DP] Assigned post-write failed:', _eA && _eA.message); }
             })();
-          }
-          // When Unreached: clear job fields from online/{cid}/{vehicleId}/current so the
-          // driver app doesn't think the job is still assigned and skips future offer screens.
-          if (newStatus === 'Unreached' && sessionCompanyId) {
-            const _unrVeh = (job.VehicleNo || job.CallSign || '').toString().trim();
-            if (_unrVeh) {
-              (async () => {
-                try {
-                  const _tok2 = await getFirebaseServerToken();
-                  if (_tok2) {
-                    const _ocUrl2 = `${FB_DB_URL}/online/${sessionCompanyId}/${_unrVeh}/current.json?auth=${encodeURIComponent(_tok2)}`;
-                    await fbRequest(_ocUrl2, 'PATCH', { currentJobId: null, jobId: null, joboffer: 0, jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '' });
-                    console.log(`  [changeriddestatusforoffer/DP] online/${sessionCompanyId}/${_unrVeh}/current cleared (Unreached)`);
-                  }
-                } catch(_e2) { console.warn('  [changeriddestatusforoffer/DP] online/current clear failed:', _e2 && _e2.message); }
-              })();
-            }
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'} reason=${returnReason || '-'}`);
@@ -12806,8 +12883,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 zd.vehiclestatus = newDriverStatus2;
                 zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
               }
-              if (newDriverStatus2 === 'Away') setAwayLock(_releaseDriverId2);
-              else {
+              if (newDriverStatus2 === 'Away') {
+                setAwayLock(_releaseDriverId2);
+                const _unrVeh2 = (job.VehicleNo || job.CallSign || (zd && (zd.vehiclenumber || zd.VehicleId)) || '').toString().trim();
+                if (sessionCompanyId && _unrVeh2) {
+                  void _mirrorDriverAwayOnUnreached(sessionCompanyId, _unrVeh2, _releaseDriverId2);
+                }
+              } else {
                 clearAwayLock(_releaseDriverId2);
                 clearDriverHomeState(_releaseDriverId2);
               }
@@ -12821,23 +12903,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                                (_rawDrv2 !== undefined && _rawDrv2 !== null && parseInt(_rawDrv2) === 0);
             if (_clearDrv2) { job.DriverId = 0; job.VehicleId = 0; }
           }
+          if (newStatus === 'Unreached') {
+            _bumpJobUpdateSeq(job, 'driver');
+            _logJobPoolState(job, 'after-unreached-ds');
+          }
           saveJobStore();
           if (sessionCompanyId && job.BookingStatus !== _refreshPrevDS) {
             _dispatchRefreshForJob(job, {
               cid: sessionCompanyId,
               previousStatus: _refreshPrevDS,
               status: job.BookingStatus,
-              driverId: job.DriverId,
+              action: newStatus === 'Unreached' ? 'timeout' : undefined,
+              driverId: '0',
             }).catch(() => {});
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {
-            if (effectiveStatus2 === 'Pending') {
-              _writePendingJobFirebase(sessionCompanyId, bookingId, job).catch(() => {});
-            } else if (effectiveStatus2 === 'No One') {
-              getFirebaseServerToken().then(tok => {
-                if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-              });
-            }
+            _releaseOfferToPoolFirebase(sessionCompanyId, bookingId, job, effectiveStatus2).catch(() => {});
           }
           // Patch Firebase pendingjobs so driver app sees 'Offered' status.
           // Without this, a stale 'Assigned' entry from a previous session causes
@@ -12914,21 +12995,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 }
               } catch(_eA2) { console.warn('  [changeriddestatusforoffer/DS] Assigned post-write failed:', _eA2 && _eA2.message); }
             })();
-          }
-          if (newStatus === 'Unreached' && sessionCompanyId) {
-            const _unrVeh2 = (job.VehicleNo || job.CallSign || '').toString().trim();
-            if (_unrVeh2) {
-              (async () => {
-                try {
-                  const _tok3 = await getFirebaseServerToken();
-                  if (_tok3) {
-                    const _ocUrl4 = `${FB_DB_URL}/online/${sessionCompanyId}/${_unrVeh2}/current.json?auth=${encodeURIComponent(_tok3)}`;
-                    await fbRequest(_ocUrl4, 'PATCH', { currentJobId: null, jobId: null, joboffer: 0, jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '' });
-                    console.log(`  [changeriddestatusforoffer/DS] online/${sessionCompanyId}/${_unrVeh2}/current cleared (Unreached)`);
-                  }
-                } catch(_e3) { console.warn('  [changeriddestatusforoffer/DS] online/current clear failed:', _e3 && _e3.message); }
-              })();
-            }
           }
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> job #${bookingId} status=${newStatus || 'unchanged'}`);

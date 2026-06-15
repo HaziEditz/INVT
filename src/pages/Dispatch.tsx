@@ -21,7 +21,7 @@ import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { Spinner } from '@/components/shared/Spinner';
 import { useFirebaseInit } from '@/hooks/useFirebase';
-import { useJobs } from '@/hooks/useJobs';
+import { useJobs, useDispatchWindowAlerts } from '@/hooks/useJobs';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useSession, useCompanySettings, useRealtimeNotifications } from '@/hooks/useSession';
 import { sessionMe, accountStatus } from '@/lib/jobFlow';
@@ -47,6 +47,7 @@ export function DispatchPage() {
   const mapPoppedOut = useUiStore((s) => s.mapPoppedOut);
   const setMapPoppedOut = useUiStore((s) => s.setMapPoppedOut);
   const selectedJobId = useJobStore((s) => s.selectedJobId);
+  const jobs = useJobStore((s) => s.jobs);
 
   const activeCompanyId = ready && companyId ? companyId : null;
 
@@ -66,6 +67,7 @@ export function DispatchPage() {
   }, [navigate, setBillingBanner]);
 
   useJobs(activeCompanyId);
+  useDispatchWindowAlerts(jobs);
   useDrivers(activeCompanyId);
   useSession(activeCompanyId, sessionId, dispatcherName);
   useCompanySettings(activeCompanyId);

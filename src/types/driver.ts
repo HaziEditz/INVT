@@ -39,7 +39,13 @@ export function driverFromFirebase(
   companyId: string
 ): Driver {
   const current = (rec.current as Record<string, unknown>) || {};
-  const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away') as DriverStatus;
+  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away') as DriverStatus;
+  const curStatus = String(current.vehiclestatus ?? '').trim() as DriverStatus;
+  // Prefer current/ subnode when top-level vehiclestatus is stale (e.g. after offer timeout).
+  const status =
+    topStatus === 'Available' && (curStatus === 'Away' || curStatus === 'Picking' || curStatus === 'Active')
+      ? curStatus
+      : topStatus;
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? ''),
     vehicleId,
@@ -52,9 +58,9 @@ export function driverFromFirebase(
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ''),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : undefined,
     jobCount: rec.jobCount != null ? Number(rec.jobCount) : undefined,
-    bookingId: String(rec.BookingId ?? current.bookingId ?? current.joboffer ?? ''),
-    jobPickup: String(rec.jobpickup ?? current.jobpickup ?? ''),
-    jobDropoff: String(rec.jobdropoff ?? current.jobdropoff ?? ''),
+    bookingId: status === 'Away' ? '' : String(rec.BookingId ?? current.bookingId ?? current.joboffer ?? ''),
+    jobPickup: status === 'Away' ? '' : String(rec.jobpickup ?? current.jobpickup ?? ''),
+    jobDropoff: status === 'Away' ? '' : String(rec.jobdropoff ?? current.jobdropoff ?? ''),
     passengerName: String(rec.jobname ?? current.jobname ?? ''),
     passengerPhone: String(rec.JobphoneNo ?? current.JobphoneNo ?? ''),
     services: Array.isArray(rec.allowedServices)

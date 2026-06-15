@@ -70,6 +70,16 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
   if (incoming.status != null) {
     merged.status = mergeJobStatus(existing.status, incoming.status, existingSeq, incomingSeq);
   }
+  const incDriver = incoming.driverId != null ? String(incoming.driverId) : null;
+  if (incDriver === '0' || incDriver === '-1') {
+    if (
+      incoming.status != null &&
+      (normalizeJobStatus(String(incoming.status)) === 'Pending' ||
+        normalizeJobStatus(String(incoming.status)) === 'No One')
+    ) {
+      merged.driverId = incDriver;
+    }
+  }
   if (incoming.driverId != null && incomingSeq < existingSeq && statusRank(merged.status) > statusRank('Offered')) {
     if (existing.driverId) merged.driverId = existing.driverId;
   }

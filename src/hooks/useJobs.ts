@@ -3,7 +3,7 @@ import { mergeJobUpdate } from '@/lib/mergeJob';
 import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, type Job, type JobTab } from '@/types/job';
+import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, isPreBookedJob, jobDispatchTime, type Job, type JobTab } from '@/types/job';
 import { isExternalJobSource } from '@/lib/utils';
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
@@ -52,7 +52,47 @@ type DispatchRefreshPayload = {
   action?: string;
   status?: string;
   driverId?: string;
+  updateSeq?: number;
 };
+
+const POOL_RESTORE_ACTIONS = new Set(['status', 'timeout', 'decline', 'recall', 'scheduled_release']);
+const LIVE_OFFER_STATUSES = new Set(['Offered', 'Assigned']);
+
+function pendingSnapshotWouldRegressPool(
+  refresh: DispatchRefreshPayload,
+  pjVal: Record<string, unknown>,
+): boolean {
+  if (!refresh.status) return false;
+  const target = normalizeJobStatus(refresh.status);
+  if (target !== 'Pending' && target !== 'No One') return false;
+  if (!POOL_RESTORE_ACTIONS.has(refresh.action || '')) return false;
+  const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''));
+  return LIVE_OFFER_STATUSES.has(pjSt);
+}
+
+function seqFromFirebaseRecord(rec: Record<string, unknown> | null | undefined): number | undefined {
+  if (!rec || typeof rec !== 'object') return undefined;
+  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
+  const n = parseInt(String(raw ?? ''), 10);
+  return Number.isNaN(n) ? undefined : n;
+}
+
+function resolveRefreshDriverId(
+  refresh: DispatchRefreshPayload,
+  targetStatus: Job['status'],
+  job: Job | null,
+  prior: Job | null,
+): string {
+  if (targetStatus === 'No One') return '-1';
+  if (targetStatus === 'Pending') {
+    if (POOL_RESTORE_ACTIONS.has(refresh.action || '')) return '0';
+    if (refresh.driverId === '0' || refresh.driverId === '') return '0';
+  }
+  if (refresh.driverId !== undefined && refresh.driverId !== null && refresh.driverId !== '') {
+    return String(refresh.driverId);
+  }
+  return job?.driverId ?? prior?.driverId ?? '0';
+}
 
 function existingJobSnapshot(
   bookingId: number,
@@ -81,12 +121,14 @@ function applyRefreshStatusHint(
 ): Job | null {
   if (!refresh.status) return job;
   const targetStatus = normalizeJobStatus(refresh.status);
-  const driverId = refresh.driverId ?? job?.driverId ?? prior?.driverId;
+  const driverId = resolveRefreshDriverId(refresh, targetStatus, job, prior);
+  const updateSeq = refresh.updateSeq ?? job?.updateSeq ?? prior?.updateSeq;
+  const patch = { status: targetStatus, driverId, ...(updateSeq != null ? { updateSeq } : {}) } as Job;
   if (job) {
-    return mergeJobUpdate(job, { status: targetStatus, driverId } as Job);
+    return mergeJobUpdate(job, patch);
   }
   if (prior && !useJobStore.getState().isJobBlacklisted(bookingId)) {
-    return mergeJobUpdate(prior, { status: targetStatus, driverId } as Job);
+    return mergeJobUpdate(prior, patch);
   }
   return job;
 }
@@ -150,6 +192,13 @@ async function refreshJobFromFirebaseCaches(
 
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
 
+  const pjVal = pjSnap.val();
+  const pjRecord = pjVal && typeof pjVal === 'object' ? (pjVal as Record<string, unknown>) : null;
+  const fbSeq = seqFromFirebaseRecord(abVal as Record<string, unknown>) ?? seqFromFirebaseRecord(pjRecord);
+  if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq) {
+    job = mergeJobUpdate(job, { updateSeq: fbSeq } as Job);
+  }
+
   if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
     const st = normalizeJobStatus(job.status);
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
@@ -166,9 +215,20 @@ async function refreshJobFromFirebaseCaches(
     }
   }
 
-  const pjVal = pjSnap.val();
-  if (pjVal && typeof pjVal === 'object') {
-    hooks.applyPending(String(bookingId), pjVal as Record<string, unknown>, false);
+  if (pjRecord) {
+    if (pendingSnapshotWouldRegressPool(refresh, pjRecord)) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          `[dispatch-refresh] ignored stale pendingjobs #${bookingId}`,
+          pjRecord.BookingStatus ?? pjRecord.Status,
+          '→ refresh',
+          refresh.status,
+        );
+      }
+      if (job) pendingRef.set(job.id, job);
+    } else {
+      hooks.applyPending(String(bookingId), pjRecord, false);
+    }
   } else {
     pendingRef.delete(bookingId);
     const liveActions = new Set(['accept', 'assign', 'offer', 'queue', 'active', 'status', 'timeout', 'decline', 'recall', 'scheduled_release']);
@@ -204,7 +264,7 @@ export function useJobs(companyId: string | null) {
 
     const syncAll = () => {
       const removed = new Set(useJobStore.getState().removedJobIds);
-      const merged = mergeJobs([bookingsRef.current, pendingRef.current]).filter(
+      const merged = mergeJobs([pendingRef.current, bookingsRef.current]).filter(
         (j) => !removed.has(j.id)
       );
       const byId = new Map(merged.map((j) => [j.id, j]));
@@ -313,6 +373,7 @@ export function useJobs(companyId: string | null) {
           action?: string;
           status?: string;
           driverId?: string | number;
+          updateSeq?: number;
         } | null;
         if (!v?.at || v.at === lastDispatchRefreshAtRef.current) return;
         lastDispatchRefreshAtRef.current = v.at;
@@ -328,6 +389,10 @@ export function useJobs(companyId: string | null) {
             action: v.action,
             status: v.status,
             driverId: v.driverId != null ? String(v.driverId) : undefined,
+            updateSeq:
+              v.updateSeq != null
+                ? parseInt(String(v.updateSeq), 10)
+                : undefined,
           },
           pendingRef.current,
           bookingsRef.current,
@@ -349,6 +414,28 @@ export function useJobs(companyId: string | null) {
   }, [companyId, setJobs, upsertJob, removeJob, clearRemovedJob]);
 
   return useJobStore((s) => s.jobs);
+}
+
+const dispatchNowNotifiedRef = { current: new Set<number>() };
+
+/** Fire toast + alert sound when a pre-booked job enters its dispatch window. */
+export function useDispatchWindowAlerts(jobs: Job[]) {
+  useEffect(() => {
+    const now = new Date();
+    for (const job of jobs) {
+      if (jobTabForStatus(job) !== 'ua' || !isPreBookedJob(job, now)) continue;
+      const dispatchAt = jobDispatchTime(job);
+      if (!dispatchAt || now.getTime() < dispatchAt.getTime()) continue;
+      if (dispatchNowNotifiedRef.current.has(job.id)) continue;
+      dispatchNowNotifiedRef.current.add(job.id);
+      useUiStore.getState().addToast({
+        type: 'warning',
+        title: 'DISPATCH NOW',
+        message: `#${job.id} ${job.pickAddress || 'Ready to assign'}`,
+        category: 'general',
+      });
+    }
+  }, [jobs]);
 }
 
 export function useClosedJobs(companyId: string | null, enabled: boolean) {
