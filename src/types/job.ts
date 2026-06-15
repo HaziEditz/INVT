@@ -315,7 +315,7 @@ function isUnassignedForDispatch(job: Job): boolean {
 }
 
 /** Pre-booked / scheduled — not an immediate ASAP pickup. */
-function isPreBookedJob(job: Job, now = new Date()): boolean {
+export function isPreBookedJob(job: Job, now = new Date()): boolean {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
   if (normalizeJobStatus(job.status) === 'Scheduled') return true;
