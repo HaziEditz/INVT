@@ -950,6 +950,72 @@ function syncZonequeueToFirebase(companyId, vehicleId, queueNo, zonename, source
 // Called from every site that pushes a job into closedJobStore — covers ALL
 // booking sources (Dispatch console, Website, Passenger app, Rental, ACC,
 // Business Account) and ALL payment types (Cash, Card, Account, TM, Stripe).
+
+function _terminalFirebaseStatusFields(finalStatus) {
+  const s = finalStatus === 'Cancelled' ? 'Cancelled' : 'Completed';
+  return {
+    BookingStatus: s,
+    Status:        s,
+    status:        s,
+    jobstatus:     s,
+    eventType:     s === 'Cancelled' ? 'cancelled' : 'completed',
+  };
+}
+
+function _onlineTripClearPatch(vehiclestatus) {
+  const vs = vehiclestatus || 'Available';
+  return {
+    currentJobId: null,
+    jobId:        null,
+    joboffer:     0,
+    jobpickup:    '',
+    jobdropoff:   '',
+    JobphoneNo:   '',
+    jobname:      '',
+    vehiclestatus: vs,
+    VehicleStatus: vs,
+  };
+}
+
+/** Clear job pointers on online/{cid}/{vid} and online/{cid}/{vid}/current when they reference bookingId. */
+async function _clearOnlineTripFieldsForBooking(cid, vehId, bookingId, logTag) {
+  const _tag = logTag || `[online-clear #${bookingId}]`;
+  const tok = await getFirebaseServerToken();
+  if (!tok || !cid || !vehId || !bookingId) return;
+  const auth = encodeURIComponent(tok);
+  const _cid = String(cid);
+  const _vid = String(vehId);
+  const _bId = String(bookingId);
+  const _clearIfMatch = async (url, label) => {
+    const g = await fbRequest(`${url}?auth=${auth}`, 'GET', null);
+    const node = g.body || {};
+    const cur = String(node.currentJobId || node.jobId || node.joboffer || '');
+    if (cur && cur !== _bId) return false;
+    await fbRequest(`${url}?auth=${auth}`, 'PATCH', _onlineTripClearPatch('Available'));
+    console.log(`${_tag} ${label} cleared (was #${_bId})`);
+    return true;
+  };
+  await _clearIfMatch(`${FB_DB_URL}/online/${_cid}/${_vid}.json`, `online/${_cid}/${_vid}`);
+  await _clearIfMatch(`${FB_DB_URL}/online/${_cid}/${_vid}/current.json`, `online/${_cid}/${_vid}/current`);
+}
+
+function _jobIsClosedInStore(bookingId) {
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return false;
+  const _TERM = new Set(['Completed', 'Cancelled', 'No Show', 'NoShow', 'Closed']);
+  return closedJobStore.some(j => j && j.Id === bid && _TERM.has(String(j.BookingStatus || '')));
+}
+
+function _purgeLiveJobFromStore(bookingId) {
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return false;
+  const idx = jobStore.findIndex(j => j && j.Id === bid);
+  if (idx === -1) return false;
+  jobStore.splice(idx, 1);
+  saveJobStore();
+  return true;
+}
+
 async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus) {
   try {
     if (!cid || !bookingId) return;
@@ -986,6 +1052,7 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
     }
     const _final   = (finalStatus === 'Cancelled') ? 'Cancelled' : 'Completed';
     const _tag     = `[FBcleanup #${_bId}]`;
+    const _termFields = _terminalFirebaseStatusFields(_final);
     const tok = await getFirebaseServerToken();
     if (!tok) { console.warn(`${_tag} no firebase token — skipped`); return; }
     const auth = encodeURIComponent(tok);
@@ -995,6 +1062,14 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
       : { completedAt: nowIso };
 
     const tasks = [];
+
+    // 0. /allbookings/{cid}/{bookingId} — stamp ALL legacy status fields to terminal.
+    tasks.push(
+      fbRequest(`${FB_DB_URL}/allbookings/${_cid}/${_bId}.json?auth=${auth}`,
+        'PATCH', Object.assign({}, _termFields, stamp))
+        .then(r => console.log(`${_tag} allbookings/${_cid}/${_bId} → ${_final} [${r.status}]`))
+        .catch(e => console.warn(`${_tag} allbookings PATCH failed: ${e && e.message}`))
+    );
 
     // 1. /pendingjobs/{cid}/{bookingId} — PATCH to terminal status THEN DELETE.
     //    The PATCH stamps Status:Completed/Cancelled + completedAt/cancelledAt
@@ -1013,7 +1088,7 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
       try {
         const _pjUrl = `${FB_DB_URL}/pendingjobs/${_cid}/${_bId}.json?auth=${auth}`;
         const _p = await fbRequest(_pjUrl, 'PATCH',
-          Object.assign({ Status: _final, BookingStatus: _final }, stamp));
+          Object.assign({}, _termFields, stamp));
         console.log(`${_tag} pendingjobs/${_cid}/${_bId} → ${_final} [${_p.status}]`);
         // Guarded DELETE — only remove the node if it STILL shows our terminal
         // stamp. Defends against the (very narrow) ID-recycle race where a fresh
@@ -1087,29 +1162,17 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
       })());
     }
 
-    // 5. /online/{cid}/{vehId}/current — PATCH-clear job fields ONLY if currently
-    //    pointing at this booking. Driver stays online.
+    // 5. /online/{cid}/{vehId} + /current — clear trip fields ONLY if pointing at this booking.
     if (_vId) {
       tasks.push((async () => {
         try {
-          // §FIX-K — wait for the completion snapshot (if inflight) before
-          // clearing the node, so we don't strip meterFare/distance/duration/
-          // tariff before the snapshot read captures them.
           try {
             const _snap = _completionSnapshotInflight && _completionSnapshotInflight.get(_snapKey(_cid, _bId));
             if (_snap && typeof _snap.then === 'function') {
               await _snap;
             }
           } catch (_eSnap) { /* snapshot best-effort; never block cleanup */ }
-          const g = await fbRequest(`${FB_DB_URL}/online/${_cid}/${_vId}/current.json?auth=${auth}`, 'GET', null);
-          const c = g.body || {};
-          const cur = String(c.currentJobId || c.jobId || c.joboffer || '');
-          if (cur && cur === _bId) {
-            await fbRequest(`${FB_DB_URL}/online/${_cid}/${_vId}/current.json?auth=${auth}`,
-              'PATCH', { currentJobId: null, jobId: null, joboffer: 0,
-                         jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '' });
-            console.log(`${_tag} online/${_cid}/${_vId}/current cleared`);
-          }
+          await _clearOnlineTripFieldsForBooking(_cid, _vId, _bId, _tag);
         } catch(e) { console.warn(`${_tag} online clear failed: ${e && e.message}`); }
       })());
     }
@@ -1274,9 +1337,9 @@ async function _withdrawJobFromDriver(opts) {
   }
 }
 
-// Decide and apply driver state change after a booking is cancelled/recalled.
+// Decide and apply driver state change after a booking is cancelled/recalled/completed.
 // Returns { driverFreed: bool, driverState: 'Available'|'Away'|'unchanged'|'unknown', queueNo: number|null }
-function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBookingId, driverFault, source) {
+async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBookingId, driverFault, source) {
   const _src = source || 'cancelBooking';
   if (!driverId || String(driverId).trim() === '' || String(driverId) === '0') {
     return { driverFreed: false, driverState: 'unchanged', queueNo: null };
@@ -1307,16 +1370,17 @@ function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBookingId, 
   clearAwayLock(driverId);
   clearDriverHomeState(driverId);
   if (companyId && vehId) {
-    (async () => {
-      try {
-        const _tok = await getFirebaseServerToken();
-        if (_tok) {
-          await firebaseDbPatch(`online/${companyId}/${vehId}/current`,
-            { vehiclestatus: 'Available', jobId: '', jobpickup: '', jobdropoff: '', JobphoneNo: '' }, _tok);
-          console.log(`  [${_src}] §FIX-CB online/${companyId}/${vehId}/current → Available (mirrored)`);
-        }
-      } catch(e) { console.warn(`  [${_src}] online mirror failed: ${e && e.message}`); }
-    })();
+    try {
+      const _tok = await getFirebaseServerToken();
+      if (_tok) {
+        const _patch = _onlineTripClearPatch('Available');
+        await firebaseDbPatch(`online/${companyId}/${vehId}`, _patch, _tok)
+          .catch(e => console.warn(`  [${_src}] online/${companyId}/${vehId} Available mirror failed: ${e && e.message}`));
+        await firebaseDbPatch(`online/${companyId}/${vehId}/current`, _patch, _tok)
+          .catch(e => console.warn(`  [${_src}] online/${companyId}/${vehId}/current Available mirror failed: ${e && e.message}`));
+        console.log(`  [${_src}] §FIX-CB online/${companyId}/${vehId} → Available (mirrored)`);
+      }
+    } catch(e) { console.warn(`  [${_src}] online mirror failed: ${e && e.message}`); }
   }
   console.log(`  [${_src}] §FIX-CB driver ${driverId} → Available q=${_q} zone="${zd.zonename}" (no remaining assignments)`);
   return { driverFreed: true, driverState: 'Available', queueNo: _q };
@@ -2012,6 +2076,25 @@ async function completeBooking(opts) {
   // Idempotency — already in closedJobStore as Completed?
   const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Completed');
   if (_closed) {
+    const _cidIdem = String(_closed.companyId || opts.companyId || '');
+    const _drvIdem = String(_closed.DriverId || _closed.AssignedDriverId || '').trim();
+    const _vehIdem = String(_closed.VehicleNo || _closed.VehicleId || _closed.AssignedVehicleId || '').trim();
+    if (_purgeLiveJobFromStore(bookingId)) {
+      console.log(`  [${source}] idempotent: purged stale live jobStore entry #${bookingId}`);
+    }
+    if (_cidIdem && _drvIdem) {
+      try {
+        await _fanVersionToFirebaseAwait(_cidIdem, bookingId, Object.assign(
+          { updateSeq: parseInt(_closed.updateSeq) || 0 },
+          _terminalFirebaseStatusFields('Completed'),
+          { completedAt: _closed.JobCompleteTime || new Date().toISOString() },
+        ), true);
+        await _bwClearJobFromFirebase(_cidIdem, bookingId, _vehIdem, _drvIdem, 'Completed');
+        await _maybeRestoreDriverState(_drvIdem, _vehIdem, _cidIdem, bookingId, false, `${source}/idempotent-repair`);
+      } catch (e) {
+        console.warn(`  [${source}] idempotent Firebase repair failed: ${e && e.message}`);
+      }
+    }
     console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Completed`);
     return { ok: true, idempotent: true, status: 'Completed',
              driverId: _closed.AssignedDriverId || String(_closed.DriverId || ''),
@@ -2092,24 +2175,34 @@ async function completeBooking(opts) {
       { from: _curStatus, to: 'Completed', fare: job.TotalFare || '', distance: job.distance || '', action: 'complete' },
       by, job.updateSeq).catch(() => {});
   }
-  // §FIX-CMD/ver-fanout — mirror version into allbookings/ before
-  // _bwClearJobFromFirebase DELETEs pendingjobs/. isTerminal=true so we don't
-  // resurrect the pendingjobs/ entry that's about to be removed.
-  _fanVersionToFirebase(_cid, bookingId, {
+  // §FIX-CMD/ver-fanout — mirror terminal status into allbookings/ (all legacy
+  // status fields) before pendingjobs DELETE. isTerminal=true skips pendingjobs patch.
+  const _completeFanPatch = Object.assign({
     updateSeq:     job.updateSeq,
     lastUpdatedAt: job.lastUpdatedAt,
     lastUpdatedBy: job.lastUpdatedBy,
-    BookingStatus: 'Completed',
     fare:          job.TotalFare || '',
-    distance:      job.distance  || ''
-  }, true);
+    distance:      job.distance  || '',
+    completedAt:   _nowIso,
+    JobCompleteTime: _nowIso,
+  }, _terminalFirebaseStatusFields('Completed'));
+  if (_cid) {
+    try {
+      await _fanVersionToFirebaseAwait(_cid, bookingId, _completeFanPatch, true);
+    } catch (e) {
+      console.warn(`  [${source}] complete allbookings fanout failed: ${e && e.message}`);
+    }
+  }
   // Firebase cleanup — booking-scoped child remove with eventType:'completed'
-  // (per §FIX-DA-G2/C2). _bwClearJobFromFirebase already handles this.
   if (_cid && _drvId) {
-    _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Completed');
+    try {
+      await _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Completed');
+    } catch (e) {
+      console.warn(`  [${source}] complete Firebase cleanup failed: ${e && e.message}`);
+    }
   }
   // Driver state restore — respects remainingAssignments rule.
-  const _ds = _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, false, source);
+  const _ds = await _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, false, source);
   if (_cid) {
     await _dispatchRefreshForJob(job, {
       cid: _cid,
@@ -15628,6 +15721,7 @@ async function _hydrateSingleJobFromFirebase(companyId, bookingId) {
       if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
       const st = String(r.body.BookingStatus || r.body.Status || r.body.status || '');
       if (!st || !_HYDRATE_ACTIVE.has(st)) continue;
+      if (_jobIsClosedInStore(bid)) continue;
       const existing = jobStore.find(j => j && j.Id === bid);
       if (existing) {
         _mergeFbIntoJob(existing, r.body);
@@ -15660,6 +15754,7 @@ async function hydrateJobStoreFromFirebase() {
           if (!rec || typeof rec !== 'object') continue;
           const bid = parseInt(rec.BookingId || rec.bookingId || key) || 0;
           if (!bid) continue;
+          if (_jobIsClosedInStore(bid)) continue;
           const st = String(rec.BookingStatus || rec.Status || rec.status || '');
           if (!st || !_HYDRATE_ACTIVE.has(st)) continue;
           const idx = jobStore.findIndex(j => j && j.Id === bid && String(j.companyId || '') === String(cid));

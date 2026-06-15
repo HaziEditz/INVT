@@ -266,6 +266,9 @@ function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
 
   if (booking === 'No One' || status === 'No One') return 'No One';
 
+  if (booking === 'Completed' || booking === 'Cancelled' || booking === 'No Show') return booking;
+  if (status === 'Completed' || status === 'Cancelled' || status === 'No Show') return status as JobStatus;
+
   // BookingStatus is authoritative once a job is offered/assigned — stale root Status
   // (e.g. Pending left from pool create) must not hide Assigned on the Assign tab.
   const LIVE_BOOKING: JobStatus[] = [

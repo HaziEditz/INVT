@@ -78,6 +78,7 @@ function shouldPreserveAbsentStoreJob(
   pendingRef: Map<number, Job>,
   bookingsRef: Map<number, Job>,
 ): boolean {
+  if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
   const tab = jobTabForStatus(job);
   if (tab === 'ua') return true;
   if (!LIVE_DISPATCH_TABS.has(tab)) return false;
@@ -376,6 +377,16 @@ export function useJobs(companyId: string | null) {
       const job = jobFromFirebase(key, rec, companyId);
       if (!job || isBlacklisted(job.id)) return;
 
+      const effectiveStatus = jobStatusFromFirebaseRecord(rec);
+      if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+        pendingRef.current.delete(job.id);
+        bookingsRef.current.delete(job.id);
+        removeJob(job.id);
+        clearRemovedJob(job.id);
+        syncAll();
+        return;
+      }
+
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
       const merged = booking ? mergeJobUpdate(booking, job) : job;
@@ -423,6 +434,7 @@ export function useJobs(companyId: string | null) {
     unsubs.push(
       onValue(bRef, (snap) => {
         bookingsRef.current = new Map();
+        const terminalIds: number[] = [];
         const val = snap.val();
         if (val && typeof val === 'object') {
           for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
@@ -437,12 +449,23 @@ export function useJobs(companyId: string | null) {
             const stored =
               effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
 
+            if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+              terminalIds.push(stored.id);
+              continue;
+            }
+
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               bookingsRef.current.set(stored.id, stored);
             } else if (isPoolUaStatus(effectiveStatus)) {
               pendingRef.current.set(stored.id, stored);
             }
           }
+        }
+        for (const tid of terminalIds) {
+          pendingRef.current.delete(tid);
+          bookingsRef.current.delete(tid);
+          removeJob(tid);
+          clearRemovedJob(tid);
         }
         syncAll();
       })
