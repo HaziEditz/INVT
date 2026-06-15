@@ -1,5 +1,10 @@
 require('dotenv').config();
 
+// Bump when deploying server-side fixes — surfaced on /admin/version and /admin/driverStatus.
+const SERVER_BUILD_ID = process.env.RAILWAY_GIT_COMMIT_SHA ||
+  process.env.GIT_COMMIT ||
+  'sync-per-cid-2026-06-14';
+
 // CRITICAL: must be set BEFORE any Date object is constructed so that all
 // `new Date()` / `toString()` / `toLocaleString()` calls without an explicit
 // timezone argument resolve to NZ local time.  Without this the Replit
@@ -2838,7 +2843,13 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
   const cid = String(companyId || '').trim();
   if (!cid) return { ok: false, error: 'cid required' };
 
-  await _syncZoneDriversFromFirebase({ quiet: true });
+  try {
+    await _syncZoneDriversFromFirebase({ quiet: true, cids: [cid] });
+  } catch (e) {
+    _ZONE_SYNC_LAST.at = new Date().toISOString();
+    _ZONE_SYNC_LAST.error = (e && e.message) || String(e);
+    console.warn('[sync-drivers] admin driverStatus sync failed:', _ZONE_SYNC_LAST.error);
+  }
 
   const filterDriverId = String(opts.driverId || opts.vehicleId || '').trim();
   const allCompanyDrivers = ZONE_DRIVERS.filter(d => String(d.companyId || '') === cid);
@@ -2929,6 +2940,7 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
 
   return {
     ok: true,
+    serverBuildId: SERVER_BUILD_ID,
     companyId: cid,
     filterDriverId: filterDriverId || null,
     generatedAt: new Date().toISOString(),
@@ -5721,6 +5733,15 @@ function canUnlockWithAvailable(driverId) {
   return !!(lock && lock.ackAway);
 }
 
+// Shared by zone-driver sync + ghost-presence sweeper (must be defined before sync runs).
+const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeats can gap during GPS/background
+
+function _normalizeLastSeenMs(raw) {
+  const n = Number(raw || 0);
+  if (!n || !Number.isFinite(n)) return 0;
+  return n < 1e12 ? n * 1000 : n;
+}
+
 // ─── Driver Zone Memory ────────────────────────────────────────────────────────
 // Tracks each driver's zone + queue position so we can intelligently restore
 // their slot when a job finishes or is cancelled.
@@ -6643,6 +6664,19 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
       }
+      return;
+    }
+
+    // GET /admin/version — confirm deployed server build (no auth beyond /admin gate)
+    if (urlPath === '/admin/version' && req.method === 'GET') {
+      jsonReply(res, {
+        ok: true,
+        serverBuildId: SERVER_BUILD_ID,
+        serverUptimeSec: Math.round((Date.now() - SERVER_START_TIME) / 1000),
+        zoneDriversTotal: ZONE_DRIVERS.length,
+        lastZoneSync: _ZONE_SYNC_LAST,
+        lastAutoDispatchTick: _AUTO_DISPATCH_LAST,
+      });
       return;
     }
 
@@ -14872,7 +14906,7 @@ server.on('error', (err) => {
 // and pre-populates ZONE_DRIVERS so dispatching works immediately after restart.
 // Entries are marked _fbSeeded=true so they can be identified; the first real
 // heartbeat from each driver app overwrites them with fresh data.
-const _ZONE_SYNC_LAST = { at: null, added: 0, updated: 0, skipped: 0, error: null };
+const _ZONE_SYNC_LAST = { at: null, lastAttemptAt: null, added: 0, updated: 0, skipped: 0, companies: 0, fetchErrors: null, error: null };
 
 function _collectAutoDispatchEligibleDrivers(cid) {
   const companyId = String(cid || '');
@@ -14970,10 +15004,14 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     return null;
   }
 
-  let _driverId    = cur.driverid      || cur.driverId      || node.driverid      || '';
-  let _drivername  = cur.drivername    || cur.driverName    || node.drivername    || '';
-  let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber || '';
-  let _vehtype     = cur.vehicletype   || cur.vehicleType   || node.vehicletype   || '';
+  let _driverId    = cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '';
+  let _drivername  = cur.drivername || cur.driverName || cur.DriverName || node.drivername || node.driverName || '';
+  let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || cur.VehicleNumber || node.vehiclenumber || node.vehicleNumber || '';
+  let _vehtype     = cur.vehicletype || cur.vehicleType || node.vehicletype || node.vehicleType || '';
+
+  if (!_vehnum && vehicleId && vehicleId !== '0' && !/^D\d+$/i.test(vehicleId)) {
+    _vehnum = vehicleId;
+  }
 
   if (!_driverId && !_drivername && !_vehnum) {
     const rec = idIndex[cid] && idIndex[cid][vehicleId];
@@ -15000,6 +15038,10 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
   const lng = cur.lng || node.lng || cur.Lng || node.Lng || cur.longitude || node.longitude || '';
   const zonequeue = parseInt(cur.zonequeue || cur.zoneQueue || node.zonequeue || '0') || 0;
 
+  if (!_driverId && _vehnum && /^D\d+$/i.test(String(_vehnum))) {
+    _driverId = _vehnum;
+  }
+
   return {
     driverid: driverId,
     VehicleId: vehicleId,
@@ -15018,39 +15060,66 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
 
 // Merge Firebase online/{cid}/* into ZONE_DRIVERS. Runs at boot, every 45 s,
 // and before each auto-dispatch tick so redeploys cannot leave eligible drivers invisible.
+// Uses per-company online/{cid} reads (same path as admin diagnostics) — NOT online.json root,
+// which may be denied by Firebase rules even when online/{cid} reads succeed.
 async function _syncZoneDriversFromFirebase(opts) {
   opts = opts || {};
   const quiet = !!opts.quiet;
   const deleteStaleOrphans = !!opts.deleteStaleOrphans;
+  const attemptAt = new Date().toISOString();
+  _ZONE_SYNC_LAST.lastAttemptAt = attemptAt;
+
   try {
     const token = await getFirebaseServerToken();
     if (!token) {
-      if (!quiet) console.warn('[sync-drivers] no Firebase token — skipping');
       _ZONE_SYNC_LAST.error = 'no Firebase token';
+      _ZONE_SYNC_LAST.at = attemptAt;
+      if (!quiet) console.warn('[sync-drivers] no Firebase token — skipping');
       return _ZONE_SYNC_LAST;
     }
 
-    const r = await fbRequest(
-      `${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null
-    );
-    if (r.status !== 200 || !r.body || typeof r.body !== 'object') {
-      if (!quiet) console.log('[sync-drivers] online/ empty or unavailable — skipping');
-      _ZONE_SYNC_LAST.at = new Date().toISOString();
-      _ZONE_SYNC_LAST.error = 'online/ unavailable';
-      return _ZONE_SYNC_LAST;
-    }
-
+    const cids = (opts.cids && opts.cids.length)
+      ? opts.cids.map(c => String(c)).filter(Boolean)
+      : _fixsCollectCompanyIds();
     const idIndex = _buildClosedJobIdIndex();
-    const stats = { added: 0, updated: 0, skipped: 0, recovered: 0, skippedOrphan: 0, skippedStub: 0, toDelete: [] };
+    const stats = { added: 0, updated: 0, skipped: 0, recovered: 0, companies: 0, fetchErrors: [], toDelete: [] };
 
-    for (const [cid, vehicles] of Object.entries(r.body)) {
-      if (!vehicles || typeof vehicles !== 'object') continue;
+    async function ingestCompany(cid, vehicles) {
+      if (!vehicles || typeof vehicles !== 'object') return;
+      stats.companies++;
       for (const [vehicleId, node] of Object.entries(vehicles)) {
         const record = _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats);
         if (!record) { stats.skipped++; continue; }
         const action = _upsertZoneDriverFromFirebase(record);
         if (action === 'added') stats.added++;
         else if (action === 'updated') stats.updated++;
+      }
+    }
+
+    if (cids.length) {
+      for (const cid of cids) {
+        try {
+          const vehicles = await firebaseDbGet(`online/${cid}`, token);
+          await ingestCompany(cid, vehicles);
+        } catch (e) {
+          stats.fetchErrors.push({ cid, error: (e && e.message) || String(e) });
+        }
+      }
+    }
+
+    // Fallback: bulk online.json when no company list or every per-cid fetch failed.
+    if (!cids.length || (stats.added === 0 && stats.updated === 0 && stats.fetchErrors.length >= cids.length)) {
+      try {
+        const r = await fbRequest(`${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null);
+        if (r.status === 200 && r.body && typeof r.body === 'object') {
+          for (const [cid, vehicles] of Object.entries(r.body)) {
+            await ingestCompany(cid, vehicles);
+          }
+        } else if (!stats.fetchErrors.length) {
+          stats.fetchErrors.push({ cid: '*', error: `online.json status=${r.status}` });
+        }
+      } catch (e) {
+        stats.fetchErrors.push({ cid: '*', error: (e && e.message) || String(e) });
       }
     }
 
@@ -15067,18 +15136,24 @@ async function _syncZoneDriversFromFirebase(opts) {
     _ZONE_SYNC_LAST.added = stats.added;
     _ZONE_SYNC_LAST.updated = stats.updated;
     _ZONE_SYNC_LAST.skipped = stats.skipped;
-    _ZONE_SYNC_LAST.error = null;
+    _ZONE_SYNC_LAST.companies = stats.companies;
+    _ZONE_SYNC_LAST.fetchErrors = stats.fetchErrors.length ? stats.fetchErrors : null;
+    _ZONE_SYNC_LAST.error = (stats.fetchErrors.length && stats.added === 0 && stats.updated === 0)
+      ? (stats.fetchErrors[0].error || 'all online/{cid} fetches failed')
+      : null;
 
-    if (!quiet || stats.added || stats.updated) {
+    if (!quiet || stats.added || stats.updated || _ZONE_SYNC_LAST.error) {
       console.log(
-        `[sync-drivers] ZONE_DRIVERS +${stats.added} ~${stats.updated} skip=${stats.skipped}` +
-        ` recovered=${stats.recovered || 0} total=${ZONE_DRIVERS.length}`
+        `[sync-drivers] +${stats.added} ~${stats.updated} skip=${stats.skipped}` +
+        ` companies=${stats.companies} total=${ZONE_DRIVERS.length}` +
+        (_ZONE_SYNC_LAST.error ? ` err=${_ZONE_SYNC_LAST.error}` : '')
       );
     }
     return _ZONE_SYNC_LAST;
   } catch (e) {
+    _ZONE_SYNC_LAST.at = new Date().toISOString();
     _ZONE_SYNC_LAST.error = e && e.message;
-    if (!quiet) console.warn('[sync-drivers] failed (non-fatal):', e && e.message);
+    console.warn('[sync-drivers] sync failed (non-fatal):', e && e.message);
     return _ZONE_SYNC_LAST;
   }
 }
@@ -15104,14 +15179,6 @@ async function _seedZoneDriversFromFirebase() {
 //
 // Safe by design: only ever deletes presence/heartbeat data. Never touches
 // jobs, notifications, or driver identity records.
-const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeats can gap during GPS/background
-
-// Driver app writes Date.now() (ms). Legacy nodes may store Unix seconds.
-function _normalizeLastSeenMs(raw) {
-  const n = Number(raw || 0);
-  if (!n || !Number.isFinite(n)) return 0;
-  return n < 1e12 ? n * 1000 : n;
-}
 
 setInterval(async () => {
   let token;
@@ -15237,6 +15304,7 @@ async function _syncBizAccountsFromFirebase() {
 
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
+  console.log(`[boot] SERVER_BUILD_ID=${SERVER_BUILD_ID}`);
   console.log(`[tz] process.env.TZ=${process.env.TZ} | server local time=${new Date().toString()}`);
   _seedZoneDriversFromFirebase();
   _syncBizAccountsFromFirebase();
