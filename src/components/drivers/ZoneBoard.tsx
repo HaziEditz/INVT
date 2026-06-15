@@ -1,4 +1,4 @@
-import { useDriverStore } from '@/store/driverStore';
+import { useDriverStore, selectFilteredDrivers } from '@/store/driverStore';
 import { DriverRow } from './DriverRow';
 import { cn } from '@/lib/utils';
 import type { DriverStatus } from '@/types/driver';
@@ -18,8 +18,7 @@ export function ZoneBoard() {
   const serviceFilter = useDriverStore((s) => s.serviceFilter);
   const setStatusFilter = useDriverStore((s) => s.setStatusFilter);
   const setServiceFilter = useDriverStore((s) => s.setServiceFilter);
-  const filteredDrivers = useDriverStore((s) => s.filteredDrivers);
-  const drivers = filteredDrivers();
+  const drivers = useDriverStore(selectFilteredDrivers);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bw-surface">

@@ -83,10 +83,18 @@ export function driverFromFirebase(
   const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
   const curStatus = String(current.vehiclestatus ?? '').trim();
   const status = resolveDriverPresenceStatus(topStatus, curStatus);
+  const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
+  const hasBookingRef =
+    rawBookingRef != null &&
+    String(rawBookingRef).trim() !== '' &&
+    String(rawBookingRef) !== '0';
+  const displayName = String(
+    rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? '',
+  ).trim();
   return {
-    driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? ''),
+    driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ''),
     vehicleId,
-    driverName: String(rec.drivername ?? rec.driverName ?? 'Driver'),
+    driverName: displayName || `Driver ${vehicleId}`,
     vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
     vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? 'Sedan'),
     status,
@@ -95,7 +103,8 @@ export function driverFromFirebase(
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ''),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : undefined,
     jobCount: rec.jobCount != null ? Number(rec.jobCount) : undefined,
-    bookingId: status === 'Away' ? '' : String(rec.BookingId ?? current.bookingId ?? current.joboffer ?? ''),
+    bookingId:
+      status === 'Away' || !hasBookingRef ? '' : String(rawBookingRef),
     jobPickup: status === 'Away' ? '' : String(rec.jobpickup ?? current.jobpickup ?? ''),
     jobDropoff: status === 'Away' ? '' : String(rec.jobdropoff ?? current.jobdropoff ?? ''),
     passengerName: String(rec.jobname ?? current.jobname ?? ''),
