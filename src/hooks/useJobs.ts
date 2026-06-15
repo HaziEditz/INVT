@@ -3,7 +3,16 @@ import { mergeJobUpdate } from '@/lib/mergeJob';
 import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get } from '@/lib/firebase';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { jobFromFirebase, jobTabForStatus, normalizeJobStatus, isPreBookedJob, jobDispatchTime, type Job, type JobTab } from '@/types/job';
+import {
+  jobFromFirebase,
+  jobStatusFromFirebaseRecord,
+  jobTabForStatus,
+  normalizeJobStatus,
+  isPreBookedJob,
+  jobDispatchTime,
+  type Job,
+  type JobTab,
+} from '@/types/job';
 import { isExternalJobSource } from '@/lib/utils';
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
@@ -74,7 +83,8 @@ function shouldPreserveAbsentStoreJob(
   if (!LIVE_DISPATCH_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
-  return false;
+  // Keep live-tab jobs during Firebase listener/refresh races (e.g. accept → pendingjobs deleted before allbookings lands).
+  return LIVE_DISPATCH_TABS.has(tab);
 }
 
 function pendingjobsAbsentIsPoolRestore(
@@ -229,7 +239,14 @@ async function refreshJobFromFirebaseCaches(
   }
 
   if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
-    const st = normalizeJobStatus(job.status);
+    const st = jobStatusFromFirebaseRecord(
+      abVal && typeof abVal === 'object'
+        ? (abVal as Record<string, unknown>)
+        : { BookingStatus: job.status, Status: job.status },
+    );
+    if (st !== job.status) {
+      job = mergeJobUpdate(job, { status: st } as Job);
+    }
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
       bookingsRef.set(job.id, job);
     } else if (st === 'Pending' || st === 'No One') {
@@ -390,11 +407,15 @@ export function useJobs(companyId: string | null) {
             const job = jobFromFirebase(key, rec, companyId);
             if (!job || isBlacklisted(job.id)) continue;
 
-            const active = ACTIVE_BOOKING_STATUSES.has(job.status);
-            if (active) {
-              bookingsRef.current.set(job.id, job);
-            } else if (isPoolUaStatus(job.status)) {
-              pendingRef.current.set(job.id, job);
+            // Prefer record-level resolution (BookingStatus wins over stale Status: Pending).
+            const effectiveStatus = jobStatusFromFirebaseRecord(rec);
+            const stored =
+              effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
+
+            if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+              bookingsRef.current.set(stored.id, stored);
+            } else if (isPoolUaStatus(effectiveStatus)) {
+              pendingRef.current.set(stored.id, stored);
             }
           }
         }

@@ -1703,8 +1703,9 @@ function _offerPaymentTypeFromJob(job) {
 }
 
 // Full manual-offer fanout — mirrors legacy writeJobDetailsToFirebase + pendingjobs patch.
-// Works for any job source (dispatch, website, app) and service type (taxi, food, freight, …).
-async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag) {
+// Works for any job source (dispatch, website, app, auto-dispatch) and service type (taxi, food, freight, …).
+async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, offerOpts) {
+  offerOpts = offerOpts || {};
   if (!job || !job.Id || !driverId) return;
   const cid = String(job.companyId || '').trim();
   if (!cid) return;
@@ -1720,9 +1721,11 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag) 
   }
 
   const bookingId = job.Id;
-  const _src = String(job.BookingSource || job.bookingSource || job.source || 'Dispatch Console');
+  const _src = String(offerOpts.bookingSource || job.BookingSource || job.bookingSource || job.source || 'Dispatch Console');
   const _svc = String(job.serviceType || job.ServiceType || 'taxi');
   const _stat = 'Offered';
+  const _origStatus = offerOpts.originalStatus === 'manual' ? 'manual' : 'pending';
+  const _isManualOffer = offerOpts.manualOffer != null ? !!offerOpts.manualOffer : (_origStatus === 'manual');
   const _bookingidStr = `${bookingId},${_stat},${did},,${by || 'dispatcher'}`;
   const _payType = _offerPaymentTypeFromJob(job);
   const _pickLL = _parseLatLngPair(job.PickLatLng);
@@ -1765,7 +1768,7 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag) 
     TarriffType:    String(job.TarriffType || job.TarriffName || ''),
     customRate:     String(job.CustomeRate || ''),
     CustomeRate:    String(job.CustomeRate || ''),
-    originalStatus: 'manual',
+    originalStatus: _origStatus,
     expiresAt:      _now + 30000,
     version:        parseInt(job.updateSeq) || 0,
     updatedAt:      _FB_SERVER_TIMESTAMP,
@@ -1823,8 +1826,8 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag) 
     TarriffType:     notifPayload.TarriffType,
     CustomeRate:     notifPayload.CustomeRate,
     Account_Name:    notifPayload.jobAccountName,
-    manualOffer:     true,
-    originalStatus:  'manual',
+    manualOffer:     _isManualOffer,
+    originalStatus:  _origStatus,
     version:         parseInt(job.updateSeq) || 0,
     updatedAt:       _FB_SERVER_TIMESTAMP,
     eventType:       'new_offer',
@@ -2131,7 +2134,7 @@ async function completeBooking(opts) {
 // offered booking, this verb stamps DriverAcceptedAt + bumps updateSeq +
 // emits an OfferAccepted bookingEvent. The booking must be 'Offered'
 // (dispatcher manual assign) before accept transitions it to 'Assigned'.
-function acceptBooking(opts) {
+async function acceptBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
   const driverId  = String(opts.driverId || '').trim();
@@ -2201,6 +2204,7 @@ function acceptBooking(opts) {
     lastUpdatedBy:    job.lastUpdatedBy,
     BookingStatus:    job.BookingStatus,
     Status:           job.BookingStatus,
+    status:           job.BookingStatus,
     DriverId:         job.DriverId || _finalDrv,
     VehicleId:        job.VehicleId || '',
     DriverAcceptedAt: job.DriverAcceptedAt,
@@ -2211,13 +2215,27 @@ function acceptBooking(opts) {
     eventType:        'updated',
   };
   if (_cid) {
-    (async () => {
-      try {
-        await _fanVersionToFirebaseAwait(_cid, bookingId, _fanPatch, false);
-      } catch (e) {
-        console.warn(`  [${source}] accept fanout failed: ${e && e.message}`);
+    try {
+      await _fanVersionToFirebaseAwait(_cid, bookingId, _fanPatch, false);
+      const _resolved = _resolveDriverVehicleIds(_finalDrv, job.VehicleNo || job.VehicleId);
+      const _vid = _resolved.vehicleId;
+      const _did = _normalizeNotifyDriverId(_resolved.driverId) || _resolved.driverId;
+      const _tok = await getFirebaseServerToken();
+      if (_tok && _vid && _did) {
+        await firebaseDbSet(`jobs/${_cid}/${_vid}/${_did}/${bookingId}`, {
+          BookingId:     String(bookingId),
+          Status:        'Assigned',
+          BookingStatus: 'Assigned',
+          status:        'Assigned',
+          VehicleId:     _vid,
+          DriverId:      _did,
+          eventType:     'updated',
+          updateSeq:     job.updateSeq,
+        }, _tok).catch(e => console.warn(`  [${source}] jobs/${_cid}/${_vid}/${_did}/${bookingId} accept write failed: ${e && e.message}`));
       }
-    })();
+    } catch (e) {
+      console.warn(`  [${source}] accept fanout failed: ${e && e.message}`);
+    }
   }
   console.log(`  [${source}] §FIX-CMD accept job #${bookingId} (${_curStatus}→Assigned) by driver ${_finalDrv} seq=${job.updateSeq}`);
   if (_cid) {
@@ -2370,7 +2388,7 @@ async function acceptPendingJobByDriver(opts) {
     bookingId, driverId, vehicleId, by: 'driver', manualOffer: false, source
   });
   if (!assignRes.ok) return assignRes;
-  const acceptRes = acceptBooking({ bookingId, driverId, by: 'driver', source });
+  const acceptRes = await acceptBooking({ bookingId, driverId, by: 'driver', source });
   if (!acceptRes.ok) return acceptRes;
   if (_cid && driverId) {
     try {
@@ -2382,6 +2400,8 @@ async function acceptPendingJobByDriver(opts) {
           eventType: 'assigned',
           updatedAt: _FB_SERVER_TIMESTAMP,
         }, tok).catch(() => {});
+        // Fanout (allbookings + jobs/) must land before pendingjobs DELETE — otherwise
+        // dispatch loses the job on Assign until the next full allbookings snapshot.
         await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
       }
     } catch (e) {
@@ -2491,6 +2511,7 @@ async function driverStageJob(opts) {
     _fanVersionToFirebase(_cid, bookingId, {
       BookingStatus: job.BookingStatus,
       Status:        job.BookingStatus,
+      status:        job.BookingStatus,
       updateSeq:     job.updateSeq,
       ArrivedAt:     job.ArrivedAt,
       ActiveAt:      job.ActiveAt,
@@ -8646,7 +8667,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           by: _cmdBy, source: _logSrc
         });
       } else if (_cmdName === 'accept') {
-        _result = acceptBooking({
+        _result = await acceptBooking({
           bookingId: _cmdBooking,
           driverId:  _cmdAuthDriverId || _cmdPayload.driverId || _cmdPayload.DriverId,
           ifVersion: _cmdIfVer,
@@ -15657,37 +15678,18 @@ async function _writeDriverOfferNotification(cid, driver, job) {
   if (st === 'Offered' && String(inStore.DriverId || '') !== did) return;
   if (inStore._offerNotifiedAt && (Date.now() - inStore._offerNotifiedAt) < 15000 &&
       String(inStore.DriverId || '') === did) return;
-  const tok = await getFirebaseServerToken();
-  if (!tok) return;
-  const bid = job.Id;
-  const vid = String(driver.VehicleId || driver.vehiclenumber || '').trim();
-  const payload = {
-    type: 'job_offer',
-    bookingid: `${bid},Offered,${did},Server,AutoDispatch`,
-    content: 'You have offered new Job please view details',
-    joboffer: String(bid),
-    jobpickup: job.PickAddress || '',
-    jobdropoff: job.DropAddress || '',
-    JobphoneNo: job.PhoneNo || '',
-    jobname: job.Name || job.UserFName || '',
-    jobFare: String(job.EstimatedFare || job.TotalFare || ''),
-    jobServiceType: job.serviceType || 'taxi',
-    jobBookingSrc: job.BookingSource || 'Auto Dispatch',
-    vehicleId: vid,
-    companyId: String(cid),
-    bookingId: bid,
-    originalStatus: 'pending',
-    expiresAt: Date.now() + 30000,
-    updatedAt: _FB_SERVER_TIMESTAMP,
-  };
-  await firebaseDbSet(`notification/${did}`, payload, tok).catch(() => {});
-  const _pjUrl = `${FB_DB_URL}/pendingjobs/${cid}/${bid}.json?auth=${encodeURIComponent(tok)}`;
-  await fbRequest(_pjUrl, 'PATCH', {
-    BookingId: String(bid), Status: 'Offered', BookingStatus: 'Offered',
-    DriverId: did, offeredAt: Date.now(),
-    PickAddress: job.PickAddress || '', DropAddress: job.DropAddress || '',
-  }).catch(() => {});
-  inStore._offerNotifiedAt = Date.now();
+
+  const vid = String(driver.VehicleId || driver.vehiclenumber || inStore.VehicleNo || '').trim();
+  try {
+    await _writeManualDriverOffer(inStore, did, vid, 'AutoDispatch', 'server-auto-dispatch', {
+      originalStatus: 'pending',
+      manualOffer: false,
+      bookingSource: 'Auto Dispatch',
+    });
+    inStore._offerNotifiedAt = Date.now();
+  } catch (e) {
+    console.warn(`  [server-auto-dispatch] _writeManualDriverOffer failed: ${e && e.message}`);
+  }
 }
 
 async function _serverAutoDispatchTick() {

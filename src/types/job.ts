@@ -249,6 +249,11 @@ function normalizeSource(raw: string): BookingSource {
   return 'dispatch';
 }
 
+/** Map a Firebase pendingjobs/allbookings record to the dispatch tab status. */
+export function jobStatusFromFirebaseRecord(rec: Record<string, unknown>): JobStatus {
+  return resolveJobStatus(rec);
+}
+
 function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
   const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
   if (dId === -1 || dId === '-1') return 'No One';
@@ -260,6 +265,21 @@ function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
       : null;
 
   if (booking === 'No One' || status === 'No One') return 'No One';
+
+  // BookingStatus is authoritative once a job is offered/assigned — stale root Status
+  // (e.g. Pending left from pool create) must not hide Assigned on the Assign tab.
+  const LIVE_BOOKING: JobStatus[] = [
+    'Offered',
+    'Queued',
+    'Assigned',
+    'Picking',
+    'Arrived',
+    'Active',
+    'OnTrip',
+    'Busy',
+  ];
+  if (booking && LIVE_BOOKING.includes(booking)) return booking;
+
   if (booking === 'Pending' || status === 'Pending') return 'Pending';
   if (booking) return booking;
   if (status) return status;
