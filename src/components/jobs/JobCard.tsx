@@ -5,6 +5,7 @@ import type { Job, JobTab } from '@/types/job';
 import {
   formatJobDateTimeShort,
   formatJobDateTimeCard,
+  formatJobDateTimeProminent,
   getJobCardAppearance,
   isPreBookedJob,
   isPreDispatchWindow,
@@ -15,7 +16,6 @@ import {
   jobPickupTypeLabel,
   jobPickupTime,
   jobReturnReasonAlert,
-  jobScheduledTime,
   resolveLastOfferDriverName,
   jobTariffLabel,
   jobVehicleTypeLabel,
@@ -105,7 +105,7 @@ export function JobCard({ job, tab }: JobCardProps) {
   const uaMeta = useMemo(() => {
     if (tab !== 'ua') return null;
     const created = jobCreatedAtTime(job);
-    const pickup = jobPickupTime(job) ?? jobScheduledTime(job);
+    const pickup = jobPickupTime(job);
     const dispatchAt = jobDispatchTime(job);
     const fare = jobFareDisplay(job);
     const isLater = isPreBookedJob(job, now);
@@ -113,8 +113,8 @@ export function JobCard({ job, tab }: JobCardProps) {
       sourceName: sourceDisplayName(job.source),
       isLater,
       createdLabel: created ? formatJobDateTimeCard(created, { forceDate: true }) : null,
-      pickupLabel: pickup ? formatJobDateTimeCard(pickup, { forceDate: true }) : null,
-      schedLabel: dispatchAt ? formatJobDateTimeCard(dispatchAt, { forceDate: true }) : null,
+      pickupLabel: pickup ? formatJobDateTimeProminent(pickup) : null,
+      schedLabel: dispatchAt ? formatJobDateTimeProminent(dispatchAt) : null,
       pickupType: jobPickupTypeLabel(job),
       overdue: jobOverdueLabel(job, now),
       returnAlert: jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers)),
@@ -368,42 +368,43 @@ export function JobCard({ job, tab }: JobCardProps) {
       </div>
 
       {tab === 'ua' && uaMeta?.isLater && (
-        <div className="mb-1">
+        <div className="relative mb-1.5 min-h-[2.5rem]">
           {(uaMeta.createdLabel || uaMeta.createdBy) && (
             <div
-              className={cn('text-[8px] leading-tight mb-1 opacity-55', metaText)}
+              className={cn(
+                'absolute top-0 right-0 text-right max-w-[48%] text-[8px] leading-tight opacity-50',
+                metaText,
+              )}
               style={themeMutedStyle}
             >
-              {uaMeta.createdLabel && <span>Created {uaMeta.createdLabel}</span>}
-              {uaMeta.createdBy && (
-                <span>{uaMeta.createdLabel ? ' · ' : ''}{uaMeta.createdBy}</span>
-              )}
+              {uaMeta.createdLabel && <div>Created {uaMeta.createdLabel}</div>}
+              {uaMeta.createdBy && <div className="truncate">{uaMeta.createdBy}</div>}
             </div>
           )}
           <div
-            className={cn('flex flex-col gap-0.5 text-[11px] font-semibold leading-snug', toneText)}
+            className={cn('flex flex-col gap-1 pr-[42%] text-[12px] font-bold leading-snug', toneText)}
             style={themeStyle}
           >
             {uaMeta.pickupLabel && (
-              <div className="flex flex-wrap items-baseline gap-x-1.5">
+              <div className="flex flex-col gap-0">
                 <span
-                  className="text-[9px] font-bold uppercase tracking-wider opacity-75 shrink-0"
+                  className="text-[9px] font-extrabold uppercase tracking-wider opacity-80"
                   style={themeMutedStyle}
                 >
                   Pickup
                 </span>
-                <span>{uaMeta.pickupLabel}</span>
+                <span className="text-[13px]">{uaMeta.pickupLabel}</span>
               </div>
             )}
             {uaMeta.schedLabel && (
-              <div className="flex flex-wrap items-baseline gap-x-1.5">
+              <div className="flex flex-col gap-0">
                 <span
-                  className="text-[9px] font-bold uppercase tracking-wider opacity-75 shrink-0"
+                  className="text-[9px] font-extrabold uppercase tracking-wider opacity-80"
                   style={themeMutedStyle}
                 >
-                  Sched
+                  Dispatch window
                 </span>
-                <span>{uaMeta.schedLabel}</span>
+                <span className="text-[13px]">{uaMeta.schedLabel}</span>
               </div>
             )}
           </div>

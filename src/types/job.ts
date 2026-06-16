@@ -169,13 +169,18 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         rec.Pickingtime ??
         rec.PickingTime ??
         rec.pickingTime ??
-        (typeof rec.createdAt === 'number'
-          ? new Date(rec.createdAt).toISOString().replace('T', ' ').slice(0, 19)
-          : '')
+        ''
     ),
-    scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : undefined,
-    dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? '0'), 10) || 0,
-    notifyDispatchAt: rec.NotifyDispatchAt ? String(rec.NotifyDispatchAt) : undefined,
+    scheduledFor: (() => {
+      const raw = rec.ScheduledFor ?? rec.ScheduledForMs ?? rec.scheduledFor;
+      const n = Number(raw);
+      return n > 0 && !Number.isNaN(n) ? n : undefined;
+    })(),
+    dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? rec.Dispatchbefore ?? '0'), 10) || 0,
+    notifyDispatchAt: (() => {
+      const raw = rec.NotifyDispatchAt ?? rec.notifyDispatchAt;
+      return raw ? String(raw) : undefined;
+    })(),
     offeredAt: rec.offeredAt ? Number(rec.offeredAt) : undefined,
     originalStatus: rec.originalStatus ? String(rec.originalStatus) as JobStatus : undefined,
     urgent: rec.Urgent === 'Yes' || rec.urgent === true,
@@ -318,16 +323,27 @@ export function isScheduledJob(job: Job): boolean {
   return false;
 }
 
+/** Minutes before pickup when dispatch window opens — server default is 10 for pre-booked jobs. */
+export function effectiveDispatchBeforeMinutes(job: Job): number {
+  const explicit = job.dispatchBeforeMinutes ?? 0;
+  if (explicit > 0) return explicit;
+  if (job.notifyDispatchAt) return 10;
+  if (job.scheduledFor && job.scheduledFor > 0) return 10;
+  if (normalizeJobStatus(job.status) === 'Scheduled') return 10;
+  return 0;
+}
+
 /** Pickup / scheduled time for a job. */
 export function jobScheduledTime(job: Job): Date | null {
-  if (job.scheduledFor) {
+  if (job.scheduledFor && job.scheduledFor > 0) {
     const d = new Date(job.scheduledFor);
     if (!Number.isNaN(d.getTime())) return d;
   }
   const raw = job.bookingDateTime?.trim();
   if (!raw) return null;
   try {
-    const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const d = new Date(normalized);
     return Number.isNaN(d.getTime()) ? null : d;
   } catch {
     return null;
@@ -336,17 +352,21 @@ export function jobScheduledTime(job: Job): Date | null {
 
 /** When the job should release to Pending / enter dispatch window. */
 export function jobDispatchTime(job: Job): Date | null {
-  const pickup = jobScheduledTime(job);
-  if (!pickup) return null;
   if (job.notifyDispatchAt) {
     try {
-      const d = new Date(job.notifyDispatchAt.includes('T') ? job.notifyDispatchAt : job.notifyDispatchAt.replace(' ', 'T'));
+      const raw = job.notifyDispatchAt.includes('T')
+        ? job.notifyDispatchAt
+        : job.notifyDispatchAt.replace(' ', 'T');
+      const d = new Date(raw);
       if (!Number.isNaN(d.getTime())) return d;
     } catch {
       /* fall through */
     }
   }
-  const mins = job.dispatchBeforeMinutes ?? 0;
+  const pickup = jobScheduledTime(job);
+  if (!pickup) return null;
+  const mins = effectiveDispatchBeforeMinutes(job);
+  if (mins <= 0) return null;
   return new Date(pickup.getTime() - mins * 60_000);
 }
 
@@ -448,11 +468,7 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
         };
       }
       if (isScheduledJob(job)) {
-        const schedLabel = dispatchAt.toLocaleTimeString('en-NZ', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        });
+        const schedLabel = formatJobDateTimeCard(dispatchAt, { forceDate: true });
         return {
           backgroundColor: CARD_BLUE_WAIT_BG,
           borderLeftColor: CARD_BLUE_WAIT_BORDER,
@@ -590,6 +606,11 @@ export function formatJobDateTimeCard(d: Date, opts?: { forceDate?: boolean }): 
     });
   }
   return time;
+}
+
+/** Always show weekday + date + time — for prominent pickup / sched lines on Later cards. */
+export function formatJobDateTimeProminent(d: Date): string {
+  return formatJobDateTimeCard(d, { forceDate: true });
 }
 
 export function formatJobDateTimeShort(d: Date): string {

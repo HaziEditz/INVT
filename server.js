@@ -10985,6 +10985,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               manualOffer:    true,
               originalStatus: 'manual',
             } : {}),
+            ...(parseInt(String(newJob.DispatchTimebefore || '0'), 10) > 0 && newJob.ScheduledFor ? {
+              NotifyDispatchAt: new Date(
+                Number(newJob.ScheduledFor) - (parseInt(String(newJob.DispatchTimebefore || '0'), 10) || 15) * 60000
+              ).toISOString(),
+            } : {}),
           };
           try {
             const _fbTok = await getFirebaseServerToken();
