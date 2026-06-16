@@ -1371,6 +1371,102 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
   }
 }
 
+// ─── §FIX-TXL — Unified terminal job cleanup (Phase 1: complete + hard cancel) ─
+// Centralises the Firebase + dispatch-console steps shared by terminal transitions.
+// Callers must mutate jobStore/closedJobStore before invoking. Phase 2+ will add
+// pool_restore / detach_driver profiles; for now only profile='terminal' exists.
+// ──────────────────────────────────────────────────────────────────────────────
+async function executeJobCleanup(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const companyId = String(opts.companyId || '').trim();
+  const source = String(opts.source || 'executeJobCleanup');
+  const terminalKind = opts.terminalKind === 'Cancelled' ? 'Cancelled' : 'Completed';
+
+  if (!bookingId || !companyId) {
+    return { ok: false, driverFreed: false, driverState: 'unchanged', queueNo: null };
+  }
+
+  let driverId = String(opts.driverId || '').trim();
+  let vehicleId = String(opts.vehicleId || '').trim();
+  if (opts.job && opts.resolveCompletionIdentity) {
+    const _resolved = _resolveCompletionIdentity(opts.job, companyId);
+    if (_resolved.drvId) driverId = _resolved.drvId;
+    if (_resolved.vehId) vehicleId = _resolved.vehId;
+  }
+
+  const _result = { ok: true, driverFreed: false, driverState: 'unchanged', queueNo: null };
+
+  // Version fanout — awaited (complete) or fire-and-forget (unused in Phase 1 cancel;
+  // hard cancel keeps _fanVersionToFirebase in cancelBooking for ordering).
+  const _vf = opts.versionFanout;
+  if (_vf && _vf.patch) {
+    const _isTerminal = _vf.isTerminal !== false;
+    if (_vf.awaited) {
+      try {
+        await _fanVersionToFirebaseAwait(companyId, bookingId, _vf.patch, _isTerminal);
+      } catch (_e) {
+        console.warn(`  [${source}] ${_vf.errorLabel || 'version fanout failed'}: ${_e && _e.message}`);
+      }
+    } else {
+      _fanVersionToFirebase(companyId, bookingId, _vf.patch, _isTerminal);
+    }
+  }
+
+  // Terminal Firebase steps — hard-cancel pre-steps + _bwClearJobFromFirebase +
+  // optional consoleRefresh. Wrapped in try/catch when bwClearSeparateTry (complete).
+  const _runBwClearSteps = async () => {
+    if (opts.removeDriverQueue && driverId) {
+      await _removeDriverQueueFirebase(companyId, driverId, bookingId);
+    }
+    const _cn = opts.cancelNotify;
+    if (_cn && driverId) {
+      await _writeCancelNotify(companyId, vehicleId, driverId, bookingId, _cn.cancelledBy, {
+        recalled: !!_cn.recalled,
+        version: _cn.version != null ? _cn.version : 0,
+      });
+    }
+    if (opts.markRecentlyCancelled) {
+      _markRecentlyCancelled(bookingId);
+    }
+    await _bwClearJobFromFirebase(companyId, bookingId, vehicleId, driverId, terminalKind);
+    if (opts.consoleRefresh) {
+      await _signalDispatchConsoleRefresh(companyId, opts.consoleRefresh);
+    }
+  };
+
+  if (opts.bwClearSeparateTry) {
+    try {
+      await _runBwClearSteps();
+    } catch (_e) {
+      console.warn(`  [${source}] ${opts.bwClearErrorLabel || 'Firebase cleanup failed'}: ${_e && _e.message}`);
+    }
+  } else {
+    await _runBwClearSteps();
+  }
+
+  const _rs = opts.restoreDriverState;
+  if (_rs && _rs.driverId) {
+    const _ds = await _maybeRestoreDriverState(
+      _rs.driverId,
+      _rs.vehicleId || vehicleId,
+      companyId,
+      bookingId,
+      !!_rs.driverFault,
+      _rs.source || source,
+    );
+    _result.driverFreed = _ds.driverFreed;
+    _result.driverState = _ds.driverState;
+    _result.queueNo = _ds.queueNo;
+  }
+
+  if (opts.dispatchRefresh && opts.dispatchRefresh.job) {
+    await _dispatchRefreshForJob(opts.dispatchRefresh.job, opts.dispatchRefresh.payload);
+  }
+
+  return _result;
+}
+
 // ─── §FIX-CB — Unified cancellation flow (per-booking, idempotent) ────────────
 // Used by: dispatcher cancel, passenger cancel, website cancel, driver recall
 // (post-accept), and any future caller. Front-door rules:
@@ -1929,10 +2025,21 @@ async function cancelBooking(opts) {
           { recalled: !!recallToPending, version: job.updateSeq });
       }
       if (!recallToPending) {
-        _markRecentlyCancelled(bookingId);
-        await _bwClearJobFromFirebase(_cid, bookingId, _rVid, _rDrv, 'Cancelled');
-        await _signalDispatchConsoleRefresh(_cid, {
-          bookingId, action: 'cancel', status: job.BookingStatus, driverId: _rDrv || _drvId,
+        await executeJobCleanup({
+          profile: 'terminal',
+          bookingId,
+          companyId: _cid,
+          source,
+          terminalKind: 'Cancelled',
+          driverId: _rDrv,
+          vehicleId: _rVid,
+          markRecentlyCancelled: true,
+          consoleRefresh: {
+            bookingId,
+            action: 'cancel',
+            status: job.BookingStatus,
+            driverId: _rDrv || _drvId,
+          },
         });
       } else if (_cid) {
         await _signalDispatchConsoleRefresh(_cid, {
@@ -2490,15 +2597,30 @@ async function completeBooking(opts) {
     }
     if (_cidIdem) {
       try {
-        await _fanVersionToFirebaseAwait(_cidIdem, bookingId, Object.assign(
-          { updateSeq: parseInt(_closed.updateSeq) || 0 },
-          _terminalFirebaseStatusFields('Completed'),
-          { completedAt: _closed.JobCompleteTime || new Date().toISOString() },
-        ), true);
-        await _bwClearJobFromFirebase(_cidIdem, bookingId, _vehIdem, _drvIdem, 'Completed');
-        if (_drvIdem) {
-          await _maybeRestoreDriverState(_drvIdem, _vehIdem, _cidIdem, bookingId, false, `${source}/idempotent-repair`);
-        }
+        await executeJobCleanup({
+          profile: 'terminal',
+          bookingId,
+          companyId: _cidIdem,
+          source: `${source}/idempotent-repair`,
+          terminalKind: 'Completed',
+          driverId: _drvIdem,
+          vehicleId: _vehIdem,
+          versionFanout: {
+            awaited: true,
+            isTerminal: true,
+            errorLabel: 'idempotent allbookings fanout failed',
+            patch: Object.assign(
+              { updateSeq: parseInt(_closed.updateSeq) || 0 },
+              _terminalFirebaseStatusFields('Completed'),
+              { completedAt: _closed.JobCompleteTime || new Date().toISOString() },
+            ),
+          },
+          bwClearSeparateTry: true,
+          bwClearErrorLabel: 'idempotent Firebase cleanup failed',
+          restoreDriverState: _drvIdem
+            ? { driverId: _drvIdem, vehicleId: _vehIdem, awaited: true }
+            : null,
+        });
       } catch (e) {
         console.warn(`  [${source}] idempotent Firebase repair failed: ${e && e.message}`);
       }
@@ -2594,31 +2716,37 @@ async function completeBooking(opts) {
     completedAt:   _nowIso,
     JobCompleteTime: _nowIso,
   }, _terminalFirebaseStatusFields('Completed'));
+  let _ds = { driverFreed: false, driverState: 'unchanged', queueNo: null };
   if (_cid) {
-    try {
-      await _fanVersionToFirebaseAwait(_cid, bookingId, _completeFanPatch, true);
-    } catch (e) {
-      console.warn(`  [${source}] complete allbookings fanout failed: ${e && e.message}`);
-    }
-  }
-  // Firebase cleanup — pendingjobs/allbookings always; jobs/{vid}/{drv} when resolvable
-  if (_cid) {
-    try {
-      const _resolved = _resolveCompletionIdentity(job, _cid);
-      await _bwClearJobFromFirebase(_cid, bookingId, _resolved.vehId || _vehId, _resolved.drvId || _drvId, 'Completed');
-    } catch (e) {
-      console.warn(`  [${source}] complete Firebase cleanup failed: ${e && e.message}`);
-    }
-  }
-  // Driver state restore — respects remainingAssignments rule.
-  const _ds = await _maybeRestoreDriverState(_drvId, _vehId, _cid, bookingId, false, source);
-  if (_cid) {
-    await _dispatchRefreshForJob(job, {
-      cid: _cid,
-      previousStatus: _curStatus,
-      status: 'Completed',
-      action: 'complete',
+    _ds = await executeJobCleanup({
+      profile: 'terminal',
+      bookingId,
+      companyId: _cid,
+      source,
+      terminalKind: 'Completed',
+      job,
+      resolveCompletionIdentity: true,
       driverId: _drvId,
+      vehicleId: _vehId,
+      versionFanout: {
+        awaited: true,
+        isTerminal: true,
+        errorLabel: 'complete allbookings fanout failed',
+        patch: _completeFanPatch,
+      },
+      bwClearSeparateTry: true,
+      bwClearErrorLabel: 'complete Firebase cleanup failed',
+      restoreDriverState: { driverId: _drvId, vehicleId: _vehId, awaited: true },
+      dispatchRefresh: {
+        job,
+        payload: {
+          cid: _cid,
+          previousStatus: _curStatus,
+          status: 'Completed',
+          action: 'complete',
+          driverId: _drvId,
+        },
+      },
     });
   }
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
