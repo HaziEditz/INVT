@@ -999,11 +999,23 @@ async function _clearOnlineTripFieldsForBooking(cid, vehId, bookingId, logTag) {
   await _clearIfMatch(`${FB_DB_URL}/online/${_cid}/${_vid}/current.json`, `online/${_cid}/${_vid}/current`);
 }
 
+const _TERMINAL_JOB_STATUSES = new Set(['Completed', 'Cancelled', 'No Show', 'NoShow', 'Closed']);
+
 function _jobIsClosedInStore(bookingId) {
   const bid = parseInt(bookingId) || 0;
   if (!bid) return false;
-  const _TERM = new Set(['Completed', 'Cancelled', 'No Show', 'NoShow', 'Closed']);
-  return closedJobStore.some(j => j && j.Id === bid && _TERM.has(String(j.BookingStatus || '')));
+  return closedJobStore.some(j => j && j.Id === bid && _TERMINAL_JOB_STATUSES.has(String(j.BookingStatus || '')));
+}
+
+/** True only when no live jobStore row exists and closedJobStore has a terminal record. */
+function _closedStoreBlocksMutation(bookingId) {
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return false;
+  const live = jobStore.find(j => j && j.Id === bid);
+  if (live && !_TERMINAL_JOB_STATUSES.has(String(live.BookingStatus || ''))) {
+    return false;
+  }
+  return _jobIsClosedInStore(bid);
 }
 
 function _purgeLiveJobFromStore(bookingId) {
@@ -2411,6 +2423,11 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       serviceType: job.serviceType || job.ServiceType || 'taxi',
       Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
       PaymentType: normed.paymentMethod,
+      returnReason: job.returnReason || '',
+      ReturnReason: job.returnReason || '',
+      lastOfferDriverId: job.lastOfferDriverId || '',
+      LastOfferDriverId: job.lastOfferDriverId || '',
+      releasedAt: job.releasedAt || null,
     };
     await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, fbJob, tok);
   } catch (e) {
@@ -2720,6 +2737,7 @@ async function driverDeclineJob(opts) {
   const _offerCtx = _offerCtxFromJob(job, driverId);
 
   _applyPoolStatusFields(job, _restoredPool);
+  job.lastOfferDriverId = driverId;
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
   _bumpJobUpdateSeq(job, 'driver');
   saveJobStore();
@@ -2755,6 +2773,8 @@ async function driverDeclineJob(opts) {
       status: job.BookingStatus,
       action: timedOut ? 'timeout' : 'decline',
       driverId: '0',
+      declinedDriverId: driverId,
+      returnReason: job.returnReason,
     });
   }
 
@@ -3002,6 +3022,10 @@ async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus, offe
       manualOffer: restored === 'No One',
       eventType: 'updated',
       releasedAt: job.releasedAt || Date.now(),
+      returnReason: job.returnReason || '',
+      ReturnReason: job.returnReason || '',
+      lastOfferDriverId: job.lastOfferDriverId || '',
+      LastOfferDriverId: job.lastOfferDriverId || '',
       updateSeq: seq,
       version: seq,
       _seq: seq,
@@ -3419,6 +3443,21 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
   const autoDispatch = _analyzeAutoDispatchForJob(job, cid);
   const driverAvailability = cid ? await _buildAdminDriverStatusReport(cid, {}) : null;
   const staleOfferAssessment = _assessStaleOfferFields(job, fb, poolTrace);
+  const staleClosedMatches = closedJobStore.filter(j => j && j.Id === bid);
+  const closedStoreDiagnosis = {
+    staleClosedEntryCount: staleClosedMatches.length,
+    liveInJobStore: !!job,
+    liveStatus: job ? (job.BookingStatus || null) : null,
+    wouldBlockUpdateBooking: _closedStoreBlocksMutation(bid),
+    updateBookingBug:
+      !!job &&
+      staleClosedMatches.length > 0 &&
+      !_TERMINAL_JOB_STATUSES.has(String(job.BookingStatus || '')),
+    hint:
+      !!job && staleClosedMatches.length > 0
+        ? 'Live jobStore row exists alongside closedJobStore history — pre-fix updateBooking blocked edits on this Id'
+        : null,
+  };
 
   return {
     ok: true,
@@ -3447,6 +3486,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     autoDispatch,
     driverAvailability,
     staleOfferAssessment,
+    closedStoreDiagnosis,
     dispatchUiHint: {
       expectedTab: job ? (String(job.BookingStatus) === 'Offered' ? 'offer'
         : ['Assigned', 'Picking', 'Arrived'].includes(String(job.BookingStatus)) ? 'assign'
@@ -3496,6 +3536,8 @@ function _dispatchRefreshForJob(job, opts) {
     status,
     previousStatus: opts.previousStatus,
     driverId,
+    declinedDriverId: opts.declinedDriverId || '',
+    returnReason: opts.returnReason || job.returnReason || '',
     updateSeq: parseInt(job.updateSeq) || 0,
   });
 }
@@ -3723,14 +3765,15 @@ async function updateBooking(opts) {
   if (!bookingId) {
     return { ok: false, error: 'bookingId required' };
   }
-  // Already closed → refuse. Caller should handle as conflict.
-  const _closed = closedJobStore.find(j => j && j.Id === bookingId);
-  if (_closed) {
-    console.log(`  [${source}] §FIX-UB refused: job #${bookingId} already closed (${_closed.BookingStatus || '?'})`);
-    return { ok: false, closed: true, error: 'job already closed' };
-  }
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
   if (idx === -1) {
+    if (_closedStoreBlocksMutation(bookingId)) {
+      const _closed = closedJobStore.find(j =>
+        j && j.Id === bookingId && _TERMINAL_JOB_STATUSES.has(String(j.BookingStatus || ''))
+      );
+      console.log(`  [${source}] §FIX-UB refused: job #${bookingId} already closed (${_closed?.BookingStatus || '?'})`);
+      return { ok: false, closed: true, error: 'job already closed' };
+    }
     return { ok: false, error: 'job not found' };
   }
   const job = jobStore[idx];
@@ -11539,6 +11582,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           job.BookingStatus = effectiveStatus;
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
+            const _unrDrvDP = String(incomingDriverId || job.DriverId || '').trim();
+            if (_unrDrvDP && _unrDrvDP !== '0') job.lastOfferDriverId = _unrDrvDP;
             if (effectiveStatus === 'No One') {
               job.manualOffer = true;
               job.originalStatus = 'manual';
@@ -11551,6 +11596,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
           if (returnReason) job.returnReason = returnReason;
+          else if (newStatus === 'Unreached' && !job.returnReason) {
+            job.returnReason = 'No Response – Not Accepted';
+          }
           { const _ts = new Date().toISOString();
             if (effectiveStatus === 'Offered'  && !job.OfferedAt)  job.OfferedAt  = _ts;
             if (effectiveStatus === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts;
@@ -11646,6 +11694,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               status: job.BookingStatus,
               action: newStatus === 'Unreached' ? 'timeout' : undefined,
               driverId: '0',
+              declinedDriverId: String(job.lastOfferDriverId || incomingDriverId || '').trim(),
+              returnReason: job.returnReason,
             }).catch(() => {});
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {
@@ -13734,6 +13784,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           job.BookingStatus = effectiveStatus2;
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
+            const _unrDrvDS = String(incomingDriverId2 || job.DriverId || '').trim();
+            if (_unrDrvDS && _unrDrvDS !== '0') job.lastOfferDriverId = _unrDrvDS;
             if (effectiveStatus2 === 'No One') {
               job.manualOffer = true;
               job.originalStatus = 'manual';
@@ -13746,6 +13798,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
           if (returnReason) job.returnReason = returnReason;
+          else if (newStatus === 'Unreached' && !job.returnReason) {
+            job.returnReason = 'No Response – Not Accepted';
+          }
           { const _ts2 = new Date().toISOString();
             if (effectiveStatus2 === 'Offered'  && !job.OfferedAt)  job.OfferedAt  = _ts2;
             if (effectiveStatus2 === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts2;
@@ -13823,6 +13878,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               status: job.BookingStatus,
               action: newStatus === 'Unreached' ? 'timeout' : undefined,
               driverId: '0',
+              declinedDriverId: String(job.lastOfferDriverId || incomingDriverId2 || '').trim(),
+              returnReason: job.returnReason,
             }).catch(() => {});
           }
           if (newStatus === 'Unreached' && sessionCompanyId) {

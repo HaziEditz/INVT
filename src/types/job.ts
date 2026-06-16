@@ -99,6 +99,7 @@ export interface Job {
   cancelReason?: string;
   dispatcherName?: string;
   returnReason?: string;
+  lastOfferDriverId?: string;
   bookingType?: string;
   timeline?: JobTimelineEvent[];
 }
@@ -217,6 +218,7 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     })(),
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? '').trim() || undefined,
+    lastOfferDriverId: String(rec.lastOfferDriverId ?? rec.LastOfferDriverId ?? '').trim() || undefined,
     bookingType: String(rec.bookingType ?? rec.BookingType ?? '').trim() || undefined,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ''),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ''),
@@ -603,9 +605,28 @@ export type JobReturnAlertKind = 'reject' | 'not_reached' | 'warning';
 export function jobReturnReasonAlert(
   job: Job
 ): { kind: JobReturnAlertKind; text: string } | null {
+  const driver = (job.lastOfferDriverId || '').trim();
   const r = (job.returnReason || '').trim();
-  if (!r) return null;
+  if (!r && !driver) return null;
   const lower = r.toLowerCase();
+
+  if (driver) {
+    if (lower.includes('declined') || lower.includes('reject')) {
+      return { kind: 'reject', text: `Rejected by ${driver}` };
+    }
+    if (
+      lower.includes('timeout') ||
+      lower.includes('no response') ||
+      lower.includes('unreached') ||
+      lower.includes('not reached') ||
+      lower.includes('not accepted') ||
+      lower.includes('no-response')
+    ) {
+      return { kind: 'not_reached', text: `Not accepted by ${driver}` };
+    }
+  }
+
+  if (!r) return null;
   if (lower.includes('reject') || lower.includes('declined')) {
     return { kind: 'reject', text: r };
   }
@@ -615,6 +636,7 @@ export function jobReturnReasonAlert(
     lower.includes('timeout') ||
     lower.includes('unreached') ||
     lower.includes('not reached') ||
+    lower.includes('not accepted') ||
     lower.includes('no-response')
   ) {
     return { kind: 'not_reached', text: r };

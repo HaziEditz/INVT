@@ -484,8 +484,6 @@ export function JobCard({ job, tab }: JobCardProps) {
           className="text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug border border-black/20"
           style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
         >
-          {uaMeta.returnAlert.kind === 'not_reached' ? 'Not reached: ' : ''}
-          {uaMeta.returnAlert.kind === 'reject' ? 'Rejected: ' : ''}
           {uaMeta.returnAlert.text}
         </div>
       )}

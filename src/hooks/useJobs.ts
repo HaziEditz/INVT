@@ -61,8 +61,24 @@ type DispatchRefreshPayload = {
   action?: string;
   status?: string;
   driverId?: string;
+  declinedDriverId?: string;
+  returnReason?: string;
   updateSeq?: number;
 };
+
+function notifyOfferReturned(bookingId: number, refresh: DispatchRefreshPayload) {
+  const action = refresh.action;
+  if (action !== 'timeout' && action !== 'decline') return;
+  const drv = String(refresh.declinedDriverId || refresh.driverId || '').trim();
+  const who = drv && drv !== '0' ? `Driver ${drv}` : 'Driver';
+  const verb = action === 'timeout' ? 'did not respond to' : 'declined';
+  useUiStore.getState().addToast({
+    type: 'warning',
+    title: `Offer returned — job #${bookingId}`,
+    message: `${who} ${verb} job #${bookingId} — returned to pending.`,
+    category: 'general',
+  });
+}
 
 const POOL_RESTORE_ACTIONS = new Set(['status', 'timeout', 'decline', 'recall', 'scheduled_release']);
 
@@ -479,6 +495,8 @@ export function useJobs(companyId: string | null) {
           action?: string;
           status?: string;
           driverId?: string | number;
+          declinedDriverId?: string;
+          returnReason?: string;
           updateSeq?: number;
         } | null;
         if (!v?.at || v.at === lastDispatchRefreshAtRef.current) return;
@@ -488,17 +506,21 @@ export function useJobs(companyId: string | null) {
           syncAll();
           return;
         }
+        const refreshPayload: DispatchRefreshPayload = {
+          action: v.action,
+          status: v.status,
+          driverId: v.driverId != null ? String(v.driverId) : undefined,
+          declinedDriverId: v.declinedDriverId,
+          returnReason: v.returnReason,
+          updateSeq:
+            v.updateSeq != null
+              ? parseInt(String(v.updateSeq), 10)
+              : undefined,
+        };
+        notifyOfferReturned(bid, refreshPayload);
         optimisticDispatchRefresh(
           bid,
-          {
-            action: v.action,
-            status: v.status,
-            driverId: v.driverId != null ? String(v.driverId) : undefined,
-            updateSeq:
-              v.updateSeq != null
-                ? parseInt(String(v.updateSeq), 10)
-                : undefined,
-          },
+          refreshPayload,
           pendingRef.current,
           bookingsRef.current,
           upsertJob,
@@ -507,15 +529,7 @@ export function useJobs(companyId: string | null) {
         void refreshJobFromFirebaseCaches(
           companyId,
           bid,
-          {
-            action: v.action,
-            status: v.status,
-            driverId: v.driverId != null ? String(v.driverId) : undefined,
-            updateSeq:
-              v.updateSeq != null
-                ? parseInt(String(v.updateSeq), 10)
-                : undefined,
-          },
+          refreshPayload,
           pendingRef.current,
           bookingsRef.current,
           {
