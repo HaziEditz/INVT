@@ -3702,8 +3702,8 @@ function _analyzeAutoDispatchForJob(job, cid) {
     reasons.push(`company blocked: ${offeredBlockers.length} Offered job(s) in store (${offeredBlockers.map(j => j.Id).join(', ')})`);
   }
   const st = String(job.BookingStatus || '');
-  if (st !== 'Pending' && st !== 'No One') {
-    reasons.push(`status is ${st || '?'} (needs Pending or No One)`);
+  if (st !== 'Pending') {
+    reasons.push(`status is ${st || '?'} (needs Pending — No One is dispatcher-only)`);
   }
   if (job.manualOffer === true) {
     reasons.push('manualOffer=true (auto-dispatch skips manual-only jobs)');
@@ -4717,7 +4717,7 @@ function _purgeInvalidJobsFromStore(tag) {
 function _isDispatchableJob(job, cid) {
   if (!job || !job.Id) return false;
   const st = String(job.BookingStatus || '');
-  if (st !== 'Pending' && st !== 'No One') return false;
+  if (st !== 'Pending') return false;
   if (job.manualOffer === true) return false;
   if (!_isValidJobRecord(job, { requireSource: true, companyId: cid })) return false;
   const inStore = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
@@ -14375,7 +14375,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // Auto-dispatch checks use a tighter set (only truly unassigned jobs).
         const DISPATCHABLE = action === 'checkriddestatusforoffer'
           ? new Set(['Offered','Pending','Unreached','No One','Assigned'])
-          : new Set(['Offered','Pending','Unreached','No One']);
+          : new Set(['Offered','Pending','Unreached']);
         let eligible = job && DISPATCHABLE.has(job.BookingStatus) ? [job] : [];
         // For auto-dispatch only (not manual offer): enforce the dispatch-before-time window.
         // If the job's booking time is more than DispatchTimebefore minutes away, it is not
@@ -16626,7 +16626,7 @@ async function _writeDriverOfferNotification(cid, driver, job) {
   const inStore = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
   if (!inStore) return;
   const st = String(inStore.BookingStatus || '');
-  if (!['Pending', 'Offered', 'No One'].includes(st)) return;
+  if (!['Pending', 'Offered'].includes(st)) return;
   if (!_isValidJobRecord(inStore, { requireSource: true, companyId: cid })) return;
   const did = String(driver.driverid || '').trim();
   if (!did) return;
@@ -16647,7 +16647,8 @@ async function _writeDriverOfferNotification(cid, driver, job) {
   }
 }
 
-// One tick per company: at most one Pending/No One job → one nearest Available driver.
+// One tick per company: at most one Pending job → one nearest Available driver.
+// "No One" jobs are dispatcher-only (U-A tab) — never auto-offered (see AutoDispatchVehiclesallride).
 // Multiple pending jobs queue behind any in-flight Offered job (company-wide gate below).
 async function _serverAutoDispatchTick() {
   const now = Date.now();
@@ -16675,7 +16676,7 @@ async function _serverAutoDispatchTick() {
     }
     const pending = jobStore.filter(j => {
       if (String(j.companyId) !== String(cid)) return false;
-      if (j.BookingStatus !== 'Pending' && j.BookingStatus !== 'No One') return false;
+      if (j.BookingStatus !== 'Pending') return false;
       if (j.manualOffer === true) return false;
       if (j.releasedAt && (now - j.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) return false;
       return _isDispatchableJob(j, cid);
