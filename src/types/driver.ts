@@ -128,6 +128,44 @@ const LOGGED_OUT_STATUSES = new Set([
   'inactive',
 ]);
 
+function resolveOnlineDriverId(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): string {
+  return String(
+    rec.driverid ?? rec.driverId ?? rec.DriverId ?? current.driverId ?? current.driverid ?? current.DriverId ?? '',
+  ).trim();
+}
+
+function resolveOnlineDriverName(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): string {
+  return String(
+    rec.drivername ?? rec.driverName ?? rec.DriverName ?? current.drivername ?? current.driverName ?? '',
+  ).trim();
+}
+
+/** Stray post-sign-out node: Available (or empty) with no bound driver identity. */
+export function isGhostOnlineNode(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  const driverId = resolveOnlineDriverId(rec, current);
+  const driverName = resolveOnlineDriverName(rec, current);
+  if (driverId || driverName) return false;
+
+  const status = String(rec.vehiclestatus ?? rec.VehicleStatus ?? current.vehiclestatus ?? '').trim().toLowerCase();
+  if (status === 'available') return true;
+
+  const hasGps = !!(rec.lat || rec.lng || current.lat || current.lng || rec.Lat || current.Lat);
+  const lastSeenRaw = rec.lastSeen ?? current.lastSeen;
+  if (!hasGps && (lastSeenRaw == null || lastSeenRaw === '' || Number(lastSeenRaw) === 0)) {
+    return true;
+  }
+  return false;
+}
+
 /** True when Firebase online/{cid}/{vid} represents a signed-out / ended shift driver. */
 export function isLoggedOutOnlineNode(
   rec: Record<string, unknown>,
@@ -161,7 +199,7 @@ export function driverFromFirebase(
   companyId: string
 ): Driver | null {
   const current = (rec.current as Record<string, unknown>) || {};
-  if (isLoggedOutOnlineNode(rec, current)) return null;
+  if (isLoggedOutOnlineNode(rec, current) || isGhostOnlineNode(rec, current)) return null;
   const status = resolveDriverStatusFromPresence(rec, current);
   const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
   const hasBookingRef =

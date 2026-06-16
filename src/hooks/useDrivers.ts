@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getDb, ref, onValue } from '@/lib/firebase';
 import { useDriverStore } from '@/store/driverStore';
-import { driverFromFirebase } from '@/types/driver';
+import { driverFromFirebase, isGhostOnlineNode, isLoggedOutOnlineNode } from '@/types/driver';
 
 export function useDrivers(companyId: string | null) {
   const setDrivers = useDriverStore((s) => s.setDrivers);
@@ -42,10 +42,9 @@ export function useDriverQueue(companyId: string | null) {
         for (const [vid, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
           if (vid === 'current') continue;
           const current = (rec.current as Record<string, unknown>) || {};
-          const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
-          if (/offline|loggedout|logoff|inactive/i.test(status)) continue;
-          if (rec.online === false && current.online === false) continue;
+          if (isLoggedOutOnlineNode(rec, current) || isGhostOnlineNode(rec, current)) continue;
           const zone = String(rec.zonename ?? rec.zoneName ?? 'Unknown');
+          const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
           const q = current.zonequeue != null ? Number(current.zonequeue) : 999;
           if (!zones[zone]) zones[zone] = [];
           zones[zone].push({

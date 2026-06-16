@@ -7863,6 +7863,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /admin/deleteOnlinePresence — delete online/{cid}/{vid} ghost or stale node
+    if (urlPath === '/admin/deleteOnlinePresence' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const cid = String(parsed.companyId || parsed.cid || '').trim();
+        const vid = String(parsed.vehicleId || parsed.vehicleNo || parsed.vid || '').trim();
+        if (!cid || !vid) {
+          jsonReply(res, { ok: false, error: 'companyId and vehicleId required' });
+          return;
+        }
+        const report = await _deleteOnlinePresenceNode(cid, vid, 'admin-deleteOnlinePresence');
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
     // GET /admin/scanStaleTerminalFirebase?cid=860869&sinceHours=24
     // Lists terminal closedJobStore rows whose Firebase pendingjobs/allbookings still look live.
     if (urlPath === '/admin/scanStaleTerminalFirebase' && req.method === 'GET') {
@@ -16295,6 +16314,48 @@ function _upsertZoneDriverFromFirebase(record) {
   return 'added';
 }
 
+function _onlineNodeDriverId(cur, node) {
+  return cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '';
+}
+
+function _onlineNodeDriverName(cur, node) {
+  return cur.drivername || cur.driverName || cur.DriverName || node.drivername || node.driverName || node.DriverName || '';
+}
+
+/** Post-sign-out stray write: Available (or empty) with no driver identity — never dispatch-eligible. */
+function _isIdentitylessAvailableGhost(node, cur, status) {
+  if (_onlineNodeDriverId(cur, node) || _onlineNodeDriverName(cur, node)) return false;
+  const st = String(status || '').trim().toLowerCase();
+  if (st === 'available') return true;
+  const hasGps = !!(cur.lat || node.lat || cur.lng || node.lng || cur.Lat || node.Lat);
+  const lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+  if (!hasGps && !lastSeen) return true;
+  return false;
+}
+
+function _removeZoneDriverByVehicle(cid, vid) {
+  for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+    const d = ZONE_DRIVERS[i];
+    if (cid && d.companyId && String(d.companyId) === String(cid) &&
+        String(d.VehicleId) === String(vid)) {
+      ZONE_DRIVERS.splice(i, 1);
+    }
+  }
+}
+
+async function _deleteOnlinePresenceNode(cid, vid, reason) {
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok || !cid || !vid) return { ok: false, error: 'missing token or ids' };
+  await fbRequest(
+    `${FB_DB_URL}/online/${cid}/${vid}.json?auth=${encodeURIComponent(tok)}`,
+    'DELETE',
+    null,
+  );
+  _removeZoneDriverByVehicle(cid, vid);
+  console.log(`[online-presence] deleted online/${cid}/${vid} (${reason || 'admin'})`);
+  return { ok: true, companyId: cid, vehicleId: vid, reason: reason || 'admin' };
+}
+
 function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) {
   stats = stats || {};
   if (!node || typeof node !== 'object') return null;
@@ -16314,6 +16375,12 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
   const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
   if (!status || _OFFLINE.has(status)) return null;
 
+  if (_isIdentitylessAvailableGhost(node, cur, status)) {
+    if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: 'available-without-driver' });
+    stats.skippedGhost = (stats.skippedGhost || 0) + 1;
+    return null;
+  }
+
   const _lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
   if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
     if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
@@ -16329,7 +16396,7 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     _vehnum = vehicleId;
   }
 
-  if (!_driverId && !_drivername && !_vehnum) {
+  if (!_driverId && !_drivername) {
     const rec = idIndex[cid] && idIndex[cid][vehicleId];
     if (rec && (rec.driverid || rec.drivername)) {
       _driverId   = rec.driverid;
@@ -16348,7 +16415,12 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     }
   }
 
-  const driverId = String(_driverId || vehicleId);
+  if (!_driverId) {
+    if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: 'no-driver-id' });
+    return null;
+  }
+
+  const driverId = String(_driverId);
   const _savedZone = getSavedZone(driverId);
   const lat = cur.lat || node.lat || cur.Lat || node.Lat || cur.latitude || node.latitude || '';
   const lng = cur.lng || node.lng || cur.Lng || node.Lng || cur.longitude || node.longitude || '';
@@ -16439,12 +16511,13 @@ async function _syncZoneDriversFromFirebase(opts) {
       }
     }
 
-    if (deleteStaleOrphans && stats.toDelete.length) {
+    if (stats.toDelete.length) {
       const _delAuth = encodeURIComponent(token);
       for (const { cid, vid, reason } of stats.toDelete) {
         fbRequest(`${FB_DB_URL}/online/${cid}/${vid}.json?auth=${_delAuth}`, 'DELETE', null)
           .then(() => console.log(`[sync-drivers] deleted stale online/${cid}/${vid} (${reason})`))
           .catch(e => console.warn(`[sync-drivers] DELETE online/${cid}/${vid} failed: ${e && e.message}`));
+        _removeZoneDriverByVehicle(cid, vid);
       }
     }
 
@@ -16529,6 +16602,12 @@ setInterval(async () => {
                               node.driverid || node.drivername || node.vehiclenumber);
       if (_looksOrphanKey && !_hasIdentity) {
         _toKill.push({ cid, vid, reason: 'orphan-no-identity' });
+        continue;
+      }
+
+      // 2b) Available (or identity-less stub) with no driver — stray post-sign-out write.
+      if (_isIdentitylessAvailableGhost(node, cur, status)) {
+        _toKill.push({ cid, vid, reason: 'available-without-driver' });
         continue;
       }
 
