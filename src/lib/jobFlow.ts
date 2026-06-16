@@ -68,6 +68,11 @@ export async function updateBooking(body: Record<string, unknown>) {
 
 function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: number): Job {
   const status = changes.BookingStatus ?? changes.Status;
+  const scheduledRaw = changes.ScheduledFor ?? changes.ScheduledForMs;
+  const scheduledFor =
+    scheduledRaw !== undefined
+      ? Number(scheduledRaw) || undefined
+      : job.scheduledFor;
   return {
     ...job,
     pickAddress: String(changes.PickAddress ?? changes.PickLocation ?? job.pickAddress),
@@ -83,6 +88,11 @@ function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: num
     dispatchBeforeMinutes:
       parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) ||
       0,
+    scheduledFor: scheduledFor === 0 ? undefined : scheduledFor,
+    notifyDispatchAt:
+      changes.NotifyDispatchAt !== undefined
+        ? String(changes.NotifyDispatchAt || '')
+        : job.notifyDispatchAt,
     status: status != null ? (String(status) as Job['status']) : job.status,
     driverId:
       changes.DriverId != null
@@ -103,6 +113,13 @@ function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: num
     estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ''),
     urgent: changes.Urgent === 'Yes' || changes.Urgent === true,
     corner: changes.CornerAddress ? String(changes.CornerAddress).length > 0 : job.corner,
+    createdAt: job.createdAt,
+    lastEditedAt: changes.lastEditedAt != null ? String(changes.lastEditedAt) : job.lastEditedAt,
+    lastEditedBy: changes.lastEditedBy != null ? String(changes.lastEditedBy) : job.lastEditedBy,
+    editHistory:
+      changes.editHistory && Array.isArray(changes.editHistory)
+        ? (changes.editHistory as Job['editHistory'])
+        : job.editHistory,
     updateSeq: seq ?? (job.updateSeq ?? 0) + 1,
   };
 }
@@ -279,6 +296,8 @@ async function persistJobUpdate(
   const merged = applyChangesToJob(current, changes, authoritativeSeq);
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, changes, merged.status, authoritativeSeq);
+  const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+  if (fresh) useJobStore.getState().upsertJob(fresh);
 }
 
 export async function updateJob(

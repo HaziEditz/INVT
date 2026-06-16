@@ -27618,7 +27618,7 @@ function jobFromFirebase(key, rec, companyId) {
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : void 0,
     vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ""),
     bookingDateTime: String(
-      rec.BookingDateTime ?? rec.Pickingtime ?? rec.PickingTime ?? rec.pickingTime ?? (typeof rec.createdAt === "number" ? new Date(rec.createdAt).toISOString() : rec.createdAt ?? (/* @__PURE__ */ new Date()).toISOString())
+      rec.BookingDateTime ?? rec.Pickingtime ?? rec.PickingTime ?? rec.pickingTime ?? (typeof rec.createdAt === "number" ? new Date(rec.createdAt).toISOString().replace("T", " ").slice(0, 19) : "")
     ),
     scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : void 0,
     dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? "0"), 10) || 0,
@@ -27666,6 +27666,10 @@ function jobFromFirebase(key, rec, companyId) {
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ""),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? "").trim() || void 0,
     lastOfferDriverId: String(rec.lastOfferDriverId ?? rec.LastOfferDriverId ?? "").trim() || void 0,
+    lastOfferDriverName: String(rec.lastOfferDriverName ?? rec.LastOfferDriverName ?? "").trim() || void 0,
+    lastEditedAt: String(rec.lastEditedAt ?? rec.LastEditedAt ?? "").trim() || void 0,
+    lastEditedBy: String(rec.lastEditedBy ?? rec.LastEditedBy ?? "").trim() || void 0,
+    editHistory: parseJobEditHistory(rec.editHistory ?? rec.EditHistory),
     bookingType: String(rec.bookingType ?? rec.BookingType ?? "").trim() || void 0,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ""),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ""),
@@ -27900,6 +27904,37 @@ function formatJobDateTimeShort(d2) {
     hour12: false
   });
 }
+function parseJobEditHistory(raw) {
+  if (!raw) return void 0;
+  let list = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (typeof raw === "object") list = Object.values(raw);
+  const parsed = list.map((entry) => {
+    if (!entry || typeof entry !== "object") return null;
+    const e = entry;
+    const at2 = String(e.at ?? "").trim();
+    const summary = String(e.summary ?? "").trim();
+    if (!at2 && !summary) return null;
+    return {
+      at: at2 || new Date(Number(e.atMs) || Date.now()).toISOString(),
+      atMs: e.atMs != null ? Number(e.atMs) : void 0,
+      by: String(e.by ?? "dispatcher"),
+      byName: String(e.byName ?? e.by ?? "").trim() || void 0,
+      summary: summary || "Details updated",
+      changes: e.changes && typeof e.changes === "object" ? e.changes : void 0
+    };
+  }).filter(Boolean);
+  return parsed.length ? parsed.slice(-30) : void 0;
+}
+function formatJobEditHistoryWhen(entry) {
+  try {
+    const d2 = entry.atMs ? new Date(entry.atMs) : new Date(entry.at);
+    if (Number.isNaN(d2.getTime())) return entry.at;
+    return formatJobDateTimeShort(d2);
+  } catch {
+    return entry.at;
+  }
+}
 function jobPickupTypeLabel(job) {
   var _a2;
   const preBooked = (job.dispatchBeforeMinutes ?? 0) > 0 || !!job.notifyDispatchAt || normalizeJobStatus(job.status) === "Scheduled" || job.createdAt && jobScheduledTime(job) && jobScheduledTime(job).getTime() - job.createdAt > 6e4;
@@ -27924,8 +27959,29 @@ function jobOverdueLabel(job, now = /* @__PURE__ */ new Date()) {
   if (mins == null) return null;
   return mins === 1 ? "Overdue 1 min" : `Overdue ${mins} min`;
 }
-function jobReturnReasonAlert(job) {
-  const driver = (job.lastOfferDriverId || "").trim();
+function formatLastOfferDriverLabel(driverId, driverName) {
+  const id = driverId.trim();
+  if (!id) return (driverName || "").trim() || "Driver";
+  const name2 = (driverName || "").trim();
+  const genericName = !name2 || name2 === id || /^driver\s+\S+$/i.test(name2);
+  if (name2 && !genericName) return `${id} (${name2})`;
+  return id;
+}
+function resolveLastOfferDriverName(job, drivers) {
+  var _a2, _b2;
+  const fromJob = (_a2 = job.lastOfferDriverName) == null ? void 0 : _a2.trim();
+  if (fromJob) return fromJob;
+  const id = (job.lastOfferDriverId || "").trim();
+  if (!id || !(drivers == null ? void 0 : drivers.length)) return void 0;
+  const match2 = drivers.find(
+    (d2) => d2.driverId === id || d2.vehicleNo === id || d2.vehicleId === id
+  );
+  const name2 = (_b2 = match2 == null ? void 0 : match2.driverName) == null ? void 0 : _b2.trim();
+  return name2 || void 0;
+}
+function jobReturnReasonAlert(job, driverName) {
+  const driverId = (job.lastOfferDriverId || "").trim();
+  const driver = driverId ? formatLastOfferDriverLabel(driverId, driverName || job.lastOfferDriverName) : "";
   const r = (job.returnReason || "").trim();
   if (!r && !driver) return null;
   const lower = r.toLowerCase();
@@ -28005,6 +28061,7 @@ const PRESERVE_IF_EMPTY = [
   "dispatcherName"
 ];
 function mergeJobUpdate(existing, incoming) {
+  var _a2, _b2, _c;
   const merged = { ...existing, ...incoming };
   for (const key of PRESERVE_IF_EMPTY) {
     const nextVal = incoming[key];
@@ -28015,6 +28072,11 @@ function mergeJobUpdate(existing, incoming) {
   }
   if (incoming.createdAt == null && existing.createdAt != null) {
     merged.createdAt = existing.createdAt;
+  }
+  if ((!incoming.editHistory || !incoming.editHistory.length) && ((_a2 = existing.editHistory) == null ? void 0 : _a2.length)) {
+    merged.editHistory = existing.editHistory;
+  } else if (((_b2 = incoming.editHistory) == null ? void 0 : _b2.length) && ((_c = existing.editHistory) == null ? void 0 : _c.length)) {
+    merged.editHistory = incoming.editHistory.length >= existing.editHistory.length ? incoming.editHistory : existing.editHistory;
   }
   const existingSeq = existing.updateSeq ?? 0;
   const incomingSeq = incoming.updateSeq ?? existingSeq;
@@ -28401,7 +28463,7 @@ function notifyOfferReturned(bookingId, refresh) {
     type: "warning",
     title: `Offer returned — job #${bookingId}`,
     message: `${who} ${verb} job #${bookingId} — returned to pending.`,
-    category: "offer_returned"
+    category: "general"
   });
 }
 const POOL_RESTORE_ACTIONS = /* @__PURE__ */ new Set(["status", "timeout", "decline", "recall", "scheduled_release"]);
@@ -29104,7 +29166,16 @@ function paymentLabelFromType(paymentType) {
 }
 function buildJobChangesFromForm(form, dispatcherName, opts) {
   const includeAssignment = (opts == null ? void 0 : opts.includeAssignment) !== false;
-  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  let bookingDateTime;
+  let dispatchBefore;
+  if (form.timing === "later") {
+    ({ bookingDateTime, dispatchBefore } = buildBookingDateTime(form));
+  } else if (opts == null ? void 0 : opts.preserveAsapBookingTime) {
+    bookingDateTime = opts.preserveAsapBookingTime;
+    dispatchBefore = 0;
+  } else {
+    ({ bookingDateTime, dispatchBefore } = buildBookingDateTime(form));
+  }
   const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : "0,0";
   const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : "0,0";
   const pickAddr = form.pick.address || form.pickInput;
@@ -29163,8 +29234,16 @@ function normEditChangeValue(key, value) {
   return s2;
 }
 function buildJobEditChangesDelta(job, form, dispatcherName) {
-  const next = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
-  const prev = buildJobChangesFromForm(jobToForm(job), dispatcherName, { includeAssignment: false });
+  const prevForm = jobToForm(job);
+  const preserveAsap = prevForm.timing === "now" && form.timing === "now" ? job.bookingDateTime : void 0;
+  const next = buildJobChangesFromForm(form, dispatcherName, {
+    includeAssignment: false,
+    preserveAsapBookingTime: preserveAsap
+  });
+  const prev = buildJobChangesFromForm(prevForm, dispatcherName, {
+    includeAssignment: false,
+    preserveAsapBookingTime: job.bookingDateTime
+  });
   const delta = {};
   for (const key of Object.keys(next)) {
     if (normEditChangeValue(key, next[key]) !== normEditChangeValue(key, prev[key])) {
@@ -29282,6 +29361,8 @@ async function createJob(body) {
 }
 function applyChangesToJob(job, changes, seq) {
   const status = changes.BookingStatus ?? changes.Status;
+  const scheduledRaw = changes.ScheduledFor ?? changes.ScheduledForMs;
+  const scheduledFor = scheduledRaw !== void 0 ? Number(scheduledRaw) || void 0 : job.scheduledFor;
   return {
     ...job,
     pickAddress: String(changes.PickAddress ?? changes.PickLocation ?? job.pickAddress),
@@ -29295,6 +29376,8 @@ function applyChangesToJob(job, changes, seq) {
     serviceType: String(changes.serviceType ?? changes.ServiceType ?? job.serviceType),
     bookingDateTime: String(changes.BookingDateTime ?? changes.Pickingtime ?? job.bookingDateTime),
     dispatchBeforeMinutes: parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) || 0,
+    scheduledFor: scheduledFor === 0 ? void 0 : scheduledFor,
+    notifyDispatchAt: changes.NotifyDispatchAt !== void 0 ? String(changes.NotifyDispatchAt || "") : job.notifyDispatchAt,
     status: status != null ? String(status) : job.status,
     driverId: changes.DriverId != null ? Number(changes.DriverId) === -1 ? "-1" : Number(changes.DriverId) <= 0 ? void 0 : String(changes.DriverId) : job.driverId,
     vehicleId: changes.VehicleId != null ? Number(changes.VehicleId) === 0 ? void 0 : String(changes.VehicleId) : job.vehicleId,
@@ -29303,6 +29386,10 @@ function applyChangesToJob(job, changes, seq) {
     estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ""),
     urgent: changes.Urgent === "Yes" || changes.Urgent === true,
     corner: changes.CornerAddress ? String(changes.CornerAddress).length > 0 : job.corner,
+    createdAt: job.createdAt,
+    lastEditedAt: changes.lastEditedAt != null ? String(changes.lastEditedAt) : job.lastEditedAt,
+    lastEditedBy: changes.lastEditedBy != null ? String(changes.lastEditedBy) : job.lastEditedBy,
+    editHistory: changes.editHistory && Array.isArray(changes.editHistory) ? changes.editHistory : job.editHistory,
     updateSeq: seq ?? (job.updateSeq ?? 0) + 1
   };
 }
@@ -29417,18 +29504,18 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
     if (result.ok) break;
     if (result.stale) {
       if (result.currentSeq != null) ifSeq = result.currentSeq;
-      const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
-      if (fresh) {
-        ifSeq = fresh.updateSeq ?? ifSeq;
-        useJobStore.getState().upsertJob(fresh);
+      const fresh2 = await fetchFreshJobFromFirebase(companyId, jobId);
+      if (fresh2) {
+        ifSeq = fresh2.updateSeq ?? ifSeq;
+        useJobStore.getState().upsertJob(fresh2);
       }
       continue;
     }
     break;
   }
   if (!(result == null ? void 0 : result.ok)) {
-    const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
-    if (fresh) useJobStore.getState().upsertJob(fresh);
+    const fresh2 = await fetchFreshJobFromFirebase(companyId, jobId);
+    if (fresh2) useJobStore.getState().upsertJob(fresh2);
     const message2 = (result == null ? void 0 : result.error) || "Could not save changes";
     useUiStore.getState().addToast({
       type: "error",
@@ -29442,6 +29529,8 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   const merged = applyChangesToJob(current, changes, authoritativeSeq);
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, changes, merged.status, authoritativeSeq);
+  const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+  if (fresh) useJobStore.getState().upsertJob(fresh);
 }
 async function updateJob(jobId, companyId, changes, existingJob) {
   if (Object.keys(changes).length === 0) return;
@@ -32425,14 +32514,14 @@ function JobCard({ job, tab }) {
       pickupLabel: jobPickupTypeLabel(job),
       pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
       overdue: jobOverdueLabel(job, now),
-      returnAlert: jobReturnReasonAlert(job),
+      returnAlert: jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers)),
       createdBy: ((_a3 = job.dispatcherName) == null ? void 0 : _a3.trim()) || null,
       passengerEmail: ((_b2 = job.passengerEmail) == null ? void 0 : _b2.trim()) || null,
       tariffLabel: jobTariffLabel(job),
       vehicleType: jobVehicleTypeLabel(job),
       fare
     };
-  }, [job, tab, now]);
+  }, [job, tab, now, allDrivers]);
   const opsMeta = reactExports.useMemo(() => {
     if (tab === "ua" || tab === "dy") return null;
     const created = jobCreatedAtTime(job);
@@ -33598,6 +33687,21 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       return null;
     }
   }, [form.timing, form.laterDate, form.laterHour, form.laterMin, form.dispatchBeforeMin]);
+  const editAuditMeta = reactExports.useMemo(() => {
+    if (!editingJob) return null;
+    const now = /* @__PURE__ */ new Date();
+    const created = jobCreatedAtTime(editingJob);
+    const pickup = jobBookingTime(editingJob);
+    return {
+      createdLabel: created ? formatJobDateTimeShort(created) : null,
+      pickupType: jobPickupTypeLabel(editingJob),
+      pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
+      overdue: jobOverdueLabel(editingJob, now),
+      lastEditedAt: editingJob.lastEditedAt,
+      lastEditedBy: editingJob.lastEditedBy,
+      history: [...editingJob.editHistory ?? []].reverse().slice(0, 10)
+    };
+  }, [editingJob]);
   const resetForm = reactExports.useCallback(() => {
     const base = defaultCreateJobForm();
     base.dispatchBeforeMin = (settings == null ? void 0 : settings.defaultDispatchWindow) ?? 10;
@@ -34138,8 +34242,48 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
             )
           ] }),
           routeSummary && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-semibold text-[#5b7cfa] mb-2 px-0.5", children: routeSummary }),
+          isEdit && editAuditMeta && /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "cj-section mb-2 bg-[#1a1a18] border border-[#333] rounded p-2", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cj-label mb-1", children: "Job record (read-only)" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-[#c8c4bc]", children: [
+              editAuditMeta.createdLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-60", children: "Created:" }),
+                " ",
+                editAuditMeta.createdLabel
+              ] }),
+              editAuditMeta.pickupTime && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "opacity-60", children: [
+                  "Pickup (",
+                  editAuditMeta.pickupType,
+                  "):"
+                ] }),
+                " ",
+                editAuditMeta.pickupTime
+              ] }),
+              editAuditMeta.overdue && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-amber-400 col-span-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-80", children: "Late / overdue:" }),
+                " ",
+                editAuditMeta.overdue
+              ] }),
+              editAuditMeta.lastEditedAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "col-span-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-60", children: "Last edited:" }),
+                " ",
+                formatJobEditHistoryWhen({ at: editAuditMeta.lastEditedAt, summary: "", by: "" }),
+                editAuditMeta.lastEditedBy ? ` by ${editAuditMeta.lastEditedBy}` : ""
+              ] })
+            ] }),
+            editAuditMeta.history.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-2 pt-2 border-t border-[#333]", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-semibold text-[#9ca3af] mb-1", children: "Edit history" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "space-y-1 max-h-24 overflow-y-auto text-[10px] text-[#b8b4ac]", children: editAuditMeta.history.map((entry, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[#888]", children: formatJobEditHistoryWhen(entry) }),
+                entry.byName ? ` · ${entry.byName}` : "",
+                " — ",
+                entry.summary
+              ] }, `${entry.at}-${i2}`)) })
+            ] })
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "cj-section", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cj-label", children: "Timing" }),
+            isEdit && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] text-[#888] mb-1", children: "Change Now/Later or scheduled pickup below. Created time and overdue status above stay fixed." }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex w-fit mb-2", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "button",
@@ -42080,7 +42224,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C_NnARVR.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-K2ZHxAhR.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42887,6 +43031,10 @@ function JobDetailModal() {
   if (!job || !job.pickAddress) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx(Modal, { open: open2 && !!jobId, onClose: closeModal, title: `Job #${jobId}`, wide: true, children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-bw-muted text-sm", children: "Loading job details…" }) });
   }
+  const created = jobCreatedAtTime(job);
+  const pickup = jobBookingTime(job);
+  const overdue = jobOverdueLabel(job);
+  const history = [...job.editHistory ?? []].reverse();
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     Modal,
     {
@@ -42948,10 +43096,39 @@ function JobDetailModal() {
               ] })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted text-xs", children: "Booked" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: job.bookingDateTime })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted text-xs", children: "Created" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: created ? formatJobDateTimeShort(created) : "—" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-bw-muted text-xs", children: [
+                "Pickup (",
+                jobPickupTypeLabel(job),
+                ")"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: pickup ? formatJobDateTimeShort(pickup) : job.bookingDateTime || "—" })
+            ] }),
+            overdue && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted text-xs", children: "Overdue" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-amber-400", children: overdue })
+            ] }),
+            job.lastEditedAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted text-xs", children: "Last edited" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+                formatJobEditHistoryWhen({ at: job.lastEditedAt, summary: "", by: "" }),
+                job.lastEditedBy ? ` · ${job.lastEditedBy}` : ""
+              ] })
             ] })
           ] })
+        ] }),
+        history.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bw-card p-3", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { className: "font-bold text-bw-muted text-xs mb-2 uppercase tracking-wide", children: "Edit history" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "space-y-2 text-xs max-h-48 overflow-y-auto", children: history.map((entry, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { className: "border-b border-bw-border/50 pb-2 last:border-0", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-bw-muted text-[10px]", children: [
+              formatJobEditHistoryWhen(entry),
+              entry.byName ? ` · ${entry.byName}` : entry.by ? ` · ${entry.by}` : ""
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: entry.summary })
+          ] }, `${entry.at}-${i2}`)) })
         ] }),
         job.tm && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bw-card p-3", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { className: "font-bold text-cyan-400 mb-2", children: "Total Mobility" }),
@@ -42978,16 +43155,6 @@ function JobDetailModal() {
         job.notes && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-bw-muted border-t border-bw-border pt-2", children: [
           "Notes: ",
           job.notes
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] text-bw-muted", children: [
-          "Timeline: Booked ",
-          (() => {
-            try {
-              return format(parseISO(job.bookingDateTime), "PPpp");
-            } catch {
-              return job.bookingDateTime;
-            }
-          })()
         ] })
       ] })
     }
@@ -44306,7 +44473,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-Dz8S2sJ4.js");
+        const { writeActiveDispatcher } = await import("./notifications-jZkePSpV.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -44333,7 +44500,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Dz8S2sJ4.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-jZkePSpV.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44663,4 +44830,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-C-xp_vG8.js.map
+//# sourceMappingURL=index-DFbN88OJ.js.map

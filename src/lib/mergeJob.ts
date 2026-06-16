@@ -65,6 +65,14 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
   if (incoming.createdAt == null && existing.createdAt != null) {
     merged.createdAt = existing.createdAt;
   }
+  if ((!incoming.editHistory || !incoming.editHistory.length) && existing.editHistory?.length) {
+    merged.editHistory = existing.editHistory;
+  } else if (incoming.editHistory?.length && existing.editHistory?.length) {
+    merged.editHistory =
+      incoming.editHistory.length >= existing.editHistory.length
+        ? incoming.editHistory
+        : existing.editHistory;
+  }
   const existingSeq = existing.updateSeq ?? 0;
   const incomingSeq = incoming.updateSeq ?? existingSeq;
   if (incoming.status != null) {

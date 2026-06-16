@@ -35,6 +35,14 @@ import {
 import { fetchDrivingRoute, formatCityDistance, formatFormFareEstimate } from '@/lib/directions';
 import { estimateFare, haversineKm } from '@/lib/fareEstimate';
 import type { Job } from '@/types/job';
+import {
+  formatJobDateTimeShort,
+  formatJobEditHistoryWhen,
+  jobCreatedAtTime,
+  jobBookingTime,
+  jobOverdueLabel,
+  jobPickupTypeLabel,
+} from '@/types/job';
 
 interface CreateJobModalProps {
   mapsKey: string;
@@ -243,6 +251,22 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       return null;
     }
   }, [form.timing, form.laterDate, form.laterHour, form.laterMin, form.dispatchBeforeMin]);
+
+  const editAuditMeta = useMemo(() => {
+    if (!editingJob) return null;
+    const now = new Date();
+    const created = jobCreatedAtTime(editingJob);
+    const pickup = jobBookingTime(editingJob);
+    return {
+      createdLabel: created ? formatJobDateTimeShort(created) : null,
+      pickupType: jobPickupTypeLabel(editingJob),
+      pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
+      overdue: jobOverdueLabel(editingJob, now),
+      lastEditedAt: editingJob.lastEditedAt,
+      lastEditedBy: editingJob.lastEditedBy,
+      history: [...(editingJob.editHistory ?? [])].reverse().slice(0, 10),
+    };
+  }, [editingJob]);
 
   const resetForm = useCallback(() => {
     const base = defaultCreateJobForm();
@@ -828,9 +852,58 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
           <div className="text-xs font-semibold text-[#5b7cfa] mb-2 px-0.5">{routeSummary}</div>
         )}
 
+        {isEdit && editAuditMeta && (
+          <section className="cj-section mb-2 bg-[#1a1a18] border border-[#333] rounded p-2">
+            <div className="cj-label mb-1">Job record (read-only)</div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-[#c8c4bc]">
+              {editAuditMeta.createdLabel && (
+                <div>
+                  <span className="opacity-60">Created:</span> {editAuditMeta.createdLabel}
+                </div>
+              )}
+              {editAuditMeta.pickupTime && (
+                <div>
+                  <span className="opacity-60">Pickup ({editAuditMeta.pickupType}):</span>{' '}
+                  {editAuditMeta.pickupTime}
+                </div>
+              )}
+              {editAuditMeta.overdue && (
+                <div className="text-amber-400 col-span-2">
+                  <span className="opacity-80">Late / overdue:</span> {editAuditMeta.overdue}
+                </div>
+              )}
+              {editAuditMeta.lastEditedAt && (
+                <div className="col-span-2">
+                  <span className="opacity-60">Last edited:</span>{' '}
+                  {formatJobEditHistoryWhen({ at: editAuditMeta.lastEditedAt, summary: '', by: '' })}
+                  {editAuditMeta.lastEditedBy ? ` by ${editAuditMeta.lastEditedBy}` : ''}
+                </div>
+              )}
+            </div>
+            {editAuditMeta.history.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-[#333]">
+                <div className="text-[10px] font-semibold text-[#9ca3af] mb-1">Edit history</div>
+                <ul className="space-y-1 max-h-24 overflow-y-auto text-[10px] text-[#b8b4ac]">
+                  {editAuditMeta.history.map((entry, i) => (
+                    <li key={`${entry.at}-${i}`}>
+                      <span className="text-[#888]">{formatJobEditHistoryWhen(entry)}</span>
+                      {entry.byName ? ` · ${entry.byName}` : ''} — {entry.summary}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* 3. TIMING */}
         <section className="cj-section">
           <div className="cj-label">Timing</div>
+          {isEdit && (
+            <p className="text-[10px] text-[#888] mb-1">
+              Change Now/Later or scheduled pickup below. Created time and overdue status above stay fixed.
+            </p>
+          )}
           <div className="flex w-fit mb-2">
             <button
               type="button"

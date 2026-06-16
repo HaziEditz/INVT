@@ -13,6 +13,7 @@ import {
   jobPickupTypeLabel,
   jobReturnReasonAlert,
   jobScheduledTime,
+  resolveLastOfferDriverName,
   jobTariffLabel,
   jobVehicleTypeLabel,
   preDispatchAssignBlockMessage,
@@ -111,14 +112,14 @@ export function JobCard({ job, tab }: JobCardProps) {
       pickupLabel: jobPickupTypeLabel(job),
       pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
       overdue: jobOverdueLabel(job, now),
-      returnAlert: jobReturnReasonAlert(job),
+      returnAlert: jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers)),
       createdBy: job.dispatcherName?.trim() || null,
       passengerEmail: job.passengerEmail?.trim() || null,
       tariffLabel: jobTariffLabel(job),
       vehicleType: jobVehicleTypeLabel(job),
       fare,
     };
-  }, [job, tab, now]);
+  }, [job, tab, now, allDrivers]);
 
   const opsMeta = useMemo(() => {
     if (tab === 'ua' || tab === 'dy') return null;

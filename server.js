@@ -2427,6 +2427,8 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       ReturnReason: job.returnReason || '',
       lastOfferDriverId: job.lastOfferDriverId || '',
       LastOfferDriverId: job.lastOfferDriverId || '',
+      lastOfferDriverName: job.lastOfferDriverName || '',
+      LastOfferDriverName: job.lastOfferDriverName || '',
       releasedAt: job.releasedAt || null,
     };
     await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, fbJob, tok);
@@ -2714,6 +2716,25 @@ async function promoteQueuedJobByDriver(opts) {
   };
 }
 
+function _driverDisplayNameFromZone(driverId) {
+  const did = String(driverId || '').trim();
+  if (!did || did === '0') return '';
+  const zd = ZONE_DRIVERS.find(d =>
+    String(d.driverid) === did ||
+    String(d.VehicleId) === did ||
+    String(d.vehiclenumber) === did
+  );
+  return zd && zd.drivername ? String(zd.drivername).trim() : '';
+}
+
+function _stampLastOfferDriver(job, driverId) {
+  const did = String(driverId || '').trim();
+  if (!did || did === '0') return;
+  job.lastOfferDriverId = did;
+  const name = _driverDisplayNameFromZone(did);
+  if (name) job.lastOfferDriverName = name;
+}
+
 // Driver declines or times out on a broadcast offer — restore job to U-A and set driver Away.
 async function driverDeclineJob(opts) {
   opts = opts || {};
@@ -2737,7 +2758,7 @@ async function driverDeclineJob(opts) {
   const _offerCtx = _offerCtxFromJob(job, driverId);
 
   _applyPoolStatusFields(job, _restoredPool);
-  job.lastOfferDriverId = driverId;
+  _stampLastOfferDriver(job, driverId);
   job.returnReason = timedOut ? 'Offer timeout (no response)' : 'Declined by driver';
   _bumpJobUpdateSeq(job, 'driver');
   saveJobStore();
@@ -3032,6 +3053,8 @@ async function _releaseOfferToPoolFirebase(cid, bookingId, job, poolStatus, offe
       ReturnReason: job.returnReason || '',
       lastOfferDriverId: job.lastOfferDriverId || '',
       LastOfferDriverId: job.lastOfferDriverId || '',
+      lastOfferDriverName: job.lastOfferDriverName || '',
+      LastOfferDriverName: job.lastOfferDriverName || '',
       updateSeq: seq,
       version: seq,
       _seq: seq,
@@ -3759,6 +3782,153 @@ async function _writeDriverJobUpdatedNotification(opts) {
   return true;
 }
 
+const _IMMUTABLE_ON_EDIT = new Set([
+  'createdAt', 'CreatedAt', 'updateSeq', '_seq', 'version', 'lastUpdatedAt', 'lastUpdatedBy',
+]);
+
+function _jobEditFieldLabel(key) {
+  const labels = {
+    BookingDateTime: 'Pickup time',
+    Pickingtime: 'Pickup time',
+    DispatchTimebefore: 'Dispatch window',
+    Dispatchbefore: 'Dispatch window',
+    BookingStatus: 'Status',
+    Status: 'Status',
+    PickAddress: 'Pickup',
+    DropAddress: 'Dropoff',
+    Name: 'Passenger',
+    PhoneNo: 'Phone',
+    Notes: 'Notes',
+    VehicleType: 'Vehicle type',
+    PaymentMethod: 'Payment',
+    PaymentType: 'Payment',
+    EstimatedFare: 'Fare',
+    CustomeRate: 'Fare',
+    TarriffName: 'Tariff',
+    serviceType: 'Service',
+    ScheduledFor: 'Scheduled for',
+  };
+  return labels[key] || key;
+}
+
+function _summarizeJobEditDiff(diff) {
+  if (!diff || typeof diff !== 'object') return 'Details updated';
+  const parts = [];
+  const db = diff.DispatchTimebefore || diff.Dispatchbefore;
+  const pickup = diff.Pickingtime || diff.BookingDateTime;
+  const prevDb = db ? (parseInt(db.from, 10) || 0) : null;
+  const nextDb = db ? (parseInt(db.to, 10) || 0) : null;
+  if (db && prevDb === 0 && nextDb > 0) {
+    const when = pickup && pickup.to ? String(pickup.to) : '';
+    parts.push(`Timing → Later${when ? ` (pickup ${when}, dispatch ${nextDb} min before)` : ''}`);
+  } else if (db && prevDb > 0 && nextDb === 0) {
+    parts.push('Timing → Now (ASAP)');
+  } else if (pickup) {
+    parts.push(`${_jobEditFieldLabel(pickup === diff.Pickingtime ? 'Pickingtime' : 'BookingDateTime')} → ${pickup.to}`);
+  } else if (db) {
+    parts.push(`Dispatch window → ${nextDb} min before pickup`);
+  }
+  if (diff.BookingStatus || diff.Status) {
+    const st = diff.BookingStatus || diff.Status;
+    parts.push(`Status → ${st.to}`);
+  }
+  for (const key of Object.keys(diff)) {
+    if (['BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore', 'BookingStatus', 'Status', 'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt'].includes(key)) continue;
+    const row = diff[key];
+    if (!row || row.from === row.to) continue;
+    const label = _jobEditFieldLabel(key);
+    const toVal = row.to == null || row.to === '' ? '(cleared)' : String(row.to).slice(0, 80);
+    parts.push(`${label} → ${toVal}`);
+  }
+  return parts.length ? parts.join('; ') : 'Details updated';
+}
+
+function _appendJobEditHistory(job, diff, by, opts) {
+  opts = opts || {};
+  if (!job || !diff || !Object.keys(diff).length) return;
+  const entry = {
+    at: new Date().toISOString(),
+    atMs: Date.now(),
+    by: String(by || 'dispatcher'),
+    byName: String(opts.dispatcherName || job.DispatcherName || by || 'dispatcher').trim(),
+    summary: _summarizeJobEditDiff(diff),
+    changes: Object.fromEntries(
+      Object.entries(diff).map(([k, v]) => [k, { from: v && v.from, to: v && v.to }])
+    ),
+  };
+  if (!Array.isArray(job.editHistory)) job.editHistory = [];
+  job.editHistory.push(entry);
+  if (job.editHistory.length > 30) job.editHistory = job.editHistory.slice(-30);
+  job.lastEditedAt = entry.at;
+  job.lastEditedBy = entry.byName || entry.by;
+}
+
+function _willBeLaterScheduledJob(job, changes) {
+  const nextDb = changes.DispatchTimebefore !== undefined
+    ? (parseInt(changes.DispatchTimebefore, 10) || 0)
+    : (parseInt(job.DispatchTimebefore || '0', 10) || 0);
+  if (nextDb > 0) return true;
+  const pickRef = changes.Pickingtime || changes.BookingDateTime || job.Pickingtime || job.BookingDateTime;
+  const cid = job.companyId;
+  const pickupMs = pickRef ? (_parseLocalDT(pickRef, cid) || NaN) : NaN;
+  return !!(pickupMs && !isNaN(pickupMs) && pickupMs > Date.now() + 60 * 1000);
+}
+
+function _wasAsapDispatchJob(job) {
+  const db = parseInt(job.DispatchTimebefore || '0', 10) || 0;
+  if (db > 0) return false;
+  if (job.ScheduledFor && Number(job.ScheduledFor) > Date.now() + 60 * 1000) return false;
+  if (String(job.BookingStatus || '') === 'Scheduled') return false;
+  return true;
+}
+
+// Now → Later: schedule job, pull back from driver offer/queue/assign. Later → Now: ASAP pool.
+function _applyTimingEditPrelude(job, changes) {
+  if (!job || !changes) return;
+  const cid = job.companyId;
+  const willLater = _willBeLaterScheduledJob(job, changes);
+  const wasAsap = _wasAsapDispatchJob(job);
+  const pickRef = changes.Pickingtime || changes.BookingDateTime || job.Pickingtime || job.BookingDateTime;
+  const pickupMs = pickRef ? (_parseLocalDT(pickRef, cid) || NaN) : NaN;
+  const nextDb = changes.DispatchTimebefore !== undefined
+    ? (parseInt(changes.DispatchTimebefore, 10) || 0)
+    : (parseInt(job.DispatchTimebefore || '0', 10) || 0);
+
+  if (willLater && pickupMs && !isNaN(pickupMs)) {
+    changes.ScheduledFor = pickupMs;
+    changes.ScheduledForMs = pickupMs;
+    if (nextDb > 0) {
+      changes.NotifyDispatchAt = new Date(pickupMs - nextDb * 60000).toISOString();
+    }
+  }
+
+  if (wasAsap && willLater) {
+    const st = String(job.BookingStatus || 'Pending');
+    const attached = _DRIVER_ATTACHED_STATUSES.has(st) || st === 'Offered';
+    const prevDrv = _attachedDriverIdFromJob(job);
+    if (attached && prevDrv) changes._withdrawDriverId = prevDrv;
+    if (['Pending', 'No One', 'Offered', 'Assigned', 'Queued'].includes(st)) {
+      changes.BookingStatus = 'Scheduled';
+      changes.Status = 'Scheduled';
+      changes.DriverId = '0';
+      changes.VehicleId = '0';
+      changes.AssignedDriver = '';
+      changes.AssignedDriverId = '';
+      changes.manualOffer = false;
+      changes.returnReason = '';
+    }
+    console.log(`  [updateBooking] Now→Later: job #${job.Id} status ${st} → Scheduled (withdraw=${!!changes._withdrawDriverId})`);
+  } else if (!willLater && nextDb === 0) {
+    changes.ScheduledFor = 0;
+    changes.ScheduledForMs = 0;
+    changes.NotifyDispatchAt = '';
+    if (String(job.BookingStatus || '') === 'Scheduled') {
+      changes.BookingStatus = 'Pending';
+      changes.Status = 'Pending';
+    }
+  }
+}
+
 // updateBooking({bookingId, changes, by, ifSeq?, source})
 //   - Diff-based, per-booking, race-safe via updateSeq.
 //   - Refuses if job is already closed (Cancelled / Completed / etc.).
@@ -3786,6 +3956,10 @@ async function updateBooking(opts) {
     return { ok: false, error: 'job not found' };
   }
   const job = jobStore[idx];
+
+  const _dispatcherName = String(changes.DispatcherName || job.DispatcherName || '').trim();
+  for (const _ik of _IMMUTABLE_ON_EDIT) delete changes[_ik];
+  _applyTimingEditPrelude(job, changes);
 
   const _withdrawHint = _normJobDriverId(changes._withdrawDriverId);
   if (_withdrawHint) delete changes._withdrawDriverId;
@@ -3817,6 +3991,8 @@ async function updateBooking(opts) {
     if (_toSt === 'Arrived' && !job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
     if (_toSt === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
   }
+  _appendJobEditHistory(job, _diff, by, { dispatcherName: _dispatcherName });
+
   const _newSeq = _curSeq + 1;
   job.updateSeq      = _newSeq;
   job.lastUpdatedAt  = new Date().toISOString();
@@ -3832,9 +4008,12 @@ async function updateBooking(opts) {
 
   // Dispatcher unassign — job returned to Pending/No One; notify the previous driver.
   const _newStatus = job.BookingStatus || 'Pending';
-  const _unassignToPool = (_newStatus === 'Pending' || _newStatus === 'No One') && !_drv;
+  const _unassignToPool = (_newStatus === 'Pending' || _newStatus === 'No One' || _newStatus === 'Scheduled') && !_drv;
   const _notifyDrvOnEdit = _drv || (_visible ? _prevDrv : '');
-  if (_prevDrv && (_DRIVER_ATTACHED_STATUSES.has(_prevStatus) || _withdrawHint) && _unassignToPool) {
+  const _shouldWithdrawDriver = _prevDrv && (_withdrawHint || (
+    _unassignToPool && (_DRIVER_ATTACHED_STATUSES.has(_prevStatus) || _prevStatus === 'Offered')
+  ));
+  if (_shouldWithdrawDriver) {
     if (typeof markDispatcherRecalled === 'function') markDispatcherRecalled(bookingId);
     try {
       await _withdrawJobFromDriver({
@@ -3873,6 +4052,18 @@ async function updateBooking(opts) {
     _fbChanged.updateSeq       = _newSeq;
     _fbChanged.jobUpdatedAt    = Date.now();
     _fbChanged.jobUpdatedAtIso = new Date().toISOString();
+    if (job.lastEditedAt) {
+      _fbChanged.lastEditedAt = job.lastEditedAt;
+      _fbChanged.LastEditedAt = job.lastEditedAt;
+    }
+    if (job.lastEditedBy) {
+      _fbChanged.lastEditedBy = job.lastEditedBy;
+      _fbChanged.LastEditedBy = job.lastEditedBy;
+    }
+    if (Array.isArray(job.editHistory) && job.editHistory.length) {
+      _fbChanged.editHistory = job.editHistory.slice(-20);
+      _fbChanged.EditHistory = _fbChanged.editHistory;
+    }
     // §FIX-DA-G5/G4 — driver-app public contract: version + serverTimestamp
     // + 6-value eventType on every booking write.
     _fbChanged.updatedAt       = _FB_SERVER_TIMESTAMP;
@@ -11607,7 +11798,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
             const _unrDrvDP = String(incomingDriverId || job.DriverId || '').trim();
-            if (_unrDrvDP && _unrDrvDP !== '0') job.lastOfferDriverId = _unrDrvDP;
+            if (_unrDrvDP && _unrDrvDP !== '0') _stampLastOfferDriver(job, _unrDrvDP);
             if (effectiveStatus === 'No One') {
               job.manualOffer = true;
               job.originalStatus = 'manual';
@@ -13807,7 +13998,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (newStatus === 'Unreached') {
             job.releasedAt = Date.now();
             const _unrDrvDS = String(incomingDriverId2 || job.DriverId || '').trim();
-            if (_unrDrvDS && _unrDrvDS !== '0') job.lastOfferDriverId = _unrDrvDS;
+            if (_unrDrvDS && _unrDrvDS !== '0') _stampLastOfferDriver(job, _unrDrvDS);
             if (effectiveStatus2 === 'No One') {
               job.manualOffer = true;
               job.originalStatus = 'manual';

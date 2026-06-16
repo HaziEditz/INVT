@@ -100,6 +100,10 @@ export interface Job {
   dispatcherName?: string;
   returnReason?: string;
   lastOfferDriverId?: string;
+  lastOfferDriverName?: string;
+  lastEditedAt?: string;
+  lastEditedBy?: string;
+  editHistory?: JobEditHistoryEntry[];
   bookingType?: string;
   timeline?: JobTimelineEvent[];
 }
@@ -108,6 +112,15 @@ export interface JobTimelineEvent {
   at: string;
   label: string;
   actor?: string;
+}
+
+export interface JobEditHistoryEntry {
+  at: string;
+  atMs?: number;
+  by: string;
+  byName?: string;
+  summary: string;
+  changes?: Record<string, { from?: unknown; to?: unknown }>;
 }
 
 export type JobTab = 'ua' | 'offer' | 'assign' | 'active' | 'queue' | 'dy';
@@ -157,8 +170,8 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         rec.PickingTime ??
         rec.pickingTime ??
         (typeof rec.createdAt === 'number'
-          ? new Date(rec.createdAt).toISOString()
-          : rec.createdAt ?? new Date().toISOString())
+          ? new Date(rec.createdAt).toISOString().replace('T', ' ').slice(0, 19)
+          : '')
     ),
     scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : undefined,
     dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? '0'), 10) || 0,
@@ -219,6 +232,11 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ''),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? '').trim() || undefined,
     lastOfferDriverId: String(rec.lastOfferDriverId ?? rec.LastOfferDriverId ?? '').trim() || undefined,
+    lastOfferDriverName:
+      String(rec.lastOfferDriverName ?? rec.LastOfferDriverName ?? '').trim() || undefined,
+    lastEditedAt: String(rec.lastEditedAt ?? rec.LastEditedAt ?? '').trim() || undefined,
+    lastEditedBy: String(rec.lastEditedBy ?? rec.LastEditedBy ?? '').trim() || undefined,
+    editHistory: parseJobEditHistory(rec.editHistory ?? rec.EditHistory),
     bookingType: String(rec.bookingType ?? rec.BookingType ?? '').trim() || undefined,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ''),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ''),
@@ -564,6 +582,44 @@ export function formatJobDateTimeShort(d: Date): string {
   });
 }
 
+function parseJobEditHistory(raw: unknown): JobEditHistoryEntry[] | undefined {
+  if (!raw) return undefined;
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (typeof raw === 'object') list = Object.values(raw as Record<string, unknown>);
+  const parsed = list
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const e = entry as Record<string, unknown>;
+      const at = String(e.at ?? '').trim();
+      const summary = String(e.summary ?? '').trim();
+      if (!at && !summary) return null;
+      return {
+        at: at || new Date(Number(e.atMs) || Date.now()).toISOString(),
+        atMs: e.atMs != null ? Number(e.atMs) : undefined,
+        by: String(e.by ?? 'dispatcher'),
+        byName: String(e.byName ?? e.by ?? '').trim() || undefined,
+        summary: summary || 'Details updated',
+        changes:
+          e.changes && typeof e.changes === 'object'
+            ? (e.changes as Record<string, { from?: unknown; to?: unknown }>)
+            : undefined,
+      } satisfies JobEditHistoryEntry;
+    })
+    .filter(Boolean) as JobEditHistoryEntry[];
+  return parsed.length ? parsed.slice(-30) : undefined;
+}
+
+export function formatJobEditHistoryWhen(entry: JobEditHistoryEntry): string {
+  try {
+    const d = entry.atMs ? new Date(entry.atMs) : new Date(entry.at);
+    if (Number.isNaN(d.getTime())) return entry.at;
+    return formatJobDateTimeShort(d);
+  } catch {
+    return entry.at;
+  }
+}
+
 /** Pickup label for UA cards — ASAP or Sched: HH:MM. */
 export function jobPickupTypeLabel(job: Job): string {
   const preBooked =
@@ -602,10 +658,45 @@ export function jobOverdueLabel(job: Job, now = new Date()): string | null {
 
 export type JobReturnAlertKind = 'reject' | 'not_reached' | 'warning';
 
+type LastOfferDriverLookup = {
+  driverId: string;
+  vehicleNo?: string;
+  vehicleId?: string;
+  driverName?: string;
+};
+
+export function formatLastOfferDriverLabel(driverId: string, driverName?: string): string {
+  const id = driverId.trim();
+  if (!id) return (driverName || '').trim() || 'Driver';
+  const name = (driverName || '').trim();
+  const genericName = !name || name === id || /^driver\s+\S+$/i.test(name);
+  if (name && !genericName) return `${id} (${name})`;
+  return id;
+}
+
+export function resolveLastOfferDriverName(
+  job: Job,
+  drivers?: LastOfferDriverLookup[],
+): string | undefined {
+  const fromJob = job.lastOfferDriverName?.trim();
+  if (fromJob) return fromJob;
+  const id = (job.lastOfferDriverId || '').trim();
+  if (!id || !drivers?.length) return undefined;
+  const match = drivers.find(
+    (d) => d.driverId === id || d.vehicleNo === id || d.vehicleId === id,
+  );
+  const name = match?.driverName?.trim();
+  return name || undefined;
+}
+
 export function jobReturnReasonAlert(
-  job: Job
+  job: Job,
+  driverName?: string,
 ): { kind: JobReturnAlertKind; text: string } | null {
-  const driver = (job.lastOfferDriverId || '').trim();
+  const driverId = (job.lastOfferDriverId || '').trim();
+  const driver = driverId
+    ? formatLastOfferDriverLabel(driverId, driverName || job.lastOfferDriverName)
+    : '';
   const r = (job.returnReason || '').trim();
   if (!r && !driver) return null;
   const lower = r.toLowerCase();

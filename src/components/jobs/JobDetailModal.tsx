@@ -1,4 +1,3 @@
-import { format, parseISO } from 'date-fns';
 import { FileDown, Mail } from 'lucide-react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
@@ -7,6 +6,14 @@ import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { generateJobPdf } from '@/lib/pdf';
 import { serviceBorderColor, sourceLabel } from '@/lib/utils';
+import {
+  formatJobDateTimeShort,
+  formatJobEditHistoryWhen,
+  jobBookingTime,
+  jobCreatedAtTime,
+  jobOverdueLabel,
+  jobPickupTypeLabel,
+} from '@/types/job';
 
 export function JobDetailModal() {
   const open = useUiStore((s) => s.openModal === 'jobDetail');
@@ -23,6 +30,11 @@ export function JobDetailModal() {
       </Modal>
     );
   }
+
+  const created = jobCreatedAtTime(job);
+  const pickup = jobBookingTime(job);
+  const overdue = jobOverdueLabel(job);
+  const history = [...(job.editHistory ?? [])].reverse();
 
   return (
     <Modal
@@ -58,9 +70,47 @@ export function JobDetailModal() {
             <div><span className="text-bw-muted text-xs">Driver</span><p>{job.driverName || job.driverId || '—'}</p></div>
             <div><span className="text-bw-muted text-xs">Vehicle</span><p>{job.vehicleNo || job.vehicleId || '—'}</p></div>
             <div><span className="text-bw-muted text-xs">Payment</span><p>{job.paymentType} · ${job.totalFare || job.estimatedFare || '0'}</p></div>
-            <div><span className="text-bw-muted text-xs">Booked</span><p>{job.bookingDateTime}</p></div>
+            <div>
+              <span className="text-bw-muted text-xs">Created</span>
+              <p>{created ? formatJobDateTimeShort(created) : '—'}</p>
+            </div>
+            <div>
+              <span className="text-bw-muted text-xs">Pickup ({jobPickupTypeLabel(job)})</span>
+              <p>{pickup ? formatJobDateTimeShort(pickup) : job.bookingDateTime || '—'}</p>
+            </div>
+            {overdue && (
+              <div>
+                <span className="text-bw-muted text-xs">Overdue</span>
+                <p className="text-amber-400">{overdue}</p>
+              </div>
+            )}
+            {job.lastEditedAt && (
+              <div>
+                <span className="text-bw-muted text-xs">Last edited</span>
+                <p>
+                  {formatJobEditHistoryWhen({ at: job.lastEditedAt, summary: '', by: '' })}
+                  {job.lastEditedBy ? ` · ${job.lastEditedBy}` : ''}
+                </p>
+              </div>
+            )}
           </div>
         </div>
+        {history.length > 0 && (
+          <div className="bw-card p-3">
+            <h4 className="font-bold text-bw-muted text-xs mb-2 uppercase tracking-wide">Edit history</h4>
+            <ul className="space-y-2 text-xs max-h-48 overflow-y-auto">
+              {history.map((entry, i) => (
+                <li key={`${entry.at}-${i}`} className="border-b border-bw-border/50 pb-2 last:border-0">
+                  <div className="text-bw-muted text-[10px]">
+                    {formatJobEditHistoryWhen(entry)}
+                    {entry.byName ? ` · ${entry.byName}` : entry.by ? ` · ${entry.by}` : ''}
+                  </div>
+                  <div>{entry.summary}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {job.tm && (
           <div className="bw-card p-3">
             <h4 className="font-bold text-cyan-400 mb-2">Total Mobility</h4>
@@ -76,9 +126,6 @@ export function JobDetailModal() {
         {job.notes && (
           <div className="text-xs text-bw-muted border-t border-bw-border pt-2">Notes: {job.notes}</div>
         )}
-        <div className="text-[10px] text-bw-muted">
-          Timeline: Booked {(() => { try { return format(parseISO(job.bookingDateTime), 'PPpp'); } catch { return job.bookingDateTime; } })()}
-        </div>
       </div>
     </Modal>
   );

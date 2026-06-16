@@ -419,10 +419,19 @@ function paymentLabelFromType(paymentType: PaymentType): string {
 export function buildJobChangesFromForm(
   form: CreateJobFormState,
   dispatcherName: string,
-  opts?: { includeAssignment?: boolean }
+  opts?: { includeAssignment?: boolean; preserveAsapBookingTime?: string }
 ): Record<string, unknown> {
   const includeAssignment = opts?.includeAssignment !== false;
-  const { bookingDateTime, dispatchBefore } = buildBookingDateTime(form);
+  let bookingDateTime: string;
+  let dispatchBefore: number;
+  if (form.timing === 'later') {
+    ({ bookingDateTime, dispatchBefore } = buildBookingDateTime(form));
+  } else if (opts?.preserveAsapBookingTime) {
+    bookingDateTime = opts.preserveAsapBookingTime;
+    dispatchBefore = 0;
+  } else {
+    ({ bookingDateTime, dispatchBefore } = buildBookingDateTime(form));
+  }
   const pickLatLng = form.pick.lat ? `${form.pick.lat},${form.pick.lng}` : '0,0';
   const dropLatLng = form.drop.lat ? `${form.drop.lat},${form.drop.lng}` : '0,0';
   const pickAddr = form.pick.address || form.pickInput;
@@ -493,8 +502,17 @@ export function buildJobEditChangesDelta(
   form: CreateJobFormState,
   dispatcherName: string
 ): Record<string, unknown> {
-  const next = buildJobChangesFromForm(form, dispatcherName, { includeAssignment: false });
-  const prev = buildJobChangesFromForm(jobToForm(job), dispatcherName, { includeAssignment: false });
+  const prevForm = jobToForm(job);
+  const preserveAsap =
+    prevForm.timing === 'now' && form.timing === 'now' ? job.bookingDateTime : undefined;
+  const next = buildJobChangesFromForm(form, dispatcherName, {
+    includeAssignment: false,
+    preserveAsapBookingTime: preserveAsap,
+  });
+  const prev = buildJobChangesFromForm(prevForm, dispatcherName, {
+    includeAssignment: false,
+    preserveAsapBookingTime: job.bookingDateTime,
+  });
   const delta: Record<string, unknown> = {};
   for (const key of Object.keys(next)) {
     if (normEditChangeValue(key, next[key]) !== normEditChangeValue(key, prev[key])) {
