@@ -27665,6 +27665,7 @@ function jobFromFirebase(key, rec, companyId) {
     })(),
     dispatcherName: String(rec.DispatcherName ?? rec.dispatcherName ?? ""),
     returnReason: String(rec.returnReason ?? rec.ReturnReason ?? "").trim() || void 0,
+    lastOfferDriverId: String(rec.lastOfferDriverId ?? rec.LastOfferDriverId ?? "").trim() || void 0,
     bookingType: String(rec.bookingType ?? rec.BookingType ?? "").trim() || void 0,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ""),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ""),
@@ -27692,12 +27693,28 @@ function normalizeSource(raw) {
   if (s2.includes("web") || s2.includes("website")) return "web";
   return "dispatch";
 }
+function jobStatusFromFirebaseRecord(rec) {
+  return resolveJobStatus(rec);
+}
 function resolveJobStatus(rec) {
   const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
   if (dId === -1 || dId === "-1") return "No One";
   const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
   const status = rec.Status != null || rec.status != null ? normalizeJobStatus(String(rec.Status ?? rec.status)) : null;
   if (booking === "No One" || status === "No One") return "No One";
+  if (booking === "Completed" || booking === "Cancelled" || booking === "No Show") return booking;
+  if (status === "Completed" || status === "Cancelled" || status === "No Show") return status;
+  const LIVE_BOOKING = [
+    "Offered",
+    "Queued",
+    "Assigned",
+    "Picking",
+    "Arrived",
+    "Active",
+    "OnTrip",
+    "Busy"
+  ];
+  if (booking && LIVE_BOOKING.includes(booking)) return booking;
   if (booking === "Pending" || status === "Pending") return "Pending";
   if (booking) return booking;
   if (status) return status;
@@ -27908,13 +27925,23 @@ function jobOverdueLabel(job, now = /* @__PURE__ */ new Date()) {
   return mins === 1 ? "Overdue 1 min" : `Overdue ${mins} min`;
 }
 function jobReturnReasonAlert(job) {
+  const driver = (job.lastOfferDriverId || "").trim();
   const r = (job.returnReason || "").trim();
-  if (!r) return null;
+  if (!r && !driver) return null;
   const lower = r.toLowerCase();
+  if (driver) {
+    if (lower.includes("declined") || lower.includes("reject")) {
+      return { kind: "reject", text: `Rejected by ${driver}` };
+    }
+    if (lower.includes("timeout") || lower.includes("no response") || lower.includes("unreached") || lower.includes("not reached") || lower.includes("not accepted") || lower.includes("no-response")) {
+      return { kind: "not_reached", text: `Not accepted by ${driver}` };
+    }
+  }
+  if (!r) return null;
   if (lower.includes("reject") || lower.includes("declined")) {
     return { kind: "reject", text: r };
   }
-  if (lower.includes("network") || lower.includes("no response") || lower.includes("timeout") || lower.includes("unreached") || lower.includes("not reached") || lower.includes("no-response")) {
+  if (lower.includes("network") || lower.includes("no response") || lower.includes("timeout") || lower.includes("unreached") || lower.includes("not reached") || lower.includes("not accepted") || lower.includes("no-response")) {
     return { kind: "not_reached", text: r };
   }
   return { kind: "warning", text: r };
@@ -28364,6 +28391,19 @@ const ACTIVE_BOOKING_STATUSES = /* @__PURE__ */ new Set([
 ]);
 const TERMINAL_BOOKING_STATUSES = /* @__PURE__ */ new Set(["Completed", "Cancelled", "No Show"]);
 const LIVE_DISPATCH_TABS = /* @__PURE__ */ new Set(["offer", "assign", "active", "queue"]);
+function notifyOfferReturned(bookingId, refresh) {
+  const action = refresh.action;
+  if (action !== "timeout" && action !== "decline") return;
+  const drv = String(refresh.declinedDriverId || refresh.driverId || "").trim();
+  const who = drv && drv !== "0" ? `Driver ${drv}` : "Driver";
+  const verb = action === "timeout" ? "did not respond to" : "declined";
+  useUiStore.getState().addToast({
+    type: "warning",
+    title: `Offer returned — job #${bookingId}`,
+    message: `${who} ${verb} job #${bookingId} — returned to pending.`,
+    category: "offer_returned"
+  });
+}
 const POOL_RESTORE_ACTIONS = /* @__PURE__ */ new Set(["status", "timeout", "decline", "recall", "scheduled_release"]);
 const POOL_UA_STATUSES = /* @__PURE__ */ new Set(["Pending", "No One"]);
 const LIVE_OFFER_STATUSES = /* @__PURE__ */ new Set(["Offered", "Assigned"]);
@@ -28371,12 +28411,13 @@ function isPoolUaStatus(status) {
   return POOL_UA_STATUSES.has(normalizeJobStatus(status));
 }
 function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef) {
+  if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
   const tab = jobTabForStatus(job);
   if (tab === "ua") return true;
   if (!LIVE_DISPATCH_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
-  return false;
+  return LIVE_DISPATCH_TABS.has(tab);
 }
 function pendingjobsAbsentIsPoolRestore(job, refresh) {
   if (!job) return false;
@@ -28431,6 +28472,23 @@ function applyRefreshStatusHint(job, prior, refresh, bookingId) {
   }
   return job;
 }
+function optimisticDispatchRefresh(bookingId, refresh, pendingRef, bookingsRef, upsertJob, syncAll) {
+  if (refreshImpliesTerminal(refresh) || !refresh.status) return;
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  if (!prior || useJobStore.getState().isJobBlacklisted(bookingId)) return;
+  let job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  if (!job) return;
+  pendingRef.delete(bookingId);
+  const st2 = normalizeJobStatus(job.status);
+  if (ACTIVE_BOOKING_STATUSES.has(st2)) {
+    bookingsRef.set(job.id, job);
+  } else if (st2 === "Pending" || st2 === "No One") {
+    pendingRef.set(job.id, job);
+    bookingsRef.delete(bookingId);
+  }
+  upsertJob(job);
+  syncAll();
+}
 async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendingRef, bookingsRef, hooks) {
   const action = refresh.action;
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
@@ -28470,6 +28528,9 @@ async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendi
   } else if (action === "cancel") {
     bookingsRef.delete(bookingId);
   }
+  if (!job && prior && ["accept", "assign", "offer", "active", "queue"].includes(action || "")) {
+    job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  }
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
   const pjVal = pjSnap.val();
   const pjRecord = pjVal && typeof pjVal === "object" ? pjVal : null;
@@ -28478,7 +28539,12 @@ async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendi
     job = mergeJobUpdate(job, { updateSeq: fbSeq });
   }
   if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
-    const st2 = normalizeJobStatus(job.status);
+    const st2 = jobStatusFromFirebaseRecord(
+      abVal && typeof abVal === "object" ? abVal : { BookingStatus: job.status, Status: job.status }
+    );
+    if (st2 !== job.status) {
+      job = mergeJobUpdate(job, { status: st2 });
+    }
     if (ACTIVE_BOOKING_STATUSES.has(st2)) {
       bookingsRef.set(job.id, job);
     } else if (st2 === "Pending" || st2 === "No One") {
@@ -28558,6 +28624,15 @@ function useJobs(companyId) {
       if (!jobId || isBlacklisted(jobId)) return;
       const job = jobFromFirebase(key, rec, companyId);
       if (!job || isBlacklisted(job.id)) return;
+      const effectiveStatus = jobStatusFromFirebaseRecord(rec);
+      if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+        pendingRef.current.delete(job.id);
+        bookingsRef.current.delete(job.id);
+        removeJob(job.id);
+        clearRemovedJob(job.id);
+        syncAll();
+        return;
+      }
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
       const merged = booking ? mergeJobUpdate(booking, job) : job;
@@ -28585,12 +28660,6 @@ function useJobs(companyId) {
       const jobId = parseInt(snap.key || "0", 10);
       if (!jobId) return;
       pendingRef.current.delete(jobId);
-      const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === jobId);
-      const stillLive = !!storeJob && !isPoolUaStatus(storeJob.status) && (LIVE_DISPATCH_TABS.has(jobTabForStatus(storeJob)) || bookingsRef.current.has(jobId));
-      if (!stillLive) {
-        removeJob(jobId);
-        clearRemovedJob(jobId);
-      }
       syncAll();
     };
     unsubs.push(onChildAdded(jobsRef, addJobToStore));
@@ -28600,6 +28669,7 @@ function useJobs(companyId) {
     unsubs.push(
       onValue(bRef, (snap) => {
         bookingsRef.current = /* @__PURE__ */ new Map();
+        const terminalIds = [];
         const val = snap.val();
         if (val && typeof val === "object") {
           for (const [key, rec] of Object.entries(val)) {
@@ -28607,13 +28677,24 @@ function useJobs(companyId) {
             if (!jobId || isBlacklisted(jobId)) continue;
             const job = jobFromFirebase(key, rec, companyId);
             if (!job || isBlacklisted(job.id)) continue;
-            const active = ACTIVE_BOOKING_STATUSES.has(job.status);
-            if (active) {
-              bookingsRef.current.set(job.id, job);
-            } else if (isPoolUaStatus(job.status)) {
-              pendingRef.current.set(job.id, job);
+            const effectiveStatus = jobStatusFromFirebaseRecord(rec);
+            const stored = effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
+            if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+              terminalIds.push(stored.id);
+              continue;
+            }
+            if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+              bookingsRef.current.set(stored.id, stored);
+            } else if (isPoolUaStatus(effectiveStatus)) {
+              pendingRef.current.set(stored.id, stored);
             }
           }
+        }
+        for (const tid of terminalIds) {
+          pendingRef.current.delete(tid);
+          bookingsRef.current.delete(tid);
+          removeJob(tid);
+          clearRemovedJob(tid);
         }
         syncAll();
       })
@@ -28628,15 +28709,27 @@ function useJobs(companyId) {
           syncAll();
           return;
         }
+        const refreshPayload = {
+          action: v2.action,
+          status: v2.status,
+          driverId: v2.driverId != null ? String(v2.driverId) : void 0,
+          declinedDriverId: v2.declinedDriverId,
+          returnReason: v2.returnReason,
+          updateSeq: v2.updateSeq != null ? parseInt(String(v2.updateSeq), 10) : void 0
+        };
+        notifyOfferReturned(bid, refreshPayload);
+        optimisticDispatchRefresh(
+          bid,
+          refreshPayload,
+          pendingRef.current,
+          bookingsRef.current,
+          upsertJob,
+          syncAll
+        );
         void refreshJobFromFirebaseCaches(
           companyId,
           bid,
-          {
-            action: v2.action,
-            status: v2.status,
-            driverId: v2.driverId != null ? String(v2.driverId) : void 0,
-            updateSeq: v2.updateSeq != null ? parseInt(String(v2.updateSeq), 10) : void 0
-          },
+          refreshPayload,
           pendingRef.current,
           bookingsRef.current,
           {
@@ -30202,6 +30295,32 @@ function Header({ companyId, companyName, dispatcherName, onNameChange }) {
     ] })
   ] });
 }
+function filterDrivers(drivers, serviceFilter, statusFilter) {
+  return drivers.filter((d2) => {
+    if (statusFilter !== "All" && statusFilter !== "Suspended") {
+      const st2 = d2.status === "OnTrip" ? "Active" : d2.status;
+      const filter = statusFilter === "Active" ? ["Active", "OnTrip", "Busy"] : [statusFilter];
+      if (!filter.includes(st2)) return false;
+    }
+    if (statusFilter === "Suspended" && d2.status !== "Suspended") return false;
+    if (serviceFilter !== "All") {
+      const svcs = d2.services || ["Taxi"];
+      if (!svcs.some((s2) => s2.toLowerCase() === serviceFilter.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+function selectDriverCounts(state) {
+  const ds = state.drivers;
+  return {
+    all: ds.length,
+    free: ds.filter((d2) => d2.status === "Available").length,
+    offered: ds.filter((d2) => d2.status === "Offered").length,
+    picking: ds.filter((d2) => d2.status === "Picking").length,
+    busy: ds.filter((d2) => ["Busy", "Active", "OnTrip", "Assigned", "Arrived"].includes(d2.status)).length,
+    away: ds.filter((d2) => d2.status === "Away").length
+  };
+}
 const useDriverStore = create((set2, get2) => ({
   drivers: [],
   serviceFilter: "All",
@@ -30211,32 +30330,8 @@ const useDriverStore = create((set2, get2) => ({
   setServiceFilter: (f2) => set2({ serviceFilter: f2 }),
   setStatusFilter: (f2) => set2({ statusFilter: f2 }),
   setSelectedDriverId: (id) => set2({ selectedDriverId: id }),
-  filteredDrivers: () => {
-    const { drivers, serviceFilter, statusFilter } = get2();
-    return drivers.filter((d2) => {
-      if (statusFilter !== "All" && statusFilter !== "Suspended") {
-        const st2 = d2.status === "OnTrip" ? "Active" : d2.status;
-        const filter = statusFilter === "Active" ? ["Active", "OnTrip", "Busy"] : [statusFilter];
-        if (!filter.includes(st2)) return false;
-      }
-      if (statusFilter === "Suspended" && d2.status !== "Suspended") return false;
-      if (serviceFilter !== "All") {
-        const svcs = d2.services || ["Taxi"];
-        if (!svcs.some((s2) => s2.toLowerCase() === serviceFilter.toLowerCase())) return false;
-      }
-      return true;
-    });
-  },
-  counts: () => {
-    const ds = get2().drivers;
-    return {
-      all: ds.length,
-      free: ds.filter((d2) => d2.status === "Available").length,
-      picking: ds.filter((d2) => d2.status === "Picking").length,
-      busy: ds.filter((d2) => ["Busy", "Active", "OnTrip", "Assigned"].includes(d2.status)).length,
-      away: ds.filter((d2) => d2.status === "Away").length
-    };
-  }
+  filteredDrivers: () => filterDrivers(get2().drivers, get2().serviceFilter, get2().statusFilter),
+  counts: () => selectDriverCounts(get2())
 }));
 function nzClockString(date) {
   return date.toLocaleTimeString("en-NZ", {
@@ -30259,8 +30354,9 @@ function StatusBar() {
     () => ({
       all: drivers.length,
       free: drivers.filter((d2) => d2.status === "Available").length,
+      offered: drivers.filter((d2) => d2.status === "Offered").length,
       picking: drivers.filter((d2) => d2.status === "Picking").length,
-      busy: drivers.filter((d2) => ["Busy", "Active", "OnTrip", "Assigned"].includes(d2.status)).length,
+      busy: drivers.filter((d2) => ["Busy", "Active", "OnTrip", "Assigned", "Arrived"].includes(d2.status)).length,
       away: drivers.filter((d2) => d2.status === "Away").length
     }),
     [drivers]
@@ -30281,6 +30377,7 @@ function StatusBar() {
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-5 items-center", children: [
       stat("Drivers", counts.all),
       stat("Free", counts.free, "text-status-available"),
+      stat("Offered", counts.offered, "text-status-offered"),
       stat("Picking", counts.picking, "text-status-picking"),
       stat("Busy", counts.busy, "text-status-busy"),
       stat("Pending", pending, "text-amber-400"),
@@ -32669,16 +32766,12 @@ function JobCard({ job, tab }) {
             ]
           }
         ),
-        tab === "ua" && (uaMeta == null ? void 0 : uaMeta.returnAlert) && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        tab === "ua" && (uaMeta == null ? void 0 : uaMeta.returnAlert) && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
           {
             className: "text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug border border-black/20",
             style: { backgroundColor: BADGE_BG, color: BADGE_TEXT },
-            children: [
-              uaMeta.returnAlert.kind === "not_reached" ? "Not reached: " : "",
-              uaMeta.returnAlert.kind === "reject" ? "Rejected: " : "",
-              uaMeta.returnAlert.text
-            ]
+            children: uaMeta.returnAlert.text
           }
         ),
         job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -41987,7 +42080,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-DHgRELzS.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-C_NnARVR.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42900,15 +42993,72 @@ function JobDetailModal() {
     }
   );
 }
-function driverFromFirebase(vehicleId, rec, companyId) {
-  const current = rec.current || {};
+const DRIVER_STATUS_RANK = {
+  Away: 0,
+  Available: 1,
+  Offered: 2,
+  Assigned: 2,
+  Picking: 3,
+  Arrived: 4,
+  Busy: 4,
+  Active: 5,
+  OnTrip: 5
+};
+function driverStatusRank(status) {
+  const s2 = String(status || "").trim();
+  return DRIVER_STATUS_RANK[s2] ?? (s2 === "Suspended" || s2 === "Clearing" ? -1 : 1);
+}
+function resolveDriverPresenceStatus(topRaw, currentRaw) {
+  const top = String(topRaw || "Away").trim();
+  const cur = String(currentRaw || "").trim();
+  if (top === "Available" && (cur === "Away" || cur === "Picking" || cur === "Arrived" || cur === "Active" || cur === "Assigned")) {
+    return cur;
+  }
+  if (cur && driverStatusRank(cur) > driverStatusRank(top) && driverStatusRank(cur) >= driverStatusRank("Assigned")) {
+    return cur;
+  }
+  return top;
+}
+const TRIP_DRIVER_STATUSES = /* @__PURE__ */ new Set([
+  "Picking",
+  "Arrived",
+  "Active",
+  "OnTrip",
+  "Busy",
+  "Assigned"
+]);
+function pendingOfferBookingId(rec, current) {
+  const raw = current.joboffer ?? rec.joboffer;
+  if (raw == null) return null;
+  const id = String(raw).trim();
+  if (!id || id === "0") return null;
+  return id;
+}
+function resolveDriverStatusFromPresence(rec, current) {
   const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
   const curStatus = String(current.vehiclestatus ?? "").trim();
-  const status = topStatus === "Available" && (curStatus === "Away" || curStatus === "Picking" || curStatus === "Active") ? curStatus : topStatus;
+  let status = resolveDriverPresenceStatus(topStatus, curStatus);
+  const offerId = pendingOfferBookingId(rec, current);
+  if (offerId && status !== "Away" && status !== "Suspended" && !TRIP_DRIVER_STATUSES.has(status)) {
+    return "Offered";
+  }
+  if (status === "Offered" && !offerId) {
+    return "Available";
+  }
+  return status;
+}
+function driverFromFirebase(vehicleId, rec, companyId) {
+  const current = rec.current || {};
+  const status = resolveDriverStatusFromPresence(rec, current);
+  const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
+  const hasBookingRef = rawBookingRef != null && String(rawBookingRef).trim() !== "" && String(rawBookingRef) !== "0";
+  const displayName = String(
+    rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? ""
+  ).trim();
   return {
-    driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? ""),
+    driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ""),
     vehicleId,
-    driverName: String(rec.drivername ?? rec.driverName ?? "Driver"),
+    driverName: displayName || `Driver ${vehicleId}`,
     vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
     vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? "Sedan"),
     status,
@@ -42917,7 +43067,7 @@ function driverFromFirebase(vehicleId, rec, companyId) {
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ""),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : void 0,
     jobCount: rec.jobCount != null ? Number(rec.jobCount) : void 0,
-    bookingId: status === "Away" ? "" : String(rec.BookingId ?? current.bookingId ?? current.joboffer ?? ""),
+    bookingId: status === "Away" || !hasBookingRef ? "" : String(rawBookingRef),
     jobPickup: status === "Away" ? "" : String(rec.jobpickup ?? current.jobpickup ?? ""),
     jobDropoff: status === "Away" ? "" : String(rec.jobdropoff ?? current.jobdropoff ?? ""),
     passengerName: String(rec.jobname ?? current.jobname ?? ""),
@@ -42930,13 +43080,17 @@ function statusColor(status) {
   switch (status) {
     case "Available":
       return "#22c55e";
+    case "Offered":
+      return "#eab308";
     case "Picking":
+    case "Assigned":
       return "#3b82f6";
+    case "Arrived":
+      return "#8b5cf6";
     case "Active":
     case "OnTrip":
       return "#f59e0b";
     case "Busy":
-    case "Assigned":
       return "#f97316";
     case "Suspended":
       return "#ef4444";
@@ -42994,8 +43148,11 @@ function ZoneBoard() {
   const serviceFilter = useDriverStore((s2) => s2.serviceFilter);
   const setStatusFilter = useDriverStore((s2) => s2.setStatusFilter);
   const setServiceFilter = useDriverStore((s2) => s2.setServiceFilter);
-  const filteredDrivers = useDriverStore((s2) => s2.filteredDrivers);
-  const drivers = filteredDrivers();
+  const allDrivers = useDriverStore((s2) => s2.drivers);
+  const drivers = reactExports.useMemo(
+    () => filterDrivers(allDrivers, serviceFilter, statusFilter),
+    [allDrivers, serviceFilter, statusFilter]
+  );
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col h-full overflow-hidden bw-surface", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex border-b bw-border text-[10px] shrink-0 bw-surface", children: STATUS_TABS.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
@@ -43308,8 +43465,9 @@ function DispatchMap({
     () => ({
       all: drivers.length,
       free: drivers.filter((d2) => d2.status === "Available").length,
+      offered: drivers.filter((d2) => d2.status === "Offered").length,
       picking: drivers.filter((d2) => d2.status === "Picking").length,
-      busy: drivers.filter((d2) => ["Busy", "Active", "OnTrip", "Assigned"].includes(d2.status)).length,
+      busy: drivers.filter((d2) => ["Busy", "Active", "OnTrip", "Assigned", "Arrived"].includes(d2.status)).length,
       away: drivers.filter((d2) => d2.status === "Away").length
     }),
     [drivers]
@@ -43820,6 +43978,7 @@ function DispatchMap({
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "absolute bottom-2 left-20 z-10 flex gap-1.5 flex-wrap max-w-[60%]", children: [
       { k: "all", icon: Users, color: "bw-text" },
       { k: "free", icon: Car, color: "text-status-available" },
+      { k: "offered", icon: Car, color: "text-status-offered" },
       { k: "picking", icon: Navigation, color: "text-status-picking" },
       { k: "busy", icon: Car, color: "text-status-busy" },
       { k: "away", icon: Car, color: "bw-muted" }
@@ -44147,7 +44306,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-ChlQ4Jp6.js");
+        const { writeActiveDispatcher } = await import("./notifications-Dz8S2sJ4.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -44174,7 +44333,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-ChlQ4Jp6.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-Dz8S2sJ4.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44504,4 +44663,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DQ0P4__O.js.map
+//# sourceMappingURL=index-C-xp_vG8.js.map

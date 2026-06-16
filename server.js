@@ -3090,7 +3090,7 @@ function _autoDispatchDriverChecks(d, companyId) {
   const checks = {
     companyIdMatch: !!(d && String(d.companyId || '') === cid),
     statusAvailable: !!(d && String(d.vehiclestatus || '') === 'Available'),
-    notAwayLocked: !!(d && !isAwayLocked(d.driverid)),
+    notAwayLocked: !!(d && !isAwayLockedForAutoDispatch(d.driverid, d.vehiclestatus)),
     hasGpsLat: !!(latRaw && Number.isFinite(latNum) && latNum !== 0),
     hasGpsLng: !!(lngRaw && Number.isFinite(lngNum) && lngNum !== 0),
   };
@@ -3101,7 +3101,7 @@ function _autoDispatchDriverChecks(d, companyId) {
     checkLabels: {
       companyIdMatch: `companyId === ${cid}`,
       statusAvailable: 'vehiclestatus === Available',
-      notAwayLocked: 'not in AWAY_LOCKED (or lock expired)',
+      notAwayLocked: 'not away-locked for dispatch (grace elapsed, Away ack, or lock expired)',
       hasGpsLat: 'lat present and non-zero in ZONE_DRIVERS',
       hasGpsLng: 'lng present and non-zero in ZONE_DRIVERS',
     },
@@ -3129,7 +3129,9 @@ function _serializeZoneDriverRow(d) {
       ageSec: Math.round((Date.now() - awayLock.ts) / 1000),
       ackAway: !!awayLock.ackAway,
       ttlRemainingSec: Math.max(0, Math.round((AWAY_LOCK_TTL_MS - (Date.now() - awayLock.ts)) / 1000)),
-      unlockRequires: 'driver app must send Away heartbeat (ackAway), then manual Available',
+      graceRemainingSec: Math.max(0, Math.round((AWAY_LOCK_MIN_GRACE_MS - (Date.now() - awayLock.ts)) / 1000)),
+      dispatchBlocked: isAwayLockedForAutoDispatch(d.driverid, d.vehiclestatus),
+      unlockRequires: 'Away ack then Available, or Available after grace window, or lock TTL',
     } : null,
     _fbSeeded: !!d._fbSeeded,
     _forcedOnline: !!d._forcedOnline,
@@ -3248,7 +3250,7 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
     autoDispatchEligibleCount: eligibleDrivers.length,
     autoDispatchEligibleDrivers: eligibleDrivers,
     autoDispatchFilter:
-      'ZONE_DRIVERS where companyId match AND vehiclestatus===Available AND !AWAY_LOCKED AND lat AND lng',
+      'ZONE_DRIVERS where companyId match AND vehiclestatus===Available AND !awayLockedForDispatch AND lat AND lng',
     drivers,
     firebaseOnline: fbOnline,
     firebaseOnlyNotInZoneDrivers: fbOnlyNotInZoneDrivers,
@@ -3312,12 +3314,13 @@ function _analyzeAutoDispatchForJob(job, cid) {
       vehicleNo: d.vehiclenumber,
       status: d.vehiclestatus,
       awayLocked: isAwayLocked(d.driverid),
+      awayLockedForAutoDispatch: isAwayLockedForAutoDispatch(d.driverid, d.vehiclestatus),
       lat: d.lat,
       lng: d.lng,
     })),
     driverDiagnostics,
     autoDispatchFilter:
-      'companyId match AND vehiclestatus===Available AND !AWAY_LOCKED AND lat AND lng',
+      'companyId match AND vehiclestatus===Available AND !awayLockedForDispatch AND lat AND lng',
     companyOfferedJobs: offeredBlockers.map(j => ({ id: j.Id, driverId: j.DriverId, offeredAt: j.offeredAt || null })),
     lastTick: _AUTO_DISPATCH_LAST,
   };
@@ -5871,16 +5874,18 @@ const LT_JOB_IDS    = new Set();
 // Drivers locked to Away because they didn't accept / rejected a job.
 // Format: { "driverId": { ts: <ms>, ackAway: <bool> } }
 //
-// Lock is cleared ONLY when:
-//   1. Driver gets a new job (Busy / Assigned / Picking).
-//   2. Driver's app sends an Away heartbeat (ackAway → true), proving the phone
-//      showed Away mode, AND then sends Available (genuine manual press).
-//   3. Safety timeout: 3 minutes, so drivers are never locked forever if the
-//      driver app never sends an Away heartbeat.
+// Purpose: NOT a multi-minute penalty — prevents stale "Available" heartbeats (sent before
+// the server's Away write arrived) from instantly undoing Away and triggering an immediate
+// re-offer of the same job. Job-level releasedAt cooldown handles same-job spacing.
 //
-// Pure Available heartbeats are BLOCKED while locked — they do NOT clear the lock.
+// Lock blocks auto-dispatch while active. Cleared when:
+//   1. Driver gets a new job (Busy / Assigned / Picking).
+//   2. Driver's app sends Away (ackAway), then Available (genuine manual return).
+//   3. Driver is Available again after AWAY_LOCK_MIN_GRACE_MS (stale-heartbeat window passed).
+//   4. Safety timeout: AWAY_LOCK_TTL_MS, so drivers are never locked forever.
 const AWAY_LOCKED = {};
-const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // 3-minute safety net
+const AWAY_LOCK_TTL_MS = 3 * 60 * 1000; // safety net only — not the intended wait time
+const AWAY_LOCK_MIN_GRACE_MS = 5000; // block stale pre-Away heartbeats; matches release cooldown
 
 // Tracks drivers whose Away was silently ignored because they had an Assigned job
 // (usually from Firebase onDisconnect firing on an app crash).
@@ -6019,6 +6024,16 @@ function clearDispatcherRecalled(jobId) {
   delete DISPATCHER_RECALLED[String(jobId)];
 }
 
+function _awayLockEntry(driverId) {
+  const lock = AWAY_LOCKED[String(driverId)];
+  if (!lock) return null;
+  if (Date.now() - lock.ts > AWAY_LOCK_TTL_MS) {
+    delete AWAY_LOCKED[String(driverId)];
+    console.log(`  [awayLock] driver ${driverId} lock auto-expired (${Math.round(AWAY_LOCK_TTL_MS / 60000)} min safety)`);
+    return null;
+  }
+  return lock;
+}
 function setAwayLock(driverId) {
   if (!driverId || String(driverId) === '0') return;
   AWAY_LOCKED[String(driverId)] = { ts: Date.now(), ackAway: false };
@@ -6031,28 +6046,31 @@ function clearAwayLock(driverId) {
   }
 }
 function acknowledgeAway(driverId) {
-  const lock = AWAY_LOCKED[String(driverId)];
+  const lock = _awayLockEntry(driverId);
   if (lock && !lock.ackAway) {
     lock.ackAway = true;
     console.log(`  [awayLock] driver ${driverId} Away ACKNOWLEDGED — next Available will unlock`);
   }
 }
 function isAwayLocked(driverId) {
-  const lock = AWAY_LOCKED[String(driverId)];
+  return !!_awayLockEntry(driverId);
+}
+// Auto-dispatch: Available drivers past the grace window (or after Away ack) are eligible
+// even if a lock entry still exists until the next heartbeat clears it.
+function isAwayLockedForAutoDispatch(driverId, vehiclestatus) {
+  const lock = _awayLockEntry(driverId);
   if (!lock) return false;
-  if (Date.now() - lock.ts > AWAY_LOCK_TTL_MS) {
-    delete AWAY_LOCKED[String(driverId)];
-    console.log(`  [awayLock] driver ${driverId} lock auto-expired (3 min safety)`);
-    return false;
-  }
+  if (String(vehiclestatus || '') !== 'Available') return true;
+  if (lock.ackAway) return false;
+  if (Date.now() - lock.ts >= AWAY_LOCK_MIN_GRACE_MS) return false;
   return true;
 }
 // Returns true when a genuine manual Available press should clear the lock.
-// Only true after driver app sent an Away heartbeat (ackAway), proving the phone
-// switched to Away mode and the driver manually pressed Available afterwards.
 function canUnlockWithAvailable(driverId) {
-  const lock = AWAY_LOCKED[String(driverId)];
-  return !!(lock && lock.ackAway);
+  const lock = _awayLockEntry(driverId);
+  if (!lock) return true;
+  if (lock.ackAway) return true;
+  return Date.now() - lock.ts >= AWAY_LOCK_MIN_GRACE_MS;
 }
 
 // Shared by zone-driver sync + ghost-presence sweeper (must be defined before sync runs).
@@ -15310,7 +15328,7 @@ function _collectAutoDispatchEligibleDrivers(cid) {
   return ZONE_DRIVERS.filter(d =>
     String(d.companyId || '') === companyId &&
     String(d.vehiclestatus || '') === 'Available' &&
-    !isAwayLocked(d.driverid) &&
+    !isAwayLockedForAutoDispatch(d.driverid, d.vehiclestatus) &&
     d.lat && d.lng
   );
 }
