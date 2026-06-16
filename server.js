@@ -4260,38 +4260,58 @@ function _appendJobEditHistory(job, diff, by, opts) {
   job.lastEditedBy = entry.byName || entry.by;
 }
 
-function _willBeLaterScheduledJob(job, changes) {
-  const nextDb = changes.DispatchTimebefore !== undefined
-    ? (parseInt(changes.DispatchTimebefore, 10) || 0)
-    : (parseInt(job.DispatchTimebefore || '0', 10) || 0);
-  if (nextDb > 0) return true;
-  const pickRef = changes.Pickingtime || changes.BookingDateTime || job.Pickingtime || job.BookingDateTime;
-  const cid = job.companyId;
-  const pickupMs = pickRef ? (_parseLocalDT(pickRef, cid) || NaN) : NaN;
-  return !!(pickupMs && !isNaN(pickupMs) && pickupMs > Date.now() + 60 * 1000);
+function _editChangesTouchTiming(changes) {
+  if (!changes || typeof changes !== 'object') return false;
+  return [
+    'BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore',
+    'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt',
+  ].some(k => Object.prototype.hasOwnProperty.call(changes, k));
 }
 
-function _wasAsapDispatchJob(job) {
-  const db = parseInt(job.DispatchTimebefore || '0', 10) || 0;
-  if (db > 0) return false;
-  if (job.ScheduledFor && Number(job.ScheduledFor) > Date.now() + 60 * 1000) return false;
-  if (String(job.BookingStatus || '') === 'Scheduled') return false;
-  return true;
+/** Strip status/driver mutations on live assigned jobs unless timing mode actually changed. */
+function _stripAttachedJobStatusMutations(job, changes) {
+  if (!job || !changes) return;
+  const st = String(job.BookingStatus || '');
+  const attached = _DRIVER_ATTACHED_STATUSES.has(st) || st === 'Arrived';
+  if (!attached) return;
+  const prevDb = parseInt(job.DispatchTimebefore || '0', 10) || 0;
+  const nextDb = changes.DispatchTimebefore !== undefined
+    ? (parseInt(changes.DispatchTimebefore, 10) || 0)
+    : prevDb;
+  const timingTouched = _editChangesTouchTiming(changes);
+  const genuineTimingTransition = timingTouched && (
+    (prevDb === 0 && nextDb > 0) || (prevDb > 0 && nextDb === 0)
+  );
+  if (genuineTimingTransition) return;
+  delete changes.BookingStatus;
+  delete changes.Status;
+  delete changes.DriverId;
+  delete changes.VehicleId;
+  delete changes.AssignedDriver;
+  delete changes.AssignedDriverId;
+  delete changes.manualOffer;
+  delete changes.returnReason;
+  delete changes._withdrawDriverId;
 }
 
 // Now → Later: schedule job, pull back from driver offer/queue/assign. Later → Now: ASAP pool.
+// Only runs when the edit payload actually changes timing fields — metadata-only edits
+// (name, phone, address, etc.) must never re-evaluate pickup time and demote live jobs.
 function _applyTimingEditPrelude(job, changes) {
   if (!job || !changes) return;
+  if (!_editChangesTouchTiming(changes)) return;
+
   const cid = job.companyId;
-  const willLater = _willBeLaterScheduledJob(job, changes);
-  const wasAsap = _wasAsapDispatchJob(job);
-  const pickRef = changes.Pickingtime || changes.BookingDateTime || job.Pickingtime || job.BookingDateTime;
-  const pickupMs = pickRef ? (_parseLocalDT(pickRef, cid) || NaN) : NaN;
+  const prevDb = parseInt(job.DispatchTimebefore || '0', 10) || 0;
   const nextDb = changes.DispatchTimebefore !== undefined
     ? (parseInt(changes.DispatchTimebefore, 10) || 0)
-    : (parseInt(job.DispatchTimebefore || '0', 10) || 0);
+    : prevDb;
+  const nowToLater = prevDb === 0 && nextDb > 0;
+  const laterToNow = prevDb > 0 && nextDb === 0;
+  const pickRef = changes.Pickingtime || changes.BookingDateTime || job.Pickingtime || job.BookingDateTime;
+  const pickupMs = pickRef ? (_parseLocalDT(pickRef, cid) || NaN) : NaN;
 
-  if (willLater && pickupMs && !isNaN(pickupMs)) {
+  if (pickupMs && !isNaN(pickupMs) && (nowToLater || nextDb > 0 || String(job.BookingStatus || '') === 'Scheduled')) {
     changes.ScheduledFor = pickupMs;
     changes.ScheduledForMs = pickupMs;
     if (nextDb > 0) {
@@ -4299,7 +4319,7 @@ function _applyTimingEditPrelude(job, changes) {
     }
   }
 
-  if (wasAsap && willLater) {
+  if (nowToLater) {
     const st = String(job.BookingStatus || 'Pending');
     const attached = _DRIVER_ATTACHED_STATUSES.has(st) || st === 'Offered';
     const prevDrv = _attachedDriverIdFromJob(job);
@@ -4315,7 +4335,7 @@ function _applyTimingEditPrelude(job, changes) {
       changes.returnReason = '';
     }
     console.log(`  [updateBooking] Now→Later: job #${job.Id} status ${st} → Scheduled (withdraw=${!!changes._withdrawDriverId})`);
-  } else if (!willLater && nextDb === 0) {
+  } else if (laterToNow) {
     changes.ScheduledFor = 0;
     changes.ScheduledForMs = 0;
     changes.NotifyDispatchAt = '';
@@ -4323,6 +4343,7 @@ function _applyTimingEditPrelude(job, changes) {
       changes.BookingStatus = 'Pending';
       changes.Status = 'Pending';
     }
+    console.log(`  [updateBooking] Later→Now: job #${job.Id} dispatch window cleared`);
   }
 }
 
@@ -4357,6 +4378,7 @@ async function updateBooking(opts) {
   const _dispatcherName = String(changes.DispatcherName || job.DispatcherName || '').trim();
   for (const _ik of _IMMUTABLE_ON_EDIT) delete changes[_ik];
   _applyTimingEditPrelude(job, changes);
+  _stripAttachedJobStatusMutations(job, changes);
 
   const _withdrawHint = _normJobDriverId(changes._withdrawDriverId);
   if (_withdrawHint) delete changes._withdrawDriverId;

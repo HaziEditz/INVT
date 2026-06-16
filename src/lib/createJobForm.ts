@@ -532,8 +532,7 @@ export function jobToForm(job: Job): CreateJobFormState {
   const parsed = parseBookingDateTime(bookingDt);
   const isLater =
     (job.dispatchBeforeMinutes ?? 0) > 0 ||
-    isFutureBooking(bookingDt) ||
-    (job.scheduledFor != null && job.scheduledFor > Date.now() + 60000);
+    String(job.status || '') === 'Scheduled';
 
   const driverId = formDriverIdFromJob(job);
 
