@@ -962,6 +962,79 @@ function _terminalFirebaseStatusFields(finalStatus) {
   };
 }
 
+/** Resolve driver/vehicle for terminal Firebase cleanup (pendingjobs/allbookings/jobs/). */
+function _resolveCompletionIdentity(job, cid) {
+  let drvId = String((job && (job.DriverId || job.AssignedDriverId || job.driverId)) || '').trim();
+  let vehId = String((job && (job.VehicleNo || job.VehicleId || job.AssignedVehicleId || job.CallSign)) || '').trim();
+  if ((!drvId || drvId === '0' || drvId === '-1') && vehId && cid) {
+    try {
+      const identity = resolveDriverIdentity(vehId, { companyId: cid });
+      const resolved = _normalizeNotifyDriverId(identity && identity.driverId) || String((identity && identity.driverId) || '').trim();
+      if (resolved) drvId = resolved;
+      if (identity && identity.vehicleId && !vehId) vehId = String(identity.vehicleId).trim();
+    } catch (_e) { /* best-effort */ }
+  }
+  if (drvId && (!vehId || vehId === '0') && cid) {
+    try {
+      const identity = resolveDriverIdentity(drvId, { companyId: cid });
+      if (identity && identity.vehicleId) vehId = String(identity.vehicleId).trim();
+    } catch (_e) { /* best-effort */ }
+  }
+  return { drvId, vehId };
+}
+
+async function repairTerminalFirebaseCleanup(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const cid = String(opts.companyId || '').trim();
+  const source = opts.source || 'repairTerminalFirebaseCleanup';
+  if (!bookingId || !cid) return { ok: false, error: 'bookingId and companyId required' };
+
+  const job = closedJobStore.find(j => j && j.Id === bookingId && String(j.companyId || '') === cid)
+           || jobStore.find(j => j && j.Id === bookingId && String(j.companyId || '') === cid);
+  const rawStatus = job ? String(job.BookingStatus || '') : 'Completed';
+  const finalStatus = rawStatus === 'Cancelled' ? 'Cancelled' : 'Completed';
+  const { drvId, vehId } = job ? _resolveCompletionIdentity(job, cid) : { drvId: '', vehId: '' };
+  const stamp = finalStatus === 'Cancelled'
+    ? { cancelledAt: (job && job.cancelledAt) || new Date().toISOString() }
+    : { completedAt: (job && job.JobCompleteTime) || new Date().toISOString() };
+
+  try {
+    await _fanVersionToFirebaseAwait(cid, bookingId, Object.assign(
+      { updateSeq: job ? (parseInt(job.updateSeq) || 0) : 0 },
+      _terminalFirebaseStatusFields(finalStatus),
+      stamp,
+    ), true);
+    await _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus);
+    console.log(`  [${source}] terminal Firebase repair #${bookingId} cid=${cid} drv=${drvId || '-'} veh=${vehId || '-'}`);
+    return { ok: true, bookingId, companyId: cid, finalStatus, driverId: drvId, vehicleId: vehId };
+  } catch (e) {
+    console.warn(`  [${source}] terminal Firebase repair failed #${bookingId}: ${e && e.message}`);
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
+/** Fire-and-forget terminal fanout + pendingjobs cleanup for legacy completion paths. */
+function _scheduleTerminalFirebaseCleanup(job, cid, vehHint, drvHint, sourceTag) {
+  if (!job || !cid || !job.Id) return;
+  (async () => {
+    try {
+      const _resolved = _resolveCompletionIdentity(job, cid);
+      const _veh = String(vehHint || _resolved.vehId || '').trim();
+      const _drv = String(drvHint || _resolved.drvId || '').trim();
+      const _termPatch = Object.assign({
+        updateSeq: parseInt(job.updateSeq) || 0,
+        completedAt: job.JobCompleteTime || new Date().toISOString(),
+        JobCompleteTime: job.JobCompleteTime || new Date().toISOString(),
+      }, _terminalFirebaseStatusFields('Completed'));
+      await _fanVersionToFirebaseAwait(cid, job.Id, _termPatch, true);
+      await _bwClearJobFromFirebase(cid, job.Id, _veh, _drv, 'Completed');
+    } catch (e) {
+      console.warn(`  [${sourceTag}] Firebase terminal cleanup failed #${job.Id}: ${e && e.message}`);
+    }
+  })();
+}
+
 function _onlineTripClearPatch(vehiclestatus) {
   const vs = vehiclestatus || 'Available';
   return {
@@ -2315,12 +2388,13 @@ async function completeBooking(opts) {
   const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Completed');
   if (_closed) {
     const _cidIdem = String(_closed.companyId || opts.companyId || '');
-    const _drvIdem = String(_closed.DriverId || _closed.AssignedDriverId || '').trim();
-    const _vehIdem = String(_closed.VehicleNo || _closed.VehicleId || _closed.AssignedVehicleId || '').trim();
+    const _resolved = _resolveCompletionIdentity(_closed, _cidIdem);
+    const _drvIdem = _resolved.drvId;
+    const _vehIdem = _resolved.vehId;
     if (_purgeLiveJobFromStore(bookingId)) {
       console.log(`  [${source}] idempotent: purged stale live jobStore entry #${bookingId}`);
     }
-    if (_cidIdem && _drvIdem) {
+    if (_cidIdem) {
       try {
         await _fanVersionToFirebaseAwait(_cidIdem, bookingId, Object.assign(
           { updateSeq: parseInt(_closed.updateSeq) || 0 },
@@ -2328,7 +2402,9 @@ async function completeBooking(opts) {
           { completedAt: _closed.JobCompleteTime || new Date().toISOString() },
         ), true);
         await _bwClearJobFromFirebase(_cidIdem, bookingId, _vehIdem, _drvIdem, 'Completed');
-        await _maybeRestoreDriverState(_drvIdem, _vehIdem, _cidIdem, bookingId, false, `${source}/idempotent-repair`);
+        if (_drvIdem) {
+          await _maybeRestoreDriverState(_drvIdem, _vehIdem, _cidIdem, bookingId, false, `${source}/idempotent-repair`);
+        }
       } catch (e) {
         console.warn(`  [${source}] idempotent Firebase repair failed: ${e && e.message}`);
       }
@@ -2431,10 +2507,11 @@ async function completeBooking(opts) {
       console.warn(`  [${source}] complete allbookings fanout failed: ${e && e.message}`);
     }
   }
-  // Firebase cleanup — booking-scoped child remove with eventType:'completed'
-  if (_cid && _drvId) {
+  // Firebase cleanup — pendingjobs/allbookings always; jobs/{vid}/{drv} when resolvable
+  if (_cid) {
     try {
-      await _bwClearJobFromFirebase(_cid, bookingId, _vehId, _drvId, 'Completed');
+      const _resolved = _resolveCompletionIdentity(job, _cid);
+      await _bwClearJobFromFirebase(_cid, bookingId, _resolved.vehId || _vehId, _resolved.drvId || _drvId, 'Completed');
     } catch (e) {
       console.warn(`  [${source}] complete Firebase cleanup failed: ${e && e.message}`);
     }
@@ -7524,6 +7601,24 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /admin/repairTerminalFirebase — sync all legacy status fields + delete pendingjobs
+    // for a closed/completed booking (works when job is only in closedJobStore).
+    if (urlPath === '/admin/repairTerminalFirebase' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const report = await repairTerminalFirebaseCleanup({
+          bookingId: parsed.bookingId,
+          companyId: parsed.companyId,
+          source: '/admin/repairTerminalFirebase',
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
     // GET  /admin/stuck-active?cid=620611&olderThanHours=4
     // POST /admin/stuck-active/clear  body: {bookingId, companyId, reason?}
     //
@@ -10647,9 +10742,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveClosedJobStore();
           _patchRentalComplete(job);
           // §FBcleanup — clear all Firebase paths so the trip cannot be resurrected
-          // by stale entries (pendingjobs, jobs, online/current, joback, notification).
-          _bwClearJobFromFirebase(sessionCompanyId, closeId,
-            job.VehicleNo || job.CallSign || '', closingDriverId || '', 'Completed');
+          _scheduleTerminalFirebaseCleanup(job, sessionCompanyId,
+            job.VehicleNo || job.CallSign || '', closingDriverId || '', 'UpdateBooking/complete');
           console.log(`200: POST ${urlPath} [action=UpdateBooking] -> closed job #${closeId}, driver ${closingDriverId} released`);
           arrayD(res, [{ Result: 'Ride Ended Successfully', BookingId: closeId }]);
         } else {
@@ -12670,10 +12764,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 _captureDriverAppVersion(sessionCompanyId,
                   vehiclenumber || job.VehicleNo || job.VehicleId, job);
                 _patchRentalComplete(job);
-                // §FBcleanup
-                _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                _scheduleTerminalFirebaseCleanup(job, sessionCompanyId,
                   vehiclenumber || job.VehicleNo || job.CallSign || '',
-                  driverId || job.DriverId || '', 'Completed');
+                  driverId || job.DriverId || '', 'DriverStatusChanged/DP');
                 // Capture for Firebase write by the client
                 // §108d — resolve paymentType correctly for web (card) bookings.
                 // Web booking jobs carry paymentMethod:'card' + paymentStatus:'paid' but
@@ -13059,9 +13152,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
           saveClosedJobStore();
           _patchRentalComplete(_fcJob);
-          // §FBcleanup
-          _bwClearJobFromFirebase(sessionCompanyId, _fcJob.Id,
-            _fcJob.VehicleNo || _fcJob.CallSign || '', _fcDrvId || '', 'Completed');
+          _scheduleTerminalFirebaseCleanup(_fcJob, sessionCompanyId,
+            _fcJob.VehicleNo || _fcJob.CallSign || '', _fcDrvId || '', 'ForceCompleteJob');
           console.log(`200: POST ${urlPath} [action=${action}] -> job #${_fcJobId} force-completed by dispatcher`);
           objectD(res, { dt1: [{ Result: 'Job force-completed', jobId: _fcJobId }], dt2: [], dt3: [], dt4: [], dt5: [] });
         }
@@ -14748,10 +14840,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 _captureDriverAppVersion(sessionCompanyId,
                   vehiclenumber || job.VehicleNo || job.VehicleId, job);
                 _patchRentalComplete(job);
-                // §FBcleanup
-                _bwClearJobFromFirebase(sessionCompanyId, job.Id,
+                _scheduleTerminalFirebaseCleanup(job, sessionCompanyId,
                   vehiclenumber || job.VehicleNo || job.CallSign || '',
-                  driverId || job.DriverId || '', 'Completed');
+                  driverId || job.DriverId || '', 'DriverStatusChanged/DS');
                 // §108d — patch allbookings so SA portal gets correct Status and paymentMethod.
                 // Mirror of the DP path fix; without this, DS-path completions showed wrong data.
                 const _cjPayMethodDS = (
@@ -15713,6 +15804,15 @@ setInterval(async () => {
                 (rec.ScheduledFor ? Date.parse(rec.ScheduledFor) : 0) ||
                 0;
               if (_pendCreatedMs && _closedAtMs && _pendCreatedMs <= _closedAtMs) {
+                const _isCompleted = _allClosedMatches.some(j =>
+                  String(j.BookingStatus || '') === 'Completed'
+                );
+                if (_isCompleted) {
+                  await firebaseDbPatch(`allbookings/${cid}/${key}`,
+                    Object.assign(_terminalFirebaseStatusFields('Completed'),
+                      { completedAt: new Date(_closedAtMs).toISOString() }),
+                    token).catch(() => {});
+                }
                 firebaseDbDelete(`pendingjobs/${cid}/${key}`, token).catch(() => {});
                 console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store, pendingCreated=${_pendCreatedMs} closedAt=${_closedAtMs})`);
                 continue;
