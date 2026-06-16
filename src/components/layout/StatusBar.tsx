@@ -26,6 +26,7 @@ export function StatusBar() {
     () => ({
       all: drivers.length,
       free: drivers.filter((d) => d.status === 'Available').length,
+      offered: drivers.filter((d) => d.status === 'Offered').length,
       picking: drivers.filter((d) => d.status === 'Picking').length,
       busy: drivers.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned', 'Arrived'].includes(d.status)).length,
       away: drivers.filter((d) => d.status === 'Away').length,
@@ -50,6 +51,7 @@ export function StatusBar() {
       <div className="flex gap-5 items-center">
         {stat('Drivers', counts.all)}
         {stat('Free', counts.free, 'text-status-available')}
+        {stat('Offered', counts.offered, 'text-status-offered')}
         {stat('Picking', counts.picking, 'text-status-picking')}
         {stat('Busy', counts.busy, 'text-status-busy')}
         {stat('Pending', pending, 'text-amber-400')}

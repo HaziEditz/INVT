@@ -98,6 +98,7 @@ export function DispatchMap({
     () => ({
       all: drivers.length,
       free: drivers.filter((d) => d.status === 'Available').length,
+      offered: drivers.filter((d) => d.status === 'Offered').length,
       picking: drivers.filter((d) => d.status === 'Picking').length,
       busy: drivers.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned', 'Arrived'].includes(d.status)).length,
       away: drivers.filter((d) => d.status === 'Away').length,
@@ -697,6 +698,7 @@ export function DispatchMap({
           [
             { k: 'all', icon: Users, color: 'bw-text' },
             { k: 'free', icon: Car, color: 'text-status-available' },
+            { k: 'offered', icon: Car, color: 'text-status-offered' },
             { k: 'picking', icon: Navigation, color: 'text-status-picking' },
             { k: 'busy', icon: Car, color: 'text-status-busy' },
             { k: 'away', icon: Car, color: 'bw-muted' },

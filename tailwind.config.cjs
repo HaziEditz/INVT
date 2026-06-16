@@ -22,6 +22,7 @@ module.exports = {
         },
         status: {
           available: '#22c55e',
+          offered: '#eab308',
           picking: '#3b82f6',
           active: '#f59e0b',
           busy: '#f97316',

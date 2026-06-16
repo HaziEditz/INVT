@@ -11,7 +11,7 @@ interface DriverStore {
   setStatusFilter: (f: DriverStatus | 'All' | 'Suspended') => void;
   setSelectedDriverId: (id: string | null) => void;
   filteredDrivers: () => Driver[];
-  counts: () => { all: number; free: number; picking: number; busy: number; away: number };
+  counts: () => { all: number; free: number; offered: number; picking: number; busy: number; away: number };
 }
 
 export function filterDrivers(
@@ -44,6 +44,7 @@ export function selectDriverCounts(state: DriverStore) {
   return {
     all: ds.length,
     free: ds.filter((d) => d.status === 'Available').length,
+    offered: ds.filter((d) => d.status === 'Offered').length,
     picking: ds.filter((d) => d.status === 'Picking').length,
     busy: ds.filter((d) => ['Busy', 'Active', 'OnTrip', 'Assigned', 'Arrived'].includes(d.status)).length,
     away: ds.filter((d) => d.status === 'Away').length,

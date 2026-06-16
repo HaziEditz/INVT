@@ -1,5 +1,6 @@
 export type DriverStatus =
   | 'Available'
+  | 'Offered'
   | 'Picking'
   | 'Busy'
   | 'Active'
@@ -14,6 +15,7 @@ export type DriverStatus =
 const DRIVER_STATUS_RANK: Partial<Record<DriverStatus, number>> = {
   Away: 0,
   Available: 1,
+  Offered: 2,
   Assigned: 2,
   Picking: 3,
   Arrived: 4,
@@ -50,6 +52,51 @@ function resolveDriverPresenceStatus(
   return top;
 }
 
+const TRIP_DRIVER_STATUSES = new Set<DriverStatus>([
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+  'Busy',
+  'Assigned',
+]);
+
+function pendingOfferBookingId(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): string | null {
+  const raw = current.joboffer ?? rec.joboffer;
+  if (raw == null) return null;
+  const id = String(raw).trim();
+  if (!id || id === '0') return null;
+  return id;
+}
+
+function resolveDriverStatusFromPresence(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): DriverStatus {
+  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
+  const curStatus = String(current.vehiclestatus ?? '').trim();
+  let status = resolveDriverPresenceStatus(topStatus, curStatus);
+
+  const offerId = pendingOfferBookingId(rec, current);
+  if (
+    offerId &&
+    status !== 'Away' &&
+    status !== 'Suspended' &&
+    !TRIP_DRIVER_STATUSES.has(status)
+  ) {
+    return 'Offered';
+  }
+
+  if (status === 'Offered' && !offerId) {
+    return 'Available';
+  }
+
+  return status;
+}
+
 export interface Driver {
   driverId: string;
   vehicleId: string;
@@ -80,9 +127,7 @@ export function driverFromFirebase(
   companyId: string
 ): Driver {
   const current = (rec.current as Record<string, unknown>) || {};
-  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
-  const curStatus = String(current.vehiclestatus ?? '').trim();
-  const status = resolveDriverPresenceStatus(topStatus, curStatus);
+  const status = resolveDriverStatusFromPresence(rec, current);
   const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
   const hasBookingRef =
     rawBookingRef != null &&
@@ -119,6 +164,7 @@ export function driverFromFirebase(
 export function statusColor(status: DriverStatus): string {
   switch (status) {
     case 'Available': return '#22c55e';
+    case 'Offered': return '#eab308';
     case 'Picking':
     case 'Assigned': return '#3b82f6';
     case 'Arrived': return '#8b5cf6';
