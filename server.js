@@ -2995,6 +2995,12 @@ const _AUTO_DISPATCH_LAST = {
   perCompany: {},
   error: null,
 };
+// Server-side auto-dispatch loop (all sources: dispatcher, website, passenger app).
+// Per company, each tick offers at most ONE job to ONE driver; if any job is Offered,
+// the whole company is skipped until that offer resolves (accept / decline / timeout).
+const AUTO_DISPATCH_TICK_MS = 6000;
+// After timeout / UnAssign / decline fan-out, skip immediate re-offer to same driver.
+const AUTO_DISPATCH_RELEASE_COOLDOWN_MS = 5000;
 
 function _bumpJobUpdateSeq(job, by) {
   const seq = (parseInt(job.updateSeq) || 0) + 1;
@@ -3280,8 +3286,8 @@ function _analyzeAutoDispatchForJob(job, cid) {
   if (job.manualOffer === true) {
     reasons.push('manualOffer=true (auto-dispatch skips manual-only jobs)');
   }
-  if (job.releasedAt && (now - job.releasedAt) < 10000) {
-    reasons.push(`releasedAt cooldown (${Math.round((now - job.releasedAt) / 1000)}s ago, need 10s)`);
+  if (job.releasedAt && (now - job.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) {
+    reasons.push(`releasedAt cooldown (${Math.round((now - job.releasedAt) / 1000)}s ago, need ${Math.round(AUTO_DISPATCH_RELEASE_COOLDOWN_MS / 1000)}s)`);
   }
   if (!_isValidJobRecord(job, { requireSource: true, companyId })) {
     reasons.push('_isValidJobRecord failed (missing source/fields?)');
@@ -11592,7 +11598,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               console.log(`  [changeriddestatusforoffer/DP] job #${bookingId} Unreached → No One (pre-offer pool restored)`);
             } else {
               job.manualOffer = false;
-              console.log(`  [changeriddestatusforoffer/DP] job #${bookingId} Unreached → Pending + releasedAt stamped (30 s same-driver cooldown)`);
+              console.log(`  [changeriddestatusforoffer/DP] job #${bookingId} Unreached → Pending + releasedAt stamped (${Math.round(AUTO_DISPATCH_RELEASE_COOLDOWN_MS / 1000)} s same-driver cooldown)`);
             }
           }
           if (returnReason) job.returnReason = returnReason;
@@ -13115,13 +13121,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         // Jobs with DispatchTimebefore == 0 (or missing) are treated as "dispatch immediately".
         const autoJobs = jobStore.filter(j => {
           if (j.BookingStatus !== 'Pending') return false;
-          // §FIX-G — release cooldown (shortened to 10 s per user request 2026-05-18).
+          // §FIX-G — release cooldown (see AUTO_DISPATCH_RELEASE_COOLDOWN_MS).
           // If this job was just released (auto-dispatch timeout / dispatcher UnAssign /
-          // QuickSetNoOne), skip it for 10 s so the auto-loop can't immediately re-offer
-          // the same job to the same driver who just failed to respond. Short enough that
-          // other drivers (or the same driver, if he's the only one available) get the job
-          // back quickly. Belt-and-braces on top of §FIX-F (No One) and §FIX-U2 (Pending).
-          if (j.releasedAt && (Date.now() - j.releasedAt) < 10000) {
+          // QuickSetNoOne), skip it briefly so the auto-loop can't immediately re-offer
+          // the same job to the same driver who just failed to respond.
+          if (j.releasedAt && (Date.now() - j.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) {
             return false;
           }
           const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;
@@ -15712,7 +15716,8 @@ server.listen(PORT, HOST, () => {
       _AUTO_DISPATCH_LAST.error = e && e.message;
       console.warn('[server-auto-dispatch]', e && e.message);
     });
-  }, 30000);
+  }, AUTO_DISPATCH_TICK_MS);
+  console.log(`[boot] server auto-dispatch tick every ${AUTO_DISPATCH_TICK_MS}ms (release cooldown ${AUTO_DISPATCH_RELEASE_COOLDOWN_MS}ms)`);
 });
 
 // ─── Firebase → jobStore hydration (survives Railway ephemeral disk) ─────────
@@ -15879,6 +15884,8 @@ async function _writeDriverOfferNotification(cid, driver, job) {
   }
 }
 
+// One tick per company: at most one Pending/No One job → one nearest Available driver.
+// Multiple pending jobs queue behind any in-flight Offered job (company-wide gate below).
 async function _serverAutoDispatchTick() {
   const now = Date.now();
   await _syncZoneDriversFromFirebase({ quiet: true });
@@ -15906,7 +15913,7 @@ async function _serverAutoDispatchTick() {
       if (String(j.companyId) !== String(cid)) return false;
       if (j.BookingStatus !== 'Pending' && j.BookingStatus !== 'No One') return false;
       if (j.manualOffer === true) return false;
-      if (j.releasedAt && (now - j.releasedAt) < 10000) return false;
+      if (j.releasedAt && (now - j.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) return false;
       return _isDispatchableJob(j, cid);
     });
     companyReport.pendingEligible = pending.length;
