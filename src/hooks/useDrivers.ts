@@ -17,7 +17,8 @@ export function useDrivers(companyId: string | null) {
       if (val && typeof val === 'object') {
         for (const [vehicleId, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
           if (vehicleId === 'current') continue;
-          list.push(driverFromFirebase(vehicleId, rec, companyId));
+          const driver = driverFromFirebase(vehicleId, rec, companyId);
+          if (driver) list.push(driver);
         }
       }
       setDrivers(list);
@@ -40,14 +41,17 @@ export function useDriverQueue(companyId: string | null) {
       if (val && typeof val === 'object') {
         for (const [vid, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
           if (vid === 'current') continue;
-          const zone = String(rec.zonename ?? rec.zoneName ?? 'Unknown');
           const current = (rec.current as Record<string, unknown>) || {};
+          const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
+          if (/offline|loggedout|logoff|inactive/i.test(status)) continue;
+          if (rec.online === false && current.online === false) continue;
+          const zone = String(rec.zonename ?? rec.zoneName ?? 'Unknown');
           const q = current.zonequeue != null ? Number(current.zonequeue) : 999;
           if (!zones[zone]) zones[zone] = [];
           zones[zone].push({
             vehicleNo: String(rec.vehiclenumber ?? vid),
             driverId: String(rec.driverid ?? ''),
-            status: String(rec.vehiclestatus ?? 'Away'),
+            status,
             queue: q,
           });
         }

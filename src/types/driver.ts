@@ -121,12 +121,47 @@ export interface Driver {
   homeCompanyId?: string;
 }
 
+const LOGGED_OUT_STATUSES = new Set([
+  'offline',
+  'loggedout',
+  'logoff',
+  'inactive',
+]);
+
+/** True when Firebase online/{cid}/{vid} represents a signed-out / ended shift driver. */
+export function isLoggedOutOnlineNode(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  const statuses = [
+    rec.vehiclestatus,
+    rec.VehicleStatus,
+    rec.status,
+    current.vehiclestatus,
+    current.VehicleStatus,
+    current.currentstatus,
+    current.status,
+  ];
+  for (const raw of statuses) {
+    const s = String(raw ?? '').trim().toLowerCase();
+    if (s && LOGGED_OUT_STATUSES.has(s)) return true;
+  }
+  if (rec.online === false && current.online === false) return true;
+  if (rec.shiftStarted === false && current.shiftStarted === false) {
+    const hasLiveTrip =
+      !!(current.currentJobId || current.jobId || rec.currentJobId || rec.jobId);
+    if (!hasLiveTrip) return true;
+  }
+  return false;
+}
+
 export function driverFromFirebase(
   vehicleId: string,
   rec: Record<string, unknown>,
   companyId: string
-): Driver {
+): Driver | null {
   const current = (rec.current as Record<string, unknown>) || {};
+  if (isLoggedOutOnlineNode(rec, current)) return null;
   const status = resolveDriverStatusFromPresence(rec, current);
   const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
   const hasBookingRef =
