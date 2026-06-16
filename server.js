@@ -1288,6 +1288,211 @@ function _normalizeNotifyDriverId(raw) {
   return s;
 }
 
+// ── Canonical driver identity (single source of truth) ─────────────────────
+// All offer/assign/notification paths must resolve through resolveDriverIdentity().
+function _zoneDriverRowsForCompany(companyId) {
+  const cid = companyId ? String(companyId).trim() : '';
+  if (!cid) return ZONE_DRIVERS.filter(Boolean);
+  return ZONE_DRIVERS.filter(d => d && String(d.companyId || '') === cid);
+}
+
+function _findZoneDriverRow(rawId, opts) {
+  opts = opts || {};
+  const raw = String(rawId || '').trim();
+  if (!raw || raw === '0' || raw === '-1' || raw === '-2') return null;
+  const rows = _zoneDriverRowsForCompany(opts.companyId);
+  const rawLower = raw.toLowerCase();
+
+  let zd = rows.find(d => String(d.driverid || '').trim() === raw);
+  if (zd) return zd;
+
+  zd = rows.find(d => {
+    const pf = String(d.passforlink || '').trim();
+    const em = String(d.email || '').trim().toLowerCase();
+    return pf === raw || (em && em === rawLower);
+  });
+  if (zd) return zd;
+
+  zd = rows.find(d =>
+    String(d.VehicleId || '').trim() === raw ||
+    String(d.vehiclenumber || '').trim() === raw ||
+    String(d.CallSign || '').trim() === raw
+  );
+  return zd || null;
+}
+
+function resolveDriverIdentity(rawId, opts) {
+  opts = opts || {};
+  const raw = String(rawId || '').trim();
+  if (!raw || raw === '0' || raw === '-1' || raw === '-2') {
+    return { ok: false, driverId: '', vehicleId: '', email: '', error: 'empty_driver_id' };
+  }
+  const zd = _findZoneDriverRow(raw, opts);
+  if (zd) {
+    const driverId = _normalizeNotifyDriverId(zd.driverid) || String(zd.driverid || '').trim();
+    const vehicleId = String(zd.VehicleId || zd.vehiclenumber || zd.CallSign || '').trim();
+    const email = String(zd.email || zd.passforlink || '').trim();
+    return { ok: true, driverId, vehicleId, email, row: zd };
+  }
+  if (/^D\d+$/i.test(raw)) {
+    const driverId = _normalizeNotifyDriverId(raw);
+    return { ok: true, driverId, vehicleId: '', email: '', source: 'passthrough-D' };
+  }
+  const parsedNum = parseInt(raw, 10);
+  if (!Number.isNaN(parsedNum) && parsedNum > 0 && String(parsedNum) === raw) {
+    return { ok: true, driverId: raw, vehicleId: '', email: '', source: 'passthrough-numeric' };
+  }
+  return { ok: false, driverId: '', vehicleId: '', email: '', error: `unknown driver "${raw}"` };
+}
+
+function _hasResolvedDriverId(parsed) {
+  const d = String((parsed && parsed.driverId) || '').trim();
+  return !!d && d !== '0' && d !== '-1' && d !== '-2';
+}
+
+function _parseIncomingDriverIdParam(raw, opts) {
+  const s = String(raw ?? '').trim();
+  if (!s || s === '0' || s === '-1' || s === '-2') {
+    return { ok: false, driverId: s || '0', vehicleId: '', email: '' };
+  }
+  const identity = resolveDriverIdentity(s, opts);
+  if (identity.ok) {
+    return {
+      ok: true,
+      driverId: _normalizeNotifyDriverId(identity.driverId) || identity.driverId,
+      vehicleId: identity.vehicleId,
+      email: identity.email,
+      row: identity.row,
+    };
+  }
+  return { ok: false, driverId: s, vehicleId: '', email: '', error: identity.error };
+}
+
+function _validateDriverIdForWrite(driverId, opts) {
+  opts = opts || {};
+  const raw = String(driverId || '').trim();
+  if (!raw || raw === '0') return { ok: true, skip: true, driverId: raw, vehicleId: '' };
+  const identity = opts.row
+    ? {
+        ok: true,
+        driverId: _normalizeNotifyDriverId(opts.row.driverid) || String(opts.row.driverid || '').trim(),
+        vehicleId: String(opts.row.VehicleId || opts.row.vehiclenumber || opts.row.CallSign || '').trim(),
+        email: String(opts.row.email || opts.row.passforlink || '').trim(),
+        row: opts.row,
+      }
+    : resolveDriverIdentity(raw, opts);
+  if (!identity.ok) {
+    const row = _findZoneDriverRow(raw, opts);
+    if (row && String(row.driverid || '').trim() !== raw) {
+      const did = _normalizeNotifyDriverId(row.driverid) || String(row.driverid || '').trim();
+      console.error(
+        `[driver-identity/${opts.source || '?'}] REJECT vehicle number "${raw}" as DriverId — canonical driver is ${did}`
+      );
+      return {
+        ok: false,
+        error: 'vehicle_number_as_driver_id',
+        driverId: did,
+        vehicleId: String(row.VehicleId || row.vehiclenumber || '').trim(),
+        row,
+      };
+    }
+    console.error(`[driver-identity/${opts.source || '?'}] REJECT write DriverId="${raw}": ${identity.error}`);
+    return { ok: false, error: identity.error || 'invalid_driver_id' };
+  }
+  const canon = _normalizeNotifyDriverId(identity.driverId) || identity.driverId;
+  const rawNorm = _normalizeNotifyDriverId(raw) || raw;
+  if (rawNorm !== canon) {
+    console.warn(
+      `[driver-identity/${opts.source || '?'}] coerced DriverId "${raw}" → "${canon}"`
+    );
+  }
+  return {
+    ok: true,
+    driverId: canon,
+    vehicleId: identity.vehicleId,
+    email: identity.email,
+    row: identity.row,
+  };
+}
+
+function _applyCanonicalDriverToJob(job, rawDriverId, companyId, sourceTag) {
+  const parsed = _parseIncomingDriverIdParam(rawDriverId, { companyId });
+  if (!parsed.ok || !_hasResolvedDriverId(parsed)) {
+    console.error(
+      `  [${sourceTag}] REJECT driver assignment on job #${job && job.Id}: raw="${rawDriverId}" (${parsed.error || 'invalid'})`
+    );
+    return { ok: false, error: parsed.error || 'invalid_driver_id' };
+  }
+  const v = _validateDriverIdForWrite(parsed.driverId, {
+    companyId,
+    source: sourceTag,
+    row: parsed.row,
+  });
+  if (!v.ok) return v;
+
+  job.DriverId = v.driverId;
+  job.VehicleId = v.vehicleId || parsed.vehicleId || v.driverId;
+  if (v.vehicleId) {
+    if (!job.VehicleNo) job.VehicleNo = v.vehicleId;
+    if (!job.CallSign) job.CallSign = v.vehicleId;
+  }
+  const zd = v.row || parsed.row || _findZoneDriverRow(v.driverId, { companyId });
+  if (zd) {
+    saveDriverHomeState(v.driverId, zd);
+    if (!job.VehicleNo && zd.vehiclenumber) job.VehicleNo = zd.vehiclenumber;
+    if (!job.CallSign && zd.vehiclenumber) job.CallSign = zd.vehiclenumber;
+    if (!job.UserFName && zd.drivername) job.UserFName = zd.drivername.split(/\s+/)[0] || '';
+    if (!job.UserLName && zd.drivername) job.UserLName = zd.drivername.split(/\s+/).slice(1).join(' ') || '';
+  }
+  return { ok: true, driverId: v.driverId, vehicleId: job.VehicleId };
+}
+
+function _jobHasMisassignedDriverId(job) {
+  if (!job || !job.DriverId) return false;
+  const st = String(job.BookingStatus || '');
+  if (st !== 'Offered' && st !== 'Assigned' && st !== 'Picking' && st !== 'Queued') return false;
+  const cid = String(job.companyId || '');
+  const raw = String(job.DriverId).trim();
+  if (!raw || raw === '0') return false;
+  const identity = resolveDriverIdentity(raw, { companyId: cid });
+  if (identity.ok && identity.row) {
+    const canon = _normalizeNotifyDriverId(identity.driverId) || identity.driverId;
+    const rawNorm = _normalizeNotifyDriverId(raw) || raw;
+    if (rawNorm !== canon) return true;
+  }
+  const row = _findZoneDriverRow(raw, { companyId: cid });
+  if (row) {
+    const did = String(row.driverid || '').trim();
+    return did && _normalizeNotifyDriverId(raw) !== _normalizeNotifyDriverId(did);
+  }
+  return false;
+}
+
+function _healMisassignedDriverIdsInJobStore(tag) {
+  let healed = 0;
+  for (const j of jobStore) {
+    if (!_jobHasMisassignedDriverId(j)) continue;
+    const cid = String(j.companyId || '');
+    const wrongDrv = String(j.DriverId);
+    const wrongVid = String(j.VehicleId || j.VehicleNo || j.CallSign || wrongDrv);
+    console.log(
+      `[${tag}] healing misassigned DriverId on job #${j.Id}: "${wrongDrv}" (vehicle ${wrongVid}) → Pending`
+    );
+    if (cid && j.Id) {
+      clearOfferOnFirebase(cid, wrongVid, wrongDrv, j.Id, tag);
+    }
+    j.BookingStatus = 'Pending';
+    j.offeredAt = null;
+    j.DriverId = 0;
+    j.VehicleId = 0;
+    j.returnReason = j.returnReason || 'Recovered (misassigned driver id)';
+    j.releasedAt = Date.now();
+    healed++;
+  }
+  if (healed > 0) saveJobStore();
+  return healed;
+}
+
 // Parse DId from InsertBookingv4 / create-job form — preserves string IDs (e.g. "D002").
 function _parseInsertDriverIdParam(raw) {
   const s = String(raw ?? '').trim();
@@ -1703,19 +1908,29 @@ function _canTransition(currentStatus, command) {
 
 // Resolve vehicleId from ZONE_DRIVERS when the client sends driverId as both ids
 // (common on string-ID tenants — e.g. jobs/{cid}/D002/D002 instead of TAXI02/D002).
-function _resolveDriverVehicleIds(driverId, vehicleId) {
+// Delegates to resolveDriverIdentity — also resolves vehicle numbers → canonical driverId.
+function _resolveDriverVehicleIds(driverId, vehicleId, companyId) {
   const did = String(driverId || '').trim();
   let vid = String(vehicleId == null ? '' : vehicleId).trim();
   if (!did) return { driverId: '', vehicleId: '' };
+  const identity = resolveDriverIdentity(did, { companyId, vehicleIdHint: vid });
+  if (identity.ok) {
+    const outDrv = _normalizeNotifyDriverId(identity.driverId) || identity.driverId;
+    let outVid = identity.vehicleId;
+    const _needsResolve = !vid || vid === '0' || vid === '-1' || vid === did ||
+                          vid === 'null' || vid === 'undefined' || vid === outDrv;
+    if (!_needsResolve && vid !== outVid) outVid = vid;
+    return { driverId: outDrv, vehicleId: outVid || vid || outDrv };
+  }
   const _needsResolve = !vid || vid === '0' || vid === '-1' || vid === did ||
                         vid === 'null' || vid === 'undefined';
   if (_needsResolve) {
-    const zd = ZONE_DRIVERS.find(d => d && String(d.driverid || '').trim() === did);
+    const zd = _findZoneDriverRow(did, { companyId });
     if (zd) {
       vid = String(zd.VehicleId || zd.vehiclenumber || zd.CallSign || '').trim();
     }
   }
-  return { driverId: did, vehicleId: vid || did };
+  return { driverId: _normalizeNotifyDriverId(did) || did, vehicleId: vid || did };
 }
 
 function _attachedDriverIdFromJob(job, withdrawHint) {
@@ -1785,9 +2000,14 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   if (!job || !job.Id || !driverId) return;
   const cid = String(job.companyId || '').trim();
   if (!cid) return;
-  const _resolved = _resolveDriverVehicleIds(driverId, vehicleId);
+  const _validated = _validateDriverIdForWrite(driverId, { companyId: cid, source: `${sourceTag}/offer` });
+  if (!_validated.ok) {
+    console.error(`  [${sourceTag}] _writeManualDriverOffer REJECTED for job #${job.Id}: ${_validated.error}`);
+    return;
+  }
+  const _resolved = _resolveDriverVehicleIds(_validated.driverId, vehicleId || _validated.vehicleId, cid);
   const did = _normalizeNotifyDriverId(_resolved.driverId) || _resolved.driverId;
-  const vid = _resolved.vehicleId;
+  const vid = _resolved.vehicleId || _validated.vehicleId;
   if (!did) return;
 
   const tok = await getFirebaseServerToken();
@@ -1940,7 +2160,13 @@ async function assignBooking(opts) {
   const _curStatus = job.BookingStatus || 'Pending';
   const _curDrv    = String(job.DriverId || '').trim();
   const _curVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
-  const _resolved  = _resolveDriverVehicleIds(driverId, vehicleId);
+  const _cidEarly = String(job.companyId || '');
+  const _validatedAssign = _validateDriverIdForWrite(driverId, { companyId: _cidEarly, source });
+  if (!_validatedAssign.ok) {
+    console.warn(`  [${source}] assign rejected: ${_validatedAssign.error} (job #${bookingId}, raw driverId="${driverId}")`);
+    return { ok: false, error_code: 'invalid_driver_id', error: _validatedAssign.error, booking: _publicBooking(job) };
+  }
+  const _resolved  = _resolveDriverVehicleIds(_validatedAssign.driverId, vehicleId || _validatedAssign.vehicleId, _cidEarly);
   const _targetDrv = _resolved.driverId;
   const _targetVid = _resolved.vehicleId;
 
@@ -4578,6 +4804,14 @@ const jobStore = _savedJobStore;
   if (healed > 0) {
     try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(jobStore, null, 2)); } catch(e) {}
     console.log(`[self-heal] recovered ${healed} orphaned Assigned job(s) -> Pending`);
+  }
+})();
+
+// Self-heal: Offered/Assigned jobs whose DriverId is a vehicle number (not canonical driver id).
+(function healMisassignedDriverIdsBoot() {
+  const healed = _healMisassignedDriverIdsInJobStore('boot-self-heal');
+  if (healed > 0) {
+    console.log(`[self-heal] recovered ${healed} job(s) with misassigned DriverId → Pending`);
   }
 })();
 
@@ -11682,7 +11916,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // sets status=Offered. The second must be blocked — job already belongs to another driver.
           // Accept both numeric IDs (1212) and string IDs ('D001', 'T201') from driver app.
           const _rawDriverId = (param('driverid') || '').toString().trim();
-          const incomingDriverId = parseInt(_rawDriverId) > 0 ? parseInt(_rawDriverId) : (_rawDriverId || 0);
+          const _incomingParsed = _parseIncomingDriverIdParam(_rawDriverId, { companyId: sessionCompanyId });
+          const incomingDriverId = _incomingParsed.ok ? _incomingParsed.driverId : (_rawDriverId || '0');
           if (newStatus === 'Offered' && currentStatus === 'Offered' && job.DriverId && String(job.DriverId) !== String(incomingDriverId)) {
             console.log(`  [changeriddestatusforoffer/DP] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId}`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
@@ -11820,33 +12055,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (effectiveStatus === 'Picking'  && !job.PickingAt)  job.PickingAt  = _ts; }
           // Track which driver has the current offer so the double-offer guard can compare.
           // Also set DriverId when driver accepts so the job appears correctly in Assigned tab.
-          if (effectiveStatus === 'Offered' && incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
-            job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
-            job.offeredAt = Date.now(); // stale-offer watchdog uses this
-            // Save home zone & queue before the driver is dispatched
-            const zdOffer = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId || d.VehicleId === incomingDriverId);
-            if (zdOffer) {
-              saveDriverHomeState(incomingDriverId, zdOffer);
-              // Capture vehicle number on the job so it persists after the driver goes offline
-              if (!job.VehicleNo && zdOffer.vehiclenumber) job.VehicleNo = zdOffer.vehiclenumber;
-              if (!job.CallSign  && zdOffer.vehiclenumber) job.CallSign  = zdOffer.vehiclenumber;
-              if (!job.UserFName && zdOffer.drivername)   job.UserFName = zdOffer.drivername.split(/\s+/)[0] || '';
-              if (!job.UserLName && zdOffer.drivername)   job.UserLName = zdOffer.drivername.split(/\s+/).slice(1).join(' ') || '';
+          if (effectiveStatus === 'Offered' && _hasResolvedDriverId(_incomingParsed)) {
+            const _appliedOffer = _applyCanonicalDriverToJob(job, _rawDriverId, sessionCompanyId, 'changeriddestatusforoffer/DP');
+            if (!_appliedOffer.ok) {
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true, error: _appliedOffer.error });
+              return;
             }
+            job.offeredAt = Date.now(); // stale-offer watchdog uses this
           }
           if (effectiveStatus === 'Assigned') {
             // §FIX-M — driver accepted, clear manualOffer so any later unrelated retry on
             // this job isn't wrongly demoted to 'No One' on its Unreached timeout.
             job.manualOffer = false;
-            // incomingDriverId already parsed above (handles both '1212' and 'D001' string IDs)
-            if (incomingDriverId && incomingDriverId !== '0' && incomingDriverId !== 0) {
-              job.DriverId = incomingDriverId; job.VehicleId = incomingDriverId;
-              const zdAssign = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId || d.VehicleId === incomingDriverId);
-              if (zdAssign) {
-                if (!job.VehicleNo && zdAssign.vehiclenumber) job.VehicleNo = zdAssign.vehiclenumber;
-                if (!job.CallSign  && zdAssign.vehiclenumber) job.CallSign  = zdAssign.vehiclenumber;
-                if (!job.UserFName && zdAssign.drivername)   job.UserFName = zdAssign.drivername.split(/\s+/)[0] || '';
-                if (!job.UserLName && zdAssign.drivername)   job.UserLName = zdAssign.drivername.split(/\s+/).slice(1).join(' ') || '';
+            if (_hasResolvedDriverId(_incomingParsed)) {
+              const _appliedAssign = _applyCanonicalDriverToJob(job, _rawDriverId, sessionCompanyId, 'changeriddestatusforoffer/DP-assign');
+              if (!_appliedAssign.ok) {
+                objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true, error: _appliedAssign.error });
+                return;
               }
             }
           }
@@ -11922,6 +12147,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (newStatus === 'Offered' && sessionCompanyId) {
             (async () => {
               try {
+                if (job.DriverId && String(job.DriverId) !== '0') {
+                  await _writeManualDriverOffer(
+                    job,
+                    job.DriverId,
+                    job.VehicleId || job.VehicleNo,
+                    'dispatcher',
+                    'changeriddestatusforoffer/DP'
+                  );
+                }
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
@@ -11932,8 +12166,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     BookingId:      String(bookingId),
                     Status:         'Offered',
                     BookingStatus:  'Offered',
-                    DriverId:       String(incomingDriverId || ''),
-                    AssignedDriver: String(incomingDriverId || ''),
+                    DriverId:       String(job.DriverId || incomingDriverId || ''),
+                    AssignedDriver: String(job.DriverId || incomingDriverId || ''),
                     offeredAt:      Date.now(),
                     PickAddress:    job.PickAddress  || '',
                     DropAddress:    job.DropAddress  || '',
@@ -13291,6 +13525,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const now = Date.now();
         jobStore.forEach(j => {
           if (j.BookingStatus === 'Offered') {
+            if (_jobHasMisassignedDriverId(j)) {
+              console.log(`  [AutoDispatch] misassigned-driver heal: resetting job #${j.Id} (DriverId=${j.DriverId}) → Pending`);
+              clearOfferOnFirebase(j.companyId, j.VehicleId || j.VehicleNo, j.DriverId, j.Id, 'misassignedDriverWatchdog-AD');
+              j.BookingStatus = 'Pending';
+              j.offeredAt = null;
+              j.DriverId = 0;
+              j.VehicleId = 0;
+              j.returnReason = j.returnReason || 'Recovered (misassigned driver id)';
+              j.releasedAt = Date.now();
+              return;
+            }
             // If no offeredAt recorded (pre-watchdog jobs), treat as stale immediately.
             const age = j.offeredAt ? (now - j.offeredAt) : STALE_OFFER_MS + 1;
             if (age > STALE_OFFER_MS) {
@@ -13914,9 +14159,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Safety guard: never let a fallback/timeout downgrade an already-accepted job.
           const currentStatus2 = job.BookingStatus || '';
           // Atomic double-offer guard: block second offer if job is already Offered to a different driver.
-          // BUG11 — use same string-safe pattern as DP path so 'D001'-style IDs are preserved.
+          // BUG11 — use resolveDriverIdentity so vehicle numbers resolve to canonical driver ids.
           const _rawDriverId2 = (param('driverid') || '').toString().trim();
-          const incomingDriverId2 = parseInt(_rawDriverId2) > 0 ? parseInt(_rawDriverId2) : (_rawDriverId2 || 0);
+          const _incomingParsed2 = _parseIncomingDriverIdParam(_rawDriverId2, { companyId: sessionCompanyId });
+          const incomingDriverId2 = _incomingParsed2.ok ? _incomingParsed2.driverId : (_rawDriverId2 || '0');
           if (newStatus === 'Offered' && currentStatus2 === 'Offered' && job.DriverId && String(job.DriverId) !== String(incomingDriverId2)) {
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId2}`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
@@ -14019,21 +14265,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (effectiveStatus2 === 'Assigned' && !job.AcceptedAt) job.AcceptedAt = _ts2;
             if (effectiveStatus2 === 'Picking'  && !job.PickingAt)  job.PickingAt  = _ts2; }
           // Track which driver has the current offer so the double-offer guard can compare.
-          if (effectiveStatus2 === 'Offered' && incomingDriverId2 > 0) {
-            job.DriverId = incomingDriverId2; job.VehicleId = incomingDriverId2;
+          if (effectiveStatus2 === 'Offered' && _hasResolvedDriverId(_incomingParsed2)) {
+            const _appliedOffer2 = _applyCanonicalDriverToJob(job, _rawDriverId2, sessionCompanyId, 'changeriddestatusforoffer/DS');
+            if (!_appliedOffer2.ok) {
+              objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true, error: _appliedOffer2.error });
+              return;
+            }
             job.offeredAt = Date.now(); // stale-offer watchdog uses this
-            // Save home zone & queue before the driver is dispatched
-            const zdOffer2 = ZONE_DRIVERS.find(d => d.driverid === incomingDriverId2 || d.VehicleId === incomingDriverId2);
-            if (zdOffer2) saveDriverHomeState(incomingDriverId2, zdOffer2);
           }
           // When driver accepts, set DriverId/VehicleId so the job appears correctly in Assigned tab.
           if (effectiveStatus2 === 'Assigned') {
             // §FIX-M — driver accepted, clear manualOffer (see DP-site comment).
             job.manualOffer = false;
-            // BUG11 — preserve string driver IDs (e.g. 'D001') instead of parseInt→0
-            const _rawAcceptId2 = (param('driverid') || '').toString().trim();
-            const acceptDriverId2 = parseInt(_rawAcceptId2) > 0 ? parseInt(_rawAcceptId2) : (_rawAcceptId2 || 0);
-            if (acceptDriverId2) { job.DriverId = acceptDriverId2; job.VehicleId = acceptDriverId2; }
+            if (_hasResolvedDriverId(_incomingParsed2)) {
+              const _appliedAssign2 = _applyCanonicalDriverToJob(job, _rawDriverId2, sessionCompanyId, 'changeriddestatusforoffer/DS-assign');
+              if (!_appliedAssign2.ok) {
+                objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true, error: _appliedAssign2.error });
+                return;
+              }
+            }
           }
           // Only release (reset) the driver when the job is being cancelled/unassigned.
           // 'Assigned' means the driver accepted — keep them Busy until they complete the ride.
@@ -14104,6 +14354,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           if (newStatus === 'Offered' && sessionCompanyId) {
             (async () => {
               try {
+                if (job.DriverId && String(job.DriverId) !== '0') {
+                  await _writeManualDriverOffer(
+                    job,
+                    job.DriverId,
+                    job.VehicleId || job.VehicleNo,
+                    'dispatcher',
+                    'changeriddestatusforoffer/DS'
+                  );
+                }
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
@@ -14114,8 +14373,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     BookingId:      String(bookingId),
                     Status:         'Offered',
                     BookingStatus:  'Offered',
-                    DriverId:       String(incomingDriverId2 || ''),
-                    AssignedDriver: String(incomingDriverId2 || ''),
+                    DriverId:       String(job.DriverId || incomingDriverId2 || ''),
+                    AssignedDriver: String(job.DriverId || incomingDriverId2 || ''),
                     offeredAt:      Date.now(),
                     PickAddress:    job.PickAddress  || '',
                     DropAddress:    job.DropAddress  || '',
@@ -15331,6 +15590,18 @@ setInterval(() => {
   let changed = false;
   jobStore.forEach(j => {
     if (j.BookingStatus !== 'Offered') return;
+    if (_jobHasMisassignedDriverId(j)) {
+      console.log(`[stale-offer watchdog] job #${j.Id} misassigned DriverId=${j.DriverId} — resetting to Pending`);
+      clearOfferOnFirebase(j.companyId, j.VehicleId || j.VehicleNo, j.DriverId, j.Id, 'misassignedDriverWatchdog-90s');
+      j.BookingStatus = 'Pending';
+      j.offeredAt = null;
+      j.DriverId = 0;
+      j.VehicleId = 0;
+      j.returnReason = j.returnReason || 'Recovered (misassigned driver id)';
+      j.releasedAt = Date.now();
+      changed = true;
+      return;
+    }
     const st = String(j.BookingStatus || '');
     const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
     if (!_isValidJobRecord(j, { requireSource: needsSource })) {
@@ -16099,6 +16370,7 @@ async function _serverAutoDispatchTick() {
   const now = Date.now();
   await _syncZoneDriversFromFirebase({ quiet: true });
   _purgeInvalidJobsFromStore('server-auto-dispatch');
+  _healMisassignedDriverIdsInJobStore('server-auto-dispatch');
   const cids = _fixsCollectCompanyIds();
   const tickReport = { at: new Date(now).toISOString(), companies: {} };
   for (const cid of cids) {
@@ -16163,10 +16435,17 @@ async function _serverAutoDispatchTick() {
     }
     const _autoPrev = fresh.BookingStatus;
     _stampPreOfferPoolStatus(fresh, _autoPrev);
+    const _bestIdentity = resolveDriverIdentity(best.driverid, { companyId: cid });
+    const _bestDrv = _bestIdentity.ok
+      ? (_normalizeNotifyDriverId(_bestIdentity.driverId) || _bestIdentity.driverId)
+      : (_normalizeNotifyDriverId(best.driverid) || best.driverid);
+    const _bestVid = (_bestIdentity.ok && _bestIdentity.vehicleId)
+      ? _bestIdentity.vehicleId
+      : String(best.VehicleId || best.vehiclenumber || '').trim();
     fresh.BookingStatus = 'Offered';
-    fresh.DriverId = best.driverid;
-    fresh.VehicleId = best.VehicleId || best.vehiclenumber;
-    fresh.VehicleNo = best.vehiclenumber || best.VehicleId;
+    fresh.DriverId = _bestDrv;
+    fresh.VehicleId = _bestVid || _bestDrv;
+    fresh.VehicleNo = best.vehiclenumber || _bestVid || best.VehicleId;
     fresh.offeredAt = now;
     fresh.originalStatus = 'pending';
     saveJobStore();

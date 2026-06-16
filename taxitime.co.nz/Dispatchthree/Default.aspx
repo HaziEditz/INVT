@@ -7688,12 +7688,42 @@ $(document).ready(function() {
         return 'cash';
     }
 
+    function _resolveDriverIdentityFromScope(rawDriverId, rawVehicleId) {
+        var did = String(rawDriverId == null ? '' : rawDriverId).trim();
+        var vid = String(rawVehicleId == null ? '' : rawVehicleId).trim();
+        if (!did) return { driverId: did, vehicleId: vid };
+        try {
+            var _sc = angular.element(document.getElementById('myangular')).scope();
+            var _arr = (_sc && _sc.driverdatarealx) ? _sc.driverdatarealx : [];
+            for (var _i = 0; _i < _arr.length; _i++) {
+                var _d = _arr[_i];
+                if (!_d) continue;
+                var _rowDrv = String(_d.driverid || '').trim();
+                var _rowVeh = String(_d.VehicleId || _d.vehiclenumber || '').trim();
+                if (_rowDrv === did) {
+                    if (!vid || vid === '0' || vid === did) vid = _rowVeh || vid;
+                    return { driverId: _rowDrv, vehicleId: vid || _rowVeh || _rowDrv };
+                }
+                if (_rowVeh === did || String(_d.vehiclenumber || '').trim() === did) {
+                    console.log('[§FIX-DRIVER-ID] resolved vehicle "' + did + '" → driver "' + _rowDrv + '" veh "' + _rowVeh + '"');
+                    return { driverId: _rowDrv, vehicleId: _rowVeh || vid || did };
+                }
+            }
+        } catch (_e) {
+            console.warn('[§FIX-DRIVER-ID] resolver error:', _e && _e.message);
+        }
+        return { driverId: did, vehicleId: vid };
+    }
+
     function writeJobDetailsToFirebase(driverId, vehicleId, bookingId, details) {
         try {
             if (!driverId || String(driverId) === 'null' || String(driverId) === 'undefined') {
                 console.warn('[writeJobDetailsToFirebase] invalid driverId:', driverId, '— aborting write');
                 return;
             }
+            var _resolvedIds = _resolveDriverIdentityFromScope(driverId, vehicleId);
+            driverId = _resolvedIds.driverId;
+            vehicleId = _resolvedIds.vehicleId;
             // §FIX-W — defensive vehicle resolver (catches ALL call sites). Several legacy
             // callers pass the driver-dropdown value as BOTH driverId and vehicleId, which on
             // string-ID tenants (e.g. D002) writes the offer to jobs/{cid}/D002/D002 instead
