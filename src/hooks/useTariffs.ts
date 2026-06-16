@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDb, ref, onValue } from '@/lib/firebase';
+import { getDbSafe, ref, onValue } from '@/lib/firebase';
 import { parseTariffRecord, type TariffRate } from '@/lib/fareEstimate';
 
 const DEFAULT_TARIFF: TariffRate = {
@@ -7,6 +7,7 @@ const DEFAULT_TARIFF: TariffRate = {
   name: 'Standard',
   startPrice: 3.5,
   distanceRate: 2.2,
+  waitingRate: 0.6,
   minimumFare: 0,
 };
 
@@ -21,7 +22,8 @@ export function useTariffs(companyId: string | null) {
 
   useEffect(() => {
     if (!companyId) return;
-    const db = getDb();
+    const db = getDbSafe();
+    if (!db) return;
     const maps = [new Map<string, TariffRate>(), new Map<string, TariffRate>()];
 
     const sync = () => {

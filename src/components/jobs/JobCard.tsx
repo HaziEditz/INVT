@@ -1,31 +1,34 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
-import { differenceInMinutes, formatDistanceToNow, parseISO } from 'date-fns';
-import { Edit, X, CheckCircle, User, AlertTriangle } from 'lucide-react';
-import type { Job, JobTab } from '@/types/job';
+import { ArrowRight, Car, CheckCircle, Edit, Luggage, MapPin, AlertTriangle, StickyNote, Users, X } from 'lucide-react';
+import type { Job, JobTab, JobTimerBadge } from '@/types/job';
 import {
-  formatJobDateTimeShort,
-  formatJobDateTimeCard,
-  formatJobDateTimeProminent,
+  formatJobDateTimeCompact,
   getJobCardAppearance,
   isPreBookedJob,
   isPreDispatchWindow,
+  jobBookingMeta,
+  jobBookingMetaVisible,
   jobCreatedAtTime,
-  jobDispatchTime,
-  jobFareDisplay,
-  jobOverdueLabel,
-  jobPickupTypeLabel,
+  jobGoTimeLabel,
   jobPickupTime,
+  jobPickupTypeLabel,
   jobReturnReasonAlert,
-  resolveLastOfferDriverName,
-  jobTariffLabel,
-  jobVehicleTypeLabel,
+  jobStatusAbbrev,
+  jobTimerBadge,
   preDispatchAssignBlockMessage,
-  uaStatusBadge,
+  resolveLastOfferDriverName,
+  resolveLiveMeterDisplay,
 } from '@/types/job';
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
-import { sourceDisplayName, paymentLabel, paymentBadgeColor } from '@/lib/utils';
+import {
+  cn,
+  dispatcherInitials,
+  paymentLabel,
+  paymentBadgeColor,
+  sourceLabel,
+} from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import {
@@ -36,30 +39,111 @@ import {
 } from '@/lib/jobFlow';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useUiStore } from '@/store/uiStore';
-import { cn } from '@/lib/utils';
+import { useTariffs } from '@/hooks/useTariffs';
+import { useLiveJobMeter } from '@/hooks/useLiveJobMeter';
 
 interface JobCardProps {
   job: Job;
   tab: JobTab;
 }
 
-const BADGE_BG = '#2C2C2A';
-const BADGE_TEXT = '#F1EFE8';
+const TIMER_PILL: Record<JobTimerBadge['variant'], string> = {
+  blue: 'bg-blue-500/20 text-blue-700 border-blue-400/50',
+  red: 'bg-red-500/20 text-red-700 border-red-400/50',
+  amber: 'bg-amber-500/20 text-amber-800 border-amber-400/50',
+  green: 'bg-emerald-500/20 text-emerald-800 border-emerald-400/50',
+  neutral: 'bg-black/10 text-inherit border-black/15 opacity-80',
+};
 
-function waitBadgeClass(minutes: number): string {
-  const base =
-    'text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 border border-black/20';
-  if (minutes >= 10) return `${base} bw-wait-flash`;
-  return base;
-}
-
-function tagChip(label: string) {
+function TimerPill({ badge, themed }: { badge: JobTimerBadge; themed?: boolean }) {
+  const cls = themed
+    ? badge.variant === 'blue'
+      ? 'bg-white/30 text-inherit border-white/40'
+      : badge.variant === 'red'
+        ? 'bg-red-900/20 text-red-900 border-red-800/40'
+        : TIMER_PILL[badge.variant]
+    : TIMER_PILL[badge.variant];
   return (
     <span
-      className="text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 border border-black/20"
-      style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
+      className={cn(
+        'text-[9px] font-semibold px-1 py-0 rounded-full border shrink-0 leading-tight',
+        cls,
+      )}
     >
+      {badge.text}
+    </span>
+  );
+}
+
+function TypeTag({ label }: { label: string }) {
+  return (
+    <span className="text-[8px] font-bold px-0.5 py-0 rounded border border-black/15 opacity-75 shrink-0">
       {label}
+    </span>
+  );
+}
+
+function JobBookingMetaRow({
+  job,
+  metaText,
+  themeMutedStyle,
+}: {
+  job: Job;
+  metaText: string;
+  themeMutedStyle?: CSSProperties;
+}) {
+  const meta = jobBookingMeta(job);
+  if (!jobBookingMetaVisible(meta)) return null;
+  return (
+    <div
+      className={cn('flex items-center gap-1.5 min-h-[12px] mb-0.5 text-[8px] leading-tight', metaText)}
+      style={themeMutedStyle}
+    >
+      {meta.vehicleType && (
+        <span className="inline-flex items-center gap-0.5 shrink-0" title="Vehicle type">
+          <Car size={8} className="opacity-70" />
+          {meta.vehicleType}
+        </span>
+      )}
+      {meta.passengers != null && (
+        <span className="inline-flex items-center gap-0.5 shrink-0" title="Passengers">
+          <Users size={8} className="opacity-70" />
+          {meta.passengers}
+        </span>
+      )}
+      {meta.bags != null && (
+        <span className="inline-flex items-center gap-0.5 shrink-0" title="Bags">
+          <Luggage size={8} className="opacity-70" />
+          {meta.bags}
+        </span>
+      )}
+      {meta.notes && (
+        <span className="inline-flex items-center gap-0.5 min-w-0 truncate" title={meta.notes}>
+          <StickyNote size={8} className="opacity-70 shrink-0" />
+          <span className="truncate italic">{meta.notes}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LiveMeterDisplay({
+  meter,
+  themed,
+}: {
+  meter: NonNullable<ReturnType<typeof resolveLiveMeterDisplay>>;
+  themed?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 shrink-0 font-mono text-[9px] font-bold tabular-nums',
+        themed ? 'text-inherit' : 'text-emerald-500',
+      )}
+      title={meter.ticking ? 'Live meter' : 'Fare'}
+    >
+      <span className="font-sans font-semibold opacity-75 max-w-[56px] truncate">{meter.tariffLabel}</span>
+      <span>${meter.fare.toFixed(2)}</span>
     </span>
   );
 }
@@ -68,7 +152,7 @@ export function JobCard({ job, tab }: JobCardProps) {
   const allDrivers = useDriverStore((s) => s.drivers);
   const onlineDrivers = useMemo(
     () => allDrivers.filter((d) => d.status === 'Available' && d.driverId),
-    [allDrivers]
+    [allDrivers],
   );
   const addToast = useUiStore((s) => s.addToast);
   const openModalWith = useUiStore((s) => s.openModalWith);
@@ -77,14 +161,14 @@ export function JobCard({ job, tab }: JobCardProps) {
   const jobs = useJobStore((s) => s.jobs);
   const dispatcherName = useMemo(
     () => localStorage.getItem('bw_dispatcher_name') || 'Dispatcher',
-    []
+    [],
   );
   const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
   const [assignSelection, setAssignSelection] = useState('');
   const [now, setNow] = useState(() => new Date());
   const cancelTarget = useMemo(
     () => (cancelTargetJobId != null ? jobs.find((j) => j.id === cancelTargetJobId) ?? null : null),
-    [cancelTargetJobId, jobs]
+    [cancelTargetJobId, jobs],
   );
 
   useEffect(() => {
@@ -93,7 +177,6 @@ export function JobCard({ job, tab }: JobCardProps) {
   }, []);
 
   const cardLook = useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
-  const statusBadge = tab === 'ua' ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
   const toned = !!cardLook.tone;
   const onThemedBg = !!cardLook.foregroundColor;
@@ -102,67 +185,67 @@ export function JobCard({ job, tab }: JobCardProps) {
     ? { color: cardLook.foregroundMuted }
     : themeStyle;
 
-  const uaMeta = useMemo(() => {
-    if (tab !== 'ua') return null;
-    const created = jobCreatedAtTime(job);
-    const pickup = jobPickupTime(job);
-    const dispatchAt = jobDispatchTime(job);
-    const fare = jobFareDisplay(job);
-    const isLater = isPreBookedJob(job, now);
-    return {
-      sourceName: sourceDisplayName(job.source),
-      isLater,
-      createdLabel: created ? formatJobDateTimeCard(created, { forceDate: true }) : null,
-      pickupLabel: pickup ? formatJobDateTimeProminent(pickup) : null,
-      schedLabel: dispatchAt ? formatJobDateTimeProminent(dispatchAt) : null,
-      pickupType: jobPickupTypeLabel(job),
-      overdue: jobOverdueLabel(job, now),
-      returnAlert: jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers)),
-      createdBy: job.dispatcherName?.trim() || null,
-      passengerEmail: job.passengerEmail?.trim() || null,
-      tariffLabel: jobTariffLabel(job),
-      vehicleType: jobVehicleTypeLabel(job),
-      fare,
-    };
-  }, [job, tab, now, allDrivers]);
+  const status = jobStatusAbbrev(job.status);
+  const pickupType = jobPickupTypeLabel(job);
+  const pickup = jobPickupTime(job);
+  const created = jobCreatedAtTime(job);
+  const timerBadge = jobTimerBadge(job, tab, now);
+  const goTime =
+    tab === 'ua' && isPreBookedJob(job, now) && isPreDispatchWindow(job, now)
+      ? jobGoTimeLabel(job)
+      : null;
+  const returnAlert = jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers));
 
-  const opsMeta = useMemo(() => {
-    if (tab === 'ua' || tab === 'dy') return null;
-    const created = jobCreatedAtTime(job);
-    const pickup = jobPickupTime(job);
-    const assignedDriver = allDrivers.find((d) => d.driverId === job.driverId);
-    return {
-      createdLabel: created ? formatJobDateTimeShort(created) : null,
-      pickupLabel: pickup ? formatJobDateTimeShort(pickup) : null,
-      driverLabel: assignedDriver
-        ? `${assignedDriver.vehicleNo} ${assignedDriver.driverName}`.trim()
-        : job.driverId && job.driverId !== '-1' && job.driverId !== '0'
-          ? job.vehicleNo || `Driver ${job.driverId}`
-          : null,
-    };
-  }, [job, tab, now, allDrivers]);
+  const assignedDriver = useMemo(
+    () => allDrivers.find((d) => d.driverId === job.driverId),
+    [allDrivers, job.driverId],
+  );
 
-  const pickupTag =
-    tab === 'ua' && uaMeta
-      ? uaMeta.pickupType
-      : cardLook.label?.startsWith('SCHED')
-        ? cardLook.label
-        : cardLook.label?.startsWith('Sched:')
-          ? cardLook.label
-          : null;
-
-  const { waitLabel, waitMinutes } = useMemo(() => {
-    const base = job.createdAt ? new Date(job.createdAt) : null;
-    try {
-      const d = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime.replace(' ', 'T'));
-      return {
-        waitLabel: formatDistanceToNow(d, { addSuffix: false }),
-        waitMinutes: differenceInMinutes(new Date(), d),
-      };
-    } catch {
-      return { waitLabel: '—', waitMinutes: 0 };
+  const tariffs = useTariffs(job.companyId);
+  const tariff = useMemo(() => {
+    if (job.tariffId && job.tariffId !== '0' && job.tariffId !== '-1') {
+      return tariffs.find((t) => t.id === job.tariffId) ?? tariffs[0];
     }
-  }, [job.bookingDateTime, job.createdAt]);
+    return tariffs[0];
+  }, [tariffs, job.tariffId]);
+
+  const vehicleId = assignedDriver?.vehicleId || job.vehicleId;
+  const liveSnap = useLiveJobMeter(job, tab, vehicleId);
+
+  const meterDriver = useMemo(() => {
+    if (!assignedDriver && !liveSnap.liveFare) return null;
+    return {
+      liveFare: liveSnap.liveFare ?? assignedDriver?.liveFare,
+      liveTariffName: liveSnap.liveTariffName ?? assignedDriver?.liveTariffName,
+      liveJobId: liveSnap.liveJobId ?? assignedDriver?.liveJobId,
+      bookingId: assignedDriver?.bookingId,
+      liveDistanceKm: liveSnap.liveDistanceKm ?? assignedDriver?.liveDistanceKm,
+      liveWaitingMin: liveSnap.liveWaitingMin ?? assignedDriver?.liveWaitingMin,
+      meterOnAt: liveSnap.meterOnAt ?? assignedDriver?.meterOnAt,
+    };
+  }, [assignedDriver, liveSnap]);
+
+  const liveMeter = useMemo(
+    () => resolveLiveMeterDisplay(job, tab, { driver: meterDriver, tariff, now }),
+    [job, tab, meterDriver, tariff, now],
+  );
+
+  const rightContact = useMemo(() => {
+    if (tab === 'active' || tab === 'assign') {
+      const name =
+        assignedDriver?.driverName?.trim() ||
+        job.driverName?.trim() ||
+        (job.driverId && job.driverId !== '0' && job.driverId !== '-1'
+          ? `D${job.driverId}`
+          : null);
+      const vehicle = assignedDriver?.vehicleNo || job.vehicleNo;
+      if (name) {
+        return vehicle ? `${vehicle} ${name}`.trim() : name;
+      }
+    }
+    const parts = [job.passengerName?.trim(), job.passengerPhone?.trim()].filter(Boolean);
+    return parts.join(' · ') || '—';
+  }, [tab, assignedDriver, job]);
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -204,7 +287,7 @@ export function JobCard({ job, tab }: JobCardProps) {
   };
 
   const iconBtn =
-    'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center';
+    'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center shrink-0';
 
   const showRoutePreview = (e: MouseEvent) => {
     e.stopPropagation();
@@ -262,74 +345,26 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const showAssignControls = tab === 'ua' || tab === 'assign' || tab === 'queue' || tab === 'offer';
+  const handleWithdrawOffer = async () => {
+    try {
+      await setPending(job);
+      addToast({ type: 'success', title: 'Offer withdrawn' });
+    } catch (e) {
+      addToast({
+        type: 'error',
+        title: 'Withdraw failed',
+        message: e instanceof Error ? e.message : '',
+      });
+    }
+  };
+
   const assignBlockedBySchedule = isPreDispatchWindow(job, now);
-
-  const assignControls = showAssignControls ? (
-    <>
-      <select
-        className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border"
-        value={assignSelection}
-        disabled={assignBlockedBySchedule}
-        title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        onChange={(e) => {
-          e.stopPropagation();
-          setAssignSelection(e.target.value);
-        }}
-      >
-        <option value="">Assign ▼</option>
-        <option value="__pending__">Pending</option>
-        <option value="__noone__">No One</option>
-        {onlineDrivers.length > 0 && <option disabled>— online —</option>}
-        {onlineDrivers.map((d) => (
-          <option key={d.driverId} value={d.driverId}>
-            {d.vehicleNo} {d.driverName}
-          </option>
-        ))}
-      </select>
-      <Button
-        variant="primary"
-        className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
-        disabled={!assignSelection || assignBlockedBySchedule}
-        title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
-        onClick={(e) => {
-          e.stopPropagation();
-          void handleApplyAssign();
-        }}
-      >
-        Apply
-      </Button>
-      <Tooltip label="Edit job">
-        <button
-          type="button"
-          className={iconBtn}
-          onClick={(e) => {
-            e.stopPropagation();
-            openModalWith('createJob', { jobId: job.id });
-          }}
-        >
-          <Edit size={11} />
-        </button>
-      </Tooltip>
-      <Tooltip label="Cancel job">
-        <button
-          type="button"
-          className={cn(iconBtn, 'text-red-400')}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleCancelClick(job.id);
-          }}
-        >
-          <X size={11} />
-        </button>
-      </Tooltip>
-    </>
-  ) : null;
-
   const toneText = onThemedBg ? '' : 'bw-text';
   const metaText = onThemedBg ? '' : 'text-[var(--bw-muted)]';
+
+  const createdMeta = created ? formatJobDateTimeCompact(created, now) : null;
+  const source = sourceLabel(job.source);
+  const initials = dispatcherInitials(job.dispatcherName?.trim() || dispatcherName);
 
   return (
     <div
@@ -337,7 +372,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         'rounded px-1.5 py-1 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
         toned && 'bw-job-card-toned',
         highlighted && 'ring-1 ring-[var(--bw-accent)]/60',
-        cardLook.flash && 'bw-dispatch-flash'
+        cardLook.flash && 'bw-dispatch-flash',
       )}
       style={{
         ...(cardLook.flash
@@ -351,279 +386,291 @@ export function JobCard({ job, tab }: JobCardProps) {
         color: cardLook.foregroundColor,
       }}
     >
-      <div className="flex flex-wrap items-center gap-0.5 mb-0.5">
-        <span className={cn('font-mono text-[9px] font-bold', toneText)} style={themeStyle}>#{job.id}</span>
-        {tagChip(tab === 'ua' && uaMeta ? uaMeta.sourceName : sourceDisplayName(job.source))}
-        {statusBadge && tagChip(statusBadge.label)}
-        {pickupTag && tagChip(pickupTag)}
-        {cardLook.label === 'DISPATCH NOW' && tagChip('DISPATCH NOW')}
-        {tab === 'ua' && uaMeta?.overdue && tagChip(uaMeta.overdue)}
-        {job.urgent && tagChip('URGENT')}
+      {/* Line 1 — ID, status, type, pickup, timer, contact */}
+      <div className="flex items-center gap-1 min-h-[16px] leading-none mb-0.5">
+        <span className={cn('font-mono text-[9px] font-bold shrink-0', toneText)} style={themeStyle}>
+          #{job.id}
+        </span>
+        <span className="inline-flex items-center gap-0.5 shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.dotColor }} />
+          <span className="text-[9px] font-bold" style={themeStyle}>
+            {status.abbrev}
+          </span>
+        </span>
+        <TypeTag label={pickupType} />
+        {pickup && (
+          <span
+            className={cn('inline-flex items-center gap-0.5 text-[9px] shrink-0', toneText)}
+            style={themeStyle}
+          >
+            <MapPin size={9} className="shrink-0 opacity-70" />
+            {formatJobDateTimeCompact(pickup, now)}
+          </span>
+        )}
+        {goTime && (
+          <span className="text-[9px] font-semibold opacity-80 shrink-0" style={themeMutedStyle}>
+            {goTime}
+          </span>
+        )}
+        {timerBadge && <TimerPill badge={timerBadge} themed={onThemedBg} />}
+        {liveMeter && <LiveMeterDisplay meter={liveMeter} themed={onThemedBg} />}
+        {job.urgent && (
+          <span className="text-[8px] font-bold text-red-600 shrink-0">URG</span>
+        )}
         <span
-          className={cn('ml-auto', waitBadgeClass(waitMinutes))}
-          style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
+          className={cn(
+            'ml-auto text-[9px] truncate max-w-[42%] text-right font-medium',
+            toneText,
+          )}
+          style={themeStyle}
+          title={rightContact}
         >
-          {waitLabel}
+          {rightContact}
         </span>
       </div>
 
-      {tab === 'ua' && uaMeta?.isLater && (
-        <div className="relative mb-1.5 min-h-[2.5rem]">
-          {(uaMeta.createdLabel || uaMeta.createdBy) && (
-            <div
-              className={cn(
-                'absolute top-0 right-0 text-right max-w-[48%] text-[8px] leading-tight opacity-50',
-                metaText,
-              )}
-              style={themeMutedStyle}
-            >
-              {uaMeta.createdLabel && <div>Created {uaMeta.createdLabel}</div>}
-              {uaMeta.createdBy && <div className="truncate">{uaMeta.createdBy}</div>}
-            </div>
-          )}
-          <div
-            className={cn('flex flex-col gap-1 pr-[42%] text-[12px] font-bold leading-snug', toneText)}
+      {/* Line 2 — route + payment */}
+      <div className="flex items-center gap-1 min-h-[14px] mb-0.5 leading-tight">
+        <div
+          className="flex items-center gap-0.5 min-w-0 flex-1"
+          onMouseEnter={showRoutePreview}
+          onMouseLeave={clearRoutePreview}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+          <span
+            className={cn('truncate text-[10px] font-medium', onThemedBg ? '' : 'text-[var(--bw-text)]')}
             style={themeStyle}
           >
-            {uaMeta.pickupLabel && (
-              <div className="flex flex-col gap-0">
-                <span
-                  className="text-[9px] font-extrabold uppercase tracking-wider opacity-80"
-                  style={themeMutedStyle}
-                >
-                  Pickup
-                </span>
-                <span className="text-[13px]">{uaMeta.pickupLabel}</span>
-              </div>
-            )}
-            {uaMeta.schedLabel && (
-              <div className="flex flex-col gap-0">
-                <span
-                  className="text-[9px] font-extrabold uppercase tracking-wider opacity-80"
-                  style={themeMutedStyle}
-                >
-                  Dispatch window
-                </span>
-                <span className="text-[13px]">{uaMeta.schedLabel}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {opsMeta && (opsMeta.createdLabel || opsMeta.pickupLabel || opsMeta.driverLabel) && (
-        <div
-          className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
-          style={themeMutedStyle}
-        >
-          {opsMeta.createdLabel && (
-            <span>
-              <span className="opacity-70">Created:</span> {opsMeta.createdLabel}
-            </span>
-          )}
-          {opsMeta.pickupLabel && (
-            <span>
-              <span className="opacity-70">Pickup:</span> {opsMeta.pickupLabel}
-            </span>
-          )}
-          {opsMeta.driverLabel && (
-            <span>
-              <span className="opacity-70">Driver:</span> {opsMeta.driverLabel}
-            </span>
-          )}
-        </div>
-      )}
-
-      <div className="text-[10px] leading-tight mb-0.5 space-y-0">
-        <div className="flex gap-1 items-center min-h-[14px]">
-          <span
-            className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer"
-            onMouseEnter={showRoutePreview}
-            onMouseLeave={clearRoutePreview}
-          />
-          <span className={cn('truncate font-medium', onThemedBg ? '' : 'text-[var(--bw-text)]')} style={themeStyle}>
             {job.pickAddress || 'No pickup'}
           </span>
-        </div>
-        <div className="flex gap-1 items-center min-h-[14px]">
+          <ArrowRight size={9} className="shrink-0 opacity-50" />
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
           <span
-            className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer"
-            onMouseEnter={showRoutePreview}
-            onMouseLeave={clearRoutePreview}
-          />
-          <span className={cn('truncate', onThemedBg ? '' : 'text-[var(--bw-muted)]')} style={themeMutedStyle}>
+            className={cn('truncate text-[10px]', onThemedBg ? '' : 'text-[var(--bw-muted)]')}
+            style={themeMutedStyle}
+          >
             {job.dropAddress || 'No dropoff'}
           </span>
         </div>
-      </div>
-
-      <div
-        className={cn(
-          'flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]',
-          metaText
-        )}
-        style={themeMutedStyle}
-      >
-        <span className="inline-flex items-center gap-0.5 truncate max-w-[45%]">
-          <User size={9} />
-          {job.passengerName || '—'}
-        </span>
-        {job.passengerPhone && <span className="truncate">{job.passengerPhone}</span>}
-        <Badge color={paymentBadgeColor(job.paymentType)} className="!text-[9px] !px-1 !py-0 shrink-0">
-          {paymentLabel(job.paymentType)}
+        <Badge color={paymentBadgeColor(job.paymentType)} className="!text-[8px] !px-1 !py-0 shrink-0 ml-1">
+          {job.accountId ? `#${job.accountId}` : paymentLabel(job.paymentType)}
         </Badge>
-        {tab !== 'ua' && job.estimatedFare && job.estimatedFare !== '0' && (
-          <span className="shrink-0 font-medium text-emerald-400">${job.estimatedFare}</span>
-        )}
       </div>
 
-      {tab === 'ua' && uaMeta && (
-        <div
-          className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
-          style={themeMutedStyle}
-        >
-          {uaMeta.fare && (
-            <span className={cn('font-medium', onThemedBg ? '' : 'text-emerald-400')} style={themeStyle}>
-              {uaMeta.fare.label}: {uaMeta.fare.amount}
-            </span>
-          )}
-          {uaMeta.tariffLabel && (
-            <span>
-              <span className="opacity-70">Tariff:</span> {uaMeta.tariffLabel}
-            </span>
-          )}
-          {uaMeta.vehicleType && (
-            <span>
-              <span className="opacity-70">Vehicle:</span> {uaMeta.vehicleType}
-            </span>
-          )}
-          {!uaMeta.isLater && uaMeta.createdBy && (
-            <span className="truncate max-w-full">
-              <span className="opacity-70">Created by:</span> {uaMeta.createdBy}
-            </span>
-          )}
-          {uaMeta.passengerEmail && (
-            <span className="truncate max-w-full">
-              <span className="opacity-70">Email:</span> {uaMeta.passengerEmail}
-            </span>
-          )}
-        </div>
-      )}
+      <JobBookingMetaRow job={job} metaText={metaText} themeMutedStyle={themeMutedStyle} />
 
-      {tab === 'ua' && uaMeta?.returnAlert && (
-        <div
-          className="text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug border border-black/20"
-          style={{ backgroundColor: BADGE_BG, color: BADGE_TEXT }}
-        >
-          {uaMeta.returnAlert.text}
-        </div>
-      )}
+      {/* Line 3 + action row — meta or return warning, plus controls */}
+      <div className="flex items-center gap-1 min-h-[18px] leading-none">
+        {tab === 'ua' && returnAlert ? (
+          <span className="text-[9px] text-red-700 font-medium truncate flex-1 min-w-0">
+            {returnAlert.text}
+          </span>
+        ) : (
+          <span
+            className={cn('text-[9px] truncate flex-1 min-w-0', metaText)}
+            style={themeMutedStyle}
+          >
+            {createdMeta && <span>{createdMeta}</span>}
+            {createdMeta && source && <span className="opacity-50"> · </span>}
+            {source && <span>{source}</span>}
+            {initials && (
+              <>
+                <span className="opacity-50"> · </span>
+                <span>{initials}</span>
+              </>
+            )}
+          </span>
+        )}
 
-      {job.notes && (
-        <div
-          className={cn('text-[9px] mb-0.5 line-clamp-1 italic', metaText)}
-          style={themeMutedStyle}
-        >
-          {job.notes}
-        </div>
-      )}
+        <div className="flex items-center gap-0.5 shrink-0 ml-auto">
+          {tab === 'ua' && (
+            <>
+              <select
+                className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[88px] border"
+                value={assignSelection}
+                disabled={assignBlockedBySchedule}
+                title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  setAssignSelection(e.target.value);
+                }}
+              >
+                <option value="">Assign ▼</option>
+                <option value="__pending__">Pending</option>
+                <option value="__noone__">No One</option>
+                {onlineDrivers.length > 0 && <option disabled>— online —</option>}
+                {onlineDrivers.map((d) => (
+                  <option key={d.driverId} value={d.driverId}>
+                    {d.vehicleNo} {d.driverName}
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="primary"
+                className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
+                disabled={!assignSelection || assignBlockedBySchedule}
+                title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleApplyAssign();
+                }}
+              >
+                Apply
+              </Button>
+              <Tooltip label="Edit job">
+                <button
+                  type="button"
+                  className={iconBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openModalWith('createJob', { jobId: job.id });
+                  }}
+                >
+                  <Edit size={11} />
+                </button>
+              </Tooltip>
+            </>
+          )}
 
-      {tab === 'offer' && job.offeredAt && (
-        <div className="text-[9px] text-amber-400 mb-0.5">
-          Offer expires {formatDistanceToNow(job.offeredAt + 30000, { addSuffix: true })}
-        </div>
-      )}
+          {tab === 'offer' && (
+            <>
+              <Tooltip label="Withdraw offer">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleWithdrawOffer();
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Edit job">
+                <button
+                  type="button"
+                  className={iconBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openModalWith('createJob', { jobId: job.id });
+                  }}
+                >
+                  <Edit size={11} />
+                </button>
+              </Tooltip>
+            </>
+          )}
 
-      <div className="flex flex-wrap items-center gap-0.5">
-        {assignControls}
-        {tab === 'offer' && (
+          {tab === 'assign' && (
+            <>
+              <Tooltip label="Edit job">
+                <button
+                  type="button"
+                  className={iconBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openModalWith('createJob', { jobId: job.id });
+                  }}
+                >
+                  <Edit size={11} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Cancel job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </Tooltip>
+            </>
+          )}
+
+          {tab === 'active' && (
+            <>
+              <Tooltip label="Edit job">
+                <button
+                  type="button"
+                  className={iconBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openModalWith('createJob', { jobId: job.id });
+                  }}
+                >
+                  <Edit size={11} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Complete job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-emerald-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void run(() => forceCompleteJob(job.id), 'Completed');
+                  }}
+                >
+                  <CheckCircle size={11} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Cancel job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </Tooltip>
+            </>
+          )}
+
+          {tab === 'dy' && (
+            <>
+              <Button
+                variant="primary"
+                className="!h-6 !px-1.5 !py-0 !text-[9px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void run(() => setPending(job), 'Pending');
+                }}
+              >
+                Pending
+              </Button>
+              <Tooltip label="Cancel job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </Tooltip>
+            </>
+          )}
+
           <Button
-            variant="danger"
-            className="!h-6 !px-1.5 !py-0 !text-[9px]"
+            variant="ghost"
+            className="!h-6 !px-1 !py-0 !text-[9px] shrink-0"
             onClick={(e) => {
               e.stopPropagation();
-              handleCancelClick(job.id);
+              openModalWith('jobDetail', { jobId: job.id });
             }}
           >
-            Cancel Offer
+            ···
           </Button>
-        )}
-        {tab === 'active' && (
-          <>
-            <Tooltip label="Edit job">
-              <button
-                type="button"
-                className={iconBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openModalWith('createJob', { jobId: job.id });
-                }}
-              >
-                <Edit size={11} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Complete job">
-              <button
-                type="button"
-                className={cn(iconBtn, 'text-emerald-400')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void run(() => forceCompleteJob(job.id), 'Completed');
-                }}
-              >
-                <CheckCircle size={11} />
-              </button>
-            </Tooltip>
-            <Tooltip label="Cancel job">
-              <button
-                type="button"
-                className={cn(iconBtn, 'text-red-400')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCancelClick(job.id);
-                }}
-              >
-                <X size={11} />
-              </button>
-            </Tooltip>
-          </>
-        )}
-        {tab === 'dy' && (
-          <>
-            <Button
-              variant="primary"
-              className="!h-6 !px-1.5 !py-0 !text-[9px]"
-              onClick={(e) => {
-                e.stopPropagation();
-                void run(() => setPending(job), 'Pending');
-              }}
-            >
-              Pending
-            </Button>
-            <Tooltip label="Cancel job">
-              <button
-                type="button"
-                className={cn(iconBtn, 'text-red-400')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCancelClick(job.id);
-                }}
-              >
-                <X size={11} />
-              </button>
-            </Tooltip>
-          </>
-        )}
-        <Button
-          variant="ghost"
-          className="!h-6 !px-1.5 !py-0 !text-[9px]"
-          onClick={(e) => {
-            e.stopPropagation();
-            openModalWith('jobDetail', { jobId: job.id });
-          }}
-        >
-          Details
-        </Button>
+        </div>
       </div>
 
       {cancelTargetJobId != null && cancelTarget && (

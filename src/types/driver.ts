@@ -119,6 +119,13 @@ export interface Driver {
   isOffline?: boolean;
   isShared?: boolean;
   homeCompanyId?: string;
+  /** Live meter from online/{cid}/{vid}/current while on trip. */
+  liveFare?: number;
+  liveTariffName?: string;
+  liveJobId?: string;
+  liveDistanceKm?: number;
+  liveWaitingMin?: number;
+  meterOnAt?: string;
 }
 
 const LOGGED_OUT_STATUSES = new Set([
@@ -144,6 +151,76 @@ function resolveOnlineDriverName(
   return String(
     rec.drivername ?? rec.driverName ?? rec.DriverName ?? current.drivername ?? current.driverName ?? '',
   ).trim();
+}
+
+function pickNum(...vals: unknown[]): number | undefined {
+  for (const v of vals) {
+    if (v == null || v === '') continue;
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return undefined;
+}
+
+function pickStr(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    const s = String(v ?? '').trim();
+    if (s) return s;
+  }
+  return undefined;
+}
+
+export function parseLiveMeterFromRecord(
+  rec: Record<string, unknown>,
+  current: Record<string, unknown>,
+): {
+  liveFare?: number;
+  liveTariffName?: string;
+  liveJobId?: string;
+  liveDistanceKm?: number;
+  liveWaitingMin?: number;
+  meterOnAt?: string;
+} {
+  const liveFare = pickNum(
+    current.fare,
+    current.meterFare,
+    current.TotalFare,
+    current.totalFare,
+    current.jobfare,
+    current.jobFare,
+    current.Fare,
+  );
+  const liveTariffName = pickStr(
+    current.currentTariffName,
+    current.CurrentTariffName,
+    current.TariffName,
+    current.tariffName,
+    current.TarriffType,
+    current.tarriffname,
+  );
+  const liveJobId = pickStr(
+    current.currentJobId,
+    current.jobId,
+    current.bookingId,
+    current.BookingId,
+    rec.currentJobId,
+    rec.jobId,
+  );
+  const liveDistanceKm = pickNum(
+    current.distanceKm,
+    current.JobDistance,
+    current.jobDistance,
+    current.distance,
+    current.Distance,
+  );
+  const liveWaitingMin = pickNum(
+    current.waitingMinutes,
+    current.waitingMin,
+    current.WaitingTime,
+    current.waitingTime,
+  );
+  const meterOnAt = pickStr(current.meterOnAt, current.MeterOnAt);
+  return { liveFare, liveTariffName, liveJobId, liveDistanceKm, liveWaitingMin, meterOnAt };
 }
 
 /** Stray post-sign-out node: Available (or empty) with no bound driver identity. */
@@ -209,6 +286,7 @@ export function driverFromFirebase(
   const displayName = String(
     rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? '',
   ).trim();
+  const liveMeter = parseLiveMeterFromRecord(rec, current);
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ''),
     vehicleId,
@@ -231,6 +309,7 @@ export function driverFromFirebase(
       ? (rec.allowedServices as string[])
       : ['Taxi'],
     lastSeen: rec.lastSeen ? Number(rec.lastSeen) : Date.now(),
+    ...liveMeter,
   };
 }
 

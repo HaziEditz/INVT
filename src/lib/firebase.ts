@@ -29,6 +29,10 @@ export function getDb(): Database {
   return db;
 }
 
+export function getDbSafe(): Database | null {
+  return db;
+}
+
 export function getFirebaseAuth(): Auth {
   if (!auth) throw new Error('Firebase not initialized');
   return auth;

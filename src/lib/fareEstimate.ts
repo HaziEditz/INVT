@@ -3,6 +3,7 @@ export interface TariffRate {
   name: string;
   startPrice: number;
   distanceRate: number;
+  waitingRate: number;
   minimumFare: number;
 }
 
@@ -25,6 +26,7 @@ export function parseTariffRecord(key: string, rec: Record<string, unknown>): Ta
     name,
     startPrice: parseFloat(String(rec.StartPrice ?? rec.baseFare ?? rec.startPrice ?? 0)) || 0,
     distanceRate: parseFloat(String(rec.DistanceRate ?? rec.pricePerKm ?? rec.perKm ?? 0)) || 0,
+    waitingRate: parseFloat(String(rec.WaitingRate ?? rec.waitingRate ?? rec.waitRate ?? 0)) || 0,
     minimumFare: parseFloat(String(rec.MinimumFare ?? rec.minimumFare ?? 0)) || 0,
   };
 }

@@ -68,6 +68,8 @@ export interface Job {
   vehicleId?: string;
   driverName?: string;
   vehicleNo?: string;
+  driverAcceptedAt?: string;
+  activeAt?: string;
   bookingDateTime: string;
   scheduledFor?: number;
   dispatchBeforeMinutes?: number;
@@ -164,6 +166,15 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : undefined,
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : undefined,
     vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ''),
+    driverName: String(rec.DriverName ?? rec.driverName ?? '').trim() || undefined,
+    driverAcceptedAt: (() => {
+      const raw = rec.DriverAcceptedAt ?? rec.driverAcceptedAt;
+      return raw ? String(raw) : undefined;
+    })(),
+    activeAt: (() => {
+      const raw = rec.ActiveAt ?? rec.activeAt;
+      return raw ? String(raw) : undefined;
+    })(),
     bookingDateTime: String(
       rec.BookingDateTime ??
         rec.Pickingtime ??
@@ -221,6 +232,12 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
       return tid === '-1' || tname === 'fixed';
     })(),
     passengers: parseInt(String(rec.Passengers ?? '1'), 10) || 1,
+    bags: (() => {
+      const raw = rec.Bags ?? rec.bags ?? rec.NoOfBags ?? rec.noOfBags;
+      if (raw == null || raw === '') return undefined;
+      const n = parseInt(String(raw), 10);
+      return Number.isNaN(n) ? undefined : n;
+    })(),
     updateSeq: jobUpdateSeqFromRecord(rec),
     createdAt: (() => {
       if (rec.createdAt != null) {
@@ -436,6 +453,15 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
     };
   }
 
+  if (tab === 'offer') {
+    return {
+      backgroundColor: 'var(--bw-card)',
+      borderLeftColor: '#f59e0b',
+      flash: false,
+      label: null,
+    };
+  }
+
   if (tab === 'ua' && isUnassignedForDispatch(job)) {
     if (!isPreBookedJob(job, now)) {
       return {
@@ -611,6 +637,139 @@ export function formatJobDateTimeCard(d: Date, opts?: { forceDate?: boolean }): 
 /** Always show weekday + date + time — for prominent pickup / sched lines on Later cards. */
 export function formatJobDateTimeProminent(d: Date): string {
   return formatJobDateTimeCard(d, { forceDate: true });
+}
+
+/** Compact card datetime — Today/Tmr/weekday + time. */
+export function formatJobDateTimeCompact(d: Date, now = new Date()): string {
+  const time = d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) return `Today ${time}`;
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow =
+    d.getFullYear() === tomorrow.getFullYear() &&
+    d.getMonth() === tomorrow.getMonth() &&
+    d.getDate() === tomorrow.getDate();
+  if (isTomorrow) return `Tmr ${time}`;
+
+  const datePart = d.toLocaleDateString('en-NZ', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  return `${datePart} ${time}`;
+}
+
+export function jobStatusAbbrev(status: JobStatus): { abbrev: string; dotColor: string } {
+  const st = normalizeJobStatus(status);
+  switch (st) {
+    case 'No One':
+      return { abbrev: 'NON', dotColor: '#94a3b8' };
+    case 'Pending':
+      return { abbrev: 'PND', dotColor: '#4f6ef7' };
+    case 'Offered':
+      return { abbrev: 'OFR', dotColor: '#f59e0b' };
+    case 'Assigned':
+      return { abbrev: 'ASN', dotColor: '#6366f1' };
+    case 'Picking':
+      return { abbrev: 'PIK', dotColor: '#6366f1' };
+    case 'Arrived':
+      return { abbrev: 'ARR', dotColor: '#6366f1' };
+    case 'Active':
+    case 'OnTrip':
+      return { abbrev: 'ACT', dotColor: '#22c55e' };
+    case 'Scheduled':
+      return { abbrev: 'SCH', dotColor: '#0ea5e9' };
+    case 'Queued':
+      return { abbrev: 'QUE', dotColor: '#a855f7' };
+    default:
+      return { abbrev: st.slice(0, 3).toUpperCase(), dotColor: '#64748b' };
+  }
+}
+
+export type JobTimerBadge = {
+  text: string;
+  variant: 'blue' | 'red' | 'amber' | 'green' | 'neutral';
+};
+
+export function jobTripStartTime(job: Job, tab: JobTab): Date | null {
+  const parse = (raw?: string) => {
+    if (!raw) return null;
+    try {
+      const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+      const d = new Date(normalized);
+      return Number.isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  };
+  if (tab === 'active') {
+    return parse(job.activeAt) ?? parse(job.driverAcceptedAt);
+  }
+  if (tab === 'assign') {
+    return parse(job.driverAcceptedAt) ?? (job.offeredAt ? new Date(job.offeredAt) : null);
+  }
+  return null;
+}
+
+export function jobGoTimeLabel(job: Job): string | null {
+  const dispatchAt = jobDispatchTime(job);
+  if (!dispatchAt) return null;
+  const time = dispatchAt.toLocaleTimeString('en-NZ', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return `Go ${time}`;
+}
+
+export function jobTimerBadge(job: Job, tab: JobTab, now = new Date()): JobTimerBadge | null {
+  if (tab === 'offer' && job.offeredAt) {
+    const expiresAt = job.offeredAt + 30_000;
+    const secs = Math.max(0, Math.ceil((expiresAt - now.getTime()) / 1000));
+    return { text: `expires ${secs}s`, variant: 'amber' };
+  }
+
+  if (tab === 'assign' || tab === 'active') {
+    const tripStart = jobTripStartTime(job, tab);
+    if (tripStart) {
+      const mins = Math.max(0, Math.floor((now.getTime() - tripStart.getTime()) / 60_000));
+      return { text: `on trip ${mins}m`, variant: 'green' };
+    }
+  }
+
+  if (tab === 'ua') {
+    const overdueMins = jobOverdueMinutes(job, now);
+    if (overdueMins != null) {
+      return { text: `overdue ${overdueMins}m`, variant: 'red' };
+    }
+
+    if (isPreBookedJob(job, now) && isPreDispatchWindow(job, now)) {
+      const dispatchAt = jobDispatchTime(job);
+      if (dispatchAt) {
+        const ms = Math.max(0, dispatchAt.getTime() - now.getTime());
+        const totalMins = Math.ceil(ms / 60_000);
+        const hours = Math.floor(totalMins / 60);
+        const mins = totalMins % 60;
+        const countdown = hours > 0 ? `in ${hours}h ${mins}m` : `in ${mins}m`;
+        return { text: countdown, variant: 'blue' };
+      }
+    }
+
+    if (!isPreBookedJob(job, now)) {
+      const created = jobCreatedAtTime(job);
+      if (created) {
+        const mins = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 60_000));
+        if (mins >= 1) return { text: `wait ${mins}m`, variant: 'neutral' };
+      }
+    }
+  }
+
+  return null;
 }
 
 export function formatJobDateTimeShort(d: Date): string {
@@ -789,4 +948,141 @@ export function jobVehicleTypeLabel(job: Job): string | null {
   const v = (job.vehicleType || '').trim();
   if (!v || v.toLowerCase() === 'not specified') return null;
   return v;
+}
+
+export interface JobBookingMeta {
+  vehicleType: string | null;
+  passengers: number | null;
+  bags: number | null;
+  notes: string | null;
+}
+
+export function jobBookingMeta(job: Job): JobBookingMeta {
+  const vehicleType = jobVehicleTypeLabel(job);
+  const passengers = (job.passengers ?? 1) > 1 ? job.passengers! : null;
+  const bags = (job.bags ?? 0) > 0 ? job.bags! : null;
+  const notes = job.notes?.trim() || null;
+  return { vehicleType, passengers, bags, notes };
+}
+
+export function jobBookingMetaVisible(meta: JobBookingMeta): boolean {
+  return !!(meta.vehicleType || meta.passengers || meta.bags || meta.notes);
+}
+
+export interface LiveMeterDisplay {
+  tariffLabel: string;
+  fare: number;
+  ticking: boolean;
+}
+
+type LiveMeterDriver = {
+  liveFare?: number;
+  liveTariffName?: string;
+  liveJobId?: string;
+  bookingId?: string;
+  liveDistanceKm?: number;
+  liveWaitingMin?: number;
+  meterOnAt?: string;
+};
+
+type LiveMeterTariff = {
+  id: string;
+  name: string;
+  startPrice: number;
+  distanceRate: number;
+  waitingRate: number;
+  minimumFare: number;
+};
+
+function parseMeterStart(raw?: string): Date | null {
+  if (!raw) return null;
+  try {
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const d = new Date(normalized);
+    return Number.isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+}
+
+function driverLiveFareForJob(job: Job, driver?: LiveMeterDriver | null): number | undefined {
+  if (!driver || driver.liveFare == null) return undefined;
+  const jobId = String(job.id);
+  const matches =
+    (driver.liveJobId && driver.liveJobId === jobId) ||
+    (driver.bookingId && driver.bookingId === jobId);
+  return matches ? driver.liveFare : undefined;
+}
+
+/** Active-tab live meter — driver's GPS heartbeat fare first, then client-side simulation. */
+export function resolveLiveMeterDisplay(
+  job: Job,
+  tab: JobTab,
+  opts: {
+    driver?: LiveMeterDriver | null;
+    tariff?: LiveMeterTariff | null;
+    now?: Date;
+  } = {},
+): LiveMeterDisplay | null {
+  if (tab !== 'active') return null;
+
+  const now = opts.now ?? new Date();
+  const tariff =
+    opts.tariff ??
+    (job.tariffId && job.tariffId !== '0' && job.tariffId !== '-1'
+      ? { id: job.tariffId, name: job.tariffName || 'Tariff', startPrice: 0, distanceRate: 0, waitingRate: 0, minimumFare: 0 }
+      : null);
+
+  const tariffLabel =
+    opts.driver?.liveTariffName?.trim() ||
+    jobTariffLabel(job) ||
+    tariff?.name ||
+    (job.isFixedPrice ? 'Fixed' : 'Meter');
+
+  if (job.isFixedPrice) {
+    const raw = job.estimatedFare || job.totalFare || '';
+    const fare = parseFloat(raw);
+    if (!Number.isNaN(fare) && fare > 0) {
+      return { tariffLabel, fare, ticking: false };
+    }
+  }
+
+  const driverFare = driverLiveFareForJob(job, opts.driver);
+  if (driverFare != null) {
+    return {
+      tariffLabel: opts.driver?.liveTariffName?.trim() || tariffLabel,
+      fare: driverFare,
+      ticking: true,
+    };
+  }
+
+  if (job.totalFare) {
+    const fare = parseFloat(job.totalFare);
+    if (!Number.isNaN(fare) && fare > 0) {
+      return { tariffLabel, fare, ticking: true };
+    }
+  }
+
+  const meterStart =
+    parseMeterStart(opts.driver?.meterOnAt) ??
+    parseMeterStart(job.activeAt) ??
+    jobTripStartTime(job, 'active');
+  const rateTariff = opts.tariff;
+
+  if (meterStart && rateTariff) {
+    const elapsedMin = Math.max(0, (now.getTime() - meterStart.getTime()) / 60_000);
+    const distKm = opts.driver?.liveDistanceKm ?? 0;
+    const waitMin = opts.driver?.liveWaitingMin ?? elapsedMin * 0.75;
+    const waitingRate = rateTariff.waitingRate > 0 ? rateTariff.waitingRate : 0.6;
+    let fare = rateTariff.startPrice + distKm * rateTariff.distanceRate + waitMin * waitingRate;
+    if (rateTariff.minimumFare > 0) fare = Math.max(fare, rateTariff.minimumFare);
+    return { tariffLabel, fare, ticking: true };
+  }
+
+  const est = parseFloat(job.estimatedFare || '0');
+  if (!Number.isNaN(est) && est > 0) {
+    return { tariffLabel, fare: est, ticking: false };
+  }
+
+  return { tariffLabel, fare: rateTariff?.startPrice ?? 0, ticking: !!meterStart };
 }
