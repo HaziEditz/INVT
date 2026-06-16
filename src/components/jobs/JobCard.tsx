@@ -4,13 +4,16 @@ import { Edit, X, CheckCircle, User, AlertTriangle } from 'lucide-react';
 import type { Job, JobTab } from '@/types/job';
 import {
   formatJobDateTimeShort,
+  formatJobDateTimeCard,
   getJobCardAppearance,
+  isPreBookedJob,
   isPreDispatchWindow,
-  jobBookingTime,
   jobCreatedAtTime,
+  jobDispatchTime,
   jobFareDisplay,
   jobOverdueLabel,
   jobPickupTypeLabel,
+  jobPickupTime,
   jobReturnReasonAlert,
   jobScheduledTime,
   resolveLastOfferDriverName,
@@ -102,15 +105,17 @@ export function JobCard({ job, tab }: JobCardProps) {
   const uaMeta = useMemo(() => {
     if (tab !== 'ua') return null;
     const created = jobCreatedAtTime(job);
-    const booked = jobBookingTime(job);
-    const pickup = jobScheduledTime(job);
+    const pickup = jobPickupTime(job) ?? jobScheduledTime(job);
+    const dispatchAt = jobDispatchTime(job);
     const fare = jobFareDisplay(job);
+    const isLater = isPreBookedJob(job, now);
     return {
       sourceName: sourceDisplayName(job.source),
-      createdLabel: created ? formatJobDateTimeShort(created) : null,
-      bookedLabel: booked ? formatJobDateTimeShort(booked) : '—',
-      pickupLabel: jobPickupTypeLabel(job),
-      pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
+      isLater,
+      createdLabel: created ? formatJobDateTimeCard(created, { forceDate: true }) : null,
+      pickupLabel: pickup ? formatJobDateTimeCard(pickup, { forceDate: true }) : null,
+      schedLabel: dispatchAt ? formatJobDateTimeCard(dispatchAt, { forceDate: true }) : null,
+      pickupType: jobPickupTypeLabel(job),
       overdue: jobOverdueLabel(job, now),
       returnAlert: jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers)),
       createdBy: job.dispatcherName?.trim() || null,
@@ -124,11 +129,11 @@ export function JobCard({ job, tab }: JobCardProps) {
   const opsMeta = useMemo(() => {
     if (tab === 'ua' || tab === 'dy') return null;
     const created = jobCreatedAtTime(job);
-    const booked = jobBookingTime(job);
+    const pickup = jobPickupTime(job);
     const assignedDriver = allDrivers.find((d) => d.driverId === job.driverId);
     return {
       createdLabel: created ? formatJobDateTimeShort(created) : null,
-      bookedLabel: booked ? formatJobDateTimeShort(booked) : null,
+      pickupLabel: pickup ? formatJobDateTimeShort(pickup) : null,
       driverLabel: assignedDriver
         ? `${assignedDriver.vehicleNo} ${assignedDriver.driverName}`.trim()
         : job.driverId && job.driverId !== '-1' && job.driverId !== '0'
@@ -139,10 +144,12 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const pickupTag =
     tab === 'ua' && uaMeta
-      ? uaMeta.pickupLabel
-      : cardLook.label?.startsWith('Sched:')
+      ? uaMeta.pickupType
+      : cardLook.label?.startsWith('SCHED')
         ? cardLook.label
-        : null;
+        : cardLook.label?.startsWith('Sched:')
+          ? cardLook.label
+          : null;
 
   const { waitLabel, waitMinutes } = useMemo(() => {
     const base = job.createdAt ? new Date(job.createdAt) : null;
@@ -360,28 +367,50 @@ export function JobCard({ job, tab }: JobCardProps) {
         </span>
       </div>
 
-      {tab === 'ua' && uaMeta && (
-        <div
-          className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
-          style={themeMutedStyle}
-        >
-          {uaMeta.createdLabel && (
-            <span>
-              <span className="opacity-70">Created:</span> {uaMeta.createdLabel}
-            </span>
+      {tab === 'ua' && uaMeta?.isLater && (
+        <div className="mb-1">
+          {(uaMeta.createdLabel || uaMeta.createdBy) && (
+            <div
+              className={cn('text-[8px] leading-tight mb-1 opacity-55', metaText)}
+              style={themeMutedStyle}
+            >
+              {uaMeta.createdLabel && <span>Created {uaMeta.createdLabel}</span>}
+              {uaMeta.createdBy && (
+                <span>{uaMeta.createdLabel ? ' · ' : ''}{uaMeta.createdBy}</span>
+              )}
+            </div>
           )}
-          <span>
-            <span className="opacity-70">Booked:</span> {uaMeta.bookedLabel}
-          </span>
-          {uaMeta.pickupLabel !== 'ASAP' && uaMeta.pickupTime && (
-            <span>
-              <span className="opacity-70">Pickup:</span> {uaMeta.pickupTime}
-            </span>
-          )}
+          <div
+            className={cn('flex flex-col gap-0.5 text-[11px] font-semibold leading-snug', toneText)}
+            style={themeStyle}
+          >
+            {uaMeta.pickupLabel && (
+              <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <span
+                  className="text-[9px] font-bold uppercase tracking-wider opacity-75 shrink-0"
+                  style={themeMutedStyle}
+                >
+                  Pickup
+                </span>
+                <span>{uaMeta.pickupLabel}</span>
+              </div>
+            )}
+            {uaMeta.schedLabel && (
+              <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <span
+                  className="text-[9px] font-bold uppercase tracking-wider opacity-75 shrink-0"
+                  style={themeMutedStyle}
+                >
+                  Sched
+                </span>
+                <span>{uaMeta.schedLabel}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {opsMeta && (opsMeta.createdLabel || opsMeta.bookedLabel || opsMeta.driverLabel) && (
+      {opsMeta && (opsMeta.createdLabel || opsMeta.pickupLabel || opsMeta.driverLabel) && (
         <div
           className={cn('flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight', metaText)}
           style={themeMutedStyle}
@@ -391,9 +420,9 @@ export function JobCard({ job, tab }: JobCardProps) {
               <span className="opacity-70">Created:</span> {opsMeta.createdLabel}
             </span>
           )}
-          {opsMeta.bookedLabel && (
+          {opsMeta.pickupLabel && (
             <span>
-              <span className="opacity-70">Booked:</span> {opsMeta.bookedLabel}
+              <span className="opacity-70">Pickup:</span> {opsMeta.pickupLabel}
             </span>
           )}
           {opsMeta.driverLabel && (
@@ -467,7 +496,7 @@ export function JobCard({ job, tab }: JobCardProps) {
               <span className="opacity-70">Vehicle:</span> {uaMeta.vehicleType}
             </span>
           )}
-          {uaMeta.createdBy && (
+          {!uaMeta.isLater && uaMeta.createdBy && (
             <span className="truncate max-w-full">
               <span className="opacity-70">Created by:</span> {uaMeta.createdBy}
             </span>

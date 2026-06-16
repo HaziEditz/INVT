@@ -11066,6 +11066,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             TarriffType:      String(newJob.TarriffType || ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
+            ...(parseInt(String(newJob.DispatchTimebefore || '0'), 10) > 0 && newJob.ScheduledFor ? {
+              NotifyDispatchAt: new Date(
+                Number(newJob.ScheduledFor) - (parseInt(String(newJob.DispatchTimebefore || '0'), 10) || 15) * 60000
+              ).toISOString(),
+            } : {}),
           };
           getFirebaseServerToken().then(tok => {
             if (!tok) return;
@@ -15333,6 +15338,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               _fbKey: _ipjFbKey, Id: _sId, companyId: _sCid,
               BookingStatus: 'Scheduled', BookingSource: _isWebBk ? 'Website' : 'passenger',
               updateSeq: 1,
+              createdAt: Date.now(),
               Name:          _sn.name,
               PhoneNo:       _sn.phone,
               PickAddress:   _sn.pickAddress,

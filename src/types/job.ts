@@ -222,9 +222,10 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         const n = Number(rec.createdAt);
         if (!Number.isNaN(n) && n > 0) return n;
       }
-      const ca = rec.CreatedAt;
-      if (ca != null) {
-        const ms = typeof ca === 'number' ? ca : Date.parse(String(ca));
+      for (const key of ['CreatedAt', 'bookedAt', 'BookedAt', 'bookingCreatedAt'] as const) {
+        const raw = rec[key];
+        if (raw == null) continue;
+        const ms = typeof raw === 'number' ? raw : Date.parse(String(raw));
         if (!Number.isNaN(ms) && ms > 0) return ms;
       }
       return undefined;
@@ -433,11 +434,6 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
     if (pickup) {
       const dispatchAt = jobDispatchTime(job) ?? pickup;
       const dispatchMs = dispatchAt.getTime();
-      const pickLabel = pickup.toLocaleTimeString('en-NZ', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
 
       if (now.getTime() >= dispatchMs) {
         return {
@@ -452,6 +448,11 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
         };
       }
       if (isScheduledJob(job)) {
+        const schedLabel = dispatchAt.toLocaleTimeString('en-NZ', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
         return {
           backgroundColor: CARD_BLUE_WAIT_BG,
           borderLeftColor: CARD_BLUE_WAIT_BORDER,
@@ -460,7 +461,7 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
           foregroundMuted: CARD_BLUE_TEXT_MUTED,
           tone: 'blue',
           flash: false,
-          label: `Sched: ${pickLabel}`,
+          label: `SCHED ${schedLabel}`,
         };
       }
     }
@@ -485,7 +486,7 @@ export interface ScheduledDispatchUi {
 
 export function getScheduledDispatchUi(job: Job, now = new Date()): ScheduledDispatchUi | null {
   const appearance = getJobCardAppearance(job, 'ua', now);
-  if (appearance.label?.startsWith('Sched:')) {
+  if (appearance.label?.startsWith('SCHED')) {
     return {
       state: 'before',
       label: appearance.label,
@@ -555,14 +556,40 @@ export function jobCreatedAtTime(job: Job): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Booking / pickup datetime from the job record (not creation timestamp). */
-export function jobBookingTime(job: Job): Date | null {
+/** Customer-requested pickup datetime. */
+export function jobPickupTime(job: Job): Date | null {
   return jobScheduledTime(job);
 }
 
-/** When the job was booked / entered the system. @deprecated use jobCreatedAtTime or jobBookingTime */
+/** @deprecated Use jobPickupTime for pickup or jobCreatedAtTime for when the booking was created. */
+export function jobBookingTime(job: Job): Date | null {
+  return jobPickupTime(job);
+}
+
+/** When the job was booked / entered the system. */
 export function jobBookedAtTime(job: Job): Date | null {
-  return jobCreatedAtTime(job) ?? jobBookingTime(job);
+  return jobCreatedAtTime(job);
+}
+
+/** Card / modal datetime — includes date when not today or when the time is in the future. */
+export function formatJobDateTimeCard(d: Date, opts?: { forceDate?: boolean }): string {
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (opts?.forceDate || !sameDay || d.getTime() > now.getTime() + 60_000) {
+    return d.toLocaleString('en-NZ', {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+  return time;
 }
 
 export function formatJobDateTimeShort(d: Date): string {
@@ -620,26 +647,12 @@ export function formatJobEditHistoryWhen(entry: JobEditHistoryEntry): string {
   }
 }
 
-/** Pickup label for UA cards — ASAP or Sched: HH:MM. */
+/** Pickup label for UA card chips — ASAP or LATER (times shown in the card body). */
 export function jobPickupTypeLabel(job: Job): string {
-  const preBooked =
-    (job.dispatchBeforeMinutes ?? 0) > 0 ||
-    !!job.notifyDispatchAt ||
-    normalizeJobStatus(job.status) === 'Scheduled' ||
-    (job.createdAt &&
-      jobScheduledTime(job) &&
-      jobScheduledTime(job)!.getTime() - job.createdAt > 60_000);
-
-  if (!preBooked && job.bookingType?.toUpperCase() !== 'SCHEDULED') {
+  if (!isPreBookedJob(job) && job.bookingType?.toUpperCase() !== 'SCHEDULED') {
     return 'ASAP';
   }
-
-  const pickup = jobScheduledTime(job);
-  if (pickup) {
-    const t = pickup.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
-    return `Sched: ${t}`;
-  }
-  return 'ASAP';
+  return 'LATER';
 }
 
 /** Minutes past dispatch window — null if not overdue. */
