@@ -14,7 +14,7 @@ interface DriverStore {
   counts: () => { all: number; free: number; picking: number; busy: number; away: number };
 }
 
-function filterDrivers(
+export function filterDrivers(
   drivers: Driver[],
   serviceFilter: string,
   statusFilter: DriverStatus | 'All' | 'Suspended',
