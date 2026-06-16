@@ -1014,6 +1014,96 @@ async function repairTerminalFirebaseCleanup(opts) {
   }
 }
 
+/** Scan closedJobStore + Firebase for terminal jobs whose pendingjobs/allbookings still look live. */
+async function scanStaleTerminalFirebase(opts) {
+  opts = opts || {};
+  const cidFilter = String(opts.companyId || '').trim();
+  const sinceHours = parseFloat(opts.sinceHours);
+  const sinceMs = opts.sinceMs != null ? Number(opts.sinceMs)
+    : (Number.isFinite(sinceHours) && sinceHours > 0
+      ? Date.now() - sinceHours * 3600000
+      : Date.now() - 24 * 3600000);
+
+  let token;
+  try { token = await getFirebaseServerToken(); } catch (e) {
+    return { ok: false, error: 'firebase token unavailable' };
+  }
+  if (!token) return { ok: false, error: 'firebase token empty' };
+
+  const candidates = closedJobStore.filter(j => {
+    if (!j || !j.Id) return false;
+    if (!_TERMINAL_JOB_STATUSES.has(String(j.BookingStatus || ''))) return false;
+    const jobCid = String(j.companyId || '');
+    if (cidFilter && jobCid !== cidFilter) return false;
+    const closedAt = Number(j.completedAtMs) ||
+      (j.JobCompleteTime ? Date.parse(j.JobCompleteTime) : 0) ||
+      Number(j.ClosedAt || j.CompletedAt) || 0;
+    return closedAt >= sinceMs;
+  });
+
+  const mismatches = [];
+  for (const job of candidates) {
+    const bid = job.Id;
+    const jobCid = String(job.companyId || '');
+    const key = String(bid);
+    const live = jobStore.find(j => j && j.Id === bid && String(j.companyId || '') === jobCid);
+    if (live && !_TERMINAL_JOB_STATUSES.has(String(live.BookingStatus || ''))) continue;
+
+    let pending = null;
+    let allbookings = null;
+    try {
+      const [pendResp, abResp] = await Promise.all([
+        fetch(`${FB_DB_URL}/pendingjobs/${jobCid}/${key}.json?auth=${encodeURIComponent(token)}`,
+          { headers: { Accept: 'application/json' } }),
+        fetch(`${FB_DB_URL}/allbookings/${jobCid}/${key}.json?auth=${encodeURIComponent(token)}`,
+          { headers: { Accept: 'application/json' } }),
+      ]);
+      if (pendResp.ok) pending = await pendResp.json();
+      if (abResp.ok) allbookings = await abResp.json();
+    } catch (_e) { /* best-effort */ }
+
+    const pendStatus = pending && typeof pending === 'object'
+      ? String(pending.BookingStatus || pending.Status || pending.status || '').trim() : '';
+    const abBookingStatus = allbookings && typeof allbookings === 'object'
+      ? String(allbookings.BookingStatus || '').trim() : '';
+    const abStatus = allbookings && typeof allbookings === 'object'
+      ? String(allbookings.Status || allbookings.status || '').trim() : '';
+    const pendingExists = !!(pending && typeof pending === 'object');
+    const pendingLooksLive = pendingExists && (
+      _LIVE_PENDING_STATUSES.has(pendStatus) ||
+      (pendStatus && !_TERMINAL_JOB_STATUSES.has(pendStatus))
+    );
+    const allbookingsStatusMismatch = abBookingStatus === 'Completed' && abStatus && abStatus !== 'Completed';
+    const pendingVsAllbookingsMismatch = pendingExists && allbookings && abBookingStatus &&
+      pendStatus !== abBookingStatus;
+
+    if (pendingLooksLive || allbookingsStatusMismatch || pendingVsAllbookingsMismatch) {
+      mismatches.push({
+        bookingId: bid,
+        companyId: jobCid,
+        closedStatus: job.BookingStatus,
+        closedAt: job.JobCompleteTime || job.completedAtMs || null,
+        pendingStatus: pendStatus || null,
+        allbookingsBookingStatus: abBookingStatus || null,
+        allbookingsStatus: abStatus || null,
+        pendingVsAllbookingsMismatch: !!pendingVsAllbookingsMismatch,
+        allbookingsStatusMismatch: !!allbookingsStatusMismatch,
+        pendingLooksLive: !!pendingLooksLive,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    companyId: cidFilter || null,
+    sinceMs,
+    sinceIso: new Date(sinceMs).toISOString(),
+    scanned: candidates.length,
+    mismatchCount: mismatches.length,
+    mismatches,
+  };
+}
+
 /** Fire-and-forget terminal fanout + pendingjobs cleanup for legacy completion paths. */
 function _scheduleTerminalFirebaseCleanup(job, cid, vehHint, drvHint, sourceTag) {
   if (!job || !cid || !job.Id) return;
@@ -1073,6 +1163,10 @@ async function _clearOnlineTripFieldsForBooking(cid, vehId, bookingId, logTag) {
 }
 
 const _TERMINAL_JOB_STATUSES = new Set(['Completed', 'Cancelled', 'No Show', 'NoShow', 'Closed']);
+const _LIVE_PENDING_STATUSES = new Set([
+  'Active', 'Assigned', 'Picking', 'Arrived', 'OnTrip', 'Offered',
+  'Pending', 'Waiting', 'Scheduled', 'No One', 'Queued',
+]);
 
 function _jobIsClosedInStore(bookingId) {
   const bid = parseInt(bookingId) || 0;
@@ -7613,6 +7707,67 @@ const server = http.createServer(async (req, res) => {
           source: '/admin/repairTerminalFirebase',
         });
         jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // GET /admin/scanStaleTerminalFirebase?cid=860869&sinceHours=24
+    // Lists terminal closedJobStore rows whose Firebase pendingjobs/allbookings still look live.
+    if (urlPath === '/admin/scanStaleTerminalFirebase' && req.method === 'GET') {
+      try {
+        const _qs = new URL('http://x' + req.url).searchParams;
+        const report = await scanStaleTerminalFirebase({
+          companyId: (_qs.get('cid') || _qs.get('companyId') || '').trim(),
+          sinceHours: parseFloat(_qs.get('sinceHours') || '24'),
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // POST /admin/repairTerminalFirebaseBulk — scan + repair mismatches (dryRun optional)
+    // body: { companyId, sinceHours?, bookingIds?, dryRun? }
+    if (urlPath === '/admin/repairTerminalFirebaseBulk' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const scan = await scanStaleTerminalFirebase({
+          companyId: parsed.companyId,
+          sinceHours: parsed.sinceHours != null ? parseFloat(parsed.sinceHours) : 24,
+        });
+        if (!scan.ok) {
+          jsonReply(res, scan);
+          return;
+        }
+        let targets = scan.mismatches || [];
+        if (Array.isArray(parsed.bookingIds) && parsed.bookingIds.length) {
+          const idSet = new Set(parsed.bookingIds.map(id => parseInt(id) || 0).filter(Boolean));
+          targets = targets.filter(m => idSet.has(m.bookingId));
+        }
+        if (parsed.dryRun) {
+          jsonReply(res, Object.assign({}, scan, { dryRun: true, repairTargets: targets.length, targets }));
+          return;
+        }
+        const repairs = [];
+        for (const t of targets) {
+          repairs.push(await repairTerminalFirebaseCleanup({
+            bookingId: t.bookingId,
+            companyId: t.companyId,
+            source: '/admin/repairTerminalFirebaseBulk',
+          }));
+        }
+        jsonReply(res, {
+          ok: true,
+          scanned: scan.scanned,
+          mismatchCount: scan.mismatchCount,
+          repaired: repairs.filter(r => r.ok).length,
+          failed: repairs.filter(r => !r.ok).length,
+          repairs,
+        });
       } catch (e) {
         jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
       }
@@ -15720,7 +15875,7 @@ setInterval(() => {
   if (changed) saveJobStore();
 }, 90 * 1000);
 
-// ── pendingjobs Firebase normalizer — runs every 30 s ─────────────────────────
+// ── pendingjobs Firebase normalizer — runs every 15 s ─────────────────────────
 // Two responsibilities:
 //
 // Step 3 (stale-pending cleanup) — Delete Firebase pendingjobs records for jobs
@@ -15741,10 +15896,11 @@ setInterval(async () => {
   try { token = await getFirebaseServerToken(); } catch(e) { return; }
   if (!token) return;
 
-  // Collect all distinct companyIds from registrationStore + jobStore
+  // Collect all distinct companyIds from registrationStore + jobStore + closedJobStore
   const _normCids = new Set([
     ...(registrationStore || []).map(r => r.companyId).filter(Boolean),
     ...jobStore.map(j => String(j.companyId || '')).filter(Boolean),
+    ...closedJobStore.map(j => String(j.companyId || '')).filter(Boolean),
   ]);
   if (!_normCids.size) return;
 
@@ -15817,10 +15973,37 @@ setInterval(async () => {
                 console.log(`[pendingjobs-normalizer] Deleted stale pendingjobs/${cid}/${key} (job closed in store, pendingCreated=${_pendCreatedMs} closedAt=${_closedAtMs})`);
                 continue;
               }
+              // Step 3b: closed terminal + pending still looks live (Active-tab ghost).
+              // Does not require parseable timestamps — the status mismatch alone is enough
+              // when jobStore has no live row (same guard as Step 3a).
+              const _isClosedTerminal = _allClosedMatches.some(j =>
+                _TERMINAL_JOB_STATUSES.has(String(j.BookingStatus || ''))
+              );
+              const _pendStatus = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
+              const _pendLooksLive = _pendStatus && (
+                _LIVE_PENDING_STATUSES.has(_pendStatus) ||
+                !_TERMINAL_JOB_STATUSES.has(_pendStatus)
+              );
+              if (_isClosedTerminal && _pendLooksLive) {
+                const _closedJob = _allClosedMatches.reduce((best, j) => {
+                  const t = Number(j.completedAtMs) ||
+                    (j.JobCompleteTime ? Date.parse(j.JobCompleteTime) : 0) || 0;
+                  const bestT = best ? (Number(best.completedAtMs) ||
+                    (best.JobCompleteTime ? Date.parse(best.JobCompleteTime) : 0) || 0) : 0;
+                  return t >= bestT ? j : best;
+                }, null);
+                const _finalSt = String((_closedJob && _closedJob.BookingStatus) || 'Completed');
+                const { drvId, vehId } = _resolveCompletionIdentity(_closedJob || {}, cid);
+                try {
+                  await _bwClearJobFromFirebase(cid, _normIdNum, vehId, drvId, _finalSt);
+                  console.log(`[pendingjobs-normalizer] Step3b healed pendingjobs/${cid}/${key} (closed=${_finalSt}, pending=${_pendStatus}, closedAt=${_closedAtMs}, pendingCreated=${_pendCreatedMs})`);
+                } catch (_healErr) {
+                  console.warn(`[pendingjobs-normalizer] Step3b heal failed pendingjobs/${cid}/${key}: ${_healErr && _healErr.message}`);
+                }
+                continue;
+              }
               // Fresh booking that reused a recycled ID, OR we cannot compare
-              // timestamps. Safer fallback: KEEP it. Losing a real booking
-              // (the symptom we just fixed) is much worse than letting an
-              // edge-case stale record linger one extra cycle.
+              // timestamps and pending does not look live. Safer fallback: KEEP it.
               console.log(`[pendingjobs-normalizer] Kept pendingjobs/${cid}/${key} — pendingCreated=${_pendCreatedMs} vs newest closedAt=${_closedAtMs} (ID reuse or unknown timestamps)`);
             }
           }
@@ -15858,7 +16041,7 @@ setInterval(async () => {
       console.warn(`[pendingjobs-normalizer] Error scanning cid=${cid}: ${e.message}`);
     }
   }
-}, 30 * 1000);
+}, 15 * 1000);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
