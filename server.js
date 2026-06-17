@@ -1911,6 +1911,7 @@ function _parseInsertDriverIdParam(raw) {
 
 // Withdraw a job from a driver — clear Firebase offer/active paths and notify job_removed.
 // Used when dispatcher unassigns (Pending/No One) or reassigns to another driver.
+// opts.strict — await Firebase clears + driver restore; throw on critical failure (unassign path).
 async function _withdrawJobFromDriver(opts) {
   opts = opts || {};
   const cid = String(opts.cid || opts.companyId || '').trim();
@@ -1920,7 +1921,11 @@ async function _withdrawJobFromDriver(opts) {
   const source = opts.source || 'withdrawJobFromDriver';
   const version = opts.version != null ? opts.version : 0;
   const prevStatus = String(opts.prevStatus || '');
-  if (!cid || !bookingId || !drvId) return;
+  const strict = !!opts.strict;
+  if (!cid || !bookingId || !drvId) {
+    if (strict) throw new Error('withdraw missing cid, bookingId, or driverId');
+    return;
+  }
 
   if (!vid || vid === '0' || vid === drvId) {
     const _resolved = _resolveDriverVehicleIds(drvId, vid);
@@ -1930,7 +1935,9 @@ async function _withdrawJobFromDriver(opts) {
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) {
-      console.warn(`  [${source}] _withdrawJobFromDriver: no Firebase token — skipped notify`);
+      const msg = 'no Firebase token';
+      console.warn(`  [${source}] _withdrawJobFromDriver: ${msg} — skipped notify`);
+      if (strict) throw new Error(msg);
       return;
     }
     await firebaseDbSet(`notification/${drvId}`, {
@@ -1945,13 +1952,19 @@ async function _withdrawJobFromDriver(opts) {
     console.log(`  [${source}] _withdrawJobFromDriver notification/${drvId} → job_removed (#${bookingId})`);
   } catch (e) {
     console.warn(`  [${source}] _withdrawJobFromDriver notify failed: ${e && e.message}`);
+    if (strict) throw e;
   }
 
-  clearOfferOnFirebase(cid, vid, drvId, bookingId, source, 'withdraw');
+  const _clearPromise = clearOfferOnFirebase(cid, vid, drvId, bookingId, source, 'withdraw', { awaitCompletion: strict });
+  if (strict && _clearPromise) await _clearPromise;
 
-  const _restoreStates = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy']);
+  const _restoreStates = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy', 'Offered', 'Queued']);
   if (_restoreStates.has(prevStatus)) {
-    _maybeRestoreDriverState(drvId, vid, cid, bookingId, false, source);
+    if (strict) {
+      await _maybeRestoreDriverState(drvId, vid, cid, bookingId, false, source);
+    } else {
+      _maybeRestoreDriverState(drvId, vid, cid, bookingId, false, source);
+    }
   }
 }
 
@@ -4579,6 +4592,49 @@ function _editChangesTouchTiming(changes) {
   ].some(k => Object.prototype.hasOwnProperty.call(changes, k));
 }
 
+function _previewJobAfterDiff(job, diff) {
+  const preview = Object.assign({}, job);
+  if (!diff) return preview;
+  for (const _k of Object.keys(diff)) preview[_k] = diff[_k].to;
+  return preview;
+}
+
+function _isExplicitUnassignPayload(changes, withdrawHint) {
+  if (!changes) return !!withdrawHint;
+  return !!(
+    withdrawHint ||
+    changes._withdrawDriverId ||
+    changes.BookingStatus === 'Pending' ||
+    changes.Status === 'Pending' ||
+    changes.BookingStatus === 'No One' ||
+    changes.Status === 'No One' ||
+    (changes.DriverId != null && (String(changes.DriverId) === '0' || String(changes.DriverId) === '-1'))
+  );
+}
+
+function _shouldWithdrawForUnassignDiff(job, diff, withdrawHint, prevStatus, prevDrv) {
+  if (!prevDrv || !diff || Object.keys(diff).length === 0) return false;
+  const preview = _previewJobAfterDiff(job, diff);
+  const newStatus = preview.BookingStatus || 'Pending';
+  const newDrv = _attachedDriverIdFromJob(preview);
+  const unassignToPool = (newStatus === 'Pending' || newStatus === 'No One' || newStatus === 'Scheduled') && !newDrv;
+  return !!(withdrawHint || (
+    unassignToPool && (_DRIVER_ATTACHED_STATUSES.has(prevStatus) || prevStatus === 'Offered')
+  ));
+}
+
+/** Pool jobs must not retain an attached driver id — catches half-applied unassign. */
+function _assertJobPoolConsistency(job, bookingId, source) {
+  if (!job) return;
+  const st = String(job.BookingStatus || '');
+  const pool = st === 'Pending' || st === 'No One' || st === 'Scheduled';
+  if (!pool) return;
+  const drv = _attachedDriverIdFromJob(job);
+  if (drv) {
+    console.error(`  [${source}] §FIX-UB INVARIANT: job #${bookingId} is ${st} but still has DriverId=${drv}`);
+  }
+}
+
 /** Strip status/driver mutations on live assigned jobs unless timing mode actually changed. */
 function _stripAttachedJobStatusMutations(job, changes, withdrawHint) {
   if (!job || !changes) return;
@@ -4718,8 +4774,42 @@ async function updateBooking(opts) {
   // Diff.
   const _diff = _diffJobChanges(job, changes);
   if (Object.keys(_diff).length === 0) {
+    if (_isExplicitUnassignPayload(changes, _withdrawHint)) {
+      console.warn(`  [${source}] §FIX-UB rejected explicit unassign: job #${bookingId} no effective changes (still ${_prevStatus}, driver=${_prevDrv || 'none'})`);
+      return {
+        ok: false,
+        error_code: 'unassign_rejected',
+        error: 'Unassign was not applied — job remains assigned on server',
+        seq: _curSeq,
+      };
+    }
     console.log(`  [${source}] §FIX-UB idempotent: job #${bookingId} no field changes (seq=${_curSeq})`);
     return { ok: true, idempotent: true, eventTypes: [], diff: {}, seq: _curSeq, driverNotified: false };
+  }
+
+  const _cid = String(job.companyId || '');
+  const _newSeq = _curSeq + 1;
+  const _needsStrictWithdraw = _shouldWithdrawForUnassignDiff(job, _diff, _withdrawHint, _prevStatus, _prevDrv);
+
+  // Unassign: withdraw driver from Firebase BEFORE mutating jobStore so a failed
+  // withdraw leaves the job in its original Assigned/Offered state (no orphan).
+  if (_needsStrictWithdraw) {
+    if (typeof markDispatcherRecalled === 'function') markDispatcherRecalled(bookingId);
+    try {
+      await _withdrawJobFromDriver({
+        cid: _cid, bookingId, driverId: _prevDrv,
+        vehicleId: _prevVid || _prevDrv, prevStatus: _prevStatus,
+        version: _newSeq, source: `${source}/unassign`, strict: true,
+      });
+    } catch (e) {
+      console.error(`  [${source}] §FIX-UB unassign ABORTED: withdraw failed for job #${bookingId}: ${e && e.message}`);
+      return {
+        ok: false,
+        error_code: 'withdraw_failed',
+        error: `Could not withdraw job from driver — no changes saved (${e && e.message || 'unknown'})`,
+        seq: _curSeq,
+      };
+    }
   }
 
   // Apply diff to the in-memory job.
@@ -4733,36 +4823,34 @@ async function updateBooking(opts) {
   }
   _appendJobEditHistory(job, _diff, by, { dispatcherName: _dispatcherName });
 
-  const _newSeq = _curSeq + 1;
   job.updateSeq      = _newSeq;
   job.lastUpdatedAt  = new Date().toISOString();
   job.lastUpdatedBy  = by;
   saveJobStore();
 
   const _eventTypes = _classifyDiff(_diff);
-  const _cid = String(job.companyId || '');
   const _fbIds = _driverFirebaseIdsFromJob(job);
   let _drv = _fbIds.driverId;
   const _vid = _fbIds.vehicleId;
   const _visible = _UB_DRIVER_VISIBLE.has(job.BookingStatus || '');
 
-  // Dispatcher unassign — job returned to Pending/No One; notify the previous driver.
   const _newStatus = job.BookingStatus || 'Pending';
   const _unassignToPool = (_newStatus === 'Pending' || _newStatus === 'No One' || _newStatus === 'Scheduled') && !_drv;
   const _notifyDrvOnEdit = _drv || (_visible ? _prevDrv : '');
-  const _shouldWithdrawDriver = _prevDrv && (_withdrawHint || (
-    _unassignToPool && (_DRIVER_ATTACHED_STATUSES.has(_prevStatus) || _prevStatus === 'Offered')
-  ));
-  if (_shouldWithdrawDriver) {
+  _assertJobPoolConsistency(job, bookingId, source);
+
+  // Non-unassign reassign: withdraw previous driver after new assignee is saved.
+  const _shouldWithdrawAfterReassign = _prevDrv && _withdrawHint && !_needsStrictWithdraw;
+  if (_shouldWithdrawAfterReassign) {
     if (typeof markDispatcherRecalled === 'function') markDispatcherRecalled(bookingId);
     try {
       await _withdrawJobFromDriver({
         cid: _cid, bookingId, driverId: _prevDrv,
         vehicleId: _prevVid || _prevDrv, prevStatus: _prevStatus,
-        version: _newSeq, source: `${source}/unassign`,
+        version: _newSeq, source: `${source}/reassign`,
       });
     } catch (e) {
-      console.warn(`  [${source}] _withdrawJobFromDriver (unassign) failed: ${e && e.message}`);
+      console.warn(`  [${source}] _withdrawJobFromDriver (reassign) failed: ${e && e.message}`);
     }
   }
 
@@ -9665,6 +9753,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     let _status = 200;
     if (_ubResult.stale)  _status = 409;
     else if (_ubResult.closed) _status = 410;
+    else if (!_ubResult.ok && (_ubResult.error_code === 'withdraw_failed' || _ubResult.error_code === 'unassign_rejected')) _status = 409;
     else if (!_ubResult.ok)    _status = 404;
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_ubResult));
@@ -16126,19 +16215,20 @@ setInterval(() => {
 //   - DELETE jobs/{cid}/{vid}/{driverId}      (offer envelope)
 //   - DELETE joback/{bookingId}                (legacy ack path)
 //   - DELETE notification/{driverId}           (push payload)
-// All writes are fire-and-forget; failures log but never throw.
-function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason) {
+// All writes are fire-and-forget by default; pass { awaitCompletion: true } to await (unassign path).
+function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason, opts) {
+  opts = opts || {};
   const _reason = reason === 'withdraw' ? 'withdraw' : 'stale';
   const _jobsEventType = _reason === 'withdraw' ? 'removed' : 'cancelled';
   if (!process.env.BW_FIREBASE_SECRET) {
     console.log(`[§FIX-OfferClear/${sourceTag}] BW_FIREBASE_SECRET not set — skipping driver-app clear`);
-    return;
+    return opts.awaitCompletion ? Promise.resolve() : undefined;
   }
   if (!cid || !vid || (!did && did !== 0)) {
     console.log(`[§FIX-OfferClear/${sourceTag}] missing cid=${cid} vid=${vid} did=${did} — skipping`);
-    return;
+    return opts.awaitCompletion ? Promise.resolve() : undefined;
   }
-  (async () => {
+  const runner = async () => {
     try {
       const tok = await getFirebaseServerToken();
       if (!tok) {
@@ -16170,7 +16260,13 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason) {
         }
         const _delResp = await fbRequest(_ocUrl, 'DELETE', null);
         console.log(`[§FIX-OfferClear/${sourceTag}] jobs/${cid}/${vid}/${did}/${bookingIdStr} → eventType=${_jobsEventType} then deleted [${_delResp && _delResp.status}]`);
-      } catch (e2) { console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child DELETE failed:`, e2 && e2.message); }
+        if (opts.awaitCompletion && _delResp && _delResp.status >= 400) {
+          throw new Error(`jobs child DELETE HTTP ${_delResp.status}`);
+        }
+      } catch (e2) {
+        console.warn(`[§FIX-OfferClear/${sourceTag}] jobs/ child DELETE failed:`, e2 && e2.message);
+        if (opts.awaitCompletion) throw e2;
+      }
       // 2. online/{cid}/{vid}/current — only clear if it still references THIS booking.
       try {
         const resp = await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}/current.json?auth=${auth}`, 'GET', null);
@@ -16219,8 +16315,11 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason) {
       }
     } catch (eOuter) {
       console.warn(`[§FIX-OfferClear/${sourceTag}] outer failure:`, eOuter && eOuter.message);
+      if (opts.awaitCompletion) throw eOuter;
     }
-  })();
+  };
+  if (opts.awaitCompletion) return runner();
+  runner();
 }
 
 // Independent stale-offer watchdog — runs every 90 s regardless of whether

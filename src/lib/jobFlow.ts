@@ -19,6 +19,18 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function isExplicitUnassignChanges(changes: Record<string, unknown>): boolean {
+  return !!(
+    changes._withdrawDriverId ||
+    changes.BookingStatus === 'No One' ||
+    changes.Status === 'No One' ||
+    changes.BookingStatus === 'Pending' ||
+    changes.Status === 'Pending' ||
+    (changes.DriverId != null &&
+      (Number(changes.DriverId) === -1 || Number(changes.DriverId) === 0))
+  );
+}
+
 export async function sessionLogin(companyId: string, uid: string) {
   return jsonFetch<{ ok: boolean; companyId: string; company: string; ownerName?: string }>(
     `${API}/session/login`,
@@ -288,6 +300,14 @@ async function persistJobUpdate(
       title: 'Job update failed',
       message,
     });
+    throw new Error(message);
+  }
+
+  if (result.idempotent && isExplicitUnassignChanges(changes)) {
+    const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+    if (fresh) useJobStore.getState().upsertJob(fresh);
+    const message = 'Unassign was not applied on the server — job may still be assigned';
+    useUiStore.getState().addToast({ type: 'error', title: 'Unassign failed', message });
     throw new Error(message);
   }
 
