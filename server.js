@@ -9701,12 +9701,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
       return;
     }
-    const _g6Active = new Set(['Offered', 'Assigned', 'Picking', 'OnTrip', 'Active', 'Queued']);
+    const _g6Active = new Set(['Offered', 'Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Queued']);
     const _g6StatusMap = (s) => {
       const _bs = String(s || '');
       if (_bs === 'Offered')  return 'offered';
       if (_bs === 'Queued')   return 'queued';
-      if (_bs === 'Assigned' || _bs === 'Picking' || _bs === 'OnTrip' || _bs === 'Active') return 'current';
+      if (_bs === 'Assigned' || _bs === 'Picking' || _bs === 'Arrived' || _bs === 'OnTrip' || _bs === 'Active') return 'current';
       return _bs.toLowerCase();
     };
     const _g6Rows = jobStore.filter(j => j &&
@@ -9717,6 +9717,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     ).map(j => ({
       bookingId:       j.Id,
       status:          _g6StatusMap(j.BookingStatus),
+      bookingStatus:   j.BookingStatus || '',
       version:         parseInt(j.updateSeq) || 0,
       updatedAt:       j.lastUpdatedAt || j.JobCreatedTime || null,
       jobBookingSrc:   j.jobBookingSrc || j.BookingSource || j.bookingSource || j.source || 'dispatch',
