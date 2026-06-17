@@ -425,7 +425,10 @@ export async function cancelJob(
   dispatcherName = 'Dispatcher'
 ) {
   const cancelledAt = new Date().toISOString();
-  const cancelReason = 'Cancelled by dispatcher';
+  const cancelSource = 'Dispatcher';
+  const cancelReason = dispatcherName && dispatcherName !== 'Dispatcher'
+    ? `Cancelled by ${dispatcherName}`
+    : 'Cancelled by Dispatcher';
 
   const jobsBefore = useJobStore.getState().jobs.length;
   console.log('Cancelling job:', bookingId);
@@ -446,6 +449,7 @@ export async function cancelJob(
       cancelledAt,
       reason: cancelReason,
       dispatcherName,
+      terminalKind: 'Cancelled',
     }),
   });
 
@@ -458,10 +462,12 @@ export async function cancelJob(
       Status: 'Cancelled',
       cancelledBy: dispatcherName,
       CancelledBy: dispatcherName,
+      CancelSource: cancelSource,
       cancelledAt,
       CancelledAt: cancelledAt,
       cancelReason,
       CancelReason: cancelReason,
+      TerminalKind: 'Cancelled',
     });
   } catch {
     /* server may have already updated Firebase */

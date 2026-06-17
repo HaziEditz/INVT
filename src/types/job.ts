@@ -99,6 +99,8 @@ export interface Job {
   cancelledBy?: string;
   cancelledAt?: string;
   cancelReason?: string;
+  cancelSource?: string;
+  terminalKind?: string;
   dispatcherName?: string;
   returnReason?: string;
   lastOfferDriverId?: string;
@@ -264,6 +266,8 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ''),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ''),
     cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? ''),
+    cancelSource: String(rec.CancelSource ?? rec.cancelSource ?? ''),
+    terminalKind: String(rec.TerminalKind ?? rec.terminalKind ?? ''),
   };
 }
 

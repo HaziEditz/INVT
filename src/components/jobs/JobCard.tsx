@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
-import { ArrowRight, Car, CheckCircle, Edit, Luggage, MapPin, AlertTriangle, StickyNote, Users, X } from 'lucide-react';
+import { ArrowRight, Ban, Car, CheckCircle, Edit, Luggage, MapPin, AlertTriangle, StickyNote, Users, X } from 'lucide-react';
 import type { Job, JobTab, JobTimerBadge } from '@/types/job';
 import {
   formatJobDateTimeCompact,
@@ -531,6 +531,18 @@ export function JobCard({ job, tab }: JobCardProps) {
                   <Edit size={11} />
                 </button>
               </Tooltip>
+              <Tooltip label="Cancel job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  }}
+                >
+                  <Ban size={11} />
+                </button>
+              </Tooltip>
             </>
           )}
 
@@ -546,6 +558,18 @@ export function JobCard({ job, tab }: JobCardProps) {
                   }}
                 >
                   <X size={11} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Cancel job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  }}
+                >
+                  <Ban size={11} />
                 </button>
               </Tooltip>
               <Tooltip label="Edit job">
@@ -587,6 +611,35 @@ export function JobCard({ job, tab }: JobCardProps) {
                   }}
                 >
                   <X size={11} />
+                </button>
+              </Tooltip>
+            </>
+          )}
+
+          {tab === 'queue' && (
+            <>
+              <Tooltip label="Edit job">
+                <button
+                  type="button"
+                  className={iconBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openModalWith('createJob', { jobId: job.id });
+                  }}
+                >
+                  <Edit size={11} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Cancel job">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-red-400')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  }}
+                >
+                  <Ban size={11} />
                 </button>
               </Tooltip>
             </>

@@ -600,8 +600,8 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
           const job = jobFromFirebase(key, rec, companyId);
           if (!job) continue;
           const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
-          if (st === 'Cancelled') {
-            job.status = 'Cancelled';
+          if (st === 'Cancelled' || st === 'No Show') {
+            job.status = st;
             const at = job.cancelledAt || job.completedAt;
             job.completedAt = at ? Date.parse(String(at)) || job.completedAt : job.completedAt;
           } else {
@@ -623,10 +623,10 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
         if (val && typeof val === 'object') {
           for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
             const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? ''));
-            if (st !== 'Cancelled') continue;
+            if (st !== 'Cancelled' && st !== 'No Show') continue;
             const job = jobFromFirebase(key, rec, companyId);
             if (!job) continue;
-            job.status = 'Cancelled';
+            job.status = st;
             const at = job.cancelledAt || String(rec.cancelledAt ?? '');
             job.completedAt = at ? Date.parse(at) || undefined : undefined;
             list.push(job);

@@ -22,6 +22,15 @@ function formatCancelledAt(raw?: string): string {
   }
 }
 
+function formatClosedBy(job: { status?: string; cancelledBy?: string; cancelSource?: string; terminalKind?: string }): string {
+  const st = normalizeJobStatus(job.status || '');
+  if (st !== 'Cancelled' && st !== 'No Show') return '—';
+  if (st === 'No Show') return 'Driver (No Show)';
+  const src = job.cancelSource?.trim();
+  if (src) return `Cancelled by ${src}`;
+  return job.cancelledBy?.trim() || '—';
+}
+
 export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
   const open = useUiStore((s) => s.openModal === 'closedJobs');
   const closeModal = useUiStore((s) => s.closeModal);
@@ -81,12 +90,16 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
           </thead>
           <tbody>
             {filtered.map((j) => {
-              const isCancelled = normalizeJobStatus(j.status) === 'Cancelled';
+              const st = normalizeJobStatus(j.status);
+              const isCancelled = st === 'Cancelled';
+              const isNoShow = st === 'No Show';
               return (
                 <tr key={j.id} className="border-t border-bw-border hover:bg-bw-surface">
                   <td className="p-2 font-mono">#{j.id}</td>
                   <td className="p-2">
-                    {isCancelled ? (
+                    {isNoShow ? (
+                      <Badge color="#f97316">NO SHOW</Badge>
+                    ) : isCancelled ? (
                       <Badge color="#ef4444">CANCELLED</Badge>
                     ) : (
                       <Badge color="#22c55e">COMPLETED</Badge>
@@ -96,8 +109,8 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
                   <td className="p-2 truncate max-w-[200px]">{j.pickAddress}</td>
                   <td className="p-2">${j.totalFare || j.estimatedFare || '0'}</td>
                   <td className="p-2">{j.paymentType}</td>
-                  <td className="p-2">{isCancelled ? j.cancelledBy || '—' : '—'}</td>
-                  <td className="p-2">{isCancelled ? formatCancelledAt(j.cancelledAt) : '—'}</td>
+                  <td className="p-2">{isCancelled || isNoShow ? formatClosedBy(j) : '—'}</td>
+                  <td className="p-2">{isCancelled || isNoShow ? formatCancelledAt(j.cancelledAt) : '—'}</td>
                   <td className="p-2">
                     <Button variant="ghost" onClick={() => { closeModal(); openModalWith('jobDetail', { jobId: j.id }); }}>View</Button>
                   </td>

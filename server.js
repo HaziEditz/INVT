@@ -952,13 +952,109 @@ function syncZonequeueToFirebase(companyId, vehicleId, queueNo, zonename, source
 // Business Account) and ALL payment types (Cash, Card, Account, TM, Stripe).
 
 function _terminalFirebaseStatusFields(finalStatus) {
-  const s = finalStatus === 'Cancelled' ? 'Cancelled' : 'Completed';
+  const s =
+    finalStatus === 'No Show' ? 'No Show'
+    : finalStatus === 'Cancelled' ? 'Cancelled'
+    : 'Completed';
   return {
     BookingStatus: s,
     Status:        s,
     status:        s,
     jobstatus:     s,
-    eventType:     s === 'Cancelled' ? 'cancelled' : 'completed',
+    eventType:     s === 'Completed' ? 'completed' : 'cancelled',
+  };
+}
+
+const _DRIVER_RECALL_STATUSES = new Set(['Offered', 'Assigned', 'Picking', 'Queued']);
+const _DRIVER_NO_SHOW_STATUSES = new Set(['Arrived']);
+const _DRIVER_POST_ARRIVED_TERMINAL = new Set(['Arrived', 'Active', 'OnTrip', 'Busy']);
+
+function _cancelSourceFromBy(cancelledBy) {
+  const who = String(cancelledBy || 'dispatcher').toLowerCase();
+  if (who === 'dispatcher') return 'Dispatcher';
+  if (who === 'passenger') return 'Passenger App';
+  if (who === 'website') return 'Website';
+  if (who === 'driver') return 'Driver';
+  return who.charAt(0).toUpperCase() + who.slice(1);
+}
+
+function _cancelledByDisplay(cancelledBy, opts) {
+  opts = opts || {};
+  const who = String(cancelledBy || 'dispatcher').toLowerCase();
+  if (who === 'dispatcher') {
+    const name = String(opts.dispatcherName || '').trim();
+    return name ? `Dispatcher (${name})` : 'Dispatcher';
+  }
+  if (who === 'passenger') return 'Passenger App';
+  if (who === 'website') return 'Website';
+  if (who === 'driver') return 'Driver';
+  return who.charAt(0).toUpperCase() + who.slice(1);
+}
+
+function _resolveApiCancelRouting(body, job) {
+  const by = String(body.cancelledBy || body.by || 'dispatcher').toLowerCase().trim();
+  const terminalKindRaw = String(body.terminalKind || '').trim();
+  const noShow = body.noShow === true || terminalKindRaw === 'No Show';
+  const forceTerminal = body.forceTerminal === true || terminalKindRaw === 'Cancelled';
+  let reason = String(body.reason || '').trim();
+  const stage = job ? String(job.BookingStatus || job.Status || '') : '';
+
+  if (by !== 'driver') {
+    const tk = noShow ? 'No Show' : 'Cancelled';
+    if (!reason) {
+      reason = by === 'dispatcher'
+        ? (body.dispatcherName ? `Cancelled by ${body.dispatcherName}` : 'Cancelled by dispatcher')
+        : `Cancelled by ${by}`;
+    }
+    return { ok: true, recallToPending: false, terminalKind: tk, reason, driverFault: false };
+  }
+
+  if (noShow || /no\s*show/i.test(reason)) {
+    if (!_DRIVER_NO_SHOW_STATUSES.has(stage)) {
+      return { ok: false, error_code: 'forbidden', error: 'No Show is only allowed after marking Arrived at pickup' };
+    }
+    return { ok: true, recallToPending: false, terminalKind: 'No Show', reason: 'No Show', driverFault: true };
+  }
+
+  if (forceTerminal) {
+    if (!_DRIVER_POST_ARRIVED_TERMINAL.has(stage)) {
+      return { ok: false, error_code: 'forbidden', error: 'Driver terminal cancel is only allowed after arriving at pickup' };
+    }
+    return {
+      ok: true,
+      recallToPending: false,
+      terminalKind: 'Cancelled',
+      reason: reason || 'Cancelled by driver',
+      driverFault: true,
+    };
+  }
+
+  if (_DRIVER_RECALL_STATUSES.has(stage)) {
+    return {
+      ok: true,
+      recallToPending: true,
+      terminalKind: null,
+      reason: reason || 'Recalled by driver',
+      driverFault: false,
+    };
+  }
+
+  if (_DRIVER_POST_ARRIVED_TERMINAL.has(stage)) {
+    return {
+      ok: true,
+      recallToPending: false,
+      terminalKind: 'Cancelled',
+      reason: reason || 'Cancelled by driver',
+      driverFault: true,
+    };
+  }
+
+  return {
+    ok: true,
+    recallToPending: false,
+    terminalKind: 'Cancelled',
+    reason: reason || 'Cancelled by driver',
+    driverFault: true,
   };
 }
 
@@ -1195,7 +1291,7 @@ function _purgeLiveJobFromStore(bookingId) {
   return true;
 }
 
-async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus) {
+async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus, metaFields) {
   try {
     if (!cid || !bookingId) return;
     const _cid     = String(cid);
@@ -1229,23 +1325,25 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
         }
       } catch(eFb) { /* best-effort lookup */ }
     }
-    const _final   = (finalStatus === 'Cancelled') ? 'Cancelled' : 'Completed';
+    const _final   = (finalStatus === 'No Show') ? 'No Show'
+                   : (finalStatus === 'Cancelled') ? 'Cancelled' : 'Completed';
     const _tag     = `[FBcleanup #${_bId}]`;
     const _termFields = _terminalFirebaseStatusFields(_final);
     const tok = await getFirebaseServerToken();
     if (!tok) { console.warn(`${_tag} no firebase token — skipped`); return; }
     const auth = encodeURIComponent(tok);
     const nowIso = new Date().toISOString();
-    const stamp  = (_final === 'Cancelled')
-      ? { cancelledAt: nowIso }
-      : { completedAt: nowIso };
+    const stamp  = (_final === 'Completed')
+      ? { completedAt: nowIso }
+      : { cancelledAt: nowIso };
+    const _meta  = metaFields && typeof metaFields === 'object' ? metaFields : {};
 
     const tasks = [];
 
     // 0. /allbookings/{cid}/{bookingId} — stamp ALL legacy status fields to terminal.
     tasks.push(
       fbRequest(`${FB_DB_URL}/allbookings/${_cid}/${_bId}.json?auth=${auth}`,
-        'PATCH', Object.assign({}, _termFields, stamp))
+        'PATCH', Object.assign({}, _termFields, stamp, _meta))
         .then(r => console.log(`${_tag} allbookings/${_cid}/${_bId} → ${_final} [${r.status}]`))
         .catch(e => console.warn(`${_tag} allbookings PATCH failed: ${e && e.message}`))
     );
@@ -1301,7 +1399,7 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
     //    bookings on this driver are untouched.
     if (_vId && _dId) {
       const _url    = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}/${_bId}.json?auth=${auth}`;
-      const _evType = (_final === 'Cancelled') ? 'cancelled' : 'completed';
+      const _evType = (_final === 'Completed') ? 'completed' : 'cancelled';
       tasks.push(
         fbRequest(_url, 'PATCH', { eventType: _evType })
           .catch(e => console.warn(`${_tag} jobs child eventType PATCH failed: ${e && e.message}`))
@@ -1328,7 +1426,7 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
           const refId = String(n.BookingId || n.bookingId || n.jobId || n._jobId || n.Id || '');
           if (refId && refId === _bId) {
             const _nType = String(n.type || n.eventType || n.content || '').toLowerCase();
-            if (_final === 'Cancelled' && (_nType.includes('cancel') || _nType === 'job_cancelled')) {
+            if (_final !== 'Completed' && (_nType.includes('cancel') || _nType === 'job_cancelled')) {
               console.log(`${_tag} notification/${_dId} kept (cancel payload for #${_bId})`);
             } else {
               const d = await fbRequest(`${FB_DB_URL}/notification/${_dId}.json?auth=${auth}`, 'DELETE', null);
@@ -1371,17 +1469,18 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
   }
 }
 
-// ─── §FIX-TXL — Unified terminal job cleanup (Phase 1: complete + hard cancel) ─
-// Centralises the Firebase + dispatch-console steps shared by terminal transitions.
-// Callers must mutate jobStore/closedJobStore before invoking. Phase 2+ will add
-// pool_restore / detach_driver profiles; for now only profile='terminal' exists.
+// ─── §FIX-TXL — Unified job cleanup (terminal + pool_restore recall) ───────────
+// Centralises Firebase + dispatch-console steps for terminal transitions and
+// driver recall (pool restore). Callers must mutate jobStore/closedJobStore first.
 // ──────────────────────────────────────────────────────────────────────────────
 async function executeJobCleanup(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
   const companyId = String(opts.companyId || '').trim();
   const source = String(opts.source || 'executeJobCleanup');
-  const terminalKind = opts.terminalKind === 'Cancelled' ? 'Cancelled' : 'Completed';
+  const profile = String(opts.profile || 'terminal');
+  const terminalKind = opts.terminalKind === 'No Show' ? 'No Show'
+    : opts.terminalKind === 'Cancelled' ? 'Cancelled' : 'Completed';
 
   if (!bookingId || !companyId) {
     return { ok: false, driverFreed: false, driverState: 'unchanged', queueNo: null };
@@ -1396,6 +1495,43 @@ async function executeJobCleanup(opts) {
   }
 
   const _result = { ok: true, driverFreed: false, driverState: 'unchanged', queueNo: null };
+
+  if (profile === 'pool_restore') {
+    try {
+      if (opts.clearOffer !== false && driverId) {
+        clearOfferOnFirebase(companyId, vehicleId, driverId, bookingId, source, 'recall');
+      }
+      if (opts.removeDriverQueue && driverId) {
+        await _removeDriverQueueFirebase(companyId, driverId, bookingId);
+      }
+      if (opts.writePendingJob && opts.job) {
+        await _writePendingJobFirebase(companyId, bookingId, opts.job, opts.poolStatus || 'Pending');
+      }
+      if (opts.consoleRefresh) {
+        await _signalDispatchConsoleRefresh(companyId, opts.consoleRefresh);
+      }
+    } catch (_e) {
+      console.warn(`  [${source}] pool_restore cleanup failed: ${_e && _e.message}`);
+    }
+    const _rsPool = opts.restoreDriverState;
+    if (_rsPool && _rsPool.driverId) {
+      const _ds = await _maybeRestoreDriverState(
+        _rsPool.driverId,
+        _rsPool.vehicleId || vehicleId,
+        companyId,
+        bookingId,
+        !!_rsPool.driverFault,
+        _rsPool.source || source,
+      );
+      _result.driverFreed = _ds.driverFreed;
+      _result.driverState = _ds.driverState;
+      _result.queueNo = _ds.queueNo;
+    }
+    if (opts.dispatchRefresh && opts.dispatchRefresh.job) {
+      await _dispatchRefreshForJob(opts.dispatchRefresh.job, opts.dispatchRefresh.payload);
+    }
+    return _result;
+  }
 
   // Version fanout — awaited (complete) or fire-and-forget (unused in Phase 1 cancel;
   // hard cancel keeps _fanVersionToFirebase in cancelBooking for ordering).
@@ -1429,7 +1565,9 @@ async function executeJobCleanup(opts) {
     if (opts.markRecentlyCancelled) {
       _markRecentlyCancelled(bookingId);
     }
-    await _bwClearJobFromFirebase(companyId, bookingId, vehicleId, driverId, terminalKind);
+    const _meta = opts.allbookingsMeta && typeof opts.allbookingsMeta === 'object'
+      ? opts.allbookingsMeta : null;
+    await _bwClearJobFromFirebase(companyId, bookingId, vehicleId, driverId, terminalKind, _meta);
     if (opts.consoleRefresh) {
       await _signalDispatchConsoleRefresh(companyId, opts.consoleRefresh);
     }
@@ -1899,18 +2037,24 @@ async function cancelBooking(opts) {
   const recallToPending = !!opts.recallToPending;
   const companyId       = opts.companyId ? String(opts.companyId) : '';
   const source          = opts.source || 'cancelBooking';
+  const terminalKindOpt = opts.terminalKind ? String(opts.terminalKind) : '';
+  const cancelSource    = opts.cancelSource || _cancelSourceFromBy(cancelledBy);
+  const cancelledByDisplay = opts.cancelledByDisplay
+    || _cancelledByDisplay(cancelledBy, { dispatcherName: opts.dispatcherName });
 
   if (!bookingId) {
     console.warn(`  [${source}] §FIX-CB rejected — no bookingId`);
     return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
   }
 
-  // Idempotency — already in closedJobStore as Cancelled?
-  const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Cancelled');
+  // Idempotency — already in closedJobStore as Cancelled or No Show?
+  const _closed = closedJobStore.find(j => j && j.Id === bookingId &&
+    (j.BookingStatus === 'Cancelled' || j.BookingStatus === 'No Show'));
   if (_closed) {
-    console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already Cancelled (by ${_closed.CancelledBy || '?'}) — no-op`);
+    console.log(`  [${source}] §FIX-CB idempotent: job #${bookingId} already ${_closed.BookingStatus} (by ${_closed.CancelledBy || '?'}) — no-op`);
     return { ok: true, idempotent: true, cancelStage: _closed.CancelStage || 'unknown',
-             cancelledBy: _closed.CancelledBy || '', driverFreed: false, driverState: 'unchanged',
+             cancelledBy: _closed.CancelledBy || '', terminalKind: _closed.BookingStatus,
+             driverFreed: false, driverState: 'unchanged',
              version: parseInt(_closed.updateSeq) || 0, booking: _publicBooking(_closed) };
   }
 
@@ -1943,13 +2087,13 @@ async function cancelBooking(opts) {
   const _vehId  = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
   const _hasDriver = _drvId !== '';
   const _cancelStage = job.BookingStatus || 'unknown';
-  const _cancelledByPretty = cancelledBy.charAt(0).toUpperCase() + cancelledBy.slice(1);
   const _nowIso = new Date().toISOString();
   const _cancelKey = String(bookingId);
   _CANCEL_IN_FLIGHT.add(_cancelKey);
 
   // Cancellation snapshot fields (for the payout pipeline downstream).
-  job.CancelledBy        = _cancelledByPretty;
+  job.CancelledBy        = cancelledByDisplay;
+  job.CancelSource       = cancelSource;
   job.CancelStage        = _cancelStage;
   job.CancelReason       = reason;
   job.CancelledAt        = _nowIso;
@@ -1973,9 +2117,11 @@ async function cancelBooking(opts) {
         from: recallToPending ? _cancelStage : _cancelStage,
         to: recallToPending ? 'Pending' : 'Cancelled',
         action: recallToPending ? 'recall' : 'cancel',
-        CancelledBy: _cancelledByPretty,
+        CancelledBy: cancelledByDisplay,
+        CancelSource: cancelSource,
         CancelReason: reason,
-        CancelStage: _cancelStage
+        CancelStage: _cancelStage,
+        TerminalKind: recallToPending ? null : (terminalKindOpt || null)
       },
       cancelledBy, job.updateSeq).catch(() => {});
   }
@@ -1987,18 +2133,34 @@ async function cancelBooking(opts) {
     job.returnReason = 'Recalled by Driver';
     delete job.JobCompleteTime;
     saveJobStore();
-    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${_restoredPool}+releasedAt (recall by ${_cancelledByPretty}, prevDriver=${_drvId || 'none'})`);
+    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${_restoredPool}+releasedAt (recall by ${cancelledByDisplay}, prevDriver=${_drvId || 'none'})`);
   } else {
     // Hard cancel — close the job.
-    const _isNoShow = /no\s*show/i.test(reason);
-    job.BookingStatus   = _isNoShow ? 'No Show' : 'Cancelled';
+    const _tk = terminalKindOpt || (/no\s*show/i.test(reason) ? 'No Show' : 'Cancelled');
+    job.BookingStatus   = _tk;
+    job.TerminalKind    = _tk;
     job.JobCompleteTime = _nowIso;
     closedJobStore.push(job);
     jobStore.splice(idx, 1);
     saveJobStore();
     saveClosedJobStore();
-    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${job.BookingStatus} by ${_cancelledByPretty} (driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
+    console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${job.BookingStatus} by ${cancelledByDisplay} (source=${cancelSource}, driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
   }
+
+  const _terminalMeta = recallToPending ? null : {
+    CancelledBy: job.CancelledBy,
+    CancelSource: job.CancelSource,
+    CancelReason: job.CancelReason,
+    CancelStage: job.CancelStage,
+    CancelledAt: job.CancelledAt,
+    TerminalKind: job.TerminalKind || job.BookingStatus,
+    cancelledBy: job.CancelledBy,
+    cancelSource: job.CancelSource,
+    cancelReason: job.CancelReason,
+    cancelStage: job.CancelStage,
+    cancelledAt: job.CancelledAt,
+    terminalKind: job.TerminalKind || job.BookingStatus,
+  };
 
   // §FIX-CMD/ver-fanout — mirror version into Firebase paths the driver app
   // reads. For recall, the booking stays alive (Pending) — patch both paths.
@@ -2017,23 +2179,46 @@ async function cancelBooking(opts) {
     const _rDrv = _resolvedCancel.driverId;
     const _rVid = _resolvedCancel.vehicleId;
     try {
-      if (_hasDriver && _cancelStage === 'Queued') {
-        await _removeDriverQueueFirebase(_cid, _rDrv, bookingId);
-      }
-      if (_hasDriver && cancelledBy !== 'driver') {
-        await _writeCancelNotify(_cid, _rVid, _rDrv, bookingId, _cancelledByPretty,
-          { recalled: !!recallToPending, version: job.updateSeq });
-      }
-      if (!recallToPending) {
+      if (recallToPending) {
+        const _cleanup = await executeJobCleanup({
+          profile: 'pool_restore',
+          bookingId,
+          companyId: _cid,
+          source,
+          driverId: _rDrv,
+          vehicleId: _rVid,
+          job,
+          poolStatus: job.BookingStatus,
+          writePendingJob: true,
+          removeDriverQueue: _cancelStage === 'Queued',
+          consoleRefresh: {
+            bookingId, action: 'recall', status: job.BookingStatus, driverId: _rDrv || _drvId,
+          },
+          restoreDriverState: _hasDriver ? {
+            driverId: _rDrv,
+            vehicleId: _rVid,
+            driverFault,
+            source,
+          } : null,
+        });
+        driverFreed = _cleanup.driverFreed;
+        driverState = _cleanup.driverState;
+        queueNo = _cleanup.queueNo;
+      } else {
+        if (_hasDriver && cancelledBy !== 'driver') {
+          await _writeCancelNotify(_cid, _rVid, _rDrv, bookingId, cancelledByDisplay,
+            { recalled: false, version: job.updateSeq });
+        }
         await executeJobCleanup({
           profile: 'terminal',
           bookingId,
           companyId: _cid,
           source,
-          terminalKind: 'Cancelled',
+          terminalKind: job.BookingStatus === 'No Show' ? 'No Show' : 'Cancelled',
           driverId: _rDrv,
           vehicleId: _rVid,
           markRecentlyCancelled: true,
+          allbookingsMeta: _terminalMeta,
           consoleRefresh: {
             bookingId,
             action: 'cancel',
@@ -2041,25 +2226,23 @@ async function cancelBooking(opts) {
             driverId: _rDrv || _drvId,
           },
         });
-      } else if (_cid) {
-        await _signalDispatchConsoleRefresh(_cid, {
-          bookingId, action: 'recall', status: job.BookingStatus, driverId: _rDrv || _drvId,
-        });
+        if (_hasDriver) {
+          const _ds = await _maybeRestoreDriverState(_rDrv, _rVid, _cid, bookingId, driverFault, source);
+          driverFreed = _ds.driverFreed;
+          driverState = _ds.driverState;
+          queueNo = _ds.queueNo;
+        }
       }
     } catch (e) {
       console.warn(`  [${source}] cancel firebase fanout failed: ${e && e.message}`);
-    }
-    if (_hasDriver) {
-      const _ds = _maybeRestoreDriverState(_rDrv, _rVid, _cid, bookingId, driverFault, source);
-      driverFreed = _ds.driverFreed;
-      driverState = _ds.driverState;
-      queueNo     = _ds.queueNo;
     }
 
     return {
       ok: true, idempotent: false,
       cancelStage: _cancelStage,
-      cancelledBy: _cancelledByPretty,
+      cancelledBy: cancelledByDisplay,
+      cancelSource,
+      terminalKind: recallToPending ? null : (job.TerminalKind || job.BookingStatus),
       driverId: _drvId,
       vehicleId: _vehId,
       driverFreed, driverState, queueNo,
@@ -3060,31 +3243,31 @@ async function driverRecallJob(opts) {
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
-  const _cid = String(job.companyId || opts.companyId || '');
   const _prevSt = job.BookingStatus || '';
-  const _drvId = String(job.DriverId || driverId || '').trim();
-  const _restoredPool = _restorePoolStatusAfterOfferRelease(job);
-
-  _applyPoolStatusFields(job, _restoredPool);
-  job.returnReason = driverId ? `Recalled by ${driverId}` : 'Recalled by Driver';
-  saveJobStore();
-  if (_cid) {
-    await _writePendingJobFirebase(_cid, bookingId, job, _restoredPool);
-    await _dispatchRefreshForJob(job, {
-      cid: _cid,
-      previousStatus: _prevSt,
-      status: job.BookingStatus,
-      action: 'status',
-      driverId: _drvId,
-    });
+  if (!_DRIVER_RECALL_STATUSES.has(_prevSt)) {
+    return {
+      ok: false,
+      error_code: 'forbidden',
+      error: 'Recall is only allowed before arriving at pickup',
+      currentStatus: _prevSt,
+    };
   }
 
-  if (_cid && _drvId) await _removeDriverQueueFirebase(_cid, _drvId, bookingId);
-  if (_drvId) {
-    const _ds = _maybeRestoreDriverState(_drvId, String(job.VehicleNo || ''), _cid, bookingId, false, source);
-    return { ok: true, restoredStatus: job.BookingStatus, driverFreed: _ds.driverFreed, previousStatus: _prevSt, booking: _publicBooking(job) };
-  }
-  return { ok: true, restoredStatus: job.BookingStatus, previousStatus: _prevSt, booking: _publicBooking(job) };
+  const _cid = String(job.companyId || opts.companyId || '');
+  const _result = await cancelBooking({
+    bookingId,
+    cancelledBy: 'driver',
+    reason: 'Recalled by driver',
+    driverFault: false,
+    recallToPending: true,
+    companyId: _cid,
+    source,
+  });
+  if (!_result.ok) return _result;
+  return Object.assign({}, _result, {
+    restoredStatus: (_result.booking && _result.booking.status) || 'Pending',
+    previousStatus: _prevSt,
+  });
 }
 
 /** Mirror booking trip stage to online/{cid}/{vid} vehiclestatus for dispatch status bar + map. */
@@ -9923,7 +10106,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   }
 
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
-  // Body: { bookingId, companyId, reason?, cancelledBy: passenger|driver|dispatcher|website }
+  // Body: { bookingId, companyId, reason?, cancelledBy, terminalKind?, noShow?, forceTerminal? }
+  // Driver: pre-Arrived → recall; post-Arrived → terminal (No Show or Cancelled).
   // Customer Web / server-to-server: X-Admin-Key header (BW_ADMIN_KEY env var).
   // Dispatcher console: BW_SID session cookie (cancelledBy must be "dispatcher").
   // Idempotent — re-cancelling returns { idempotent: true }.
@@ -9941,7 +10125,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error_code: 'bad_request', error: 'bookingId and cancelledBy ∈ {passenger,driver,dispatcher,website} required' }));
       return;
     }
-    const _ccJob = jobStore.find(j => j && j.Id === _ccBooking) || closedJobStore.find(j => j && j.Id === _ccBooking) || null;
+    const _ccJobLive = jobStore.find(j => j && j.Id === _ccBooking) || null;
+    const _ccJob = _ccJobLive || closedJobStore.find(j => j && j.Id === _ccBooking) || null;
     // Auth — dispatcher uses session cookie; Customer Web / other callers require X-Admin-Key.
     let _ccCid = '';
     if (_ccBy === 'dispatcher') {
@@ -9976,14 +10161,36 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         return;
       }
     }
-    const _ccDriverFault = (_ccBy === 'driver');
-    const _ccRecall      = (_ccBy === 'driver');
+    const _route = _resolveApiCancelRouting(_cc, _ccJobLive);
+    if (!_route.ok) {
+      res.writeHead(_route.error_code === 'forbidden' ? 403 : 400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error_code: _route.error_code || 'bad_request', error: _route.error }));
+      return;
+    }
+    let _ccReasonFinal = _route.reason || _ccReason;
+    if (_ccBy === 'dispatcher' && !_ccReasonFinal) {
+      _ccReasonFinal = _cc.dispatcherName
+        ? `Cancelled by ${_cc.dispatcherName}`
+        : 'Cancelled by dispatcher';
+    } else if (_ccBy !== 'driver' && !_ccReasonFinal) {
+      _ccReasonFinal = `Cancelled by ${_cancelSourceFromBy(_ccBy)}`;
+    }
     const _ccResult = await cancelBooking({
-      bookingId: _ccBooking, cancelledBy: _ccBy, reason: _ccReason,
-      driverFault: _ccDriverFault, recallToPending: _ccRecall,
-      companyId: _ccCid, source: 'api/cancel/' + _ccBy
+      bookingId: _ccBooking,
+      cancelledBy: _ccBy,
+      reason: _ccReasonFinal,
+      driverFault: !!_route.driverFault,
+      recallToPending: !!_route.recallToPending,
+      terminalKind: _route.terminalKind || undefined,
+      cancelSource: _cancelSourceFromBy(_ccBy),
+      cancelledByDisplay: _cancelledByDisplay(_ccBy, { dispatcherName: _cc.dispatcherName }),
+      dispatcherName: _cc.dispatcherName,
+      companyId: _ccCid,
+      source: 'api/cancel/' + _ccBy,
     });
-    const _ccStatus = _ccResult.ok ? 200 : (_ccResult.error_code === 'not_found' ? 404 : 400);
+    const _ccStatus = _ccResult.ok ? 200
+      : (_ccResult.error_code === 'not_found' ? 404
+      : (_ccResult.error_code === 'forbidden' ? 403 : 400));
     console.log(`${_ccStatus}: POST /api/cancel bookingId=${_ccBooking} cid=${_ccCid} by=${_ccBy} -> ${JSON.stringify({ ok: _ccResult.ok, idempotent: _ccResult.idempotent, error_code: _ccResult.error_code })}`);
     res.writeHead(_ccStatus, JSON_HEADERS);
     res.end(JSON.stringify(_ccResult));
