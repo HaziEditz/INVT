@@ -165,10 +165,24 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? 'Cash'),
     estimatedFare: String(rec.EstimatedFare ?? rec.CustomeRate ?? rec.CustomRate ?? rec.RideCost ?? rec.Fare ?? rec.fare ?? ''),
     totalFare: rec.TotalFare != null ? String(rec.TotalFare) : undefined,
-    driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : undefined,
+    driverId: (() => {
+      const raw = rec.DriverId ?? rec.driverId ?? rec.DId ?? rec.AssignedDriverId ?? rec.assignedDriverId;
+      if (raw == null || raw === '') return undefined;
+      return String(raw);
+    })(),
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : undefined,
-    vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ''),
-    driverName: String(rec.DriverName ?? rec.driverName ?? '').trim() || undefined,
+    vehicleNo: (() => {
+      const raw = String(
+        rec.VehicleNo ?? rec.CallSign ?? rec.vehiclenumber ?? rec.vehicleNumber ?? rec.vehicleId ?? '',
+      ).trim();
+      return raw || undefined;
+    })(),
+    driverName: (() => {
+      const raw = String(
+        rec.DriverName ?? rec.driverName ?? rec.AssignedDriverName ?? rec.assignedDriverName ?? rec.drivername ?? '',
+      ).trim();
+      return raw || undefined;
+    })(),
     driverAcceptedAt: (() => {
       const raw = rec.DriverAcceptedAt ?? rec.driverAcceptedAt;
       return raw ? String(raw) : undefined;
@@ -251,14 +265,6 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         if (raw == null) continue;
         const ms = typeof raw === 'number' ? raw : Date.parse(String(raw));
         if (!Number.isNaN(ms) && ms > 0) return ms;
-      }
-      if (rec.offeredAt != null) {
-        const n = Number(rec.offeredAt);
-        if (!Number.isNaN(n) && n > 0) return n;
-      }
-      if (rec.releasedAt != null) {
-        const n = Number(rec.releasedAt);
-        if (!Number.isNaN(n) && n > 0) return n;
       }
       return undefined;
     })(),
@@ -605,25 +611,13 @@ export function jobTabForStatus(job: Job): JobTab {
 
 /** When the job record was created in the system. */
 export function jobCreatedAtTime(job: Job): Date | null {
+  return jobWaitStartTime(job);
+}
+
+/** Stable anchor for U-A wait timer — never recall/re-offer timestamps. */
+export function jobWaitStartTime(job: Job): Date | null {
   if (job.createdAt) {
     const d = new Date(job.createdAt);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  if (job.offeredAt) {
-    const d = new Date(job.offeredAt);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  if (job.lastEditedAt) {
-    const d = new Date(job.lastEditedAt);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  const raw = job as Job & { releasedAt?: number; jobUpdatedAt?: number };
-  if (raw.releasedAt) {
-    const d = new Date(raw.releasedAt);
-    if (!Number.isNaN(d.getTime())) return d;
-  }
-  if (raw.jobUpdatedAt) {
-    const d = new Date(raw.jobUpdatedAt);
     if (!Number.isNaN(d.getTime())) return d;
   }
   return null;
@@ -792,7 +786,7 @@ export function jobTimerBadge(job: Job, tab: JobTab, now = new Date()): JobTimer
     }
 
     if (!isPreBookedJob(job, now)) {
-      const created = jobCreatedAtTime(job);
+      const created = jobWaitStartTime(job);
       if (created) {
         const mins = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 60_000));
         if (mins >= 1) return { text: `wait ${mins}m`, variant: 'neutral' };
@@ -978,7 +972,7 @@ export function jobTariffLabel(job: Job): string | null {
 
 export function jobVehicleTypeLabel(job: Job): string | null {
   const v = (job.vehicleType || '').trim();
-  if (!v || v.toLowerCase() === 'not specified') return null;
+  if (!v || v.toLowerCase() === 'not specified' || v.toLowerCase() === 'any') return null;
   return v;
 }
 

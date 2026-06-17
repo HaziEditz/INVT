@@ -1,5 +1,6 @@
 import type { Job } from '@/types/job';
 import type { Driver } from '@/types/driver';
+import { driverEligibleForJob } from '@/lib/jobVehicleEligibility';
 
 /** Haversine distance in km */
 export function haversineKm(
@@ -41,10 +42,7 @@ export function driverMatchesJob(driver: Driver, job: Job): boolean {
   };
   const need = map[svc] || 'Taxi';
   if (!allowed.some((s) => s.toLowerCase() === need.toLowerCase())) return false;
-  if (job.vehicleType && driver.vehicleType) {
-    if (job.vehicleType.toLowerCase() !== driver.vehicleType.toLowerCase()) return false;
-  }
-  return true;
+  return driverEligibleForJob(job, driver);
 }
 
 export function isInDispatchWindow(job: Job, now = Date.now()): boolean {

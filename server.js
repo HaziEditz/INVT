@@ -16575,6 +16575,45 @@ function _collectAutoDispatchEligibleDrivers(cid) {
   );
 }
 
+function _normalizeJobVehicleRequirement(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s || s === 'not specified' || s === 'any' || s === 'all') return null;
+  if (s.includes('van') || s.includes('minibus')) return 'van';
+  if (s.includes('wav') || s.includes('wheelchair')) return 'wav';
+  if (s.includes('car') || s.includes('sedan') || s.includes('suv') || s.includes('saloon')) return 'car';
+  return s;
+}
+
+function _normalizeDriverVehicleCategory(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes('van') || s.includes('minibus')) return 'van';
+  if (s.includes('wav') || s.includes('wheelchair')) return 'wav';
+  if (s.includes('car') || s.includes('sedan') || s.includes('suv') || s.includes('saloon')) return 'car';
+  return s;
+}
+
+function _driverEligibleForJob(driver, job) {
+  if (!driver || !job) return false;
+  const reqCat = _normalizeJobVehicleRequirement(job.VehicleType || job.vehicleType || '');
+  if (reqCat) {
+    const drvCat = _normalizeDriverVehicleCategory(driver.vehicletype || '');
+    if (!drvCat) return false;
+    if (reqCat !== drvCat) {
+      const reqExact = String(job.VehicleType || job.vehicleType || '').trim().toLowerCase();
+      const drvExact = String(driver.vehicletype || '').trim().toLowerCase();
+      if (reqExact !== drvExact) return false;
+    }
+  }
+  const reqPax = Math.max(1, parseInt(job.Passengers || job.PassengersNo || job.passengers || '1', 10) || 1);
+  const cap = parseInt(driver.seatCapacity || driver.seats || driver.capacity || '4', 10) || 4;
+  return cap >= reqPax;
+}
+
+function _collectAutoDispatchEligibleDriversForJob(cid, job) {
+  return _collectAutoDispatchEligibleDrivers(cid).filter(d => _driverEligibleForJob(d, job));
+}
+
 function _buildClosedJobIdIndex() {
   const _idIndex = {};
   for (let i = closedJobStore.length - 1; i >= 0; i--) {
@@ -16621,6 +16660,8 @@ function _upsertZoneDriverFromFirebase(record) {
     if (record.drivername) existing.drivername = record.drivername;
     if (record.vehiclenumber) existing.vehiclenumber = record.vehiclenumber;
     if (record.vehicletype) existing.vehicletype = record.vehicletype;
+    if (record.seatCapacity) existing.seatCapacity = record.seatCapacity;
+    if (record.seats) existing.seats = record.seats;
     if (!existing.companyId && record.companyId) existing.companyId = record.companyId;
     existing._fbSyncedAt = Date.now();
     return 'updated';
@@ -16713,6 +16754,7 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
   let _drivername  = cur.drivername || cur.driverName || cur.DriverName || node.drivername || node.driverName || '';
   let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || cur.VehicleNumber || node.vehiclenumber || node.vehicleNumber || '';
   let _vehtype     = cur.vehicletype || cur.vehicleType || node.vehicletype || node.vehicleType || '';
+  let _seatCap     = parseInt(cur.seatCapacity || cur.seats || cur.capacity || node.seatCapacity || node.seats || node.capacity || '4', 10) || 4;
 
   if (!_vehnum && vehicleId && vehicleId !== '0' && !/^D\d+$/i.test(vehicleId)) {
     _vehnum = vehicleId;
@@ -16758,6 +16800,8 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     drivername: _drivername || '',
     vehiclenumber: _vehnum || vehicleId,
     vehicletype: _vehtype || '',
+    seatCapacity: _seatCap,
+    seats: _seatCap,
     vehiclestatus: status,
     zonename: cur.zonename || cur.zoneName || node.zonename || (_savedZone && _savedZone.zonename) || '',
     zoneid: cur.zoneid || cur.zoneId || node.zoneid || (_savedZone && _savedZone.zoneid) || '',
@@ -17253,7 +17297,7 @@ async function _serverAutoDispatchTick() {
       continue;
     }
     const pick = _parseLatLng(job.PickLatLng);
-    const drivers = _collectAutoDispatchEligibleDrivers(cid);
+    const drivers = _collectAutoDispatchEligibleDriversForJob(cid, job);
     companyReport.availableDrivers = drivers.length;
     if (!drivers.length) {
       companyReport.skipReason = 'no Available drivers with GPS in ZONE_DRIVERS (after Firebase online/ sync)';

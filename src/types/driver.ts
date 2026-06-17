@@ -103,6 +103,8 @@ export interface Driver {
   driverName: string;
   vehicleNo: string;
   vehicleType?: string;
+  /** Passenger seat capacity for this vehicle (default 4). */
+  seatCapacity?: number;
   status: DriverStatus;
   lat?: number;
   lng?: number;
@@ -293,6 +295,12 @@ export function driverFromFirebase(
     driverName: displayName || `Driver ${vehicleId}`,
     vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
     vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? 'Sedan'),
+    seatCapacity: (() => {
+      const raw = rec.seatCapacity ?? rec.seats ?? rec.capacity ?? rec.SeatCapacity ?? rec.Capacity;
+      if (raw == null || raw === '') return 4;
+      const n = parseInt(String(raw), 10);
+      return Number.isNaN(n) || n < 1 ? 4 : n;
+    })(),
     status,
     lat: rec.lat != null ? Number(rec.lat) : undefined,
     lng: rec.lng != null ? Number(rec.lng) : undefined,

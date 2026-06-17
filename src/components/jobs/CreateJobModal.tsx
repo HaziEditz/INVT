@@ -32,6 +32,7 @@ import {
   type PlaceValue,
   type StopPoint,
 } from '@/lib/createJobForm';
+import { filterDriversForRequirements } from '@/lib/jobVehicleEligibility';
 import { fetchDrivingRoute, formatCityDistance, formatFormFareEstimate } from '@/lib/directions';
 import { estimateFare, haversineKm } from '@/lib/fareEstimate';
 import type { Job } from '@/types/job';
@@ -195,10 +196,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     () => drivers.filter((d) => d.status === 'Available' && d.driverId),
     [drivers]
   );
-  const assignDropdownDrivers = useMemo(
-    () => driversForAssignDropdown(availableDrivers, drivers, editingJob),
-    [availableDrivers, drivers, editingJob]
-  );
+  const assignDropdownDrivers = useMemo(() => {
+    const base = driversForAssignDropdown(availableDrivers, drivers, editingJob);
+    return filterDriversForRequirements(base, {
+      vehicleType: form.vehicleType,
+      passengers: editingJob?.passengers ?? 1,
+    });
+  }, [availableDrivers, drivers, editingJob, form.vehicleType, editingJob?.passengers]);
   const assignedEditDriver = useMemo(
     () => (editingJob ? driverOptionFromJob(editingJob, drivers) : null),
     [editingJob, drivers]

@@ -38,6 +38,7 @@ import {
   setPending,
 } from '@/lib/jobFlow';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
+import { filterDriversForJob } from '@/lib/jobVehicleEligibility';
 import { useUiStore } from '@/store/uiStore';
 import { useTariffs } from '@/hooks/useTariffs';
 import { useLiveJobMeter } from '@/hooks/useLiveJobMeter';
@@ -158,7 +159,12 @@ export function JobCard({ job, tab }: JobCardProps) {
     const byId = new Map<string, (typeof allDrivers)[0]>();
     if (job.driverId && isAssignedDriverSelection(job.driverId)) {
       const assigned =
-        allDrivers.find((d) => d.driverId === job.driverId) ??
+        allDrivers.find(
+          (d) =>
+            d.driverId === job.driverId ||
+            (!!job.vehicleId && d.vehicleId === job.vehicleId) ||
+            (!!job.vehicleNo && d.vehicleNo === job.vehicleNo),
+        ) ??
         ({
           driverId: job.driverId,
           vehicleId: String(job.vehicleId || '0'),
@@ -168,9 +174,9 @@ export function JobCard({ job, tab }: JobCardProps) {
         } as (typeof allDrivers)[0]);
       byId.set(assigned.driverId, assigned);
     }
-    for (const d of onlineDrivers) byId.set(d.driverId, d);
+    for (const d of filterDriversForJob(onlineDrivers, job)) byId.set(d.driverId, d);
     return Array.from(byId.values());
-  }, [allDrivers, job.driverId, job.vehicleId, job.vehicleNo, job.driverName, onlineDrivers]);
+  }, [allDrivers, job, onlineDrivers]);
   const showAssignControls =
     tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active';
   const addToast = useUiStore((s) => s.addToast);
@@ -215,10 +221,15 @@ export function JobCard({ job, tab }: JobCardProps) {
       : null;
   const returnAlert = jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers));
 
-  const assignedDriver = useMemo(
-    () => allDrivers.find((d) => d.driverId === job.driverId),
-    [allDrivers, job.driverId],
-  );
+  const assignedDriver = useMemo(() => {
+    if (!job.driverId || !isAssignedDriverSelection(job.driverId)) return undefined;
+    return allDrivers.find(
+      (d) =>
+        d.driverId === job.driverId ||
+        (!!job.vehicleId && d.vehicleId === job.vehicleId) ||
+        (!!job.vehicleNo && d.vehicleNo === job.vehicleNo),
+    );
+  }, [allDrivers, job.driverId, job.vehicleId, job.vehicleNo]);
 
   const tariffs = useTariffs(job.companyId);
   const tariff = useMemo(() => {
@@ -257,10 +268,13 @@ export function JobCard({ job, tab }: JobCardProps) {
         (job.driverId && job.driverId !== '0' && job.driverId !== '-1'
           ? `D${job.driverId}`
           : null);
-      const vehicle = assignedDriver?.vehicleNo || job.vehicleNo;
-      if (name) {
-        return vehicle ? `${vehicle} ${name}`.trim() : name;
-      }
+      const vehicle =
+        assignedDriver?.vehicleNo?.trim() ||
+        job.vehicleNo?.trim() ||
+        (job.vehicleId && job.vehicleId !== '0' ? job.vehicleId : null);
+      if (vehicle && name) return `${vehicle} ${name}`.trim();
+      if (vehicle) return vehicle;
+      if (name) return name;
     }
     const parts = [job.passengerName?.trim(), job.passengerPhone?.trim()].filter(Boolean);
     return parts.join(' · ') || '—';
