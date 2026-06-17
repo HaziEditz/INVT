@@ -568,9 +568,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
           await updateJob(liveJob.id, companyId, metadataChanges, liveJob);
         }
 
-        addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
-        onClose();
-
         if (assignmentChanged) {
           const workingJob =
             useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? liveJob;
@@ -580,8 +577,12 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
               title: 'Driver assignment failed',
               message: e instanceof Error ? e.message : '',
             });
+            throw e;
           });
         }
+
+        addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
+        onClose();
         return;
       }
 

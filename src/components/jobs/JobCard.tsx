@@ -154,6 +154,25 @@ export function JobCard({ job, tab }: JobCardProps) {
     () => allDrivers.filter((d) => d.status === 'Available' && d.driverId),
     [allDrivers],
   );
+  const assignDrivers = useMemo(() => {
+    const byId = new Map<string, (typeof allDrivers)[0]>();
+    if (job.driverId && isAssignedDriverSelection(job.driverId)) {
+      const assigned =
+        allDrivers.find((d) => d.driverId === job.driverId) ??
+        ({
+          driverId: job.driverId,
+          vehicleId: String(job.vehicleId || '0'),
+          vehicleNo: String(job.vehicleNo || job.vehicleId || job.driverId),
+          driverName: String(job.driverName || job.driverId),
+          status: 'Busy' as const,
+        } as (typeof allDrivers)[0]);
+      byId.set(assigned.driverId, assigned);
+    }
+    for (const d of onlineDrivers) byId.set(d.driverId, d);
+    return Array.from(byId.values());
+  }, [allDrivers, job.driverId, job.vehicleId, job.vehicleNo, job.driverName, onlineDrivers]);
+  const showAssignControls =
+    tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active';
   const addToast = useUiStore((s) => s.addToast);
   const openModalWith = useUiStore((s) => s.openModalWith);
   const hoveredJobId = useJobStore((s) => s.hoveredJobId);
@@ -315,7 +334,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
     const selection = assignSelection;
     try {
-      const result = await applyJobAssignment(job, selection, onlineDrivers);
+      const result = await applyJobAssignment(job, selection, assignDrivers);
       const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
       addToast({
         type: 'success',
@@ -362,7 +381,11 @@ export function JobCard({ job, tab }: JobCardProps) {
   const toneText = onThemedBg ? '' : 'bw-text';
   const metaText = onThemedBg ? '' : 'text-[var(--bw-muted)]';
 
-  const createdMeta = created ? formatJobDateTimeCompact(created, now) : null;
+  const createdMeta = created
+    ? formatJobDateTimeCompact(created, now)
+    : tab === 'ua' && timerBadge?.text.startsWith('wait')
+      ? timerBadge.text
+      : null;
   const source = sourceLabel(job.source);
   const initials = dispatcherInitials(job.dispatcherName?.trim() || dispatcherName);
 
@@ -483,7 +506,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         )}
 
         <div className="flex items-center gap-0.5 shrink-0 ml-auto">
-          {tab === 'ua' && (
+          {showAssignControls && (
             <>
               <select
                 className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[88px] border"
@@ -500,8 +523,8 @@ export function JobCard({ job, tab }: JobCardProps) {
                 <option value="">Assign ▼</option>
                 <option value="__pending__">Pending</option>
                 <option value="__noone__">No One</option>
-                {onlineDrivers.length > 0 && <option disabled>— online —</option>}
-                {onlineDrivers.map((d) => (
+                {assignDrivers.length > 0 && <option disabled>— drivers —</option>}
+                {assignDrivers.map((d) => (
                   <option key={d.driverId} value={d.driverId}>
                     {d.vehicleNo} {d.driverName}
                   </option>
@@ -519,6 +542,11 @@ export function JobCard({ job, tab }: JobCardProps) {
               >
                 Apply
               </Button>
+            </>
+          )}
+
+          {tab === 'ua' && (
+            <>
               <Tooltip label="Edit job">
                 <button
                   type="button"

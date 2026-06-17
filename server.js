@@ -4580,7 +4580,7 @@ function _editChangesTouchTiming(changes) {
 }
 
 /** Strip status/driver mutations on live assigned jobs unless timing mode actually changed. */
-function _stripAttachedJobStatusMutations(job, changes) {
+function _stripAttachedJobStatusMutations(job, changes, withdrawHint) {
   if (!job || !changes) return;
   const st = String(job.BookingStatus || '');
   const attached = _DRIVER_ATTACHED_STATUSES.has(st) || st === 'Arrived';
@@ -4594,6 +4594,17 @@ function _stripAttachedJobStatusMutations(job, changes) {
     (prevDb === 0 && nextDb > 0) || (prevDb > 0 && nextDb === 0)
   );
   if (genuineTimingTransition) return;
+  // Explicit dispatcher unassign (Pending / No One / reassign) — must not strip.
+  const _explicitUnassign = !!(
+    withdrawHint ||
+    changes._withdrawDriverId ||
+    changes.BookingStatus === 'Pending' ||
+    changes.Status === 'Pending' ||
+    changes.BookingStatus === 'No One' ||
+    changes.Status === 'No One' ||
+    (changes.DriverId != null && (String(changes.DriverId) === '0' || String(changes.DriverId) === '-1'))
+  );
+  if (_explicitUnassign) return;
   delete changes.BookingStatus;
   delete changes.Status;
   delete changes.DriverId;
@@ -4689,9 +4700,8 @@ async function updateBooking(opts) {
   const _dispatcherName = String(changes.DispatcherName || job.DispatcherName || '').trim();
   for (const _ik of _IMMUTABLE_ON_EDIT) delete changes[_ik];
   _applyTimingEditPrelude(job, changes);
-  _stripAttachedJobStatusMutations(job, changes);
-
   const _withdrawHint = _normJobDriverId(changes._withdrawDriverId);
+  _stripAttachedJobStatusMutations(job, changes, _withdrawHint);
   if (_withdrawHint) delete changes._withdrawDriverId;
 
   const _prevStatus = job.BookingStatus || 'Pending';

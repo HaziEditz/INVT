@@ -430,17 +430,7 @@ export async function cancelJob(
     ? `Cancelled by ${dispatcherName}`
     : 'Cancelled by Dispatcher';
 
-  const jobsBefore = useJobStore.getState().jobs.length;
-  console.log('Cancelling job:', bookingId);
-  console.log('Jobs before cancel:', jobsBefore);
-
-  // Blacklist + remove immediately — do not wait for API or Firebase
-  purgeCancelledJobFromListeners(bookingId);
-  useJobStore.getState().removeJob(bookingId);
-
-  console.log('Jobs after cancel:', useJobStore.getState().jobs.length);
-
-  await jsonFetch(`${API}/cancel`, {
+  const result = await jsonFetch<{ ok?: boolean; error?: string }>(`${API}/cancel`, {
     method: 'POST',
     body: JSON.stringify({
       bookingId,
@@ -452,6 +442,13 @@ export async function cancelJob(
       terminalKind: 'Cancelled',
     }),
   });
+
+  if (result.ok === false) {
+    throw new Error(result.error || 'Cancel rejected by server');
+  }
+
+  purgeCancelledJobFromListeners(bookingId);
+  useJobStore.getState().removeJob(bookingId);
 
   try {
     const db = getDb();

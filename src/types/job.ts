@@ -246,11 +246,19 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         const n = Number(rec.createdAt);
         if (!Number.isNaN(n) && n > 0) return n;
       }
-      for (const key of ['CreatedAt', 'bookedAt', 'BookedAt', 'bookingCreatedAt'] as const) {
+      for (const key of ['CreatedAt', 'bookedAt', 'BookedAt', 'bookingCreatedAt', 'InsertTime', 'insertTime'] as const) {
         const raw = rec[key];
         if (raw == null) continue;
         const ms = typeof raw === 'number' ? raw : Date.parse(String(raw));
         if (!Number.isNaN(ms) && ms > 0) return ms;
+      }
+      if (rec.offeredAt != null) {
+        const n = Number(rec.offeredAt);
+        if (!Number.isNaN(n) && n > 0) return n;
+      }
+      if (rec.releasedAt != null) {
+        const n = Number(rec.releasedAt);
+        if (!Number.isNaN(n) && n > 0) return n;
       }
       return undefined;
     })(),
@@ -597,9 +605,28 @@ export function jobTabForStatus(job: Job): JobTab {
 
 /** When the job record was created in the system. */
 export function jobCreatedAtTime(job: Job): Date | null {
-  if (!job.createdAt) return null;
-  const d = new Date(job.createdAt);
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (job.createdAt) {
+    const d = new Date(job.createdAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (job.offeredAt) {
+    const d = new Date(job.offeredAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (job.lastEditedAt) {
+    const d = new Date(job.lastEditedAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const raw = job as Job & { releasedAt?: number; jobUpdatedAt?: number };
+  if (raw.releasedAt) {
+    const d = new Date(raw.releasedAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (raw.jobUpdatedAt) {
+    const d = new Date(raw.jobUpdatedAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
 }
 
 /** Customer-requested pickup datetime. */
@@ -769,6 +796,7 @@ export function jobTimerBadge(job: Job, tab: JobTab, now = new Date()): JobTimer
       if (created) {
         const mins = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 60_000));
         if (mins >= 1) return { text: `wait ${mins}m`, variant: 'neutral' };
+        return { text: 'wait <1m', variant: 'neutral' };
       }
     }
   }
