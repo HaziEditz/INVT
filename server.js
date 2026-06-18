@@ -1742,11 +1742,28 @@ function _findZoneDriverRow(rawId, opts) {
   if (!raw || raw === '0' || raw === '-1' || raw === '-2') return null;
   const rows = _zoneDriverRowsForCompany(opts.companyId);
   const rawLower = raw.toLowerCase();
+  const vidHint = String(opts.vehicleIdHint || '').trim();
 
-  let zd = rows.find(d => String(d.driverid || '').trim() === raw);
-  if (zd) return zd;
+  const _pickBestDriverRows = (candidates) => {
+    if (!candidates.length) return null;
+    if (vidHint) {
+      const byVid = candidates.find(d =>
+        String(d.VehicleId || '').trim() === vidHint ||
+        String(d.vehiclenumber || '').trim() === vidHint ||
+        String(d.CallSign || '').trim() === vidHint
+      );
+      if (byVid) return byVid;
+    }
+    return candidates.reduce((best, d) => {
+      const at = d._fbSyncedAt || 0;
+      return (!best || at >= (best._fbSyncedAt || 0)) ? d : best;
+    }, null);
+  };
 
-  zd = rows.find(d => {
+  const byDriverId = rows.filter(d => String(d.driverid || '').trim() === raw);
+  if (byDriverId.length) return _pickBestDriverRows(byDriverId);
+
+  let zd = rows.find(d => {
     const pf = String(d.passforlink || '').trim();
     const em = String(d.email || '').trim().toLowerCase();
     return pf === raw || (em && em === rawLower);
@@ -1770,7 +1787,7 @@ function resolveDriverIdentity(rawId, opts) {
   const zd = _findZoneDriverRow(raw, opts);
   if (zd) {
     const driverId = _normalizeNotifyDriverId(zd.driverid) || String(zd.driverid || '').trim();
-    const vehicleId = String(zd.VehicleId || zd.vehiclenumber || zd.CallSign || '').trim();
+    const vehicleId = String(zd.VehicleId || zd.vehiclenumber || zd.CallSign || opts.vehicleIdHint || '').trim();
     const email = String(zd.email || zd.passforlink || '').trim();
     return { ok: true, driverId, vehicleId, email, row: zd };
   }
@@ -2487,6 +2504,7 @@ function _mirrorFbJobFields(changed) {
   if (out.PaymentMethod != null && out.PaymentType == null) out.PaymentType = out.PaymentMethod;
   if (out.serviceType != null && out.ServiceType == null) out.ServiceType = out.serviceType;
   if (out.ServiceType != null && out.serviceType == null) out.serviceType = out.ServiceType;
+  if (out.VehicleType != null && out.vehicleType == null) out.vehicleType = out.VehicleType;
   return out;
 }
 
@@ -2687,7 +2705,7 @@ async function assignBooking(opts) {
   const _targetDrv = _resolved.driverId;
   const _targetVid = _resolved.vehicleId;
 
-  const _zdAssign = ZONE_DRIVERS.find(d => d && String(d.driverid) === _targetDrv);
+  const _zdAssign = _zoneDriverRowForEligibility(_targetDrv, _cidEarly, vehicleId || _targetVid);
   if (_zdAssign && !_driverEligibleForJob(_zdAssign, job)) {
     console.warn(`  [${source}] assign rejected: driver ${_targetDrv} ineligible for job #${bookingId}`);
     return {
@@ -2703,6 +2721,15 @@ async function assignBooking(opts) {
 
   // Idempotency — already offered/assigned to the same driver.
   if ((_curStatus === 'Offered' || _curStatus === 'Assigned') && _curDrv === _targetDrv) {
+    const _zdIdem = _zoneDriverRowForEligibility(_targetDrv, _cidEarly, _curVid || _targetVid);
+    if (_zdIdem && !_driverEligibleForJob(_zdIdem, job)) {
+      return {
+        ok: false,
+        error_code: 'driver_ineligible',
+        error: 'Driver no longer meets job vehicle, seat, or service requirements',
+        booking: _publicBooking(job),
+      };
+    }
     if (opts.fanout === true) {
       try {
         await _writeManualDriverOffer(job, _targetDrv, _curVid || _targetVid, by, source);
@@ -3049,6 +3076,18 @@ async function acceptBooking(opts) {
   const _trans = _canTransition(_curStatus, 'accept');
   if (!_trans.ok) {
     return { ok: false, error_code: 'invalid_transition', error: _trans.error, currentStatus: _curStatus, booking: _publicBooking(job) };
+  }
+  const _acceptDrv = driverId || _jobDrv;
+  if (_acceptDrv) {
+    const _zdAccept = _zoneDriverRowForEligibility(_acceptDrv, _cid, job.VehicleId || job.VehicleNo);
+    if (_zdAccept && !_driverEligibleForJob(_zdAccept, job)) {
+      return {
+        ok: false,
+        error_code: 'driver_ineligible',
+        error: 'Driver does not meet job vehicle, seat, or service requirements',
+        booking: _publicBooking(job),
+      };
+    }
   }
   // Idempotency — already accepted (DriverAcceptedAt stamped and status Assigned).
   if (job.DriverAcceptedAt && _curStatus === 'Assigned') {
@@ -3439,7 +3478,7 @@ async function acceptPendingJobByDriver(opts) {
     return { ok: false, error_code: 'invalid_transition', error: `cannot accept job in status ${_cur}`, currentStatus: _cur };
   }
 
-  const drv = ZONE_DRIVERS.find(d => d && (String(d.driverid) === driverId || String(d.VehicleId) === driverId)) || null;
+  const drv = _zoneDriverRowForEligibility(driverId, String(job.companyId || opts.companyId || ''), opts.vehicleId);
   if (drv && !_driverEligibleForJob(drv, job)) {
     return {
       ok: false,
@@ -3751,13 +3790,23 @@ async function promoteQueuedJobByDriver(opts) {
   if (String(job.DriverId) !== String(driverId)) {
     return { ok: false, error_code: 'forbidden', error: 'queued job belongs to another driver' };
   }
+  const _cid = String(job.companyId || opts.companyId || '');
+  const _zdPromote = _zoneDriverRowForEligibility(driverId, _cid, job.VehicleId || job.VehicleNo);
+  if (_zdPromote && !_driverEligibleForJob(_zdPromote, job)) {
+    await _releaseJobIfDriverIneligible(job, { source: `${source}/ineligible`, companyId: _cid });
+    return {
+      ok: false,
+      error_code: 'driver_ineligible',
+      error: 'Driver no longer meets job vehicle, seat, or service requirements',
+      booking: _publicBooking(job),
+    };
+  }
   const prev = job.BookingStatus;
   job.BookingStatus = 'Assigned';
   job.assignedAt = Date.now();
   job.queuedAt = null;
   _afterJobStatusChange(job, prev, 'driver', source);
   saveJobStore();
-  const _cid = String(job.companyId || opts.companyId || '');
   if (_cid) {
     await _removeDriverQueueFirebase(_cid, driverId, bookingId).catch(() => {});
     _fanVersionToFirebase(_cid, bookingId, {
@@ -5312,6 +5361,14 @@ async function updateBooking(opts) {
   }
 
   console.log(`  [${source}] §FIX-UB job #${bookingId} seq ${_curSeq}→${_newSeq} types=[${_eventTypes.join(',')}] by=${by} fields=[${Object.keys(_diff).join(',')}]`);
+  let _eligibilityReleased = false;
+  if (_jobRequirementFieldsChanged(_diff)) {
+    const _rel = await _releaseJobIfDriverIneligible(job, { source: `${source}/requirement-change`, companyId: _cid });
+    _eligibilityReleased = !!_rel.released;
+    if (!_eligibilityReleased && String(job.BookingStatus || '') === 'Pending') {
+      await _refreshBusyPoolBroadcastForJob(job);
+    }
+  }
   if (_cid && _diff.BookingStatus) {
     await _dispatchRefreshForJob(job, {
       cid: _cid,
@@ -5329,7 +5386,8 @@ async function updateBooking(opts) {
     driverNotified: _driverNotified,
     visible: _visible,
     driverId: _drv,
-    vehicleId: _vid
+    vehicleId: _vid,
+    eligibilityReleased: _eligibilityReleased,
   };
 }
 
@@ -17243,7 +17301,7 @@ setInterval(() => {
       j.offeredAt     = null;
       j.DriverId      = 0;
       j.VehicleId     = 0;
-      j.returnReason  = 'Offer expired (dispatcher reconnected)';
+      j.returnReason  = 'Offer expired (stale offered job)';
       changed = true;
     }
   });
@@ -17481,12 +17539,135 @@ function _driverEligibleForJob(driver, job) {
     if (reqCat !== drvCat) {
       const reqExact = String(job.VehicleType || job.vehicleType || '').trim().toLowerCase();
       const drvExact = String(driver.vehicletype || '').trim().toLowerCase();
-      if (reqExact !== drvExact) return false;
+      if (reqExact && drvExact && reqExact === drvExact) {
+        // same explicit label despite category normalisation mismatch
+      } else {
+        return false;
+      }
     }
   }
   const reqPax = Math.max(1, parseInt(job.Passengers || job.PassengersNo || job.passengers || '1', 10) || 1);
   const cap = parseInt(driver.seatCapacity || driver.seats || driver.capacity || '4', 10) || 4;
   return cap >= reqPax;
+}
+
+function _zoneDriverRowForEligibility(driverId, companyId, vehicleIdHint) {
+  const opts = { companyId, vehicleIdHint };
+  const identity = resolveDriverIdentity(driverId, opts);
+  if (identity.ok && identity.row) return identity.row;
+  return _findZoneDriverRow(driverId, opts);
+}
+
+function _jobRequirementFieldsChanged(diff) {
+  if (!diff || typeof diff !== 'object') return false;
+  return !!(
+    diff.VehicleType || diff.vehicleType ||
+    diff.Passengers || diff.PassengersNo || diff.passengers ||
+    diff.serviceType || diff.ServiceType
+  );
+}
+
+async function _releaseJobIfDriverIneligible(job, opts) {
+  opts = opts || {};
+  if (!job || !job.Id) return { released: false };
+  const st = String(job.BookingStatus || '');
+  if (!['Offered', 'Assigned', 'Queued', 'Picking'].includes(st)) return { released: false };
+  const drvId = _attachedDriverIdFromJob(job);
+  if (!drvId) return { released: false };
+  const cid = String(job.companyId || opts.companyId || '');
+  const zd = _zoneDriverRowForEligibility(drvId, cid, job.VehicleId || job.VehicleNo);
+  if (zd && _driverEligibleForJob(zd, job)) return { released: false };
+
+  const source = opts.source || 'eligibility-release';
+  console.warn(
+    `  [${source}] job #${job.Id} driver ${drvId} ineligible ` +
+    `(job VehicleType=${job.VehicleType || '-'}, driver vehicletype=${zd && zd.vehicletype || '?'})`
+  );
+
+  if (st === 'Queued') {
+    await cancelBooking({
+      bookingId: job.Id,
+      cancelledBy: 'system',
+      recallToPending: true,
+      companyId: cid,
+      source,
+      reason: 'Driver ineligible after job requirement change',
+    });
+    return { released: true, action: 'recall_queued' };
+  }
+
+  const _prevSt = st;
+  const _vid = String(job.VehicleNo || job.VehicleId || (zd && zd.VehicleId) || '').trim();
+  await _withdrawJobFromDriver({
+    cid,
+    bookingId: job.Id,
+    driverId: drvId,
+    vehicleId: _vid || drvId,
+    prevStatus: _prevSt,
+    version: parseInt(job.updateSeq) || 0,
+    source,
+  });
+  const poolStatus = _restorePoolStatusAfterOfferRelease(job);
+  _applyPoolStatusFields(job, poolStatus);
+  job.returnReason = 'Driver ineligible after job requirement change';
+  _bumpJobUpdateSeq(job, 'system');
+  saveJobStore();
+  await executeJobCleanup({
+    profile: 'pool_restore',
+    bookingId: job.Id,
+    companyId: cid,
+    source,
+    driverId: drvId,
+    vehicleId: _vid,
+    job,
+    poolStatus,
+    writePendingJob: poolStatus === 'Pending',
+    consoleRefresh: {
+      bookingId: job.Id,
+      action: 'recall',
+      status: poolStatus,
+      driverId: '0',
+    },
+  });
+  return { released: true, action: 'pool_restore', status: poolStatus };
+}
+
+async function _refreshBusyPoolBroadcastForJob(job) {
+  if (!job || !job.Id) return;
+  const st = String(job.BookingStatus || '');
+  if (st !== 'Pending' && st !== 'No One') return;
+  const cid = String(job.companyId || '');
+  if (!cid) return;
+  const now = Date.now();
+  if (!_jobInDispatchWindow(job, now)) {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (tok) {
+        await fbRequest(
+          `${FB_DB_URL}/pendingjobs/${cid}/${job.Id}.json?auth=${encodeURIComponent(tok)}`,
+          'DELETE',
+        );
+      }
+    } catch (_) { /* non-fatal */ }
+    return;
+  }
+  const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
+  const available = _collectAutoDispatchEligibleDriversForJob(cid, job);
+  if (available.length) return;
+  if (busyEligible.length) {
+    await _writePendingJobFirebase(cid, job.Id, job, st === 'No One' ? 'No One' : 'Pending');
+  } else {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (tok) {
+        await fbRequest(
+          `${FB_DB_URL}/pendingjobs/${cid}/${job.Id}.json?auth=${encodeURIComponent(tok)}`,
+          'DELETE',
+        );
+      }
+    } catch (_) { /* non-fatal */ }
+    console.log(`  [busy-pool] removed pendingjobs/${cid}/${job.Id} — no eligible busy drivers after requirement change`);
+  }
 }
 
 function _collectBusyEligibleDriversForJob(cid, job) {
@@ -17530,16 +17711,51 @@ function _findZoneDriverEntry(cid, driverId, vehicleId) {
   const _cid = String(cid || '');
   const _did = String(driverId || '');
   const _vid = String(vehicleId || '');
-  return ZONE_DRIVERS.find(d => {
-    if (_cid && _vid && String(d.companyId || '') === _cid && String(d.VehicleId) === _vid) return true;
-    if (_did && String(d.driverid) === _did) return true;
-    return false;
-  }) || null;
+  if (_cid && _vid) {
+    const byVid = ZONE_DRIVERS.find(d =>
+      String(d.companyId || '') === _cid && String(d.VehicleId) === _vid
+    );
+    if (byVid) return byVid;
+  }
+  if (_did) {
+    const candidates = ZONE_DRIVERS.filter(d => {
+      if (String(d.driverid) !== _did) return false;
+      if (_cid && String(d.companyId || '') !== _cid) return false;
+      return true;
+    });
+    if (candidates.length) {
+      if (_vid) {
+        const byVid = candidates.find(d =>
+          String(d.VehicleId) === _vid || String(d.vehiclenumber) === _vid
+        );
+        if (byVid) return byVid;
+      }
+      return candidates.reduce((best, d) => {
+        const at = d._fbSyncedAt || 0;
+        return (!best || at >= (best._fbSyncedAt || 0)) ? d : best;
+      }, null);
+    }
+  }
+  return null;
 }
 
 function _upsertZoneDriverFromFirebase(record) {
+  const cid = String(record.companyId || '');
+  const did = String(record.driverid || '');
+  const vid = String(record.VehicleId || '');
+  if (cid && did && vid) {
+    for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+      const d = ZONE_DRIVERS[i];
+      if (String(d.companyId || '') === cid &&
+          String(d.driverid || '') === did &&
+          String(d.VehicleId || '') !== vid) {
+        ZONE_DRIVERS.splice(i, 1);
+      }
+    }
+  }
   const existing = _findZoneDriverEntry(record.companyId, record.driverid, record.VehicleId);
   if (existing) {
+    if (record.VehicleId) existing.VehicleId = record.VehicleId;
     existing.vehiclestatus = record.vehiclestatus;
     if (record.lat) existing.lat = record.lat;
     if (record.lng) existing.lng = record.lng;
