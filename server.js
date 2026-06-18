@@ -2064,6 +2064,8 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
 
 // Block IngestPassengerJob from re-creating jobs mid-cancel or immediately after cancel.
 const _CANCEL_IN_FLIGHT = new Set();
+// Serialize concurrent driver accepts on the same booking (rapid-tap race guard).
+const _ACCEPT_IN_FLIGHT = new Set();
 const _RECENTLY_CANCELLED = new Map();
 const _RECENTLY_CANCELLED_TTL_MS = 10 * 60 * 1000;
 
@@ -3254,11 +3256,19 @@ async function _syncDriverJobCount(cid, driverId, sourceTag) {
 }
 
 // Write driverQueue/{cid}/{driverId}/queued/{bookingId} for driver-app Queue tab.
-async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus) {
+async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus, opts) {
+  opts = opts || {};
+  const strict = !!opts.strict;
   try {
-    if (!cid || !driverId || !bookingId) return;
+    if (!cid || !driverId || !bookingId) {
+      if (strict) throw new Error('driverQueue write missing cid, driverId, or bookingId');
+      return;
+    }
     const tok = await getFirebaseServerToken();
-    if (!tok) return;
+    if (!tok) {
+      if (strict) throw new Error('driverQueue write: no Firebase token');
+      return;
+    }
     const payload = {
       jobId: String(bookingId),
       BookingId: bookingId,
@@ -3285,8 +3295,39 @@ async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, original
     await firebaseDbSet(`driverQueue/${cid}/${driverId}/queued/${bookingId}`, payload, tok);
     console.log(`  [driverQueue] queued #${bookingId} for driver ${driverId} originalStatus=${payload.originalStatus}`);
   } catch (e) {
+    if (strict) throw e;
     console.warn(`  [driverQueue] write failed: ${e && e.message}`);
   }
+}
+
+function _acceptPoolStatuses() {
+  return new Set(['Pending', 'Offered', 'No One']);
+}
+
+function _snapshotJobForAcceptRollback(job) {
+  if (!job) return null;
+  return {
+    BookingStatus: job.BookingStatus,
+    DriverId: job.DriverId,
+    VehicleId: job.VehicleId,
+    _origStatus: job._origStatus,
+    queuedAt: job.queuedAt,
+    originalStatus: job.originalStatus,
+    updateSeq: job.updateSeq,
+  };
+}
+
+function _restoreJobFromAcceptRollback(job, snap) {
+  if (!job || !snap) return;
+  job.BookingStatus = snap.BookingStatus;
+  job.DriverId = snap.DriverId;
+  job.VehicleId = snap.VehicleId;
+  if (snap._origStatus != null) job._origStatus = snap._origStatus;
+  else delete job._origStatus;
+  if (snap.queuedAt != null) job.queuedAt = snap.queuedAt;
+  else delete job.queuedAt;
+  if (snap.originalStatus != null) job.originalStatus = snap.originalStatus;
+  if (snap.updateSeq != null) job.updateSeq = snap.updateSeq;
 }
 
 async function _removeDriverQueueFirebase(cid, driverId, bookingId) {
@@ -3364,11 +3405,37 @@ async function acceptPendingJobByDriver(opts) {
   const source    = opts.source || 'acceptPendingJobByDriver';
   if (!bookingId || !driverId) return { ok: false, error_code: 'bad_request', error: 'bookingId and driverId required' };
 
+  const _acceptKey = String(bookingId);
+  if (_CANCEL_IN_FLIGHT.has(_acceptKey)) {
+    return {
+      ok: false,
+      error_code: 'cancel_in_flight',
+      error: 'cancel/recall in progress for this booking',
+    };
+  }
+  if (_ACCEPT_IN_FLIGHT.has(_acceptKey)) {
+    return {
+      ok: false,
+      error_code: 'accept_in_flight',
+      error: 'accept already in progress for this booking',
+    };
+  }
+
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
   const _cur = job.BookingStatus || '';
-  if (_cur !== 'Pending' && _cur !== 'Offered' && _cur !== 'No One') {
+
+  // Idempotent — already queued for this driver.
+  if (_cur === 'Queued' && String(job.DriverId) === String(driverId)) {
+    return {
+      ok: true, status: 'Queued', queued: true, idempotent: true,
+      driverId, booking: _publicBooking(job),
+    };
+  }
+
+  const _poolOk = _acceptPoolStatuses();
+  if (!_poolOk.has(_cur)) {
     return { ok: false, error_code: 'invalid_transition', error: `cannot accept job in status ${_cur}`, currentStatus: _cur };
   }
 
@@ -3385,71 +3452,134 @@ async function acceptPendingJobByDriver(opts) {
   const _cid = String(job.companyId || opts.companyId || '');
   const _busySt = new Set(['Busy', 'Picking', 'Assigned', 'Active']);
   const isBusy = drv && _busySt.has(String(drv.vehiclestatus || ''));
-  const originalStatus = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
-  job.originalStatus = originalStatus === 'manual' ? 'manual' : 'pending';
 
-  if (isBusy) {
-    const _qSvc = (job.serviceType || job.ServiceType || 'taxi').toString().toLowerCase();
-    const _qIsTaxi = (_qSvc === 'taxi' || _qSvc === 'tm' || _qSvc === '');
-    const _qExisting = _qIsTaxi ? jobStore.find(j =>
-      j.BookingStatus === 'Queued' &&
-      String(j.DriverId) === String(driverId) &&
-      String(j.Id) !== String(bookingId)
-    ) : null;
-    if (_qExisting) {
-      return { ok: false, error_code: 'queue_full', error: 'driver already has a queued job', existingJobId: _qExisting.Id };
-    }
-    job._origStatus = _cur === 'No One' ? 'No One' : 'Pending';
-    job.BookingStatus = 'Queued';
-    job.DriverId = driverId;
-    job.queuedAt = Date.now();
-    saveJobStore();
-    await _writeDriverQueueFirebase(_cid, driverId, bookingId, job, job.originalStatus);
-    // Remove from pendingjobs so other drivers stop seeing it
-    if (_cid) {
-      getFirebaseServerToken().then(tok => {
-        if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-      });
-    }
-    console.log(`  [${source}] job #${bookingId} → Queued for busy driver ${driverId}`);
-    if (_cid) {
-      await _dispatchRefreshForJob(job, {
-        cid: _cid,
-        previousStatus: _cur,
-        status: 'Queued',
-        action: 'queue',
-        driverId,
-      });
-      await _syncDriverJobCount(_cid, driverId, source);
-    }
-    return { ok: true, status: 'Queued', queued: true, driverId, booking: _publicBooking(job) };
-  }
+  _ACCEPT_IN_FLIGHT.add(_acceptKey);
+  try {
+    const originalStatus = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
+    job.originalStatus = originalStatus === 'manual' ? 'manual' : 'pending';
 
-  const assignRes = await assignBooking({
-    bookingId, driverId, vehicleId, by: 'driver', manualOffer: false, source
-  });
-  if (!assignRes.ok) return assignRes;
-  const acceptRes = await acceptBooking({ bookingId, driverId, by: 'driver', source });
-  if (!acceptRes.ok) return acceptRes;
-  if (_cid && driverId) {
-    try {
-      const tok = await getFirebaseServerToken();
-      if (tok) {
-        await firebaseDbSet(`notification/${driverId}`, {
-          bookingId,
-          content: 'Assigned',
-          eventType: 'assigned',
-          updatedAt: _FB_SERVER_TIMESTAMP,
-        }, tok).catch(() => {});
-        // Fanout (allbookings + jobs/) must land before pendingjobs DELETE — otherwise
-        // dispatch loses the job on Assign until the next full allbookings snapshot.
-        await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+    if (isBusy) {
+      const _qSvc = (job.serviceType || job.ServiceType || 'taxi').toString().toLowerCase();
+      const _qIsTaxi = (_qSvc === 'taxi' || _qSvc === 'tm' || _qSvc === '');
+      const _qExisting = _qIsTaxi ? jobStore.find(j =>
+        j.BookingStatus === 'Queued' &&
+        String(j.DriverId) === String(driverId) &&
+        String(j.Id) !== String(bookingId)
+      ) : null;
+      if (_qExisting) {
+        return { ok: false, error_code: 'queue_full', error: 'driver already has a queued job', existingJobId: _qExisting.Id };
       }
-    } catch (e) {
-      console.warn(`  [${source}] accept notification/pendingjobs cleanup failed: ${e && e.message}`);
+
+      const _live = jobStore.find(j => j && j.Id === bookingId);
+      if (!_live) return { ok: false, error_code: 'not_found', error: 'job not found' };
+      const _liveSt = _live.BookingStatus || '';
+      if (_liveSt === 'Queued' && String(_live.DriverId) === String(driverId)) {
+        return {
+          ok: true, status: 'Queued', queued: true, idempotent: true,
+          driverId, booking: _publicBooking(_live),
+        };
+      }
+      if (!_poolOk.has(_liveSt)) {
+        return {
+          ok: false,
+          error_code: 'invalid_transition',
+          error: `cannot accept job in status ${_liveSt}`,
+          currentStatus: _liveSt,
+        };
+      }
+
+      const _rollbackSnap = _snapshotJobForAcceptRollback(_live);
+      const _poolOrig = _liveSt === 'No One' ? 'No One' : 'Pending';
+      _live._origStatus = _poolOrig;
+      _live.BookingStatus = 'Queued';
+      _live.DriverId = driverId;
+      _live.queuedAt = Date.now();
+      _live.originalStatus = originalStatus === 'manual' ? 'manual' : 'pending';
+
+      // Re-validate immediately before persisting — abort if another path moved the job.
+      const _preSave = jobStore.find(j => j && j.Id === bookingId);
+      const _preSaveSt = (_preSave && _preSave.BookingStatus) || '';
+      if (_preSaveSt === 'Queued' && String(_preSave.DriverId) === String(driverId)) {
+        return {
+          ok: true, status: 'Queued', queued: true, idempotent: true,
+          driverId, booking: _publicBooking(_preSave),
+        };
+      }
+      if (!_poolOk.has(_preSaveSt)) {
+        _restoreJobFromAcceptRollback(_preSave, _rollbackSnap);
+        return {
+          ok: false,
+          error_code: 'status_changed',
+          error: `status changed to ${_preSaveSt} during accept`,
+          currentStatus: _preSaveSt,
+        };
+      }
+
+      saveJobStore();
+
+      try {
+        await _writeDriverQueueFirebase(_cid, driverId, bookingId, _preSave, _preSave.originalStatus, { strict: true });
+        if (_cid) {
+          const tok = await getFirebaseServerToken();
+          if (!tok) throw new Error('pendingjobs delete: no Firebase token');
+          await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
+        }
+      } catch (e) {
+        _restoreJobFromAcceptRollback(_preSave, _rollbackSnap);
+        saveJobStore();
+        if (_cid) {
+          await _removeDriverQueueFirebase(_cid, driverId, bookingId).catch(() => {});
+        }
+        console.warn(`  [${source}] job #${bookingId} queue rollback: ${e && e.message}`);
+        return {
+          ok: false,
+          error_code: 'queue_write_failed',
+          error: (e && e.message) || 'Firebase queue write failed',
+        };
+      }
+
+      console.log(`  [${source}] job #${bookingId} → Queued for busy driver ${driverId}`);
+      if (_cid) {
+        await _dispatchRefreshForJob(_preSave, {
+          cid: _cid,
+          previousStatus: _liveSt,
+          status: 'Queued',
+          action: 'queue',
+          driverId,
+        });
+        await _syncDriverJobCount(_cid, driverId, source);
+      }
+      return { ok: true, status: 'Queued', queued: true, driverId, booking: _publicBooking(_preSave) };
     }
+
+    const assignRes = await assignBooking({
+      bookingId, driverId, vehicleId, by: 'driver', manualOffer: false, source
+    });
+    if (!assignRes.ok) return assignRes;
+    const acceptRes = await acceptBooking({ bookingId, driverId, by: 'driver', source });
+    if (!acceptRes.ok) return acceptRes;
+    if (_cid && driverId) {
+      try {
+        const tok = await getFirebaseServerToken();
+        if (tok) {
+          await firebaseDbSet(`notification/${driverId}`, {
+            bookingId,
+            content: 'Assigned',
+            eventType: 'assigned',
+            updatedAt: _FB_SERVER_TIMESTAMP,
+          }, tok).catch(() => {});
+          // Fanout (allbookings + jobs/) must land before pendingjobs DELETE — otherwise
+          // dispatch loses the job on Assign until the next full allbookings snapshot.
+          await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
+        }
+      } catch (e) {
+        console.warn(`  [${source}] accept notification/pendingjobs cleanup failed: ${e && e.message}`);
+      }
+    }
+    return Object.assign({}, acceptRes, { queued: false });
+  } finally {
+    _ACCEPT_IN_FLIGHT.delete(_acceptKey);
   }
-  return Object.assign({}, acceptRes, { queued: false });
 }
 
 // Driver recall — restore to Pending (broadcast) or No One (dispatcher-only) based on originalStatus.
@@ -4404,6 +4534,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
   const autoDispatch = _analyzeAutoDispatchForJob(job, cid);
   const driverAvailability = cid ? await _buildAdminDriverStatusReport(cid, {}) : null;
   const staleOfferAssessment = _assessStaleOfferFields(job, fb, poolTrace);
+  const splitBrainDiagnosis = _detectJobStoreFirebaseSplitBrain(job, fb);
   const staleClosedMatches = closedJobStore.filter(j => j && j.Id === bid);
   const closedStoreDiagnosis = {
     staleClosedEntryCount: staleClosedMatches.length,
@@ -4447,6 +4578,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     autoDispatch,
     driverAvailability,
     staleOfferAssessment,
+    splitBrainDiagnosis,
     closedStoreDiagnosis,
     dispatchUiHint: {
       expectedTab: job ? (String(job.BookingStatus) === 'Offered' ? 'offer'
@@ -4461,6 +4593,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
       jobStoreVsAllbookingsMismatch: job && fb.allbookings ? (
         String(job.BookingStatus || '') !== String(fb.allbookings.BookingStatus || fb.allbookings.Status || '')
       ) : null,
+      splitBrainOrphan: splitBrainDiagnosis.detected || false,
       jobStoreVsPendingMismatch: job && fb.pendingjobs ? (
         String(job.BookingStatus || '') !== String(fb.pendingjobs.BookingStatus || fb.pendingjobs.Status || '')
       ) : null,
@@ -4846,6 +4979,40 @@ function _assertJobPoolConsistency(job, bookingId, source) {
   if (drv) {
     console.error(`  [${source}] §FIX-UB INVARIANT: job #${bookingId} is ${st} but still has DriverId=${drv}`);
   }
+}
+
+/** jobStore attached + Firebase pool — split-brain from accept/recall race. */
+function _detectJobStoreFirebaseSplitBrain(job, fb) {
+  if (!job || !fb || typeof fb !== 'object') {
+    return { detected: false, pattern: null };
+  }
+  const jsSt = String(job.BookingStatus || '');
+  const fbAb = fb.allbookings && typeof fb.allbookings === 'object' ? fb.allbookings : null;
+  const fbPj = fb.pendingjobs && typeof fb.pendingjobs === 'object' ? fb.pendingjobs : null;
+  const fbRec = fbAb || fbPj;
+  if (!fbRec) return { detected: false, pattern: null };
+
+  const fbSt = String(fbRec.BookingStatus || fbRec.Status || '').trim();
+  const jsDrv = _attachedDriverIdFromJob(job);
+  const fbDrv = _attachedDriverIdFromJob(fbRec);
+  const jsAttached = new Set(['Queued', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Offered']);
+  const fbPool = fbSt === 'Pending' || fbSt === 'No One' || fbSt === 'Scheduled';
+
+  if (jsAttached.has(jsSt) && jsDrv && fbPool && !fbDrv) {
+    return {
+      detected: true,
+      pattern: 'attached_jobStore_pool_firebase',
+      jobStoreStatus: jsSt,
+      firebaseStatus: fbSt,
+      jobStoreDriverId: jsDrv,
+      firebaseDriverId: fbDrv || null,
+      firebaseSource: fbAb ? 'allbookings' : 'pendingjobs',
+      hint:
+        'jobStore shows driver-attached status but Firebase is back in U-A pool — ' +
+        'typical accept/recall race orphan; use POST /admin/repairBooking action=pending',
+    };
+  }
+  return { detected: false, pattern: null };
 }
 
 /** Strip status/driver mutations on live assigned jobs unless timing mode actually changed. */
@@ -5808,6 +5975,56 @@ async function repairBookingFirebaseSync(opts) {
       source: `${source}/${action}`,
     });
     return { ok: !!ub.ok, action, booking: _publicBooking(jobStore.find(j => j && j.Id === bookingId) || job), ...ub };
+  }
+
+  // Repair orphan: jobStore attached (Queued/Assigned/…) but should be U-A pool.
+  if (action === 'pending' || action === 'pool') {
+    const prevSt = job.BookingStatus || '';
+    const drvId = _normJobDriverId(job.DriverId) || String(job.DriverId || '').trim();
+    const vehId = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+    const restored = 'Pending';
+    _applyPoolStatusFields(job, restored);
+    delete job._origStatus;
+    delete job.queuedAt;
+    job.returnReason = opts.reason || job.returnReason || 'Admin pool repair';
+    _bumpJobUpdateSeq(job, 'admin');
+    saveJobStore();
+
+    await executeJobCleanup({
+      profile: 'pool_restore',
+      bookingId,
+      companyId: cid,
+      source: `${source}/${action}`,
+      driverId: drvId,
+      vehicleId: vehId,
+      job,
+      poolStatus: restored,
+      writePendingJob: true,
+      removeDriverQueue: prevSt === 'Queued',
+      consoleRefresh: {
+        bookingId,
+        action: 'recall',
+        status: restored,
+        driverId: drvId || '0',
+      },
+    });
+
+    const seq = parseInt(job.updateSeq) || 0;
+    await _fanVersionToFirebaseAwait(cid, bookingId, {
+      BookingStatus: restored,
+      Status:        restored,
+      DriverId:      '0',
+      VehicleId:     '0',
+      AssignedDriver: '',
+      AssignedDriverId: '',
+      updateSeq:     seq,
+      _seq:          seq,
+      version:       seq,
+      eventType:     'updated',
+    }, false);
+
+    console.log(`  [${source}] repaired orphan #${bookingId} (was ${prevSt}, driver=${drvId || 'none'}) → Pending`);
+    return { ok: true, action: 'pending', previousStatus: prevSt, booking: _publicBooking(job) };
   }
 
   const seq = parseInt(job.updateSeq) || 0;
@@ -8757,8 +8974,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // POST /admin/repairBooking — sync Firebase pending+allbookings from jobStore, or force No One
-    // body: { bookingId, action?: 'sync'|'no_one' }
+    // POST /admin/repairBooking — sync Firebase from jobStore, force No One, or repair pool orphan
+    // body: { bookingId, companyId?, action?: 'sync'|'no_one'|'pending' }
     if (urlPath === '/admin/repairBooking' && req.method === 'POST') {
       try {
         const body = await readBody(req);
