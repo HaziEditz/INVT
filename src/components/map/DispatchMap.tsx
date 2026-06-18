@@ -69,6 +69,7 @@ export function DispatchMap({
   const zonePolysRef = useRef<google.maps.Polygon[]>([]);
   const zonesDataRef = useRef<CompanyZone[]>([]);
   const zonesLoadGenRef = useRef(0);
+  const preZonesViewRef = useRef<{ center: google.maps.LatLngLiteral; zoom: number } | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [zonesEmpty, setZonesEmpty] = useState(false);
@@ -490,10 +491,18 @@ export function DispatchMap({
     }
     setZonesEmpty(drew === 0);
     if (drew > 0 && gMapRef.current) {
-      gMapRef.current.fitBounds(bounds, 56);
-      google.maps.event.addListenerOnce(gMapRef.current, 'bounds_changed', () => {
-        const z = gMapRef.current?.getZoom();
-        if (z != null && z > 14) gMapRef.current?.setZoom(14);
+      const map = gMapRef.current;
+      if (!preZonesViewRef.current) {
+        const c = map.getCenter();
+        const z = map.getZoom();
+        if (c && z != null) {
+          preZonesViewRef.current = { center: { lat: c.lat(), lng: c.lng() }, zoom: z };
+        }
+      }
+      map.fitBounds(bounds, 56);
+      google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+        const z = map.getZoom();
+        if (z != null && z > 14) map.setZoom(14);
       });
     }
     if (import.meta.env.DEV) {
@@ -530,12 +539,20 @@ export function DispatchMap({
 
   // Zones toolbar toggle — show/hide polygons without discarding loaded data.
   useEffect(() => {
-    if (!mapReady) return;
-    if (mapZones) drawZonePolygons(zonesDataRef.current);
-    else {
+    if (!mapReady || !gMapRef.current) return;
+    const map = gMapRef.current;
+    if (mapZones) {
+      drawZonePolygons(zonesDataRef.current);
+    } else {
       zonePolysRef.current.forEach((p) => p.setMap(null));
       zonePolysRef.current = [];
       setZonesEmpty(false);
+      const saved = preZonesViewRef.current;
+      if (saved) {
+        map.setCenter(saved.center);
+        map.setZoom(saved.zoom);
+        preZonesViewRef.current = null;
+      }
     }
   }, [mapZones, mapReady, drawZonePolygons]);
 
