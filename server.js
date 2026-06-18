@@ -917,17 +917,31 @@ async function firebaseDbPush(path, value, idToken) {
 }
 
 /** Mirror zone queue to online/{cid}/{vid} when driver goes Available (incl. shift start). */
-function syncZonequeueToFirebase(companyId, vehicleId, queueNo, zonename, source) {
+function syncZonequeueToFirebase(companyId, vehicleId, queueNo, zonename, source, extras) {
   if (!companyId || !vehicleId || !queueNo) return;
   const _src = source || 'syncZonequeue';
+  const _extras = extras && typeof extras === 'object' ? extras : {};
   void (async () => {
     try {
       const tok = await getFirebaseServerToken();
       if (!tok) return;
-      const topPatch = { zonequeue: queueNo, queueWaitSince: Date.now() };
-      if (zonename) topPatch.zonename = zonename;
+      const topPatch = {
+        zonequeue: queueNo,
+        queueWaitSince: _extras.queueWaitSince || Date.now(),
+      };
+      if (zonename) {
+        topPatch.zonename = zonename;
+        topPatch.zoneName = zonename;
+      }
+      if (_extras.zoneId) topPatch.zoneid = _extras.zoneId;
+      if (_extras.zoneNumber) topPatch.zoneNumber = _extras.zoneNumber;
       await firebaseDbPatch(`online/${companyId}/${vehicleId}`, topPatch, tok);
-      await firebaseDbPatch(`online/${companyId}/${vehicleId}/current`, { zonequeue: queueNo }, tok)
+      const curPatch = { zonequeue: queueNo };
+      if (zonename) {
+        curPatch.zonename = zonename;
+        curPatch.zoneName = zonename;
+      }
+      await firebaseDbPatch(`online/${companyId}/${vehicleId}/current`, curPatch, tok)
         .catch(() => undefined);
       console.log(`  [${_src}] Firebase zonequeue=${queueNo} → online/${companyId}/${vehicleId}`);
     } catch (e) {
@@ -2022,6 +2036,7 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
     } catch(e) { console.warn(`  [${_src}] online mirror failed: ${e && e.message}`); }
   }
   console.log(`  [${_src}] §FIX-CB driver ${driverId} → Available q=${_q} zone="${zd.zonename}" (no remaining assignments)`);
+  if (companyId) applyZoneQueueSyncForDriver(companyId, driverId, vehId, `${_src}/Available`);
   return { driverFreed: true, driverState: 'Available', queueNo: _q };
 }
 
@@ -7362,6 +7377,171 @@ function calcRestoredQueue(driverId, currentZone) {
   }
 }
 
+// ─── Authoritative zone queue store (zoneQueues/{cid}/{zoneId}) ─────────────
+// Stable key is zoneId (Firebase zones/{cid} node key), not zone name.
+// zoneName is display metadata only — safe to update when Owner Panel renames a zone.
+
+const ZONE_QUEUES = {}; // cid → zoneId → { zoneName, zoneNumber, order[], updatedAt }
+
+function _zoneQueueStore(cid) {
+  const c = String(cid || '').trim();
+  if (!c) return null;
+  if (!ZONE_QUEUES[c]) ZONE_QUEUES[c] = {};
+  return ZONE_QUEUES[c];
+}
+
+function _driverQueueId(d) {
+  return String(d && (d.driverid || d.DriverId || d.VehicleId) || '').trim();
+}
+
+function _driverMatchesZone(d, zoneId, zoneName) {
+  const zid = String(zoneId || '').trim().toLowerCase();
+  const znm = String(zoneName || '').trim().toLowerCase();
+  const dZid = String(d.zoneid || '').trim().toLowerCase();
+  const dZnm = String(d.zonename || '').trim().toLowerCase();
+  if (zid && dZid) return dZid === zid;
+  if (znm && dZnm) return dZnm === znm;
+  return false;
+}
+
+function _availableDriversInZone(cid, zoneId, zoneName) {
+  return ZONE_DRIVERS.filter(d => {
+    if (cid && d.companyId && String(d.companyId) !== String(cid)) return false;
+    if (String(d.vehiclestatus || '') !== 'Available') return false;
+    return _driverMatchesZone(d, zoneId, zoneName);
+  }).sort((a, b) => {
+    const qa = parseInt(a.zonequeue) || 9999;
+    const qb = parseInt(b.zonequeue) || 9999;
+    if (qa !== qb) return qa - qb;
+    return (Number(a.queueWaitSince) || 0) - (Number(b.queueWaitSince) || 0);
+  });
+}
+
+async function _persistZoneQueueRecord(cid, zoneId, record, source) {
+  if (!cid || !zoneId || !record) return;
+  const _src = source || 'zoneQueue';
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    await firebaseDbSet(`zoneQueues/${cid}/${zoneId}`, {
+      zoneName: record.zoneName || '',
+      zoneNumber: record.zoneNumber || 0,
+      order: Array.isArray(record.order) ? record.order : [],
+      updatedAt: record.updatedAt || Date.now(),
+    }, tok);
+    console.log(`  [${_src}] zoneQueues/${cid}/${zoneId} order=[${(record.order || []).join(',')}]`);
+  } catch (e) {
+    console.warn(`  [${_src}] zoneQueues write failed:`, e && e.message);
+  }
+}
+
+function rebuildAndPersistZoneQueue(cid, zoneId, zoneName, zoneNumber, source) {
+  const c = String(cid || '').trim();
+  const zid = String(zoneId || '').trim();
+  if (!c || !zid) return null;
+
+  const drivers = _availableDriversInZone(c, zid, zoneName);
+  const now = Date.now();
+  const order = [];
+  drivers.forEach((d, i) => {
+    const pos = i + 1;
+    const did = _driverQueueId(d);
+    if (!did) return;
+    order.push(did);
+    const prevQ = parseInt(d.zonequeue) || 0;
+    d.zonequeue = pos;
+    if (pos !== prevQ || !d.queueWaitSince) d.queueWaitSince = now;
+    if (zoneName && !d.zonename) d.zonename = zoneName;
+    if (zid && !d.zoneid) d.zoneid = zid;
+    const vid = d.VehicleId || d.vehiclenumber || did;
+    syncZonequeueToFirebase(c, vid, pos, zoneName || d.zonename || '', source || 'rebuildZoneQueue', {
+      zoneId: zid,
+      zoneNumber: zoneNumber || d.zoneNumber || 0,
+      queueWaitSince: d.queueWaitSince,
+    });
+  });
+
+  const store = _zoneQueueStore(c);
+  const prev = store[zid] || {};
+  const record = {
+    zoneName: zoneName || prev.zoneName || '',
+    zoneNumber: zoneNumber || prev.zoneNumber || 0,
+    order,
+    updatedAt: now,
+  };
+  store[zid] = record;
+  void _persistZoneQueueRecord(c, zid, record, source);
+  return record;
+}
+
+function updateZoneQueueDisplayName(cid, zoneId, zoneName, zoneNumber) {
+  const store = _zoneQueueStore(cid);
+  const zid = String(zoneId || '').trim();
+  if (!store || !zid) return;
+  const rec = store[zid];
+  if (!rec) return;
+  rec.zoneName = zoneName || rec.zoneName;
+  if (zoneNumber) rec.zoneNumber = zoneNumber;
+  rec.updatedAt = Date.now();
+  void _persistZoneQueueRecord(cid, zid, rec, 'updateZoneDisplayName');
+}
+
+function applyZoneQueueSyncForDriver(companyId, driverId, vehicleId, source) {
+  const cid = String(companyId || '').trim();
+  const did = String(driverId || '').trim();
+  if (!cid || !did) return null;
+  const zd = ZONE_DRIVERS.find(d =>
+    String(d.driverid) === did ||
+    String(d.VehicleId) === did ||
+    (vehicleId && String(d.VehicleId) === String(vehicleId)));
+  if (!zd) return null;
+
+  const status = String(zd.vehiclestatus || '');
+  const zoneId = String(zd.zoneid || '').trim();
+  const zoneName = String(zd.zonename || '').trim();
+
+  if (status !== 'Available') {
+    if (zoneId) rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source || 'leftZoneQueue');
+    return null;
+  }
+
+  if (!zoneId) {
+    const vid = vehicleId || zd.VehicleId || zd.vehiclenumber || did;
+    syncZonequeueToFirebase(cid, vid, zd.zonequeue, zoneName, source || 'zoneQueueNoId');
+    console.warn(`  [${source || 'zoneQueue'}] driver ${did} Available without zoneid — zoneQueues/${cid} skipped`);
+    return null;
+  }
+
+  return rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source);
+}
+
+async function hydrateZoneQueuesFromFirebase() {
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const all = await firebaseDbGet('zoneQueues', tok);
+    if (!all || typeof all !== 'object') return;
+    let count = 0;
+    for (const [cid, zones] of Object.entries(all)) {
+      if (!zones || typeof zones !== 'object') continue;
+      ZONE_QUEUES[cid] = ZONE_QUEUES[cid] || {};
+      for (const [zoneId, rec] of Object.entries(zones)) {
+        if (!rec || typeof rec !== 'object') continue;
+        ZONE_QUEUES[cid][zoneId] = {
+          zoneName: rec.zoneName || '',
+          zoneNumber: rec.zoneNumber || 0,
+          order: Array.isArray(rec.order) ? rec.order.slice() : [],
+          updatedAt: rec.updatedAt || 0,
+        };
+        count++;
+      }
+    }
+    if (count) console.log(`[zoneQueues] hydrated ${count} zone queue record(s) from Firebase`);
+  } catch (e) {
+    console.warn('[zoneQueues] hydrate failed:', e && e.message);
+  }
+}
+
 function _isCoordLikeAddress(s) {
   if (typeof s !== 'string') return true;
   const t = s.trim();
@@ -9124,6 +9304,7 @@ const server = http.createServer(async (req, res) => {
       testJobs:        jobStore.filter(j => j._isLoadTest).length,
       awayLocked:      Object.keys(AWAY_LOCKED).length,
       zoneMemory:      Object.keys(DRIVER_ZONE_MEMORY).length,
+      zoneQueues:      Object.values(ZONE_QUEUES).reduce((n, z) => n + Object.keys(z).length, 0),
     }));
     return;
   }
@@ -13357,6 +13538,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zdSync.vehiclestatus = newStatus;
               if (lat) zdSync.lat = lat;
               if (lng) zdSync.lng = lng;
+              if (sessionCompanyId) applyZoneQueueSyncForDriver(sessionCompanyId, driverId, vehiclenumber, 'DriverStatusChanged/DP-busy');
             } else {
               // Driver not in ZONE_DRIVERS — server was restarted during their trip.
               // Add them now so dt6 includes them and the ghost sweep doesn't delete
@@ -13754,9 +13936,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               // Apply new zone if client sent one (GPS-detected zone change)
               const incomingZone = zonename || '';
               if (incomingZone && incomingZone !== zdAvail.zonename) {
+                const _prevZid = String(zdAvail.zoneid || '').trim();
+                const _prevZname = zdAvail.zonename || '';
                 console.log(`  [DriverStatusChanged/DP] driver ${driverId} zone change ${zdAvail.zonename} → ${incomingZone}`);
                 zdAvail.zonename = incomingZone;
                 if (param('zoneid')) zdAvail.zoneid = (param('zoneid') || '').toString().trim();
+                if (_prevZid && sessionCompanyId) {
+                  rebuildAndPersistZoneQueue(sessionCompanyId, _prevZid, _prevZname, 0, 'DriverStatusChanged/DP-leftZone');
+                }
               }
               const currentZone = zdAvail.zonename || '';
               _dscQueueNo = calcRestoredQueue(driverId, currentZone);
@@ -13798,11 +13985,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
         }
         if (_dscQueueNo && newStatus === 'Available' && sessionCompanyId) {
-          syncZonequeueToFirebase(
+          applyZoneQueueSyncForDriver(
             sessionCompanyId,
+            driverId,
             vehiclenumber || driverId,
-            _dscQueueNo,
-            zonename,
             'DriverStatusChanged/DP',
           );
         }
@@ -15468,6 +15654,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zdSyncDS.vehiclestatus = newStatus;
               if (lat) zdSyncDS.lat = lat;
               if (lng) zdSyncDS.lng = lng;
+              if (sessionCompanyId) applyZoneQueueSyncForDriver(sessionCompanyId, driverId, vehiclenumber, 'DriverStatusChanged/DS-busy');
             } else {
               // Driver not in ZONE_DRIVERS — server restarted during their trip.
               // Add them now so dt6 always includes them and ghost sweep never fires.
@@ -15794,9 +15981,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               // Apply new zone if client sent one (GPS-detected zone change)
               const incomingZoneDS = zonenameDS || '';
               if (incomingZoneDS && incomingZoneDS !== zdAvailDS.zonename) {
+                const _prevZidDS = String(zdAvailDS.zoneid || '').trim();
+                const _prevZnameDS = zdAvailDS.zonename || '';
                 console.log(`  [DriverStatusChanged/DS] driver ${driverId} zone change ${zdAvailDS.zonename} → ${incomingZoneDS}`);
                 zdAvailDS.zonename = incomingZoneDS;
                 if (param('zoneid')) zdAvailDS.zoneid = (param('zoneid') || '').toString().trim();
+                if (_prevZidDS && sessionCompanyId) {
+                  rebuildAndPersistZoneQueue(sessionCompanyId, _prevZidDS, _prevZnameDS, 0, 'DriverStatusChanged/DS-leftZone');
+                }
               }
               // Driver app sometimes omits zonename on heartbeats — restore from
               // the disk-saved assignment so the zone column doesn't go blank.
@@ -15849,11 +16041,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
         }
         if (_dssQueueNo && newStatus === 'Available' && sessionCompanyId) {
-          syncZonequeueToFirebase(
+          applyZoneQueueSyncForDriver(
             sessionCompanyId,
+            driverId,
             vehiclenumber || driverId,
-            _dssQueueNo,
-            zonenameDS,
             'DriverStatusChanged/DS',
           );
         }
@@ -17263,6 +17454,7 @@ server.listen(PORT, HOST, () => {
   _seedZoneDriversFromFirebase();
   _syncBizAccountsFromFirebase();
   setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
+  setTimeout(() => { hydrateZoneQueuesFromFirebase().catch(e => console.warn('[zoneQueues] boot hydrate failed:', e && e.message)); }, 9000);
   setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
   setInterval(() => {
     _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
