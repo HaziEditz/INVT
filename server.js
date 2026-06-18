@@ -950,6 +950,28 @@ function syncZonequeueToFirebase(companyId, vehicleId, queueNo, zonename, source
   })();
 }
 
+/** Remove queue position from presence when driver leaves Available (Busy/Away/etc.). */
+function clearZonequeueOnFirebase(companyId, vehicleId, source) {
+  if (!companyId || !vehicleId) return;
+  const _src = source || 'clearZonequeue';
+  void (async () => {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (!tok) return;
+      await firebaseDbPatch(`online/${companyId}/${vehicleId}`, { zonequeue: 0 }, tok);
+      await firebaseDbPatch(`online/${companyId}/${vehicleId}/current`, { zonequeue: 0 }, tok)
+        .catch(() => undefined);
+      console.log(`  [${_src}] Firebase zonequeue cleared → online/${companyId}/${vehicleId}`);
+    } catch (e) {
+      console.warn(`  [${_src}] Firebase zonequeue clear failed:`, e && e.message);
+    }
+  })();
+}
+
+function _isAvailableForZoneQueue(status) {
+  return String(status || '').trim() === 'Available';
+}
+
 // ── Firebase cleanup on terminal job state ─────────────────────────────────
 // When a job reaches a terminal state (Completed / Cancelled / Closed) we MUST
 // clear every Firebase path that could resurrect it, otherwise:
@@ -7564,13 +7586,20 @@ function _driverMatchesZone(d, zoneId, zoneName) {
 function _availableDriversInZone(cid, zoneId, zoneName) {
   return ZONE_DRIVERS.filter(d => {
     if (cid && d.companyId && String(d.companyId) !== String(cid)) return false;
-    if (String(d.vehiclestatus || '') !== 'Available') return false;
+    if (!_isAvailableForZoneQueue(d.vehiclestatus)) return false;
     return _driverMatchesZone(d, zoneId, zoneName);
   }).sort((a, b) => {
     const qa = parseInt(a.zonequeue) || 9999;
     const qb = parseInt(b.zonequeue) || 9999;
     if (qa !== qb) return qa - qb;
     return (Number(a.queueWaitSince) || 0) - (Number(b.queueWaitSince) || 0);
+  });
+}
+
+function _driversInZone(cid, zoneId, zoneName) {
+  return ZONE_DRIVERS.filter(d => {
+    if (cid && d.companyId && String(d.companyId) !== String(cid)) return false;
+    return _driverMatchesZone(d, zoneId, zoneName);
   });
 }
 
@@ -7618,6 +7647,13 @@ function rebuildAndPersistZoneQueue(cid, zoneId, zoneName, zoneNumber, source) {
     });
   });
 
+  for (const d of _driversInZone(c, zid, zoneName)) {
+    if (_isAvailableForZoneQueue(d.vehiclestatus)) continue;
+    d.zonequeue = 0;
+    const vid = _onlinePresenceVehicleId(d, null);
+    if (vid) clearZonequeueOnFirebase(c, vid, source || 'rebuildZoneQueue-clear');
+  }
+
   const store = _zoneQueueStore(c);
   const prev = store[zid] || {};
   const record = {
@@ -7661,6 +7697,8 @@ function applyZoneQueueSyncForDriver(companyId, driverId, vehicleId, source) {
     const vid = _onlinePresenceVehicleId(zd, vehicleId);
 
     if (status !== 'Available') {
+      zd.zonequeue = 0;
+      if (vid) clearZonequeueOnFirebase(cid, vid, source || 'leftZoneQueue');
       if (zoneId) rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source || 'leftZoneQueue');
       return null;
     }
@@ -7683,18 +7721,23 @@ async function reconcileZoneQueuesForCompany(cid, source) {
   const seenZones = new Set();
   for (const d of ZONE_DRIVERS) {
     if (String(d.companyId || '') !== c) continue;
-    if (String(d.vehiclestatus || '') !== 'Available') continue;
-    if (!d.zonename && !d.zoneid) continue;
-    await _resolveDriverZoneId(c, d);
-    const zid = String(d.zoneid || '').trim();
-    if (!zid) {
-      const vid = _onlinePresenceVehicleId(d, null);
-      if (d.zonequeue && vid) {
-        syncZonequeueToFirebase(c, vid, d.zonequeue, d.zonename || '', source || 'reconcileZoneQueues');
+    if (_isAvailableForZoneQueue(d.vehiclestatus)) {
+      if (!d.zonename && !d.zoneid) continue;
+      await _resolveDriverZoneId(c, d);
+      const zid = String(d.zoneid || '').trim();
+      if (!zid) {
+        const vid = _onlinePresenceVehicleId(d, null);
+        if (d.zonequeue && vid) {
+          syncZonequeueToFirebase(c, vid, d.zonequeue, d.zonename || '', source || 'reconcileZoneQueues');
+        }
+        continue;
       }
-      continue;
+      seenZones.add(zid);
+    } else if (d.zonequeue || d.zonename || d.zoneid) {
+      d.zonequeue = 0;
+      const vid = _onlinePresenceVehicleId(d, null);
+      if (vid) clearZonequeueOnFirebase(c, vid, source || 'reconcileZoneQueues-clear');
     }
-    seenZones.add(zid);
   }
   for (const zid of seenZones) {
     const meta = (_COMPANY_ZONES_CACHE[c] && _COMPANY_ZONES_CACHE[c].byId[zid]) || {};

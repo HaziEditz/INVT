@@ -335,3 +335,26 @@ export function statusColor(status: DriverStatus): string {
     default: return '#64748b';
   }
 }
+
+/** Only Available drivers receive a numbered slot in the zone queue. */
+export function isZoneQueueRanked(status: string): boolean {
+  return String(status || '').trim() === 'Available';
+}
+
+const ZONE_QUEUE_INACTIVE = new Set<DriverStatus>([
+  'Away',
+  'Busy',
+  'Active',
+  'OnTrip',
+  'Picking',
+  'Assigned',
+  'Arrived',
+  'Offered',
+  'Clearing',
+]);
+
+export function isZoneQueueInactive(status: string): boolean {
+  const s = String(status || '').trim() as DriverStatus;
+  if (isZoneQueueRanked(s)) return false;
+  return ZONE_QUEUE_INACTIVE.has(s) || s === 'Suspended';
+}

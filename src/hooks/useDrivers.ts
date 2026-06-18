@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { getDb, ref, onValue } from '@/lib/firebase';
 import { useDriverStore } from '@/store/driverStore';
-import { driverFromFirebase, isGhostOnlineNode, isLoggedOutOnlineNode } from '@/types/driver';
+import {
+  driverFromFirebase,
+  isGhostOnlineNode,
+  isLoggedOutOnlineNode,
+  isZoneQueueInactive,
+  isZoneQueueRanked,
+} from '@/types/driver';
 import { findZoneAtCoords, subscribeCompanyZones, type CompanyZone } from '@/lib/companyZones';
 
 export type ZoneQueueDriver = {
@@ -9,6 +15,11 @@ export type ZoneQueueDriver = {
   driverId: string;
   status: string;
   queue: number;
+};
+
+export type ZoneQueueZoneData = {
+  ranked: ZoneQueueDriver[];
+  inactive: ZoneQueueDriver[];
 };
 
 export function useDrivers(companyId: string | null) {
@@ -66,25 +77,35 @@ function resolveDriverZoneName(
   return hit?.name ?? '';
 }
 
+function partitionZoneDrivers(drivers: ZoneQueueDriver[]): ZoneQueueZoneData {
+  const ranked: ZoneQueueDriver[] = [];
+  const inactive: ZoneQueueDriver[] = [];
+  for (const d of drivers) {
+    if (isZoneQueueRanked(d.status)) ranked.push(d);
+    else if (isZoneQueueInactive(d.status)) inactive.push({ ...d, queue: 0 });
+  }
+  ranked.sort((a, b) => a.queue - b.queue || a.vehicleNo.localeCompare(b.vehicleNo));
+  inactive.sort((a, b) => a.vehicleNo.localeCompare(b.vehicleNo));
+  return { ranked, inactive };
+}
+
 function mergeQueueWithConfiguredZones(
   configured: CompanyZone[],
   live: Record<string, ZoneQueueDriver[]>,
-): Record<string, ZoneQueueDriver[]> {
-  const merged: Record<string, ZoneQueueDriver[]> = {};
-  for (const z of configured) {
-    merged[z.name] = live[z.name] ? [...live[z.name]] : [];
-  }
-  for (const [name, drivers] of Object.entries(live)) {
-    if (!merged[name]) merged[name] = [...drivers];
-  }
-  for (const z of Object.keys(merged)) {
-    merged[z].sort((a, b) => a.queue - b.queue);
+): Record<string, ZoneQueueZoneData> {
+  const merged: Record<string, ZoneQueueZoneData> = {};
+  const names = new Set<string>();
+  for (const z of configured) names.add(z.name);
+  for (const name of Object.keys(live)) names.add(name);
+
+  for (const name of names) {
+    merged[name] = partitionZoneDrivers(live[name] ?? []);
   }
   return merged;
 }
 
 export function useDriverQueue(companyId: string | null) {
-  const [queueByZone, setQueueByZone] = useState<Record<string, ZoneQueueDriver[]>>({});
+  const [queueByZone, setQueueByZone] = useState<Record<string, ZoneQueueZoneData>>({});
   const [configuredZones, setConfiguredZones] = useState<CompanyZone[]>([]);
   const configuredRef = useRef<CompanyZone[]>([]);
   const liveRef = useRef<Record<string, ZoneQueueDriver[]>>({});
@@ -118,13 +139,13 @@ export function useDriverQueue(companyId: string | null) {
           if (!zone) continue;
           const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
           const qRaw = rec.zonequeue ?? current.zonequeue ?? rec.zoneQueue ?? current.zoneQueue;
-          const q = qRaw != null ? Number(qRaw) : 999;
+          const q = isZoneQueueRanked(status) && qRaw != null ? Number(qRaw) : 0;
           if (!live[zone]) live[zone] = [];
           live[zone].push({
             vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vid),
             driverId: String(rec.driverid ?? rec.driverId ?? ''),
             status,
-            queue: Number.isFinite(q) ? q : 999,
+            queue: Number.isFinite(q) && q > 0 ? q : isZoneQueueRanked(status) ? 999 : 0,
           });
         }
       }
