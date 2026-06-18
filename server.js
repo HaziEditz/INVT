@@ -7382,6 +7382,65 @@ function calcRestoredQueue(driverId, currentZone) {
 // zoneName is display metadata only — safe to update when Owner Panel renames a zone.
 
 const ZONE_QUEUES = {}; // cid → zoneId → { zoneName, zoneNumber, order[], updatedAt }
+const _COMPANY_ZONES_CACHE = {}; // cid → { loadedAt, byId, byName }
+
+function _onlinePresenceVehicleId(zd, vehicleIdHint) {
+  return String(
+    (zd && (zd.VehicleId || zd.vehiclenumber)) ||
+    vehicleIdHint ||
+    (zd && zd.driverid) ||
+    '',
+  ).trim();
+}
+
+async function _getCompanyZonesIndex(cid) {
+  const c = String(cid || '').trim();
+  if (!c) return null;
+  const cached = _COMPANY_ZONES_CACHE[c];
+  if (cached && Date.now() - cached.loadedAt < 5 * 60 * 1000) return cached;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return cached || null;
+    const raw = await firebaseDbGet(`zones/${c}`, tok);
+    const byId = {};
+    const byName = {};
+    if (raw && typeof raw === 'object') {
+      for (const [zoneId, node] of Object.entries(raw)) {
+        if (!node || typeof node !== 'object') continue;
+        const name = String(node.name || node.zoneName || node.zonename || '').trim();
+        const zoneNumber = parseInt(node.zoneNumber || node.number || zoneId, 10) || 0;
+        byId[zoneId] = { zoneId, zoneName: name, zoneNumber, active: node.active !== false };
+        if (name) byName[name.toLowerCase()] = zoneId;
+      }
+    }
+    _COMPANY_ZONES_CACHE[c] = { loadedAt: Date.now(), byId, byName };
+    return _COMPANY_ZONES_CACHE[c];
+  } catch (e) {
+    console.warn(`[zoneQueues] zones/${c} index load failed:`, e && e.message);
+    return cached || null;
+  }
+}
+
+async function _resolveDriverZoneId(cid, zd) {
+  if (!zd) return '';
+  let zid = String(zd.zoneid || zd.zoneId || '').trim();
+  if (zid) return zid;
+  const zname = String(zd.zonename || zd.zoneName || '').trim().toLowerCase();
+  if (!zname) return '';
+  const idx = await _getCompanyZonesIndex(cid);
+  if (idx && idx.byName[zname]) {
+    zid = idx.byName[zname];
+    zd.zoneid = zid;
+    const meta = idx.byId[zid];
+    if (meta && meta.zoneNumber) zd.zoneNumber = meta.zoneNumber;
+    return zid;
+  }
+  return '';
+}
+
+function _zoneQueueCount() {
+  return Object.values(ZONE_QUEUES).reduce((n, z) => n + Object.keys(z).length, 0);
+}
 
 function _zoneQueueStore(cid) {
   const c = String(cid || '').trim();
@@ -7453,7 +7512,7 @@ function rebuildAndPersistZoneQueue(cid, zoneId, zoneName, zoneNumber, source) {
     if (pos !== prevQ || !d.queueWaitSince) d.queueWaitSince = now;
     if (zoneName && !d.zonename) d.zonename = zoneName;
     if (zid && !d.zoneid) d.zoneid = zid;
-    const vid = d.VehicleId || d.vehiclenumber || did;
+    const vid = _onlinePresenceVehicleId(d, null);
     syncZonequeueToFirebase(c, vid, pos, zoneName || d.zonename || '', source || 'rebuildZoneQueue', {
       zoneId: zid,
       zoneNumber: zoneNumber || d.zoneNumber || 0,
@@ -7489,30 +7548,78 @@ function updateZoneQueueDisplayName(cid, zoneId, zoneName, zoneNumber) {
 function applyZoneQueueSyncForDriver(companyId, driverId, vehicleId, source) {
   const cid = String(companyId || '').trim();
   const did = String(driverId || '').trim();
-  if (!cid || !did) return null;
+  if (!cid || !did) return Promise.resolve(null);
   const zd = ZONE_DRIVERS.find(d =>
     String(d.driverid) === did ||
     String(d.VehicleId) === did ||
     (vehicleId && String(d.VehicleId) === String(vehicleId)));
-  if (!zd) return null;
+  if (!zd) return Promise.resolve(null);
 
-  const status = String(zd.vehiclestatus || '');
-  const zoneId = String(zd.zoneid || '').trim();
-  const zoneName = String(zd.zonename || '').trim();
+  return (async () => {
+    const status = String(zd.vehiclestatus || '');
+    await _resolveDriverZoneId(cid, zd);
+    const zoneId = String(zd.zoneid || '').trim();
+    const zoneName = String(zd.zonename || '').trim();
+    const vid = _onlinePresenceVehicleId(zd, vehicleId);
 
-  if (status !== 'Available') {
-    if (zoneId) rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source || 'leftZoneQueue');
-    return null;
+    if (status !== 'Available') {
+      if (zoneId) rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source || 'leftZoneQueue');
+      return null;
+    }
+
+    if (!zoneId) {
+      if (zd.zonequeue && vid) {
+        syncZonequeueToFirebase(cid, vid, zd.zonequeue, zoneName, source || 'zoneQueueNoId');
+      }
+      console.warn(`  [${source || 'zoneQueue'}] driver ${did} Available without zoneid — zoneQueues/${cid} skipped`);
+      return null;
+    }
+
+    return rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source);
+  })();
+}
+
+async function reconcileZoneQueuesForCompany(cid, source) {
+  const c = String(cid || '').trim();
+  if (!c) return;
+  const seenZones = new Set();
+  for (const d of ZONE_DRIVERS) {
+    if (String(d.companyId || '') !== c) continue;
+    if (String(d.vehiclestatus || '') !== 'Available') continue;
+    if (!d.zonename && !d.zoneid) continue;
+    await _resolveDriverZoneId(c, d);
+    const zid = String(d.zoneid || '').trim();
+    if (!zid) {
+      const vid = _onlinePresenceVehicleId(d, null);
+      if (d.zonequeue && vid) {
+        syncZonequeueToFirebase(c, vid, d.zonequeue, d.zonename || '', source || 'reconcileZoneQueues');
+      }
+      continue;
+    }
+    seenZones.add(zid);
   }
-
-  if (!zoneId) {
-    const vid = vehicleId || zd.VehicleId || zd.vehiclenumber || did;
-    syncZonequeueToFirebase(cid, vid, zd.zonequeue, zoneName, source || 'zoneQueueNoId');
-    console.warn(`  [${source || 'zoneQueue'}] driver ${did} Available without zoneid — zoneQueues/${cid} skipped`);
-    return null;
+  for (const zid of seenZones) {
+    const meta = (_COMPANY_ZONES_CACHE[c] && _COMPANY_ZONES_CACHE[c].byId[zid]) || {};
+    const sample = ZONE_DRIVERS.find(d =>
+      String(d.companyId || '') === c &&
+      String(d.zoneid || '') === zid &&
+      String(d.vehiclestatus || '') === 'Available');
+    rebuildAndPersistZoneQueue(
+      c,
+      zid,
+      (sample && sample.zonename) || meta.zoneName || '',
+      (sample && parseInt(sample.zoneNumber)) || meta.zoneNumber || 0,
+      source || 'reconcileZoneQueues',
+    );
   }
-
-  return rebuildAndPersistZoneQueue(cid, zoneId, zoneName, parseInt(zd.zoneNumber) || 0, source);
+  const store = _zoneQueueStore(c);
+  if (store) {
+    for (const zid of Object.keys(store)) {
+      if (!seenZones.has(zid)) {
+        rebuildAndPersistZoneQueue(c, zid, store[zid].zoneName || '', store[zid].zoneNumber || 0, source || 'reconcileEmptyZone');
+      }
+    }
+  }
 }
 
 async function hydrateZoneQueuesFromFirebase() {
@@ -9304,7 +9411,7 @@ const server = http.createServer(async (req, res) => {
       testJobs:        jobStore.filter(j => j._isLoadTest).length,
       awayLocked:      Object.keys(AWAY_LOCKED).length,
       zoneMemory:      Object.keys(DRIVER_ZONE_MEMORY).length,
-      zoneQueues:      Object.values(ZONE_QUEUES).reduce((n, z) => n + Object.keys(z).length, 0),
+      zoneQueues:      _zoneQueueCount(),
     }));
     return;
   }
@@ -13984,8 +14091,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           saveJobStore();
         }
-        if (_dscQueueNo && newStatus === 'Available' && sessionCompanyId) {
-          applyZoneQueueSyncForDriver(
+        if (newStatus === 'Available' && sessionCompanyId) {
+          void applyZoneQueueSyncForDriver(
             sessionCompanyId,
             driverId,
             vehiclenumber || driverId,
@@ -16040,8 +16147,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           saveJobStore();
         }
-        if (_dssQueueNo && newStatus === 'Available' && sessionCompanyId) {
-          applyZoneQueueSyncForDriver(
+        if (newStatus === 'Available' && sessionCompanyId) {
+          void applyZoneQueueSyncForDriver(
             sessionCompanyId,
             driverId,
             vehiclenumber || driverId,
@@ -17288,6 +17395,14 @@ async function _syncZoneDriversFromFirebase(opts) {
         (_ZONE_SYNC_LAST.error ? ` err=${_ZONE_SYNC_LAST.error}` : '')
       );
     }
+
+    const _reconcileCids = (opts.cids && opts.cids.length)
+      ? opts.cids.map(c => String(c)).filter(Boolean)
+      : cids;
+    for (const _rcid of _reconcileCids) {
+      await reconcileZoneQueuesForCompany(_rcid, opts.quiet ? 'sync-drivers/quiet' : 'sync-drivers');
+    }
+
     return _ZONE_SYNC_LAST;
   } catch (e) {
     _ZONE_SYNC_LAST.at = new Date().toISOString();

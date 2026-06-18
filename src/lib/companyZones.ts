@@ -8,14 +8,43 @@ export type CompanyZone = {
   boundary: number[][];
 };
 
+/** Normalize Firebase / Owner Panel boundary (array, numeric-key object, or {lat,lng} points). */
+function boundaryPoints(raw: unknown): unknown[] {
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    try {
+      return boundaryPoints(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    if (Array.isArray(o.points)) return o.points;
+    if (Array.isArray(o.path)) return o.path;
+    return Object.keys(o)
+      .filter((k) => /^\d+$/.test(k))
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => o[k]);
+  }
+  return [];
+}
+
 function parseBoundary(raw: unknown): number[][] {
-  if (!Array.isArray(raw)) return [];
   const out: number[][] = [];
-  for (const p of raw) {
+  for (const p of boundaryPoints(raw)) {
     if (Array.isArray(p) && p.length >= 2) {
-      const lat = Number(p[0]);
-      const lng = Number(p[1]);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
+      let lat = Number(p[0]);
+      let lng = Number(p[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      // GeoJSON-style [lng, lat] when first value is out of lat range
+      if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+        const swap = lat;
+        lat = lng;
+        lng = swap;
+      }
+      out.push([lat, lng]);
       continue;
     }
     if (p && typeof p === 'object' && !Array.isArray(p)) {

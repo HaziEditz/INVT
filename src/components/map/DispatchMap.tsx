@@ -21,7 +21,8 @@ import { parseLatLng } from '@/types/job';
 import type { Job } from '@/types/job';
 import { Spinner } from '@/components/shared/Spinner';
 import { cn } from '@/lib/utils';
-import { parseZoneNode, zonePathsForGoogleMaps } from '@/lib/companyZones';
+import { getDb, ref, onValue } from '@/lib/firebase';
+import { parseZoneNode, zonePathsForGoogleMaps, type CompanyZone } from '@/lib/companyZones';
 
 interface DispatchMapProps {
   mapsKey: string;
@@ -64,6 +65,7 @@ export function DispatchMap({
   const trafficRef = useRef<google.maps.TrafficLayer | null>(null);
   const zonePolysRef = useRef<google.maps.Polygon[]>([]);
   const zoneUnsubRef = useRef<(() => void) | null>(null);
+  const zonesDataRef = useRef<CompanyZone[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [zonesEmpty, setZonesEmpty] = useState(false);
@@ -457,11 +459,47 @@ export function DispatchMap({
   }, [mapTraffic, mapReady]);
 
   useEffect(() => {
-    const clearZones = () => {
+    const clearZonePolys = () => {
       zonePolysRef.current.forEach((p) => p.setMap(null));
       zonePolysRef.current = [];
+    };
+
+    const drawZones = (zones: CompanyZone[]) => {
+      clearZonePolys();
+      if (!gMapRef.current || !useUiStore.getState().mapZones) {
+        setZonesEmpty(false);
+        return;
+      }
+      let drew = 0;
+      const bounds = new google.maps.LatLngBounds();
+      for (const zone of zones) {
+        const paths = zonePathsForGoogleMaps(zone);
+        if (paths.length < 3) continue;
+        zonePolysRef.current.push(
+          new google.maps.Polygon({
+            paths,
+            strokeColor: '#4f6ef7',
+            strokeOpacity: 0.9,
+            strokeWeight: 2,
+            fillColor: '#4f6ef7',
+            fillOpacity: 0.12,
+            map: gMapRef.current,
+          }),
+        );
+        paths.forEach((pt) => bounds.extend(pt));
+        drew++;
+      }
+      setZonesEmpty(drew === 0);
+      if (drew > 0 && gMapRef.current) {
+        gMapRef.current.fitBounds(bounds, 48);
+      }
+    };
+
+    const clearZones = () => {
+      clearZonePolys();
       zoneUnsubRef.current?.();
       zoneUnsubRef.current = null;
+      zonesDataRef.current = [];
       setZonesEmpty(false);
     };
 
@@ -470,48 +508,28 @@ export function DispatchMap({
       return;
     }
 
-    let cancelled = false;
+    // Redraw immediately if we already have zone data (e.g. toggle Zones back on).
+    if (zonesDataRef.current.length) {
+      drawZones(zonesDataRef.current);
+    }
 
-    import('@/lib/firebase').then(({ getDb, ref, onValue }) => {
-      if (cancelled || !gMapRef.current) return;
-      const r = ref(getDb(), `zones/${companyId}`);
-      zoneUnsubRef.current = onValue(r, (snap) => {
-        zonePolysRef.current.forEach((p) => p.setMap(null));
-        zonePolysRef.current = [];
-        if (!useUiStore.getState().mapZones || !gMapRef.current) {
-          setZonesEmpty(false);
-          return;
-        }
-        const val = snap.val();
-        if (!val) {
-          setZonesEmpty(true);
-          return;
-        }
-        let drew = 0;
-        for (const [key, z] of Object.entries(val as Record<string, unknown>)) {
-          const parsed = parseZoneNode(key, z);
-          if (!parsed) continue;
-          const paths = zonePathsForGoogleMaps(parsed);
-          if (!paths.length) continue;
-          zonePolysRef.current.push(
-            new google.maps.Polygon({
-              paths,
-              strokeColor: '#4f6ef7',
-              strokeOpacity: 0.8,
-              strokeWeight: 2,
-              fillColor: '#4f6ef7',
-              fillOpacity: 0.08,
-              map: gMapRef.current,
-            }),
-          );
-          drew++;
-        }
-        setZonesEmpty(drew === 0);
-      });
+    const r = ref(getDb(), `zones/${companyId}`);
+    zoneUnsubRef.current = onValue(r, (snap) => {
+      if (!snap.exists()) {
+        zonesDataRef.current = [];
+        clearZonePolys();
+        setZonesEmpty(true);
+        return;
+      }
+      const val = snap.val() as Record<string, unknown>;
+      const zones = Object.entries(val)
+        .map(([key, node]) => parseZoneNode(key, node))
+        .filter((z): z is CompanyZone => !!z && z.active);
+      zonesDataRef.current = zones;
+      drawZones(zones);
     });
 
     return () => {
-      cancelled = true;
       clearZones();
     };
   }, [mapZones, companyId, mapReady]);
