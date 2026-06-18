@@ -21,6 +21,7 @@ import { parseLatLng } from '@/types/job';
 import type { Job } from '@/types/job';
 import { Spinner } from '@/components/shared/Spinner';
 import { cn } from '@/lib/utils';
+import { parseZoneNode, zonePathsForGoogleMaps } from '@/lib/companyZones';
 
 interface DispatchMapProps {
   mapsKey: string;
@@ -487,18 +488,21 @@ export function DispatchMap({
           return;
         }
         let drew = 0;
-        for (const [, z] of Object.entries(val as Record<string, { paths?: { lat: number; lng: number }[] }>)) {
-          if (!z.paths?.length) continue;
+        for (const [key, z] of Object.entries(val as Record<string, unknown>)) {
+          const parsed = parseZoneNode(key, z);
+          if (!parsed) continue;
+          const paths = zonePathsForGoogleMaps(parsed);
+          if (!paths.length) continue;
           zonePolysRef.current.push(
             new google.maps.Polygon({
-              paths: z.paths,
+              paths,
               strokeColor: '#4f6ef7',
               strokeOpacity: 0.8,
               strokeWeight: 2,
               fillColor: '#4f6ef7',
               fillOpacity: 0.08,
               map: gMapRef.current,
-            })
+            }),
           );
           drew++;
         }
