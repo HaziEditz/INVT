@@ -32,6 +32,15 @@ function boundaryPoints(raw: unknown): unknown[] {
 }
 
 function parseBoundary(raw: unknown): number[][] {
+  if (Array.isArray(raw) && raw.length >= 6 && typeof raw[0] === 'number' && !Array.isArray(raw[0])) {
+    const flat: number[][] = [];
+    for (let i = 0; i + 1 < raw.length; i += 2) {
+      const lat = Number(raw[i]);
+      const lng = Number(raw[i + 1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) flat.push([lat, lng]);
+    }
+    if (flat.length >= 3) return flat;
+  }
   const out: number[][] = [];
   for (const p of boundaryPoints(raw)) {
     if (Array.isArray(p) && p.length >= 2) {
@@ -57,7 +66,6 @@ function parseBoundary(raw: unknown): number[][] {
   return out;
 }
 
-/** Normalize Owner Panel / legacy zone node into dispatch map + queue shape. */
 export function parseZoneNode(id: string, val: unknown): CompanyZone | null {
   if (!val || typeof val !== 'object') return null;
   const z = val as Record<string, unknown>;
@@ -79,6 +87,27 @@ export function parseZoneNode(id: string, val: unknown): CompanyZone | null {
 
 export function zonePathsForGoogleMaps(zone: CompanyZone): { lat: number; lng: number }[] {
   return zone.boundary.map(([lat, lng]) => ({ lat, lng }));
+}
+
+/** Load zone polygons via dispatch session API (server reads Firebase with admin token). */
+export async function fetchCompanyZonesFromApi(companyId: string): Promise<CompanyZone[]> {
+  if (!companyId) return [];
+  const r = await fetch(`/api/company-zones?cid=${encodeURIComponent(companyId)}`, {
+    credentials: 'same-origin',
+  });
+  const data = (await r.json().catch(() => ({}))) as {
+    ok?: boolean;
+    zones?: CompanyZone[];
+    error?: string;
+    diagnostics?: unknown;
+  };
+  if (!r.ok) {
+    throw new Error(data.error || `zones API HTTP ${r.status}`);
+  }
+  if (import.meta.env.DEV && data.diagnostics) {
+    console.log('[companyZones] API diagnostics', data.diagnostics);
+  }
+  return Array.isArray(data.zones) ? data.zones : [];
 }
 
 export function subscribeCompanyZones(

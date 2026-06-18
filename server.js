@@ -7381,6 +7381,104 @@ function calcRestoredQueue(driverId, currentZone) {
 // Stable key is zoneId (Firebase zones/{cid} node key), not zone name.
 // zoneName is display metadata only — safe to update when Owner Panel renames a zone.
 
+function _zoneBoundaryPoints(raw) {
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    try { return _zoneBoundaryPoints(JSON.parse(raw)); } catch (e) { return []; }
+  }
+  if (Array.isArray(raw)) {
+    if (raw.length >= 6 && typeof raw[0] === 'number' && !Array.isArray(raw[0])) {
+      const flat = [];
+      for (let i = 0; i + 1 < raw.length; i += 2) {
+        const lat = Number(raw[i]);
+        const lng = Number(raw[i + 1]);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) flat.push([lat, lng]);
+      }
+      if (flat.length >= 3) return flat;
+    }
+    return raw;
+  }
+  if (typeof raw === 'object') {
+    if (Array.isArray(raw.points)) return raw.points;
+    if (Array.isArray(raw.path)) return raw.path;
+    return Object.keys(raw)
+      .filter(k => /^\d+$/.test(k))
+      .sort((a, b) => Number(a) - Number(b))
+      .map(k => raw[k]);
+  }
+  return [];
+}
+
+function _parseZoneBoundary(raw) {
+  const out = [];
+  for (const p of _zoneBoundaryPoints(raw)) {
+    if (Array.isArray(p) && p.length >= 2) {
+      let lat = Number(p[0]);
+      let lng = Number(p[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+        const swap = lat; lat = lng; lng = swap;
+      }
+      out.push([lat, lng]);
+      continue;
+    }
+    if (p && typeof p === 'object' && !Array.isArray(p)) {
+      const lat = Number(p.lat ?? p.Lat ?? p.latitude);
+      const lng = Number(p.lng ?? p.Lng ?? p.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
+    }
+  }
+  return out;
+}
+
+function _parseZoneNodeForApi(id, val) {
+  if (!val || typeof val !== 'object') return null;
+  const boundary = _parseZoneBoundary(
+    val.paths || val.boundary || val.coordinates || val.coords || val.polygon,
+  );
+  if (boundary.length < 3) return null;
+  const zoneNumber = Number(val.zoneNumber ?? val.number ?? id);
+  const name = String(val.name || val.zoneName || val.zonename || `Zone ${zoneNumber}`).trim();
+  if (!name) return null;
+  return {
+    id: String(id),
+    zoneNumber: Number.isFinite(zoneNumber) ? zoneNumber : 0,
+    name,
+    active: val.active !== false,
+    boundary,
+  };
+}
+
+async function _fetchParsedCompanyZones(cid) {
+  const c = String(cid || '').trim();
+  const tok = await getFirebaseServerToken();
+  if (!tok) throw new Error('no Firebase server token');
+  const raw = await firebaseDbGet(`zones/${c}`, tok);
+  const diagnostics = { rawChildCount: 0, parsedCount: 0, skipped: [] };
+  const zones = [];
+  if (raw && typeof raw === 'object') {
+    for (const [key, node] of Object.entries(raw)) {
+      diagnostics.rawChildCount++;
+      const parsed = _parseZoneNodeForApi(key, node);
+      if (!parsed || !parsed.active) {
+        const boundaryRaw = node && (node.boundary || node.coordinates || node.paths || node.coords);
+        diagnostics.skipped.push({
+          id: key,
+          reason: !node ? 'empty node' : (!parsed ? 'boundary parse failed (<3 points)' : 'inactive'),
+          boundaryType: boundaryRaw == null ? 'missing' : (Array.isArray(boundaryRaw) ? 'array' : typeof boundaryRaw),
+          boundaryPointCount: boundaryRaw ? _parseZoneBoundary(boundaryRaw).length : 0,
+          name: node && (node.name || node.zoneName || ''),
+        });
+        continue;
+      }
+      zones.push(parsed);
+      diagnostics.parsedCount++;
+    }
+  }
+  zones.sort((a, b) => a.zoneNumber - b.zoneNumber || a.name.localeCompare(b.name));
+  return { ok: true, companyId: c, zones, diagnostics };
+}
+
 const ZONE_QUEUES = {}; // cid → zoneId → { zoneName, zoneNumber, order[], updatedAt }
 const _COMPANY_ZONES_CACHE = {}; // cid → { loadedAt, byId, byName }
 
@@ -8042,6 +8140,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/company-zones?cid= — zone polygons for dispatch map (session cookie auth).
+  // Reads zones/{cid} with the server Firebase token so the map works even when the
+  // browser Firebase Auth session is missing/expired (zones RTDB rule requires auth).
+  if (urlPath === '/api/company-zones' && req.method === 'GET') {
+    const sessionCid = getSessionCompanyId(req);
+    if (!sessionCid) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'No valid dispatch session' }));
+      return;
+    }
+    const qs = new URL('http://x' + req.url).searchParams;
+    const cid = String(qs.get('cid') || sessionCid).trim();
+    if (cid !== sessionCid) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'Company mismatch' }));
+      return;
+    }
+    try {
+      const payload = await _fetchParsedCompanyZones(cid);
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify(payload));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: e && e.message || 'zones fetch failed' }));
+    }
+    return;
+  }
+
   if (urlPath === '/') {
     if (req.method === 'GET' || req.method === 'HEAD') {
       const companyId = getSessionCompanyId(req);
@@ -8508,6 +8634,23 @@ const server = http.createServer(async (req, res) => {
         lastZoneSync: _ZONE_SYNC_LAST,
         lastAutoDispatchTick: _AUTO_DISPATCH_LAST,
       });
+      return;
+    }
+
+    // GET /admin/zonesDiagnostic?cid=860869 — parse zones/{cid} for map overlay debugging
+    if (urlPath === '/admin/zonesDiagnostic' && req.method === 'GET') {
+      try {
+        const _zdQs = new URL('http://x' + req.url).searchParams;
+        const _zdCid = (_zdQs.get('cid') || '').trim();
+        if (!_zdCid) {
+          jsonReply(res, { ok: false, error: 'cid required' });
+          return;
+        }
+        const payload = await _fetchParsedCompanyZones(_zdCid);
+        jsonReply(res, payload);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: e && e.message });
+      }
       return;
     }
 
