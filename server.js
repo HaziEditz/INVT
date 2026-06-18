@@ -1507,6 +1507,9 @@ async function executeJobCleanup(opts) {
       if (opts.writePendingJob && opts.job) {
         await _writePendingJobFirebase(companyId, bookingId, opts.job, opts.poolStatus || 'Pending');
       }
+      if (driverId) {
+        await _syncDriverJobCount(companyId, driverId, `${source}/pool_restore`);
+      }
       if (opts.consoleRefresh) {
         await _signalDispatchConsoleRefresh(companyId, opts.consoleRefresh);
       }
@@ -1957,6 +1960,11 @@ async function _withdrawJobFromDriver(opts) {
 
   const _clearPromise = clearOfferOnFirebase(cid, vid, drvId, bookingId, source, 'withdraw', { awaitCompletion: strict });
   if (strict && _clearPromise) await _clearPromise;
+
+  if (prevStatus === 'Queued') {
+    await _removeDriverQueueFirebase(cid, drvId, bookingId).catch(() => {});
+  }
+  _syncDriverJobCount(cid, drvId, `${source}/withdraw`).catch(() => {});
 
   const _restoreStates = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy', 'Offered', 'Queued']);
   if (_restoreStates.has(prevStatus)) {
@@ -2640,6 +2648,17 @@ async function assignBooking(opts) {
   const _targetDrv = _resolved.driverId;
   const _targetVid = _resolved.vehicleId;
 
+  const _zdAssign = ZONE_DRIVERS.find(d => d && String(d.driverid) === _targetDrv);
+  if (_zdAssign && !_driverEligibleForJob(_zdAssign, job)) {
+    console.warn(`  [${source}] assign rejected: driver ${_targetDrv} ineligible for job #${bookingId}`);
+    return {
+      ok: false,
+      error_code: 'driver_ineligible',
+      error: 'Driver does not meet job vehicle, seat, or service requirements',
+      booking: _publicBooking(job),
+    };
+  }
+
   const _vc = _checkIfVersion(job, opts.ifVersion);
   if (_vc) return _vc;
 
@@ -3073,6 +3092,7 @@ async function acceptBooking(opts) {
       action: 'accept',
       driverId: _finalDrv,
     }).catch(() => {});
+    await _syncDriverJobCount(_cid, _finalDrv, source);
   }
   return {
     ok: true, idempotent: false, status: 'Assigned',
@@ -3080,6 +3100,120 @@ async function acceptBooking(opts) {
     version: job.updateSeq,
     booking: _publicBooking(job)
   };
+}
+
+// ── Queue-while-busy helpers: dispatch window, service eligibility, jobCount ──
+
+function _jobInDispatchWindow(job, nowMs) {
+  if (!job) return false;
+  nowMs = nowMs || Date.now();
+  const st = String(job.BookingStatus || job.status || '').toLowerCase();
+  if (st === 'scheduled') return false;
+
+  const notifyAt = job.NotifyDispatchAt || job.notifyDispatchAt;
+  if (notifyAt) {
+    const ms = Date.parse(String(notifyAt));
+    if (!Number.isNaN(ms) && nowMs < ms) return false;
+  }
+
+  const dispatchBefore = parseInt(
+    job.DispatchTimebefore || job.dispatchTimebefore || job.NotifyDispatchBeforeMinutes || '0', 10
+  ) || 0;
+  if (dispatchBefore <= 0) return true;
+
+  const scheduledFor = parseInt(job.ScheduledFor || job.scheduledFor || '0', 10) || 0;
+  const pickupStr = job.Pickingtime || job.BookingDateTime || job.bookingDateTime || '';
+  let pickupMs = scheduledFor;
+  if (!pickupMs && pickupStr) {
+    pickupMs = _parseLocalDT(pickupStr, job.companyId);
+  }
+  if (!pickupMs || Number.isNaN(pickupMs)) return true;
+
+  return nowMs >= pickupMs - dispatchBefore * 60000;
+}
+
+function _normalizeJobServiceType(job) {
+  const raw = String((job && (job.serviceType || job.ServiceType)) || 'taxi').toLowerCase().trim();
+  if (raw.includes('food') || raw === 'restaurant') return 'food';
+  if (raw.includes('freight') || raw === 'delivery') return 'freight';
+  if (raw === 'tm') return 'tm';
+  return 'taxi';
+}
+
+function _servicesArrayToFlags(arr) {
+  const flags = { taxi: false, food: false, freight: false, tm: false };
+  for (const s of arr) {
+    const k = String(s || '').toLowerCase();
+    if (k.includes('food')) flags.food = true;
+    if (k.includes('freight')) flags.freight = true;
+    if (k === 'tm') flags.tm = true;
+    if (k.includes('taxi') || k === 'acc' || k === 'rental') flags.taxi = true;
+  }
+  if (!flags.taxi && !flags.food && !flags.freight && !flags.tm) flags.taxi = true;
+  return flags;
+}
+
+function _parseAllowedServicesFromDriver(driver) {
+  const raw = driver && (driver.allowedServices || driver.services);
+  if (!raw) return { taxi: true, food: false, freight: false, tm: false };
+  if (Array.isArray(raw)) return _servicesArrayToFlags(raw);
+  if (typeof raw === 'object') {
+    return {
+      taxi: raw.taxi !== false,
+      food: !!raw.food,
+      freight: !!raw.freight,
+      tm: !!raw.tm,
+    };
+  }
+  return { taxi: true, food: false, freight: false, tm: false };
+}
+
+function _driverCanDoService(driver, job) {
+  if (!driver || !job) return false;
+  const svc = _normalizeJobServiceType(job);
+  const flags = _parseAllowedServicesFromDriver(driver);
+  if (svc === 'food') return !!flags.food;
+  if (svc === 'freight') return !!flags.freight;
+  if (svc === 'tm') return !!flags.tm || !!flags.taxi;
+  return !!flags.taxi;
+}
+
+function _computeDriverJobCount(driverId, cid) {
+  const did = String(driverId || '').trim();
+  if (!did || did === '0' || did === '-1') return 0;
+  const tripSt = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy']);
+  let count = 0;
+  for (const j of jobStore) {
+    if (!j) continue;
+    if (cid && String(j.companyId || '') !== String(cid)) continue;
+    if (String(j.DriverId || '').trim() !== did) continue;
+    const st = j.BookingStatus || '';
+    if (st === 'Queued') count++;
+    else if (tripSt.has(st)) count++;
+  }
+  return count;
+}
+
+async function _syncDriverJobCount(cid, driverId, sourceTag) {
+  if (!cid || !driverId) return;
+  const did = String(driverId).trim();
+  if (!did || did === '0' || did === '-1') return;
+  const count = _computeDriverJobCount(did, cid);
+  const zd = ZONE_DRIVERS.find(d =>
+    d && (String(d.driverid) === did || String(d.VehicleId) === did)
+  );
+  if (zd) zd.jobCount = count;
+  const vid = zd && (zd.VehicleId || zd.vehiclenumber);
+  if (!vid) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const patch = { jobCount: count };
+    await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok).catch(() => {});
+    await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok).catch(() => {});
+  } catch (e) {
+    console.warn(`  [${sourceTag || 'jobCount'}] sync failed driver ${did}: ${e && e.message}`);
+  }
 }
 
 // Write driverQueue/{cid}/{driverId}/queued/{bookingId} for driver-app Queue tab.
@@ -3096,11 +3230,20 @@ async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, original
       originalStatus: originalStatus || 'pending',
       PickAddress: job.PickAddress || job.PickLocation || '',
       DropAddress: job.DropAddress || job.DropLocation || '',
-      passengername: job.passengername || job.Name || '',
+      passengername: job.passengername || job.Name || job.PassengerName || '',
       PhoneNo: job.PhoneNo || '',
       PaymentType: job.PaymentType || job.paymentMethod || job.PaymentMethod || '',
-      VehicleType: job.VehicleType || job.serviceType || '',
+      VehicleType: job.VehicleType || job.vehicleType || '',
+      Passengers: job.Passengers || job.PassengersNo || job.passengers || 1,
       serviceType: job.serviceType || job.ServiceType || 'taxi',
+      ServiceType: job.serviceType || job.ServiceType || 'taxi',
+      Fare: job.EstimatedFare || job.TotalFare || job.Fare || '',
+      createdAt: job.createdAt || job.CreatedAt || Date.now(),
+      Pickingtime: job.Pickingtime || job.BookingDateTime || '',
+      BookingDateTime: job.BookingDateTime || job.Pickingtime || '',
+      NotifyDispatchAt: job.NotifyDispatchAt || job.notifyDispatchAt || null,
+      DispatchTimebefore: job.DispatchTimebefore || job.dispatchTimebefore || null,
+      ScheduledFor: job.ScheduledFor || job.scheduledFor || null,
     };
     await firebaseDbSet(`driverQueue/${cid}/${driverId}/queued/${bookingId}`, payload, tok);
     console.log(`  [driverQueue] queued #${bookingId} for driver ${driverId} originalStatus=${payload.originalStatus}`);
@@ -3126,6 +3269,13 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
     if (!tok) return;
     const restored = poolStatus === 'No One' ? 'No One' : 'Pending';
     const normed = _normFbJob(job);
+    const rawCreated = job.createdAt || job.CreatedAt || null;
+    let createdAtMs = null;
+    if (typeof rawCreated === 'number' && rawCreated > 0) createdAtMs = rawCreated;
+    else if (rawCreated) {
+      const parsed = Date.parse(String(rawCreated));
+      if (!Number.isNaN(parsed)) createdAtMs = parsed;
+    }
     const fbJob = {
       BookingId: bookingId,
       Status: restored,
@@ -3141,6 +3291,7 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       PickLatLng: normed.pickLatLng,
       DropLatLng: normed.dropLatLng,
       VehicleType: normed.vehicleType || job.VehicleType || '',
+      Passengers: job.Passengers || job.PassengersNo || job.passengers || 1,
       serviceType: job.serviceType || job.ServiceType || 'taxi',
       Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
       PaymentType: normed.paymentMethod,
@@ -3151,6 +3302,16 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       lastOfferDriverName: job.lastOfferDriverName || '',
       LastOfferDriverName: job.lastOfferDriverName || '',
       releasedAt: job.releasedAt || null,
+      createdAt: createdAtMs,
+      CreatedAt: createdAtMs ? new Date(createdAtMs).toISOString() : (job.CreatedAt || null),
+      NotifyDispatchAt: job.NotifyDispatchAt || job.notifyDispatchAt || null,
+      DispatchTimebefore: job.DispatchTimebefore || job.dispatchTimebefore || job.NotifyDispatchBeforeMinutes || null,
+      ScheduledFor: job.ScheduledFor || job.scheduledFor || null,
+      Pickingtime: job.Pickingtime || job.BookingDateTime || '',
+      BookingDateTime: job.BookingDateTime || job.Pickingtime || '',
+      BookingSource: job.BookingSource || job.source || 'dispatch',
+      Name: normed.name,
+      jobinfo: job.jobinfo || job.notes || job.Notes || '',
     };
     await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, fbJob, tok);
   } catch (e) {
@@ -3175,6 +3336,14 @@ async function acceptPendingJobByDriver(opts) {
   }
 
   const drv = ZONE_DRIVERS.find(d => d && (String(d.driverid) === driverId || String(d.VehicleId) === driverId)) || null;
+  if (drv && !_driverEligibleForJob(drv, job)) {
+    return {
+      ok: false,
+      error_code: 'driver_ineligible',
+      error: 'Driver does not meet job vehicle, seat, or service requirements',
+      booking: _publicBooking(job),
+    };
+  }
   const vehicleId = String((drv && (drv.VehicleId || drv.vehiclenumber)) || job.VehicleNo || '').trim();
   const _cid = String(job.companyId || opts.companyId || '');
   const _busySt = new Set(['Busy', 'Picking', 'Assigned', 'Active']);
@@ -3214,6 +3383,7 @@ async function acceptPendingJobByDriver(opts) {
         action: 'queue',
         driverId,
       });
+      await _syncDriverJobCount(_cid, driverId, source);
     }
     return { ok: true, status: 'Queued', queued: true, driverId, booking: _publicBooking(job) };
   }
@@ -3429,6 +3599,7 @@ async function promoteQueuedJobByDriver(opts) {
       updateSeq:     job.updateSeq,
       eventType:     'updated',
     }, false);
+    await _syncDriverJobCount(_cid, driverId, source);
   }
   console.log(`  [${source}] job #${bookingId} Queued → Assigned (driver ${driverId})`);
   return {
@@ -4337,6 +4508,11 @@ function _afterJobStatusChange(job, previousStatus, by, source) {
   if (!job || previousStatus === job.BookingStatus) return;
   _bumpSeqAndEmitStatus(job, previousStatus, by, source);
   _dispatchRefreshForJob(job, { previousStatus, source }).catch(() => {});
+  const _cid = String(job.companyId || '');
+  const _drv = String(job.DriverId || '').trim();
+  if (_cid && _drv && _drv !== '0' && _drv !== '-1') {
+    _syncDriverJobCount(_cid, _drv, source || 'statusChange').catch(() => {});
+  }
 }
 
 // §FIX-CMD/ver-fanout — Mirror updateSeq + lastUpdatedAt + BookingStatus into
@@ -5154,6 +5330,7 @@ function _isDispatchableJob(job, cid) {
   const inStore = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
   if (!inStore) return false;
   if (String(inStore.BookingStatus || '') !== st) return false;
+  if (!_jobInDispatchWindow(job)) return false;
   return true;
 }
 
@@ -16595,6 +16772,7 @@ function _normalizeDriverVehicleCategory(raw) {
 
 function _driverEligibleForJob(driver, job) {
   if (!driver || !job) return false;
+  if (!_driverCanDoService(driver, job)) return false;
   const reqCat = _normalizeJobVehicleRequirement(job.VehicleType || job.vehicleType || '');
   if (reqCat) {
     const drvCat = _normalizeDriverVehicleCategory(driver.vehicletype || '');
@@ -16608,6 +16786,16 @@ function _driverEligibleForJob(driver, job) {
   const reqPax = Math.max(1, parseInt(job.Passengers || job.PassengersNo || job.passengers || '1', 10) || 1);
   const cap = parseInt(driver.seatCapacity || driver.seats || driver.capacity || '4', 10) || 4;
   return cap >= reqPax;
+}
+
+function _collectBusyEligibleDriversForJob(cid, job) {
+  const companyId = String(cid || '');
+  const _busySt = new Set(['Busy', 'Picking', 'Assigned', 'Active', 'OnTrip']);
+  return ZONE_DRIVERS.filter(d =>
+    String(d.companyId || '') === companyId &&
+    _busySt.has(String(d.vehiclestatus || '')) &&
+    _driverEligibleForJob(d, job)
+  );
 }
 
 function _collectAutoDispatchEligibleDriversForJob(cid, job) {
@@ -16662,6 +16850,8 @@ function _upsertZoneDriverFromFirebase(record) {
     if (record.vehicletype) existing.vehicletype = record.vehicletype;
     if (record.seatCapacity) existing.seatCapacity = record.seatCapacity;
     if (record.seats) existing.seats = record.seats;
+    if (record.allowedServices) existing.allowedServices = record.allowedServices;
+    if (record.services) existing.services = record.services;
     if (!existing.companyId && record.companyId) existing.companyId = record.companyId;
     existing._fbSyncedAt = Date.now();
     return 'updated';
@@ -16755,6 +16945,7 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
   let _vehnum      = cur.vehiclenumber || cur.vehicleNumber || cur.VehicleNumber || node.vehiclenumber || node.vehicleNumber || '';
   let _vehtype     = cur.vehicletype || cur.vehicleType || node.vehicletype || node.vehicleType || '';
   let _seatCap     = parseInt(cur.seatCapacity || cur.seats || cur.capacity || node.seatCapacity || node.seats || node.capacity || '4', 10) || 4;
+  const _allowedSvcs = node.allowedServices || cur.allowedServices || node.services || cur.services || null;
 
   if (!_vehnum && vehicleId && vehicleId !== '0' && !/^D\d+$/i.test(vehicleId)) {
     _vehnum = vehicleId;
@@ -16802,6 +16993,8 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     vehicletype: _vehtype || '',
     seatCapacity: _seatCap,
     seats: _seatCap,
+    allowedServices: _allowedSvcs,
+    services: Array.isArray(_allowedSvcs) ? _allowedSvcs : undefined,
     vehiclestatus: status,
     zonename: cur.zonename || cur.zoneName || node.zonename || (_savedZone && _savedZone.zonename) || '',
     zoneid: cur.zoneid || cur.zoneId || node.zoneid || (_savedZone && _savedZone.zoneid) || '',
@@ -17300,7 +17493,17 @@ async function _serverAutoDispatchTick() {
     const drivers = _collectAutoDispatchEligibleDriversForJob(cid, job);
     companyReport.availableDrivers = drivers.length;
     if (!drivers.length) {
-      companyReport.skipReason = 'no Available drivers with GPS in ZONE_DRIVERS (after Firebase online/ sync)';
+      const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
+      if (busyEligible.length && _jobInDispatchWindow(job, now)) {
+        await _writePendingJobFirebase(cid, job.Id, job, 'Pending');
+        companyReport.action = 'busy_pool_broadcast';
+        companyReport.skipReason = `no Available drivers; pool broadcast for ${busyEligible.length} busy eligible driver(s)`;
+        console.log(`[server-auto-dispatch] pool broadcast job #${job.Id} (cid=${cid}, ${busyEligible.length} busy eligible)`);
+      } else {
+        companyReport.skipReason = busyEligible.length
+          ? 'no Available drivers; job outside dispatch window for pool broadcast'
+          : 'no Available or busy-eligible drivers with GPS in ZONE_DRIVERS';
+      }
       tickReport.companies[cid] = companyReport;
       continue;
     }
@@ -17395,6 +17598,7 @@ async function _releaseScheduledJobs() {
       } catch (e) {
         console.warn(`[sched-release] Firebase patch failed job#${j.Id}:`, e.message);
       }
+      await _writePendingJobFirebase(j.companyId, j.Id, j, 'Pending');
     }
   }
   if (promoted.length) {

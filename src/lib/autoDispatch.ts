@@ -30,18 +30,6 @@ export function parseLatLng(s?: string): { lat: number; lng: number } | null {
 
 export function driverMatchesJob(driver: Driver, job: Job): boolean {
   if (driver.status !== 'Available') return false;
-  const svc = job.serviceType;
-  const allowed = driver.services || ['Taxi'];
-  const map: Record<string, string> = {
-    taxi: 'Taxi',
-    food: 'Food',
-    freight: 'Freight',
-    tm: 'TM',
-    acc: 'Taxi',
-    rental: 'Taxi',
-  };
-  const need = map[svc] || 'Taxi';
-  if (!allowed.some((s) => s.toLowerCase() === need.toLowerCase())) return false;
   return driverEligibleForJob(job, driver);
 }
 

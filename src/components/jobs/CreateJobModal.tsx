@@ -233,8 +233,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     return filterDriversForRequirements(base, {
       vehicleType: form.vehicleType,
       passengers: editingJob?.passengers ?? 1,
+      serviceType: form.serviceType,
     });
-  }, [availableDrivers, drivers, editingJob, form.vehicleType, editingJob?.passengers]);
+  }, [availableDrivers, drivers, editingJob, form.vehicleType, form.serviceType, editingJob?.passengers]);
 
   const selectedDriver = useMemo(() => {
     if (!isAssignedDriverSelection(form.driverId)) return null;
