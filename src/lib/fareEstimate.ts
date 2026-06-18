@@ -17,6 +17,7 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Parse Owner Panel / Firebase tariff node. Keep aliases in sync with TARIFF_PARSER.md and INVT-APP2/lib/parseTariffRecord.ts. */
 export function parseTariffRecord(key: string, rec: Record<string, unknown>): TariffRate | null {
   const name = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? '').trim();
   if (!name) return null;
