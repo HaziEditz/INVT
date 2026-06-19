@@ -293,15 +293,6 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setPickAddressError('');
   }, [settings?.defaultDispatchWindow]);
 
-  const onClose = useCallback(() => {
-    const heldId = editLockJobIdRef.current;
-    editLockJobIdRef.current = null;
-    if (heldId != null) void releaseEditLock(heldId);
-    setRoutePreview(null);
-    resetForm();
-    closeModal();
-  }, [closeModal, resetForm, setRoutePreview, releaseEditLock]);
-
   const releaseEditLock = useCallback(async (jobId: number | null) => {
     if (!jobId) return;
     try {
@@ -314,6 +305,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     }
     if (editLockJobIdRef.current === jobId) editLockJobIdRef.current = null;
   }, [dispatcherName]);
+
+  const onClose = useCallback(() => {
+    const heldId = editLockJobIdRef.current;
+    editLockJobIdRef.current = null;
+    if (heldId != null) void releaseEditLock(heldId);
+    setRoutePreview(null);
+    resetForm();
+    closeModal();
+  }, [closeModal, resetForm, setRoutePreview, releaseEditLock]);
 
   useEffect(() => {
     if (!open) {
