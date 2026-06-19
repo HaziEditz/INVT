@@ -28330,7 +28330,7 @@ const PRESERVE_IF_EMPTY = [
   "jobEditing"
 ];
 function mergeJobUpdate(existing, incoming) {
-  var _a2, _b2, _c, _d, _e;
+  var _a2, _b2, _c, _d, _e, _f;
   const merged = { ...existing, ...incoming };
   for (const key of PRESERVE_IF_EMPTY) {
     const nextVal = incoming[key];
@@ -28376,9 +28376,19 @@ function mergeJobUpdate(existing, incoming) {
     merged.status = "No One";
     if (incDriver === "-1" || incoming.driverId === "-1") merged.driverId = "-1";
   }
-  if (!((_d = incoming.editLock) == null ? void 0 : _d.active) && ((_e = existing.editLock) == null ? void 0 : _e.active)) {
-    merged.editLock = existing.editLock;
-    merged.jobEditing = existing.jobEditing ?? true;
+  const existingLocked = !!(((_d = existing.editLock) == null ? void 0 : _d.active) || existing.jobEditing);
+  const incomingLocked = !!(((_e = incoming.editLock) == null ? void 0 : _e.active) || incoming.jobEditing);
+  if (incoming.jobEditing === false || ((_f = incoming.editLock) == null ? void 0 : _f.active) === false) {
+    merged.jobEditing = false;
+    merged.editLock = void 0;
+  } else if (existingLocked && !incomingLocked) {
+    if (incomingSeq >= existingSeq) {
+      merged.jobEditing = incoming.jobEditing ?? false;
+      merged.editLock = incoming.editLock;
+    } else {
+      merged.editLock = existing.editLock;
+      merged.jobEditing = existing.jobEditing ?? true;
+    }
   }
   return merged;
 }
@@ -29605,6 +29615,7 @@ function repeatBookingDates(form) {
   return out;
 }
 const API$1 = "/api";
+const RELEASE_RETRIES = 3;
 function formatJobEditLockLabel(lock) {
   if (!lock) return "another user";
   const actor = (lock.actor || "").trim();
@@ -29629,6 +29640,15 @@ function jobEditLockBlockedForSelf(job, sessionId = getEditLockSessionId()) {
   if (!(lock == null ? void 0 : lock.active)) return false;
   return !jobEditLockHeldBySelf(job, sessionId);
 }
+function clearLocalJobEditLock(jobId) {
+  const job = useJobStore.getState().jobs.find((j2) => j2.id === jobId);
+  if (!job) return;
+  useJobStore.getState().upsertJob({
+    ...job,
+    jobEditing: false,
+    editLock: void 0
+  });
+}
 async function setJobEditLock(bookingId, locked, opts) {
   const r = await fetch(`${API$1}/job/edit-lock`, {
     method: "POST",
@@ -29639,7 +29659,8 @@ async function setJobEditLock(bookingId, locked, opts) {
       locked,
       source: (opts == null ? void 0 : opts.source) ?? "dispatcher",
       actorName: opts == null ? void 0 : opts.actorName,
-      sessionId: (opts == null ? void 0 : opts.sessionId) ?? getEditLockSessionId()
+      sessionId: (opts == null ? void 0 : opts.sessionId) ?? getEditLockSessionId(),
+      forceRelease: (opts == null ? void 0 : opts.forceRelease) === true
     })
   });
   const data = await r.json().catch(() => ({}));
@@ -29648,12 +29669,28 @@ async function setJobEditLock(bookingId, locked, opts) {
   }
   return { ok: true, ...data };
 }
-async function releaseJobEditLock(jobId, actorName) {
-  if (!jobId) return;
-  try {
-    await setJobEditLock(jobId, false, { actorName, sessionId: getEditLockSessionId() });
-  } catch {
+async function releaseJobEditLock(jobId, actorName, opts) {
+  if (!jobId) return true;
+  const sessionId = getEditLockSessionId();
+  const force = (opts == null ? void 0 : opts.force) !== false;
+  for (let attempt = 0; attempt < RELEASE_RETRIES; attempt++) {
+    try {
+      const res = await setJobEditLock(jobId, false, {
+        actorName,
+        sessionId,
+        forceRelease: force || attempt > 0
+      });
+      if (res.ok) {
+        clearLocalJobEditLock(jobId);
+        return true;
+      }
+      if (res.error_code !== "edit_locked" && res.conflict !== true) break;
+    } catch {
+    }
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
   }
+  clearLocalJobEditLock(jobId);
+  return false;
 }
 async function tryAcquireJobEditLock(bookingId, actorName) {
   const sessionId = getEditLockSessionId();
@@ -29661,6 +29698,28 @@ async function tryAcquireJobEditLock(bookingId, actorName) {
   if (res.ok) return { ok: true, sessionId };
   const message2 = res.error || (res.lock ? `Job is being edited by ${formatJobEditLockLabel(res.lock)}` : "Could not open job for editing");
   return { ok: false, conflict: !!res.conflict || res.error_code === "edit_locked", message: message2 };
+}
+function releaseJobEditLockKeepalive(jobId, actorName) {
+  try {
+    const body = JSON.stringify({
+      bookingId: jobId,
+      locked: false,
+      source: "dispatcher",
+      actorName,
+      sessionId: getEditLockSessionId(),
+      forceRelease: true
+    });
+    fetch(`${API$1}/job/edit-lock`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true
+    }).catch(() => {
+    });
+    clearLocalJobEditLock(jobId);
+  } catch {
+  }
 }
 const API = "/api";
 const jobUpdateChains = /* @__PURE__ */ new Map();
@@ -29927,6 +29986,9 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
         useJobStore.getState().upsertJob(fresh2);
       }
       continue;
+    }
+    if (result.error_code === "edit_locked") {
+      break;
     }
     break;
   }
@@ -32863,20 +32925,35 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setDropDirty(false);
     setPickAddressError("");
   }, [settings == null ? void 0 : settings.defaultDispatchWindow]);
+  const releaseHeldEditLock = reactExports.useCallback(
+    (jobId) => {
+      if (jobId == null) return;
+      void releaseJobEditLock(jobId, dispatcherName, { force: true });
+    },
+    [dispatcherName]
+  );
   const onClose = reactExports.useCallback(() => {
     const heldId = editLockJobIdRef.current;
     editLockJobIdRef.current = null;
-    if (heldId != null) void releaseJobEditLock(heldId, dispatcherName);
+    releaseHeldEditLock(heldId);
     setRoutePreview(null);
     resetForm();
     closeModal();
-  }, [closeModal, resetForm, setRoutePreview, dispatcherName]);
+  }, [closeModal, resetForm, setRoutePreview, releaseHeldEditLock]);
+  reactExports.useEffect(() => {
+    const onPageHide = () => {
+      const id = editLockJobIdRef.current;
+      if (id != null) releaseJobEditLockKeepalive(id, dispatcherName);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [dispatcherName]);
   reactExports.useEffect(() => {
     if (!open2) {
       if (editLockJobIdRef.current != null) {
         const id = editLockJobIdRef.current;
         editLockJobIdRef.current = null;
-        void releaseJobEditLock(id, dispatcherName);
+        releaseHeldEditLock(id);
       }
       loadedFormKeyRef.current = null;
       setRoutePreview(null);
@@ -32885,7 +32962,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     if (!editingJob) return;
     if (editLockJobIdRef.current !== editingJob.id) {
       const prev = editLockJobIdRef.current;
-      if (prev != null) void releaseJobEditLock(prev, dispatcherName);
+      if (prev != null) releaseHeldEditLock(prev);
       editLockJobIdRef.current = editingJob.id;
       void setJobEditLock(editingJob.id, true, {
         actorName: dispatcherName,
@@ -32910,7 +32987,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       setDropDirty(false);
       setPickAddressError("");
     }
-  }, [open2, editingJob == null ? void 0 : editingJob.id, editingJob == null ? void 0 : editingJob.updateSeq, editingJob == null ? void 0 : editingJob.status, editingJob == null ? void 0 : editingJob.driverId, editingJob, setRoutePreview, addToast, dispatcherName]);
+  }, [open2, editingJob == null ? void 0 : editingJob.id, editingJob == null ? void 0 : editingJob.updateSeq, editingJob == null ? void 0 : editingJob.status, editingJob == null ? void 0 : editingJob.driverId, editingJob, setRoutePreview, addToast, dispatcherName, releaseHeldEditLock]);
   reactExports.useEffect(() => {
     if (open2 && !editingJob) {
       loadedFormKeyRef.current = null;
@@ -41407,7 +41484,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BvGtg7yn.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-D3272310.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -45482,7 +45559,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-ByfK5k0O.js");
+        const { writeActiveDispatcher } = await import("./notifications-DKe5Y5GG.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -45509,7 +45586,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-ByfK5k0O.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DKe5Y5GG.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -45839,4 +45916,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-ZkpMPm3m.js.map
+//# sourceMappingURL=index-DVyGleWN.js.map

@@ -311,6 +311,7 @@ type BookingUpdateResult = {
   ok: boolean;
   seq?: number;
   error?: string;
+  error_code?: string;
   stale?: boolean;
   currentSeq?: number;
   status: number;
@@ -386,6 +387,9 @@ async function persistJobUpdate(
         useJobStore.getState().upsertJob(fresh);
       }
       continue;
+    }
+    if (result.error_code === 'edit_locked') {
+      break;
     }
     break;
   }

@@ -13,7 +13,7 @@ import {
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
 import { updateJob, applyFormDriverAssignment } from '@/lib/jobFlow';
-import { setJobEditLock, releaseJobEditLock } from '@/lib/jobEditLock';
+import { setJobEditLock, releaseJobEditLock, releaseJobEditLockKeepalive } from '@/lib/jobEditLock';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import {
   buildInsertParams,
@@ -294,21 +294,38 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setPickAddressError('');
   }, [settings?.defaultDispatchWindow]);
 
+  const releaseHeldEditLock = useCallback(
+    (jobId: number | null) => {
+      if (jobId == null) return;
+      void releaseJobEditLock(jobId, dispatcherName, { force: true });
+    },
+    [dispatcherName],
+  );
+
   const onClose = useCallback(() => {
     const heldId = editLockJobIdRef.current;
     editLockJobIdRef.current = null;
-    if (heldId != null) void releaseJobEditLock(heldId, dispatcherName);
+    releaseHeldEditLock(heldId);
     setRoutePreview(null);
     resetForm();
     closeModal();
-  }, [closeModal, resetForm, setRoutePreview, dispatcherName]);
+  }, [closeModal, resetForm, setRoutePreview, releaseHeldEditLock]);
+
+  useEffect(() => {
+    const onPageHide = () => {
+      const id = editLockJobIdRef.current;
+      if (id != null) releaseJobEditLockKeepalive(id, dispatcherName);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [dispatcherName]);
 
   useEffect(() => {
     if (!open) {
       if (editLockJobIdRef.current != null) {
         const id = editLockJobIdRef.current;
         editLockJobIdRef.current = null;
-        void releaseJobEditLock(id, dispatcherName);
+        releaseHeldEditLock(id);
       }
       loadedFormKeyRef.current = null;
       setRoutePreview(null);
@@ -318,7 +335,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
     if (editLockJobIdRef.current !== editingJob.id) {
       const prev = editLockJobIdRef.current;
-      if (prev != null) void releaseJobEditLock(prev, dispatcherName);
+      if (prev != null) releaseHeldEditLock(prev);
       editLockJobIdRef.current = editingJob.id;
       void setJobEditLock(editingJob.id, true, {
         actorName: dispatcherName,
@@ -345,7 +362,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setDropDirty(false);
       setPickAddressError('');
     }
-  }, [open, editingJob?.id, editingJob?.updateSeq, editingJob?.status, editingJob?.driverId, editingJob, setRoutePreview, addToast, dispatcherName]);
+  }, [open, editingJob?.id, editingJob?.updateSeq, editingJob?.status, editingJob?.driverId, editingJob, setRoutePreview, addToast, dispatcherName, releaseHeldEditLock]);
 
   useEffect(() => {
     if (open && !editingJob) {

@@ -2085,7 +2085,7 @@ const _CANCEL_IN_FLIGHT = new Set();
 const _ACCEPT_IN_FLIGHT = new Set();
 /** Cross-source edit-session locks — bookingId → lock metadata. */
 const _JOB_EDIT_LOCKS = Object.create(null);
-const _JOB_EDIT_LOCK_TTL_MS = 30 * 60 * 1000;
+const _JOB_EDIT_LOCK_TTL_MS = 5 * 60 * 1000;
 
 function _editLockHolderLabel(entry) {
   if (!entry) return 'another user';
@@ -2115,6 +2115,25 @@ function _getJobEditLock(bookingId) {
   if (!entry) return null;
   if (Date.now() - entry.at > _JOB_EDIT_LOCK_TTL_MS) {
     delete _JOB_EDIT_LOCKS[key];
+    const cid = String(entry.companyId || '').trim();
+    if (cid) {
+      void _syncJobEditLockFirebase(cid, parseInt(key, 10) || 0, false, null);
+      const idx = jobStore.findIndex(j => j && j.Id === (parseInt(key, 10) || 0));
+      if (idx !== -1) {
+        const job = jobStore[idx];
+        job.jobEditing = false;
+        job.dispatcherEditing = false;
+        delete job.editLockSource;
+        delete job.editLockActor;
+        delete job.editLockSessionId;
+        saveJobStore();
+        const st = String(job.BookingStatus || '');
+        if (st === 'Pending' || st === 'No One') {
+          void _writePendingJobFirebase(cid, job.Id, job, st);
+        }
+      }
+    }
+    console.log(`  [edit-lock] TTL expired — auto-unlocked job #${key}`);
     return null;
   }
   return entry;
@@ -2125,6 +2144,15 @@ function _sameEditLockHolder(existing, opts) {
   const sid = String(opts.sessionId || opts.clientSessionId || '').trim();
   if (sid && existing.sessionId && sid === existing.sessionId) return true;
   return false;
+}
+
+function _sameEditLockActor(existing, opts) {
+  if (!existing || !opts) return false;
+  const actor = String(opts.actor || opts.actorName || '').trim().toLowerCase();
+  const exActor = String(existing.actor || '').trim().toLowerCase();
+  if (!actor || !exActor || actor !== exActor) return false;
+  const src = String(opts.source || 'dispatcher').toLowerCase();
+  return src === String(existing.source || 'dispatcher').toLowerCase();
 }
 
 function _isJobEditLocked(job) {
@@ -2148,37 +2176,43 @@ function _assertEditLockAllowsMutation(job, by, sessionId) {
 
 async function _syncJobEditLockFirebase(cid, bookingId, locked, entry) {
   if (!cid || !bookingId) return;
-  try {
-    const tok = await getFirebaseServerToken();
-    if (!tok) return;
-    const patch = locked && entry
-      ? {
-          jobEditing: true,
-          dispatcherEditing: true,
-          editLockActive: true,
-          editLockSource: entry.source || 'dispatcher',
-          editLockActor: entry.actor || '',
-          editLockAt: entry.at || Date.now(),
-          editLockSessionId: entry.sessionId || '',
-        }
-      : {
-          jobEditing: null,
-          dispatcherEditing: null,
-          editLockActive: null,
-          editLockSource: null,
-          editLockActor: null,
-          editLockAt: null,
-          editLockSessionId: null,
-        };
-    await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok)
-      .catch(e => console.warn(`  [edit-lock] allbookings patch failed #${bookingId}: ${e && e.message}`));
-    if (locked) {
-      await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, tok)
-        .catch(() => {});
+  const patch = locked && entry
+    ? {
+        jobEditing: true,
+        dispatcherEditing: true,
+        editLockActive: true,
+        editLockSource: entry.source || 'dispatcher',
+        editLockActor: entry.actor || '',
+        editLockAt: entry.at || Date.now(),
+        editLockSessionId: entry.sessionId || '',
+      }
+    : {
+        jobEditing: null,
+        dispatcherEditing: null,
+        editLockActive: null,
+        editLockSource: null,
+        editLockActor: null,
+        editLockAt: null,
+        editLockSessionId: null,
+      };
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (!tok) return;
+      await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok)
+        .catch(e => { throw e; });
+      if (locked) {
+        await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, tok)
+          .catch(() => {});
+      }
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 2) await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
     }
-  } catch (e) {
-    console.warn(`  [edit-lock] Firebase sync failed #${bookingId}: ${e && e.message}`);
   }
+  console.warn(`  [edit-lock] Firebase sync failed #${bookingId}: ${lastErr && lastErr.message}`);
 }
 
 async function _applyJobEditLock(bookingId, companyId, locked, opts) {
@@ -2240,13 +2274,17 @@ async function _applyJobEditLock(bookingId, companyId, locked, opts) {
 
   const existing = _getJobEditLock(id);
   if (existing && !_sameEditLockHolder(existing, opts)) {
-    return {
-      ok: false,
-      error_code: 'edit_locked',
-      conflict: true,
-      lock: _publicEditLock(existing),
-      error: `Cannot release lock held by ${_editLockHolderLabel(existing)}`,
-    };
+    const forceRelease = opts.forceRelease === true || opts.force === true;
+    if (!(forceRelease && _sameEditLockActor(existing, opts))) {
+      return {
+        ok: false,
+        error_code: 'edit_locked',
+        conflict: true,
+        lock: _publicEditLock(existing),
+        error: `Cannot release lock held by ${_editLockHolderLabel(existing)}`,
+      };
+    }
+    console.log(`  [edit-lock] force-unlock job #${id} (same actor ${existing.actor || '?'})`);
   }
 
   delete _JOB_EDIT_LOCKS[key];
@@ -6241,6 +6279,23 @@ async function repairBookingFirebaseSync(opts) {
   const cid = String(job.companyId || opts.companyId || '').trim();
   if (!cid) return { ok: false, error: 'companyId missing on job' };
 
+  if (action === 'unlock' || action === 'unlock_edit_lock') {
+    delete _JOB_EDIT_LOCKS[String(bookingId)];
+    job.jobEditing = false;
+    job.dispatcherEditing = false;
+    delete job.editLockSource;
+    delete job.editLockActor;
+    delete job.editLockSessionId;
+    saveJobStore();
+    await _syncJobEditLockFirebase(cid, bookingId, false, null);
+    const st = String(job.BookingStatus || '');
+    if (st === 'Pending' || st === 'No One') {
+      await _writePendingJobFirebase(cid, bookingId, job, st);
+    }
+    console.log(`  [${source}] force-cleared edit lock #${bookingId} + resynced pendingjobs`);
+    return { ok: true, action: 'unlock', booking: _publicBooking(job) };
+  }
+
   if (action === 'no_one' || action === 'cancel') {
     const ub = await updateBooking({
       bookingId,
@@ -9254,8 +9309,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // POST /admin/repairBooking — sync Firebase from jobStore, force No One, or repair pool orphan
-    // body: { bookingId, companyId?, action?: 'sync'|'no_one'|'pending' }
+    // POST /admin/repairBooking — sync Firebase from jobStore, force No One, unlock edit lock, or repair pool orphan
+    // body: { bookingId, companyId?, action?: 'sync'|'no_one'|'pending'|'unlock' }
     if (urlPath === '/admin/repairBooking' && req.method === 'POST') {
       try {
         const body = await readBody(req);
@@ -10862,6 +10917,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _elSource = String(_el.source || 'dispatcher').toLowerCase().trim();
     const _elActor = String(_el.actorName || _el.actor || '').trim();
     const _elSession = String(_el.sessionId || _el.clientSessionId || '').trim();
+    const _elForce = _el.forceRelease === true || _el.force === true;
     const _elAllowedSrc = new Set(['dispatcher', 'passenger', 'website']);
     if (!_elBooking || !_elAllowedSrc.has(_elSource)) {
       res.writeHead(400, JSON_HEADERS);
@@ -10896,6 +10952,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       source: _elSource,
       actor: _elActor,
       sessionId: _elSession,
+      forceRelease: _elForce,
     });
     const _elStatus = _elResult.ok
       ? 200

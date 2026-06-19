@@ -125,9 +125,20 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
     merged.status = 'No One';
     if (incDriver === '-1' || incoming.driverId === '-1') merged.driverId = '-1';
   }
-  if (!incoming.editLock?.active && existing.editLock?.active) {
-    merged.editLock = existing.editLock;
-    merged.jobEditing = existing.jobEditing ?? true;
+  const existingLocked = !!(existing.editLock?.active || existing.jobEditing);
+  const incomingLocked = !!(incoming.editLock?.active || incoming.jobEditing);
+  if (incoming.jobEditing === false || incoming.editLock?.active === false) {
+    merged.jobEditing = false;
+    merged.editLock = undefined;
+  } else if (existingLocked && !incomingLocked) {
+    // Newer unlocked snapshot from Firebase/server — do not preserve a stale lock.
+    if (incomingSeq >= existingSeq) {
+      merged.jobEditing = incoming.jobEditing ?? false;
+      merged.editLock = incoming.editLock;
+    } else {
+      merged.editLock = existing.editLock;
+      merged.jobEditing = existing.jobEditing ?? true;
+    }
   }
   return merged;
 }

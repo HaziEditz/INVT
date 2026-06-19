@@ -1,7 +1,9 @@
 import type { Job, JobEditLockInfo } from '@/types/job';
 import { getEditLockSessionId } from '@/lib/editLockSession';
+import { useJobStore } from '@/store/jobStore';
 
 const API = '/api';
+const RELEASE_RETRIES = 3;
 
 export interface JobEditLockResponse {
   ok: boolean;
@@ -40,10 +42,26 @@ export function jobEditLockBlockedForSelf(job: Job, sessionId = getEditLockSessi
   return !jobEditLockHeldBySelf(job, sessionId);
 }
 
+/** Clear edit-lock flags in the client store immediately (e.g. after modal close). */
+export function clearLocalJobEditLock(jobId: number): void {
+  const job = useJobStore.getState().jobs.find((j) => j.id === jobId);
+  if (!job) return;
+  useJobStore.getState().upsertJob({
+    ...job,
+    jobEditing: false,
+    editLock: undefined,
+  });
+}
+
 export async function setJobEditLock(
   bookingId: number,
   locked: boolean,
-  opts?: { actorName?: string; sessionId?: string; source?: 'dispatcher' | 'passenger' | 'website' },
+  opts?: {
+    actorName?: string;
+    sessionId?: string;
+    source?: 'dispatcher' | 'passenger' | 'website';
+    forceRelease?: boolean;
+  },
 ): Promise<JobEditLockResponse> {
   const r = await fetch(`${API}/job/edit-lock`, {
     method: 'POST',
@@ -55,6 +73,7 @@ export async function setJobEditLock(
       source: opts?.source ?? 'dispatcher',
       actorName: opts?.actorName,
       sessionId: opts?.sessionId ?? getEditLockSessionId(),
+      forceRelease: opts?.forceRelease === true,
     }),
   });
   const data = (await r.json().catch(() => ({}))) as JobEditLockResponse;
@@ -67,13 +86,32 @@ export async function setJobEditLock(
 export async function releaseJobEditLock(
   jobId: number | null,
   actorName: string,
-): Promise<void> {
-  if (!jobId) return;
-  try {
-    await setJobEditLock(jobId, false, { actorName, sessionId: getEditLockSessionId() });
-  } catch {
-    /* best-effort unlock */
+  opts?: { force?: boolean },
+): Promise<boolean> {
+  if (!jobId) return true;
+  const sessionId = getEditLockSessionId();
+  const force = opts?.force !== false;
+
+  for (let attempt = 0; attempt < RELEASE_RETRIES; attempt++) {
+    try {
+      const res = await setJobEditLock(jobId, false, {
+        actorName,
+        sessionId,
+        forceRelease: force || attempt > 0,
+      });
+      if (res.ok) {
+        clearLocalJobEditLock(jobId);
+        return true;
+      }
+      if (res.error_code !== 'edit_locked' && res.conflict !== true) break;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
   }
+
+  clearLocalJobEditLock(jobId);
+  return false;
 }
 
 export async function tryAcquireJobEditLock(
@@ -89,4 +127,28 @@ export async function tryAcquireJobEditLock(
       ? `Job is being edited by ${formatJobEditLockLabel(res.lock)}`
       : 'Could not open job for editing');
   return { ok: false, conflict: !!res.conflict || res.error_code === 'edit_locked', message };
+}
+
+/** Best-effort unlock when the tab is closing — uses keepalive fetch. */
+export function releaseJobEditLockKeepalive(jobId: number, actorName: string): void {
+  try {
+    const body = JSON.stringify({
+      bookingId: jobId,
+      locked: false,
+      source: 'dispatcher',
+      actorName,
+      sessionId: getEditLockSessionId(),
+      forceRelease: true,
+    });
+    fetch(`${API}/job/edit-lock`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+    clearLocalJobEditLock(jobId);
+  } catch {
+    /* ignore */
+  }
 }
