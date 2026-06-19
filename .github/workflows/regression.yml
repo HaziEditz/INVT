@@ -1,0 +1,25 @@
+name: Regression Tests
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run regression suite (Phase 0 + 1)
+        env:
+          BW_FIREBASE_SECRET: ${{ secrets.BW_FIREBASE_SECRET }}
+          BW_ADMIN_KEY: ${{ secrets.BW_ADMIN_KEY }}
+        run: npm run test:regression

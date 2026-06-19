@@ -208,7 +208,9 @@ const mimeTypes = {
 };
 
 // ─── Persistent data directory ────────────────────────────────────────────────
-const DATA_DIR                  = path.join(__dirname, '.data');
+const DATA_DIR                  = process.env.BW_DATA_DIR
+  ? path.resolve(process.env.BW_DATA_DIR)
+  : path.join(__dirname, '.data');
 const JOB_STORE_FILE            = path.join(DATA_DIR, 'jobstore.json');
 const SUSPENDED_DRIVERS_FILE    = path.join(DATA_DIR, 'suspended_drivers.json');
 const COOKIE_FILE               = path.join(DATA_DIR, 'session.txt');
@@ -5689,7 +5691,11 @@ function _saveCompanyJobSeq() {
   });
 }
 function newCompanyJobId(companyId) {
-  const _cidRaw = String(companyId || '').trim();
+  let _cidRaw = String(companyId || '').trim();
+  // Synthetic load-test company uses string id "bwtest" for session/Firebase paths.
+  if (process.env.NODE_ENV === 'test' && _cidRaw === 'bwtest') {
+    _cidRaw = '999000';
+  }
   // Guard: companyId must be purely numeric (e.g. "620611").
   // A company name like "Auckland Cabs" → slice(-3) = "abs" → parseInt("abs...") = NaN,
   // producing a broken job ID that fails downstream /^\d{9,}$/ checks in syncOfflineTrip
@@ -10037,6 +10043,11 @@ const server = http.createServer(async (req, res) => {
   //   Removes all injected test data (drivers whose id starts with 9000,
   //   jobs whose Id is in the LT_JOB_IDS set).
   if (urlPath === '/dev/loadtest/seed' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
     const qs   = new URL('http://x' + req.url).searchParams;
     const nD   = Math.min(parseInt(qs.get('drivers') || '10'), 500);
     const nJ   = Math.min(parseInt(qs.get('jobs')    || '20'), 2000);
@@ -10125,6 +10136,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (urlPath === '/dev/loadtest/clear' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
     let driversRemoved = 0, jobsRemoved = 0;
     for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
       if (ZONE_DRIVERS[i]._isLoadTest) { ZONE_DRIVERS.splice(i, 1); driversRemoved++; }
@@ -10141,6 +10157,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (urlPath === '/dev/loadtest/status' && req.method === 'GET') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
     res.writeHead(200, JSON_HEADERS);
     res.end(JSON.stringify({
       totalDrivers:    ZONE_DRIVERS.length,
@@ -18572,23 +18593,29 @@ async function _syncBizAccountsFromFirebase() {
 server.listen(PORT, HOST, () => {
   console.log(`Serving ${ROOT} at http://${HOST}:${PORT}`);
   console.log(`[boot] SERVER_BUILD_ID=${SERVER_BUILD_ID}`);
+  console.log(`[boot] NODE_ENV=${process.env.NODE_ENV || 'development'} DATA_DIR=${DATA_DIR}`);
   console.log(`[tz] process.env.TZ=${process.env.TZ} | server local time=${new Date().toString()}`);
-  _seedZoneDriversFromFirebase();
-  _syncBizAccountsFromFirebase();
-  setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
-  setTimeout(() => { hydrateZoneQueuesFromFirebase().catch(e => console.warn('[zoneQueues] boot hydrate failed:', e && e.message)); }, 9000);
-  setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
-  setInterval(() => {
-    _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
-      console.warn('[sync-drivers]', e && e.message));
-  }, 45000);
-  setInterval(() => {
-    _serverAutoDispatchTick().catch(e => {
-      _AUTO_DISPATCH_LAST.error = e && e.message;
-      console.warn('[server-auto-dispatch]', e && e.message);
-    });
-  }, AUTO_DISPATCH_TICK_MS);
-  console.log(`[boot] server auto-dispatch tick every ${AUTO_DISPATCH_TICK_MS}ms (release cooldown ${AUTO_DISPATCH_RELEASE_COOLDOWN_MS}ms)`);
+  const _isTestBoot = process.env.NODE_ENV === 'test';
+  if (!_isTestBoot) {
+    _seedZoneDriversFromFirebase();
+    _syncBizAccountsFromFirebase();
+    setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
+    setTimeout(() => { hydrateZoneQueuesFromFirebase().catch(e => console.warn('[zoneQueues] boot hydrate failed:', e && e.message)); }, 9000);
+    setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
+    setInterval(() => {
+      _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
+        console.warn('[sync-drivers]', e && e.message));
+    }, 45000);
+    setInterval(() => {
+      _serverAutoDispatchTick().catch(e => {
+        _AUTO_DISPATCH_LAST.error = e && e.message;
+        console.warn('[server-auto-dispatch]', e && e.message);
+      });
+    }, AUTO_DISPATCH_TICK_MS);
+    console.log(`[boot] server auto-dispatch tick every ${AUTO_DISPATCH_TICK_MS}ms (release cooldown ${AUTO_DISPATCH_RELEASE_COOLDOWN_MS}ms)`);
+  } else {
+    console.log('[boot] test mode — skipping Firebase hydration and auto-dispatch timers');
+  }
 });
 
 // ─── Firebase → jobStore hydration (survives Railway ephemeral disk) ─────────
