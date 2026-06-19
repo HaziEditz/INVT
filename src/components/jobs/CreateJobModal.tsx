@@ -13,7 +13,7 @@ import {
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
 import { updateJob, applyFormDriverAssignment } from '@/lib/jobFlow';
-import { setJobEditLock } from '@/lib/jobEditLock';
+import { setJobEditLock, releaseJobEditLock } from '@/lib/jobEditLock';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import {
   buildInsertParams,
@@ -293,34 +293,21 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setPickAddressError('');
   }, [settings?.defaultDispatchWindow]);
 
-  const releaseEditLock = useCallback(async (jobId: number | null) => {
-    if (!jobId) return;
-    try {
-      await setJobEditLock(jobId, false, {
-        actorName: dispatcherName,
-        sessionId: getEditLockSessionId(),
-      });
-    } catch {
-      /* best-effort unlock */
-    }
-    if (editLockJobIdRef.current === jobId) editLockJobIdRef.current = null;
-  }, [dispatcherName]);
-
   const onClose = useCallback(() => {
     const heldId = editLockJobIdRef.current;
     editLockJobIdRef.current = null;
-    if (heldId != null) void releaseEditLock(heldId);
+    if (heldId != null) void releaseJobEditLock(heldId, dispatcherName);
     setRoutePreview(null);
     resetForm();
     closeModal();
-  }, [closeModal, resetForm, setRoutePreview, releaseEditLock]);
+  }, [closeModal, resetForm, setRoutePreview, dispatcherName]);
 
   useEffect(() => {
     if (!open) {
       if (editLockJobIdRef.current != null) {
         const id = editLockJobIdRef.current;
         editLockJobIdRef.current = null;
-        void releaseEditLock(id);
+        void releaseJobEditLock(id, dispatcherName);
       }
       loadedEditJobIdRef.current = null;
       setRoutePreview(null);
@@ -330,7 +317,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
     if (editLockJobIdRef.current !== editingJob.id) {
       const prev = editLockJobIdRef.current;
-      if (prev != null) void releaseEditLock(prev);
+      if (prev != null) void releaseJobEditLock(prev, dispatcherName);
       editLockJobIdRef.current = editingJob.id;
       void setJobEditLock(editingJob.id, true, {
         actorName: dispatcherName,
@@ -354,7 +341,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setDropDirty(false);
       setPickAddressError('');
     }
-  }, [open, editingJob?.id, editingJob, releaseEditLock, setRoutePreview, addToast, dispatcherName]);
+  }, [open, editingJob?.id, editingJob, setRoutePreview, addToast, dispatcherName]);
 
   useEffect(() => {
     if (open && !editingJob) {

@@ -64,6 +64,18 @@ export async function setJobEditLock(
   return { ok: true, ...data };
 }
 
+export async function releaseJobEditLock(
+  jobId: number | null,
+  actorName: string,
+): Promise<void> {
+  if (!jobId) return;
+  try {
+    await setJobEditLock(jobId, false, { actorName, sessionId: getEditLockSessionId() });
+  } catch {
+    /* best-effort unlock */
+  }
+}
+
 export async function tryAcquireJobEditLock(
   bookingId: number,
   actorName: string,

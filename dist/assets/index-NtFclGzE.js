@@ -12042,8 +12042,8 @@ async function getIdTokenResult(user, forceRefresh = false) {
     "internal-error"
     /* AuthErrorCode.INTERNAL_ERROR */
   );
-  const firebase2 = typeof claims.firebase === "object" ? claims.firebase : void 0;
-  const signInProvider = firebase2 === null || firebase2 === void 0 ? void 0 : firebase2["sign_in_provider"];
+  const firebase = typeof claims.firebase === "object" ? claims.firebase : void 0;
+  const signInProvider = firebase === null || firebase === void 0 ? void 0 : firebase["sign_in_provider"];
   return {
     claims,
     token,
@@ -12051,7 +12051,7 @@ async function getIdTokenResult(user, forceRefresh = false) {
     issuedAtTime: utcTimestampToDateString(secondsStringToMilliseconds(claims.iat)),
     expirationTime: utcTimestampToDateString(secondsStringToMilliseconds(claims.exp)),
     signInProvider: signInProvider || null,
-    signInSecondFactor: (firebase2 === null || firebase2 === void 0 ? void 0 : firebase2["sign_in_second_factor"]) || null
+    signInSecondFactor: (firebase === null || firebase === void 0 ? void 0 : firebase["sign_in_second_factor"]) || null
   };
 }
 function secondsStringToMilliseconds(seconds) {
@@ -27299,40 +27299,22 @@ class ChildEventRegistration {
   }
 }
 function addEventListener(query2, eventType, callback, cancelCallbackOrListenOptions, options) {
-  let cancelCallback;
-  if (typeof cancelCallbackOrListenOptions === "object") {
-    cancelCallback = void 0;
-    options = cancelCallbackOrListenOptions;
-  }
-  if (typeof cancelCallbackOrListenOptions === "function") {
-    cancelCallback = cancelCallbackOrListenOptions;
-  }
-  if (options && options.onlyOnce) {
-    const userCallback = callback;
-    const onceCallback = (dataSnapshot, previousChildName) => {
-      repoRemoveEventCallbackForQuery(query2._repo, query2, container);
-      userCallback(dataSnapshot, previousChildName);
-    };
-    onceCallback.userCallback = callback.userCallback;
-    onceCallback.context = callback.context;
-    callback = onceCallback;
-  }
-  const callbackContext = new CallbackContext(callback, cancelCallback || void 0);
+  const callbackContext = new CallbackContext(callback, void 0);
   const container = eventType === "value" ? new ValueEventRegistration(callbackContext) : new ChildEventRegistration(eventType, callbackContext);
   repoAddEventCallbackForQuery(query2._repo, query2, container);
   return () => repoRemoveEventCallbackForQuery(query2._repo, query2, container);
 }
 function onValue(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "value", callback, cancelCallbackOrListenOptions, options);
+  return addEventListener(query2, "value", callback);
 }
 function onChildAdded(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "child_added", callback, cancelCallbackOrListenOptions, options);
+  return addEventListener(query2, "child_added", callback);
 }
 function onChildChanged(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "child_changed", callback, cancelCallbackOrListenOptions, options);
+  return addEventListener(query2, "child_changed", callback);
 }
 function onChildRemoved(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "child_removed", callback, cancelCallbackOrListenOptions, options);
+  return addEventListener(query2, "child_removed", callback);
 }
 syncPointSetReferenceConstructor(ReferenceImpl);
 syncTreeSetReferenceConstructor(ReferenceImpl);
@@ -27555,6 +27537,9 @@ function getDb() {
   if (!db) throw new Error("Firebase not initialized");
   return db;
 }
+function getDbSafe() {
+  return db;
+}
 function getFirebaseAuth() {
   if (!auth) throw new Error("Firebase not initialized");
   return auth;
@@ -27564,22 +27549,6 @@ async function fetchClientConfig() {
   if (!r.ok) throw new Error("Failed to load client config");
   return r.json();
 }
-const firebase = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
-  __proto__: null,
-  fetchClientConfig,
-  get,
-  getDb,
-  getFirebaseAuth,
-  initFirebase,
-  onChildAdded,
-  onChildChanged,
-  onChildRemoved,
-  onValue,
-  ref,
-  remove,
-  set,
-  update
-}, Symbol.toStringTag, { value: "Module" }));
 function parseLatLng$1(raw) {
   if (!raw) return null;
   const p2 = raw.split(",");
@@ -27605,24 +27574,62 @@ function jobFromFirebase(key, rec, companyId) {
     status,
     source: normalizeSource(srcRaw),
     serviceType: svc,
-    pickAddress: String(rec.PickAddress ?? rec.pickup ?? rec.pickupAddress ?? ""),
-    pickLatLng: String(rec.PickLatLng ?? (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : "")),
-    dropAddress: String(rec.DropAddress ?? rec.dropoff ?? rec.dropAddress ?? ""),
-    dropLatLng: String(rec.DropLatLng ?? (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : "")),
-    passengerName: String(rec.Name ?? rec.passengerName ?? ""),
-    passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? ""),
+    pickAddress: String(
+      rec.PickAddress ?? rec.PickLocation ?? rec.pickAddress ?? rec.PickupAddress ?? rec.pickupAddress ?? rec.pickup ?? rec.jobpickup ?? ""
+    ),
+    pickLatLng: String(
+      rec.PickLatLng ?? rec.pickLatLng ?? (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : "")
+    ),
+    dropAddress: String(
+      rec.DropAddress ?? rec.DropLocation ?? rec.dropAddress ?? rec.DropoffAddress ?? rec.dropoffAddress ?? rec.dropoff ?? rec.jobdropoff ?? ""
+    ),
+    dropLatLng: String(
+      rec.DropLatLng ?? rec.dropLatLng ?? (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : "")
+    ),
+    passengerName: String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? ""),
+    passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? rec.phoneNo ?? ""),
     paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? "Cash"),
     estimatedFare: String(rec.EstimatedFare ?? rec.CustomeRate ?? rec.CustomRate ?? rec.RideCost ?? rec.Fare ?? rec.fare ?? ""),
     totalFare: rec.TotalFare != null ? String(rec.TotalFare) : void 0,
-    driverId: rec.DriverId != null ? String(rec.DriverId) : rec.driverId != null ? String(rec.driverId) : void 0,
+    driverId: (() => {
+      const raw = rec.DriverId ?? rec.driverId ?? rec.DId ?? rec.AssignedDriverId ?? rec.assignedDriverId;
+      if (raw == null || raw === "") return void 0;
+      return String(raw);
+    })(),
     vehicleId: rec.VehicleId != null ? String(rec.VehicleId) : rec.vehicleId != null ? String(rec.vehicleId) : void 0,
-    vehicleNo: String(rec.VehicleNo ?? rec.CallSign ?? rec.vehicleId ?? ""),
+    vehicleNo: (() => {
+      const raw = String(
+        rec.VehicleNo ?? rec.CallSign ?? rec.vehiclenumber ?? rec.vehicleNumber ?? rec.vehicleId ?? ""
+      ).trim();
+      return raw || void 0;
+    })(),
+    driverName: (() => {
+      const raw = String(
+        rec.DriverName ?? rec.driverName ?? rec.AssignedDriverName ?? rec.assignedDriverName ?? rec.drivername ?? ""
+      ).trim();
+      return raw || void 0;
+    })(),
+    driverAcceptedAt: (() => {
+      const raw = rec.DriverAcceptedAt ?? rec.driverAcceptedAt;
+      return raw ? String(raw) : void 0;
+    })(),
+    activeAt: (() => {
+      const raw = rec.ActiveAt ?? rec.activeAt;
+      return raw ? String(raw) : void 0;
+    })(),
     bookingDateTime: String(
-      rec.BookingDateTime ?? rec.Pickingtime ?? rec.PickingTime ?? rec.pickingTime ?? (typeof rec.createdAt === "number" ? new Date(rec.createdAt).toISOString().replace("T", " ").slice(0, 19) : "")
+      rec.BookingDateTime ?? rec.Pickingtime ?? rec.PickingTime ?? rec.pickingTime ?? rec.pickingtime ?? ""
     ),
-    scheduledFor: rec.ScheduledFor ? Number(rec.ScheduledFor) : void 0,
-    dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? "0"), 10) || 0,
-    notifyDispatchAt: rec.NotifyDispatchAt ? String(rec.NotifyDispatchAt) : void 0,
+    scheduledFor: (() => {
+      const raw = rec.ScheduledFor ?? rec.ScheduledForMs ?? rec.scheduledFor;
+      const n2 = Number(raw);
+      return n2 > 0 && !Number.isNaN(n2) ? n2 : void 0;
+    })(),
+    dispatchBeforeMinutes: parseInt(String(rec.DispatchTimebefore ?? rec.Dispatchbefore ?? "0"), 10) || 0,
+    notifyDispatchAt: (() => {
+      const raw = rec.NotifyDispatchAt ?? rec.notifyDispatchAt;
+      return raw ? String(raw) : void 0;
+    })(),
     offeredAt: rec.offeredAt ? Number(rec.offeredAt) : void 0,
     originalStatus: rec.originalStatus ? String(rec.originalStatus) : void 0,
     urgent: rec.Urgent === "Yes" || rec.urgent === true,
@@ -27650,15 +27657,22 @@ function jobFromFirebase(key, rec, companyId) {
       return tid === "-1" || tname === "fixed";
     })(),
     passengers: parseInt(String(rec.Passengers ?? "1"), 10) || 1,
+    bags: (() => {
+      const raw = rec.Bags ?? rec.bags ?? rec.NoOfBags ?? rec.noOfBags;
+      if (raw == null || raw === "") return void 0;
+      const n2 = parseInt(String(raw), 10);
+      return Number.isNaN(n2) ? void 0 : n2;
+    })(),
     updateSeq: jobUpdateSeqFromRecord(rec),
     createdAt: (() => {
       if (rec.createdAt != null) {
         const n2 = Number(rec.createdAt);
         if (!Number.isNaN(n2) && n2 > 0) return n2;
       }
-      const ca = rec.CreatedAt;
-      if (ca != null) {
-        const ms = typeof ca === "number" ? ca : Date.parse(String(ca));
+      for (const key2 of ["CreatedAt", "bookedAt", "BookedAt", "bookingCreatedAt", "InsertTime", "insertTime"]) {
+        const raw = rec[key2];
+        if (raw == null) continue;
+        const ms = typeof raw === "number" ? raw : Date.parse(String(raw));
         if (!Number.isNaN(ms) && ms > 0) return ms;
       }
       return void 0;
@@ -27673,8 +27687,35 @@ function jobFromFirebase(key, rec, companyId) {
     bookingType: String(rec.bookingType ?? rec.BookingType ?? "").trim() || void 0,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ""),
     cancelledAt: String(rec.CancelledAt ?? rec.cancelledAt ?? ""),
-    cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? "")
+    cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? ""),
+    cancelSource: String(rec.CancelSource ?? rec.cancelSource ?? ""),
+    terminalKind: String(rec.TerminalKind ?? rec.terminalKind ?? ""),
+    jobEditing: rec.jobEditing === true || rec.dispatcherEditing === true || rec.JobEditing === true,
+    editLock: parseJobEditLockFromRecord(rec)
   };
+}
+function parseJobEditLockFromRecord(rec) {
+  const active = rec.jobEditing === true || rec.dispatcherEditing === true || rec.JobEditing === true || rec.editLockActive === true;
+  if (!active) return void 0;
+  const atRaw = rec.editLockAt ?? rec.EditLockAt;
+  const at2 = atRaw != null ? Number(atRaw) : void 0;
+  return {
+    active: true,
+    source: String(rec.editLockSource ?? rec.EditLockSource ?? "dispatcher").trim() || "dispatcher",
+    actor: String(rec.editLockActor ?? rec.EditLockActor ?? "").trim() || void 0,
+    at: at2 != null && !Number.isNaN(at2) ? at2 : void 0,
+    sessionId: String(rec.editLockSessionId ?? rec.EditLockSessionId ?? "").trim() || void 0
+  };
+}
+function jobEditLockLabel(job) {
+  var _a2, _b2, _c, _d;
+  if (!((_a2 = job.editLock) == null ? void 0 : _a2.active) && !job.jobEditing) return null;
+  const actor = (_c = (_b2 = job.editLock) == null ? void 0 : _b2.actor) == null ? void 0 : _c.trim();
+  const source = ((_d = job.editLock) == null ? void 0 : _d.source) || "dispatcher";
+  if (source === "dispatcher") return actor ? `${actor} editing` : "Dispatcher editing";
+  if (source === "passenger") return actor ? `Passenger (${actor})` : "Passenger editing";
+  if (source === "website") return actor ? `Website (${actor})` : "Website editing";
+  return actor ? `${actor} editing` : "Being edited";
 }
 function normalizeJobStatus(raw) {
   const s2 = String(raw || "").trim();
@@ -27682,12 +27723,6 @@ function normalizeJobStatus(raw) {
   if (s2 === "pending" || s2 === "PENDING") return "Pending";
   if (s2 === "OnBoard" || s2 === "onboard" || s2 === "On Board") return "Active";
   return s2;
-}
-function uaStatusBadge(job) {
-  const st2 = normalizeJobStatus(job.status);
-  if (st2 === "No One") return { label: "NO ONE", color: "#94a3b8", bg: "rgba(100,116,139,0.2)" };
-  if (st2 === "Pending") return { label: "PENDING", color: "#5b7cfa", bg: "rgba(79,110,247,0.2)" };
-  return null;
 }
 function normalizeSource(raw) {
   const s2 = raw.toLowerCase();
@@ -27731,32 +27766,43 @@ function isScheduledJob(job) {
   if (pickup && pickup.getTime() > Date.now()) return true;
   return false;
 }
+function effectiveDispatchBeforeMinutes(job) {
+  const explicit = job.dispatchBeforeMinutes ?? 0;
+  if (explicit > 0) return explicit;
+  if (job.notifyDispatchAt) return 10;
+  if (job.scheduledFor && job.scheduledFor > 0) return 10;
+  if (normalizeJobStatus(job.status) === "Scheduled") return 10;
+  return 0;
+}
 function jobScheduledTime(job) {
   var _a2;
-  if (job.scheduledFor) {
+  if (job.scheduledFor && job.scheduledFor > 0) {
     const d2 = new Date(job.scheduledFor);
     if (!Number.isNaN(d2.getTime())) return d2;
   }
   const raw = (_a2 = job.bookingDateTime) == null ? void 0 : _a2.trim();
   if (!raw) return null;
   try {
-    const d2 = new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+    const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+    const d2 = new Date(normalized);
     return Number.isNaN(d2.getTime()) ? null : d2;
   } catch {
     return null;
   }
 }
 function jobDispatchTime(job) {
-  const pickup = jobScheduledTime(job);
-  if (!pickup) return null;
   if (job.notifyDispatchAt) {
     try {
-      const d2 = new Date(job.notifyDispatchAt.includes("T") ? job.notifyDispatchAt : job.notifyDispatchAt.replace(" ", "T"));
+      const raw = job.notifyDispatchAt.includes("T") ? job.notifyDispatchAt : job.notifyDispatchAt.replace(" ", "T");
+      const d2 = new Date(raw);
       if (!Number.isNaN(d2.getTime())) return d2;
     } catch {
     }
   }
-  const mins = job.dispatchBeforeMinutes ?? 0;
+  const pickup = jobScheduledTime(job);
+  if (!pickup) return null;
+  const mins = effectiveDispatchBeforeMinutes(job);
+  if (mins <= 0) return null;
   return new Date(pickup.getTime() - mins * 6e4);
 }
 function isUnassignedForDispatch(job) {
@@ -27802,6 +27848,14 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
       label: null
     };
   }
+  if (tab === "offer") {
+    return {
+      backgroundColor: "var(--bw-card)",
+      borderLeftColor: "#f59e0b",
+      flash: false,
+      label: null
+    };
+  }
   if (tab === "ua" && isUnassignedForDispatch(job)) {
     if (!isPreBookedJob(job, now)) {
       return {
@@ -27819,11 +27873,6 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
     if (pickup) {
       const dispatchAt = jobDispatchTime(job) ?? pickup;
       const dispatchMs = dispatchAt.getTime();
-      const pickLabel = pickup.toLocaleTimeString("en-NZ", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false
-      });
       if (now.getTime() >= dispatchMs) {
         return {
           backgroundColor: CARD_PINK_BG,
@@ -27837,6 +27886,7 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
         };
       }
       if (isScheduledJob(job)) {
+        const schedLabel = formatJobDateTimeCard(dispatchAt);
         return {
           backgroundColor: CARD_BLUE_WAIT_BG,
           borderLeftColor: CARD_BLUE_WAIT_BORDER,
@@ -27845,7 +27895,7 @@ function getJobCardAppearance(job, tab, now = /* @__PURE__ */ new Date()) {
           foregroundMuted: CARD_BLUE_TEXT_MUTED,
           tone: "blue",
           flash: false,
-          label: `Sched: ${pickLabel}`
+          label: `SCHED ${schedLabel}`
         };
       }
     }
@@ -27884,12 +27934,145 @@ function jobTabForStatus(job) {
   return "ua";
 }
 function jobCreatedAtTime(job) {
-  if (!job.createdAt) return null;
-  const d2 = new Date(job.createdAt);
-  return Number.isNaN(d2.getTime()) ? null : d2;
+  return jobWaitStartTime(job);
+}
+function jobWaitStartTime(job) {
+  if (job.createdAt) {
+    const d2 = new Date(job.createdAt);
+    if (!Number.isNaN(d2.getTime())) return d2;
+  }
+  return null;
+}
+function jobPickupTime(job) {
+  return jobScheduledTime(job);
 }
 function jobBookingTime(job) {
-  return jobScheduledTime(job);
+  return jobPickupTime(job);
+}
+function formatJobDateTimeCard(d2, opts) {
+  const now = /* @__PURE__ */ new Date();
+  d2.getFullYear() === now.getFullYear() && d2.getMonth() === now.getMonth() && d2.getDate() === now.getDate();
+  d2.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
+  {
+    return d2.toLocaleString("en-NZ", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+  }
+}
+function formatJobDateTimeCompact(d2, now = /* @__PURE__ */ new Date()) {
+  const time = d2.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const sameDay = d2.getFullYear() === now.getFullYear() && d2.getMonth() === now.getMonth() && d2.getDate() === now.getDate();
+  if (sameDay) return `Today ${time}`;
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow = d2.getFullYear() === tomorrow.getFullYear() && d2.getMonth() === tomorrow.getMonth() && d2.getDate() === tomorrow.getDate();
+  if (isTomorrow) return `Tmr ${time}`;
+  const datePart = d2.toLocaleDateString("en-NZ", {
+    weekday: "short",
+    day: "numeric",
+    month: "short"
+  });
+  return `${datePart} ${time}`;
+}
+function jobStatusAbbrev(status) {
+  const st2 = normalizeJobStatus(status);
+  switch (st2) {
+    case "No One":
+      return { abbrev: "NON", dotColor: "#94a3b8" };
+    case "Pending":
+      return { abbrev: "PND", dotColor: "#4f6ef7" };
+    case "Offered":
+      return { abbrev: "OFR", dotColor: "#f59e0b" };
+    case "Assigned":
+      return { abbrev: "ASN", dotColor: "#6366f1" };
+    case "Picking":
+      return { abbrev: "PIK", dotColor: "#6366f1" };
+    case "Arrived":
+      return { abbrev: "ARR", dotColor: "#6366f1" };
+    case "Active":
+    case "OnTrip":
+      return { abbrev: "ACT", dotColor: "#22c55e" };
+    case "Scheduled":
+      return { abbrev: "SCH", dotColor: "#0ea5e9" };
+    case "Queued":
+      return { abbrev: "QUE", dotColor: "#a855f7" };
+    default:
+      return { abbrev: st2.slice(0, 3).toUpperCase(), dotColor: "#64748b" };
+  }
+}
+function jobTripStartTime(job, tab) {
+  const parse = (raw) => {
+    if (!raw) return null;
+    try {
+      const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+      const d2 = new Date(normalized);
+      return Number.isNaN(d2.getTime()) ? null : d2;
+    } catch {
+      return null;
+    }
+  };
+  if (tab === "active") {
+    return parse(job.activeAt) ?? parse(job.driverAcceptedAt);
+  }
+  if (tab === "assign") {
+    return parse(job.driverAcceptedAt) ?? (job.offeredAt ? new Date(job.offeredAt) : null);
+  }
+  return null;
+}
+function jobGoTimeLabel(job) {
+  const dispatchAt = jobDispatchTime(job);
+  if (!dispatchAt) return null;
+  const time = dispatchAt.toLocaleTimeString("en-NZ", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  return `Go ${time}`;
+}
+function jobTimerBadge(job, tab, now = /* @__PURE__ */ new Date()) {
+  if (tab === "offer" && job.offeredAt) {
+    const expiresAt = job.offeredAt + 3e4;
+    const secs = Math.max(0, Math.ceil((expiresAt - now.getTime()) / 1e3));
+    return { text: `expires ${secs}s`, variant: "amber" };
+  }
+  if (tab === "assign" || tab === "active") {
+    const tripStart = jobTripStartTime(job, tab);
+    if (tripStart) {
+      const mins = Math.max(0, Math.floor((now.getTime() - tripStart.getTime()) / 6e4));
+      return { text: `on trip ${mins}m`, variant: "green" };
+    }
+  }
+  if (tab === "ua") {
+    const overdueMins = jobOverdueMinutes(job, now);
+    if (overdueMins != null) {
+      return { text: `overdue ${overdueMins}m`, variant: "red" };
+    }
+    if (isPreBookedJob(job, now) && isPreDispatchWindow(job, now)) {
+      const dispatchAt = jobDispatchTime(job);
+      if (dispatchAt) {
+        const ms = Math.max(0, dispatchAt.getTime() - now.getTime());
+        const totalMins = Math.ceil(ms / 6e4);
+        const hours = Math.floor(totalMins / 60);
+        const mins = totalMins % 60;
+        const countdown = hours > 0 ? `in ${hours}h ${mins}m` : `in ${mins}m`;
+        return { text: countdown, variant: "blue" };
+      }
+    }
+    if (!isPreBookedJob(job, now)) {
+      const created = jobWaitStartTime(job);
+      if (created) {
+        const mins = Math.max(0, Math.floor((now.getTime() - created.getTime()) / 6e4));
+        if (mins >= 1) return { text: `wait ${mins}m`, variant: "neutral" };
+        return { text: "wait <1m", variant: "neutral" };
+      }
+    }
+  }
+  return null;
 }
 function formatJobDateTimeShort(d2) {
   const now = /* @__PURE__ */ new Date();
@@ -27937,16 +28120,10 @@ function formatJobEditHistoryWhen(entry) {
 }
 function jobPickupTypeLabel(job) {
   var _a2;
-  const preBooked = (job.dispatchBeforeMinutes ?? 0) > 0 || !!job.notifyDispatchAt || normalizeJobStatus(job.status) === "Scheduled" || job.createdAt && jobScheduledTime(job) && jobScheduledTime(job).getTime() - job.createdAt > 6e4;
-  if (!preBooked && ((_a2 = job.bookingType) == null ? void 0 : _a2.toUpperCase()) !== "SCHEDULED") {
+  if (!isPreBookedJob(job) && ((_a2 = job.bookingType) == null ? void 0 : _a2.toUpperCase()) !== "SCHEDULED") {
     return "ASAP";
   }
-  const pickup = jobScheduledTime(job);
-  if (pickup) {
-    const t2 = pickup.toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit", hour12: false });
-    return `Sched: ${t2}`;
-  }
-  return "ASAP";
+  return "LATER";
 }
 function jobOverdueMinutes(job, now = /* @__PURE__ */ new Date()) {
   const dispatchAt = jobDispatchTime(job);
@@ -28002,13 +28179,6 @@ function jobReturnReasonAlert(job, driverName) {
   }
   return { kind: "warning", text: r };
 }
-function jobFareDisplay(job) {
-  const raw = (job.estimatedFare || job.totalFare || "").trim();
-  if (!raw || raw === "0") return null;
-  const amount = raw.startsWith("$") ? raw : `$${raw}`;
-  const label = job.isFixedPrice ? "Fixed Price" : "Fare";
-  return { label, amount };
-}
 function jobTariffLabel(job) {
   const name2 = (job.tariffName || "").trim();
   if (name2 && name2.toLowerCase() !== "automatic") return name2;
@@ -28018,8 +28188,93 @@ function jobTariffLabel(job) {
 }
 function jobVehicleTypeLabel(job) {
   const v2 = (job.vehicleType || "").trim();
-  if (!v2 || v2.toLowerCase() === "not specified") return null;
+  if (!v2 || v2.toLowerCase() === "not specified" || v2.toLowerCase() === "any") return null;
   return v2;
+}
+function jobBookingMeta(job) {
+  var _a2;
+  const vehicleType = jobVehicleTypeLabel(job);
+  const tariff = jobTariffLabel(job);
+  const passengers = (job.passengers ?? 1) > 1 ? job.passengers : null;
+  const bags = (job.bags ?? 0) > 0 ? job.bags : null;
+  const notes = ((_a2 = job.notes) == null ? void 0 : _a2.trim()) || null;
+  return { vehicleType, tariff, passengers, bags, notes };
+}
+function jobBookingMetaVisible(meta) {
+  return !!(meta.vehicleType || meta.tariff || meta.passengers || meta.bags || meta.notes);
+}
+function parseMeterStart(raw) {
+  if (!raw) return null;
+  try {
+    const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+    const d2 = new Date(normalized);
+    return Number.isNaN(d2.getTime()) ? null : d2;
+  } catch {
+    return null;
+  }
+}
+function driverLiveFareForJob(job, driver) {
+  if (!driver || driver.liveFare == null) return void 0;
+  const jobId = String(job.id);
+  const matches = driver.liveJobId && driver.liveJobId === jobId || driver.bookingId && driver.bookingId === jobId;
+  return matches ? driver.liveFare : void 0;
+}
+function resolveLiveMeterDisplay(job, tab, opts = {}) {
+  var _a2, _b2, _c, _d, _e, _f, _g;
+  if (tab !== "active") return null;
+  const now = opts.now ?? /* @__PURE__ */ new Date();
+  const tariff = opts.tariff ?? (job.tariffId && job.tariffId !== "0" && job.tariffId !== "-1" ? { id: job.tariffId, name: job.tariffName || "Tariff" } : null);
+  const tariffLabel = ((_b2 = (_a2 = opts.driver) == null ? void 0 : _a2.liveTariffName) == null ? void 0 : _b2.trim()) || jobTariffLabel(job) || (tariff == null ? void 0 : tariff.name) || (job.isFixedPrice ? "Fixed" : "Meter");
+  if (job.isFixedPrice) {
+    const raw = job.estimatedFare || job.totalFare || "";
+    const fare = parseFloat(raw);
+    if (!Number.isNaN(fare) && fare > 0) {
+      return { tariffLabel, fare, ticking: false };
+    }
+  }
+  const driverFare = driverLiveFareForJob(job, opts.driver);
+  if (driverFare != null) {
+    return {
+      tariffLabel: ((_d = (_c = opts.driver) == null ? void 0 : _c.liveTariffName) == null ? void 0 : _d.trim()) || tariffLabel,
+      fare: driverFare,
+      ticking: true
+    };
+  }
+  if (job.totalFare) {
+    const fare = parseFloat(job.totalFare);
+    if (!Number.isNaN(fare) && fare > 0) {
+      return { tariffLabel, fare, ticking: true };
+    }
+  }
+  const meterStart = parseMeterStart((_e = opts.driver) == null ? void 0 : _e.meterOnAt) ?? parseMeterStart(job.activeAt) ?? jobTripStartTime(job, "active");
+  const rateTariff = opts.tariff;
+  if (meterStart && rateTariff) {
+    const elapsedMin = Math.max(0, (now.getTime() - meterStart.getTime()) / 6e4);
+    const distKm = ((_f = opts.driver) == null ? void 0 : _f.liveDistanceKm) ?? 0;
+    const waitMin = ((_g = opts.driver) == null ? void 0 : _g.liveWaitingMin) ?? elapsedMin * 0.75;
+    const waitingRate = rateTariff.waitingRate > 0 ? rateTariff.waitingRate : 0.6;
+    let fare = rateTariff.startPrice + distKm * rateTariff.distanceRate + waitMin * waitingRate;
+    if (rateTariff.minimumFare > 0) fare = Math.max(fare, rateTariff.minimumFare);
+    return { tariffLabel, fare, ticking: true };
+  }
+  const est = parseFloat(job.estimatedFare || "0");
+  if (!Number.isNaN(est) && est > 0) {
+    return { tariffLabel, fare: est, ticking: false };
+  }
+  return { tariffLabel, fare: (rateTariff == null ? void 0 : rateTariff.startPrice) ?? 0, ticking: !!meterStart };
+}
+const SESSION_KEY = "bw_edit_lock_session";
+function getEditLockSessionId() {
+  try {
+    let id = sessionStorage.getItem(SESSION_KEY);
+    if (!id) {
+      id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem(SESSION_KEY, id);
+    }
+    return id;
+  } catch {
+    return `sess-${Date.now()}`;
+  }
 }
 const STATUS_RANK = {
   "No One": 0,
@@ -28058,10 +28313,14 @@ const PRESERVE_IF_EMPTY = [
   "passengerName",
   "passengerPhone",
   "estimatedFare",
-  "dispatcherName"
+  "dispatcherName",
+  "bookingDateTime",
+  "tariffName",
+  "tariffId",
+  "jobEditing"
 ];
 function mergeJobUpdate(existing, incoming) {
-  var _a2, _b2, _c;
+  var _a2, _b2, _c, _d, _e;
   const merged = { ...existing, ...incoming };
   for (const key of PRESERVE_IF_EMPTY) {
     const nextVal = incoming[key];
@@ -28094,6 +28353,10 @@ function mergeJobUpdate(existing, incoming) {
   }
   if (incoming.updateSeq == null || incomingSeq < existingSeq) {
     merged.updateSeq = existingSeq;
+  }
+  if (!((_d = incoming.editLock) == null ? void 0 : _d.active) && ((_e = existing.editLock) == null ? void 0 : _e.active)) {
+    merged.editLock = existing.editLock;
+    merged.jobEditing = existing.jobEditing ?? true;
   }
   return merged;
 }
@@ -28392,14 +28655,6 @@ function sourceLabel(src) {
   if (s2.includes("web") || s2.includes("website")) return "WEB";
   return s2.slice(0, 8).toUpperCase();
 }
-function sourceDisplayName(src) {
-  const label = sourceLabel(src);
-  if (label === "DESK") return "Dispatcher";
-  if (label === "WEB") return "Website";
-  if (label === "APP") return "Passenger App";
-  if (label === "HAIL") return "Hail";
-  return label;
-}
 function isExternalJobSource(src) {
   const label = sourceLabel(src);
   return label === "APP" || label === "WEB" || label === "HAIL";
@@ -28664,7 +28919,12 @@ function useJobs(companyId) {
         (j2) => !removed.has(j2.id)
       );
       const byId = new Map(merged.map((j2) => [j2.id, j2]));
-      for (const j2 of useJobStore.getState().jobs) {
+      const storeJobs = useJobStore.getState().jobs;
+      for (const [id, job] of byId) {
+        const existing = storeJobs.find((j2) => j2.id === id);
+        if (existing) byId.set(id, mergeJobUpdate(existing, job));
+      }
+      for (const j2 of storeJobs) {
         if (byId.has(j2.id) || removed.has(j2.id)) continue;
         if (shouldPreserveAbsentStoreJob(j2, pendingRef.current, bookingsRef.current)) {
           byId.set(j2.id, j2);
@@ -28697,7 +28957,9 @@ function useJobs(companyId) {
       }
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
-      const merged = booking ? mergeJobUpdate(booking, job) : job;
+      const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === job.id);
+      let merged = booking ? mergeJobUpdate(booking, job) : job;
+      if (storeJob) merged = mergeJobUpdate(storeJob, merged);
       upsertJob(merged);
       syncAll();
       if (notify) notifyNewJob(job);
@@ -28853,8 +29115,8 @@ function useClosedJobs(companyId, enabled) {
           const job = jobFromFirebase(key, rec, companyId);
           if (!job) continue;
           const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
-          if (st2 === "Cancelled") {
-            job.status = "Cancelled";
+          if (st2 === "Cancelled" || st2 === "No Show") {
+            job.status = st2;
             const at2 = job.cancelledAt || job.completedAt;
             job.completedAt = at2 ? Date.parse(String(at2)) || job.completedAt : job.completedAt;
           } else {
@@ -28875,10 +29137,10 @@ function useClosedJobs(companyId, enabled) {
         if (val && typeof val === "object") {
           for (const [key, rec] of Object.entries(val)) {
             const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? ""));
-            if (st2 !== "Cancelled") continue;
+            if (st2 !== "Cancelled" && st2 !== "No Show") continue;
             const job = jobFromFirebase(key, rec, companyId);
             if (!job) continue;
-            job.status = "Cancelled";
+            job.status = st2;
             const at2 = job.cancelledAt || String(rec.cancelledAt ?? "");
             job.completedAt = at2 ? Date.parse(at2) || void 0 : void 0;
             list.push(job);
@@ -29259,7 +29521,7 @@ function jobToForm(job) {
   const drop = parseLatLng$1(job.dropLatLng);
   const bookingDt = job.bookingDateTime || (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace("T", " ").slice(0, 16) : "");
   const parsed = parseBookingDateTime(bookingDt);
-  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || isFutureBooking(bookingDt) || job.scheduledFor != null && job.scheduledFor > Date.now() + 6e4;
+  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || String(job.status || "") === "Scheduled" || isPreBookedJob(job);
   const driverId = formDriverIdFromJob(job);
   const payment = (job.paymentType || "").toLowerCase();
   let paymentType = "";
@@ -29294,6 +29556,7 @@ function jobToForm(job) {
     corner: !!job.corner,
     vehicleType: job.vehicleType || "Any",
     tariffId: job.tariffId || "0",
+    tariffName: job.tariffName || "Automatic",
     driverId,
     vehicleId: job.vehicleId || "0",
     paymentType,
@@ -29303,14 +29566,6 @@ function jobToForm(job) {
     fixedFareEnabled: !!job.estimatedFare && job.tariffId === "-1",
     fixedFareAmount: job.estimatedFare || ""
   };
-}
-function isFutureBooking(dt2) {
-  try {
-    const d2 = new Date(dt2.replace(" ", "T"));
-    return !Number.isNaN(d2.getTime()) && d2.getTime() > Date.now() + 6e4;
-  } catch {
-    return false;
-  }
 }
 function repeatBookingDates(form) {
   if (!form.repeatExpanded || !form.repeatUntil) return [];
@@ -29327,6 +29582,64 @@ function repeatBookingDates(form) {
   }
   return out;
 }
+const API$1 = "/api";
+function formatJobEditLockLabel(lock) {
+  if (!lock) return "another user";
+  const actor = (lock.actor || "").trim();
+  switch (lock.source) {
+    case "dispatcher":
+      return actor ? `dispatcher ${actor}` : "another dispatcher";
+    case "passenger":
+      return actor ? `passenger ${actor}` : "the passenger app";
+    case "website":
+      return actor ? `website (${actor})` : "the website";
+    default:
+      return actor || lock.source || "another user";
+  }
+}
+function jobEditLockHeldBySelf(job, sessionId = getEditLockSessionId()) {
+  const lock = job.editLock;
+  if (!(lock == null ? void 0 : lock.active)) return false;
+  return !!lock.sessionId && lock.sessionId === sessionId;
+}
+function jobEditLockBlockedForSelf(job, sessionId = getEditLockSessionId()) {
+  const lock = job.editLock;
+  if (!(lock == null ? void 0 : lock.active)) return false;
+  return !jobEditLockHeldBySelf(job, sessionId);
+}
+async function setJobEditLock(bookingId, locked, opts) {
+  const r = await fetch(`${API$1}/job/edit-lock`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bookingId,
+      locked,
+      source: (opts == null ? void 0 : opts.source) ?? "dispatcher",
+      actorName: opts == null ? void 0 : opts.actorName,
+      sessionId: (opts == null ? void 0 : opts.sessionId) ?? getEditLockSessionId()
+    })
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    return { ok: false, ...data, error: data.error || `HTTP ${r.status}` };
+  }
+  return { ok: true, ...data };
+}
+async function releaseJobEditLock(jobId, actorName) {
+  if (!jobId) return;
+  try {
+    await setJobEditLock(jobId, false, { actorName, sessionId: getEditLockSessionId() });
+  } catch {
+  }
+}
+async function tryAcquireJobEditLock(bookingId, actorName) {
+  const sessionId = getEditLockSessionId();
+  const res = await setJobEditLock(bookingId, true, { actorName, sessionId });
+  if (res.ok) return { ok: true, sessionId };
+  const message2 = res.error || (res.lock ? `Job is being edited by ${formatJobEditLockLabel(res.lock)}` : "Could not open job for editing");
+  return { ok: false, conflict: !!res.conflict || res.error_code === "edit_locked", message: message2 };
+}
 const API = "/api";
 async function jsonFetch(url, init) {
   const r = await fetch(url, {
@@ -29337,6 +29650,9 @@ async function jsonFetch(url, init) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || data.message || `HTTP ${r.status}`);
   return data;
+}
+function isExplicitUnassignChanges(changes) {
+  return !!(changes._withdrawDriverId || changes.BookingStatus === "No One" || changes.Status === "No One" || changes.BookingStatus === "Pending" || changes.Status === "Pending" || changes.DriverId != null && (Number(changes.DriverId) === -1 || Number(changes.DriverId) === 0));
 }
 async function sessionLogin(companyId, uid) {
   return jsonFetch(
@@ -29383,6 +29699,7 @@ function applyChangesToJob(job, changes, seq) {
     vehicleId: changes.VehicleId != null ? Number(changes.VehicleId) === 0 ? void 0 : String(changes.VehicleId) : job.vehicleId,
     vehicleType: String(changes.VehicleType ?? job.vehicleType ?? ""),
     tariffId: changes.TarriffId != null ? String(changes.TarriffId) : job.tariffId,
+    tariffName: changes.TarriffName != null ? String(changes.TarriffName) : job.tariffName,
     estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ""),
     urgent: changes.Urgent === "Yes" || changes.Urgent === true,
     corner: changes.CornerAddress ? String(changes.CornerAddress).length > 0 : job.corner,
@@ -29492,7 +29809,8 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
     companyId,
     changes,
     by: "dispatcher",
-    ifSeq
+    ifSeq,
+    sessionId: getEditLockSessionId()
   });
   let result = null;
   for (let tries = 0; tries < 3; tries++) {
@@ -29522,6 +29840,13 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
       title: "Job update failed",
       message: message2
     });
+    throw new Error(message2);
+  }
+  if (result.idempotent && isExplicitUnassignChanges(changes)) {
+    const fresh2 = await fetchFreshJobFromFirebase(companyId, jobId);
+    if (fresh2) useJobStore.getState().upsertJob(fresh2);
+    const message2 = "Unassign was not applied on the server — job may still be assigned";
+    useUiStore.getState().addToast({ type: "error", title: "Unassign failed", message: message2 });
     throw new Error(message2);
   }
   const current = useJobStore.getState().jobs.find((j2) => j2.id === jobId) ?? baseJob;
@@ -29592,14 +29917,9 @@ async function assignJob(bookingId, driverId, vehicleId, ifVersion, baseJob, opt
 }
 async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   const cancelledAt = (/* @__PURE__ */ new Date()).toISOString();
-  const cancelReason = "Cancelled by dispatcher";
-  const jobsBefore = useJobStore.getState().jobs.length;
-  console.log("Cancelling job:", bookingId);
-  console.log("Jobs before cancel:", jobsBefore);
-  purgeCancelledJobFromListeners(bookingId);
-  useJobStore.getState().removeJob(bookingId);
-  console.log("Jobs after cancel:", useJobStore.getState().jobs.length);
-  await jsonFetch(`${API}/cancel`, {
+  const cancelSource = "Dispatcher";
+  const cancelReason = dispatcherName && dispatcherName !== "Dispatcher" ? `Cancelled by ${dispatcherName}` : "Cancelled by Dispatcher";
+  const result = await jsonFetch(`${API}/cancel`, {
     method: "POST",
     body: JSON.stringify({
       bookingId,
@@ -29607,9 +29927,15 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
       cancelledBy: "dispatcher",
       cancelledAt,
       reason: cancelReason,
-      dispatcherName
+      dispatcherName,
+      terminalKind: "Cancelled"
     })
   });
+  if (result.ok === false) {
+    throw new Error(result.error || "Cancel rejected by server");
+  }
+  purgeCancelledJobFromListeners(bookingId);
+  useJobStore.getState().removeJob(bookingId);
   try {
     const db2 = getDb();
     await remove(ref(db2, `pendingjobs/${companyId}/${bookingId}`));
@@ -29619,10 +29945,12 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
       Status: "Cancelled",
       cancelledBy: dispatcherName,
       CancelledBy: dispatcherName,
+      CancelSource: cancelSource,
       cancelledAt,
       CancelledAt: cancelledAt,
       cancelReason,
-      CancelReason: cancelReason
+      CancelReason: cancelReason,
+      TerminalKind: "Cancelled"
     });
   } catch {
   }
@@ -29709,12 +30037,15 @@ const jobFlow = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   cancelJob,
   createJob,
   forceCompleteJob,
+  formatJobEditLockLabel,
   jobCommand,
   logoutSession,
   sessionLogin,
   sessionMe,
+  setJobEditLock,
   setNoOne,
   setPending,
+  tryAcquireJobEditLock,
   updateJob
 }, Symbol.toStringTag, { value: "Module" }));
 /**
@@ -29804,11 +30135,31 @@ const createLucideIcon = (iconName, iconNode) => {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const ArrowRight = createLucideIcon("ArrowRight", [
+  ["path", { d: "M5 12h14", key: "1ays0h" }],
+  ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const ArrowUpDown = createLucideIcon("ArrowUpDown", [
   ["path", { d: "m21 16-4 4-4-4", key: "f6ql7i" }],
   ["path", { d: "M17 20V4", key: "1ejh1v" }],
   ["path", { d: "m3 8 4-4 4 4", key: "11wl7u" }],
   ["path", { d: "M7 4v16", key: "1glfcx" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Ban = createLucideIcon("Ban", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "m4.9 4.9 14.2 14.2", key: "1m5liu" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -29947,6 +30298,16 @@ const LoaderCircle = createLucideIcon("LoaderCircle", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Lock = createLucideIcon("Lock", [
+  ["rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2", key: "1w4ew1" }],
+  ["path", { d: "M7 11V7a5 5 0 0 1 10 0v4", key: "fwvmzm" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const LogOut = createLucideIcon("LogOut", [
   ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", key: "1uf3rs" }],
   ["polyline", { points: "16 17 21 12 16 7", key: "1gabdz" }],
@@ -29958,9 +30319,41 @@ const LogOut = createLucideIcon("LogOut", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Luggage = createLucideIcon("Luggage", [
+  [
+    "path",
+    { d: "M6 20a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2", key: "1m57jg" }
+  ],
+  ["path", { d: "M8 18V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v14", key: "1l99gc" }],
+  ["path", { d: "M10 20h4", key: "ni2waw" }],
+  ["circle", { cx: "16", cy: "20", r: "2", key: "1vifvg" }],
+  ["circle", { cx: "8", cy: "20", r: "2", key: "ckkr5m" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Mail = createLucideIcon("Mail", [
   ["rect", { width: "20", height: "16", x: "2", y: "4", rx: "2", key: "18n3k1" }],
   ["path", { d: "m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7", key: "1ocrg3" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const MapPin = createLucideIcon("MapPin", [
+  [
+    "path",
+    {
+      d: "M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0",
+      key: "1r0f0z"
+    }
+  ],
+  ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -30050,6 +30443,16 @@ const SquarePen = createLucideIcon("SquarePen", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const StickyNote = createLucideIcon("StickyNote", [
+  ["path", { d: "M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z", key: "qazsjp" }],
+  ["path", { d: "M15 3v4a2 2 0 0 0 2 2h4", key: "40519r" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Sun = createLucideIcon("Sun", [
   ["circle", { cx: "12", cy: "12", r: "4", key: "4exip2" }],
   ["path", { d: "M12 2v2", key: "tus03m" }],
@@ -30060,6 +30463,22 @@ const Sun = createLucideIcon("Sun", [
   ["path", { d: "M20 12h2", key: "1q8mjw" }],
   ["path", { d: "m6.34 17.66-1.41 1.41", key: "1m8zz5" }],
   ["path", { d: "m19.07 4.93-1.41 1.41", key: "1shlcs" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Tag = createLucideIcon("Tag", [
+  [
+    "path",
+    {
+      d: "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z",
+      key: "vktsd0"
+    }
+  ],
+  ["circle", { cx: "7.5", cy: "7.5", r: ".5", fill: "currentColor", key: "kqv944" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -30101,16 +30520,6 @@ const TriangleAlert = createLucideIcon("TriangleAlert", [
   ],
   ["path", { d: "M12 9v4", key: "juzpu7" }],
   ["path", { d: "M12 17h.01", key: "p32p05" }]
-]);
-/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const User = createLucideIcon("User", [
-  ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", key: "975kel" }],
-  ["circle", { cx: "12", cy: "7", r: "4", key: "17ys0d" }]
 ]);
 /**
  * @license lucide-react v0.469.0 - ISC
@@ -30606,1833 +31015,6 @@ function ResizableDispatchLayout({ left, center, right }) {
     )
   ] });
 }
-const millisecondsInWeek = 6048e5;
-const millisecondsInDay = 864e5;
-const millisecondsInMinute = 6e4;
-const millisecondsInHour = 36e5;
-const minutesInMonth = 43200;
-const minutesInDay = 1440;
-const constructFromSymbol = Symbol.for("constructDateFrom");
-function constructFrom(date, value) {
-  if (typeof date === "function") return date(value);
-  if (date && typeof date === "object" && constructFromSymbol in date)
-    return date[constructFromSymbol](value);
-  if (date instanceof Date) return new date.constructor(value);
-  return new Date(value);
-}
-function toDate(argument, context) {
-  return constructFrom(context || argument, argument);
-}
-function addDays(date, amount, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  if (isNaN(amount)) return constructFrom(date, NaN);
-  if (!amount) return _date;
-  _date.setDate(_date.getDate() + amount);
-  return _date;
-}
-let defaultOptions = {};
-function getDefaultOptions() {
-  return defaultOptions;
-}
-function startOfWeek(date, options) {
-  var _a2, _b2, _c, _d;
-  const defaultOptions2 = getDefaultOptions();
-  const weekStartsOn = (options == null ? void 0 : options.weekStartsOn) ?? ((_b2 = (_a2 = options == null ? void 0 : options.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.weekStartsOn) ?? defaultOptions2.weekStartsOn ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.weekStartsOn) ?? 0;
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const day = _date.getDay();
-  const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
-  _date.setDate(_date.getDate() - diff);
-  _date.setHours(0, 0, 0, 0);
-  return _date;
-}
-function startOfISOWeek(date, options) {
-  return startOfWeek(date, { ...options, weekStartsOn: 1 });
-}
-function getISOWeekYear(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const year = _date.getFullYear();
-  const fourthOfJanuaryOfNextYear = constructFrom(_date, 0);
-  fourthOfJanuaryOfNextYear.setFullYear(year + 1, 0, 4);
-  fourthOfJanuaryOfNextYear.setHours(0, 0, 0, 0);
-  const startOfNextYear = startOfISOWeek(fourthOfJanuaryOfNextYear);
-  const fourthOfJanuaryOfThisYear = constructFrom(_date, 0);
-  fourthOfJanuaryOfThisYear.setFullYear(year, 0, 4);
-  fourthOfJanuaryOfThisYear.setHours(0, 0, 0, 0);
-  const startOfThisYear = startOfISOWeek(fourthOfJanuaryOfThisYear);
-  if (_date.getTime() >= startOfNextYear.getTime()) {
-    return year + 1;
-  } else if (_date.getTime() >= startOfThisYear.getTime()) {
-    return year;
-  } else {
-    return year - 1;
-  }
-}
-function getTimezoneOffsetInMilliseconds(date) {
-  const _date = toDate(date);
-  const utcDate = new Date(
-    Date.UTC(
-      _date.getFullYear(),
-      _date.getMonth(),
-      _date.getDate(),
-      _date.getHours(),
-      _date.getMinutes(),
-      _date.getSeconds(),
-      _date.getMilliseconds()
-    )
-  );
-  utcDate.setUTCFullYear(_date.getFullYear());
-  return +date - +utcDate;
-}
-function normalizeDates(context, ...dates) {
-  const normalize = constructFrom.bind(
-    null,
-    context || dates.find((date) => typeof date === "object")
-  );
-  return dates.map(normalize);
-}
-function startOfDay(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  _date.setHours(0, 0, 0, 0);
-  return _date;
-}
-function differenceInCalendarDays(laterDate, earlierDate, options) {
-  const [laterDate_, earlierDate_] = normalizeDates(
-    options == null ? void 0 : options.in,
-    laterDate,
-    earlierDate
-  );
-  const laterStartOfDay = startOfDay(laterDate_);
-  const earlierStartOfDay = startOfDay(earlierDate_);
-  const laterTimestamp = +laterStartOfDay - getTimezoneOffsetInMilliseconds(laterStartOfDay);
-  const earlierTimestamp = +earlierStartOfDay - getTimezoneOffsetInMilliseconds(earlierStartOfDay);
-  return Math.round((laterTimestamp - earlierTimestamp) / millisecondsInDay);
-}
-function startOfISOWeekYear(date, options) {
-  const year = getISOWeekYear(date, options);
-  const fourthOfJanuary = constructFrom(date, 0);
-  fourthOfJanuary.setFullYear(year, 0, 4);
-  fourthOfJanuary.setHours(0, 0, 0, 0);
-  return startOfISOWeek(fourthOfJanuary);
-}
-function compareAsc(dateLeft, dateRight) {
-  const diff = +toDate(dateLeft) - +toDate(dateRight);
-  if (diff < 0) return -1;
-  else if (diff > 0) return 1;
-  return diff;
-}
-function constructNow(date) {
-  return constructFrom(date, Date.now());
-}
-function isDate(value) {
-  return value instanceof Date || typeof value === "object" && Object.prototype.toString.call(value) === "[object Date]";
-}
-function isValid(date) {
-  return !(!isDate(date) && typeof date !== "number" || isNaN(+toDate(date)));
-}
-function differenceInCalendarMonths(laterDate, earlierDate, options) {
-  const [laterDate_, earlierDate_] = normalizeDates(
-    options == null ? void 0 : options.in,
-    laterDate,
-    earlierDate
-  );
-  const yearsDiff = laterDate_.getFullYear() - earlierDate_.getFullYear();
-  const monthsDiff = laterDate_.getMonth() - earlierDate_.getMonth();
-  return yearsDiff * 12 + monthsDiff;
-}
-function getRoundingMethod(method) {
-  return (number) => {
-    const round = method ? Math[method] : Math.trunc;
-    const result = round(number);
-    return result === 0 ? 0 : result;
-  };
-}
-function differenceInMilliseconds(laterDate, earlierDate) {
-  return +toDate(laterDate) - +toDate(earlierDate);
-}
-function differenceInMinutes(dateLeft, dateRight, options) {
-  const diff = differenceInMilliseconds(dateLeft, dateRight) / millisecondsInMinute;
-  return getRoundingMethod(options == null ? void 0 : options.roundingMethod)(diff);
-}
-function endOfDay(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  _date.setHours(23, 59, 59, 999);
-  return _date;
-}
-function endOfMonth(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const month = _date.getMonth();
-  _date.setFullYear(_date.getFullYear(), month + 1, 0);
-  _date.setHours(23, 59, 59, 999);
-  return _date;
-}
-function isLastDayOfMonth(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  return +endOfDay(_date, options) === +endOfMonth(_date, options);
-}
-function differenceInMonths(laterDate, earlierDate, options) {
-  const [laterDate_, workingLaterDate, earlierDate_] = normalizeDates(
-    options == null ? void 0 : options.in,
-    laterDate,
-    laterDate,
-    earlierDate
-  );
-  const sign = compareAsc(workingLaterDate, earlierDate_);
-  const difference = Math.abs(
-    differenceInCalendarMonths(workingLaterDate, earlierDate_)
-  );
-  if (difference < 1) return 0;
-  if (workingLaterDate.getMonth() === 1 && workingLaterDate.getDate() > 27)
-    workingLaterDate.setDate(30);
-  workingLaterDate.setMonth(workingLaterDate.getMonth() - sign * difference);
-  let isLastMonthNotFull = compareAsc(workingLaterDate, earlierDate_) === -sign;
-  if (isLastDayOfMonth(laterDate_) && difference === 1 && compareAsc(laterDate_, earlierDate_) === 1) {
-    isLastMonthNotFull = false;
-  }
-  const result = sign * (difference - +isLastMonthNotFull);
-  return result === 0 ? 0 : result;
-}
-function differenceInSeconds(laterDate, earlierDate, options) {
-  const diff = differenceInMilliseconds(laterDate, earlierDate) / 1e3;
-  return getRoundingMethod(options == null ? void 0 : options.roundingMethod)(diff);
-}
-function startOfYear(date, options) {
-  const date_ = toDate(date, options == null ? void 0 : options.in);
-  date_.setFullYear(date_.getFullYear(), 0, 1);
-  date_.setHours(0, 0, 0, 0);
-  return date_;
-}
-const formatDistanceLocale = {
-  lessThanXSeconds: {
-    one: "less than a second",
-    other: "less than {{count}} seconds"
-  },
-  xSeconds: {
-    one: "1 second",
-    other: "{{count}} seconds"
-  },
-  halfAMinute: "half a minute",
-  lessThanXMinutes: {
-    one: "less than a minute",
-    other: "less than {{count}} minutes"
-  },
-  xMinutes: {
-    one: "1 minute",
-    other: "{{count}} minutes"
-  },
-  aboutXHours: {
-    one: "about 1 hour",
-    other: "about {{count}} hours"
-  },
-  xHours: {
-    one: "1 hour",
-    other: "{{count}} hours"
-  },
-  xDays: {
-    one: "1 day",
-    other: "{{count}} days"
-  },
-  aboutXWeeks: {
-    one: "about 1 week",
-    other: "about {{count}} weeks"
-  },
-  xWeeks: {
-    one: "1 week",
-    other: "{{count}} weeks"
-  },
-  aboutXMonths: {
-    one: "about 1 month",
-    other: "about {{count}} months"
-  },
-  xMonths: {
-    one: "1 month",
-    other: "{{count}} months"
-  },
-  aboutXYears: {
-    one: "about 1 year",
-    other: "about {{count}} years"
-  },
-  xYears: {
-    one: "1 year",
-    other: "{{count}} years"
-  },
-  overXYears: {
-    one: "over 1 year",
-    other: "over {{count}} years"
-  },
-  almostXYears: {
-    one: "almost 1 year",
-    other: "almost {{count}} years"
-  }
-};
-const formatDistance$1 = (token, count, options) => {
-  let result;
-  const tokenValue = formatDistanceLocale[token];
-  if (typeof tokenValue === "string") {
-    result = tokenValue;
-  } else if (count === 1) {
-    result = tokenValue.one;
-  } else {
-    result = tokenValue.other.replace("{{count}}", count.toString());
-  }
-  if (options == null ? void 0 : options.addSuffix) {
-    if (options.comparison && options.comparison > 0) {
-      return "in " + result;
-    } else {
-      return result + " ago";
-    }
-  }
-  return result;
-};
-function buildFormatLongFn(args) {
-  return (options = {}) => {
-    const width = options.width ? String(options.width) : args.defaultWidth;
-    const format2 = args.formats[width] || args.formats[args.defaultWidth];
-    return format2;
-  };
-}
-const dateFormats = {
-  full: "EEEE, MMMM do, y",
-  long: "MMMM do, y",
-  medium: "MMM d, y",
-  short: "MM/dd/yyyy"
-};
-const timeFormats = {
-  full: "h:mm:ss a zzzz",
-  long: "h:mm:ss a z",
-  medium: "h:mm:ss a",
-  short: "h:mm a"
-};
-const dateTimeFormats = {
-  full: "{{date}} 'at' {{time}}",
-  long: "{{date}} 'at' {{time}}",
-  medium: "{{date}}, {{time}}",
-  short: "{{date}}, {{time}}"
-};
-const formatLong = {
-  date: buildFormatLongFn({
-    formats: dateFormats,
-    defaultWidth: "full"
-  }),
-  time: buildFormatLongFn({
-    formats: timeFormats,
-    defaultWidth: "full"
-  }),
-  dateTime: buildFormatLongFn({
-    formats: dateTimeFormats,
-    defaultWidth: "full"
-  })
-};
-const formatRelativeLocale = {
-  lastWeek: "'last' eeee 'at' p",
-  yesterday: "'yesterday at' p",
-  today: "'today at' p",
-  tomorrow: "'tomorrow at' p",
-  nextWeek: "eeee 'at' p",
-  other: "P"
-};
-const formatRelative = (token, _date, _baseDate, _options) => formatRelativeLocale[token];
-function buildLocalizeFn(args) {
-  return (value, options) => {
-    const context = (options == null ? void 0 : options.context) ? String(options.context) : "standalone";
-    let valuesArray;
-    if (context === "formatting" && args.formattingValues) {
-      const defaultWidth = args.defaultFormattingWidth || args.defaultWidth;
-      const width = (options == null ? void 0 : options.width) ? String(options.width) : defaultWidth;
-      valuesArray = args.formattingValues[width] || args.formattingValues[defaultWidth];
-    } else {
-      const defaultWidth = args.defaultWidth;
-      const width = (options == null ? void 0 : options.width) ? String(options.width) : args.defaultWidth;
-      valuesArray = args.values[width] || args.values[defaultWidth];
-    }
-    const index = args.argumentCallback ? args.argumentCallback(value) : value;
-    return valuesArray[index];
-  };
-}
-const eraValues = {
-  narrow: ["B", "A"],
-  abbreviated: ["BC", "AD"],
-  wide: ["Before Christ", "Anno Domini"]
-};
-const quarterValues = {
-  narrow: ["1", "2", "3", "4"],
-  abbreviated: ["Q1", "Q2", "Q3", "Q4"],
-  wide: ["1st quarter", "2nd quarter", "3rd quarter", "4th quarter"]
-};
-const monthValues = {
-  narrow: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"],
-  abbreviated: [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec"
-  ],
-  wide: [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December"
-  ]
-};
-const dayValues = {
-  narrow: ["S", "M", "T", "W", "T", "F", "S"],
-  short: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
-  abbreviated: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-  wide: [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday"
-  ]
-};
-const dayPeriodValues = {
-  narrow: {
-    am: "a",
-    pm: "p",
-    midnight: "mi",
-    noon: "n",
-    morning: "morning",
-    afternoon: "afternoon",
-    evening: "evening",
-    night: "night"
-  },
-  abbreviated: {
-    am: "AM",
-    pm: "PM",
-    midnight: "midnight",
-    noon: "noon",
-    morning: "morning",
-    afternoon: "afternoon",
-    evening: "evening",
-    night: "night"
-  },
-  wide: {
-    am: "a.m.",
-    pm: "p.m.",
-    midnight: "midnight",
-    noon: "noon",
-    morning: "morning",
-    afternoon: "afternoon",
-    evening: "evening",
-    night: "night"
-  }
-};
-const formattingDayPeriodValues = {
-  narrow: {
-    am: "a",
-    pm: "p",
-    midnight: "mi",
-    noon: "n",
-    morning: "in the morning",
-    afternoon: "in the afternoon",
-    evening: "in the evening",
-    night: "at night"
-  },
-  abbreviated: {
-    am: "AM",
-    pm: "PM",
-    midnight: "midnight",
-    noon: "noon",
-    morning: "in the morning",
-    afternoon: "in the afternoon",
-    evening: "in the evening",
-    night: "at night"
-  },
-  wide: {
-    am: "a.m.",
-    pm: "p.m.",
-    midnight: "midnight",
-    noon: "noon",
-    morning: "in the morning",
-    afternoon: "in the afternoon",
-    evening: "in the evening",
-    night: "at night"
-  }
-};
-const ordinalNumber = (dirtyNumber, _options) => {
-  const number = Number(dirtyNumber);
-  const rem100 = number % 100;
-  if (rem100 > 20 || rem100 < 10) {
-    switch (rem100 % 10) {
-      case 1:
-        return number + "st";
-      case 2:
-        return number + "nd";
-      case 3:
-        return number + "rd";
-    }
-  }
-  return number + "th";
-};
-const localize = {
-  ordinalNumber,
-  era: buildLocalizeFn({
-    values: eraValues,
-    defaultWidth: "wide"
-  }),
-  quarter: buildLocalizeFn({
-    values: quarterValues,
-    defaultWidth: "wide",
-    argumentCallback: (quarter) => quarter - 1
-  }),
-  month: buildLocalizeFn({
-    values: monthValues,
-    defaultWidth: "wide"
-  }),
-  day: buildLocalizeFn({
-    values: dayValues,
-    defaultWidth: "wide"
-  }),
-  dayPeriod: buildLocalizeFn({
-    values: dayPeriodValues,
-    defaultWidth: "wide",
-    formattingValues: formattingDayPeriodValues,
-    defaultFormattingWidth: "wide"
-  })
-};
-function buildMatchFn(args) {
-  return (string, options = {}) => {
-    const width = options.width;
-    const matchPattern = width && args.matchPatterns[width] || args.matchPatterns[args.defaultMatchWidth];
-    const matchResult = string.match(matchPattern);
-    if (!matchResult) {
-      return null;
-    }
-    const matchedString = matchResult[0];
-    const parsePatterns = width && args.parsePatterns[width] || args.parsePatterns[args.defaultParseWidth];
-    const key = Array.isArray(parsePatterns) ? findIndex(parsePatterns, (pattern) => pattern.test(matchedString)) : (
-      // [TODO] -- I challenge you to fix the type
-      findKey(parsePatterns, (pattern) => pattern.test(matchedString))
-    );
-    let value;
-    value = args.valueCallback ? args.valueCallback(key) : key;
-    value = options.valueCallback ? (
-      // [TODO] -- I challenge you to fix the type
-      options.valueCallback(value)
-    ) : value;
-    const rest = string.slice(matchedString.length);
-    return { value, rest };
-  };
-}
-function findKey(object, predicate) {
-  for (const key in object) {
-    if (Object.prototype.hasOwnProperty.call(object, key) && predicate(object[key])) {
-      return key;
-    }
-  }
-  return void 0;
-}
-function findIndex(array, predicate) {
-  for (let key = 0; key < array.length; key++) {
-    if (predicate(array[key])) {
-      return key;
-    }
-  }
-  return void 0;
-}
-function buildMatchPatternFn(args) {
-  return (string, options = {}) => {
-    const matchResult = string.match(args.matchPattern);
-    if (!matchResult) return null;
-    const matchedString = matchResult[0];
-    const parseResult = string.match(args.parsePattern);
-    if (!parseResult) return null;
-    let value = args.valueCallback ? args.valueCallback(parseResult[0]) : parseResult[0];
-    value = options.valueCallback ? options.valueCallback(value) : value;
-    const rest = string.slice(matchedString.length);
-    return { value, rest };
-  };
-}
-const matchOrdinalNumberPattern = /^(\d+)(th|st|nd|rd)?/i;
-const parseOrdinalNumberPattern = /\d+/i;
-const matchEraPatterns = {
-  narrow: /^(b|a)/i,
-  abbreviated: /^(b\.?\s?c\.?|b\.?\s?c\.?\s?e\.?|a\.?\s?d\.?|c\.?\s?e\.?)/i,
-  wide: /^(before christ|before common era|anno domini|common era)/i
-};
-const parseEraPatterns = {
-  any: [/^b/i, /^(a|c)/i]
-};
-const matchQuarterPatterns = {
-  narrow: /^[1234]/i,
-  abbreviated: /^q[1234]/i,
-  wide: /^[1234](th|st|nd|rd)? quarter/i
-};
-const parseQuarterPatterns = {
-  any: [/1/i, /2/i, /3/i, /4/i]
-};
-const matchMonthPatterns = {
-  narrow: /^[jfmasond]/i,
-  abbreviated: /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i,
-  wide: /^(january|february|march|april|may|june|july|august|september|october|november|december)/i
-};
-const parseMonthPatterns = {
-  narrow: [
-    /^j/i,
-    /^f/i,
-    /^m/i,
-    /^a/i,
-    /^m/i,
-    /^j/i,
-    /^j/i,
-    /^a/i,
-    /^s/i,
-    /^o/i,
-    /^n/i,
-    /^d/i
-  ],
-  any: [
-    /^ja/i,
-    /^f/i,
-    /^mar/i,
-    /^ap/i,
-    /^may/i,
-    /^jun/i,
-    /^jul/i,
-    /^au/i,
-    /^s/i,
-    /^o/i,
-    /^n/i,
-    /^d/i
-  ]
-};
-const matchDayPatterns = {
-  narrow: /^[smtwf]/i,
-  short: /^(su|mo|tu|we|th|fr|sa)/i,
-  abbreviated: /^(sun|mon|tue|wed|thu|fri|sat)/i,
-  wide: /^(sunday|monday|tuesday|wednesday|thursday|friday|saturday)/i
-};
-const parseDayPatterns = {
-  narrow: [/^s/i, /^m/i, /^t/i, /^w/i, /^t/i, /^f/i, /^s/i],
-  any: [/^su/i, /^m/i, /^tu/i, /^w/i, /^th/i, /^f/i, /^sa/i]
-};
-const matchDayPeriodPatterns = {
-  narrow: /^(a|p|mi|n|(in the|at) (morning|afternoon|evening|night))/i,
-  any: /^([ap]\.?\s?m\.?|midnight|noon|(in the|at) (morning|afternoon|evening|night))/i
-};
-const parseDayPeriodPatterns = {
-  any: {
-    am: /^a/i,
-    pm: /^p/i,
-    midnight: /^mi/i,
-    noon: /^no/i,
-    morning: /morning/i,
-    afternoon: /afternoon/i,
-    evening: /evening/i,
-    night: /night/i
-  }
-};
-const match = {
-  ordinalNumber: buildMatchPatternFn({
-    matchPattern: matchOrdinalNumberPattern,
-    parsePattern: parseOrdinalNumberPattern,
-    valueCallback: (value) => parseInt(value, 10)
-  }),
-  era: buildMatchFn({
-    matchPatterns: matchEraPatterns,
-    defaultMatchWidth: "wide",
-    parsePatterns: parseEraPatterns,
-    defaultParseWidth: "any"
-  }),
-  quarter: buildMatchFn({
-    matchPatterns: matchQuarterPatterns,
-    defaultMatchWidth: "wide",
-    parsePatterns: parseQuarterPatterns,
-    defaultParseWidth: "any",
-    valueCallback: (index) => index + 1
-  }),
-  month: buildMatchFn({
-    matchPatterns: matchMonthPatterns,
-    defaultMatchWidth: "wide",
-    parsePatterns: parseMonthPatterns,
-    defaultParseWidth: "any"
-  }),
-  day: buildMatchFn({
-    matchPatterns: matchDayPatterns,
-    defaultMatchWidth: "wide",
-    parsePatterns: parseDayPatterns,
-    defaultParseWidth: "any"
-  }),
-  dayPeriod: buildMatchFn({
-    matchPatterns: matchDayPeriodPatterns,
-    defaultMatchWidth: "any",
-    parsePatterns: parseDayPeriodPatterns,
-    defaultParseWidth: "any"
-  })
-};
-const enUS = {
-  code: "en-US",
-  formatDistance: formatDistance$1,
-  formatLong,
-  formatRelative,
-  localize,
-  match,
-  options: {
-    weekStartsOn: 0,
-    firstWeekContainsDate: 1
-  }
-};
-function getDayOfYear(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const diff = differenceInCalendarDays(_date, startOfYear(_date));
-  const dayOfYear = diff + 1;
-  return dayOfYear;
-}
-function getISOWeek(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const diff = +startOfISOWeek(_date) - +startOfISOWeekYear(_date);
-  return Math.round(diff / millisecondsInWeek) + 1;
-}
-function getWeekYear(date, options) {
-  var _a2, _b2, _c, _d;
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const year = _date.getFullYear();
-  const defaultOptions2 = getDefaultOptions();
-  const firstWeekContainsDate = (options == null ? void 0 : options.firstWeekContainsDate) ?? ((_b2 = (_a2 = options == null ? void 0 : options.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.firstWeekContainsDate) ?? defaultOptions2.firstWeekContainsDate ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.firstWeekContainsDate) ?? 1;
-  const firstWeekOfNextYear = constructFrom((options == null ? void 0 : options.in) || date, 0);
-  firstWeekOfNextYear.setFullYear(year + 1, 0, firstWeekContainsDate);
-  firstWeekOfNextYear.setHours(0, 0, 0, 0);
-  const startOfNextYear = startOfWeek(firstWeekOfNextYear, options);
-  const firstWeekOfThisYear = constructFrom((options == null ? void 0 : options.in) || date, 0);
-  firstWeekOfThisYear.setFullYear(year, 0, firstWeekContainsDate);
-  firstWeekOfThisYear.setHours(0, 0, 0, 0);
-  const startOfThisYear = startOfWeek(firstWeekOfThisYear, options);
-  if (+_date >= +startOfNextYear) {
-    return year + 1;
-  } else if (+_date >= +startOfThisYear) {
-    return year;
-  } else {
-    return year - 1;
-  }
-}
-function startOfWeekYear(date, options) {
-  var _a2, _b2, _c, _d;
-  const defaultOptions2 = getDefaultOptions();
-  const firstWeekContainsDate = (options == null ? void 0 : options.firstWeekContainsDate) ?? ((_b2 = (_a2 = options == null ? void 0 : options.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.firstWeekContainsDate) ?? defaultOptions2.firstWeekContainsDate ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.firstWeekContainsDate) ?? 1;
-  const year = getWeekYear(date, options);
-  const firstWeek = constructFrom((options == null ? void 0 : options.in) || date, 0);
-  firstWeek.setFullYear(year, 0, firstWeekContainsDate);
-  firstWeek.setHours(0, 0, 0, 0);
-  const _date = startOfWeek(firstWeek, options);
-  return _date;
-}
-function getWeek(date, options) {
-  const _date = toDate(date, options == null ? void 0 : options.in);
-  const diff = +startOfWeek(_date, options) - +startOfWeekYear(_date, options);
-  return Math.round(diff / millisecondsInWeek) + 1;
-}
-function addLeadingZeros(number, targetLength) {
-  const sign = number < 0 ? "-" : "";
-  const output = Math.abs(number).toString().padStart(targetLength, "0");
-  return sign + output;
-}
-const lightFormatters = {
-  // Year
-  y(date, token) {
-    const signedYear = date.getFullYear();
-    const year = signedYear > 0 ? signedYear : 1 - signedYear;
-    return addLeadingZeros(token === "yy" ? year % 100 : year, token.length);
-  },
-  // Month
-  M(date, token) {
-    const month = date.getMonth();
-    return token === "M" ? String(month + 1) : addLeadingZeros(month + 1, 2);
-  },
-  // Day of the month
-  d(date, token) {
-    return addLeadingZeros(date.getDate(), token.length);
-  },
-  // AM or PM
-  a(date, token) {
-    const dayPeriodEnumValue = date.getHours() / 12 >= 1 ? "pm" : "am";
-    switch (token) {
-      case "a":
-      case "aa":
-        return dayPeriodEnumValue.toUpperCase();
-      case "aaa":
-        return dayPeriodEnumValue;
-      case "aaaaa":
-        return dayPeriodEnumValue[0];
-      case "aaaa":
-      default:
-        return dayPeriodEnumValue === "am" ? "a.m." : "p.m.";
-    }
-  },
-  // Hour [1-12]
-  h(date, token) {
-    return addLeadingZeros(date.getHours() % 12 || 12, token.length);
-  },
-  // Hour [0-23]
-  H(date, token) {
-    return addLeadingZeros(date.getHours(), token.length);
-  },
-  // Minute
-  m(date, token) {
-    return addLeadingZeros(date.getMinutes(), token.length);
-  },
-  // Second
-  s(date, token) {
-    return addLeadingZeros(date.getSeconds(), token.length);
-  },
-  // Fraction of second
-  S(date, token) {
-    const numberOfDigits = token.length;
-    const milliseconds = date.getMilliseconds();
-    const fractionalSeconds = Math.trunc(
-      milliseconds * Math.pow(10, numberOfDigits - 3)
-    );
-    return addLeadingZeros(fractionalSeconds, token.length);
-  }
-};
-const dayPeriodEnum = {
-  midnight: "midnight",
-  noon: "noon",
-  morning: "morning",
-  afternoon: "afternoon",
-  evening: "evening",
-  night: "night"
-};
-const formatters = {
-  // Era
-  G: function(date, token, localize2) {
-    const era = date.getFullYear() > 0 ? 1 : 0;
-    switch (token) {
-      // AD, BC
-      case "G":
-      case "GG":
-      case "GGG":
-        return localize2.era(era, { width: "abbreviated" });
-      // A, B
-      case "GGGGG":
-        return localize2.era(era, { width: "narrow" });
-      // Anno Domini, Before Christ
-      case "GGGG":
-      default:
-        return localize2.era(era, { width: "wide" });
-    }
-  },
-  // Year
-  y: function(date, token, localize2) {
-    if (token === "yo") {
-      const signedYear = date.getFullYear();
-      const year = signedYear > 0 ? signedYear : 1 - signedYear;
-      return localize2.ordinalNumber(year, { unit: "year" });
-    }
-    return lightFormatters.y(date, token);
-  },
-  // Local week-numbering year
-  Y: function(date, token, localize2, options) {
-    const signedWeekYear = getWeekYear(date, options);
-    const weekYear = signedWeekYear > 0 ? signedWeekYear : 1 - signedWeekYear;
-    if (token === "YY") {
-      const twoDigitYear = weekYear % 100;
-      return addLeadingZeros(twoDigitYear, 2);
-    }
-    if (token === "Yo") {
-      return localize2.ordinalNumber(weekYear, { unit: "year" });
-    }
-    return addLeadingZeros(weekYear, token.length);
-  },
-  // ISO week-numbering year
-  R: function(date, token) {
-    const isoWeekYear = getISOWeekYear(date);
-    return addLeadingZeros(isoWeekYear, token.length);
-  },
-  // Extended year. This is a single number designating the year of this calendar system.
-  // The main difference between `y` and `u` localizers are B.C. years:
-  // | Year | `y` | `u` |
-  // |------|-----|-----|
-  // | AC 1 |   1 |   1 |
-  // | BC 1 |   1 |   0 |
-  // | BC 2 |   2 |  -1 |
-  // Also `yy` always returns the last two digits of a year,
-  // while `uu` pads single digit years to 2 characters and returns other years unchanged.
-  u: function(date, token) {
-    const year = date.getFullYear();
-    return addLeadingZeros(year, token.length);
-  },
-  // Quarter
-  Q: function(date, token, localize2) {
-    const quarter = Math.ceil((date.getMonth() + 1) / 3);
-    switch (token) {
-      // 1, 2, 3, 4
-      case "Q":
-        return String(quarter);
-      // 01, 02, 03, 04
-      case "QQ":
-        return addLeadingZeros(quarter, 2);
-      // 1st, 2nd, 3rd, 4th
-      case "Qo":
-        return localize2.ordinalNumber(quarter, { unit: "quarter" });
-      // Q1, Q2, Q3, Q4
-      case "QQQ":
-        return localize2.quarter(quarter, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      // 1, 2, 3, 4 (narrow quarter; could be not numerical)
-      case "QQQQQ":
-        return localize2.quarter(quarter, {
-          width: "narrow",
-          context: "formatting"
-        });
-      // 1st quarter, 2nd quarter, ...
-      case "QQQQ":
-      default:
-        return localize2.quarter(quarter, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // Stand-alone quarter
-  q: function(date, token, localize2) {
-    const quarter = Math.ceil((date.getMonth() + 1) / 3);
-    switch (token) {
-      // 1, 2, 3, 4
-      case "q":
-        return String(quarter);
-      // 01, 02, 03, 04
-      case "qq":
-        return addLeadingZeros(quarter, 2);
-      // 1st, 2nd, 3rd, 4th
-      case "qo":
-        return localize2.ordinalNumber(quarter, { unit: "quarter" });
-      // Q1, Q2, Q3, Q4
-      case "qqq":
-        return localize2.quarter(quarter, {
-          width: "abbreviated",
-          context: "standalone"
-        });
-      // 1, 2, 3, 4 (narrow quarter; could be not numerical)
-      case "qqqqq":
-        return localize2.quarter(quarter, {
-          width: "narrow",
-          context: "standalone"
-        });
-      // 1st quarter, 2nd quarter, ...
-      case "qqqq":
-      default:
-        return localize2.quarter(quarter, {
-          width: "wide",
-          context: "standalone"
-        });
-    }
-  },
-  // Month
-  M: function(date, token, localize2) {
-    const month = date.getMonth();
-    switch (token) {
-      case "M":
-      case "MM":
-        return lightFormatters.M(date, token);
-      // 1st, 2nd, ..., 12th
-      case "Mo":
-        return localize2.ordinalNumber(month + 1, { unit: "month" });
-      // Jan, Feb, ..., Dec
-      case "MMM":
-        return localize2.month(month, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      // J, F, ..., D
-      case "MMMMM":
-        return localize2.month(month, {
-          width: "narrow",
-          context: "formatting"
-        });
-      // January, February, ..., December
-      case "MMMM":
-      default:
-        return localize2.month(month, { width: "wide", context: "formatting" });
-    }
-  },
-  // Stand-alone month
-  L: function(date, token, localize2) {
-    const month = date.getMonth();
-    switch (token) {
-      // 1, 2, ..., 12
-      case "L":
-        return String(month + 1);
-      // 01, 02, ..., 12
-      case "LL":
-        return addLeadingZeros(month + 1, 2);
-      // 1st, 2nd, ..., 12th
-      case "Lo":
-        return localize2.ordinalNumber(month + 1, { unit: "month" });
-      // Jan, Feb, ..., Dec
-      case "LLL":
-        return localize2.month(month, {
-          width: "abbreviated",
-          context: "standalone"
-        });
-      // J, F, ..., D
-      case "LLLLL":
-        return localize2.month(month, {
-          width: "narrow",
-          context: "standalone"
-        });
-      // January, February, ..., December
-      case "LLLL":
-      default:
-        return localize2.month(month, { width: "wide", context: "standalone" });
-    }
-  },
-  // Local week of year
-  w: function(date, token, localize2, options) {
-    const week = getWeek(date, options);
-    if (token === "wo") {
-      return localize2.ordinalNumber(week, { unit: "week" });
-    }
-    return addLeadingZeros(week, token.length);
-  },
-  // ISO week of year
-  I: function(date, token, localize2) {
-    const isoWeek = getISOWeek(date);
-    if (token === "Io") {
-      return localize2.ordinalNumber(isoWeek, { unit: "week" });
-    }
-    return addLeadingZeros(isoWeek, token.length);
-  },
-  // Day of the month
-  d: function(date, token, localize2) {
-    if (token === "do") {
-      return localize2.ordinalNumber(date.getDate(), { unit: "date" });
-    }
-    return lightFormatters.d(date, token);
-  },
-  // Day of year
-  D: function(date, token, localize2) {
-    const dayOfYear = getDayOfYear(date);
-    if (token === "Do") {
-      return localize2.ordinalNumber(dayOfYear, { unit: "dayOfYear" });
-    }
-    return addLeadingZeros(dayOfYear, token.length);
-  },
-  // Day of week
-  E: function(date, token, localize2) {
-    const dayOfWeek = date.getDay();
-    switch (token) {
-      // Tue
-      case "E":
-      case "EE":
-      case "EEE":
-        return localize2.day(dayOfWeek, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      // T
-      case "EEEEE":
-        return localize2.day(dayOfWeek, {
-          width: "narrow",
-          context: "formatting"
-        });
-      // Tu
-      case "EEEEEE":
-        return localize2.day(dayOfWeek, {
-          width: "short",
-          context: "formatting"
-        });
-      // Tuesday
-      case "EEEE":
-      default:
-        return localize2.day(dayOfWeek, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // Local day of week
-  e: function(date, token, localize2, options) {
-    const dayOfWeek = date.getDay();
-    const localDayOfWeek = (dayOfWeek - options.weekStartsOn + 8) % 7 || 7;
-    switch (token) {
-      // Numerical value (Nth day of week with current locale or weekStartsOn)
-      case "e":
-        return String(localDayOfWeek);
-      // Padded numerical value
-      case "ee":
-        return addLeadingZeros(localDayOfWeek, 2);
-      // 1st, 2nd, ..., 7th
-      case "eo":
-        return localize2.ordinalNumber(localDayOfWeek, { unit: "day" });
-      case "eee":
-        return localize2.day(dayOfWeek, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      // T
-      case "eeeee":
-        return localize2.day(dayOfWeek, {
-          width: "narrow",
-          context: "formatting"
-        });
-      // Tu
-      case "eeeeee":
-        return localize2.day(dayOfWeek, {
-          width: "short",
-          context: "formatting"
-        });
-      // Tuesday
-      case "eeee":
-      default:
-        return localize2.day(dayOfWeek, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // Stand-alone local day of week
-  c: function(date, token, localize2, options) {
-    const dayOfWeek = date.getDay();
-    const localDayOfWeek = (dayOfWeek - options.weekStartsOn + 8) % 7 || 7;
-    switch (token) {
-      // Numerical value (same as in `e`)
-      case "c":
-        return String(localDayOfWeek);
-      // Padded numerical value
-      case "cc":
-        return addLeadingZeros(localDayOfWeek, token.length);
-      // 1st, 2nd, ..., 7th
-      case "co":
-        return localize2.ordinalNumber(localDayOfWeek, { unit: "day" });
-      case "ccc":
-        return localize2.day(dayOfWeek, {
-          width: "abbreviated",
-          context: "standalone"
-        });
-      // T
-      case "ccccc":
-        return localize2.day(dayOfWeek, {
-          width: "narrow",
-          context: "standalone"
-        });
-      // Tu
-      case "cccccc":
-        return localize2.day(dayOfWeek, {
-          width: "short",
-          context: "standalone"
-        });
-      // Tuesday
-      case "cccc":
-      default:
-        return localize2.day(dayOfWeek, {
-          width: "wide",
-          context: "standalone"
-        });
-    }
-  },
-  // ISO day of week
-  i: function(date, token, localize2) {
-    const dayOfWeek = date.getDay();
-    const isoDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
-    switch (token) {
-      // 2
-      case "i":
-        return String(isoDayOfWeek);
-      // 02
-      case "ii":
-        return addLeadingZeros(isoDayOfWeek, token.length);
-      // 2nd
-      case "io":
-        return localize2.ordinalNumber(isoDayOfWeek, { unit: "day" });
-      // Tue
-      case "iii":
-        return localize2.day(dayOfWeek, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      // T
-      case "iiiii":
-        return localize2.day(dayOfWeek, {
-          width: "narrow",
-          context: "formatting"
-        });
-      // Tu
-      case "iiiiii":
-        return localize2.day(dayOfWeek, {
-          width: "short",
-          context: "formatting"
-        });
-      // Tuesday
-      case "iiii":
-      default:
-        return localize2.day(dayOfWeek, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // AM or PM
-  a: function(date, token, localize2) {
-    const hours = date.getHours();
-    const dayPeriodEnumValue = hours / 12 >= 1 ? "pm" : "am";
-    switch (token) {
-      case "a":
-      case "aa":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      case "aaa":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "abbreviated",
-          context: "formatting"
-        }).toLowerCase();
-      case "aaaaa":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "narrow",
-          context: "formatting"
-        });
-      case "aaaa":
-      default:
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // AM, PM, midnight, noon
-  b: function(date, token, localize2) {
-    const hours = date.getHours();
-    let dayPeriodEnumValue;
-    if (hours === 12) {
-      dayPeriodEnumValue = dayPeriodEnum.noon;
-    } else if (hours === 0) {
-      dayPeriodEnumValue = dayPeriodEnum.midnight;
-    } else {
-      dayPeriodEnumValue = hours / 12 >= 1 ? "pm" : "am";
-    }
-    switch (token) {
-      case "b":
-      case "bb":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      case "bbb":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "abbreviated",
-          context: "formatting"
-        }).toLowerCase();
-      case "bbbbb":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "narrow",
-          context: "formatting"
-        });
-      case "bbbb":
-      default:
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // in the morning, in the afternoon, in the evening, at night
-  B: function(date, token, localize2) {
-    const hours = date.getHours();
-    let dayPeriodEnumValue;
-    if (hours >= 17) {
-      dayPeriodEnumValue = dayPeriodEnum.evening;
-    } else if (hours >= 12) {
-      dayPeriodEnumValue = dayPeriodEnum.afternoon;
-    } else if (hours >= 4) {
-      dayPeriodEnumValue = dayPeriodEnum.morning;
-    } else {
-      dayPeriodEnumValue = dayPeriodEnum.night;
-    }
-    switch (token) {
-      case "B":
-      case "BB":
-      case "BBB":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "abbreviated",
-          context: "formatting"
-        });
-      case "BBBBB":
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "narrow",
-          context: "formatting"
-        });
-      case "BBBB":
-      default:
-        return localize2.dayPeriod(dayPeriodEnumValue, {
-          width: "wide",
-          context: "formatting"
-        });
-    }
-  },
-  // Hour [1-12]
-  h: function(date, token, localize2) {
-    if (token === "ho") {
-      let hours = date.getHours() % 12;
-      if (hours === 0) hours = 12;
-      return localize2.ordinalNumber(hours, { unit: "hour" });
-    }
-    return lightFormatters.h(date, token);
-  },
-  // Hour [0-23]
-  H: function(date, token, localize2) {
-    if (token === "Ho") {
-      return localize2.ordinalNumber(date.getHours(), { unit: "hour" });
-    }
-    return lightFormatters.H(date, token);
-  },
-  // Hour [0-11]
-  K: function(date, token, localize2) {
-    const hours = date.getHours() % 12;
-    if (token === "Ko") {
-      return localize2.ordinalNumber(hours, { unit: "hour" });
-    }
-    return addLeadingZeros(hours, token.length);
-  },
-  // Hour [1-24]
-  k: function(date, token, localize2) {
-    let hours = date.getHours();
-    if (hours === 0) hours = 24;
-    if (token === "ko") {
-      return localize2.ordinalNumber(hours, { unit: "hour" });
-    }
-    return addLeadingZeros(hours, token.length);
-  },
-  // Minute
-  m: function(date, token, localize2) {
-    if (token === "mo") {
-      return localize2.ordinalNumber(date.getMinutes(), { unit: "minute" });
-    }
-    return lightFormatters.m(date, token);
-  },
-  // Second
-  s: function(date, token, localize2) {
-    if (token === "so") {
-      return localize2.ordinalNumber(date.getSeconds(), { unit: "second" });
-    }
-    return lightFormatters.s(date, token);
-  },
-  // Fraction of second
-  S: function(date, token) {
-    return lightFormatters.S(date, token);
-  },
-  // Timezone (ISO-8601. If offset is 0, output is always `'Z'`)
-  X: function(date, token, _localize) {
-    const timezoneOffset = date.getTimezoneOffset();
-    if (timezoneOffset === 0) {
-      return "Z";
-    }
-    switch (token) {
-      // Hours and optional minutes
-      case "X":
-        return formatTimezoneWithOptionalMinutes(timezoneOffset);
-      // Hours, minutes and optional seconds without `:` delimiter
-      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
-      // so this token always has the same output as `XX`
-      case "XXXX":
-      case "XX":
-        return formatTimezone(timezoneOffset);
-      // Hours, minutes and optional seconds with `:` delimiter
-      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
-      // so this token always has the same output as `XXX`
-      case "XXXXX":
-      case "XXX":
-      // Hours and minutes with `:` delimiter
-      default:
-        return formatTimezone(timezoneOffset, ":");
-    }
-  },
-  // Timezone (ISO-8601. If offset is 0, output is `'+00:00'` or equivalent)
-  x: function(date, token, _localize) {
-    const timezoneOffset = date.getTimezoneOffset();
-    switch (token) {
-      // Hours and optional minutes
-      case "x":
-        return formatTimezoneWithOptionalMinutes(timezoneOffset);
-      // Hours, minutes and optional seconds without `:` delimiter
-      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
-      // so this token always has the same output as `xx`
-      case "xxxx":
-      case "xx":
-        return formatTimezone(timezoneOffset);
-      // Hours, minutes and optional seconds with `:` delimiter
-      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
-      // so this token always has the same output as `xxx`
-      case "xxxxx":
-      case "xxx":
-      // Hours and minutes with `:` delimiter
-      default:
-        return formatTimezone(timezoneOffset, ":");
-    }
-  },
-  // Timezone (GMT)
-  O: function(date, token, _localize) {
-    const timezoneOffset = date.getTimezoneOffset();
-    switch (token) {
-      // Short
-      case "O":
-      case "OO":
-      case "OOO":
-        return "GMT" + formatTimezoneShort(timezoneOffset, ":");
-      // Long
-      case "OOOO":
-      default:
-        return "GMT" + formatTimezone(timezoneOffset, ":");
-    }
-  },
-  // Timezone (specific non-location)
-  z: function(date, token, _localize) {
-    const timezoneOffset = date.getTimezoneOffset();
-    switch (token) {
-      // Short
-      case "z":
-      case "zz":
-      case "zzz":
-        return "GMT" + formatTimezoneShort(timezoneOffset, ":");
-      // Long
-      case "zzzz":
-      default:
-        return "GMT" + formatTimezone(timezoneOffset, ":");
-    }
-  },
-  // Seconds timestamp
-  t: function(date, token, _localize) {
-    const timestamp = Math.trunc(+date / 1e3);
-    return addLeadingZeros(timestamp, token.length);
-  },
-  // Milliseconds timestamp
-  T: function(date, token, _localize) {
-    return addLeadingZeros(+date, token.length);
-  }
-};
-function formatTimezoneShort(offset, delimiter = "") {
-  const sign = offset > 0 ? "-" : "+";
-  const absOffset = Math.abs(offset);
-  const hours = Math.trunc(absOffset / 60);
-  const minutes = absOffset % 60;
-  if (minutes === 0) {
-    return sign + String(hours);
-  }
-  return sign + String(hours) + delimiter + addLeadingZeros(minutes, 2);
-}
-function formatTimezoneWithOptionalMinutes(offset, delimiter) {
-  if (offset % 60 === 0) {
-    const sign = offset > 0 ? "-" : "+";
-    return sign + addLeadingZeros(Math.abs(offset) / 60, 2);
-  }
-  return formatTimezone(offset, delimiter);
-}
-function formatTimezone(offset, delimiter = "") {
-  const sign = offset > 0 ? "-" : "+";
-  const absOffset = Math.abs(offset);
-  const hours = addLeadingZeros(Math.trunc(absOffset / 60), 2);
-  const minutes = addLeadingZeros(absOffset % 60, 2);
-  return sign + hours + delimiter + minutes;
-}
-const dateLongFormatter = (pattern, formatLong2) => {
-  switch (pattern) {
-    case "P":
-      return formatLong2.date({ width: "short" });
-    case "PP":
-      return formatLong2.date({ width: "medium" });
-    case "PPP":
-      return formatLong2.date({ width: "long" });
-    case "PPPP":
-    default:
-      return formatLong2.date({ width: "full" });
-  }
-};
-const timeLongFormatter = (pattern, formatLong2) => {
-  switch (pattern) {
-    case "p":
-      return formatLong2.time({ width: "short" });
-    case "pp":
-      return formatLong2.time({ width: "medium" });
-    case "ppp":
-      return formatLong2.time({ width: "long" });
-    case "pppp":
-    default:
-      return formatLong2.time({ width: "full" });
-  }
-};
-const dateTimeLongFormatter = (pattern, formatLong2) => {
-  const matchResult = pattern.match(/(P+)(p+)?/) || [];
-  const datePattern = matchResult[1];
-  const timePattern = matchResult[2];
-  if (!timePattern) {
-    return dateLongFormatter(pattern, formatLong2);
-  }
-  let dateTimeFormat;
-  switch (datePattern) {
-    case "P":
-      dateTimeFormat = formatLong2.dateTime({ width: "short" });
-      break;
-    case "PP":
-      dateTimeFormat = formatLong2.dateTime({ width: "medium" });
-      break;
-    case "PPP":
-      dateTimeFormat = formatLong2.dateTime({ width: "long" });
-      break;
-    case "PPPP":
-    default:
-      dateTimeFormat = formatLong2.dateTime({ width: "full" });
-      break;
-  }
-  return dateTimeFormat.replace("{{date}}", dateLongFormatter(datePattern, formatLong2)).replace("{{time}}", timeLongFormatter(timePattern, formatLong2));
-};
-const longFormatters = {
-  p: timeLongFormatter,
-  P: dateTimeLongFormatter
-};
-const dayOfYearTokenRE = /^D+$/;
-const weekYearTokenRE = /^Y+$/;
-const throwTokens = ["D", "DD", "YY", "YYYY"];
-function isProtectedDayOfYearToken(token) {
-  return dayOfYearTokenRE.test(token);
-}
-function isProtectedWeekYearToken(token) {
-  return weekYearTokenRE.test(token);
-}
-function warnOrThrowProtectedError(token, format2, input) {
-  const _message = message(token, format2, input);
-  console.warn(_message);
-  if (throwTokens.includes(token)) throw new RangeError(_message);
-}
-function message(token, format2, input) {
-  const subject = token[0] === "Y" ? "years" : "days of the month";
-  return `Use \`${token.toLowerCase()}\` instead of \`${token}\` (in \`${format2}\`) for formatting ${subject} to the input \`${input}\`; see: https://github.com/date-fns/date-fns/blob/master/docs/unicodeTokens.md`;
-}
-const formattingTokensRegExp = /[yYQqMLwIdDecihHKkms]o|(\w)\1*|''|'(''|[^'])+('|$)|./g;
-const longFormattingTokensRegExp = /P+p+|P+|p+|''|'(''|[^'])+('|$)|./g;
-const escapedStringRegExp = /^'([^]*?)'?$/;
-const doubleQuoteRegExp = /''/g;
-const unescapedLatinCharacterRegExp = /[a-zA-Z]/;
-function format(date, formatStr, options) {
-  var _a2, _b2, _c, _d;
-  const defaultOptions2 = getDefaultOptions();
-  const locale = defaultOptions2.locale ?? enUS;
-  const firstWeekContainsDate = defaultOptions2.firstWeekContainsDate ?? ((_b2 = (_a2 = defaultOptions2.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.firstWeekContainsDate) ?? 1;
-  const weekStartsOn = defaultOptions2.weekStartsOn ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.weekStartsOn) ?? 0;
-  const originalDate = toDate(date, options == null ? void 0 : options.in);
-  if (!isValid(originalDate)) {
-    throw new RangeError("Invalid time value");
-  }
-  let parts = formatStr.match(longFormattingTokensRegExp).map((substring) => {
-    const firstCharacter = substring[0];
-    if (firstCharacter === "p" || firstCharacter === "P") {
-      const longFormatter = longFormatters[firstCharacter];
-      return longFormatter(substring, locale.formatLong);
-    }
-    return substring;
-  }).join("").match(formattingTokensRegExp).map((substring) => {
-    if (substring === "''") {
-      return { isToken: false, value: "'" };
-    }
-    const firstCharacter = substring[0];
-    if (firstCharacter === "'") {
-      return { isToken: false, value: cleanEscapedString(substring) };
-    }
-    if (formatters[firstCharacter]) {
-      return { isToken: true, value: substring };
-    }
-    if (firstCharacter.match(unescapedLatinCharacterRegExp)) {
-      throw new RangeError(
-        "Format string contains an unescaped latin alphabet character `" + firstCharacter + "`"
-      );
-    }
-    return { isToken: false, value: substring };
-  });
-  if (locale.localize.preprocessor) {
-    parts = locale.localize.preprocessor(originalDate, parts);
-  }
-  const formatterOptions = {
-    firstWeekContainsDate,
-    weekStartsOn,
-    locale
-  };
-  return parts.map((part) => {
-    if (!part.isToken) return part.value;
-    const token = part.value;
-    if (isProtectedWeekYearToken(token) || isProtectedDayOfYearToken(token)) {
-      warnOrThrowProtectedError(token, formatStr, String(date));
-    }
-    const formatter = formatters[token[0]];
-    return formatter(originalDate, token, locale.localize, formatterOptions);
-  }).join("");
-}
-function cleanEscapedString(input) {
-  const matched = input.match(escapedStringRegExp);
-  if (!matched) {
-    return input;
-  }
-  return matched[1].replace(doubleQuoteRegExp, "'");
-}
-function formatDistance(laterDate, earlierDate, options) {
-  const defaultOptions2 = getDefaultOptions();
-  const locale = (options == null ? void 0 : options.locale) ?? defaultOptions2.locale ?? enUS;
-  const minutesInAlmostTwoDays = 2520;
-  const comparison = compareAsc(laterDate, earlierDate);
-  if (isNaN(comparison)) throw new RangeError("Invalid time value");
-  const localizeOptions = Object.assign({}, options, {
-    addSuffix: options == null ? void 0 : options.addSuffix,
-    comparison
-  });
-  const [laterDate_, earlierDate_] = normalizeDates(
-    options == null ? void 0 : options.in,
-    ...comparison > 0 ? [earlierDate, laterDate] : [laterDate, earlierDate]
-  );
-  const seconds = differenceInSeconds(earlierDate_, laterDate_);
-  const offsetInSeconds = (getTimezoneOffsetInMilliseconds(earlierDate_) - getTimezoneOffsetInMilliseconds(laterDate_)) / 1e3;
-  const minutes = Math.round((seconds - offsetInSeconds) / 60);
-  let months;
-  if (minutes < 2) {
-    if (options == null ? void 0 : options.includeSeconds) {
-      if (seconds < 5) {
-        return locale.formatDistance("lessThanXSeconds", 5, localizeOptions);
-      } else if (seconds < 10) {
-        return locale.formatDistance("lessThanXSeconds", 10, localizeOptions);
-      } else if (seconds < 20) {
-        return locale.formatDistance("lessThanXSeconds", 20, localizeOptions);
-      } else if (seconds < 40) {
-        return locale.formatDistance("halfAMinute", 0, localizeOptions);
-      } else if (seconds < 60) {
-        return locale.formatDistance("lessThanXMinutes", 1, localizeOptions);
-      } else {
-        return locale.formatDistance("xMinutes", 1, localizeOptions);
-      }
-    } else {
-      if (minutes === 0) {
-        return locale.formatDistance("lessThanXMinutes", 1, localizeOptions);
-      } else {
-        return locale.formatDistance("xMinutes", minutes, localizeOptions);
-      }
-    }
-  } else if (minutes < 45) {
-    return locale.formatDistance("xMinutes", minutes, localizeOptions);
-  } else if (minutes < 90) {
-    return locale.formatDistance("aboutXHours", 1, localizeOptions);
-  } else if (minutes < minutesInDay) {
-    const hours = Math.round(minutes / 60);
-    return locale.formatDistance("aboutXHours", hours, localizeOptions);
-  } else if (minutes < minutesInAlmostTwoDays) {
-    return locale.formatDistance("xDays", 1, localizeOptions);
-  } else if (minutes < minutesInMonth) {
-    const days = Math.round(minutes / minutesInDay);
-    return locale.formatDistance("xDays", days, localizeOptions);
-  } else if (minutes < minutesInMonth * 2) {
-    months = Math.round(minutes / minutesInMonth);
-    return locale.formatDistance("aboutXMonths", months, localizeOptions);
-  }
-  months = differenceInMonths(earlierDate_, laterDate_);
-  if (months < 12) {
-    const nearestMonth = Math.round(minutes / minutesInMonth);
-    return locale.formatDistance("xMonths", nearestMonth, localizeOptions);
-  } else {
-    const monthsSinceStartOfYear = months % 12;
-    const years = Math.trunc(months / 12);
-    if (monthsSinceStartOfYear < 3) {
-      return locale.formatDistance("aboutXYears", years, localizeOptions);
-    } else if (monthsSinceStartOfYear < 9) {
-      return locale.formatDistance("overXYears", years, localizeOptions);
-    } else {
-      return locale.formatDistance("almostXYears", years + 1, localizeOptions);
-    }
-  }
-}
-function formatDistanceToNow(date, options) {
-  return formatDistance(date, constructNow(date), options);
-}
-function subDays(date, amount, options) {
-  return addDays(date, -amount, options);
-}
-function parseISO(argument, options) {
-  const invalidDate = () => constructFrom(options == null ? void 0 : options.in, NaN);
-  const additionalDigits = 2;
-  const dateStrings = splitDateString(argument);
-  let date;
-  if (dateStrings.date) {
-    const parseYearResult = parseYear(dateStrings.date, additionalDigits);
-    date = parseDate(parseYearResult.restDateString, parseYearResult.year);
-  }
-  if (!date || isNaN(+date)) return invalidDate();
-  const timestamp = +date;
-  let time = 0;
-  let offset;
-  if (dateStrings.time) {
-    time = parseTime(dateStrings.time);
-    if (isNaN(time)) return invalidDate();
-  }
-  if (dateStrings.timezone) {
-    offset = parseTimezone(dateStrings.timezone);
-    if (isNaN(offset)) return invalidDate();
-  } else {
-    const tmpDate = new Date(timestamp + time);
-    const result = toDate(0, options == null ? void 0 : options.in);
-    result.setFullYear(
-      tmpDate.getUTCFullYear(),
-      tmpDate.getUTCMonth(),
-      tmpDate.getUTCDate()
-    );
-    result.setHours(
-      tmpDate.getUTCHours(),
-      tmpDate.getUTCMinutes(),
-      tmpDate.getUTCSeconds(),
-      tmpDate.getUTCMilliseconds()
-    );
-    return result;
-  }
-  return toDate(timestamp + time + offset, options == null ? void 0 : options.in);
-}
-const patterns = {
-  dateTimeDelimiter: /[T ]/,
-  timeZoneDelimiter: /[Z ]/i,
-  timezone: /([Z+-].*)$/
-};
-const dateRegex = /^-?(?:(\d{3})|(\d{2})(?:-?(\d{2}))?|W(\d{2})(?:-?(\d{1}))?|)$/;
-const timeRegex = /^(\d{2}(?:[.,]\d*)?)(?::?(\d{2}(?:[.,]\d*)?))?(?::?(\d{2}(?:[.,]\d*)?))?$/;
-const timezoneRegex = /^([+-])(\d{2})(?::?(\d{2}))?$/;
-function splitDateString(dateString) {
-  const dateStrings = {};
-  const array = dateString.split(patterns.dateTimeDelimiter);
-  let timeString;
-  if (array.length > 2) {
-    return dateStrings;
-  }
-  if (/:/.test(array[0])) {
-    timeString = array[0];
-  } else {
-    dateStrings.date = array[0];
-    timeString = array[1];
-    if (patterns.timeZoneDelimiter.test(dateStrings.date)) {
-      dateStrings.date = dateString.split(patterns.timeZoneDelimiter)[0];
-      timeString = dateString.substr(
-        dateStrings.date.length,
-        dateString.length
-      );
-    }
-  }
-  if (timeString) {
-    const token = patterns.timezone.exec(timeString);
-    if (token) {
-      dateStrings.time = timeString.replace(token[1], "");
-      dateStrings.timezone = token[1];
-    } else {
-      dateStrings.time = timeString;
-    }
-  }
-  return dateStrings;
-}
-function parseYear(dateString, additionalDigits) {
-  const regex = new RegExp(
-    "^(?:(\\d{4}|[+-]\\d{" + (4 + additionalDigits) + "})|(\\d{2}|[+-]\\d{" + (2 + additionalDigits) + "})$)"
-  );
-  const captures = dateString.match(regex);
-  if (!captures) return { year: NaN, restDateString: "" };
-  const year = captures[1] ? parseInt(captures[1]) : null;
-  const century = captures[2] ? parseInt(captures[2]) : null;
-  return {
-    year: century === null ? year : century * 100,
-    restDateString: dateString.slice((captures[1] || captures[2]).length)
-  };
-}
-function parseDate(dateString, year) {
-  if (year === null) return /* @__PURE__ */ new Date(NaN);
-  const captures = dateString.match(dateRegex);
-  if (!captures) return /* @__PURE__ */ new Date(NaN);
-  const isWeekDate = !!captures[4];
-  const dayOfYear = parseDateUnit(captures[1]);
-  const month = parseDateUnit(captures[2]) - 1;
-  const day = parseDateUnit(captures[3]);
-  const week = parseDateUnit(captures[4]);
-  const dayOfWeek = parseDateUnit(captures[5]) - 1;
-  if (isWeekDate) {
-    if (!validateWeekDate(year, week, dayOfWeek)) {
-      return /* @__PURE__ */ new Date(NaN);
-    }
-    return dayOfISOWeekYear(year, week, dayOfWeek);
-  } else {
-    const date = /* @__PURE__ */ new Date(0);
-    if (!validateDate(year, month, day) || !validateDayOfYearDate(year, dayOfYear)) {
-      return /* @__PURE__ */ new Date(NaN);
-    }
-    date.setUTCFullYear(year, month, Math.max(dayOfYear, day));
-    return date;
-  }
-}
-function parseDateUnit(value) {
-  return value ? parseInt(value) : 1;
-}
-function parseTime(timeString) {
-  const captures = timeString.match(timeRegex);
-  if (!captures) return NaN;
-  const hours = parseTimeUnit(captures[1]);
-  const minutes = parseTimeUnit(captures[2]);
-  const seconds = parseTimeUnit(captures[3]);
-  if (!validateTime(hours, minutes, seconds)) {
-    return NaN;
-  }
-  return hours * millisecondsInHour + minutes * millisecondsInMinute + seconds * 1e3;
-}
-function parseTimeUnit(value) {
-  return value && parseFloat(value.replace(",", ".")) || 0;
-}
-function parseTimezone(timezoneString) {
-  if (timezoneString === "Z") return 0;
-  const captures = timezoneString.match(timezoneRegex);
-  if (!captures) return 0;
-  const sign = captures[1] === "+" ? -1 : 1;
-  const hours = parseInt(captures[2]);
-  const minutes = captures[3] && parseInt(captures[3]) || 0;
-  if (!validateTimezone(hours, minutes)) {
-    return NaN;
-  }
-  return sign * (hours * millisecondsInHour + minutes * millisecondsInMinute);
-}
-function dayOfISOWeekYear(isoWeekYear, week, day) {
-  const date = /* @__PURE__ */ new Date(0);
-  date.setUTCFullYear(isoWeekYear, 0, 4);
-  const fourthOfJanuaryDay = date.getUTCDay() || 7;
-  const diff = (week - 1) * 7 + day + 1 - fourthOfJanuaryDay;
-  date.setUTCDate(date.getUTCDate() + diff);
-  return date;
-}
-const daysInMonths = [31, null, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-function isLeapYearIndex(year) {
-  return year % 400 === 0 || year % 4 === 0 && year % 100 !== 0;
-}
-function validateDate(year, month, date) {
-  return month >= 0 && month <= 11 && date >= 1 && date <= (daysInMonths[month] || (isLeapYearIndex(year) ? 29 : 28));
-}
-function validateDayOfYearDate(year, dayOfYear) {
-  return dayOfYear >= 1 && dayOfYear <= (isLeapYearIndex(year) ? 366 : 365);
-}
-function validateWeekDate(_year, week, day) {
-  return week >= 1 && week <= 53 && day >= 0 && day <= 6;
-}
-function validateTime(hours, minutes, seconds) {
-  if (hours === 24) {
-    return minutes === 0 && seconds === 0;
-  }
-  return seconds >= 0 && seconds < 60 && minutes >= 0 && minutes < 60 && hours >= 0 && hours < 25;
-}
-function validateTimezone(_hours, minutes) {
-  return minutes >= 0 && minutes <= 59;
-}
 function Badge({ children, color, className }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     "span",
@@ -32449,20 +31031,491 @@ function Tooltip({ label, children, className }) {
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 rounded bg-bw-card border border-bw-border text-[10px] text-bw-text whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg", children: label })
   ] });
 }
-const BADGE_BG = "#2C2C2A";
-const BADGE_TEXT = "#F1EFE8";
-function waitBadgeClass(minutes) {
-  const base = "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 border border-black/20";
-  if (minutes >= 10) return `${base} bw-wait-flash`;
-  return base;
+const OPEN_VEHICLE_TYPES = /* @__PURE__ */ new Set(["", "any", "all", "not specified"]);
+function normalizeCategory(raw) {
+  const s2 = String(raw ?? "").trim().toLowerCase();
+  if (!s2 || OPEN_VEHICLE_TYPES.has(s2)) return null;
+  if (s2.includes("van") || s2.includes("minibus")) return "van";
+  if (s2.includes("wav") || s2.includes("wheelchair")) return "wav";
+  if (s2.includes("car") || s2.includes("sedan") || s2.includes("suv") || s2.includes("saloon")) return "car";
+  return s2;
 }
-function tagChip(label) {
+function normalizeJobServiceType(raw) {
+  const s2 = String(raw ?? "taxi").toLowerCase();
+  if (s2.includes("food") || s2 === "restaurant") return "food";
+  if (s2.includes("freight") || s2 === "delivery") return "freight";
+  if (s2 === "tm") return "tm";
+  return "taxi";
+}
+function serviceTypeToDriverLabel(svc) {
+  const map2 = {
+    taxi: "Taxi",
+    food: "Food",
+    freight: "Freight",
+    tm: "TM"
+  };
+  return map2[svc] || "Taxi";
+}
+function driverMeetsJobServiceType(job, driver) {
+  var _a2;
+  const svc = normalizeJobServiceType(job.serviceType);
+  const allowed = ((_a2 = driver.services) == null ? void 0 : _a2.length) ? driver.services : ["Taxi"];
+  const need = serviceTypeToDriverLabel(svc);
+  return allowed.some((s2) => s2.toLowerCase() === need.toLowerCase());
+}
+function driverMeetsJobVehicleType(job, driver) {
+  const req = normalizeCategory(job.vehicleType);
+  if (!req) return true;
+  const drv = normalizeCategory(driver.vehicleType);
+  if (!drv) return false;
+  if (req === drv) return true;
+  const reqExact = String(job.vehicleType ?? "").trim().toLowerCase();
+  const drvExact = String(driver.vehicleType ?? "").trim().toLowerCase();
+  return !!reqExact && reqExact === drvExact;
+}
+function driverMeetsJobPassengers(job, driver) {
+  const req = Math.max(1, job.passengers ?? 1);
+  const cap = driver.seatCapacity ?? 4;
+  return cap >= req;
+}
+function driverEligibleForJob(job, driver) {
+  return driverMeetsJobServiceType(job, driver) && driverMeetsJobVehicleType(job, driver) && driverMeetsJobPassengers(job, driver);
+}
+function filterDriversForJob(drivers, job) {
+  return drivers.filter((d2) => driverEligibleForJob(job, d2));
+}
+function filterDriversForRequirements(drivers, req) {
+  const job = {
+    vehicleType: req.vehicleType === "Any" ? void 0 : req.vehicleType,
+    passengers: req.passengers ?? 1,
+    serviceType: req.serviceType ?? "taxi"
+  };
+  return filterDriversForJob(drivers, job);
+}
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R2 = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a2 = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R2 * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
+}
+function parseTariffRecord(key, rec) {
+  const name2 = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? "").trim();
+  if (!name2) return null;
+  const id = String(rec.Id ?? rec.id ?? key);
+  return {
+    id,
+    name: name2,
+    startPrice: parseFloat(String(rec.StartPrice ?? rec.baseFare ?? rec.startPrice ?? 0)) || 0,
+    distanceRate: parseFloat(String(rec.DistanceRate ?? rec.pricePerKm ?? rec.perKm ?? 0)) || 0,
+    waitingRate: parseFloat(String(rec.WaitingRate ?? rec.waitingRate ?? rec.waitRate ?? 0)) || 0,
+    minimumFare: parseFloat(String(rec.MinimumFare ?? rec.minimumFare ?? 0)) || 0
+  };
+}
+function estimateFare(km, tariff) {
+  const raw = tariff.startPrice + km * tariff.distanceRate;
+  return Math.max(raw, tariff.minimumFare || 0);
+}
+const DEFAULT_TARIFF = {
+  id: "1",
+  name: "Standard",
+  startPrice: 3.5,
+  distanceRate: 2.2,
+  waitingRate: 0.6,
+  minimumFare: 0
+};
+function mergeTariffMaps(maps) {
+  const out = /* @__PURE__ */ new Map();
+  for (const m2 of maps) for (const [k2, v2] of m2) out.set(k2, v2);
+  return Array.from(out.values());
+}
+function useTariffs(companyId) {
+  const [tariffs, setTariffs] = reactExports.useState([DEFAULT_TARIFF]);
+  reactExports.useEffect(() => {
+    if (!companyId) return;
+    const db2 = getDbSafe();
+    if (!db2) return;
+    const maps = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Map()];
+    const sync = () => {
+      const merged = mergeTariffMaps(maps);
+      setTariffs(merged.length ? merged : [DEFAULT_TARIFF]);
+    };
+    const ingest = (idx, snap) => {
+      maps[idx] = /* @__PURE__ */ new Map();
+      const val = snap.val();
+      if (!val || typeof val !== "object") {
+        sync();
+        return;
+      }
+      if (Array.isArray(val)) {
+        val.forEach((rec, i2) => {
+          if (rec && typeof rec === "object") {
+            const t2 = parseTariffRecord(String(i2), rec);
+            if (t2) maps[idx].set(t2.id, t2);
+          }
+        });
+      } else {
+        for (const [key, rec] of Object.entries(val)) {
+          if (key.startsWith("zone_grid_")) continue;
+          const t2 = parseTariffRecord(key, rec);
+          if (t2) maps[idx].set(t2.id, t2);
+        }
+      }
+      sync();
+    };
+    const unsubTariffs = onValue(ref(db2, `tariffs/${companyId}`), (snap) => ingest(0, snap));
+    const unsubZones = onValue(ref(db2, `tariffZones/${companyId}`), (snap) => ingest(1, snap));
+    return () => {
+      unsubTariffs();
+      unsubZones();
+    };
+  }, [companyId]);
+  return tariffs;
+}
+const DRIVER_STATUS_RANK = {
+  Away: 0,
+  Available: 1,
+  Offered: 2,
+  Assigned: 2,
+  Picking: 3,
+  Arrived: 4,
+  Busy: 4,
+  Active: 5,
+  OnTrip: 5
+};
+function driverStatusRank(status) {
+  const s2 = String(status || "").trim();
+  return DRIVER_STATUS_RANK[s2] ?? (s2 === "Suspended" || s2 === "Clearing" ? -1 : 1);
+}
+function resolveDriverPresenceStatus(topRaw, currentRaw) {
+  const top = String(topRaw || "Away").trim();
+  const cur = String(currentRaw || "").trim();
+  if (top === "Available" && (cur === "Away" || cur === "Picking" || cur === "Arrived" || cur === "Active" || cur === "Assigned")) {
+    return cur;
+  }
+  if (cur && driverStatusRank(cur) > driverStatusRank(top) && driverStatusRank(cur) >= driverStatusRank("Assigned")) {
+    return cur;
+  }
+  return top;
+}
+const TRIP_DRIVER_STATUSES = /* @__PURE__ */ new Set([
+  "Picking",
+  "Arrived",
+  "Active",
+  "OnTrip",
+  "Busy",
+  "Assigned"
+]);
+function pendingOfferBookingId(rec, current) {
+  const raw = current.joboffer ?? rec.joboffer;
+  if (raw == null) return null;
+  const id = String(raw).trim();
+  if (!id || id === "0") return null;
+  return id;
+}
+function resolveDriverStatusFromPresence(rec, current) {
+  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
+  const curStatus = String(current.vehiclestatus ?? "").trim();
+  let status = resolveDriverPresenceStatus(topStatus, curStatus);
+  const offerId = pendingOfferBookingId(rec, current);
+  if (offerId && status !== "Away" && status !== "Suspended" && !TRIP_DRIVER_STATUSES.has(status)) {
+    return "Offered";
+  }
+  if (status === "Offered" && !offerId) {
+    return "Available";
+  }
+  return status;
+}
+const LOGGED_OUT_STATUSES = /* @__PURE__ */ new Set([
+  "offline",
+  "loggedout",
+  "logoff",
+  "inactive"
+]);
+function resolveOnlineDriverId(rec, current) {
+  return String(
+    rec.driverid ?? rec.driverId ?? rec.DriverId ?? current.driverId ?? current.driverid ?? current.DriverId ?? ""
+  ).trim();
+}
+function resolveOnlineDriverName(rec, current) {
+  return String(
+    rec.drivername ?? rec.driverName ?? rec.DriverName ?? current.drivername ?? current.driverName ?? ""
+  ).trim();
+}
+function pickNum(...vals) {
+  for (const v2 of vals) {
+    if (v2 == null || v2 === "") continue;
+    const n2 = Number(v2);
+    if (Number.isFinite(n2) && n2 >= 0) return n2;
+  }
+  return void 0;
+}
+function pickStr(...vals) {
+  for (const v2 of vals) {
+    const s2 = String(v2 ?? "").trim();
+    if (s2) return s2;
+  }
+  return void 0;
+}
+function parseLiveMeterFromRecord(rec, current) {
+  const liveFare = pickNum(
+    current.fare,
+    current.meterFare,
+    current.TotalFare,
+    current.totalFare,
+    current.jobfare,
+    current.jobFare,
+    current.Fare
+  );
+  const liveTariffName = pickStr(
+    current.currentTariffName,
+    current.CurrentTariffName,
+    current.TariffName,
+    current.tariffName,
+    current.TarriffType,
+    current.tarriffname
+  );
+  const liveJobId = pickStr(
+    current.currentJobId,
+    current.jobId,
+    current.bookingId,
+    current.BookingId,
+    rec.currentJobId,
+    rec.jobId
+  );
+  const liveDistanceKm = pickNum(
+    current.distanceKm,
+    current.JobDistance,
+    current.jobDistance,
+    current.distance,
+    current.Distance
+  );
+  const liveWaitingMin = pickNum(
+    current.waitingMinutes,
+    current.waitingMin,
+    current.WaitingTime,
+    current.waitingTime
+  );
+  const meterOnAt = pickStr(current.meterOnAt, current.MeterOnAt);
+  return { liveFare, liveTariffName, liveJobId, liveDistanceKm, liveWaitingMin, meterOnAt };
+}
+function isGhostOnlineNode(rec, current) {
+  const driverId = resolveOnlineDriverId(rec, current);
+  const driverName = resolveOnlineDriverName(rec, current);
+  if (driverId || driverName) return false;
+  const status = String(rec.vehiclestatus ?? rec.VehicleStatus ?? current.vehiclestatus ?? "").trim().toLowerCase();
+  if (status === "available") return true;
+  const hasGps = !!(rec.lat || rec.lng || current.lat || current.lng || rec.Lat || current.Lat);
+  const lastSeenRaw = rec.lastSeen ?? current.lastSeen;
+  if (!hasGps && (lastSeenRaw == null || lastSeenRaw === "" || Number(lastSeenRaw) === 0)) {
+    return true;
+  }
+  return false;
+}
+function isLoggedOutOnlineNode(rec, current) {
+  const statuses = [
+    rec.vehiclestatus,
+    rec.VehicleStatus,
+    rec.status,
+    current.vehiclestatus,
+    current.VehicleStatus,
+    current.currentstatus,
+    current.status
+  ];
+  for (const raw of statuses) {
+    const s2 = String(raw ?? "").trim().toLowerCase();
+    if (s2 && LOGGED_OUT_STATUSES.has(s2)) return true;
+  }
+  if (rec.online === false && current.online === false) return true;
+  if (rec.shiftStarted === false && current.shiftStarted === false) {
+    const hasLiveTrip = !!(current.currentJobId || current.jobId || rec.currentJobId || rec.jobId);
+    if (!hasLiveTrip) return true;
+  }
+  return false;
+}
+function driverFromFirebase(vehicleId, rec, companyId) {
+  const current = rec.current || {};
+  if (isLoggedOutOnlineNode(rec, current) || isGhostOnlineNode(rec, current)) return null;
+  const status = resolveDriverStatusFromPresence(rec, current);
+  const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
+  const hasBookingRef = rawBookingRef != null && String(rawBookingRef).trim() !== "" && String(rawBookingRef) !== "0";
+  const displayName = String(
+    rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? ""
+  ).trim();
+  const liveMeter = parseLiveMeterFromRecord(rec, current);
+  return {
+    driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ""),
+    vehicleId,
+    driverName: displayName || `Driver ${vehicleId}`,
+    vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
+    vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? "Sedan"),
+    seatCapacity: (() => {
+      const raw = rec.seatCapacity ?? rec.seats ?? rec.capacity ?? rec.SeatCapacity ?? rec.Capacity;
+      if (raw == null || raw === "") return 4;
+      const n2 = parseInt(String(raw), 10);
+      return Number.isNaN(n2) || n2 < 1 ? 4 : n2;
+    })(),
+    status,
+    lat: rec.lat != null ? Number(rec.lat) : void 0,
+    lng: rec.lng != null ? Number(rec.lng) : void 0,
+    zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ""),
+    zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : void 0,
+    jobCount: rec.jobCount != null ? Number(rec.jobCount) : void 0,
+    bookingId: status === "Away" || !hasBookingRef ? "" : String(rawBookingRef),
+    jobPickup: status === "Away" ? "" : String(rec.jobpickup ?? current.jobpickup ?? ""),
+    jobDropoff: status === "Away" ? "" : String(rec.jobdropoff ?? current.jobdropoff ?? ""),
+    passengerName: String(rec.jobname ?? current.jobname ?? ""),
+    passengerPhone: String(rec.JobphoneNo ?? current.JobphoneNo ?? ""),
+    services: Array.isArray(rec.allowedServices) ? rec.allowedServices : ["Taxi"],
+    lastSeen: rec.lastSeen ? Number(rec.lastSeen) : Date.now(),
+    ...liveMeter
+  };
+}
+function statusColor(status) {
+  switch (status) {
+    case "Available":
+      return "#22c55e";
+    case "Offered":
+      return "#eab308";
+    case "Picking":
+    case "Assigned":
+      return "#3b82f6";
+    case "Arrived":
+      return "#8b5cf6";
+    case "Active":
+    case "OnTrip":
+      return "#f59e0b";
+    case "Busy":
+      return "#f97316";
+    case "Suspended":
+      return "#ef4444";
+    default:
+      return "#64748b";
+  }
+}
+function isZoneQueueRanked(status) {
+  return String(status || "").trim() === "Available";
+}
+const ZONE_QUEUE_INACTIVE = /* @__PURE__ */ new Set([
+  "Away",
+  "Busy",
+  "Active",
+  "OnTrip",
+  "Picking",
+  "Assigned",
+  "Arrived",
+  "Offered",
+  "Clearing"
+]);
+function isZoneQueueInactive(status) {
+  const s2 = String(status || "").trim();
+  if (isZoneQueueRanked(s2)) return false;
+  return ZONE_QUEUE_INACTIVE.has(s2) || s2 === "Suspended";
+}
+function useLiveJobMeter(job, tab, vehicleId) {
+  const [live, setLive] = reactExports.useState({});
+  reactExports.useEffect(() => {
+    if (tab !== "active" || !job.companyId || !vehicleId) {
+      setLive({});
+      return;
+    }
+    const db2 = getDbSafe();
+    if (!db2) {
+      setLive({});
+      return;
+    }
+    const path = ref(db2, `online/${job.companyId}/${vehicleId}/current`);
+    return onValue(path, (snap) => {
+      const val = snap.val();
+      if (!val || typeof val !== "object") {
+        setLive({});
+        return;
+      }
+      const rec = val;
+      setLive(parseLiveMeterFromRecord(rec, rec));
+    });
+  }, [tab, job.companyId, vehicleId]);
+  return live;
+}
+const TIMER_PILL = {
+  blue: "bg-blue-500/20 text-blue-700 border-blue-400/50",
+  red: "bg-red-500/20 text-red-700 border-red-400/50",
+  amber: "bg-amber-500/20 text-amber-800 border-amber-400/50",
+  green: "bg-emerald-500/20 text-emerald-800 border-emerald-400/50",
+  neutral: "bg-black/10 text-inherit border-black/15 opacity-80"
+};
+function TimerPill({ badge, themed }) {
+  const cls = themed ? badge.variant === "blue" ? "bg-white/30 text-inherit border-white/40" : badge.variant === "red" ? "bg-red-900/20 text-red-900 border-red-800/40" : TIMER_PILL[badge.variant] : TIMER_PILL[badge.variant];
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     "span",
     {
-      className: "text-[9px] font-bold px-1 py-0 rounded uppercase tracking-wide shrink-0 border border-black/20",
-      style: { backgroundColor: BADGE_BG, color: BADGE_TEXT },
-      children: label
+      className: cn(
+        "text-[9px] font-semibold px-1 py-0 rounded-full border shrink-0 leading-tight",
+        cls
+      ),
+      children: badge.text
+    }
+  );
+}
+function TypeTag({ label }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[8px] font-bold px-0.5 py-0 rounded border border-black/15 opacity-75 shrink-0", children: label });
+}
+function JobBookingMetaRow({
+  job,
+  metaText,
+  themeMutedStyle
+}) {
+  const meta = jobBookingMeta(job);
+  if (!jobBookingMetaVisible(meta)) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: cn("flex items-center gap-1.5 min-h-[12px] mb-0.5 text-[8px] leading-tight", metaText),
+      style: themeMutedStyle,
+      children: [
+        meta.vehicleType && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 shrink-0", title: "Vehicle type", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Car, { size: 8, className: "opacity-70" }),
+          meta.vehicleType
+        ] }),
+        meta.tariff && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 shrink-0", title: "Tariff", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Tag, { size: 8, className: "opacity-70" }),
+          meta.tariff
+        ] }),
+        meta.passengers != null && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 shrink-0", title: "Passengers", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Users, { size: 8, className: "opacity-70" }),
+          meta.passengers
+        ] }),
+        meta.bags != null && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 shrink-0", title: "Bags", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Luggage, { size: 8, className: "opacity-70" }),
+          meta.bags
+        ] }),
+        meta.notes && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 min-w-0 truncate", title: meta.notes, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(StickyNote, { size: 8, className: "opacity-70 shrink-0" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate italic", children: meta.notes })
+        ] })
+      ]
+    }
+  );
+}
+function LiveMeterDisplay({
+  meter,
+  themed
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "span",
+    {
+      className: cn(
+        "inline-flex items-center gap-0.5 shrink-0 font-mono text-[9px] font-bold tabular-nums",
+        themed ? "text-inherit" : "text-emerald-500"
+      ),
+      title: meter.ticking ? "Live meter" : "Fare",
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-sans font-semibold opacity-75 max-w-[56px] truncate", children: meter.tariffLabel }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          "$",
+          meter.fare.toFixed(2)
+        ] })
+      ]
     }
   );
 }
@@ -32473,6 +31526,24 @@ function JobCard({ job, tab }) {
     () => allDrivers.filter((d2) => d2.status === "Available" && d2.driverId),
     [allDrivers]
   );
+  const assignDrivers = reactExports.useMemo(() => {
+    const byId = /* @__PURE__ */ new Map();
+    if (job.driverId && isAssignedDriverSelection(job.driverId)) {
+      const assigned = allDrivers.find(
+        (d2) => d2.driverId === job.driverId || !!job.vehicleId && d2.vehicleId === job.vehicleId || !!job.vehicleNo && d2.vehicleNo === job.vehicleNo
+      ) ?? {
+        driverId: job.driverId,
+        vehicleId: String(job.vehicleId || "0"),
+        vehicleNo: String(job.vehicleNo || job.vehicleId || job.driverId),
+        driverName: String(job.driverName || job.driverId),
+        status: "Busy"
+      };
+      byId.set(assigned.driverId, assigned);
+    }
+    for (const d2 of filterDriversForJob(onlineDrivers, job)) byId.set(d2.driverId, d2);
+    return Array.from(byId.values());
+  }, [allDrivers, job, onlineDrivers]);
+  const showAssignControls = tab === "ua" || tab === "assign" || tab === "offer" || tab === "queue" || tab === "active";
   const addToast = useUiStore((s2) => s2.addToast);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const hoveredJobId = useJobStore((s2) => s2.hoveredJobId);
@@ -32494,58 +31565,84 @@ function JobCard({ job, tab }) {
     return () => clearInterval(t2);
   }, []);
   const cardLook = reactExports.useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
-  const statusBadge = tab === "ua" ? uaStatusBadge(job) : null;
   const highlighted = hoveredJobId === job.id;
   const toned = !!cardLook.tone;
   const onThemedBg = !!cardLook.foregroundColor;
   const themeStyle = cardLook.foregroundColor ? { color: cardLook.foregroundColor } : void 0;
   const themeMutedStyle = cardLook.foregroundMuted ? { color: cardLook.foregroundMuted } : themeStyle;
-  const uaMeta = reactExports.useMemo(() => {
-    var _a3, _b2;
-    if (tab !== "ua") return null;
-    const created = jobCreatedAtTime(job);
-    const booked = jobBookingTime(job);
-    const pickup = jobScheduledTime(job);
-    const fare = jobFareDisplay(job);
-    return {
-      sourceName: sourceDisplayName(job.source),
-      createdLabel: created ? formatJobDateTimeShort(created) : null,
-      bookedLabel: booked ? formatJobDateTimeShort(booked) : "—",
-      pickupLabel: jobPickupTypeLabel(job),
-      pickupTime: pickup ? formatJobDateTimeShort(pickup) : null,
-      overdue: jobOverdueLabel(job, now),
-      returnAlert: jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers)),
-      createdBy: ((_a3 = job.dispatcherName) == null ? void 0 : _a3.trim()) || null,
-      passengerEmail: ((_b2 = job.passengerEmail) == null ? void 0 : _b2.trim()) || null,
-      tariffLabel: jobTariffLabel(job),
-      vehicleType: jobVehicleTypeLabel(job),
-      fare
-    };
-  }, [job, tab, now, allDrivers]);
-  const opsMeta = reactExports.useMemo(() => {
-    if (tab === "ua" || tab === "dy") return null;
-    const created = jobCreatedAtTime(job);
-    const booked = jobBookingTime(job);
-    const assignedDriver = allDrivers.find((d2) => d2.driverId === job.driverId);
-    return {
-      createdLabel: created ? formatJobDateTimeShort(created) : null,
-      bookedLabel: booked ? formatJobDateTimeShort(booked) : null,
-      driverLabel: assignedDriver ? `${assignedDriver.vehicleNo} ${assignedDriver.driverName}`.trim() : job.driverId && job.driverId !== "-1" && job.driverId !== "0" ? job.vehicleNo || `Driver ${job.driverId}` : null
-    };
-  }, [job, tab, now, allDrivers]);
-  const pickupTag = tab === "ua" && uaMeta ? uaMeta.pickupLabel : ((_a2 = cardLook.label) == null ? void 0 : _a2.startsWith("Sched:")) ? cardLook.label : null;
-  const { waitLabel, waitMinutes } = reactExports.useMemo(() => {
-    const base = job.createdAt ? new Date(job.createdAt) : null;
-    try {
-      const d2 = base && !Number.isNaN(base.getTime()) ? base : parseISO(job.bookingDateTime.replace(" ", "T"));
-      return {
-        waitLabel: formatDistanceToNow(d2, { addSuffix: false }),
-        waitMinutes: differenceInMinutes(/* @__PURE__ */ new Date(), d2)
-      };
-    } catch {
-      return { waitLabel: "—", waitMinutes: 0 };
+  const status = jobStatusAbbrev(job.status);
+  const pickupType = jobPickupTypeLabel(job);
+  const pickup = jobPickupTime(job);
+  const created = jobCreatedAtTime(job);
+  const timerBadge = jobTimerBadge(job, tab, now);
+  const goTime = tab === "ua" && isPreBookedJob(job, now) && isPreDispatchWindow(job, now) ? jobGoTimeLabel(job) : null;
+  const returnAlert = jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers));
+  const editLockLabel = jobEditLockLabel(job);
+  const editBlockedByOther = jobEditLockBlockedForSelf(job);
+  const handleEditClick = async (e) => {
+    e.stopPropagation();
+    if (editBlockedByOther) {
+      addToast({
+        type: "warning",
+        title: "Job locked for editing",
+        message: editLockLabel ? `${editLockLabel} — wait until they save or cancel` : "Another user is editing this job"
+      });
+      return;
     }
-  }, [job.bookingDateTime, job.createdAt]);
+    const result = await tryAcquireJobEditLock(job.id, dispatcherName);
+    if (!result.ok) {
+      addToast({
+        type: "warning",
+        title: result.conflict ? "Job locked for editing" : "Cannot edit job",
+        message: result.message
+      });
+      return;
+    }
+    openModalWith("createJob", { jobId: job.id });
+  };
+  const assignedDriver = reactExports.useMemo(() => {
+    if (!job.driverId || !isAssignedDriverSelection(job.driverId)) return void 0;
+    return allDrivers.find(
+      (d2) => d2.driverId === job.driverId || !!job.vehicleId && d2.vehicleId === job.vehicleId || !!job.vehicleNo && d2.vehicleNo === job.vehicleNo
+    );
+  }, [allDrivers, job.driverId, job.vehicleId, job.vehicleNo]);
+  const tariffs = useTariffs(job.companyId);
+  const tariff = reactExports.useMemo(() => {
+    if (job.tariffId && job.tariffId !== "0" && job.tariffId !== "-1") {
+      return tariffs.find((t2) => t2.id === job.tariffId) ?? tariffs[0];
+    }
+    return tariffs[0];
+  }, [tariffs, job.tariffId]);
+  const vehicleId = (assignedDriver == null ? void 0 : assignedDriver.vehicleId) || job.vehicleId;
+  const liveSnap = useLiveJobMeter(job, tab, vehicleId);
+  const meterDriver = reactExports.useMemo(() => {
+    if (!assignedDriver && !liveSnap.liveFare) return null;
+    return {
+      liveFare: liveSnap.liveFare ?? (assignedDriver == null ? void 0 : assignedDriver.liveFare),
+      liveTariffName: liveSnap.liveTariffName ?? (assignedDriver == null ? void 0 : assignedDriver.liveTariffName),
+      liveJobId: liveSnap.liveJobId ?? (assignedDriver == null ? void 0 : assignedDriver.liveJobId),
+      bookingId: assignedDriver == null ? void 0 : assignedDriver.bookingId,
+      liveDistanceKm: liveSnap.liveDistanceKm ?? (assignedDriver == null ? void 0 : assignedDriver.liveDistanceKm),
+      liveWaitingMin: liveSnap.liveWaitingMin ?? (assignedDriver == null ? void 0 : assignedDriver.liveWaitingMin),
+      meterOnAt: liveSnap.meterOnAt ?? (assignedDriver == null ? void 0 : assignedDriver.meterOnAt)
+    };
+  }, [assignedDriver, liveSnap]);
+  const liveMeter = reactExports.useMemo(
+    () => resolveLiveMeterDisplay(job, tab, { driver: meterDriver, tariff, now }),
+    [job, tab, meterDriver, tariff, now]
+  );
+  const rightContact = reactExports.useMemo(() => {
+    var _a3, _b2, _c, _d, _e, _f;
+    if (tab === "active" || tab === "assign") {
+      const name2 = ((_a3 = assignedDriver == null ? void 0 : assignedDriver.driverName) == null ? void 0 : _a3.trim()) || ((_b2 = job.driverName) == null ? void 0 : _b2.trim()) || (job.driverId && job.driverId !== "0" && job.driverId !== "-1" ? `D${job.driverId}` : null);
+      const vehicle = ((_c = assignedDriver == null ? void 0 : assignedDriver.vehicleNo) == null ? void 0 : _c.trim()) || ((_d = job.vehicleNo) == null ? void 0 : _d.trim()) || (job.vehicleId && job.vehicleId !== "0" ? job.vehicleId : null);
+      if (vehicle && name2) return `${vehicle} ${name2}`.trim();
+      if (vehicle) return vehicle;
+      if (name2) return name2;
+    }
+    const parts = [(_e = job.passengerName) == null ? void 0 : _e.trim(), (_f = job.passengerPhone) == null ? void 0 : _f.trim()].filter(Boolean);
+    return parts.join(" · ") || "—";
+  }, [tab, assignedDriver, job]);
   const run = async (fn, ok) => {
     try {
       await fn();
@@ -32582,7 +31679,24 @@ function JobCard({ job, tab }) {
       });
     }
   };
-  const iconBtn = "p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center";
+  const iconBtn = "p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center shrink-0";
+  const editButton = (tooltip = "Edit job") => /* @__PURE__ */ jsxRuntimeExports.jsx(
+    Tooltip,
+    {
+      label: editBlockedByOther && editLockLabel ? `Locked — ${editLockLabel}` : tooltip,
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: cn(iconBtn, editBlockedByOther && "opacity-50 cursor-not-allowed"),
+          onClick: (e) => {
+            void handleEditClick(e);
+          },
+          children: editBlockedByOther ? /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 11 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
+        }
+      )
+    }
+  );
   const showRoutePreview = (e) => {
     e.stopPropagation();
     setHoveredJobId(job.id);
@@ -32603,7 +31717,7 @@ function JobCard({ job, tab }) {
     }
     const selection = assignSelection;
     try {
-      const result = await applyJobAssignment(job, selection, onlineDrivers);
+      const result = await applyJobAssignment(job, selection, assignDrivers);
       const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
       addToast({
         type: "success",
@@ -32618,76 +31732,24 @@ function JobCard({ job, tab }) {
       });
     }
   };
-  const showAssignControls = tab === "ua" || tab === "assign" || tab === "queue" || tab === "offer";
+  const handleWithdrawOffer = async () => {
+    try {
+      await setPending(job);
+      addToast({ type: "success", title: "Offer withdrawn" });
+    } catch (e) {
+      addToast({
+        type: "error",
+        title: "Withdraw failed",
+        message: e instanceof Error ? e.message : ""
+      });
+    }
+  };
   const assignBlockedBySchedule = isPreDispatchWindow(job, now);
-  const assignControls = showAssignControls ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "select",
-      {
-        className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[100px] border",
-        value: assignSelection,
-        disabled: assignBlockedBySchedule,
-        title: assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : void 0,
-        onClick: (e) => e.stopPropagation(),
-        onMouseDown: (e) => e.stopPropagation(),
-        onChange: (e) => {
-          e.stopPropagation();
-          setAssignSelection(e.target.value);
-        },
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "No One" }),
-          onlineDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— online —" }),
-          onlineDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
-            d2.vehicleNo,
-            " ",
-            d2.driverName
-          ] }, d2.driverId))
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Button,
-      {
-        variant: "primary",
-        className: "!h-6 !px-1.5 !py-0 !text-[9px] shrink-0",
-        disabled: !assignSelection || assignBlockedBySchedule,
-        title: assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : void 0,
-        onClick: (e) => {
-          e.stopPropagation();
-          void handleApplyAssign();
-        },
-        children: "Apply"
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        type: "button",
-        className: iconBtn,
-        onClick: (e) => {
-          e.stopPropagation();
-          openModalWith("createJob", { jobId: job.id });
-        },
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
-      }
-    ) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        type: "button",
-        className: cn(iconBtn, "text-red-400"),
-        onClick: (e) => {
-          e.stopPropagation();
-          handleCancelClick(job.id);
-        },
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
-      }
-    ) })
-  ] }) : null;
   const toneText = onThemedBg ? "" : "bw-text";
   const metaText = onThemedBg ? "" : "text-[var(--bw-muted)]";
+  const createdMeta = created ? formatJobDateTimeCompact(created, now) : tab === "ua" && (timerBadge == null ? void 0 : timerBadge.text.startsWith("wait")) ? timerBadge.text : null;
+  const source = sourceLabel(job.source);
+  const initials = dispatcherInitials(((_a2 = job.dispatcherName) == null ? void 0 : _a2.trim()) || dispatcherName);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -32707,264 +31769,286 @@ function JobCard({ job, tab }) {
         color: cardLook.foregroundColor
       },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-0.5 mb-0.5", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("font-mono text-[9px] font-bold", toneText), style: themeStyle, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 min-h-[16px] leading-none mb-0.5", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("font-mono text-[9px] font-bold shrink-0", toneText), style: themeStyle, children: [
             "#",
             job.id
           ] }),
-          tagChip(tab === "ua" && uaMeta ? uaMeta.sourceName : sourceDisplayName(job.source)),
-          statusBadge && tagChip(statusBadge.label),
-          pickupTag && tagChip(pickupTag),
-          cardLook.label === "DISPATCH NOW" && tagChip("DISPATCH NOW"),
-          tab === "ua" && (uaMeta == null ? void 0 : uaMeta.overdue) && tagChip(uaMeta.overdue),
-          job.urgent && tagChip("URGENT"),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 shrink-0", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-1.5 h-1.5 rounded-full", style: { backgroundColor: status.dotColor } }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-bold", style: themeStyle, children: status.abbrev })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TypeTag, { label: pickupType }),
+          pickup && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "span",
+            {
+              className: cn("inline-flex items-center gap-0.5 text-[9px] shrink-0", toneText),
+              style: themeStyle,
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(MapPin, { size: 9, className: "shrink-0 opacity-70" }),
+                formatJobDateTimeCompact(pickup, now)
+              ]
+            }
+          ),
+          goTime && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] font-semibold opacity-80 shrink-0", style: themeMutedStyle, children: goTime }),
+          timerBadge && /* @__PURE__ */ jsxRuntimeExports.jsx(TimerPill, { badge: timerBadge, themed: onThemedBg }),
+          liveMeter && /* @__PURE__ */ jsxRuntimeExports.jsx(LiveMeterDisplay, { meter: liveMeter, themed: onThemedBg }),
+          job.urgent && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[8px] font-bold text-red-600 shrink-0", children: "URG" }),
+          editLockLabel && editBlockedByOther && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "span",
+            {
+              className: "inline-flex items-center gap-0.5 text-[8px] font-semibold text-amber-700 bg-amber-500/15 px-1 rounded shrink-0 max-w-[38%] truncate",
+              title: `Being edited — ${editLockLabel}`,
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 8, className: "shrink-0" }),
+                editLockLabel
+              ]
+            }
+          ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "span",
             {
-              className: cn("ml-auto", waitBadgeClass(waitMinutes)),
-              style: { backgroundColor: BADGE_BG, color: BADGE_TEXT },
-              children: waitLabel
+              className: cn(
+                "ml-auto text-[9px] truncate max-w-[42%] text-right font-medium",
+                toneText
+              ),
+              style: themeStyle,
+              title: rightContact,
+              children: rightContact
             }
           )
         ] }),
-        tab === "ua" && uaMeta && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", metaText),
-            style: themeMutedStyle,
-            children: [
-              uaMeta.createdLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Created:" }),
-                " ",
-                uaMeta.createdLabel
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Booked:" }),
-                " ",
-                uaMeta.bookedLabel
-              ] }),
-              uaMeta.pickupLabel !== "ASAP" && uaMeta.pickupTime && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Pickup:" }),
-                " ",
-                uaMeta.pickupTime
-              ] })
-            ]
-          }
-        ),
-        opsMeta && (opsMeta.createdLabel || opsMeta.bookedLabel || opsMeta.driverLabel) && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", metaText),
-            style: themeMutedStyle,
-            children: [
-              opsMeta.createdLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Created:" }),
-                " ",
-                opsMeta.createdLabel
-              ] }),
-              opsMeta.bookedLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Booked:" }),
-                " ",
-                opsMeta.bookedLabel
-              ] }),
-              opsMeta.driverLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Driver:" }),
-                " ",
-                opsMeta.driverLabel
-              ] })
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] leading-tight mb-0.5 space-y-0", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "span",
-              {
-                className: "w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 cursor-pointer",
-                onMouseEnter: showRoutePreview,
-                onMouseLeave: clearRoutePreview
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate font-medium", onThemedBg ? "" : "text-[var(--bw-text)]"), style: themeStyle, children: job.pickAddress || "No pickup" })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-1 items-center min-h-[14px]", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "span",
-              {
-                className: "w-1.5 h-1.5 rounded-full bg-red-400 shrink-0 cursor-pointer",
-                onMouseEnter: showRoutePreview,
-                onMouseLeave: clearRoutePreview
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: cn("truncate", onThemedBg ? "" : "text-[var(--bw-muted)]"), style: themeMutedStyle, children: job.dropAddress || "No dropoff" })
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: cn(
-              "flex flex-wrap items-center gap-x-1.5 gap-y-0 text-[9px] mb-0.5 min-h-[14px]",
-              metaText
-            ),
-            style: themeMutedStyle,
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "inline-flex items-center gap-0.5 truncate max-w-[45%]", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(User, { size: 9 }),
-                job.passengerName || "—"
-              ] }),
-              job.passengerPhone && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "truncate", children: job.passengerPhone }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[9px] !px-1 !py-0 shrink-0", children: paymentLabel(job.paymentType) }),
-              tab !== "ua" && job.estimatedFare && job.estimatedFare !== "0" && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "shrink-0 font-medium text-emerald-400", children: [
-                "$",
-                job.estimatedFare
-              ] })
-            ]
-          }
-        ),
-        tab === "ua" && uaMeta && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "div",
-          {
-            className: cn("flex flex-wrap gap-x-2 gap-y-0 text-[9px] mb-0.5 leading-tight", metaText),
-            style: themeMutedStyle,
-            children: [
-              uaMeta.fare && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: cn("font-medium", onThemedBg ? "" : "text-emerald-400"), style: themeStyle, children: [
-                uaMeta.fare.label,
-                ": ",
-                uaMeta.fare.amount
-              ] }),
-              uaMeta.tariffLabel && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Tariff:" }),
-                " ",
-                uaMeta.tariffLabel
-              ] }),
-              uaMeta.vehicleType && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Vehicle:" }),
-                " ",
-                uaMeta.vehicleType
-              ] }),
-              uaMeta.createdBy && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "truncate max-w-full", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Created by:" }),
-                " ",
-                uaMeta.createdBy
-              ] }),
-              uaMeta.passengerEmail && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "truncate max-w-full", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-70", children: "Email:" }),
-                " ",
-                uaMeta.passengerEmail
-              ] })
-            ]
-          }
-        ),
-        tab === "ua" && (uaMeta == null ? void 0 : uaMeta.returnAlert) && /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "div",
-          {
-            className: "text-[9px] mb-0.5 px-1 py-0.5 rounded leading-snug border border-black/20",
-            style: { backgroundColor: BADGE_BG, color: BADGE_TEXT },
-            children: uaMeta.returnAlert.text
-          }
-        ),
-        job.notes && /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "div",
-          {
-            className: cn("text-[9px] mb-0.5 line-clamp-1 italic", metaText),
-            style: themeMutedStyle,
-            children: job.notes
-          }
-        ),
-        tab === "offer" && job.offeredAt && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[9px] text-amber-400 mb-0.5", children: [
-          "Offer expires ",
-          formatDistanceToNow(job.offeredAt + 3e4, { addSuffix: true })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-0.5", children: [
-          assignControls,
-          tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Button,
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 min-h-[14px] mb-0.5 leading-tight", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
             {
-              variant: "danger",
-              className: "!h-6 !px-1.5 !py-0 !text-[9px]",
-              onClick: (e) => {
-                e.stopPropagation();
-                handleCancelClick(job.id);
-              },
-              children: "Cancel Offer"
+              className: "flex items-center gap-0.5 min-w-0 flex-1",
+              onMouseEnter: showRoutePreview,
+              onMouseLeave: clearRoutePreview,
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "span",
+                  {
+                    className: cn("truncate text-[10px] font-medium", onThemedBg ? "" : "text-[var(--bw-text)]"),
+                    style: themeStyle,
+                    children: job.pickAddress || "No pickup"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(ArrowRight, { size: 9, className: "shrink-0 opacity-50" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "span",
+                  {
+                    className: cn("truncate text-[10px]", onThemedBg ? "" : "text-[var(--bw-muted)]"),
+                    style: themeMutedStyle,
+                    children: job.dropAddress || "No dropoff"
+                  }
+                )
+              ]
             }
           ),
-          tab === "active" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Edit job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: iconBtn,
-                onClick: (e) => {
-                  e.stopPropagation();
-                  openModalWith("createJob", { jobId: job.id });
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(SquarePen, { size: 11 })
-              }
-            ) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: cn(iconBtn, "text-emerald-400"),
-                onClick: (e) => {
-                  e.stopPropagation();
-                  void run(() => forceCompleteJob(job.id), "Completed");
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 11 })
-              }
-            ) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: cn(iconBtn, "text-red-400"),
-                onClick: (e) => {
-                  e.stopPropagation();
-                  handleCancelClick(job.id);
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
-              }
-            ) })
-          ] }),
-          tab === "dy" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: paymentBadgeColor(job.paymentType), className: "!text-[8px] !px-1 !py-0 shrink-0 ml-1", children: job.accountId ? `#${job.accountId}` : paymentLabel(job.paymentType) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(JobBookingMetaRow, { job, metaText, themeMutedStyle }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-1 min-h-[18px] leading-none", children: [
+          tab === "ua" && returnAlert ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] text-red-700 font-medium truncate flex-1 min-w-0", children: returnAlert.text }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "span",
+            {
+              className: cn("text-[9px] truncate flex-1 min-w-0", metaText),
+              style: themeMutedStyle,
+              children: [
+                createdMeta && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: createdMeta }),
+                createdMeta && source && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-50", children: " · " }),
+                source && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: source }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "opacity-50", children: " · " }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: initials })
+                ] })
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center gap-0.5 shrink-0 ml-auto", children: [
+            showAssignControls && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "select",
+                {
+                  className: "bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[88px] border",
+                  value: assignSelection,
+                  disabled: assignBlockedBySchedule,
+                  title: assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : void 0,
+                  onClick: (e) => e.stopPropagation(),
+                  onMouseDown: (e) => e.stopPropagation(),
+                  onChange: (e) => {
+                    e.stopPropagation();
+                    setAssignSelection(e.target.value);
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "No One" }),
+                    assignDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— drivers —" }),
+                    assignDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
+                      d2.vehicleNo,
+                      " ",
+                      d2.driverName
+                    ] }, d2.driverId))
+                  ]
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                Button,
+                {
+                  variant: "primary",
+                  className: "!h-6 !px-1.5 !py-0 !text-[9px] shrink-0",
+                  disabled: !assignSelection || assignBlockedBySchedule,
+                  title: assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : void 0,
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void handleApplyAssign();
+                  },
+                  children: "Apply"
+                }
+              )
+            ] }),
+            tab === "ua" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              editButton(),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(Ban, { size: 11 })
+                }
+              ) })
+            ] }),
+            tab === "offer" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Withdraw offer", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void handleWithdrawOffer();
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
+                }
+              ) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(Ban, { size: 11 })
+                }
+              ) }),
+              editButton()
+            ] }),
+            tab === "assign" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              editButton(),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
+                }
+              ) })
+            ] }),
+            tab === "queue" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              editButton(),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(Ban, { size: 11 })
+                }
+              ) })
+            ] }),
+            tab === "active" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              editButton(),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Complete job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-emerald-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void run(() => forceCompleteJob(job.id), "Completed");
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheckBig, { size: 11 })
+                }
+              ) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
+                }
+              ) })
+            ] }),
+            tab === "dy" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                Button,
+                {
+                  variant: "primary",
+                  className: "!h-6 !px-1.5 !py-0 !text-[9px]",
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void run(() => setPending(job), "Pending");
+                  },
+                  children: "Pending"
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-red-400"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    handleCancelClick(job.id);
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
+                }
+              ) })
+            ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               Button,
               {
-                variant: "primary",
-                className: "!h-6 !px-1.5 !py-0 !text-[9px]",
+                variant: "ghost",
+                className: "!h-6 !px-1 !py-0 !text-[9px] shrink-0",
                 onClick: (e) => {
                   e.stopPropagation();
-                  void run(() => setPending(job), "Pending");
+                  openModalWith("jobDetail", { jobId: job.id });
                 },
-                children: "Pending"
+                children: "···"
               }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: cn(iconBtn, "text-red-400"),
-                onClick: (e) => {
-                  e.stopPropagation();
-                  handleCancelClick(job.id);
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
-              }
-            ) })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Button,
-            {
-              variant: "ghost",
-              className: "!h-6 !px-1.5 !py-0 !text-[9px]",
-              onClick: (e) => {
-                e.stopPropagation();
-                openModalWith("jobDetail", { jobId: job.id });
-              },
-              children: "Details"
-            }
-          )
+            )
+          ] })
         ] }),
         cancelTargetJobId != null && cancelTarget && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "div",
@@ -33319,83 +32403,6 @@ function AddressAutocomplete({
     }
   );
 }
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R2 = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a2 = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-  return R2 * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
-}
-function parseTariffRecord(key, rec) {
-  const name2 = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? "").trim();
-  if (!name2) return null;
-  const id = String(rec.Id ?? rec.id ?? key);
-  return {
-    id,
-    name: name2,
-    startPrice: parseFloat(String(rec.StartPrice ?? rec.baseFare ?? rec.startPrice ?? 0)) || 0,
-    distanceRate: parseFloat(String(rec.DistanceRate ?? rec.pricePerKm ?? rec.perKm ?? 0)) || 0,
-    minimumFare: parseFloat(String(rec.MinimumFare ?? rec.minimumFare ?? 0)) || 0
-  };
-}
-function estimateFare(km, tariff) {
-  const raw = tariff.startPrice + km * tariff.distanceRate;
-  return Math.max(raw, tariff.minimumFare || 0);
-}
-const DEFAULT_TARIFF = {
-  id: "1",
-  name: "Standard",
-  startPrice: 3.5,
-  distanceRate: 2.2,
-  minimumFare: 0
-};
-function mergeTariffMaps(maps) {
-  const out = /* @__PURE__ */ new Map();
-  for (const m2 of maps) for (const [k2, v2] of m2) out.set(k2, v2);
-  return Array.from(out.values());
-}
-function useTariffs(companyId) {
-  const [tariffs, setTariffs] = reactExports.useState([DEFAULT_TARIFF]);
-  reactExports.useEffect(() => {
-    if (!companyId) return;
-    const db2 = getDb();
-    const maps = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Map()];
-    const sync = () => {
-      const merged = mergeTariffMaps(maps);
-      setTariffs(merged.length ? merged : [DEFAULT_TARIFF]);
-    };
-    const ingest = (idx, snap) => {
-      maps[idx] = /* @__PURE__ */ new Map();
-      const val = snap.val();
-      if (!val || typeof val !== "object") {
-        sync();
-        return;
-      }
-      if (Array.isArray(val)) {
-        val.forEach((rec, i2) => {
-          if (rec && typeof rec === "object") {
-            const t2 = parseTariffRecord(String(i2), rec);
-            if (t2) maps[idx].set(t2.id, t2);
-          }
-        });
-      } else {
-        for (const [key, rec] of Object.entries(val)) {
-          if (key.startsWith("zone_grid_")) continue;
-          const t2 = parseTariffRecord(key, rec);
-          if (t2) maps[idx].set(t2.id, t2);
-        }
-      }
-      sync();
-    };
-    const unsubTariffs = onValue(ref(db2, `tariffs/${companyId}`), (snap) => ingest(0, snap));
-    const unsubZones = onValue(ref(db2, `tariffZones/${companyId}`), (snap) => ingest(1, snap));
-    return () => {
-      unsubTariffs();
-      unsubZones();
-    };
-  }, [companyId]);
-  return tariffs;
-}
 function paramVal(params, ...names) {
   for (const name2 of names) {
     const p2 = params.find((x2) => x2.name === name2);
@@ -33640,10 +32647,6 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     () => drivers.filter((d2) => d2.status === "Available" && d2.driverId),
     [drivers]
   );
-  const assignDropdownDrivers = reactExports.useMemo(
-    () => driversForAssignDropdown(availableDrivers, drivers, editingJob),
-    [availableDrivers, drivers, editingJob]
-  );
   const assignedEditDriver = reactExports.useMemo(
     () => editingJob ? driverOptionFromJob(editingJob, drivers) : null,
     [editingJob, drivers]
@@ -33668,10 +32671,20 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const dragOffset = reactExports.useRef({ x: 0, y: 0 });
   const posRef = reactExports.useRef(pos);
   const submittingRef = reactExports.useRef(false);
+  const loadedEditJobIdRef = reactExports.useRef(null);
+  const editLockJobIdRef = reactExports.useRef(null);
   posRef.current = pos;
   const patch = reactExports.useCallback((p2) => {
     setForm((f2) => ({ ...f2, ...p2 }));
   }, []);
+  const assignDropdownDrivers = reactExports.useMemo(() => {
+    const base = driversForAssignDropdown(availableDrivers, drivers, editingJob);
+    return filterDriversForRequirements(base, {
+      vehicleType: form.vehicleType,
+      passengers: (editingJob == null ? void 0 : editingJob.passengers) ?? 1,
+      serviceType: form.serviceType
+    });
+  }, [availableDrivers, drivers, editingJob, form.vehicleType, form.serviceType, editingJob == null ? void 0 : editingJob.passengers]);
   const selectedDriver = reactExports.useMemo(() => {
     if (!isAssignedDriverSelection(form.driverId)) return null;
     return drivers.find((d2) => d2.driverId === form.driverId) ?? assignDropdownDrivers.find((d2) => d2.driverId === form.driverId) ?? null;
@@ -33717,16 +32730,42 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     setPickAddressError("");
   }, [settings == null ? void 0 : settings.defaultDispatchWindow]);
   const onClose = reactExports.useCallback(() => {
+    const heldId = editLockJobIdRef.current;
+    editLockJobIdRef.current = null;
+    if (heldId != null) void releaseJobEditLock(heldId, dispatcherName);
     setRoutePreview(null);
     resetForm();
     closeModal();
-  }, [closeModal, resetForm, setRoutePreview]);
+  }, [closeModal, resetForm, setRoutePreview, dispatcherName]);
   reactExports.useEffect(() => {
     if (!open2) {
+      if (editLockJobIdRef.current != null) {
+        const id = editLockJobIdRef.current;
+        editLockJobIdRef.current = null;
+        void releaseJobEditLock(id, dispatcherName);
+      }
+      loadedEditJobIdRef.current = null;
       setRoutePreview(null);
       return;
     }
-    if (editingJob) {
+    if (!editingJob) return;
+    if (editLockJobIdRef.current !== editingJob.id) {
+      const prev = editLockJobIdRef.current;
+      if (prev != null) void releaseJobEditLock(prev, dispatcherName);
+      editLockJobIdRef.current = editingJob.id;
+      void setJobEditLock(editingJob.id, true, {
+        actorName: dispatcherName,
+        sessionId: getEditLockSessionId()
+      }).catch(() => {
+        addToast({
+          type: "warning",
+          title: "Edit lock unavailable",
+          message: "Job may still be offered to drivers while editing"
+        });
+      });
+    }
+    if (loadedEditJobIdRef.current !== editingJob.id) {
+      loadedEditJobIdRef.current = editingJob.id;
       const loaded = jobToForm(editingJob);
       setForm(loaded);
       setPickFromAutocomplete(!!loaded.pick.lat);
@@ -33734,10 +32773,14 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       setPickDirty(false);
       setDropDirty(false);
       setPickAddressError("");
-    } else {
+    }
+  }, [open2, editingJob == null ? void 0 : editingJob.id, editingJob, setRoutePreview, addToast, dispatcherName]);
+  reactExports.useEffect(() => {
+    if (open2 && !editingJob) {
+      loadedEditJobIdRef.current = null;
       resetForm();
     }
-  }, [open2, editingJob, resetForm, setRoutePreview]);
+  }, [open2, editingJob, resetForm]);
   reactExports.useEffect(() => {
     if (!open2 || !companyId) return;
     const cached = dispatcherSettingsCache.get(companyId);
@@ -33921,14 +32964,17 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
     }
   };
   const validatePickup = () => {
-    const addr = form.pick.address || form.pickInput;
-    if (!addr.trim()) {
+    const livePick = isEdit && editingJob ? (useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob).pickAddress : "";
+    const addr = (form.pick.address || form.pickInput || livePick || (isEdit && editingJob ? editingJob.pickAddress : "") || "").trim();
+    if (!addr) {
       addToast({ type: "error", title: "Pickup address required" });
       return false;
     }
-    if (isEdit && editingJob && !pickDirty) {
-      const hasCoords = !!(form.pick.lat && form.pick.lng) || editingJob.pickLatLng !== "0,0";
-      if (hasCoords || addr.trim()) return true;
+    if (isEdit && editingJob) {
+      const orig = (livePick || editingJob.pickAddress || "").trim();
+      if (!pickDirty || addr === orig) return true;
+      const hasCoords = !!(form.pick.lat && form.pick.lng) || !!editingJob.pickLatLng && editingJob.pickLatLng !== "0,0";
+      if (hasCoords) return true;
     }
     if (!pickFromAutocomplete || !form.pick.lat) {
       setPickAddressError("Please select an address from the suggestions");
@@ -33965,8 +33011,6 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         if (Object.keys(metadataChanges).length > 0) {
           await updateJob(liveJob.id, companyId, metadataChanges, liveJob);
         }
-        addToast({ type: "success", title: "Job updated", category: "job_updated" });
-        onClose();
         if (assignmentChanged) {
           const workingJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? liveJob;
           await applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
@@ -33975,8 +33019,11 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
               title: "Driver assignment failed",
               message: e instanceof Error ? e.message : ""
             });
+            throw e;
           });
         }
+        addToast({ type: "success", title: "Job updated", category: "job_updated" });
+        onClose();
         return;
       }
       if (form.paymentType === "card" && form.cardAmount && stripePk && !form.cardPaid) {
@@ -42224,7 +41271,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-K2ZHxAhR.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B2du9h9D.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -42977,6 +42024,1681 @@ E.API.PDFObject = (function() {
     return "" + r;
   }, e;
 })();
+const millisecondsInWeek = 6048e5;
+const millisecondsInDay = 864e5;
+const millisecondsInMinute = 6e4;
+const millisecondsInHour = 36e5;
+const constructFromSymbol = Symbol.for("constructDateFrom");
+function constructFrom(date, value) {
+  if (typeof date === "function") return date(value);
+  if (date && typeof date === "object" && constructFromSymbol in date)
+    return date[constructFromSymbol](value);
+  if (date instanceof Date) return new date.constructor(value);
+  return new Date(value);
+}
+function toDate(argument, context) {
+  return constructFrom(context || argument, argument);
+}
+function addDays(date, amount, options) {
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  if (isNaN(amount)) return constructFrom(date, NaN);
+  if (!amount) return _date;
+  _date.setDate(_date.getDate() + amount);
+  return _date;
+}
+let defaultOptions = {};
+function getDefaultOptions() {
+  return defaultOptions;
+}
+function startOfWeek(date, options) {
+  var _a2, _b2, _c, _d;
+  const defaultOptions2 = getDefaultOptions();
+  const weekStartsOn = (options == null ? void 0 : options.weekStartsOn) ?? ((_b2 = (_a2 = options == null ? void 0 : options.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.weekStartsOn) ?? defaultOptions2.weekStartsOn ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.weekStartsOn) ?? 0;
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  const day = _date.getDay();
+  const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
+  _date.setDate(_date.getDate() - diff);
+  _date.setHours(0, 0, 0, 0);
+  return _date;
+}
+function startOfISOWeek(date, options) {
+  return startOfWeek(date, { ...options, weekStartsOn: 1 });
+}
+function getISOWeekYear(date, options) {
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  const year = _date.getFullYear();
+  const fourthOfJanuaryOfNextYear = constructFrom(_date, 0);
+  fourthOfJanuaryOfNextYear.setFullYear(year + 1, 0, 4);
+  fourthOfJanuaryOfNextYear.setHours(0, 0, 0, 0);
+  const startOfNextYear = startOfISOWeek(fourthOfJanuaryOfNextYear);
+  const fourthOfJanuaryOfThisYear = constructFrom(_date, 0);
+  fourthOfJanuaryOfThisYear.setFullYear(year, 0, 4);
+  fourthOfJanuaryOfThisYear.setHours(0, 0, 0, 0);
+  const startOfThisYear = startOfISOWeek(fourthOfJanuaryOfThisYear);
+  if (_date.getTime() >= startOfNextYear.getTime()) {
+    return year + 1;
+  } else if (_date.getTime() >= startOfThisYear.getTime()) {
+    return year;
+  } else {
+    return year - 1;
+  }
+}
+function getTimezoneOffsetInMilliseconds(date) {
+  const _date = toDate(date);
+  const utcDate = new Date(
+    Date.UTC(
+      _date.getFullYear(),
+      _date.getMonth(),
+      _date.getDate(),
+      _date.getHours(),
+      _date.getMinutes(),
+      _date.getSeconds(),
+      _date.getMilliseconds()
+    )
+  );
+  utcDate.setUTCFullYear(_date.getFullYear());
+  return +date - +utcDate;
+}
+function normalizeDates(context, ...dates) {
+  const normalize = constructFrom.bind(
+    null,
+    dates.find((date) => typeof date === "object")
+  );
+  return dates.map(normalize);
+}
+function startOfDay(date, options) {
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  _date.setHours(0, 0, 0, 0);
+  return _date;
+}
+function differenceInCalendarDays(laterDate, earlierDate, options) {
+  const [laterDate_, earlierDate_] = normalizeDates(
+    options == null ? void 0 : options.in,
+    laterDate,
+    earlierDate
+  );
+  const laterStartOfDay = startOfDay(laterDate_);
+  const earlierStartOfDay = startOfDay(earlierDate_);
+  const laterTimestamp = +laterStartOfDay - getTimezoneOffsetInMilliseconds(laterStartOfDay);
+  const earlierTimestamp = +earlierStartOfDay - getTimezoneOffsetInMilliseconds(earlierStartOfDay);
+  return Math.round((laterTimestamp - earlierTimestamp) / millisecondsInDay);
+}
+function startOfISOWeekYear(date, options) {
+  const year = getISOWeekYear(date, options);
+  const fourthOfJanuary = constructFrom(date, 0);
+  fourthOfJanuary.setFullYear(year, 0, 4);
+  fourthOfJanuary.setHours(0, 0, 0, 0);
+  return startOfISOWeek(fourthOfJanuary);
+}
+function isDate(value) {
+  return value instanceof Date || typeof value === "object" && Object.prototype.toString.call(value) === "[object Date]";
+}
+function isValid(date) {
+  return !(!isDate(date) && typeof date !== "number" || isNaN(+toDate(date)));
+}
+function startOfYear(date, options) {
+  const date_ = toDate(date, options == null ? void 0 : options.in);
+  date_.setFullYear(date_.getFullYear(), 0, 1);
+  date_.setHours(0, 0, 0, 0);
+  return date_;
+}
+const formatDistanceLocale = {
+  lessThanXSeconds: {
+    one: "less than a second",
+    other: "less than {{count}} seconds"
+  },
+  xSeconds: {
+    one: "1 second",
+    other: "{{count}} seconds"
+  },
+  halfAMinute: "half a minute",
+  lessThanXMinutes: {
+    one: "less than a minute",
+    other: "less than {{count}} minutes"
+  },
+  xMinutes: {
+    one: "1 minute",
+    other: "{{count}} minutes"
+  },
+  aboutXHours: {
+    one: "about 1 hour",
+    other: "about {{count}} hours"
+  },
+  xHours: {
+    one: "1 hour",
+    other: "{{count}} hours"
+  },
+  xDays: {
+    one: "1 day",
+    other: "{{count}} days"
+  },
+  aboutXWeeks: {
+    one: "about 1 week",
+    other: "about {{count}} weeks"
+  },
+  xWeeks: {
+    one: "1 week",
+    other: "{{count}} weeks"
+  },
+  aboutXMonths: {
+    one: "about 1 month",
+    other: "about {{count}} months"
+  },
+  xMonths: {
+    one: "1 month",
+    other: "{{count}} months"
+  },
+  aboutXYears: {
+    one: "about 1 year",
+    other: "about {{count}} years"
+  },
+  xYears: {
+    one: "1 year",
+    other: "{{count}} years"
+  },
+  overXYears: {
+    one: "over 1 year",
+    other: "over {{count}} years"
+  },
+  almostXYears: {
+    one: "almost 1 year",
+    other: "almost {{count}} years"
+  }
+};
+const formatDistance = (token, count, options) => {
+  let result;
+  const tokenValue = formatDistanceLocale[token];
+  if (typeof tokenValue === "string") {
+    result = tokenValue;
+  } else if (count === 1) {
+    result = tokenValue.one;
+  } else {
+    result = tokenValue.other.replace("{{count}}", count.toString());
+  }
+  if (options == null ? void 0 : options.addSuffix) {
+    if (options.comparison && options.comparison > 0) {
+      return "in " + result;
+    } else {
+      return result + " ago";
+    }
+  }
+  return result;
+};
+function buildFormatLongFn(args) {
+  return (options = {}) => {
+    const width = options.width ? String(options.width) : args.defaultWidth;
+    const format2 = args.formats[width] || args.formats[args.defaultWidth];
+    return format2;
+  };
+}
+const dateFormats = {
+  full: "EEEE, MMMM do, y",
+  long: "MMMM do, y",
+  medium: "MMM d, y",
+  short: "MM/dd/yyyy"
+};
+const timeFormats = {
+  full: "h:mm:ss a zzzz",
+  long: "h:mm:ss a z",
+  medium: "h:mm:ss a",
+  short: "h:mm a"
+};
+const dateTimeFormats = {
+  full: "{{date}} 'at' {{time}}",
+  long: "{{date}} 'at' {{time}}",
+  medium: "{{date}}, {{time}}",
+  short: "{{date}}, {{time}}"
+};
+const formatLong = {
+  date: buildFormatLongFn({
+    formats: dateFormats,
+    defaultWidth: "full"
+  }),
+  time: buildFormatLongFn({
+    formats: timeFormats,
+    defaultWidth: "full"
+  }),
+  dateTime: buildFormatLongFn({
+    formats: dateTimeFormats,
+    defaultWidth: "full"
+  })
+};
+const formatRelativeLocale = {
+  lastWeek: "'last' eeee 'at' p",
+  yesterday: "'yesterday at' p",
+  today: "'today at' p",
+  tomorrow: "'tomorrow at' p",
+  nextWeek: "eeee 'at' p",
+  other: "P"
+};
+const formatRelative = (token, _date, _baseDate, _options) => formatRelativeLocale[token];
+function buildLocalizeFn(args) {
+  return (value, options) => {
+    const context = (options == null ? void 0 : options.context) ? String(options.context) : "standalone";
+    let valuesArray;
+    if (context === "formatting" && args.formattingValues) {
+      const defaultWidth = args.defaultFormattingWidth || args.defaultWidth;
+      const width = (options == null ? void 0 : options.width) ? String(options.width) : defaultWidth;
+      valuesArray = args.formattingValues[width] || args.formattingValues[defaultWidth];
+    } else {
+      const defaultWidth = args.defaultWidth;
+      const width = (options == null ? void 0 : options.width) ? String(options.width) : args.defaultWidth;
+      valuesArray = args.values[width] || args.values[defaultWidth];
+    }
+    const index = args.argumentCallback ? args.argumentCallback(value) : value;
+    return valuesArray[index];
+  };
+}
+const eraValues = {
+  narrow: ["B", "A"],
+  abbreviated: ["BC", "AD"],
+  wide: ["Before Christ", "Anno Domini"]
+};
+const quarterValues = {
+  narrow: ["1", "2", "3", "4"],
+  abbreviated: ["Q1", "Q2", "Q3", "Q4"],
+  wide: ["1st quarter", "2nd quarter", "3rd quarter", "4th quarter"]
+};
+const monthValues = {
+  narrow: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"],
+  abbreviated: [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec"
+  ],
+  wide: [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ]
+};
+const dayValues = {
+  narrow: ["S", "M", "T", "W", "T", "F", "S"],
+  short: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
+  abbreviated: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  wide: [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+  ]
+};
+const dayPeriodValues = {
+  narrow: {
+    am: "a",
+    pm: "p",
+    midnight: "mi",
+    noon: "n",
+    morning: "morning",
+    afternoon: "afternoon",
+    evening: "evening",
+    night: "night"
+  },
+  abbreviated: {
+    am: "AM",
+    pm: "PM",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "morning",
+    afternoon: "afternoon",
+    evening: "evening",
+    night: "night"
+  },
+  wide: {
+    am: "a.m.",
+    pm: "p.m.",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "morning",
+    afternoon: "afternoon",
+    evening: "evening",
+    night: "night"
+  }
+};
+const formattingDayPeriodValues = {
+  narrow: {
+    am: "a",
+    pm: "p",
+    midnight: "mi",
+    noon: "n",
+    morning: "in the morning",
+    afternoon: "in the afternoon",
+    evening: "in the evening",
+    night: "at night"
+  },
+  abbreviated: {
+    am: "AM",
+    pm: "PM",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "in the morning",
+    afternoon: "in the afternoon",
+    evening: "in the evening",
+    night: "at night"
+  },
+  wide: {
+    am: "a.m.",
+    pm: "p.m.",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "in the morning",
+    afternoon: "in the afternoon",
+    evening: "in the evening",
+    night: "at night"
+  }
+};
+const ordinalNumber = (dirtyNumber, _options) => {
+  const number = Number(dirtyNumber);
+  const rem100 = number % 100;
+  if (rem100 > 20 || rem100 < 10) {
+    switch (rem100 % 10) {
+      case 1:
+        return number + "st";
+      case 2:
+        return number + "nd";
+      case 3:
+        return number + "rd";
+    }
+  }
+  return number + "th";
+};
+const localize = {
+  ordinalNumber,
+  era: buildLocalizeFn({
+    values: eraValues,
+    defaultWidth: "wide"
+  }),
+  quarter: buildLocalizeFn({
+    values: quarterValues,
+    defaultWidth: "wide",
+    argumentCallback: (quarter) => quarter - 1
+  }),
+  month: buildLocalizeFn({
+    values: monthValues,
+    defaultWidth: "wide"
+  }),
+  day: buildLocalizeFn({
+    values: dayValues,
+    defaultWidth: "wide"
+  }),
+  dayPeriod: buildLocalizeFn({
+    values: dayPeriodValues,
+    defaultWidth: "wide",
+    formattingValues: formattingDayPeriodValues,
+    defaultFormattingWidth: "wide"
+  })
+};
+function buildMatchFn(args) {
+  return (string, options = {}) => {
+    const width = options.width;
+    const matchPattern = width && args.matchPatterns[width] || args.matchPatterns[args.defaultMatchWidth];
+    const matchResult = string.match(matchPattern);
+    if (!matchResult) {
+      return null;
+    }
+    const matchedString = matchResult[0];
+    const parsePatterns = width && args.parsePatterns[width] || args.parsePatterns[args.defaultParseWidth];
+    const key = Array.isArray(parsePatterns) ? findIndex(parsePatterns, (pattern) => pattern.test(matchedString)) : (
+      // [TODO] -- I challenge you to fix the type
+      findKey(parsePatterns, (pattern) => pattern.test(matchedString))
+    );
+    let value;
+    value = args.valueCallback ? args.valueCallback(key) : key;
+    value = options.valueCallback ? (
+      // [TODO] -- I challenge you to fix the type
+      options.valueCallback(value)
+    ) : value;
+    const rest = string.slice(matchedString.length);
+    return { value, rest };
+  };
+}
+function findKey(object, predicate) {
+  for (const key in object) {
+    if (Object.prototype.hasOwnProperty.call(object, key) && predicate(object[key])) {
+      return key;
+    }
+  }
+  return void 0;
+}
+function findIndex(array, predicate) {
+  for (let key = 0; key < array.length; key++) {
+    if (predicate(array[key])) {
+      return key;
+    }
+  }
+  return void 0;
+}
+function buildMatchPatternFn(args) {
+  return (string, options = {}) => {
+    const matchResult = string.match(args.matchPattern);
+    if (!matchResult) return null;
+    const matchedString = matchResult[0];
+    const parseResult = string.match(args.parsePattern);
+    if (!parseResult) return null;
+    let value = args.valueCallback ? args.valueCallback(parseResult[0]) : parseResult[0];
+    value = options.valueCallback ? options.valueCallback(value) : value;
+    const rest = string.slice(matchedString.length);
+    return { value, rest };
+  };
+}
+const matchOrdinalNumberPattern = /^(\d+)(th|st|nd|rd)?/i;
+const parseOrdinalNumberPattern = /\d+/i;
+const matchEraPatterns = {
+  narrow: /^(b|a)/i,
+  abbreviated: /^(b\.?\s?c\.?|b\.?\s?c\.?\s?e\.?|a\.?\s?d\.?|c\.?\s?e\.?)/i,
+  wide: /^(before christ|before common era|anno domini|common era)/i
+};
+const parseEraPatterns = {
+  any: [/^b/i, /^(a|c)/i]
+};
+const matchQuarterPatterns = {
+  narrow: /^[1234]/i,
+  abbreviated: /^q[1234]/i,
+  wide: /^[1234](th|st|nd|rd)? quarter/i
+};
+const parseQuarterPatterns = {
+  any: [/1/i, /2/i, /3/i, /4/i]
+};
+const matchMonthPatterns = {
+  narrow: /^[jfmasond]/i,
+  abbreviated: /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i,
+  wide: /^(january|february|march|april|may|june|july|august|september|october|november|december)/i
+};
+const parseMonthPatterns = {
+  narrow: [
+    /^j/i,
+    /^f/i,
+    /^m/i,
+    /^a/i,
+    /^m/i,
+    /^j/i,
+    /^j/i,
+    /^a/i,
+    /^s/i,
+    /^o/i,
+    /^n/i,
+    /^d/i
+  ],
+  any: [
+    /^ja/i,
+    /^f/i,
+    /^mar/i,
+    /^ap/i,
+    /^may/i,
+    /^jun/i,
+    /^jul/i,
+    /^au/i,
+    /^s/i,
+    /^o/i,
+    /^n/i,
+    /^d/i
+  ]
+};
+const matchDayPatterns = {
+  narrow: /^[smtwf]/i,
+  short: /^(su|mo|tu|we|th|fr|sa)/i,
+  abbreviated: /^(sun|mon|tue|wed|thu|fri|sat)/i,
+  wide: /^(sunday|monday|tuesday|wednesday|thursday|friday|saturday)/i
+};
+const parseDayPatterns = {
+  narrow: [/^s/i, /^m/i, /^t/i, /^w/i, /^t/i, /^f/i, /^s/i],
+  any: [/^su/i, /^m/i, /^tu/i, /^w/i, /^th/i, /^f/i, /^sa/i]
+};
+const matchDayPeriodPatterns = {
+  narrow: /^(a|p|mi|n|(in the|at) (morning|afternoon|evening|night))/i,
+  any: /^([ap]\.?\s?m\.?|midnight|noon|(in the|at) (morning|afternoon|evening|night))/i
+};
+const parseDayPeriodPatterns = {
+  any: {
+    am: /^a/i,
+    pm: /^p/i,
+    midnight: /^mi/i,
+    noon: /^no/i,
+    morning: /morning/i,
+    afternoon: /afternoon/i,
+    evening: /evening/i,
+    night: /night/i
+  }
+};
+const match = {
+  ordinalNumber: buildMatchPatternFn({
+    matchPattern: matchOrdinalNumberPattern,
+    parsePattern: parseOrdinalNumberPattern,
+    valueCallback: (value) => parseInt(value, 10)
+  }),
+  era: buildMatchFn({
+    matchPatterns: matchEraPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseEraPatterns,
+    defaultParseWidth: "any"
+  }),
+  quarter: buildMatchFn({
+    matchPatterns: matchQuarterPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseQuarterPatterns,
+    defaultParseWidth: "any",
+    valueCallback: (index) => index + 1
+  }),
+  month: buildMatchFn({
+    matchPatterns: matchMonthPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseMonthPatterns,
+    defaultParseWidth: "any"
+  }),
+  day: buildMatchFn({
+    matchPatterns: matchDayPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseDayPatterns,
+    defaultParseWidth: "any"
+  }),
+  dayPeriod: buildMatchFn({
+    matchPatterns: matchDayPeriodPatterns,
+    defaultMatchWidth: "any",
+    parsePatterns: parseDayPeriodPatterns,
+    defaultParseWidth: "any"
+  })
+};
+const enUS = {
+  code: "en-US",
+  formatDistance,
+  formatLong,
+  formatRelative,
+  localize,
+  match,
+  options: {
+    weekStartsOn: 0,
+    firstWeekContainsDate: 1
+  }
+};
+function getDayOfYear(date, options) {
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  const diff = differenceInCalendarDays(_date, startOfYear(_date));
+  const dayOfYear = diff + 1;
+  return dayOfYear;
+}
+function getISOWeek(date, options) {
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  const diff = +startOfISOWeek(_date) - +startOfISOWeekYear(_date);
+  return Math.round(diff / millisecondsInWeek) + 1;
+}
+function getWeekYear(date, options) {
+  var _a2, _b2, _c, _d;
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  const year = _date.getFullYear();
+  const defaultOptions2 = getDefaultOptions();
+  const firstWeekContainsDate = (options == null ? void 0 : options.firstWeekContainsDate) ?? ((_b2 = (_a2 = options == null ? void 0 : options.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.firstWeekContainsDate) ?? defaultOptions2.firstWeekContainsDate ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.firstWeekContainsDate) ?? 1;
+  const firstWeekOfNextYear = constructFrom((options == null ? void 0 : options.in) || date, 0);
+  firstWeekOfNextYear.setFullYear(year + 1, 0, firstWeekContainsDate);
+  firstWeekOfNextYear.setHours(0, 0, 0, 0);
+  const startOfNextYear = startOfWeek(firstWeekOfNextYear, options);
+  const firstWeekOfThisYear = constructFrom((options == null ? void 0 : options.in) || date, 0);
+  firstWeekOfThisYear.setFullYear(year, 0, firstWeekContainsDate);
+  firstWeekOfThisYear.setHours(0, 0, 0, 0);
+  const startOfThisYear = startOfWeek(firstWeekOfThisYear, options);
+  if (+_date >= +startOfNextYear) {
+    return year + 1;
+  } else if (+_date >= +startOfThisYear) {
+    return year;
+  } else {
+    return year - 1;
+  }
+}
+function startOfWeekYear(date, options) {
+  var _a2, _b2, _c, _d;
+  const defaultOptions2 = getDefaultOptions();
+  const firstWeekContainsDate = (options == null ? void 0 : options.firstWeekContainsDate) ?? ((_b2 = (_a2 = options == null ? void 0 : options.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.firstWeekContainsDate) ?? defaultOptions2.firstWeekContainsDate ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.firstWeekContainsDate) ?? 1;
+  const year = getWeekYear(date, options);
+  const firstWeek = constructFrom((options == null ? void 0 : options.in) || date, 0);
+  firstWeek.setFullYear(year, 0, firstWeekContainsDate);
+  firstWeek.setHours(0, 0, 0, 0);
+  const _date = startOfWeek(firstWeek, options);
+  return _date;
+}
+function getWeek(date, options) {
+  const _date = toDate(date, options == null ? void 0 : options.in);
+  const diff = +startOfWeek(_date, options) - +startOfWeekYear(_date, options);
+  return Math.round(diff / millisecondsInWeek) + 1;
+}
+function addLeadingZeros(number, targetLength) {
+  const sign = number < 0 ? "-" : "";
+  const output = Math.abs(number).toString().padStart(targetLength, "0");
+  return sign + output;
+}
+const lightFormatters = {
+  // Year
+  y(date, token) {
+    const signedYear = date.getFullYear();
+    const year = signedYear > 0 ? signedYear : 1 - signedYear;
+    return addLeadingZeros(token === "yy" ? year % 100 : year, token.length);
+  },
+  // Month
+  M(date, token) {
+    const month = date.getMonth();
+    return token === "M" ? String(month + 1) : addLeadingZeros(month + 1, 2);
+  },
+  // Day of the month
+  d(date, token) {
+    return addLeadingZeros(date.getDate(), token.length);
+  },
+  // AM or PM
+  a(date, token) {
+    const dayPeriodEnumValue = date.getHours() / 12 >= 1 ? "pm" : "am";
+    switch (token) {
+      case "a":
+      case "aa":
+        return dayPeriodEnumValue.toUpperCase();
+      case "aaa":
+        return dayPeriodEnumValue;
+      case "aaaaa":
+        return dayPeriodEnumValue[0];
+      case "aaaa":
+      default:
+        return dayPeriodEnumValue === "am" ? "a.m." : "p.m.";
+    }
+  },
+  // Hour [1-12]
+  h(date, token) {
+    return addLeadingZeros(date.getHours() % 12 || 12, token.length);
+  },
+  // Hour [0-23]
+  H(date, token) {
+    return addLeadingZeros(date.getHours(), token.length);
+  },
+  // Minute
+  m(date, token) {
+    return addLeadingZeros(date.getMinutes(), token.length);
+  },
+  // Second
+  s(date, token) {
+    return addLeadingZeros(date.getSeconds(), token.length);
+  },
+  // Fraction of second
+  S(date, token) {
+    const numberOfDigits = token.length;
+    const milliseconds = date.getMilliseconds();
+    const fractionalSeconds = Math.trunc(
+      milliseconds * Math.pow(10, numberOfDigits - 3)
+    );
+    return addLeadingZeros(fractionalSeconds, token.length);
+  }
+};
+const dayPeriodEnum = {
+  midnight: "midnight",
+  noon: "noon",
+  morning: "morning",
+  afternoon: "afternoon",
+  evening: "evening",
+  night: "night"
+};
+const formatters = {
+  // Era
+  G: function(date, token, localize2) {
+    const era = date.getFullYear() > 0 ? 1 : 0;
+    switch (token) {
+      // AD, BC
+      case "G":
+      case "GG":
+      case "GGG":
+        return localize2.era(era, { width: "abbreviated" });
+      // A, B
+      case "GGGGG":
+        return localize2.era(era, { width: "narrow" });
+      // Anno Domini, Before Christ
+      case "GGGG":
+      default:
+        return localize2.era(era, { width: "wide" });
+    }
+  },
+  // Year
+  y: function(date, token, localize2) {
+    if (token === "yo") {
+      const signedYear = date.getFullYear();
+      const year = signedYear > 0 ? signedYear : 1 - signedYear;
+      return localize2.ordinalNumber(year, { unit: "year" });
+    }
+    return lightFormatters.y(date, token);
+  },
+  // Local week-numbering year
+  Y: function(date, token, localize2, options) {
+    const signedWeekYear = getWeekYear(date, options);
+    const weekYear = signedWeekYear > 0 ? signedWeekYear : 1 - signedWeekYear;
+    if (token === "YY") {
+      const twoDigitYear = weekYear % 100;
+      return addLeadingZeros(twoDigitYear, 2);
+    }
+    if (token === "Yo") {
+      return localize2.ordinalNumber(weekYear, { unit: "year" });
+    }
+    return addLeadingZeros(weekYear, token.length);
+  },
+  // ISO week-numbering year
+  R: function(date, token) {
+    const isoWeekYear = getISOWeekYear(date);
+    return addLeadingZeros(isoWeekYear, token.length);
+  },
+  // Extended year. This is a single number designating the year of this calendar system.
+  // The main difference between `y` and `u` localizers are B.C. years:
+  // | Year | `y` | `u` |
+  // |------|-----|-----|
+  // | AC 1 |   1 |   1 |
+  // | BC 1 |   1 |   0 |
+  // | BC 2 |   2 |  -1 |
+  // Also `yy` always returns the last two digits of a year,
+  // while `uu` pads single digit years to 2 characters and returns other years unchanged.
+  u: function(date, token) {
+    const year = date.getFullYear();
+    return addLeadingZeros(year, token.length);
+  },
+  // Quarter
+  Q: function(date, token, localize2) {
+    const quarter = Math.ceil((date.getMonth() + 1) / 3);
+    switch (token) {
+      // 1, 2, 3, 4
+      case "Q":
+        return String(quarter);
+      // 01, 02, 03, 04
+      case "QQ":
+        return addLeadingZeros(quarter, 2);
+      // 1st, 2nd, 3rd, 4th
+      case "Qo":
+        return localize2.ordinalNumber(quarter, { unit: "quarter" });
+      // Q1, Q2, Q3, Q4
+      case "QQQ":
+        return localize2.quarter(quarter, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      // 1, 2, 3, 4 (narrow quarter; could be not numerical)
+      case "QQQQQ":
+        return localize2.quarter(quarter, {
+          width: "narrow",
+          context: "formatting"
+        });
+      // 1st quarter, 2nd quarter, ...
+      case "QQQQ":
+      default:
+        return localize2.quarter(quarter, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Stand-alone quarter
+  q: function(date, token, localize2) {
+    const quarter = Math.ceil((date.getMonth() + 1) / 3);
+    switch (token) {
+      // 1, 2, 3, 4
+      case "q":
+        return String(quarter);
+      // 01, 02, 03, 04
+      case "qq":
+        return addLeadingZeros(quarter, 2);
+      // 1st, 2nd, 3rd, 4th
+      case "qo":
+        return localize2.ordinalNumber(quarter, { unit: "quarter" });
+      // Q1, Q2, Q3, Q4
+      case "qqq":
+        return localize2.quarter(quarter, {
+          width: "abbreviated",
+          context: "standalone"
+        });
+      // 1, 2, 3, 4 (narrow quarter; could be not numerical)
+      case "qqqqq":
+        return localize2.quarter(quarter, {
+          width: "narrow",
+          context: "standalone"
+        });
+      // 1st quarter, 2nd quarter, ...
+      case "qqqq":
+      default:
+        return localize2.quarter(quarter, {
+          width: "wide",
+          context: "standalone"
+        });
+    }
+  },
+  // Month
+  M: function(date, token, localize2) {
+    const month = date.getMonth();
+    switch (token) {
+      case "M":
+      case "MM":
+        return lightFormatters.M(date, token);
+      // 1st, 2nd, ..., 12th
+      case "Mo":
+        return localize2.ordinalNumber(month + 1, { unit: "month" });
+      // Jan, Feb, ..., Dec
+      case "MMM":
+        return localize2.month(month, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      // J, F, ..., D
+      case "MMMMM":
+        return localize2.month(month, {
+          width: "narrow",
+          context: "formatting"
+        });
+      // January, February, ..., December
+      case "MMMM":
+      default:
+        return localize2.month(month, { width: "wide", context: "formatting" });
+    }
+  },
+  // Stand-alone month
+  L: function(date, token, localize2) {
+    const month = date.getMonth();
+    switch (token) {
+      // 1, 2, ..., 12
+      case "L":
+        return String(month + 1);
+      // 01, 02, ..., 12
+      case "LL":
+        return addLeadingZeros(month + 1, 2);
+      // 1st, 2nd, ..., 12th
+      case "Lo":
+        return localize2.ordinalNumber(month + 1, { unit: "month" });
+      // Jan, Feb, ..., Dec
+      case "LLL":
+        return localize2.month(month, {
+          width: "abbreviated",
+          context: "standalone"
+        });
+      // J, F, ..., D
+      case "LLLLL":
+        return localize2.month(month, {
+          width: "narrow",
+          context: "standalone"
+        });
+      // January, February, ..., December
+      case "LLLL":
+      default:
+        return localize2.month(month, { width: "wide", context: "standalone" });
+    }
+  },
+  // Local week of year
+  w: function(date, token, localize2, options) {
+    const week = getWeek(date, options);
+    if (token === "wo") {
+      return localize2.ordinalNumber(week, { unit: "week" });
+    }
+    return addLeadingZeros(week, token.length);
+  },
+  // ISO week of year
+  I: function(date, token, localize2) {
+    const isoWeek = getISOWeek(date);
+    if (token === "Io") {
+      return localize2.ordinalNumber(isoWeek, { unit: "week" });
+    }
+    return addLeadingZeros(isoWeek, token.length);
+  },
+  // Day of the month
+  d: function(date, token, localize2) {
+    if (token === "do") {
+      return localize2.ordinalNumber(date.getDate(), { unit: "date" });
+    }
+    return lightFormatters.d(date, token);
+  },
+  // Day of year
+  D: function(date, token, localize2) {
+    const dayOfYear = getDayOfYear(date);
+    if (token === "Do") {
+      return localize2.ordinalNumber(dayOfYear, { unit: "dayOfYear" });
+    }
+    return addLeadingZeros(dayOfYear, token.length);
+  },
+  // Day of week
+  E: function(date, token, localize2) {
+    const dayOfWeek = date.getDay();
+    switch (token) {
+      // Tue
+      case "E":
+      case "EE":
+      case "EEE":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      // T
+      case "EEEEE":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "formatting"
+        });
+      // Tu
+      case "EEEEEE":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "formatting"
+        });
+      // Tuesday
+      case "EEEE":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Local day of week
+  e: function(date, token, localize2, options) {
+    const dayOfWeek = date.getDay();
+    const localDayOfWeek = (dayOfWeek - options.weekStartsOn + 8) % 7 || 7;
+    switch (token) {
+      // Numerical value (Nth day of week with current locale or weekStartsOn)
+      case "e":
+        return String(localDayOfWeek);
+      // Padded numerical value
+      case "ee":
+        return addLeadingZeros(localDayOfWeek, 2);
+      // 1st, 2nd, ..., 7th
+      case "eo":
+        return localize2.ordinalNumber(localDayOfWeek, { unit: "day" });
+      case "eee":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      // T
+      case "eeeee":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "formatting"
+        });
+      // Tu
+      case "eeeeee":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "formatting"
+        });
+      // Tuesday
+      case "eeee":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Stand-alone local day of week
+  c: function(date, token, localize2, options) {
+    const dayOfWeek = date.getDay();
+    const localDayOfWeek = (dayOfWeek - options.weekStartsOn + 8) % 7 || 7;
+    switch (token) {
+      // Numerical value (same as in `e`)
+      case "c":
+        return String(localDayOfWeek);
+      // Padded numerical value
+      case "cc":
+        return addLeadingZeros(localDayOfWeek, token.length);
+      // 1st, 2nd, ..., 7th
+      case "co":
+        return localize2.ordinalNumber(localDayOfWeek, { unit: "day" });
+      case "ccc":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "standalone"
+        });
+      // T
+      case "ccccc":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "standalone"
+        });
+      // Tu
+      case "cccccc":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "standalone"
+        });
+      // Tuesday
+      case "cccc":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "standalone"
+        });
+    }
+  },
+  // ISO day of week
+  i: function(date, token, localize2) {
+    const dayOfWeek = date.getDay();
+    const isoDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
+    switch (token) {
+      // 2
+      case "i":
+        return String(isoDayOfWeek);
+      // 02
+      case "ii":
+        return addLeadingZeros(isoDayOfWeek, token.length);
+      // 2nd
+      case "io":
+        return localize2.ordinalNumber(isoDayOfWeek, { unit: "day" });
+      // Tue
+      case "iii":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      // T
+      case "iiiii":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "formatting"
+        });
+      // Tu
+      case "iiiiii":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "formatting"
+        });
+      // Tuesday
+      case "iiii":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // AM or PM
+  a: function(date, token, localize2) {
+    const hours = date.getHours();
+    const dayPeriodEnumValue = hours / 12 >= 1 ? "pm" : "am";
+    switch (token) {
+      case "a":
+      case "aa":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "aaa":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        }).toLowerCase();
+      case "aaaaa":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "aaaa":
+      default:
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // AM, PM, midnight, noon
+  b: function(date, token, localize2) {
+    const hours = date.getHours();
+    let dayPeriodEnumValue;
+    if (hours === 12) {
+      dayPeriodEnumValue = dayPeriodEnum.noon;
+    } else if (hours === 0) {
+      dayPeriodEnumValue = dayPeriodEnum.midnight;
+    } else {
+      dayPeriodEnumValue = hours / 12 >= 1 ? "pm" : "am";
+    }
+    switch (token) {
+      case "b":
+      case "bb":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "bbb":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        }).toLowerCase();
+      case "bbbbb":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "bbbb":
+      default:
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // in the morning, in the afternoon, in the evening, at night
+  B: function(date, token, localize2) {
+    const hours = date.getHours();
+    let dayPeriodEnumValue;
+    if (hours >= 17) {
+      dayPeriodEnumValue = dayPeriodEnum.evening;
+    } else if (hours >= 12) {
+      dayPeriodEnumValue = dayPeriodEnum.afternoon;
+    } else if (hours >= 4) {
+      dayPeriodEnumValue = dayPeriodEnum.morning;
+    } else {
+      dayPeriodEnumValue = dayPeriodEnum.night;
+    }
+    switch (token) {
+      case "B":
+      case "BB":
+      case "BBB":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "BBBBB":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "BBBB":
+      default:
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Hour [1-12]
+  h: function(date, token, localize2) {
+    if (token === "ho") {
+      let hours = date.getHours() % 12;
+      if (hours === 0) hours = 12;
+      return localize2.ordinalNumber(hours, { unit: "hour" });
+    }
+    return lightFormatters.h(date, token);
+  },
+  // Hour [0-23]
+  H: function(date, token, localize2) {
+    if (token === "Ho") {
+      return localize2.ordinalNumber(date.getHours(), { unit: "hour" });
+    }
+    return lightFormatters.H(date, token);
+  },
+  // Hour [0-11]
+  K: function(date, token, localize2) {
+    const hours = date.getHours() % 12;
+    if (token === "Ko") {
+      return localize2.ordinalNumber(hours, { unit: "hour" });
+    }
+    return addLeadingZeros(hours, token.length);
+  },
+  // Hour [1-24]
+  k: function(date, token, localize2) {
+    let hours = date.getHours();
+    if (hours === 0) hours = 24;
+    if (token === "ko") {
+      return localize2.ordinalNumber(hours, { unit: "hour" });
+    }
+    return addLeadingZeros(hours, token.length);
+  },
+  // Minute
+  m: function(date, token, localize2) {
+    if (token === "mo") {
+      return localize2.ordinalNumber(date.getMinutes(), { unit: "minute" });
+    }
+    return lightFormatters.m(date, token);
+  },
+  // Second
+  s: function(date, token, localize2) {
+    if (token === "so") {
+      return localize2.ordinalNumber(date.getSeconds(), { unit: "second" });
+    }
+    return lightFormatters.s(date, token);
+  },
+  // Fraction of second
+  S: function(date, token) {
+    return lightFormatters.S(date, token);
+  },
+  // Timezone (ISO-8601. If offset is 0, output is always `'Z'`)
+  X: function(date, token, _localize) {
+    const timezoneOffset = date.getTimezoneOffset();
+    if (timezoneOffset === 0) {
+      return "Z";
+    }
+    switch (token) {
+      // Hours and optional minutes
+      case "X":
+        return formatTimezoneWithOptionalMinutes(timezoneOffset);
+      // Hours, minutes and optional seconds without `:` delimiter
+      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
+      // so this token always has the same output as `XX`
+      case "XXXX":
+      case "XX":
+        return formatTimezone(timezoneOffset);
+      // Hours, minutes and optional seconds with `:` delimiter
+      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
+      // so this token always has the same output as `XXX`
+      case "XXXXX":
+      case "XXX":
+      // Hours and minutes with `:` delimiter
+      default:
+        return formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Timezone (ISO-8601. If offset is 0, output is `'+00:00'` or equivalent)
+  x: function(date, token, _localize) {
+    const timezoneOffset = date.getTimezoneOffset();
+    switch (token) {
+      // Hours and optional minutes
+      case "x":
+        return formatTimezoneWithOptionalMinutes(timezoneOffset);
+      // Hours, minutes and optional seconds without `:` delimiter
+      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
+      // so this token always has the same output as `xx`
+      case "xxxx":
+      case "xx":
+        return formatTimezone(timezoneOffset);
+      // Hours, minutes and optional seconds with `:` delimiter
+      // Note: neither ISO-8601 nor JavaScript supports seconds in timezone offsets
+      // so this token always has the same output as `xxx`
+      case "xxxxx":
+      case "xxx":
+      // Hours and minutes with `:` delimiter
+      default:
+        return formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Timezone (GMT)
+  O: function(date, token, _localize) {
+    const timezoneOffset = date.getTimezoneOffset();
+    switch (token) {
+      // Short
+      case "O":
+      case "OO":
+      case "OOO":
+        return "GMT" + formatTimezoneShort(timezoneOffset, ":");
+      // Long
+      case "OOOO":
+      default:
+        return "GMT" + formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Timezone (specific non-location)
+  z: function(date, token, _localize) {
+    const timezoneOffset = date.getTimezoneOffset();
+    switch (token) {
+      // Short
+      case "z":
+      case "zz":
+      case "zzz":
+        return "GMT" + formatTimezoneShort(timezoneOffset, ":");
+      // Long
+      case "zzzz":
+      default:
+        return "GMT" + formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Seconds timestamp
+  t: function(date, token, _localize) {
+    const timestamp = Math.trunc(+date / 1e3);
+    return addLeadingZeros(timestamp, token.length);
+  },
+  // Milliseconds timestamp
+  T: function(date, token, _localize) {
+    return addLeadingZeros(+date, token.length);
+  }
+};
+function formatTimezoneShort(offset, delimiter = "") {
+  const sign = offset > 0 ? "-" : "+";
+  const absOffset = Math.abs(offset);
+  const hours = Math.trunc(absOffset / 60);
+  const minutes = absOffset % 60;
+  if (minutes === 0) {
+    return sign + String(hours);
+  }
+  return sign + String(hours) + delimiter + addLeadingZeros(minutes, 2);
+}
+function formatTimezoneWithOptionalMinutes(offset, delimiter) {
+  if (offset % 60 === 0) {
+    const sign = offset > 0 ? "-" : "+";
+    return sign + addLeadingZeros(Math.abs(offset) / 60, 2);
+  }
+  return formatTimezone(offset, delimiter);
+}
+function formatTimezone(offset, delimiter = "") {
+  const sign = offset > 0 ? "-" : "+";
+  const absOffset = Math.abs(offset);
+  const hours = addLeadingZeros(Math.trunc(absOffset / 60), 2);
+  const minutes = addLeadingZeros(absOffset % 60, 2);
+  return sign + hours + delimiter + minutes;
+}
+const dateLongFormatter = (pattern, formatLong2) => {
+  switch (pattern) {
+    case "P":
+      return formatLong2.date({ width: "short" });
+    case "PP":
+      return formatLong2.date({ width: "medium" });
+    case "PPP":
+      return formatLong2.date({ width: "long" });
+    case "PPPP":
+    default:
+      return formatLong2.date({ width: "full" });
+  }
+};
+const timeLongFormatter = (pattern, formatLong2) => {
+  switch (pattern) {
+    case "p":
+      return formatLong2.time({ width: "short" });
+    case "pp":
+      return formatLong2.time({ width: "medium" });
+    case "ppp":
+      return formatLong2.time({ width: "long" });
+    case "pppp":
+    default:
+      return formatLong2.time({ width: "full" });
+  }
+};
+const dateTimeLongFormatter = (pattern, formatLong2) => {
+  const matchResult = pattern.match(/(P+)(p+)?/) || [];
+  const datePattern = matchResult[1];
+  const timePattern = matchResult[2];
+  if (!timePattern) {
+    return dateLongFormatter(pattern, formatLong2);
+  }
+  let dateTimeFormat;
+  switch (datePattern) {
+    case "P":
+      dateTimeFormat = formatLong2.dateTime({ width: "short" });
+      break;
+    case "PP":
+      dateTimeFormat = formatLong2.dateTime({ width: "medium" });
+      break;
+    case "PPP":
+      dateTimeFormat = formatLong2.dateTime({ width: "long" });
+      break;
+    case "PPPP":
+    default:
+      dateTimeFormat = formatLong2.dateTime({ width: "full" });
+      break;
+  }
+  return dateTimeFormat.replace("{{date}}", dateLongFormatter(datePattern, formatLong2)).replace("{{time}}", timeLongFormatter(timePattern, formatLong2));
+};
+const longFormatters = {
+  p: timeLongFormatter,
+  P: dateTimeLongFormatter
+};
+const dayOfYearTokenRE = /^D+$/;
+const weekYearTokenRE = /^Y+$/;
+const throwTokens = ["D", "DD", "YY", "YYYY"];
+function isProtectedDayOfYearToken(token) {
+  return dayOfYearTokenRE.test(token);
+}
+function isProtectedWeekYearToken(token) {
+  return weekYearTokenRE.test(token);
+}
+function warnOrThrowProtectedError(token, format2, input) {
+  const _message = message(token, format2, input);
+  console.warn(_message);
+  if (throwTokens.includes(token)) throw new RangeError(_message);
+}
+function message(token, format2, input) {
+  const subject = token[0] === "Y" ? "years" : "days of the month";
+  return `Use \`${token.toLowerCase()}\` instead of \`${token}\` (in \`${format2}\`) for formatting ${subject} to the input \`${input}\`; see: https://github.com/date-fns/date-fns/blob/master/docs/unicodeTokens.md`;
+}
+const formattingTokensRegExp = /[yYQqMLwIdDecihHKkms]o|(\w)\1*|''|'(''|[^'])+('|$)|./g;
+const longFormattingTokensRegExp = /P+p+|P+|p+|''|'(''|[^'])+('|$)|./g;
+const escapedStringRegExp = /^'([^]*?)'?$/;
+const doubleQuoteRegExp = /''/g;
+const unescapedLatinCharacterRegExp = /[a-zA-Z]/;
+function format(date, formatStr, options) {
+  var _a2, _b2, _c, _d;
+  const defaultOptions2 = getDefaultOptions();
+  const locale = defaultOptions2.locale ?? enUS;
+  const firstWeekContainsDate = defaultOptions2.firstWeekContainsDate ?? ((_b2 = (_a2 = defaultOptions2.locale) == null ? void 0 : _a2.options) == null ? void 0 : _b2.firstWeekContainsDate) ?? 1;
+  const weekStartsOn = defaultOptions2.weekStartsOn ?? ((_d = (_c = defaultOptions2.locale) == null ? void 0 : _c.options) == null ? void 0 : _d.weekStartsOn) ?? 0;
+  const originalDate = toDate(date, options == null ? void 0 : options.in);
+  if (!isValid(originalDate)) {
+    throw new RangeError("Invalid time value");
+  }
+  let parts = formatStr.match(longFormattingTokensRegExp).map((substring) => {
+    const firstCharacter = substring[0];
+    if (firstCharacter === "p" || firstCharacter === "P") {
+      const longFormatter = longFormatters[firstCharacter];
+      return longFormatter(substring, locale.formatLong);
+    }
+    return substring;
+  }).join("").match(formattingTokensRegExp).map((substring) => {
+    if (substring === "''") {
+      return { isToken: false, value: "'" };
+    }
+    const firstCharacter = substring[0];
+    if (firstCharacter === "'") {
+      return { isToken: false, value: cleanEscapedString(substring) };
+    }
+    if (formatters[firstCharacter]) {
+      return { isToken: true, value: substring };
+    }
+    if (firstCharacter.match(unescapedLatinCharacterRegExp)) {
+      throw new RangeError(
+        "Format string contains an unescaped latin alphabet character `" + firstCharacter + "`"
+      );
+    }
+    return { isToken: false, value: substring };
+  });
+  if (locale.localize.preprocessor) {
+    parts = locale.localize.preprocessor(originalDate, parts);
+  }
+  const formatterOptions = {
+    firstWeekContainsDate,
+    weekStartsOn,
+    locale
+  };
+  return parts.map((part) => {
+    if (!part.isToken) return part.value;
+    const token = part.value;
+    if (isProtectedWeekYearToken(token) || isProtectedDayOfYearToken(token)) {
+      warnOrThrowProtectedError(token, formatStr, String(date));
+    }
+    const formatter = formatters[token[0]];
+    return formatter(originalDate, token, locale.localize, formatterOptions);
+  }).join("");
+}
+function cleanEscapedString(input) {
+  const matched = input.match(escapedStringRegExp);
+  if (!matched) {
+    return input;
+  }
+  return matched[1].replace(doubleQuoteRegExp, "'");
+}
+function subDays(date, amount, options) {
+  return addDays(date, -amount, options);
+}
+function parseISO(argument, options) {
+  const invalidDate = () => constructFrom(options == null ? void 0 : options.in, NaN);
+  const additionalDigits = 2;
+  const dateStrings = splitDateString(argument);
+  let date;
+  if (dateStrings.date) {
+    const parseYearResult = parseYear(dateStrings.date, additionalDigits);
+    date = parseDate(parseYearResult.restDateString, parseYearResult.year);
+  }
+  if (!date || isNaN(+date)) return invalidDate();
+  const timestamp = +date;
+  let time = 0;
+  let offset;
+  if (dateStrings.time) {
+    time = parseTime(dateStrings.time);
+    if (isNaN(time)) return invalidDate();
+  }
+  if (dateStrings.timezone) {
+    offset = parseTimezone(dateStrings.timezone);
+    if (isNaN(offset)) return invalidDate();
+  } else {
+    const tmpDate = new Date(timestamp + time);
+    const result = toDate(0, options == null ? void 0 : options.in);
+    result.setFullYear(
+      tmpDate.getUTCFullYear(),
+      tmpDate.getUTCMonth(),
+      tmpDate.getUTCDate()
+    );
+    result.setHours(
+      tmpDate.getUTCHours(),
+      tmpDate.getUTCMinutes(),
+      tmpDate.getUTCSeconds(),
+      tmpDate.getUTCMilliseconds()
+    );
+    return result;
+  }
+  return toDate(timestamp + time + offset, options == null ? void 0 : options.in);
+}
+const patterns = {
+  dateTimeDelimiter: /[T ]/,
+  timeZoneDelimiter: /[Z ]/i,
+  timezone: /([Z+-].*)$/
+};
+const dateRegex = /^-?(?:(\d{3})|(\d{2})(?:-?(\d{2}))?|W(\d{2})(?:-?(\d{1}))?|)$/;
+const timeRegex = /^(\d{2}(?:[.,]\d*)?)(?::?(\d{2}(?:[.,]\d*)?))?(?::?(\d{2}(?:[.,]\d*)?))?$/;
+const timezoneRegex = /^([+-])(\d{2})(?::?(\d{2}))?$/;
+function splitDateString(dateString) {
+  const dateStrings = {};
+  const array = dateString.split(patterns.dateTimeDelimiter);
+  let timeString;
+  if (array.length > 2) {
+    return dateStrings;
+  }
+  if (/:/.test(array[0])) {
+    timeString = array[0];
+  } else {
+    dateStrings.date = array[0];
+    timeString = array[1];
+    if (patterns.timeZoneDelimiter.test(dateStrings.date)) {
+      dateStrings.date = dateString.split(patterns.timeZoneDelimiter)[0];
+      timeString = dateString.substr(
+        dateStrings.date.length,
+        dateString.length
+      );
+    }
+  }
+  if (timeString) {
+    const token = patterns.timezone.exec(timeString);
+    if (token) {
+      dateStrings.time = timeString.replace(token[1], "");
+      dateStrings.timezone = token[1];
+    } else {
+      dateStrings.time = timeString;
+    }
+  }
+  return dateStrings;
+}
+function parseYear(dateString, additionalDigits) {
+  const regex = new RegExp(
+    "^(?:(\\d{4}|[+-]\\d{" + (4 + additionalDigits) + "})|(\\d{2}|[+-]\\d{" + (2 + additionalDigits) + "})$)"
+  );
+  const captures = dateString.match(regex);
+  if (!captures) return { year: NaN, restDateString: "" };
+  const year = captures[1] ? parseInt(captures[1]) : null;
+  const century = captures[2] ? parseInt(captures[2]) : null;
+  return {
+    year: century === null ? year : century * 100,
+    restDateString: dateString.slice((captures[1] || captures[2]).length)
+  };
+}
+function parseDate(dateString, year) {
+  if (year === null) return /* @__PURE__ */ new Date(NaN);
+  const captures = dateString.match(dateRegex);
+  if (!captures) return /* @__PURE__ */ new Date(NaN);
+  const isWeekDate = !!captures[4];
+  const dayOfYear = parseDateUnit(captures[1]);
+  const month = parseDateUnit(captures[2]) - 1;
+  const day = parseDateUnit(captures[3]);
+  const week = parseDateUnit(captures[4]);
+  const dayOfWeek = parseDateUnit(captures[5]) - 1;
+  if (isWeekDate) {
+    if (!validateWeekDate(year, week, dayOfWeek)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    return dayOfISOWeekYear(year, week, dayOfWeek);
+  } else {
+    const date = /* @__PURE__ */ new Date(0);
+    if (!validateDate(year, month, day) || !validateDayOfYearDate(year, dayOfYear)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    date.setUTCFullYear(year, month, Math.max(dayOfYear, day));
+    return date;
+  }
+}
+function parseDateUnit(value) {
+  return value ? parseInt(value) : 1;
+}
+function parseTime(timeString) {
+  const captures = timeString.match(timeRegex);
+  if (!captures) return NaN;
+  const hours = parseTimeUnit(captures[1]);
+  const minutes = parseTimeUnit(captures[2]);
+  const seconds = parseTimeUnit(captures[3]);
+  if (!validateTime(hours, minutes, seconds)) {
+    return NaN;
+  }
+  return hours * millisecondsInHour + minutes * millisecondsInMinute + seconds * 1e3;
+}
+function parseTimeUnit(value) {
+  return value && parseFloat(value.replace(",", ".")) || 0;
+}
+function parseTimezone(timezoneString) {
+  if (timezoneString === "Z") return 0;
+  const captures = timezoneString.match(timezoneRegex);
+  if (!captures) return 0;
+  const sign = captures[1] === "+" ? -1 : 1;
+  const hours = parseInt(captures[2]);
+  const minutes = captures[3] && parseInt(captures[3]) || 0;
+  if (!validateTimezone(hours, minutes)) {
+    return NaN;
+  }
+  return sign * (hours * millisecondsInHour + minutes * millisecondsInMinute);
+}
+function dayOfISOWeekYear(isoWeekYear, week, day) {
+  const date = /* @__PURE__ */ new Date(0);
+  date.setUTCFullYear(isoWeekYear, 0, 4);
+  const fourthOfJanuaryDay = date.getUTCDay() || 7;
+  const diff = (week - 1) * 7 + day + 1 - fourthOfJanuaryDay;
+  date.setUTCDate(date.getUTCDate() + diff);
+  return date;
+}
+const daysInMonths = [31, null, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function isLeapYearIndex(year) {
+  return year % 400 === 0 || year % 4 === 0 && year % 100 !== 0;
+}
+function validateDate(year, month, date) {
+  return month >= 0 && month <= 11 && date >= 1 && date <= (daysInMonths[month] || (isLeapYearIndex(year) ? 29 : 28));
+}
+function validateDayOfYearDate(year, dayOfYear) {
+  return dayOfYear >= 1 && dayOfYear <= (isLeapYearIndex(year) ? 366 : 365);
+}
+function validateWeekDate(_year, week, day) {
+  return week >= 1 && week <= 53 && day >= 0 && day <= 6;
+}
+function validateTime(hours, minutes, seconds) {
+  if (hours === 24) {
+    return minutes === 0 && seconds === 0;
+  }
+  return seconds >= 0 && seconds < 60 && minutes >= 0 && minutes < 60 && hours >= 0 && hours < 25;
+}
+function validateTimezone(_hours, minutes) {
+  return minutes >= 0 && minutes <= 59;
+}
 function generateJobPdf(job, companyName) {
   const doc = new E();
   const margin = 14;
@@ -43160,111 +43882,6 @@ function JobDetailModal() {
     }
   );
 }
-const DRIVER_STATUS_RANK = {
-  Away: 0,
-  Available: 1,
-  Offered: 2,
-  Assigned: 2,
-  Picking: 3,
-  Arrived: 4,
-  Busy: 4,
-  Active: 5,
-  OnTrip: 5
-};
-function driverStatusRank(status) {
-  const s2 = String(status || "").trim();
-  return DRIVER_STATUS_RANK[s2] ?? (s2 === "Suspended" || s2 === "Clearing" ? -1 : 1);
-}
-function resolveDriverPresenceStatus(topRaw, currentRaw) {
-  const top = String(topRaw || "Away").trim();
-  const cur = String(currentRaw || "").trim();
-  if (top === "Available" && (cur === "Away" || cur === "Picking" || cur === "Arrived" || cur === "Active" || cur === "Assigned")) {
-    return cur;
-  }
-  if (cur && driverStatusRank(cur) > driverStatusRank(top) && driverStatusRank(cur) >= driverStatusRank("Assigned")) {
-    return cur;
-  }
-  return top;
-}
-const TRIP_DRIVER_STATUSES = /* @__PURE__ */ new Set([
-  "Picking",
-  "Arrived",
-  "Active",
-  "OnTrip",
-  "Busy",
-  "Assigned"
-]);
-function pendingOfferBookingId(rec, current) {
-  const raw = current.joboffer ?? rec.joboffer;
-  if (raw == null) return null;
-  const id = String(raw).trim();
-  if (!id || id === "0") return null;
-  return id;
-}
-function resolveDriverStatusFromPresence(rec, current) {
-  const topStatus = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
-  const curStatus = String(current.vehiclestatus ?? "").trim();
-  let status = resolveDriverPresenceStatus(topStatus, curStatus);
-  const offerId = pendingOfferBookingId(rec, current);
-  if (offerId && status !== "Away" && status !== "Suspended" && !TRIP_DRIVER_STATUSES.has(status)) {
-    return "Offered";
-  }
-  if (status === "Offered" && !offerId) {
-    return "Available";
-  }
-  return status;
-}
-function driverFromFirebase(vehicleId, rec, companyId) {
-  const current = rec.current || {};
-  const status = resolveDriverStatusFromPresence(rec, current);
-  const rawBookingRef = rec.BookingId ?? current.bookingId ?? current.joboffer ?? rec.joboffer;
-  const hasBookingRef = rawBookingRef != null && String(rawBookingRef).trim() !== "" && String(rawBookingRef) !== "0";
-  const displayName = String(
-    rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? ""
-  ).trim();
-  return {
-    driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ""),
-    vehicleId,
-    driverName: displayName || `Driver ${vehicleId}`,
-    vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
-    vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? "Sedan"),
-    status,
-    lat: rec.lat != null ? Number(rec.lat) : void 0,
-    lng: rec.lng != null ? Number(rec.lng) : void 0,
-    zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ""),
-    zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : void 0,
-    jobCount: rec.jobCount != null ? Number(rec.jobCount) : void 0,
-    bookingId: status === "Away" || !hasBookingRef ? "" : String(rawBookingRef),
-    jobPickup: status === "Away" ? "" : String(rec.jobpickup ?? current.jobpickup ?? ""),
-    jobDropoff: status === "Away" ? "" : String(rec.jobdropoff ?? current.jobdropoff ?? ""),
-    passengerName: String(rec.jobname ?? current.jobname ?? ""),
-    passengerPhone: String(rec.JobphoneNo ?? current.JobphoneNo ?? ""),
-    services: Array.isArray(rec.allowedServices) ? rec.allowedServices : ["Taxi"],
-    lastSeen: rec.lastSeen ? Number(rec.lastSeen) : Date.now()
-  };
-}
-function statusColor(status) {
-  switch (status) {
-    case "Available":
-      return "#22c55e";
-    case "Offered":
-      return "#eab308";
-    case "Picking":
-    case "Assigned":
-      return "#3b82f6";
-    case "Arrived":
-      return "#8b5cf6";
-    case "Active":
-    case "OnTrip":
-      return "#f59e0b";
-    case "Busy":
-      return "#f97316";
-    case "Suspended":
-      return "#ef4444";
-    default:
-      return "#64748b";
-  }
-}
 function DriverRow({ driver, index }) {
   const openModalWith = useUiStore((s2) => s2.openModalWith);
   const color = statusColor(driver.status);
@@ -43361,8 +43978,134 @@ function ZoneBoard() {
     ] }) })
   ] });
 }
+function boundaryPoints(raw) {
+  if (!raw) return [];
+  if (typeof raw === "string") {
+    try {
+      return boundaryPoints(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "object") {
+    const o2 = raw;
+    if (Array.isArray(o2.points)) return o2.points;
+    if (Array.isArray(o2.path)) return o2.path;
+    return Object.keys(o2).filter((k2) => /^\d+$/.test(k2)).sort((a2, b2) => Number(a2) - Number(b2)).map((k2) => o2[k2]);
+  }
+  return [];
+}
+function parseBoundary(raw) {
+  if (Array.isArray(raw) && raw.length >= 6 && typeof raw[0] === "number" && !Array.isArray(raw[0])) {
+    const flat = [];
+    for (let i2 = 0; i2 + 1 < raw.length; i2 += 2) {
+      const lat = Number(raw[i2]);
+      const lng = Number(raw[i2 + 1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) flat.push([lat, lng]);
+    }
+    if (flat.length >= 3) return flat;
+  }
+  const out = [];
+  for (const p2 of boundaryPoints(raw)) {
+    if (Array.isArray(p2) && p2.length >= 2) {
+      let lat = Number(p2[0]);
+      let lng = Number(p2[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+        const swap = lat;
+        lat = lng;
+        lng = swap;
+      }
+      out.push([lat, lng]);
+      continue;
+    }
+    if (p2 && typeof p2 === "object" && !Array.isArray(p2)) {
+      const pt2 = p2;
+      const lat = Number(pt2.lat ?? pt2.Lat ?? pt2.latitude);
+      const lng = Number(pt2.lng ?? pt2.Lng ?? pt2.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
+    }
+  }
+  return out;
+}
+function parseZoneNode(id, val) {
+  if (!val || typeof val !== "object") return null;
+  const z2 = val;
+  const boundary = parseBoundary(
+    z2.paths ?? z2.boundary ?? z2.coordinates ?? z2.coords ?? z2.polygon
+  );
+  if (boundary.length < 3) return null;
+  const zoneNumber = Number(z2.zoneNumber ?? z2.number ?? id);
+  const name2 = String(z2.name ?? z2.zoneName ?? z2.zonename ?? `Zone ${zoneNumber}`).trim();
+  if (!name2) return null;
+  return {
+    id,
+    zoneNumber: Number.isFinite(zoneNumber) ? zoneNumber : 0,
+    name: name2,
+    active: z2.active !== false,
+    boundary
+  };
+}
+function zonePathsForGoogleMaps(zone) {
+  return zone.boundary.map(([lat, lng]) => ({ lat, lng }));
+}
+async function fetchCompanyZonesFromApi(companyId) {
+  if (!companyId) return [];
+  const r = await fetch(`/api/company-zones?cid=${encodeURIComponent(companyId)}`, {
+    credentials: "same-origin"
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(data.error || `zones API HTTP ${r.status}`);
+  }
+  return Array.isArray(data.zones) ? data.zones : [];
+}
+function subscribeCompanyZones(companyId, onChange) {
+  if (!companyId) {
+    onChange([]);
+    return () => void 0;
+  }
+  const zoneRef = ref(getDb(), `zones/${companyId}`);
+  return onValue(zoneRef, (snap) => {
+    if (!snap.exists()) {
+      onChange([]);
+      return;
+    }
+    const val = snap.val();
+    const zones = Object.entries(val).map(([key, node]) => parseZoneNode(key, node)).filter((z2) => !!z2 && z2.active).sort((a2, b2) => a2.zoneNumber - b2.zoneNumber || a2.name.localeCompare(b2.name));
+    onChange(zones);
+  });
+}
+function pointInPolygon(lat, lng, polygon) {
+  if (polygon.length < 3) return false;
+  let inside = false;
+  for (let i2 = 0, j2 = polygon.length - 1; i2 < polygon.length; j2 = i2++) {
+    const yi = polygon[i2][0];
+    const xi = polygon[i2][1];
+    const yj = polygon[j2][0];
+    const xj = polygon[j2][1];
+    const intersect = yi > lat !== yj > lat && lng < (xj - xi) * (lat - yi) / (yj - yi + 0) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function findZoneAtCoords(lat, lng, zones) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return null;
+  for (const zone of zones) {
+    if (pointInPolygon(lat, lng, zone.boundary)) return zone;
+  }
+  return null;
+}
 function useDrivers(companyId) {
   const setDrivers = useDriverStore((s2) => s2.setDrivers);
+  const zonesRef = reactExports.useRef([]);
+  reactExports.useEffect(() => {
+    if (!companyId) return;
+    return subscribeCompanyZones(companyId, (zones) => {
+      zonesRef.current = zones;
+    });
+  }, [companyId]);
   reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
@@ -43373,7 +44116,14 @@ function useDrivers(companyId) {
       if (val && typeof val === "object") {
         for (const [vehicleId, rec] of Object.entries(val)) {
           if (vehicleId === "current") continue;
-          list.push(driverFromFirebase(vehicleId, rec));
+          const driver = driverFromFirebase(vehicleId, rec);
+          if (!driver) continue;
+          if (!driver.zoneName) {
+            const current = rec.current || {};
+            const inferred = resolveDriverZoneName(rec, current, zonesRef.current);
+            if (inferred) driver.zoneName = inferred;
+          }
+          list.push(driver);
         }
       }
       setDrivers(list);
@@ -43381,70 +44131,153 @@ function useDrivers(companyId) {
     return () => unsub();
   }, [companyId, setDrivers]);
 }
+function resolveDriverZoneName(rec, current, configuredZones) {
+  const explicit = String(
+    rec.zonename ?? rec.zoneName ?? current.zonename ?? current.zoneName ?? ""
+  ).trim();
+  if (explicit && explicit.toLowerCase() !== "unknown") return explicit;
+  const lat = Number(rec.lat ?? current.lat ?? rec.Lat ?? current.Lat ?? 0);
+  const lng = Number(rec.lng ?? current.lng ?? rec.Lng ?? current.Lng ?? 0);
+  const hit = findZoneAtCoords(lat, lng, configuredZones);
+  return (hit == null ? void 0 : hit.name) ?? "";
+}
+function partitionZoneDrivers(drivers) {
+  const ranked = [];
+  const inactive = [];
+  for (const d2 of drivers) {
+    if (isZoneQueueRanked(d2.status)) ranked.push(d2);
+    else if (isZoneQueueInactive(d2.status)) inactive.push({ ...d2, queue: 0 });
+  }
+  ranked.sort((a2, b2) => a2.queue - b2.queue || a2.vehicleNo.localeCompare(b2.vehicleNo));
+  inactive.sort((a2, b2) => a2.vehicleNo.localeCompare(b2.vehicleNo));
+  return { ranked, inactive };
+}
+function mergeQueueWithConfiguredZones(configured, live) {
+  const merged = {};
+  const names = /* @__PURE__ */ new Set();
+  for (const z2 of configured) names.add(z2.name);
+  for (const name2 of Object.keys(live)) names.add(name2);
+  for (const name2 of names) {
+    merged[name2] = partitionZoneDrivers(live[name2] ?? []);
+  }
+  return merged;
+}
 function useDriverQueue(companyId) {
   const [queueByZone, setQueueByZone] = reactExports.useState({});
+  const [configuredZones, setConfiguredZones] = reactExports.useState([]);
+  const configuredRef = reactExports.useRef([]);
+  const liveRef = reactExports.useRef({});
+  reactExports.useEffect(() => {
+    configuredRef.current = configuredZones;
+    setQueueByZone(mergeQueueWithConfiguredZones(configuredZones, liveRef.current));
+  }, [configuredZones]);
+  reactExports.useEffect(() => {
+    if (!companyId) {
+      setConfiguredZones([]);
+      return;
+    }
+    return subscribeCompanyZones(companyId, setConfiguredZones);
+  }, [companyId]);
   reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDb();
     const r = ref(db2, `online/${companyId}`);
     const unsub = onValue(r, (snap) => {
-      const zones = {};
+      const live = {};
       const val = snap.val();
       if (val && typeof val === "object") {
         for (const [vid, rec] of Object.entries(val)) {
           if (vid === "current") continue;
-          const zone = String(rec.zonename ?? rec.zoneName ?? "Unknown");
           const current = rec.current || {};
-          const q2 = current.zonequeue != null ? Number(current.zonequeue) : 999;
-          if (!zones[zone]) zones[zone] = [];
-          zones[zone].push({
-            vehicleNo: String(rec.vehiclenumber ?? vid),
-            driverId: String(rec.driverid ?? ""),
-            status: String(rec.vehiclestatus ?? "Away"),
-            queue: q2
+          if (isLoggedOutOnlineNode(rec, current) || isGhostOnlineNode(rec, current)) continue;
+          const zone = resolveDriverZoneName(rec, current, configuredRef.current);
+          if (!zone) continue;
+          const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
+          const qRaw = rec.zonequeue ?? current.zonequeue ?? rec.zoneQueue ?? current.zoneQueue;
+          const q2 = isZoneQueueRanked(status) && qRaw != null ? Number(qRaw) : 0;
+          if (!live[zone]) live[zone] = [];
+          live[zone].push({
+            vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vid),
+            driverId: String(rec.driverid ?? rec.driverId ?? ""),
+            status,
+            queue: Number.isFinite(q2) && q2 > 0 ? q2 : isZoneQueueRanked(status) ? 999 : 0
           });
         }
       }
-      for (const z2 of Object.keys(zones)) {
-        zones[z2].sort((a2, b2) => a2.queue - b2.queue);
-      }
-      setQueueByZone(zones);
+      liveRef.current = live;
+      setQueueByZone(mergeQueueWithConfiguredZones(configuredRef.current, live));
     });
     return () => unsub();
   }, [companyId]);
-  return queueByZone;
+  return { queueByZone, configuredZones };
+}
+function InactiveChip({ vehicleNo, status }) {
+  const busy = isZoneQueueInactive(status);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "span",
+    {
+      className: cn(
+        "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
+        "bg-[color-mix(in_srgb,var(--bw-card)_80%,transparent)] shadow-sm",
+        busy && "border-red-500/70 text-red-400"
+      ),
+      style: busy ? void 0 : { borderColor: statusColor(status), color: statusColor(status) },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] bw-muted uppercase tracking-wide shrink-0", children: status }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: vehicleNo })
+      ]
+    }
+  );
 }
 function ZoneQueuePanel({ companyId }) {
-  const queueByZone = useDriverQueue(companyId);
+  const { queueByZone, configuredZones } = useDriverQueue(companyId);
+  const zoneNames = configuredZones.length ? configuredZones.map((z2) => z2.name) : Object.keys(queueByZone);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t bw-border h-[180px] shrink-0 overflow-y-auto p-2.5 bw-surface", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold bw-muted uppercase mb-2 tracking-wider", children: "Zone Queue" }),
-    Object.keys(queueByZone).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs bw-muted", children: "No zone data" }) : Object.entries(queueByZone).map(([zone, drivers]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold bw-accent mb-1.5 uppercase tracking-wide border-b border-[color-mix(in_srgb,var(--bw-border)_50%,transparent)] pb-0.5", children: zone }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5", children: drivers.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "span",
-        {
-          className: cn(
-            "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
-            "bg-[color-mix(in_srgb,var(--bw-card)_80%,transparent)] shadow-sm"
-          ),
-          style: { borderColor: statusColor(d2.status), color: statusColor(d2.status) },
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "span",
-              {
-                className: cn(
-                  "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0",
-                  i2 === 0 ? "bg-[#f5c542] text-[#1a1a2e]" : "bw-surface border bw-border bw-muted"
+    zoneNames.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs bw-muted", children: "No zones configured — add zones in the Owner Panel for this company." }) : zoneNames.map((zone) => {
+      const { ranked, inactive } = queueByZone[zone] ?? { ranked: [], inactive: [] };
+      const hasAnyone = ranked.length > 0 || inactive.length > 0;
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold bw-accent mb-1.5 uppercase tracking-wide border-b border-[color-mix(in_srgb,var(--bw-border)_50%,transparent)] pb-0.5", children: zone }),
+        !hasAnyone ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] bw-muted italic px-1", children: "No drivers in queue" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          ranked.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5 mb-1.5", children: ranked.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "span",
+            {
+              className: cn(
+                "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
+                "bg-[color-mix(in_srgb,var(--bw-card)_80%,transparent)] shadow-sm"
+              ),
+              style: {
+                borderColor: statusColor(d2.status),
+                color: statusColor(d2.status)
+              },
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "span",
+                  {
+                    className: cn(
+                      "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0",
+                      i2 === 0 ? "bg-[#f5c542] text-[#1a1a2e]" : "bw-surface border bw-border bw-muted"
+                    ),
+                    children: i2 + 1
+                  }
                 ),
-                children: i2 + 1
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: d2.vehicleNo })
-          ]
-        },
-        d2.driverId
-      )) })
-    ] }, zone))
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: d2.vehicleNo })
+              ]
+            },
+            `${d2.driverId}-${d2.vehicleNo}`
+          )) }),
+          inactive.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5", children: inactive.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            InactiveChip,
+            {
+              vehicleNo: d2.vehicleNo,
+              status: d2.status
+            },
+            `${d2.driverId}-${d2.vehicleNo}-inactive`
+          )) })
+        ] })
+      ] }, zone);
+    })
   ] });
 }
 function DriverDetailModal() {
@@ -43599,7 +44432,9 @@ function DispatchMap({
   const routeRequestRef = reactExports.useRef(0);
   const trafficRef = reactExports.useRef(null);
   const zonePolysRef = reactExports.useRef([]);
-  const zoneUnsubRef = reactExports.useRef(null);
+  const zonesDataRef = reactExports.useRef([]);
+  const zonesLoadGenRef = reactExports.useRef(0);
+  const preZonesViewRef = reactExports.useRef(null);
   const [mapReady, setMapReady] = reactExports.useState(false);
   const [mapError, setMapError] = reactExports.useState(null);
   const [zonesEmpty, setZonesEmpty] = reactExports.useState(false);
@@ -43928,63 +44763,90 @@ function DispatchMap({
     }
     trafficRef.current.setMap(mapTraffic ? gMapRef.current : null);
   }, [mapTraffic, mapReady]);
-  reactExports.useEffect(() => {
-    const clearZones = () => {
-      var _a2;
-      zonePolysRef.current.forEach((p2) => p2.setMap(null));
-      zonePolysRef.current = [];
-      (_a2 = zoneUnsubRef.current) == null ? void 0 : _a2.call(zoneUnsubRef);
-      zoneUnsubRef.current = null;
+  const drawZonePolygons = reactExports.useCallback((zones) => {
+    zonePolysRef.current.forEach((p2) => p2.setMap(null));
+    zonePolysRef.current = [];
+    if (!gMapRef.current || !useUiStore.getState().mapZones) {
       setZonesEmpty(false);
-    };
-    if (!gMapRef.current || !mapReady || !companyId || !mapZones) {
-      clearZones();
       return;
     }
+    let drew = 0;
+    const bounds = new google.maps.LatLngBounds();
+    for (const zone of zones) {
+      const paths = zonePathsForGoogleMaps(zone);
+      if (paths.length < 3) continue;
+      zonePolysRef.current.push(
+        new google.maps.Polygon({
+          paths,
+          strokeColor: "#4f6ef7",
+          strokeOpacity: 0.95,
+          strokeWeight: 2,
+          fillColor: "#4f6ef7",
+          fillOpacity: 0.15,
+          map: gMapRef.current,
+          clickable: false
+        })
+      );
+      paths.forEach((pt2) => bounds.extend(pt2));
+      drew++;
+    }
+    setZonesEmpty(drew === 0);
+    if (drew > 0 && gMapRef.current) {
+      const map2 = gMapRef.current;
+      if (!preZonesViewRef.current) {
+        const c2 = map2.getCenter();
+        const z2 = map2.getZoom();
+        if (c2 && z2 != null) {
+          preZonesViewRef.current = { center: { lat: c2.lat(), lng: c2.lng() }, zoom: z2 };
+        }
+      }
+      map2.fitBounds(bounds, 56);
+      google.maps.event.addListenerOnce(map2, "bounds_changed", () => {
+        const z2 = map2.getZoom();
+        if (z2 != null && z2 > 14) map2.setZoom(14);
+      });
+    }
+  }, []);
+  reactExports.useEffect(() => {
+    if (!mapReady || !companyId) return;
+    const gen = ++zonesLoadGenRef.current;
     let cancelled = false;
-    __vitePreload(async () => {
-      const { getDb: getDb2, ref: ref2, onValue: onValue2 } = await Promise.resolve().then(() => firebase);
-      return { getDb: getDb2, ref: ref2, onValue: onValue2 };
-    }, true ? void 0 : void 0).then(({ getDb: getDb2, ref: ref2, onValue: onValue2 }) => {
-      if (cancelled || !gMapRef.current) return;
-      const r = ref2(getDb2(), `zones/${companyId}`);
-      zoneUnsubRef.current = onValue2(r, (snap) => {
-        var _a2;
+    void (async () => {
+      try {
+        const zones = await fetchCompanyZonesFromApi(companyId);
+        if (cancelled || gen !== zonesLoadGenRef.current) return;
+        zonesDataRef.current = zones;
+        drawZonePolygons(zones);
+      } catch (err2) {
+        if (cancelled || gen !== zonesLoadGenRef.current) return;
+        console.warn("[DispatchMap] zones API load failed:", err2);
+        zonesDataRef.current = [];
         zonePolysRef.current.forEach((p2) => p2.setMap(null));
         zonePolysRef.current = [];
-        if (!useUiStore.getState().mapZones || !gMapRef.current) {
-          setZonesEmpty(false);
-          return;
-        }
-        const val = snap.val();
-        if (!val) {
-          setZonesEmpty(true);
-          return;
-        }
-        let drew = 0;
-        for (const [, z2] of Object.entries(val)) {
-          if (!((_a2 = z2.paths) == null ? void 0 : _a2.length)) continue;
-          zonePolysRef.current.push(
-            new google.maps.Polygon({
-              paths: z2.paths,
-              strokeColor: "#4f6ef7",
-              strokeOpacity: 0.8,
-              strokeWeight: 2,
-              fillColor: "#4f6ef7",
-              fillOpacity: 0.08,
-              map: gMapRef.current
-            })
-          );
-          drew++;
-        }
-        setZonesEmpty(drew === 0);
-      });
-    });
+        setZonesEmpty(true);
+      }
+    })();
     return () => {
       cancelled = true;
-      clearZones();
     };
-  }, [mapZones, companyId, mapReady]);
+  }, [companyId, mapReady, drawZonePolygons]);
+  reactExports.useEffect(() => {
+    if (!mapReady || !gMapRef.current) return;
+    const map2 = gMapRef.current;
+    if (mapZones) {
+      drawZonePolygons(zonesDataRef.current);
+    } else {
+      zonePolysRef.current.forEach((p2) => p2.setMap(null));
+      zonePolysRef.current = [];
+      setZonesEmpty(false);
+      const saved = preZonesViewRef.current;
+      if (saved) {
+        map2.setCenter(saved.center);
+        map2.setZoom(saved.zoom);
+        preZonesViewRef.current = null;
+      }
+    }
+  }, [mapZones, mapReady, drawZonePolygons]);
   reactExports.useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     markersRef.current.forEach((m2) => m2.setMap(null));
@@ -44202,6 +45064,15 @@ function formatCancelledAt(raw) {
     return raw;
   }
 }
+function formatClosedBy(job) {
+  var _a2, _b2;
+  const st2 = normalizeJobStatus(job.status || "");
+  if (st2 !== "Cancelled" && st2 !== "No Show") return "—";
+  if (st2 === "No Show") return "Driver (No Show)";
+  const src = (_a2 = job.cancelSource) == null ? void 0 : _a2.trim();
+  if (src) return `Cancelled by ${src}`;
+  return ((_b2 = job.cancelledBy) == null ? void 0 : _b2.trim()) || "—";
+}
 function ClosedJobsModal({ companyId }) {
   const open2 = useUiStore((s2) => s2.openModal === "closedJobs");
   const closeModal = useUiStore((s2) => s2.closeModal);
@@ -44258,13 +45129,15 @@ function ClosedJobsModal({ companyId }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("th", { className: "p-2", children: "Actions" })
       ] }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: filtered.map((j2) => {
-        const isCancelled = normalizeJobStatus(j2.status) === "Cancelled";
+        const st2 = normalizeJobStatus(j2.status);
+        const isCancelled = st2 === "Cancelled";
+        const isNoShow = st2 === "No Show";
         return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: "border-t border-bw-border hover:bg-bw-surface", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "p-2 font-mono", children: [
             "#",
             j2.id
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled ? /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "CANCELLED" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#22c55e", children: "COMPLETED" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isNoShow ? /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#f97316", children: "NO SHOW" }) : isCancelled ? /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#ef4444", children: "CANCELLED" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { color: "#22c55e", children: "COMPLETED" }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: j2.passengerName }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2 truncate max-w-[200px]", children: j2.pickAddress }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "p-2", children: [
@@ -44272,8 +45145,8 @@ function ClosedJobsModal({ companyId }) {
             j2.totalFare || j2.estimatedFare || "0"
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: j2.paymentType }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled ? j2.cancelledBy || "—" : "—" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled ? formatCancelledAt(j2.cancelledAt) : "—" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled || isNoShow ? formatClosedBy(j2) : "—" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: isCancelled || isNoShow ? formatCancelledAt(j2.cancelledAt) : "—" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: () => {
             closeModal();
             openModalWith("jobDetail", { jobId: j2.id });
@@ -44473,7 +45346,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-jZkePSpV.js");
+        const { writeActiveDispatcher } = await import("./notifications-CyhbqwwZ.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -44500,7 +45373,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-jZkePSpV.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CyhbqwwZ.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -44830,4 +45703,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-DFbN88OJ.js.map
+//# sourceMappingURL=index-NtFclGzE.js.map
