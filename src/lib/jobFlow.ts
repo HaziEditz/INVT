@@ -347,7 +347,15 @@ async function fetchFreshJobFromFirebase(companyId: string, jobId: number): Prom
       return null;
     }
   };
-  return (await readPath('allbookings')) ?? (await readPath('pendingjobs'));
+  const fromAll = await readPath('allbookings');
+  const fromPending = await readPath('pendingjobs');
+  if (fromAll && fromPending) return mergeJobUpdate(fromAll, fromPending);
+  return fromAll ?? fromPending;
+}
+
+/** Load authoritative job snapshot from Firebase (both pendingjobs + allbookings). */
+export async function hydrateJobFromServer(companyId: string, jobId: number): Promise<Job | null> {
+  return fetchFreshJobFromFirebase(companyId, jobId);
 }
 
 async function persistJobUpdate(
@@ -358,8 +366,7 @@ async function persistJobUpdate(
 ): Promise<void> {
   if (Object.keys(changes).length === 0) return;
 
-  const baseline = latestStoreJob(jobId) ?? baseJob;
-  const effectiveChanges = applyClientTimingEditPrelude(baseline, changes);
+  const effectiveChanges = applyClientTimingEditPrelude(baseJob, changes);
 
   const attempt = async (seq: number): Promise<BookingUpdateResult> =>
     postBookingUpdate({
@@ -371,11 +378,11 @@ async function persistJobUpdate(
       sessionId: getEditLockSessionId(),
     });
 
-  let ifSeq = latestJobSeq(jobId, baseline.updateSeq ?? 0);
+  // Use pre-optimistic baseJob seq — store may already carry optimisticSeq+1.
+  let ifSeq = baseJob.updateSeq ?? 0;
   let result: BookingUpdateResult | null = null;
 
   for (let tries = 0; tries < 5; tries++) {
-    ifSeq = latestJobSeq(jobId, ifSeq);
     result = await attempt(ifSeq);
     if (result.ok) break;
 
@@ -384,7 +391,7 @@ async function persistJobUpdate(
       const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
       if (fresh) {
         ifSeq = Math.max(ifSeq, fresh.updateSeq ?? 0);
-        useJobStore.getState().upsertJob(fresh);
+        useJobStore.getState().upsertJob({ ...fresh, updateSeq: ifSeq });
       }
       continue;
     }
@@ -415,7 +422,7 @@ async function persistJobUpdate(
   }
 
   const authoritativeSeq = result.seq ?? ifSeq + 1;
-  const current = latestStoreJob(jobId) ?? baseline;
+  const current = latestStoreJob(jobId) ?? baseJob;
   const merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
@@ -463,7 +470,12 @@ async function updateJobInner(
   const optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
   useJobStore.getState().upsertJob(optimisticJob);
 
-  await persistJobUpdate(jobId, companyId, changes, baseline);
+  try {
+    await persistJobUpdate(jobId, companyId, changes, baseline);
+  } catch (e) {
+    useJobStore.getState().upsertJob(baseline);
+    throw e;
+  }
 }
 
 export async function updateJob(
@@ -555,7 +567,7 @@ export async function assignJob(
   baseJob?: Job,
   opts?: { fanout?: boolean }
 ): Promise<void> {
-  let ifVer = ifVersion ?? latestJobSeq(bookingId, baseJob?.updateSeq ?? 0);
+  let ifVer = ifVersion ?? baseJob?.updateSeq ?? 0;
   const attempt = async (): Promise<JobCommandResult> =>
     postJobCommand({
       bookingId,
@@ -568,9 +580,15 @@ export async function assignJob(
   let result = await attempt();
 
   if (!result.ok && (result.stale || result.error_code === 'version_conflict')) {
-    const job = latestStoreJob(bookingId) ?? baseJob;
-    ifVer = result.currentVersion ?? job?.updateSeq ?? ifVer;
-    if (job) useJobStore.getState().upsertJob(job);
+    ifVer = result.currentVersion ?? ifVer;
+    const fresh =
+      baseJob?.companyId != null
+        ? await fetchFreshJobFromFirebase(baseJob.companyId, bookingId)
+        : null;
+    if (fresh) {
+      ifVer = Math.max(ifVer, fresh.updateSeq ?? 0);
+      useJobStore.getState().upsertJob(fresh);
+    }
     result = await attempt();
   }
 

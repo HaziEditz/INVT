@@ -11736,8 +11736,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             serviceType: 'taxi',
             BookingSource: 'Dispatch Console',
             createdAt: _cjCreated,
+            updateSeq: _cjJob.updateSeq ?? 0,
+            _seq: _cjJob.updateSeq ?? 0,
+            version: _cjJob.updateSeq ?? 0,
           };
           await firebaseDbSet(`pendingjobs/${_cjCid}/${_cjIdNum}`, _fbStub, _tokD);
+          await firebaseDbSet(`allbookings/${_cjCid}/${_cjIdNum}`, _fbStub, _tokD);
         } catch (_e) {
           console.warn(`  [/api/job/create] dispatch pendingjobs stub failed: ${_e && _e.message}`);
         }

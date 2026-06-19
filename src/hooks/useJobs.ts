@@ -82,7 +82,7 @@ function notifyOfferReturned(bookingId: number, refresh: DispatchRefreshPayload)
 
 const POOL_RESTORE_ACTIONS = new Set(['status', 'timeout', 'decline', 'recall', 'scheduled_release']);
 
-const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One']);
+const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One', 'Scheduled']);
 const LIVE_OFFER_STATUSES = new Set(['Offered', 'Assigned']);
 
 function isPoolUaStatus(status: string): boolean {

@@ -12,7 +12,7 @@ import {
   searchCustomers,
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
-import { updateJob, applyFormDriverAssignment } from '@/lib/jobFlow';
+import { updateJob, applyFormDriverAssignment, hydrateJobFromServer } from '@/lib/jobFlow';
 import { setJobEditLock, releaseJobEditLock, releaseJobEditLockKeepalive } from '@/lib/jobEditLock';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import {
@@ -146,7 +146,7 @@ function jobFromForm(
     bookingDateTime,
     dispatchBeforeMinutes: dispatchBefore,
     urgent: form.urgent,
-    updateSeq: 1,
+    updateSeq: 0,
     createdAt: Date.now(),
     dispatcherName: '',
   };
@@ -183,6 +183,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const settings = useUiStore((s) => s.settings);
   const addToast = useUiStore((s) => s.addToast);
   const upsertJob = useJobStore((s) => s.upsertJob);
+  const clearRemovedJob = useJobStore((s) => s.clearRemovedJob);
   const jobs = useJobStore((s) => s.jobs);
   const setActiveTab = useJobStore((s) => s.setActiveTab);
 
@@ -737,7 +738,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         driverId: driverSelected ? form.driverId : undefined,
         vehicleId: driverSelected ? form.vehicleId : undefined,
       };
-      upsertJob(createdJob);
+      clearRemovedJob(lastId);
+      let hydrated = await hydrateJobFromServer(companyId, lastId);
+      if (!hydrated) {
+        await new Promise((r) => setTimeout(r, 350));
+        hydrated = await hydrateJobFromServer(companyId, lastId);
+      }
+      upsertJob(hydrated ?? createdJob);
       setActiveTab('ua');
 
       addToast({
