@@ -1,7 +1,7 @@
 import type { DataParam } from '@/lib/dispatchApi';
 import type { Driver } from '@/types/driver';
 import type { Job } from '@/types/job';
-import { isPreBookedJob, normalizeJobStatus, parseLatLng } from '@/types/job';
+import { isPreBookedJob, normalizeJobStatus, parseLatLng, effectiveJobStatus } from '@/types/job';
 
 export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
 
@@ -292,11 +292,11 @@ export function driverBookstatus(form: CreateJobFormState): { dId: string; books
 
 /** Map a live job to the create/edit form driver dropdown value. */
 export function formDriverIdFromJob(job: Job): string {
-  if (job.status === 'No One' || job.driverId === '-1') return DRIVER_NOONE;
+  const st = effectiveJobStatus(job);
+  if (st === 'No One') return DRIVER_NOONE;
   const drv = String(job.driverId ?? '').trim();
   if (drv && isAssignedDriverSelection(drv)) return drv;
-  if (job.status === 'Pending') return DRIVER_PENDING;
-  const st = normalizeJobStatus(job.status);
+  if (st === 'Pending') return DRIVER_PENDING;
   if (
     (st === 'Offered' ||
       st === 'Assigned' ||
@@ -532,7 +532,7 @@ export function jobToForm(job: Job): CreateJobFormState {
   const parsed = parseBookingDateTime(bookingDt);
   const isLater =
     (job.dispatchBeforeMinutes ?? 0) > 0 ||
-    String(job.status || '') === 'Scheduled' ||
+    effectiveJobStatus(job) === 'Scheduled' ||
     isPreBookedJob(job);
 
   const driverId = formDriverIdFromJob(job);

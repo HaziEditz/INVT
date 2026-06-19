@@ -3,6 +3,7 @@ import { jobFromFirebase, jobUpdateSeqFromRecord, normalizeJobStatus, isPreDispa
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
+import { mergeJobUpdate } from '@/lib/mergeJob';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
@@ -424,19 +425,20 @@ async function persistJobUpdate(
 }
 
 function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq: number): Job {
-  const merged: Job = {
-    ...optimistic,
-    ...fresh,
-    updateSeq: Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0),
-  };
+  const seq = Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0);
+  let merged = mergeJobUpdate(optimistic, { ...fresh, updateSeq: seq });
   if ((fresh.dispatchBeforeMinutes ?? 0) === 0 && (optimistic.dispatchBeforeMinutes ?? 0) > 0) {
-    merged.dispatchBeforeMinutes = 0;
-    merged.scheduledFor = fresh.scheduledFor;
-    merged.notifyDispatchAt = fresh.notifyDispatchAt;
+    merged = {
+      ...merged,
+      dispatchBeforeMinutes: 0,
+      scheduledFor: fresh.scheduledFor,
+      notifyDispatchAt: fresh.notifyDispatchAt,
+    };
   }
   if (
     normalizeJobStatus(fresh.status) === 'Pending' &&
-    normalizeJobStatus(optimistic.status) === 'Scheduled'
+    normalizeJobStatus(optimistic.status) === 'Scheduled' &&
+    seq >= (fresh.updateSeq ?? 0)
   ) {
     merged.status = fresh.status;
   }

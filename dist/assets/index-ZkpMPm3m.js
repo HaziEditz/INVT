@@ -27759,6 +27759,11 @@ function resolveJobStatus(rec) {
   if (status) return status;
   return "Pending";
 }
+function effectiveJobStatus(job) {
+  const drv = String(job.driverId ?? "").trim();
+  if (drv === "-1") return "No One";
+  return normalizeJobStatus(job.status);
+}
 function isScheduledJob(job) {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
@@ -28277,7 +28282,7 @@ function getEditLockSessionId() {
   }
 }
 const STATUS_RANK = {
-  "No One": 0,
+  "No One": 1,
   Pending: 1,
   Scheduled: 1,
   Offered: 2,
@@ -28300,6 +28305,11 @@ function mergeJobStatus(existing, incoming, existingSeq, incomingSeq) {
   const ex = normalizeJobStatus(existing);
   const inc = normalizeJobStatus(incoming);
   if (inc === "Cancelled" || inc === "Completed" || inc === "No Show") return inc;
+  const POOL = ["No One", "Pending", "Scheduled"];
+  if (POOL.includes(ex) && POOL.includes(inc)) {
+    if (incomingSeq >= existingSeq) return inc;
+    return ex;
+  }
   if ((inc === "No One" || inc === "Pending") && incomingSeq >= existingSeq) return inc;
   if (statusRank(inc) < statusRank(ex)) return ex;
   if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;
@@ -28344,7 +28354,7 @@ function mergeJobUpdate(existing, incoming) {
   }
   const incDriver = incoming.driverId != null ? String(incoming.driverId) : null;
   if (incDriver === "0" || incDriver === "-1") {
-    if (incoming.status != null && (normalizeJobStatus(String(incoming.status)) === "Pending" || normalizeJobStatus(String(incoming.status)) === "No One")) {
+    if (incomingSeq >= existingSeq && incoming.status != null && (normalizeJobStatus(String(incoming.status)) === "Pending" || normalizeJobStatus(String(incoming.status)) === "No One")) {
       merged.driverId = incDriver;
     }
   }
@@ -28361,6 +28371,10 @@ function mergeJobUpdate(existing, incoming) {
     if (incoming.status != null && normalizeJobStatus(String(incoming.status)) === "Pending" && normalizeJobStatus(existing.status) === "Scheduled") {
       merged.status = incoming.status;
     }
+  }
+  if (incomingSeq >= existingSeq && normalizeJobStatus(String(incoming.status || "")) === "No One") {
+    merged.status = "No One";
+    if (incDriver === "-1" || incoming.driverId === "-1") merged.driverId = "-1";
   }
   if (!((_d = incoming.editLock) == null ? void 0 : _d.active) && ((_e = existing.editLock) == null ? void 0 : _e.active)) {
     merged.editLock = existing.editLock;
@@ -29349,11 +29363,11 @@ function isAssignedDriverSelection(driverId) {
   return driverId !== DRIVER_AUTO && driverId !== DRIVER_PENDING && driverId !== DRIVER_NOONE && driverId.trim() !== "";
 }
 function formDriverIdFromJob(job) {
-  if (job.status === "No One" || job.driverId === "-1") return DRIVER_NOONE;
+  const st2 = effectiveJobStatus(job);
+  if (st2 === "No One") return DRIVER_NOONE;
   const drv = String(job.driverId ?? "").trim();
   if (drv && isAssignedDriverSelection(drv)) return drv;
-  if (job.status === "Pending") return DRIVER_PENDING;
-  const st2 = normalizeJobStatus(job.status);
+  if (st2 === "Pending") return DRIVER_PENDING;
   if ((st2 === "Offered" || st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived" || st2 === "Active" || st2 === "OnTrip" || st2 === "Queued") && drv) {
     return drv;
   }
@@ -29529,7 +29543,7 @@ function jobToForm(job) {
   const drop = parseLatLng$1(job.dropLatLng);
   const bookingDt = job.bookingDateTime || (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace("T", " ").slice(0, 16) : "");
   const parsed = parseBookingDateTime(bookingDt);
-  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || String(job.status || "") === "Scheduled" || isPreBookedJob(job);
+  const isLater = (job.dispatchBeforeMinutes ?? 0) > 0 || effectiveJobStatus(job) === "Scheduled" || isPreBookedJob(job);
   const driverId = formDriverIdFromJob(job);
   const payment = (job.paymentType || "").toLowerCase();
   let paymentType = "";
@@ -29947,17 +29961,17 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   }
 }
 function mergeJobUpdateFromServer(optimistic, fresh, authoritativeSeq) {
-  const merged = {
-    ...optimistic,
-    ...fresh,
-    updateSeq: Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0)
-  };
+  const seq = Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0);
+  let merged = mergeJobUpdate(optimistic, { ...fresh, updateSeq: seq });
   if ((fresh.dispatchBeforeMinutes ?? 0) === 0 && (optimistic.dispatchBeforeMinutes ?? 0) > 0) {
-    merged.dispatchBeforeMinutes = 0;
-    merged.scheduledFor = fresh.scheduledFor;
-    merged.notifyDispatchAt = fresh.notifyDispatchAt;
+    merged = {
+      ...merged,
+      dispatchBeforeMinutes: 0,
+      scheduledFor: fresh.scheduledFor,
+      notifyDispatchAt: fresh.notifyDispatchAt
+    };
   }
-  if (normalizeJobStatus(fresh.status) === "Pending" && normalizeJobStatus(optimistic.status) === "Scheduled") {
+  if (normalizeJobStatus(fresh.status) === "Pending" && normalizeJobStatus(optimistic.status) === "Scheduled" && seq >= (fresh.updateSeq ?? 0)) {
     merged.status = fresh.status;
   }
   return merged;
@@ -31690,7 +31704,7 @@ function JobCard({ job, tab }) {
   const onThemedBg = !!cardLook.foregroundColor;
   const themeStyle = cardLook.foregroundColor ? { color: cardLook.foregroundColor } : void 0;
   const themeMutedStyle = cardLook.foregroundMuted ? { color: cardLook.foregroundMuted } : themeStyle;
-  const status = jobStatusAbbrev(job.status);
+  const status = jobStatusAbbrev(effectiveJobStatus(job));
   const pickupType = jobPickupTypeLabel(job);
   const pickup = jobPickupTime(job);
   const created = jobCreatedAtTime(job);
@@ -32791,7 +32805,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const dragOffset = reactExports.useRef({ x: 0, y: 0 });
   const posRef = reactExports.useRef(pos);
   const submittingRef = reactExports.useRef(false);
-  const loadedEditJobIdRef = reactExports.useRef(null);
+  const loadedFormKeyRef = reactExports.useRef(null);
   const editLockJobIdRef = reactExports.useRef(null);
   posRef.current = pos;
   const patch = reactExports.useCallback((p2) => {
@@ -32864,7 +32878,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         editLockJobIdRef.current = null;
         void releaseJobEditLock(id, dispatcherName);
       }
-      loadedEditJobIdRef.current = null;
+      loadedFormKeyRef.current = null;
       setRoutePreview(null);
       return;
     }
@@ -32884,9 +32898,11 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         });
       });
     }
-    if (loadedEditJobIdRef.current !== editingJob.id) {
-      loadedEditJobIdRef.current = editingJob.id;
-      const loaded = jobToForm(editingJob);
+    const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
+    const formKey = `${storeJob.id}:${storeJob.updateSeq ?? 0}:${effectiveJobStatus(storeJob)}`;
+    if (loadedFormKeyRef.current !== formKey) {
+      loadedFormKeyRef.current = formKey;
+      const loaded = jobToForm(storeJob);
       setForm(loaded);
       setPickFromAutocomplete(!!loaded.pick.lat);
       setDropFromAutocomplete(!!loaded.drop.lat);
@@ -32894,10 +32910,10 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       setDropDirty(false);
       setPickAddressError("");
     }
-  }, [open2, editingJob == null ? void 0 : editingJob.id, editingJob, setRoutePreview, addToast, dispatcherName]);
+  }, [open2, editingJob == null ? void 0 : editingJob.id, editingJob == null ? void 0 : editingJob.updateSeq, editingJob == null ? void 0 : editingJob.status, editingJob == null ? void 0 : editingJob.driverId, editingJob, setRoutePreview, addToast, dispatcherName]);
   reactExports.useEffect(() => {
     if (open2 && !editingJob) {
-      loadedEditJobIdRef.current = null;
+      loadedFormKeyRef.current = null;
       resetForm();
     }
   }, [open2, editingJob, resetForm]);
@@ -41391,7 +41407,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CF4Bc7Cn.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BvGtg7yn.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -45466,7 +45482,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-CMc-yjip.js");
+        const { writeActiveDispatcher } = await import("./notifications-ByfK5k0O.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -45493,7 +45509,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-CMc-yjip.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-ByfK5k0O.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -45823,4 +45839,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BRXQ85xB.js.map
+//# sourceMappingURL=index-ZkpMPm3m.js.map

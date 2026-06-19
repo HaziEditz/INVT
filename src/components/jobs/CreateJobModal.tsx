@@ -45,6 +45,7 @@ import {
   jobBookingTime,
   jobOverdueLabel,
   jobPickupTypeLabel,
+  effectiveJobStatus,
 } from '@/types/job';
 
 interface CreateJobModalProps {
@@ -224,7 +225,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const dragOffset = useRef({ x: 0, y: 0 });
   const posRef = useRef(pos);
   const submittingRef = useRef(false);
-  const loadedEditJobIdRef = useRef<number | null>(null);
+  const loadedFormKeyRef = useRef<string | null>(null);
   const editLockJobIdRef = useRef<number | null>(null);
   posRef.current = pos;
 
@@ -309,7 +310,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         editLockJobIdRef.current = null;
         void releaseJobEditLock(id, dispatcherName);
       }
-      loadedEditJobIdRef.current = null;
+      loadedFormKeyRef.current = null;
       setRoutePreview(null);
       return;
     }
@@ -331,9 +332,12 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       });
     }
 
-    if (loadedEditJobIdRef.current !== editingJob.id) {
-      loadedEditJobIdRef.current = editingJob.id;
-      const loaded = jobToForm(editingJob);
+    const storeJob =
+      useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
+    const formKey = `${storeJob.id}:${storeJob.updateSeq ?? 0}:${effectiveJobStatus(storeJob)}`;
+    if (loadedFormKeyRef.current !== formKey) {
+      loadedFormKeyRef.current = formKey;
+      const loaded = jobToForm(storeJob);
       setForm(loaded);
       setPickFromAutocomplete(!!loaded.pick.lat);
       setDropFromAutocomplete(!!loaded.drop.lat);
@@ -341,11 +345,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setDropDirty(false);
       setPickAddressError('');
     }
-  }, [open, editingJob?.id, editingJob, setRoutePreview, addToast, dispatcherName]);
+  }, [open, editingJob?.id, editingJob?.updateSeq, editingJob?.status, editingJob?.driverId, editingJob, setRoutePreview, addToast, dispatcherName]);
 
   useEffect(() => {
     if (open && !editingJob) {
-      loadedEditJobIdRef.current = null;
+      loadedFormKeyRef.current = null;
       resetForm();
     }
   }, [open, editingJob, resetForm]);

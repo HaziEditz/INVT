@@ -15,6 +15,7 @@ import {
   jobPickupTypeLabel,
   jobReturnReasonAlert,
   jobStatusAbbrev,
+  effectiveJobStatus,
   jobTimerBadge,
   preDispatchAssignBlockMessage,
   resolveLastOfferDriverName,
@@ -221,7 +222,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     ? { color: cardLook.foregroundMuted }
     : themeStyle;
 
-  const status = jobStatusAbbrev(job.status);
+  const status = jobStatusAbbrev(effectiveJobStatus(job));
   const pickupType = jobPickupTypeLabel(job);
   const pickup = jobPickupTime(job);
   const created = jobCreatedAtTime(job);

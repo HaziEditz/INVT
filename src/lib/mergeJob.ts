@@ -3,7 +3,7 @@ import { normalizeJobStatus } from '@/types/job';
 
 /** Progression rank — higher means further along the dispatch lifecycle. */
 const STATUS_RANK: Partial<Record<JobStatus, number>> = {
-  'No One': 0,
+  'No One': 1,
   Pending: 1,
   Scheduled: 1,
   Offered: 2,
@@ -34,6 +34,13 @@ function mergeJobStatus(
   const ex = normalizeJobStatus(existing);
   const inc = normalizeJobStatus(incoming);
   if (inc === 'Cancelled' || inc === 'Completed' || inc === 'No Show') return inc;
+  // Pool statuses (No One / Pending / Scheduled) are peers — never let a stale
+  // Pending snapshot beat a newer No One (or vice versa) via progression rank.
+  const POOL: JobStatus[] = ['No One', 'Pending', 'Scheduled'];
+  if (POOL.includes(ex) && POOL.includes(inc)) {
+    if (incomingSeq >= existingSeq) return inc;
+    return ex;
+  }
   if ((inc === 'No One' || inc === 'Pending') && incomingSeq >= existingSeq) return inc;
   if (statusRank(inc) < statusRank(ex)) return ex;
   if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;
@@ -85,6 +92,7 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
   const incDriver = incoming.driverId != null ? String(incoming.driverId) : null;
   if (incDriver === '0' || incDriver === '-1') {
     if (
+      incomingSeq >= existingSeq &&
       incoming.status != null &&
       (normalizeJobStatus(String(incoming.status)) === 'Pending' ||
         normalizeJobStatus(String(incoming.status)) === 'No One')
@@ -109,6 +117,13 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
     ) {
       merged.status = incoming.status;
     }
+  }
+  if (
+    incomingSeq >= existingSeq &&
+    normalizeJobStatus(String(incoming.status || '')) === 'No One'
+  ) {
+    merged.status = 'No One';
+    if (incDriver === '-1' || incoming.driverId === '-1') merged.driverId = '-1';
   }
   if (!incoming.editLock?.active && existing.editLock?.active) {
     merged.editLock = existing.editLock;

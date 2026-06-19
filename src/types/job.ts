@@ -418,6 +418,13 @@ function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
   return 'Pending';
 }
 
+/** Authoritative pool status for UI — driverId -1 means No One even if status field lagged. */
+export function effectiveJobStatus(job: Job): JobStatus {
+  const drv = String(job.driverId ?? '').trim();
+  if (drv === '-1') return 'No One';
+  return normalizeJobStatus(job.status);
+}
+
 export function isScheduledJob(job: Job): boolean {
   if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
   if (job.notifyDispatchAt) return true;
