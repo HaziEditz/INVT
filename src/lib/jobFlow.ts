@@ -9,6 +9,79 @@ import { useUiStore } from '@/store/uiStore';
 
 const API = '/api';
 
+/** Serialize booking updates per job so rapid saves never reuse a stale ifSeq. */
+const jobUpdateChains = new Map<number, Promise<void>>();
+
+function latestStoreJob(jobId: number): Job | undefined {
+  return useJobStore.getState().jobs.find((j) => j.id === jobId);
+}
+
+function latestJobSeq(jobId: number, fallback = 0): number {
+  return latestStoreJob(jobId)?.updateSeq ?? fallback;
+}
+
+function editChangesTouchTiming(changes: Record<string, unknown>): boolean {
+  return [
+    'BookingDateTime',
+    'Pickingtime',
+    'DispatchTimebefore',
+    'Dispatchbefore',
+    'ScheduledFor',
+    'ScheduledForMs',
+    'NotifyDispatchAt',
+  ].some((k) => Object.prototype.hasOwnProperty.call(changes, k));
+}
+
+/** Mirror server _applyTimingEditPrelude so optimistic UI matches saved state. */
+export function applyClientTimingEditPrelude(
+  job: Job,
+  changes: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!editChangesTouchTiming(changes)) return changes;
+  const next = { ...changes };
+  const prevDb = job.dispatchBeforeMinutes ?? 0;
+  const nextDb =
+    next.DispatchTimebefore !== undefined || next.Dispatchbefore !== undefined
+      ? parseInt(String(next.DispatchTimebefore ?? next.Dispatchbefore ?? 0), 10) || 0
+      : prevDb;
+  const nowToLater = prevDb === 0 && nextDb > 0;
+  const laterToNow = prevDb > 0 && nextDb === 0;
+  const pickRef = next.Pickingtime ?? next.BookingDateTime ?? job.bookingDateTime;
+  const pickupMs = pickRef ? Date.parse(String(pickRef).replace(' ', 'T')) : NaN;
+
+  if (
+    !Number.isNaN(pickupMs) &&
+    (nowToLater || nextDb > 0 || normalizeJobStatus(job.status) === 'Scheduled')
+  ) {
+    next.ScheduledFor = pickupMs;
+    next.ScheduledForMs = pickupMs;
+    if (nextDb > 0) {
+      next.NotifyDispatchAt = new Date(pickupMs - nextDb * 60_000).toISOString();
+    }
+  }
+
+  if (nowToLater) {
+    const st = normalizeJobStatus(job.status);
+    if (['Pending', 'No One', 'Offered', 'Assigned', 'Queued'].includes(st)) {
+      next.BookingStatus = 'Scheduled';
+      next.Status = 'Scheduled';
+      next.DriverId = '0';
+      next.VehicleId = '0';
+      next.manualOffer = false;
+    }
+  } else if (laterToNow) {
+    next.ScheduledFor = 0;
+    next.ScheduledForMs = 0;
+    next.NotifyDispatchAt = '';
+    if (normalizeJobStatus(job.status) === 'Scheduled') {
+      next.BookingStatus = 'Pending';
+      next.Status = 'Pending';
+    }
+  }
+
+  return next;
+}
+
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, {
     credentials: 'include',
@@ -83,11 +156,28 @@ export async function updateBooking(body: Record<string, unknown>) {
 
 function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: number): Job {
   const status = changes.BookingStatus ?? changes.Status;
-  const scheduledRaw = changes.ScheduledFor ?? changes.ScheduledForMs;
-  const scheduledFor =
-    scheduledRaw !== undefined
-      ? Number(scheduledRaw) || undefined
-      : job.scheduledFor;
+  const dispatchBeforeMinutes =
+    changes.DispatchTimebefore !== undefined || changes.Dispatchbefore !== undefined
+      ? parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? 0), 10) || 0
+      : job.dispatchBeforeMinutes ?? 0;
+
+  let scheduledFor = job.scheduledFor;
+  if (changes.ScheduledFor !== undefined || changes.ScheduledForMs !== undefined) {
+    const raw = changes.ScheduledFor ?? changes.ScheduledForMs;
+    const n = Number(raw);
+    scheduledFor = n > 0 && !Number.isNaN(n) ? n : undefined;
+  } else if (dispatchBeforeMinutes === 0 && editChangesTouchTiming(changes)) {
+    scheduledFor = undefined;
+  }
+
+  let notifyDispatchAt = job.notifyDispatchAt;
+  if (changes.NotifyDispatchAt !== undefined) {
+    const raw = String(changes.NotifyDispatchAt || '').trim();
+    notifyDispatchAt = raw || undefined;
+  } else if (dispatchBeforeMinutes === 0 && editChangesTouchTiming(changes)) {
+    notifyDispatchAt = undefined;
+  }
+
   return {
     ...job,
     pickAddress: String(changes.PickAddress ?? changes.PickLocation ?? job.pickAddress),
@@ -100,14 +190,9 @@ function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: num
     paymentType: String(changes.PaymentMethod ?? changes.PaymentType ?? job.paymentType),
     serviceType: String(changes.serviceType ?? changes.ServiceType ?? job.serviceType) as Job['serviceType'],
     bookingDateTime: String(changes.BookingDateTime ?? changes.Pickingtime ?? job.bookingDateTime),
-    dispatchBeforeMinutes:
-      parseInt(String(changes.DispatchTimebefore ?? changes.Dispatchbefore ?? job.dispatchBeforeMinutes ?? 0), 10) ||
-      0,
-    scheduledFor: scheduledFor === 0 ? undefined : scheduledFor,
-    notifyDispatchAt:
-      changes.NotifyDispatchAt !== undefined
-        ? String(changes.NotifyDispatchAt || '')
-        : job.notifyDispatchAt,
+    dispatchBeforeMinutes,
+    scheduledFor,
+    notifyDispatchAt,
     status: status != null ? (String(status) as Job['status']) : job.status,
     driverId:
       changes.DriverId != null
@@ -155,6 +240,9 @@ function firebasePatchFromChanges(changes: Record<string, unknown>): Record<stri
     serviceType: 'serviceType',
     BookingDateTime: 'BookingDateTime',
     DispatchTimebefore: 'DispatchTimebefore',
+    Dispatchbefore: 'Dispatchbefore',
+    ScheduledFor: 'ScheduledFor',
+    NotifyDispatchAt: 'NotifyDispatchAt',
     BookingStatus: 'Status',
     Status: 'Status',
     EstimatedFare: 'Fare',
@@ -177,6 +265,12 @@ function firebasePatchFromChanges(changes: Record<string, unknown>): Record<stri
   if (changes.VehicleId !== undefined) patch.VehicleId = changes.VehicleId;
   if (changes.releasedAt !== undefined) patch.releasedAt = changes.releasedAt;
   if (changes.manualOffer !== undefined) patch.manualOffer = changes.manualOffer;
+  if (changes.ScheduledFor === 0 || changes.ScheduledForMs === 0) {
+    patch.ScheduledFor = null;
+  }
+  if (changes.NotifyDispatchAt === '') {
+    patch.NotifyDispatchAt = null;
+  }
   return patch;
 }
 
@@ -262,33 +356,32 @@ async function persistJobUpdate(
 ): Promise<void> {
   if (Object.keys(changes).length === 0) return;
 
-  let ifSeq = baseJob.updateSeq ?? 0;
+  const baseline = latestStoreJob(jobId) ?? baseJob;
+  const effectiveChanges = applyClientTimingEditPrelude(baseline, changes);
 
-  const attempt = async (): Promise<BookingUpdateResult> =>
+  const attempt = async (seq: number): Promise<BookingUpdateResult> =>
     postBookingUpdate({
       bookingId: jobId,
       companyId,
-      changes,
+      changes: effectiveChanges,
       by: 'dispatcher',
-      ifSeq,
+      ifSeq: seq,
       sessionId: getEditLockSessionId(),
     });
 
+  let ifSeq = latestJobSeq(jobId, baseline.updateSeq ?? 0);
   let result: BookingUpdateResult | null = null;
-  for (let tries = 0; tries < 3; tries++) {
-    const live = useJobStore.getState().jobs.find((j) => j.id === jobId);
-    if (tries > 0 && live?.updateSeq != null) {
-      ifSeq = live.updateSeq;
-    }
 
-    result = await attempt();
+  for (let tries = 0; tries < 5; tries++) {
+    ifSeq = latestJobSeq(jobId, ifSeq);
+    result = await attempt(ifSeq);
     if (result.ok) break;
 
     if (result.stale) {
       if (result.currentSeq != null) ifSeq = result.currentSeq;
       const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
       if (fresh) {
-        ifSeq = fresh.updateSeq ?? ifSeq;
+        ifSeq = Math.max(ifSeq, fresh.updateSeq ?? 0);
         useJobStore.getState().upsertJob(fresh);
       }
       continue;
@@ -308,7 +401,7 @@ async function persistJobUpdate(
     throw new Error(message);
   }
 
-  if (result.idempotent && isExplicitUnassignChanges(changes)) {
+  if (result.idempotent && isExplicitUnassignChanges(effectiveChanges)) {
     const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
     if (fresh) useJobStore.getState().upsertJob(fresh);
     const message = 'Unassign was not applied on the server — job may still be assigned';
@@ -316,13 +409,55 @@ async function persistJobUpdate(
     throw new Error(message);
   }
 
-  const current = useJobStore.getState().jobs.find((j) => j.id === jobId) ?? baseJob;
-  const authoritativeSeq = result.seq ?? (ifSeq != null ? ifSeq + 1 : (current.updateSeq ?? 0) + 1);
-  const merged = applyChangesToJob(current, changes, authoritativeSeq);
+  const authoritativeSeq = result.seq ?? ifSeq + 1;
+  const current = latestStoreJob(jobId) ?? baseline;
+  const merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
   useJobStore.getState().upsertJob(merged);
-  mirrorJobChangesToFirebase(companyId, jobId, changes, merged.status, authoritativeSeq);
+  mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
+
   const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
-  if (fresh) useJobStore.getState().upsertJob(fresh);
+  if (fresh) {
+    useJobStore.getState().upsertJob(
+      mergeJobUpdateFromServer(merged, fresh, authoritativeSeq),
+    );
+  }
+}
+
+function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq: number): Job {
+  const merged: Job = {
+    ...optimistic,
+    ...fresh,
+    updateSeq: Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0),
+  };
+  if ((fresh.dispatchBeforeMinutes ?? 0) === 0 && (optimistic.dispatchBeforeMinutes ?? 0) > 0) {
+    merged.dispatchBeforeMinutes = 0;
+    merged.scheduledFor = fresh.scheduledFor;
+    merged.notifyDispatchAt = fresh.notifyDispatchAt;
+  }
+  if (
+    normalizeJobStatus(fresh.status) === 'Pending' &&
+    normalizeJobStatus(optimistic.status) === 'Scheduled'
+  ) {
+    merged.status = fresh.status;
+  }
+  return merged;
+}
+
+async function updateJobInner(
+  jobId: number,
+  companyId: string,
+  changes: Record<string, unknown>,
+  existingJob: Job
+): Promise<void> {
+  if (Object.keys(changes).length === 0) return;
+
+  const baseline = latestStoreJob(jobId) ?? existingJob;
+  const effectiveChanges = applyClientTimingEditPrelude(baseline, changes);
+  const optimisticSeq = (baseline.updateSeq ?? 0) + 1;
+  const optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
+  useJobStore.getState().upsertJob(optimisticJob);
+
+  await persistJobUpdate(jobId, companyId, changes, baseline);
 }
 
 export async function updateJob(
@@ -333,11 +468,16 @@ export async function updateJob(
 ): Promise<void> {
   if (Object.keys(changes).length === 0) return;
 
-  const optimisticSeq = (existingJob.updateSeq ?? 0) + 1;
-  const optimisticJob = applyChangesToJob(existingJob, changes, optimisticSeq);
-  useJobStore.getState().upsertJob(optimisticJob);
-
-  await persistJobUpdate(jobId, companyId, changes, existingJob);
+  const prev = jobUpdateChains.get(jobId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(() => updateJobInner(jobId, companyId, changes, existingJob));
+  jobUpdateChains.set(jobId, next);
+  try {
+    await next;
+  } finally {
+    if (jobUpdateChains.get(jobId) === next) jobUpdateChains.delete(jobId);
+  }
 }
 
 export async function setJobStatus(
@@ -409,7 +549,7 @@ export async function assignJob(
   baseJob?: Job,
   opts?: { fanout?: boolean }
 ): Promise<void> {
-  let ifVer = ifVersion;
+  let ifVer = ifVersion ?? latestJobSeq(bookingId, baseJob?.updateSeq ?? 0);
   const attempt = async (): Promise<JobCommandResult> =>
     postJobCommand({
       bookingId,
@@ -422,7 +562,7 @@ export async function assignJob(
   let result = await attempt();
 
   if (!result.ok && (result.stale || result.error_code === 'version_conflict')) {
-    const job = baseJob ?? useJobStore.getState().jobs.find((j) => j.id === bookingId);
+    const job = latestStoreJob(bookingId) ?? baseJob;
     ifVer = result.currentVersion ?? job?.updateSeq ?? ifVer;
     if (job) useJobStore.getState().upsertJob(job);
     result = await attempt();

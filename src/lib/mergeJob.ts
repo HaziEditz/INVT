@@ -98,6 +98,18 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
   if (incoming.updateSeq == null || incomingSeq < existingSeq) {
     merged.updateSeq = existingSeq;
   }
+  if (incomingSeq >= existingSeq && incoming.dispatchBeforeMinutes === 0) {
+    merged.dispatchBeforeMinutes = 0;
+    if (incoming.scheduledFor === undefined) merged.scheduledFor = undefined;
+    if (!incoming.notifyDispatchAt) merged.notifyDispatchAt = undefined;
+    if (
+      incoming.status != null &&
+      normalizeJobStatus(String(incoming.status)) === 'Pending' &&
+      normalizeJobStatus(existing.status) === 'Scheduled'
+    ) {
+      merged.status = incoming.status;
+    }
+  }
   if (!incoming.editLock?.active && existing.editLock?.active) {
     merged.editLock = existing.editLock;
     merged.jobEditing = existing.jobEditing ?? true;

@@ -744,7 +744,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       console.error('[Book] ERROR:', e);
       addToast({
         type: 'error',
-        title: 'Booking failed',
+        title: isEdit ? 'Save failed' : 'Booking failed',
         message: e instanceof Error ? e.message : 'Unknown error',
       });
     } finally {
