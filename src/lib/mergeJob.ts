@@ -50,6 +50,10 @@ const PRESERVE_IF_EMPTY: (keyof Job)[] = [
   'passengerPhone',
   'estimatedFare',
   'dispatcherName',
+  'bookingDateTime',
+  'tariffName',
+  'tariffId',
+  'jobEditing',
 ];
 
 /** Merge an incoming job patch into an existing record without wiping known-good fields. */
@@ -93,6 +97,10 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
   }
   if (incoming.updateSeq == null || incomingSeq < existingSeq) {
     merged.updateSeq = existingSeq;
+  }
+  if (!incoming.editLock?.active && existing.editLock?.active) {
+    merged.editLock = existing.editLock;
+    merged.jobEditing = existing.jobEditing ?? true;
   }
   return merged;
 }

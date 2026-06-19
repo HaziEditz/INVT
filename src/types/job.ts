@@ -110,6 +110,17 @@ export interface Job {
   editHistory?: JobEditHistoryEntry[];
   bookingType?: string;
   timeline?: JobTimelineEvent[];
+  /** True while any client holds an edit-session lock on this job. */
+  jobEditing?: boolean;
+  editLock?: JobEditLockInfo;
+}
+
+export interface JobEditLockInfo {
+  active: boolean;
+  source?: 'dispatcher' | 'passenger' | 'website' | string;
+  actor?: string;
+  at?: number;
+  sessionId?: string;
 }
 
 export interface JobTimelineEvent {
@@ -156,12 +167,38 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     status,
     source: normalizeSource(srcRaw),
     serviceType: svc,
-    pickAddress: String(rec.PickAddress ?? rec.pickup ?? rec.pickupAddress ?? ''),
-    pickLatLng: String(rec.PickLatLng ?? (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : '')),
-    dropAddress: String(rec.DropAddress ?? rec.dropoff ?? rec.dropAddress ?? ''),
-    dropLatLng: String(rec.DropLatLng ?? (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : '')),
-    passengerName: String(rec.Name ?? rec.passengerName ?? ''),
-    passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? ''),
+    pickAddress: String(
+      rec.PickAddress ??
+        rec.PickLocation ??
+        rec.pickAddress ??
+        rec.PickupAddress ??
+        rec.pickupAddress ??
+        rec.pickup ??
+        rec.jobpickup ??
+        '',
+    ),
+    pickLatLng: String(
+      rec.PickLatLng ??
+        rec.pickLatLng ??
+        (rec.pickupLat != null ? `${rec.pickupLat},${rec.pickupLng}` : ''),
+    ),
+    dropAddress: String(
+      rec.DropAddress ??
+        rec.DropLocation ??
+        rec.dropAddress ??
+        rec.DropoffAddress ??
+        rec.dropoffAddress ??
+        rec.dropoff ??
+        rec.jobdropoff ??
+        '',
+    ),
+    dropLatLng: String(
+      rec.DropLatLng ??
+        rec.dropLatLng ??
+        (rec.dropLat != null ? `${rec.dropLat},${rec.dropLng}` : ''),
+    ),
+    passengerName: String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? ''),
+    passengerPhone: String(rec.PhoneNo ?? rec.passengerPhone ?? rec.phoneNo ?? ''),
     paymentType: String(rec.PaymentMethod ?? rec.paymentType ?? 'Cash'),
     estimatedFare: String(rec.EstimatedFare ?? rec.CustomeRate ?? rec.CustomRate ?? rec.RideCost ?? rec.Fare ?? rec.fare ?? ''),
     totalFare: rec.TotalFare != null ? String(rec.TotalFare) : undefined,
@@ -196,7 +233,8 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         rec.Pickingtime ??
         rec.PickingTime ??
         rec.pickingTime ??
-        ''
+        rec.pickingtime ??
+        '',
     ),
     scheduledFor: (() => {
       const raw = rec.ScheduledFor ?? rec.ScheduledForMs ?? rec.scheduledFor;
@@ -282,7 +320,37 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     cancelReason: String(rec.CancelReason ?? rec.cancelReason ?? ''),
     cancelSource: String(rec.CancelSource ?? rec.cancelSource ?? ''),
     terminalKind: String(rec.TerminalKind ?? rec.terminalKind ?? ''),
+    jobEditing: rec.jobEditing === true || rec.dispatcherEditing === true || rec.JobEditing === true,
+    editLock: parseJobEditLockFromRecord(rec),
   };
+}
+
+function parseJobEditLockFromRecord(rec: Record<string, unknown>): JobEditLockInfo | undefined {
+  const active =
+    rec.jobEditing === true ||
+    rec.dispatcherEditing === true ||
+    rec.JobEditing === true ||
+    rec.editLockActive === true;
+  if (!active) return undefined;
+  const atRaw = rec.editLockAt ?? rec.EditLockAt;
+  const at = atRaw != null ? Number(atRaw) : undefined;
+  return {
+    active: true,
+    source: String(rec.editLockSource ?? rec.EditLockSource ?? 'dispatcher').trim() || 'dispatcher',
+    actor: String(rec.editLockActor ?? rec.EditLockActor ?? '').trim() || undefined,
+    at: at != null && !Number.isNaN(at) ? at : undefined,
+    sessionId: String(rec.editLockSessionId ?? rec.EditLockSessionId ?? '').trim() || undefined,
+  };
+}
+
+export function jobEditLockLabel(job: Job): string | null {
+  if (!job.editLock?.active && !job.jobEditing) return null;
+  const actor = job.editLock?.actor?.trim();
+  const source = job.editLock?.source || 'dispatcher';
+  if (source === 'dispatcher') return actor ? `${actor} editing` : 'Dispatcher editing';
+  if (source === 'passenger') return actor ? `Passenger (${actor})` : 'Passenger editing';
+  if (source === 'website') return actor ? `Website (${actor})` : 'Website editing';
+  return actor ? `${actor} editing` : 'Being edited';
 }
 
 export function normalizeJobStatus(raw: string): JobStatus {
@@ -978,6 +1046,7 @@ export function jobVehicleTypeLabel(job: Job): string | null {
 
 export interface JobBookingMeta {
   vehicleType: string | null;
+  tariff: string | null;
   passengers: number | null;
   bags: number | null;
   notes: string | null;
@@ -985,14 +1054,15 @@ export interface JobBookingMeta {
 
 export function jobBookingMeta(job: Job): JobBookingMeta {
   const vehicleType = jobVehicleTypeLabel(job);
+  const tariff = jobTariffLabel(job);
   const passengers = (job.passengers ?? 1) > 1 ? job.passengers! : null;
   const bags = (job.bags ?? 0) > 0 ? job.bags! : null;
   const notes = job.notes?.trim() || null;
-  return { vehicleType, passengers, bags, notes };
+  return { vehicleType, tariff, passengers, bags, notes };
 }
 
 export function jobBookingMetaVisible(meta: JobBookingMeta): boolean {
-  return !!(meta.vehicleType || meta.passengers || meta.bags || meta.notes);
+  return !!(meta.vehicleType || meta.tariff || meta.passengers || meta.bags || meta.notes);
 }
 
 export interface LiveMeterDisplay {

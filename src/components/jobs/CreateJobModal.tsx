@@ -13,6 +13,8 @@ import {
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
 import { updateJob, applyFormDriverAssignment } from '@/lib/jobFlow';
+import { setJobEditLock } from '@/lib/jobEditLock';
+import { getEditLockSessionId } from '@/lib/editLockSession';
 import {
   buildInsertParams,
   buildJobEditChangesDelta,
@@ -222,6 +224,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const dragOffset = useRef({ x: 0, y: 0 });
   const posRef = useRef(pos);
   const submittingRef = useRef(false);
+  const loadedEditJobIdRef = useRef<number | null>(null);
+  const editLockJobIdRef = useRef<number | null>(null);
   posRef.current = pos;
 
   const patch = useCallback((p: Partial<CreateJobFormState>) => {
@@ -290,17 +294,58 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   }, [settings?.defaultDispatchWindow]);
 
   const onClose = useCallback(() => {
+    const heldId = editLockJobIdRef.current;
+    editLockJobIdRef.current = null;
+    if (heldId != null) void releaseEditLock(heldId);
     setRoutePreview(null);
     resetForm();
     closeModal();
-  }, [closeModal, resetForm, setRoutePreview]);
+  }, [closeModal, resetForm, setRoutePreview, releaseEditLock]);
+
+  const releaseEditLock = useCallback(async (jobId: number | null) => {
+    if (!jobId) return;
+    try {
+      await setJobEditLock(jobId, false, {
+        actorName: dispatcherName,
+        sessionId: getEditLockSessionId(),
+      });
+    } catch {
+      /* best-effort unlock */
+    }
+    if (editLockJobIdRef.current === jobId) editLockJobIdRef.current = null;
+  }, [dispatcherName]);
 
   useEffect(() => {
     if (!open) {
+      if (editLockJobIdRef.current != null) {
+        const id = editLockJobIdRef.current;
+        editLockJobIdRef.current = null;
+        void releaseEditLock(id);
+      }
+      loadedEditJobIdRef.current = null;
       setRoutePreview(null);
       return;
     }
-    if (editingJob) {
+    if (!editingJob) return;
+
+    if (editLockJobIdRef.current !== editingJob.id) {
+      const prev = editLockJobIdRef.current;
+      if (prev != null) void releaseEditLock(prev);
+      editLockJobIdRef.current = editingJob.id;
+      void setJobEditLock(editingJob.id, true, {
+        actorName: dispatcherName,
+        sessionId: getEditLockSessionId(),
+      }).catch(() => {
+        addToast({
+          type: 'warning',
+          title: 'Edit lock unavailable',
+          message: 'Job may still be offered to drivers while editing',
+        });
+      });
+    }
+
+    if (loadedEditJobIdRef.current !== editingJob.id) {
+      loadedEditJobIdRef.current = editingJob.id;
       const loaded = jobToForm(editingJob);
       setForm(loaded);
       setPickFromAutocomplete(!!loaded.pick.lat);
@@ -308,10 +353,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setPickDirty(false);
       setDropDirty(false);
       setPickAddressError('');
-    } else {
+    }
+  }, [open, editingJob?.id, editingJob, releaseEditLock, setRoutePreview, addToast, dispatcherName]);
+
+  useEffect(() => {
+    if (open && !editingJob) {
+      loadedEditJobIdRef.current = null;
       resetForm();
     }
-  }, [open, editingJob, resetForm, setRoutePreview]);
+  }, [open, editingJob, resetForm]);
 
   useEffect(() => {
     if (!open || !companyId) return;
@@ -520,15 +570,34 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   };
 
   const validatePickup = (): boolean => {
-    const addr = form.pick.address || form.pickInput;
-    if (!addr.trim()) {
+    const livePick =
+      isEdit && editingJob
+        ? (
+            useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob
+          ).pickAddress
+        : '';
+    const addr = (
+      form.pick.address ||
+      form.pickInput ||
+      livePick ||
+      (isEdit && editingJob ? editingJob.pickAddress : '') ||
+      ''
+    ).trim();
+    if (!addr) {
       addToast({ type: 'error', title: 'Pickup address required' });
       return false;
     }
-    // Edit: untouched pickup from the existing job does not need re-selection.
-    if (isEdit && editingJob && !pickDirty) {
-      const hasCoords = !!(form.pick.lat && form.pick.lng) || editingJob.pickLatLng !== '0,0';
-      if (hasCoords || addr.trim()) return true;
+    if (isEdit && editingJob) {
+      const orig = (
+        livePick ||
+        editingJob.pickAddress ||
+        ''
+      ).trim();
+      if (!pickDirty || addr === orig) return true;
+      const hasCoords =
+        !!(form.pick.lat && form.pick.lng) ||
+        (!!editingJob.pickLatLng && editingJob.pickLatLng !== '0,0');
+      if (hasCoords) return true;
     }
     if (!pickFromAutocomplete || !form.pick.lat) {
       setPickAddressError('Please select an address from the suggestions');

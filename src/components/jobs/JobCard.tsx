@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
-import { ArrowRight, Ban, Car, CheckCircle, Edit, Luggage, MapPin, AlertTriangle, StickyNote, Users, X } from 'lucide-react';
+import { ArrowRight, Ban, Car, CheckCircle, Edit, Lock, Luggage, MapPin, AlertTriangle, StickyNote, Tag, Users, X } from 'lucide-react';
 import type { Job, JobTab, JobTimerBadge } from '@/types/job';
 import {
   formatJobDateTimeCompact,
@@ -9,6 +9,7 @@ import {
   jobBookingMeta,
   jobBookingMetaVisible,
   jobCreatedAtTime,
+  jobEditLockLabel,
   jobGoTimeLabel,
   jobPickupTime,
   jobPickupTypeLabel,
@@ -19,6 +20,10 @@ import {
   resolveLastOfferDriverName,
   resolveLiveMeterDisplay,
 } from '@/types/job';
+import {
+  jobEditLockBlockedForSelf,
+  tryAcquireJobEditLock,
+} from '@/lib/jobEditLock';
 import { Badge } from '@/components/shared/Badge';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
@@ -104,6 +109,12 @@ function JobBookingMetaRow({
         <span className="inline-flex items-center gap-0.5 shrink-0" title="Vehicle type">
           <Car size={8} className="opacity-70" />
           {meta.vehicleType}
+        </span>
+      )}
+      {meta.tariff && (
+        <span className="inline-flex items-center gap-0.5 shrink-0" title="Tariff">
+          <Tag size={8} className="opacity-70" />
+          {meta.tariff}
         </span>
       )}
       {meta.passengers != null && (
@@ -220,6 +231,32 @@ export function JobCard({ job, tab }: JobCardProps) {
       ? jobGoTimeLabel(job)
       : null;
   const returnAlert = jobReturnReasonAlert(job, resolveLastOfferDriverName(job, allDrivers));
+  const editLockLabel = jobEditLockLabel(job);
+  const editBlockedByOther = jobEditLockBlockedForSelf(job);
+
+  const handleEditClick = async (e: MouseEvent) => {
+    e.stopPropagation();
+    if (editBlockedByOther) {
+      addToast({
+        type: 'warning',
+        title: 'Job locked for editing',
+        message: editLockLabel
+          ? `${editLockLabel} — wait until they save or cancel`
+          : 'Another user is editing this job',
+      });
+      return;
+    }
+    const result = await tryAcquireJobEditLock(job.id, dispatcherName);
+    if (!result.ok) {
+      addToast({
+        type: 'warning',
+        title: result.conflict ? 'Job locked for editing' : 'Cannot edit job',
+        message: result.message,
+      });
+      return;
+    }
+    openModalWith('createJob', { jobId: job.id });
+  };
 
   const assignedDriver = useMemo(() => {
     if (!job.driverId || !isAssignedDriverSelection(job.driverId)) return undefined;
@@ -321,6 +358,26 @@ export function JobCard({ job, tab }: JobCardProps) {
 
   const iconBtn =
     'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center shrink-0';
+
+  const editButton = (tooltip = 'Edit job') => (
+    <Tooltip
+      label={
+        editBlockedByOther && editLockLabel
+          ? `Locked — ${editLockLabel}`
+          : tooltip
+      }
+    >
+      <button
+        type="button"
+        className={cn(iconBtn, editBlockedByOther && 'opacity-50 cursor-not-allowed')}
+        onClick={(e) => {
+          void handleEditClick(e);
+        }}
+      >
+        {editBlockedByOther ? <Lock size={11} /> : <Edit size={11} />}
+      </button>
+    </Tooltip>
+  );
 
   const showRoutePreview = (e: MouseEvent) => {
     e.stopPropagation();
@@ -454,6 +511,15 @@ export function JobCard({ job, tab }: JobCardProps) {
         {job.urgent && (
           <span className="text-[8px] font-bold text-red-600 shrink-0">URG</span>
         )}
+        {editLockLabel && editBlockedByOther && (
+          <span
+            className="inline-flex items-center gap-0.5 text-[8px] font-semibold text-amber-700 bg-amber-500/15 px-1 rounded shrink-0 max-w-[38%] truncate"
+            title={`Being edited — ${editLockLabel}`}
+          >
+            <Lock size={8} className="shrink-0" />
+            {editLockLabel}
+          </span>
+        )}
         <span
           className={cn(
             'ml-auto text-[9px] truncate max-w-[42%] text-right font-medium',
@@ -561,18 +627,7 @@ export function JobCard({ job, tab }: JobCardProps) {
 
           {tab === 'ua' && (
             <>
-              <Tooltip label="Edit job">
-                <button
-                  type="button"
-                  className={iconBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openModalWith('createJob', { jobId: job.id });
-                  }}
-                >
-                  <Edit size={11} />
-                </button>
-              </Tooltip>
+              {editButton()}
               <Tooltip label="Cancel job">
                 <button
                   type="button"
@@ -614,35 +669,13 @@ export function JobCard({ job, tab }: JobCardProps) {
                   <Ban size={11} />
                 </button>
               </Tooltip>
-              <Tooltip label="Edit job">
-                <button
-                  type="button"
-                  className={iconBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openModalWith('createJob', { jobId: job.id });
-                  }}
-                >
-                  <Edit size={11} />
-                </button>
-              </Tooltip>
+              {editButton()}
             </>
           )}
 
           {tab === 'assign' && (
             <>
-              <Tooltip label="Edit job">
-                <button
-                  type="button"
-                  className={iconBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openModalWith('createJob', { jobId: job.id });
-                  }}
-                >
-                  <Edit size={11} />
-                </button>
-              </Tooltip>
+              {editButton()}
               <Tooltip label="Cancel job">
                 <button
                   type="button"
@@ -660,18 +693,7 @@ export function JobCard({ job, tab }: JobCardProps) {
 
           {tab === 'queue' && (
             <>
-              <Tooltip label="Edit job">
-                <button
-                  type="button"
-                  className={iconBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openModalWith('createJob', { jobId: job.id });
-                  }}
-                >
-                  <Edit size={11} />
-                </button>
-              </Tooltip>
+              {editButton()}
               <Tooltip label="Cancel job">
                 <button
                   type="button"
@@ -689,18 +711,7 @@ export function JobCard({ job, tab }: JobCardProps) {
 
           {tab === 'active' && (
             <>
-              <Tooltip label="Edit job">
-                <button
-                  type="button"
-                  className={iconBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openModalWith('createJob', { jobId: job.id });
-                  }}
-                >
-                  <Edit size={11} />
-                </button>
-              </Tooltip>
+              {editButton()}
               <Tooltip label="Complete job">
                 <button
                   type="button"

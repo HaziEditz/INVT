@@ -367,7 +367,12 @@ export function useJobs(companyId: string | null) {
         (j) => !removed.has(j.id)
       );
       const byId = new Map(merged.map((j) => [j.id, j]));
-      for (const j of useJobStore.getState().jobs) {
+      const storeJobs = useJobStore.getState().jobs;
+      for (const [id, job] of byId) {
+        const existing = storeJobs.find((j) => j.id === id);
+        if (existing) byId.set(id, mergeJobUpdate(existing, job));
+      }
+      for (const j of storeJobs) {
         if (byId.has(j.id) || removed.has(j.id)) continue;
         if (shouldPreserveAbsentStoreJob(j, pendingRef.current, bookingsRef.current)) {
           byId.set(j.id, j);
@@ -405,7 +410,9 @@ export function useJobs(companyId: string | null) {
 
       pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
-      const merged = booking ? mergeJobUpdate(booking, job) : job;
+      const storeJob = useJobStore.getState().jobs.find((j) => j.id === job.id);
+      let merged = booking ? mergeJobUpdate(booking, job) : job;
+      if (storeJob) merged = mergeJobUpdate(storeJob, merged);
       upsertJob(merged);
       syncAll();
       if (notify) notifyNewJob(job);

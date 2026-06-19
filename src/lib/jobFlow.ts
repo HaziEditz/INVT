@@ -1,5 +1,6 @@
 import type { Job, JobStatus } from '@/types/job';
 import { jobFromFirebase, jobUpdateSeqFromRecord, normalizeJobStatus, isPreDispatchWindow, preDispatchAssignBlockMessage } from '@/types/job';
+import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
@@ -67,6 +68,8 @@ export async function jobCommand(payload: {
   return jsonFetch(`${API}/job/command`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export { setJobEditLock, tryAcquireJobEditLock, formatJobEditLockLabel } from '@/lib/jobEditLock';
+
 export async function createJob(body: Record<string, unknown>) {
   return jsonFetch<{ ok: boolean; bookingId?: number; jobId?: string | number }>(`${API}/job/create`, {
     method: 'POST',
@@ -122,6 +125,7 @@ function applyChangesToJob(job: Job, changes: Record<string, unknown>, seq?: num
         : job.vehicleId,
     vehicleType: String(changes.VehicleType ?? job.vehicleType ?? ''),
     tariffId: changes.TarriffId != null ? String(changes.TarriffId) : job.tariffId,
+    tariffName: changes.TarriffName != null ? String(changes.TarriffName) : job.tariffName,
     estimatedFare: String(changes.EstimatedFare ?? changes.CustomeRate ?? job.estimatedFare ?? ''),
     urgent: changes.Urgent === 'Yes' || changes.Urgent === true,
     corner: changes.CornerAddress ? String(changes.CornerAddress).length > 0 : job.corner,
@@ -267,6 +271,7 @@ async function persistJobUpdate(
       changes,
       by: 'dispatcher',
       ifSeq,
+      sessionId: getEditLockSessionId(),
     });
 
   let result: BookingUpdateResult | null = null;

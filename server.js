@@ -2083,6 +2083,197 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
 const _CANCEL_IN_FLIGHT = new Set();
 // Serialize concurrent driver accepts on the same booking (rapid-tap race guard).
 const _ACCEPT_IN_FLIGHT = new Set();
+/** Cross-source edit-session locks — bookingId → lock metadata. */
+const _JOB_EDIT_LOCKS = Object.create(null);
+const _JOB_EDIT_LOCK_TTL_MS = 30 * 60 * 1000;
+
+function _editLockHolderLabel(entry) {
+  if (!entry) return 'another user';
+  const src = String(entry.source || 'unknown').toLowerCase();
+  const actor = String(entry.actor || '').trim();
+  if (src === 'dispatcher') return actor ? `dispatcher ${actor}` : 'a dispatcher';
+  if (src === 'passenger') return actor ? `passenger ${actor}` : 'the passenger app';
+  if (src === 'website') return actor ? `website (${actor})` : 'the website';
+  return actor || src;
+}
+
+function _publicEditLock(entry) {
+  if (!entry) return null;
+  return {
+    active: true,
+    source: entry.source || 'dispatcher',
+    actor: entry.actor || '',
+    at: entry.at || Date.now(),
+    sessionId: entry.sessionId || '',
+  };
+}
+
+function _getJobEditLock(bookingId) {
+  const key = String(bookingId || '');
+  if (!key || key === '0') return null;
+  const entry = _JOB_EDIT_LOCKS[key];
+  if (!entry) return null;
+  if (Date.now() - entry.at > _JOB_EDIT_LOCK_TTL_MS) {
+    delete _JOB_EDIT_LOCKS[key];
+    return null;
+  }
+  return entry;
+}
+
+function _sameEditLockHolder(existing, opts) {
+  if (!existing || !opts) return false;
+  const sid = String(opts.sessionId || opts.clientSessionId || '').trim();
+  if (sid && existing.sessionId && sid === existing.sessionId) return true;
+  return false;
+}
+
+function _isJobEditLocked(job) {
+  if (!job) return false;
+  return !!_getJobEditLock(job.Id || job.id);
+}
+
+function _assertEditLockAllowsMutation(job, by, sessionId) {
+  const entry = _getJobEditLock(job && job.Id);
+  if (!entry) return { ok: true };
+  if (_sameEditLockHolder(entry, { sessionId })) return { ok: true };
+  const label = _editLockHolderLabel(entry);
+  return {
+    ok: false,
+    error_code: 'edit_locked',
+    conflict: true,
+    lock: _publicEditLock(entry),
+    error: `Job is being edited by ${label}`,
+  };
+}
+
+async function _syncJobEditLockFirebase(cid, bookingId, locked, entry) {
+  if (!cid || !bookingId) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const patch = locked && entry
+      ? {
+          jobEditing: true,
+          dispatcherEditing: true,
+          editLockActive: true,
+          editLockSource: entry.source || 'dispatcher',
+          editLockActor: entry.actor || '',
+          editLockAt: entry.at || Date.now(),
+          editLockSessionId: entry.sessionId || '',
+        }
+      : {
+          jobEditing: null,
+          dispatcherEditing: null,
+          editLockActive: null,
+          editLockSource: null,
+          editLockActor: null,
+          editLockAt: null,
+          editLockSessionId: null,
+        };
+    await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok)
+      .catch(e => console.warn(`  [edit-lock] allbookings patch failed #${bookingId}: ${e && e.message}`));
+    if (locked) {
+      await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, tok)
+        .catch(() => {});
+    }
+  } catch (e) {
+    console.warn(`  [edit-lock] Firebase sync failed #${bookingId}: ${e && e.message}`);
+  }
+}
+
+async function _applyJobEditLock(bookingId, companyId, locked, opts) {
+  opts = opts || {};
+  const id = parseInt(bookingId, 10) || 0;
+  if (!id) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
+  const idx = jobStore.findIndex(j => j && j.Id === id);
+  if (idx === -1) {
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
+  }
+  const job = jobStore[idx];
+  if (companyId && job.companyId && String(job.companyId) !== String(companyId)) {
+    return { ok: false, error_code: 'forbidden', error: 'cross-tenant forbidden' };
+  }
+  const cid = String(job.companyId || companyId || '');
+  const key = String(id);
+  const source = String(opts.source || 'dispatcher').toLowerCase();
+  const actor = String(opts.actor || opts.actorName || '').trim();
+  const sessionId = String(opts.sessionId || opts.clientSessionId || '').trim();
+
+  if (locked) {
+    const existing = _getJobEditLock(id);
+    if (existing && !_sameEditLockHolder(existing, opts)) {
+      return {
+        ok: false,
+        error_code: 'edit_locked',
+        conflict: true,
+        lock: _publicEditLock(existing),
+        error: `Job is being edited by ${_editLockHolderLabel(existing)}`,
+      };
+    }
+    const entry = {
+      companyId: cid,
+      at: Date.now(),
+      source,
+      actor,
+      sessionId,
+    };
+    _JOB_EDIT_LOCKS[key] = entry;
+    job.jobEditing = true;
+    job.dispatcherEditing = true;
+    job.editLockSource = source;
+    job.editLockActor = actor;
+    job.editLockSessionId = sessionId;
+    saveJobStore();
+    const st = String(job.BookingStatus || '');
+    if (st === 'Pending' || st === 'No One') {
+      try {
+        const tok = await getFirebaseServerToken();
+        if (tok && cid) await firebaseDbDelete(`pendingjobs/${cid}/${id}`, tok);
+      } catch (e) {
+        console.warn(`  [edit-lock] pendingjobs delete failed #${id}: ${e && e.message}`);
+      }
+    }
+    await _syncJobEditLockFirebase(cid, id, true, entry);
+    console.log(`  [edit-lock] locked job #${id} (cid=${cid}, source=${source}, actor=${actor || '?'})`);
+    return { ok: true, locked: true, bookingId: id, lock: _publicEditLock(entry) };
+  }
+
+  const existing = _getJobEditLock(id);
+  if (existing && !_sameEditLockHolder(existing, opts)) {
+    return {
+      ok: false,
+      error_code: 'edit_locked',
+      conflict: true,
+      lock: _publicEditLock(existing),
+      error: `Cannot release lock held by ${_editLockHolderLabel(existing)}`,
+    };
+  }
+
+  delete _JOB_EDIT_LOCKS[key];
+  job.jobEditing = false;
+  job.dispatcherEditing = false;
+  delete job.editLockSource;
+  delete job.editLockActor;
+  delete job.editLockSessionId;
+  saveJobStore();
+  await _syncJobEditLockFirebase(cid, id, false, null);
+  const st = String(job.BookingStatus || '');
+  if (st === 'Pending' || st === 'No One') {
+    await _writePendingJobFirebase(cid, id, job, st);
+  }
+  console.log(`  [edit-lock] unlocked job #${id} (cid=${cid})`);
+  return { ok: true, locked: false, bookingId: id };
+}
+
+/** @deprecated use _isJobEditLocked */
+function _isDispatcherEditLocked(job) {
+  return _isJobEditLocked(job);
+}
+
+/** @deprecated use _applyJobEditLock */
+async function _applyDispatcherEditLock(bookingId, companyId, locked, by) {
+  return _applyJobEditLock(bookingId, companyId, locked, { source: 'dispatcher', actor: by });
+}
 const _RECENTLY_CANCELLED = new Map();
 const _RECENTLY_CANCELLED_TTL_MS = 10 * 60 * 1000;
 
@@ -2692,6 +2883,14 @@ async function assignBooking(opts) {
     return { ok: false, error_code: 'not_found', error: 'job not found' };
   }
   const job = jobStore[idx];
+  if (_isJobEditLocked(job)) {
+    return {
+      ok: false,
+      error_code: 'dispatcher_editing',
+      error: 'Job is being edited by a dispatcher',
+      booking: _publicBooking(job),
+    };
+  }
   const _curStatus = job.BookingStatus || 'Pending';
   const _curDrv    = String(job.DriverId || '').trim();
   const _curVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
@@ -3429,6 +3628,10 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       BookingSource: job.BookingSource || job.source || 'dispatch',
       Name: normed.name,
       jobinfo: job.jobinfo || job.notes || job.Notes || '',
+      TarriffId: job.TarriffId ?? job.TariffId ?? job.tariffId ?? '',
+      TarriffName: job.TarriffName ?? job.TariffName ?? job.tariffName ?? '',
+      TariffId: job.TarriffId ?? job.TariffId ?? job.tariffId ?? '',
+      TariffName: job.TarriffName ?? job.TariffName ?? job.tariffName ?? '',
     };
     await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, fbJob, tok);
   } catch (e) {
@@ -3464,6 +3667,15 @@ async function acceptPendingJobByDriver(opts) {
   if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
   const job = jobStore[idx];
   const _cur = job.BookingStatus || '';
+
+  if (_isJobEditLocked(job)) {
+    return {
+      ok: false,
+      error_code: 'dispatcher_editing',
+      error: 'Job is being edited by a dispatcher',
+      booking: _publicBooking(job),
+    };
+  }
 
   // Idempotent — already queued for this driver.
   if (_cur === 'Queued' && String(job.DriverId) === String(driverId)) {
@@ -4419,6 +4631,9 @@ function _analyzeAutoDispatchForJob(job, cid) {
   if (job.manualOffer === true) {
     reasons.push('manualOffer=true (auto-dispatch skips manual-only jobs)');
   }
+  if (_isJobEditLocked(job)) {
+    reasons.push('dispatcher editing (soft-locked)');
+  }
   if (job.releasedAt && (now - job.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) {
     reasons.push(`releasedAt cooldown (${Math.round((now - job.releasedAt) / 1000)}s ago, need ${Math.round(AUTO_DISPATCH_RELEASE_COOLDOWN_MS / 1000)}s)`);
   }
@@ -5182,6 +5397,12 @@ async function updateBooking(opts) {
   }
   const job = jobStore[idx];
 
+  const _lockCheck = _assertEditLockAllowsMutation(job, by, opts.sessionId || opts.clientSessionId);
+  if (!_lockCheck.ok) {
+    console.log(`  [${source}] §FIX-UB blocked: job #${bookingId} edit-locked (${_lockCheck.error})`);
+    return _lockCheck;
+  }
+
   const _dispatcherName = String(changes.DispatcherName || job.DispatcherName || '').trim();
   for (const _ik of _IMMUTABLE_ON_EDIT) delete changes[_ik];
   _applyTimingEditPrelude(job, changes);
@@ -5585,6 +5806,7 @@ function _purgeInvalidJobsFromStore(tag) {
 
 function _isDispatchableJob(job, cid) {
   if (!job || !job.Id) return false;
+  if (_isDispatcherEditLocked(job)) return false;
   const st = String(job.BookingStatus || '');
   if (st !== 'Pending') return false;
   if (job.manualOffer === true) return false;
@@ -10631,6 +10853,94 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   // Body: { bookingId, changes: {field:value,...}, ifSeq?, by: dispatcher|passenger|website }
   // Same auth model as /api/cancel: dispatcher uses BW_SID, others X-Admin-Key.
   // Idempotent (empty-diff returns idempotent:true); stale ifSeq returns 409.
+  if (urlPath === '/api/job/edit-lock' && req.method === 'POST') {
+    const _elBody = await readBody(req);
+    let _el = {};
+    try { _el = JSON.parse(_elBody); } catch (e) {}
+    const _elBooking = parseInt(_el.bookingId || _el.BookingId || 0) || 0;
+    const _elLocked = _el.locked !== false && _el.locked !== 0 && String(_el.locked).toLowerCase() !== 'false';
+    const _elSource = String(_el.source || 'dispatcher').toLowerCase().trim();
+    const _elActor = String(_el.actorName || _el.actor || '').trim();
+    const _elSession = String(_el.sessionId || _el.clientSessionId || '').trim();
+    const _elAllowedSrc = new Set(['dispatcher', 'passenger', 'website']);
+    if (!_elBooking || !_elAllowedSrc.has(_elSource)) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId and source ∈ {dispatcher,passenger,website} required' }));
+      return;
+    }
+    let _elCid = '';
+    if (_elSource === 'dispatcher') {
+      _elCid = getSessionCompanyId(req) || '';
+      if (!_elCid) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+        return;
+      }
+    } else {
+      const _elKey = req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '';
+      if (!process.env.BW_ADMIN_KEY || _elKey !== process.env.BW_ADMIN_KEY) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'X-Admin-Key required for ' + _elSource + ' edit-lock' }));
+        return;
+      }
+      _elCid = String(_el.companyId || _el.companyid || '').trim();
+      const _elJobT = jobStore.find(j => j && j.Id === _elBooking);
+      if (_elJobT) _elCid = String(_elJobT.companyId || _elCid);
+      if (!_elCid) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'companyId required (or booking must exist in store)' }));
+        return;
+      }
+    }
+    const _elResult = await _applyJobEditLock(_elBooking, _elCid, _elLocked, {
+      source: _elSource,
+      actor: _elActor,
+      sessionId: _elSession,
+    });
+    const _elStatus = _elResult.ok
+      ? 200
+      : _elResult.error_code === 'edit_locked'
+        ? 409
+        : _elResult.error_code === 'not_found'
+          ? 404
+          : _elResult.error_code === 'forbidden'
+            ? 403
+            : 400;
+    res.writeHead(_elStatus, JSON_HEADERS);
+    res.end(JSON.stringify(_elResult));
+    return;
+  }
+
+  if (urlPath === '/api/job/edit-lock' && req.method === 'GET') {
+    const _elBooking = parseInt(String(url.searchParams.get('bookingId') || url.searchParams.get('BookingId') || '0'), 10) || 0;
+    if (!_elBooking) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'bookingId required' }));
+      return;
+    }
+    const _elCid = getSessionCompanyId(req) || '';
+    if (!_elCid) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+      return;
+    }
+    const _elJob = jobStore.find(j => j && j.Id === _elBooking);
+    if (_elJob && _elJob.companyId && String(_elJob.companyId) !== String(_elCid)) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'forbidden' }));
+      return;
+    }
+    const _elEntry = _getJobEditLock(_elBooking);
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({
+      ok: true,
+      bookingId: _elBooking,
+      locked: !!_elEntry,
+      lock: _elEntry ? _publicEditLock(_elEntry) : null,
+    }));
+    return;
+  }
+
   if (urlPath === '/api/booking/update' && req.method === 'POST') {
     const _ubBody = await readBody(req);
     let _ub = {};
@@ -10673,12 +10983,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _ubResult = await updateBooking({
       bookingId: _ubBooking, changes: _ubChanges,
-      by: _ubBy, ifSeq: _ubIfSeq, source: 'api/booking/update/' + _ubBy
+      by: _ubBy, ifSeq: _ubIfSeq, source: 'api/booking/update/' + _ubBy,
+      sessionId: String(_ub.sessionId || _ub.clientSessionId || '').trim(),
     });
     console.log(`POST /api/booking/update -> ${JSON.stringify({ ok: _ubResult.ok, idempotent: _ubResult.idempotent, stale: _ubResult.stale, types: _ubResult.eventTypes })}`);
     let _status = 200;
     if (_ubResult.stale)  _status = 409;
     else if (_ubResult.closed) _status = 410;
+    else if (!_ubResult.ok && _ubResult.error_code === 'edit_locked') _status = 409;
     else if (!_ubResult.ok && (_ubResult.error_code === 'withdraw_failed' || _ubResult.error_code === 'unassign_rejected')) _status = 409;
     else if (!_ubResult.ok)    _status = 404;
     res.writeHead(_status, JSON_HEADERS);
@@ -12477,6 +12789,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const jobId = parseInt(param('Id')) || 0;
         const job = jobStore.find(j => j.Id === jobId);
         if (job) {
+          const _puLock = _getJobEditLock(jobId);
+          const _puSession = String(param('editSessionId') || param('EditSessionId') || '').trim();
+          const _puReferer = String((req.headers && req.headers.referer) || '').toLowerCase();
+          const _puSource = _puReferer.includes('dispatch') || _puReferer.includes('taxitime')
+            ? 'dispatcher'
+            : (String(job.BookingSource || '').toLowerCase().includes('web') ? 'website' : 'passenger');
+          if (_puLock && !_sameEditLockHolder(_puLock, { sessionId: _puSession })) {
+            console.warn(`  [ProcUpdateJobv6] blocked job #${jobId} — edit-locked by ${_editLockHolderLabel(_puLock)}`);
+            arrayD(res, [{
+              Result: `Job is being edited by ${_editLockHolderLabel(_puLock)}. Save cancelled.`,
+              Error: 'edit_locked',
+              BookingId: jobId,
+            }]);
+            return;
+          }
           // §FIX-UB — shallow snapshot of job BEFORE any mutation so we can
           // compute a real field-level diff once the handler has applied the
           // edit + §FIX-A/A2/D/O status guards.

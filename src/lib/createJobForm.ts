@@ -1,7 +1,7 @@
 import type { DataParam } from '@/lib/dispatchApi';
 import type { Driver } from '@/types/driver';
 import type { Job } from '@/types/job';
-import { normalizeJobStatus, parseLatLng } from '@/types/job';
+import { isPreBookedJob, normalizeJobStatus, parseLatLng } from '@/types/job';
 
 export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
 
@@ -532,7 +532,8 @@ export function jobToForm(job: Job): CreateJobFormState {
   const parsed = parseBookingDateTime(bookingDt);
   const isLater =
     (job.dispatchBeforeMinutes ?? 0) > 0 ||
-    String(job.status || '') === 'Scheduled';
+    String(job.status || '') === 'Scheduled' ||
+    isPreBookedJob(job);
 
   const driverId = formDriverIdFromJob(job);
 
@@ -574,6 +575,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     corner: !!job.corner,
     vehicleType: job.vehicleType || 'Any',
     tariffId: job.tariffId || '0',
+    tariffName: job.tariffName || 'Automatic',
     driverId,
     vehicleId: job.vehicleId || '0',
     paymentType,
