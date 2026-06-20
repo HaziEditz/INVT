@@ -47,6 +47,15 @@ test('Phase 1 messaging: dispatch send → Firebase chat → driver reply → un
     { timeoutMs: 25000 },
   );
   assert.ok(String(chatNode.content || chatNode.bookingid || '').includes(dispatchText));
+  assert.ok(Number(chatNode.timestamp) > 0, 'chat payload should include timestamp');
+  assert.ok(String(chatNode.messageId || '').length > 0, 'chat payload should include messageId');
+
+  const chatNotify = await pollFirebasePeek(
+    `notificationChat/${driverId}`,
+    (n) => n && String(n.eventType || n.type || '') === 'chat_message',
+    { timeoutMs: 20000 },
+  );
+  assert.ok(String(chatNotify.content || '').includes(dispatchText));
 
   await pollFirebasePeek(
     `messages/${TEST_CID}/${driverId}`,

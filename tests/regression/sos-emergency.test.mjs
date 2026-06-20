@@ -77,6 +77,37 @@ test('SOS emergency: driver can cancel active SOS', async () => {
   await pollFirebasePeek(path, (n) => n == null, { timeoutMs: 15000 });
 });
 
+test('SOS emergency: nearby drivers receive notificationSos fanout', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  const sourceId = h.driverIds[0];
+  const nearbyId = h.driverIds[1];
+
+  await h.ensureDriverReady(sourceId);
+  await h.ensureDriverReady(nearbyId);
+  await h.configureDriver(sourceId, {
+    passforlink: `regtest-key-${sourceId}`,
+    phone: '021 800 1111',
+    lat: -46.412,
+    lng: 168.353,
+  });
+  await h.configureDriver(nearbyId, {
+    passforlink: `regtest-key-${nearbyId}`,
+    vehiclestatus: 'Available',
+  });
+
+  const trigger = await h.triggerDriverSos(sourceId);
+  assert.equal(trigger.status, 200, JSON.stringify(trigger.body));
+
+  const sosNotify = await pollFirebasePeek(
+    `notificationSos/${nearbyId}`,
+    (n) => n && String(n.eventType || n.type || '') === 'driver_sos',
+    { timeoutMs: 25000 },
+  );
+  assert.equal(String(sosNotify.sosDriverId), String(sourceId));
+  assert.ok(String(sosNotify.content || '').toLowerCase().includes('emergency'));
+});
+
 test.after(async () => {
   const h = await getHarness();
   await h.cleanupAll();

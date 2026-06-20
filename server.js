@@ -1731,6 +1731,15 @@ function _normalizeNotifyDriverId(raw) {
   return s;
 }
 
+/** Canonical Firebase key for chat/SOS notify paths — matches driver-app AuthContext id. */
+function _resolveChatNotifyDriverId(rawId, companyId) {
+  const raw = String(rawId || '').trim();
+  if (!raw) return '';
+  const identity = resolveDriverIdentity(raw, { companyId });
+  const fromRow = identity && identity.driverId ? String(identity.driverId).trim() : '';
+  return _normalizeNotifyDriverId(fromRow) || _normalizeNotifyDriverId(raw) || raw;
+}
+
 // ── Canonical driver identity (single source of truth) ─────────────────────
 // All offer/assign/notification paths must resolve through resolveDriverIdentity().
 function _zoneDriverRowsForCompany(companyId) {
@@ -2770,9 +2779,10 @@ async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
   );
   const content = `Emergency: ${sosPayload.driverName || 'Driver'} (Vehicle ${sosPayload.vehiclenumber || ''})`;
   for (const d of others) {
-    const did = String(d.driverid);
+    const did = _resolveChatNotifyDriverId(d.driverid, cid);
+    if (!did) continue;
     try {
-      await firebaseDbSet(`notification/${did}`, {
+      await firebaseDbSet(`notificationSos/${did}`, {
         type: 'driver_sos',
         eventType: 'driver_sos',
         sosDriverId: srcId,
@@ -2781,10 +2791,11 @@ async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
         lat: sosPayload.lat,
         lng: sosPayload.lng,
         content,
+        timestamp: Date.now(),
         bookingid: `0,SOS,0,${cid},Dispatcher`,
       }, tok);
     } catch (e) {
-      console.warn(`  [SOS] notification/${did} failed: ${e && e.message}`);
+      console.warn(`  [SOS] notificationSos/${did} failed: ${e && e.message}`);
     }
   }
   return others.length;
@@ -5990,24 +6001,30 @@ function _buildChatBookingId(senderName, message, dateTime, companyId, sourceTag
 }
 
 async function _fanoutChatMessage(driverId, opts, tok) {
-  const did = String(driverId || '').trim();
+  const companyId = String(opts.companyId || '').trim();
+  const did = _resolveChatNotifyDriverId(driverId, companyId);
   if (!did || !tok) return false;
   const senderName = String(opts.senderName || 'Dispatcher').trim();
   const message = String(opts.message || '').trim();
-  const companyId = String(opts.companyId || '').trim();
   const dateTime = String(opts.dateTime || '').trim() || _chatDatetimeParts().dateTime;
   const sourceTag = String(opts.sourceTag || 'Dispatcher');
+  const ts = Date.now();
+  const messageId = String(opts.messageId ?? ts);
   const bookingid = _buildChatBookingId(senderName, message, dateTime, companyId, sourceTag);
   const chatPayload = {
     bookingid,
     content: opts.notificationContent != null ? String(opts.notificationContent) : message,
+    timestamp: ts,
+    messageId,
   };
   await firebaseDbSet(`chat/${did}`, chatPayload, tok);
-  await firebaseDbSet(`notification/${did}`, {
+  await firebaseDbSet(`notificationChat/${did}`, {
     bookingid,
     content: message,
     type: 'chat_message',
     eventType: 'chat_message',
+    timestamp: ts,
+    messageId,
   }, tok);
   return true;
 }
@@ -8268,6 +8285,33 @@ function _ingestTariffNodeIntoMap(val, into) {
   }
 }
 
+function _tariffStoreRowToApiNode(t) {
+  if (!t || typeof t !== 'object') return null;
+  const id = String(t.Id ?? t.id ?? '').trim();
+  if (!id) return null;
+  const name = String(t.TariffName ?? t.name ?? 'Tariff').trim();
+  const startPrice = t.StartPrice ?? t.baseFare ?? t.flagFall;
+  const distanceRate = t.DistanceRate ?? t.pricePerKm ?? t.ratePerKm;
+  return {
+    Id: t.Id ?? id,
+    id,
+    TariffName: name,
+    name,
+    StartPrice: startPrice,
+    baseFare: startPrice,
+    flagFall: startPrice,
+    DistanceRate: distanceRate,
+    pricePerKm: distanceRate,
+    ratePerKm: distanceRate,
+    WaitingRate: t.WaitingRate ?? t.waitingRate ?? 0,
+    waitingRatePerMinute: t.WaitingRate ?? t.waitingRatePerMinute ?? 0,
+    MinimumFare: t.MinimumFare ?? t.minimumFare ?? 0,
+    companyId: t.companyId,
+    updatedAt: t.updatedAt ?? Date.now(),
+    source: 'TARIFF_STORE',
+  };
+}
+
 async function _fetchCompanyTariffs(cid) {
   const c = String(cid || '').trim();
   if (!c) throw new Error('companyId required');
@@ -8288,6 +8332,12 @@ async function _fetchCompanyTariffs(cid) {
     console.warn(`[company-tariffs] tariffZones/${c} read failed:`, e && e.message);
   }
   const merged = Object.assign({}, base, zones);
+  for (const row of TARIFF_STORE) {
+    if (!row || typeof row !== 'object') continue;
+    if (row.companyId && String(row.companyId) !== c) continue;
+    const node = _tariffStoreRowToApiNode(row);
+    if (node) merged[String(node.id)] = node;
+  }
   return { ok: true, companyId: c, tariffs: merged, count: Object.keys(merged).length };
 }
 
@@ -14567,15 +14617,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           _appendMessageRecord(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message from ${senderName} to driver #${receiverId}`);
           if (sessionCompanyId) {
+            const notifyDriverId = _resolveChatNotifyDriverId(receiverId, sessionCompanyId);
             getFirebaseServerToken().then(async (tok) => {
               if (!tok) return;
-              await _persistChatMessageFirebase(sessionCompanyId, receiverId, msg, tok);
+              await _persistChatMessageFirebase(sessionCompanyId, notifyDriverId || receiverId, msg, tok);
               await _fanoutChatMessage(receiverId, {
                 senderName,
                 message: message.trim(),
                 dateTime: dtFull,
                 companyId: sessionCompanyId,
                 sourceTag: 'Dispatcher',
+                messageId: msg.Id,
               }, tok);
             }).catch(e => console.warn(`  [MessageInsert] Firebase fanout failed: ${e && e.message}`));
           }
