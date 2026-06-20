@@ -10421,9 +10421,11 @@ const server = http.createServer(async (req, res) => {
     for (let i = 0; i < nD; i++) {
       const did = 9000 + i;
       LT_DRIVER_IDS.add(String(did));
-      // Remove any stale entry first
-      const ei = ZONE_DRIVERS.findIndex(d => String(d.driverid) === String(did));
-      if (ei !== -1) ZONE_DRIVERS.splice(ei, 1);
+      // Remove all stale entries (DriverStatusChanged can accumulate duplicates).
+      for (let ei = ZONE_DRIVERS.length - 1; ei >= 0; ei--) {
+        const d = ZONE_DRIVERS[ei];
+        if (d && String(d.driverid) === String(did)) ZONE_DRIVERS.splice(ei, 1);
+      }
       ZONE_DRIVERS.push({
         driverid:      did,
         VehicleId:     did,

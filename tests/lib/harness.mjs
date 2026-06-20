@@ -449,14 +449,16 @@ export async function createHarness(opts = {}) {
     },
 
     async ensureDriverReady(driverId) {
-      const cfg = await post(
-        '/dev/loadtest/configure-driver',
-        { driverId, vehiclestatus: 'Available' },
-        h.adminHeaders,
-      );
-      if (!cfg.body?.ok) {
-        await post(`/dev/loadtest/seed?drivers=${driverIds.length}&jobs=0&cid=${encodeURIComponent(TEST_CID)}`, {});
-      }
+      await h.configureDriver(driverId, {
+        passforlink: `regtest-key-${driverId}`,
+        vehiclestatus: 'Available',
+        vehicletype: 'Sedan',
+        seatCapacity: 4,
+        lat: -46.412,
+        lng: 168.353,
+        zoneid: '1',
+        zonename: 'Central',
+      });
       await h.driverStatusChanged(driverId, 'Available');
     },
 

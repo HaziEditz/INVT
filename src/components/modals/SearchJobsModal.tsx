@@ -1,66 +1,82 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
+import { Badge } from '@/components/shared/Badge';
+import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { getDb, ref, get } from '@/lib/firebase';
-import { jobFromFirebase } from '@/types/job';
+import { searchLiveJobs } from '@/lib/searchLiveJobs';
 
 interface SearchJobsModalProps {
-  companyId: string;
+  companyId: string | null;
 }
 
-export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
+export function SearchJobsModal({ companyId: _companyId }: SearchJobsModalProps) {
   const open = useUiStore((s) => s.openModal === 'searchJobs');
   const closeModal = useUiStore((s) => s.closeModal);
   const openModalWith = useUiStore((s) => s.openModalWith);
-  const [mode, setMode] = useState<'id' | 'name' | 'phone'>('id');
+  const jobs = useJobStore((s) => s.jobs);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<ReturnType<typeof jobFromFirebase>[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [debounced, setDebounced] = useState('');
 
-  const search = async () => {
-    setLoading(true);
-    try {
-      const db = getDb();
-      const snap = await get(ref(db, `allbookings/${companyId}`));
-      const list: NonNullable<ReturnType<typeof jobFromFirebase>>[] = [];
-      const val = snap.val();
-      if (val) {
-        for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-          const job = jobFromFirebase(key, rec, companyId);
-          if (!job) continue;
-          const q = query.toLowerCase();
-          if (mode === 'id' && String(job.id).includes(q)) list.push(job);
-          else if (mode === 'name' && job.passengerName.toLowerCase().includes(q)) list.push(job);
-          else if (mode === 'phone' && job.passengerPhone.includes(q)) list.push(job);
-        }
-      }
-      setResults(list.slice(0, 50));
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      setDebounced('');
+      return;
     }
-  };
+    const t = setTimeout(() => setDebounced(query), 200);
+    return () => clearTimeout(t);
+  }, [query, open]);
+
+  const results = useMemo(() => searchLiveJobs(jobs, debounced), [jobs, debounced]);
 
   return (
-    <Modal open={open} onClose={closeModal} title="Search Jobs" wide footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}>
-      <div className="flex gap-2 mb-3">
-        <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)} className="px-2 py-1 rounded bg-bw-bg border border-bw-border text-sm">
-          <option value="id">Booking ID</option>
-          <option value="name">Passenger Name</option>
-          <option value="phone">Phone</option>
-        </select>
-        <input value={query} onChange={(e) => setQuery(e.target.value)} className="flex-1 px-3 py-1 rounded bg-bw-bg border border-bw-border" placeholder="Search…" />
-        <Button variant="gold" onClick={search} disabled={loading}>Search</Button>
-      </div>
-      <div className="space-y-2 max-h-[50vh] overflow-y-auto">
-        {results.map((j) => j && (
-          <div key={j.id} className="bw-card p-2 cursor-pointer hover:border-bw-primary" onClick={() => { closeModal(); openModalWith('jobDetail', { jobId: j.id }); }}>
-            <div className="font-mono font-bold">#{j.id}</div>
-            <div className="text-xs text-bw-muted">{j.passengerName} · {j.status}</div>
-            <div className="text-xs truncate">{j.pickAddress}</div>
-          </div>
-        ))}
-        {!loading && results.length === 0 && <p className="text-bw-muted text-sm text-center py-8">No results</p>}
+    <Modal
+      open={open}
+      onClose={closeModal}
+      title="Filter Jobs"
+      wide
+      footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}
+    >
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="w-full px-3 py-2 rounded-lg bg-bw-bg border border-bw-border text-sm mb-3"
+        placeholder="Booking ID, passenger, phone, driver, address…"
+        autoFocus
+      />
+
+      <div className="space-y-2 max-h-[50vh] overflow-y-auto min-h-[120px]">
+        {!debounced.trim() ? (
+          <p className="text-bw-muted text-sm text-center py-10">Type to search across all live job boards</p>
+        ) : results.length === 0 ? (
+          <p className="text-bw-muted text-sm text-center py-10">No matching live jobs</p>
+        ) : (
+          results.map(({ job, tabLabel }) => (
+            <div
+              key={job.id}
+              className="bw-card p-3 hover:border-bw-primary cursor-pointer border-l-4 border-l-[var(--bw-accent)]"
+              onClick={() => openModalWith('jobDetail', { jobId: job.id })}
+            >
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span className="font-mono font-bold text-[var(--bw-accent)]">#{job.id}</span>
+                <Badge>{tabLabel}</Badge>
+                <span className="text-[10px] text-bw-muted uppercase">{job.status}</span>
+              </div>
+              <div className="text-xs text-bw-text">
+                {job.passengerName || '—'}
+                {job.passengerPhone ? ` · ${job.passengerPhone}` : ''}
+              </div>
+              <div className="text-xs text-bw-muted truncate mt-0.5">{job.pickAddress || '—'}</div>
+              {(job.driverName || job.vehicleNo) && (
+                <div className="text-[10px] text-bw-muted mt-1">
+                  {job.driverName || job.driverId || '—'}
+                  {job.vehicleNo ? ` · ${job.vehicleNo}` : ''}
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </Modal>
   );

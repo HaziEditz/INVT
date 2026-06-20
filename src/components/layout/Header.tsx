@@ -16,7 +16,6 @@ interface HeaderProps {
 const NAV = [
   { id: 'searchJobs', label: 'Filter' },
   { id: 'suspended', label: 'Suspended' },
-  { id: 'searchJobs', label: 'Search' },
   { id: 'closedJobs', label: 'Closed Jobs' },
   { id: 'acc', label: 'ACC' },
   { id: 'alarms', label: 'Alarms' },

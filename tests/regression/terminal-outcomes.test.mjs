@@ -15,10 +15,14 @@ test('Phase 2 outcomes: driver recall (Assigned) → Pending with recall reason'
   const jobId = await h.createAsapJob('outcome-recall');
   await h.assignAccept(jobId, driverId);
 
-  const res = await h.jobCommand(jobId, 'recall', 'driver', { driverId }, {
-    ...h.adminHeaders,
-    'X-User-Key': `regtest-key-${driverId}`,
-  });
+  await h.configureDriver(driverId, { passforlink: `regtest-key-${driverId}`, vehiclestatus: 'Available' });
+  const res = await h.jobCommand(
+    jobId,
+    'recall',
+    'driver',
+    { driverId: String(driverId), reason: 'Recalled by driver' },
+    h.driverHeaders(driverId),
+  );
   assert.equal(res.body.ok, true, JSON.stringify(res.body));
 
   const trace = await h.poll(
