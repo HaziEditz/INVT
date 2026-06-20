@@ -5721,7 +5721,7 @@ function newCompanyJobId(companyId) {
 }
 
 // Valid booking sources accepted by POST /api/job/create
-const BOOKING_SOURCES = new Set(['dispatch', 'hail', 'passenger', 'web', 'food', 'freight']);
+const BOOKING_SOURCES = new Set(['dispatch', 'hail', 'passenger', 'web', 'food', 'freight', 'driver']);
 
 // ─── Job validation (phantom/empty job guard) ────────────────────────────────
 function _normalizeBookingSource(raw) {
@@ -5733,6 +5733,7 @@ function _normalizeBookingSource(raw) {
   if (s.includes('dispatch') || s === 'auto dispatch' || s === 'dispatch console') return 'dispatch';
   if (s.includes('food')) return 'food';
   if (s.includes('freight')) return 'freight';
+  if (s.includes('driver')) return 'driver';
   if (s === 'web') return 'web';
   return s;
 }
@@ -5816,7 +5817,9 @@ function _isValidJobRecord(rec, opts) {
   const bid = _jobBookingId(rec, opts.fallbackKey);
   if (!bid || bid <= 0) return false;
   const cid = String(rec.companyId || opts.companyId || '').trim();
-  if (cid && !/^\d+$/.test(cid)) return false;
+  if (cid && !/^\d+$/.test(cid)) {
+    if (!(process.env.NODE_ENV === 'test' && cid === 'bwtest')) return false;
+  }
   if (!_jobHasValidPickup(rec)) return false;
   if (opts.requireSource && !_jobHasValidSource(rec)) return false;
   return true;
@@ -9269,6 +9272,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /admin/firebasePeek?path=zoneQueues/bwtest/1 — read one Firebase node (regression tests)
+    if (urlPath === '/admin/firebasePeek' && req.method === 'GET') {
+      try {
+        const _fpQs = new URL('http://x' + req.url).searchParams;
+        const _fpPath = (_fpQs.get('path') || '').trim().replace(/^\/+/, '');
+        if (!_fpPath || _fpPath.includes('..')) {
+          jsonReply(res, { ok: false, error: 'path required' });
+          return;
+        }
+        const tok = await getFirebaseServerToken();
+        if (!tok) {
+          jsonReply(res, { ok: false, error: 'Firebase token unavailable' });
+          return;
+        }
+        const node = await firebaseDbGet(_fpPath, tok);
+        jsonReply(res, { ok: true, path: _fpPath, node });
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
     // GET /admin/jobTrace/:bookingId?cid=860869 — lifecycle + Firebase snapshot + pool-trace buffer
     const _jobTraceMatch = urlPath.match(/^\/admin\/jobTrace\/(\d+)$/);
     if (_jobTraceMatch && req.method === 'GET') {
@@ -10172,6 +10197,73 @@ const server = http.createServer(async (req, res) => {
       zoneMemory:      Object.keys(DRIVER_ZONE_MEMORY).length,
       zoneQueues:      _zoneQueueCount(),
     }));
+    return;
+  }
+  if (urlPath === '/dev/loadtest/auto-dispatch-tick' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      await _serverAutoDispatchTick();
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, lastAutoDispatchTick: _AUTO_DISPATCH_LAST }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/scheduled-release' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      await _releaseScheduledJobs();
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/configure-driver' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const did = String(parsed.driverId || parsed.driverid || '').trim();
+      const matches = ZONE_DRIVERS.filter(d => String(d.driverid) === did || String(d.VehicleId) === did);
+      if (!matches.length) {
+        res.writeHead(404, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: `driver ${did} not found` }));
+        return;
+      }
+      for (const zd of matches) {
+        if (parsed.vehicletype != null) zd.vehicletype = String(parsed.vehicletype);
+        if (parsed.seatCapacity != null) { zd.seatCapacity = parseInt(parsed.seatCapacity) || 4; zd.seats = zd.seatCapacity; }
+        if (parsed.zoneid != null) zd.zoneid = String(parsed.zoneid);
+        if (parsed.zonename != null) zd.zonename = String(parsed.zonename);
+        if (parsed.lat != null) zd.lat = parseFloat(parsed.lat);
+        if (parsed.lng != null) zd.lng = parseFloat(parsed.lng);
+        if (parsed.vehiclestatus != null) zd.vehiclestatus = String(parsed.vehiclestatus);
+        if (parsed.passforlink != null) zd.passforlink = String(parsed.passforlink);
+      }
+      const zd = matches[0];
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, driver: { driverid: zd.driverid, vehicletype: zd.vehicletype, seatCapacity: zd.seatCapacity || zd.seats, zoneid: zd.zoneid } }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
     return;
   }
 
@@ -11886,6 +11978,213 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     try { console.time(`booking-gap-${_cjIdStr}`); } catch(e) {}
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(_cjResult));
+    return;
+  }
+
+  // ── POST /api/pre-booking — driver app Add Booking tab (scheduled jobs) ─────
+  if (urlPath === '/api/pre-booking' && req.method === 'POST') {
+    const _pbRaw = await readBody(req);
+    let _pb = {};
+    try { _pb = JSON.parse(_pbRaw); } catch (e) {}
+    console.log('[pre-booking] received:', JSON.stringify(_pb));
+
+    const _pbCidRaw = String(_pb.companyId || '').trim();
+    const _pbCid = _pbCidRaw;
+    const _pbName = String(_pb.passengerName || '').trim();
+    const _pbPhone = String(_pb.passengerPhone || '').trim();
+    const _pbEmail = String(_pb.passengerEmail || '').trim();
+    const _pbPickup = String(_pb.pickup || '').trim();
+    const _pbDropoff = String(_pb.dropoff || '').trim();
+    const _pbSchedRaw = String(_pb.scheduledAt || '').trim();
+    const _pbNotes = String(_pb.notes || '').trim();
+    const _pbDriverId = String(_pb.driverId || '').trim();
+    const _pbVehicleId = String(_pb.vehicleId || '').trim();
+    const _pbVehicleType = String(_pb.vehicleType || 'Taxi').trim();
+    const _pbPayment = String(_pb.paymentType || 'Cash').trim();
+    const _pbPassengers = Math.max(1, parseInt(_pb.passengers || '1', 10) || 1);
+    const _pbJsonHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+
+    if (!_pbCid) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'companyId is required' }));
+      return;
+    }
+    if (!/^\d+$/.test(_pbCid) && !(process.env.NODE_ENV === 'test' && _pbCid === 'bwtest')) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: `companyId must be numeric (received: "${_pbCid}")` }));
+      return;
+    }
+    if (!_pbName || !_pbPhone) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'passengerName and passengerPhone are required' }));
+      return;
+    }
+    if (!_jobHasValidPickup({ PickAddress: _pbPickup })) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'pickup address is required' }));
+      return;
+    }
+    if (!_pbDropoff || _pbDropoff.length < 3) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'dropoff address is required' }));
+      return;
+    }
+    if (!_pbSchedRaw) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'scheduledAt is required' }));
+      return;
+    }
+
+    const _pbSchedNorm = /:\d{2}$/.test(_pbSchedRaw) ? _pbSchedRaw : (_pbSchedRaw + ':00');
+    const _pbScheduledMs = _parseLocalDT(_pbSchedNorm, _pbCid);
+    if (!_pbScheduledMs || isNaN(_pbScheduledMs)) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'scheduledAt could not be parsed — use YYYY-MM-DD HH:mm' }));
+      return;
+    }
+    if (_pbScheduledMs < Date.now() - 90000) {
+      res.writeHead(400, _pbJsonHdr);
+      res.end(JSON.stringify({ ok: false, error: 'The pickup time is already in the past. Please choose a future date and time.' }));
+      return;
+    }
+
+    const _pbServiceType = (function(vt) {
+      const s = String(vt || '').toLowerCase();
+      if (s.includes('food')) return 'food';
+      if (s.includes('freight')) return 'freight';
+      return 'taxi';
+    })(_pbVehicleType);
+
+    const _pbEligStub = {
+      VehicleType: _pbVehicleType,
+      Passengers: _pbPassengers,
+      serviceType: _pbServiceType,
+    };
+    if (_pbDriverId && _normJobDriverId(_pbDriverId)) {
+      const _pbZd = _zoneDriverRowForEligibility(_pbDriverId, _pbCid, _pbVehicleId);
+      if (_pbZd && !_driverEligibleForJob(_pbZd, _pbEligStub)) {
+        res.writeHead(400, _pbJsonHdr);
+        res.end(JSON.stringify({
+          ok: false,
+          error: 'Driver does not meet job vehicle, seat, or service requirements',
+        }));
+        return;
+      }
+    }
+
+    let _pbIdNum = newCompanyJobId(_pbCid);
+    while (_jobExistsInStore(_pbIdNum, _pbCid)) {
+      _pbIdNum = newCompanyJobId(_pbCid);
+    }
+    const _pbCreated = Date.now();
+    const _pbBookingDT = _pbSchedNorm.endsWith('.') ? _pbSchedNorm : (_pbSchedNorm + '.');
+    const _pbDispatchBefore = _estimateDispatchLeadMins(_pbCid, 0, 0);
+    const _pbNotifyAt = new Date(
+      _pbScheduledMs - (_pbDispatchBefore || 15) * 60000
+    ).toISOString();
+
+    const _pbJob = {
+      Id: _pbIdNum,
+      companyId: _pbCid,
+      BookingStatus: 'Scheduled',
+      BookingSource: 'Driver App',
+      source: 'driver',
+      CreatedBy: String(_pb.createdBy || 'driver'),
+      CreatorDriverId: _pbDriverId || undefined,
+      Name: _pbName,
+      PhoneNo: _pbPhone,
+      passengerEmail: _pbEmail || undefined,
+      PickAddress: _pbPickup,
+      PickLatLng: '0,0',
+      DropAddress: _pbDropoff,
+      DropLatLng: '0,0',
+      VehicleType: _pbVehicleType,
+      serviceType: _pbServiceType,
+      Passengers: _pbPassengers,
+      Recieve_payment: _pbPayment,
+      PaymentMethod: _pbPayment,
+      Notes: _pbNotes,
+      DispatchNotes: _pbNotes,
+      BookingDateTime: _pbBookingDT,
+      Pickingtime: _pbBookingDT,
+      ScheduledFor: _pbScheduledMs,
+      DispatchTimebefore: String(_pbDispatchBefore),
+      NotifyDispatchAt: _pbNotifyAt,
+      NotifyDispatchBeforeMinutes: _pbDispatchBefore,
+      DriverId: 0,
+      VehicleId: 0,
+      updateSeq: 1,
+      createdAt: _pbCreated,
+      createdVia: '/api/pre-booking',
+      webstatus: '0',
+      TarriffType: 'Automatic',
+      Bags: 0,
+      WheelChairs: 0,
+      VehiclesReguired: 1,
+    };
+
+    jobStore.push(_pbJob);
+    saveJobStore();
+
+    _writeBookingEvent(_pbCid, _pbIdNum, 'StatusChanged',
+      { from: null, to: 'Scheduled', action: 'created', source: '/api/pre-booking' },
+      'driver', 1).catch(() => {});
+
+    const _pbFbJob = {
+      BookingId: String(_pbIdNum),
+      CompanyId: _pbCid,
+      companyId: _pbCid,
+      Status: 'Scheduled',
+      BookingStatus: 'Scheduled',
+      ServiceType: _pbServiceType,
+      serviceType: _pbServiceType,
+      Name: _pbName,
+      PassengerName: _pbName,
+      PhoneNo: _pbPhone,
+      PickAddress: _pbPickup,
+      DropAddress: _pbDropoff,
+      PickLatLng: '0,0',
+      DropLatLng: '0,0',
+      BookingDateTime: _pbBookingDT,
+      Pickingtime: _pbBookingDT,
+      ScheduledFor: _pbScheduledMs,
+      ScheduledForMs: _pbScheduledMs,
+      DispatchTimebefore: String(_pbDispatchBefore),
+      NotifyDispatchAt: _pbNotifyAt,
+      VehicleType: _pbVehicleType,
+      Passengers: _pbPassengers,
+      BookingSource: 'Driver App',
+      CreatedBy: _pbJob.CreatedBy,
+      CreatorDriverId: _pbDriverId || '',
+      PaymentMethod: _pbPayment,
+      Recieve_payment: _pbPayment,
+      Notes: _pbNotes,
+      DriverId: '0',
+      VehicleId: '0',
+      createdAt: _pbCreated,
+      CreatedAt: new Date(_pbCreated).toISOString(),
+      WebBooking: false,
+      updateSeq: 1,
+      TarriffType: 'Automatic',
+    };
+
+    try {
+      const _pbTok = await getFirebaseServerToken();
+      if (_pbTok) {
+        await Promise.all([
+          firebaseDbSet(`pendingjobs/${_pbCid}/${_pbIdNum}`, _pbFbJob, _pbTok),
+          firebaseDbSet(`allbookings/${_pbCid}/${_pbIdNum}`, _pbFbJob, _pbTok),
+        ]);
+        console.log(`  [pre-booking] Firebase pendingjobs+allbookings/${_pbCid}/${_pbIdNum} written`);
+      }
+    } catch (e) {
+      console.warn(`  [pre-booking] Firebase write failed (non-fatal): ${e && e.message}`);
+    }
+
+    const _pbResult = { ok: true, jobId: String(_pbIdNum), bookingId: _pbIdNum, updateSeq: 1 };
+    console.log('[pre-booking] result:', JSON.stringify(_pbResult));
+    res.writeHead(200, _pbJsonHdr);
+    res.end(JSON.stringify(_pbResult));
     return;
   }
 

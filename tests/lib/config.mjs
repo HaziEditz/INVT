@@ -8,6 +8,8 @@ export const ADMIN_KEY = process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026';
 export const BASE_URL = process.env.REGRESSION_BASE_URL || 'http://127.0.0.1:5099';
 export const DP = '/DataManager/Data.aspx/DataProcessor';
 export const DSR = '/DataManager/Data.aspx/DataSelectorRide';
+export const DS = '/DataManager/Data.aspx/DataSelector';
+export const DSL = '/DataManager/Data.aspx/DataSelectorLess';
 export const REPO_ROOT = path.resolve(__dirname, '../..');
 export const TEST_DATA_DIR = process.env.BW_DATA_DIR || path.join(REPO_ROOT, '.data-regtest');
 

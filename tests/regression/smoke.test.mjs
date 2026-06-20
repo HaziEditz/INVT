@@ -4,6 +4,10 @@ import { requireFirebaseSecret, ADMIN_KEY } from '../lib/config.mjs';
 import { get } from '../lib/http.mjs';
 import { getHarness } from '../lib/harness.mjs';
 
+test.before(async () => {
+  await getHarness({ fresh: true });
+});
+
 test('Phase 0 smoke: server health and admin jobTrace reachable', async () => {
   requireFirebaseSecret();
 

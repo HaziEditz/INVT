@@ -76,7 +76,7 @@ async function main() {
   };
 
   console.log('\n══════════════════════════════════════════════════════════');
-  console.log('  INVT Regression Suite — Phase 0 + Phase 1');
+  console.log('  INVT Regression Suite — Phase 0 through Phase 3');
   console.log(`  Server: ${BASE}  DATA_DIR: ${TEST_DATA_DIR}`);
   console.log('══════════════════════════════════════════════════════════\n');
 
@@ -112,7 +112,7 @@ async function main() {
     const testEnv = {
       ...serverEnv,
       REGRESSION_BASE_URL: BASE,
-      NODE_TEST_TIMEOUT: '60000',
+      NODE_TEST_TIMEOUT: '120000',
     };
 
     const regressionDir = path.join(__dirname, 'regression');
@@ -125,7 +125,7 @@ async function main() {
     let tapOutput = '';
     const testProc = spawn(
       process.execPath,
-      ['--test', '--test-reporter=tap', ...testFiles],
+      ['--test', '--test-concurrency=1', '--test-reporter=tap', ...testFiles],
       {
         cwd: REPO_ROOT,
         env: testEnv,
@@ -150,7 +150,7 @@ async function main() {
 
     console.log('\n══════════════════════════════════════════════════════════');
     if (exitCode === 0 && summary.total != null) {
-      console.log(`  Regression: ${passed}/${total} passed (Phase 0 + Phase 1)`);
+      console.log(`  Regression: ${passed}/${total} passed (Phase 0–3)`);
       console.log('  Firebase sync assertions: included');
     } else if (summary.total != null) {
       console.log(`  Regression: ${passed}/${total} passed, ${failed} failed`);

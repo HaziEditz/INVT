@@ -4,6 +4,10 @@ import { requireFirebaseSecret } from '../lib/config.mjs';
 import { assertFirebaseHealthy, assertStatusSync } from '../lib/harness.mjs';
 import { getHarness } from '../lib/harness.mjs';
 
+test.before(async () => {
+  await getHarness({ fresh: true });
+});
+
 test('Phase 1 create: ASAP job lands in jobStore and Firebase pool', async () => {
   requireFirebaseSecret();
   const h = await getHarness();

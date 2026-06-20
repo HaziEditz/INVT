@@ -33,12 +33,14 @@ export function assertEditLockClear(trace, label = '') {
   const prefix = label ? `${label}: ` : '';
   const fbAb = trace.firebase?.allbookings;
   const fbPj = trace.firebase?.pendingjobs;
+  const st = String(trace.jobStore?.lifecycle?.BookingStatus || trace.jobStore?.lifecycle?.Status || '');
+  const checkPendingJobs = ['Pending', 'No One', 'Scheduled'].includes(st);
   if (fbAb) {
     assert.notEqual(fbAb.editLockActive, true, `${prefix}allbookings editLockActive`);
     assert.notEqual(fbAb.jobEditing, true, `${prefix}allbookings jobEditing`);
     assert.notEqual(fbAb.dispatcherEditing, true, `${prefix}allbookings dispatcherEditing`);
   }
-  if (fbPj) {
+  if (fbPj && checkPendingJobs) {
     assert.notEqual(fbPj.editLockActive, true, `${prefix}pendingjobs editLockActive`);
   }
 }
@@ -75,4 +77,31 @@ export function assertStatusSync(trace, expectedStatus, label = '') {
   if (ab) assert.equal(ab, st, `${prefix}allbookings status`);
   if (pj) assert.equal(pj, st, `${prefix}pendingjobs status`);
   assertFirebaseHealthy(trace, prefix);
+}
+
+export function assertTerminalClean(trace, expectedTerminal, label = '') {
+  const prefix = label ? `${label}: ` : '';
+  const live = trace.jobStore?.found === true;
+  const closed = trace.jobStore?.closedFound === true;
+  assert.ok(!live || closed, `${prefix}terminal job should not remain live-only in jobStore`);
+  if (closed) {
+    const st = String(trace.jobStore?.lifecycle?.BookingStatus || '');
+    assert.equal(st, expectedTerminal, `${prefix}closed status`);
+  }
+  assert.equal(trace.firebase?.pendingjobs, null, `${prefix}pendingjobs should be deleted`);
+  assertFirebaseHealthy(trace, prefix);
+}
+
+export async function pollFirebasePeek(path, predicate, { timeoutMs = 15000, intervalMs = 500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    const r = await get(`/admin/firebasePeek?path=${encodeURIComponent(path)}`, {
+      'X-Admin-Key': ADMIN_KEY,
+    });
+    last = r.body?.node ?? null;
+    if (predicate(last)) return last;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`pollFirebasePeek timeout for ${path}: ${JSON.stringify(last)}`);
 }

@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
-import { assertEditLockClear, assertFirebaseHealthy } from '../lib/harness.mjs';
-import { getHarness } from '../lib/harness.mjs';
+import { assertEditLockClear, assertFirebaseHealthy, getHarness } from '../lib/harness.mjs';
+
+test.before(async () => {
+  await getHarness({ fresh: true });
+});
 
 test('Phase 1 edit-lock: acquire and release without getting stuck', async () => {
   requireFirebaseSecret();

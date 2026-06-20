@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
-import { assertStatusSync } from '../lib/harness.mjs';
-import { getHarness } from '../lib/harness.mjs';
+import { assertStatusSync, getHarness } from '../lib/harness.mjs';
+
+test.before(async () => {
+  await getHarness({ fresh: true });
+});
 
 test('Phase 1 quick-assign: Pending → No One syncs jobStore and Firebase', async () => {
   requireFirebaseSecret();
