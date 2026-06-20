@@ -21,21 +21,7 @@ test('Phase 2 dispatch eligibility: Pending auto-offers, No One never auto-dispa
   await h.triggerAutoDispatch();
   await h.triggerAutoDispatch();
 
-  let pendingTrace;
-  try {
-    pendingTrace = await h.poll(
-      pendingId,
-      (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
-      { timeoutMs: 20000 },
-    );
-  } catch {
-    await h.assignJob(pendingId, driverId, driverId);
-    pendingTrace = await h.poll(
-      pendingId,
-      (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
-      { timeoutMs: 20000 },
-    );
-  }
+  const pendingTrace = await h.waitForAutoOffer(pendingId, driverId);
   assertStatusSync(pendingTrace, 'Offered', 'Pending job');
 
   const noOneTrace = await h.jobTrace(noOneId);

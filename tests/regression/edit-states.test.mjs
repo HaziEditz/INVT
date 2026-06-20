@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
-import { assertEditLockClear, assertStatusSync, getHarness } from '../lib/harness.mjs';
+import { assertEditLockClear, assertStatusSync, getHarness, prepareCleanDispatch } from '../lib/harness.mjs';
 
 test.before(async () => {
   await getHarness({ fresh: true });
@@ -42,6 +42,7 @@ async function editNotesWithoutStatusDrift(h, jobId, label) {
 test('Phase 3 edit-lock: U-A (Pending) edit does not corrupt status', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
+  await prepareCleanDispatch(h);
   const jobId = await h.createAsapJob('edit-ua');
   await editNotesWithoutStatusDrift(h, jobId, 'UA-Pending');
 });
@@ -49,6 +50,7 @@ test('Phase 3 edit-lock: U-A (Pending) edit does not corrupt status', async () =
 test('Phase 3 edit-lock: Assigned edit does not corrupt status', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
+  await prepareCleanDispatch(h);
   const driverId = h.driverIds[0];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('edit-assigned');
@@ -60,6 +62,7 @@ test('Phase 3 edit-lock: Assigned edit does not corrupt status', async () => {
 test('Phase 3 edit-lock: Active (on board) edit does not corrupt status', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
+  await prepareCleanDispatch(h);
   const driverId = h.driverIds[1];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('edit-active');

@@ -52,12 +52,21 @@ test('Phase 3 eligibility: Van job rejects Sedan manual assign; Van driver succe
 test('Phase 3 eligibility: seat capacity blocks assign when passengers exceed capacity', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
+  await prepareCleanDispatch(h);
   const driverId = h.driverIds[0];
   await h.configureDriver(driverId, { vehicletype: 'Sedan', seatCapacity: 4 });
 
   const jobId = await h.createJobViaInsert({ vehicleType: 'Sedan', passengers: 6, notesSuffix: 'seats' });
+  const seq = await h.readUpdateSeq(jobId);
+  const paxUpdate = await h.bookingUpdate(
+    jobId,
+    { PassengersNo: '6', Passengers: 6 },
+    seq,
+  );
+  assert.equal(paxUpdate.body.ok, true, JSON.stringify(paxUpdate.body));
+
   const res = await h.assignJob(jobId, driverId, driverId);
-  assert.notEqual(res.body.ok, true);
+  assert.notEqual(res.body.ok, true, JSON.stringify(res.body));
   assert.equal(res.body.error_code, 'driver_ineligible');
 });
 

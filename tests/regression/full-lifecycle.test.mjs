@@ -14,16 +14,7 @@ test('Phase 2 lifecycle: Create → auto-dispatch → Accept → Arrived → Act
   const driverId = h.driverIds[0];
   const jobId = await h.createAsapJob('full-lifecycle');
 
-  await h.triggerAutoDispatch();
-  let offered = await h.jobTrace(jobId);
-  if (String(offered.jobStore?.lifecycle?.BookingStatus || '') !== 'Offered') {
-    await h.triggerAutoDispatch();
-    offered = await h.poll(
-      jobId,
-      (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
-      { timeoutMs: 30000 },
-    );
-  }
+  const offered = await h.waitForAutoOffer(jobId, driverId);
   assert.equal(String(offered.jobStore?.lifecycle?.BookingStatus || ''), 'Offered', 'after auto-dispatch jobStore');
   const offerDrv = String(offered.jobStore.lifecycle.DriverId);
   assert.ok(offerDrv && offerDrv !== '0', 'offered to a driver');

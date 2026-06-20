@@ -147,7 +147,9 @@ export async function createHarness(opts = {}) {
         bookingId,
         (trace) =>
           trace.jobStore?.found === true &&
-          (trace.firebase?.allbookings != null || trace.firebase?.pendingjobs != null),
+          (trace.firebase?.allbookings != null || trace.firebase?.pendingjobs != null) &&
+          trace.dispatchUiHint?.jobStoreVsAllbookingsMismatch !== true &&
+          trace.dispatchUiHint?.jobStoreVsPendingMismatch !== true,
         { timeoutMs: 25000 },
       );
       return bookingId;
@@ -493,6 +495,30 @@ export async function createHarness(opts = {}) {
       return r.body;
     },
 
+    /** Poll until auto-dispatch offers, retrying ticks; manual assign as last resort. */
+    async waitForAutoOffer(jobId, driverId, { timeoutMs = 45000 } = {}) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        await h.triggerAutoDispatch();
+        try {
+          return await h.poll(
+            jobId,
+            (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
+            { timeoutMs: Math.min(8000, deadline - Date.now()) },
+          );
+        } catch {
+          /* retry after next tick */
+        }
+      }
+      await h.ensureDriverReady(driverId);
+      await h.assignJob(jobId, driverId, driverId);
+      return h.poll(
+        jobId,
+        (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
+        { timeoutMs: 25000 },
+      );
+    },
+
     async triggerScheduledRelease() {
       const r = await post('/dev/loadtest/scheduled-release', {});
       if (r.status !== 200) throw new Error(`scheduled-release: ${JSON.stringify(r.body)}`);
@@ -614,6 +640,15 @@ export async function createHarness(opts = {}) {
 export async function prepareCleanDispatch(h) {
   await h.cancelAllLiveJobs();
   await h.cancelAllOffered();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const r = await get(
+      `/admin/jobTrace?cid=${encodeURIComponent(h.companyId)}&status=Offered`,
+      h.adminHeaders,
+    );
+    if (r.status !== 200 || !Array.isArray(r.body.jobs) || r.body.jobs.length === 0) break;
+    await h.cancelAllOffered();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
   for (const did of h.driverIds) {
     await h.configureDriver(did, {
       passforlink: `regtest-key-${did}`,

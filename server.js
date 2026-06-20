@@ -1758,6 +1758,10 @@ function _findZoneDriverRow(rawId, opts) {
 
   const _pickBestDriverRows = (candidates) => {
     if (!candidates.length) return null;
+    if (process.env.NODE_ENV === 'test') {
+      const loadTest = candidates.filter(d => d._isLoadTest);
+      if (loadTest.length) candidates = loadTest;
+    }
     if (vidHint) {
       const byVid = candidates.find(d =>
         String(d.VehicleId || '').trim() === vidHint ||
@@ -10571,6 +10575,7 @@ const server = http.createServer(async (req, res) => {
           zd.PhoneNo = String(parsed.phone ?? parsed.PhoneNo);
           zd.phone = zd.PhoneNo;
         }
+        zd._fbSyncedAt = Date.now();
       }
       const zd = matches[0];
       res.writeHead(200, JSON_HEADERS);
@@ -19630,7 +19635,11 @@ async function _writeDriverOfferNotification(cid, driver, job) {
 // Multiple pending jobs queue behind any in-flight Offered job (company-wide gate below).
 async function _serverAutoDispatchTick() {
   const now = Date.now();
-  await _syncZoneDriversFromFirebase({ quiet: true });
+  // Regression harness drives ZONE_DRIVERS via configure-driver / DriverStatusChanged.
+  // Syncing from Firebase here overwrites Available with stale Busy after long test runs.
+  if (process.env.NODE_ENV !== 'test') {
+    await _syncZoneDriversFromFirebase({ quiet: true });
+  }
   _purgeInvalidJobsFromStore('server-auto-dispatch');
   _healMisassignedDriverIdsInJobStore('server-auto-dispatch');
   const cids = _fixsCollectCompanyIds();
