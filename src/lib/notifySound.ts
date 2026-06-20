@@ -60,3 +60,50 @@ export function playNotificationSound(kind: NotifySoundKind = 'general') {
 export function playNewJobSound() {
   playNotificationSound('new_booking');
 }
+
+/** Looping SOS alarm — call stopEmergencyAlarm() when dispatcher acknowledges. */
+let emergencyLoopTimer: ReturnType<typeof setInterval> | null = null;
+let emergencyOscNodes: OscillatorNode[] = [];
+
+export function startEmergencyAlarm() {
+  stopEmergencyAlarm();
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+
+  const pulse = () => {
+    emergencyOscNodes.forEach((o) => {
+      try { o.stop(); } catch { /* already stopped */ }
+    });
+    emergencyOscNodes = [];
+
+    [880, 660, 880, 660].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const t0 = ctx.currentTime + i * 0.22;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.28, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.22);
+      emergencyOscNodes.push(osc);
+    });
+  };
+
+  pulse();
+  emergencyLoopTimer = setInterval(pulse, 900);
+}
+
+export function stopEmergencyAlarm() {
+  if (emergencyLoopTimer) {
+    clearInterval(emergencyLoopTimer);
+    emergencyLoopTimer = null;
+  }
+  emergencyOscNodes.forEach((o) => {
+    try { o.stop(); } catch { /* ignore */ }
+  });
+  emergencyOscNodes = [];
+}

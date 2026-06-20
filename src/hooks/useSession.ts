@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { getDb, ref, onValue } from '@/lib/firebase';
 import { parseCityFromFirebase } from '@/lib/mapCenter';
+import { startEmergencyAlarm, stopEmergencyAlarm } from '@/lib/notifySound';
 import { useUiStore } from '@/store/uiStore';
 import type { CompanySettings } from '@/types/booking';
 
@@ -100,21 +101,70 @@ export function useRealtimeNotifications(companyId: string | null) {
   useEffect(() => {
     if (!companyId) return;
     const db = getDb();
+    let hadActiveAlarm = false;
+    let toastShownFor: string | null = null;
 
     const emergRef = ref(db, `Emergency/${companyId}`);
     const unsubEmergency = onValue(emergRef, (snap) => {
       const val = snap.val();
-      if (!val || typeof val !== 'object') return;
-      for (const [, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-        setEmergency({
-          driverName: String(rec.driverName ?? 'Driver'),
-          vehicle: String(rec.vehiclenumber ?? ''),
-          lat: Number(rec.lat ?? 0),
-          lng: Number(rec.lng ?? 0),
-          time: String(rec.time ?? new Date().toISOString()),
-        });
-        addToast({ type: 'error', title: 'Emergency alert', message: 'Driver emergency signal received' });
-        break;
+      if (!val || typeof val !== 'object') {
+        setEmergency(null);
+        if (hadActiveAlarm) {
+          stopEmergencyAlarm();
+          hadActiveAlarm = false;
+        }
+        return;
+      }
+
+      type EmergRec = Record<string, unknown>;
+      let best: { key: string; rec: EmergRec; priority: number } | null = null;
+      for (const [key, rec] of Object.entries(val as Record<string, EmergRec>)) {
+        const status = String(rec.status ?? 'active').toLowerCase();
+        if (status === 'resolved' || status === 'false_alarm') continue;
+        const priority = status === 'active' ? 2 : status === 'acknowledged' ? 1 : 0;
+        if (!best || priority > best.priority) best = { key, rec, priority };
+      }
+
+      if (!best) {
+        setEmergency(null);
+        if (hadActiveAlarm) {
+          stopEmergencyAlarm();
+          hadActiveAlarm = false;
+        }
+        toastShownFor = null;
+        return;
+      }
+
+      const { key, rec } = best;
+      const statusRaw = String(rec.status ?? 'active').toLowerCase();
+      const status: 'active' | 'acknowledged' =
+        statusRaw === 'acknowledged' ? 'acknowledged' : 'active';
+
+      setEmergency({
+        sosId: String(rec.sosId ?? rec.driverId ?? key),
+        driverName: String(rec.driverName ?? 'Driver'),
+        driverPhone: String(rec.driverPhone ?? rec.phone ?? ''),
+        vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ''),
+        lat: Number(rec.lat ?? 0),
+        lng: Number(rec.lng ?? 0),
+        time: String(rec.time ?? new Date().toISOString()),
+        status,
+      });
+
+      if (status === 'active') {
+        if (!hadActiveAlarm) startEmergencyAlarm();
+        hadActiveAlarm = true;
+        if (toastShownFor !== key) {
+          toastShownFor = key;
+          addToast({
+            type: 'error',
+            title: 'EMERGENCY SOS',
+            message: `${rec.driverName ?? 'Driver'} — audible alert until acknowledged`,
+          });
+        }
+      } else {
+        if (hadActiveAlarm) stopEmergencyAlarm();
+        hadActiveAlarm = false;
       }
     });
 
@@ -133,6 +183,7 @@ export function useRealtimeNotifications(companyId: string | null) {
     return () => {
       unsubEmergency();
       unsubReg();
+      stopEmergencyAlarm();
     };
   }, [companyId, addToast, setEmergency]);
 }

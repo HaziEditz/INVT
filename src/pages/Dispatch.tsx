@@ -25,6 +25,8 @@ import { useJobs, useDispatchWindowAlerts } from '@/hooks/useJobs';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useSession, useCompanySettings, useRealtimeNotifications } from '@/hooks/useSession';
 import { sessionMe, accountStatus } from '@/lib/jobFlow';
+import { acknowledgeSos, resolveSos, falseAlarmSos } from '@/lib/sosApi';
+import { stopEmergencyAlarm } from '@/lib/notifySound';
 import { useUiStore } from '@/store/uiStore';
 import { useJobStore } from '@/store/jobStore';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
@@ -183,7 +185,7 @@ export function DispatchPage() {
       <CreateJobModal mapsKey={mapsKey} companyId={companyId} dispatcherName={dispatcherName} />
       <JobDetailModal />
       <DriverDetailModal />
-      <MessagesModal />
+      <MessagesModal companyId={activeCompanyId} />
       <ClosedJobsModal companyId={companyId} />
       <SearchJobsModal companyId={companyId} />
       <AlarmsModal />
@@ -193,15 +195,90 @@ export function DispatchPage() {
 
       <Modal
         open={!!emergency}
-        onClose={() => setEmergency(null)}
-        title="EMERGENCY ALERT"
-        footer={<Button variant="danger" onClick={() => setEmergency(null)}>Acknowledge</Button>}
+        onClose={() => {}}
+        title="EMERGENCY SOS"
+        footer={
+          emergency ? (
+            <div className="flex flex-wrap gap-2 justify-end w-full">
+              {emergency.status === 'active' ? (
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    try {
+                      await acknowledgeSos(emergency.sosId, dispatcherName);
+                      stopEmergencyAlarm();
+                    } catch (e) {
+                      console.error('[SOS] acknowledge failed', e);
+                    }
+                  }}
+                >
+                  Acknowledge (stop alarm)
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      try {
+                        await resolveSos(emergency.sosId);
+                        setEmergency(null);
+                      } catch (e) {
+                        console.error('[SOS] resolve failed', e);
+                      }
+                    }}
+                  >
+                    Resolved
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={async () => {
+                      try {
+                        await falseAlarmSos(emergency.sosId);
+                        setEmergency(null);
+                      } catch (e) {
+                        console.error('[SOS] false alarm failed', e);
+                      }
+                    }}
+                  >
+                    False alarm
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : null
+        }
       >
         {emergency && (
-          <div className="text-center py-6">
-            <p className="text-xl font-bold text-red-400 mb-2">Driver Emergency</p>
-            <p className="text-[#e8eaf0]">{emergency.driverName} · Vehicle {emergency.vehicle}</p>
-            <p className="text-sm bw-muted mt-2">{emergency.time}</p>
+          <div className="py-4 space-y-4">
+            <p className="text-2xl font-bold text-red-400 animate-pulse text-center">
+              {emergency.status === 'active' ? 'DRIVER EMERGENCY — ALARM ACTIVE' : 'SOS acknowledged'}
+            </p>
+            <div className="grid gap-2 text-[#e8eaf0]">
+              <p><span className="text-bw-muted">Driver:</span> <strong>{emergency.driverName}</strong></p>
+              <p>
+                <span className="text-bw-muted">Phone:</span>{' '}
+                {emergency.driverPhone ? (
+                  <a href={`tel:${emergency.driverPhone.replace(/\s/g, '')}`} className="text-red-300 font-bold underline text-lg">
+                    {emergency.driverPhone}
+                  </a>
+                ) : (
+                  <span className="text-bw-muted">Not on file</span>
+                )}
+              </p>
+              <p><span className="text-bw-muted">Vehicle:</span> {emergency.vehicle || '—'}</p>
+              <p><span className="text-bw-muted">Location:</span> {emergency.lat.toFixed(5)}, {emergency.lng.toFixed(5)}</p>
+              <p><span className="text-bw-muted">Time:</span> {emergency.time}</p>
+            </div>
+            {emergency.driverPhone ? (
+              <div className="flex justify-center pt-2">
+                <a
+                  href={`tel:${emergency.driverPhone.replace(/\s/g, '')}`}
+                  className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-lg"
+                >
+                  Call driver now
+                </a>
+              </div>
+            ) : null}
           </div>
         )}
       </Modal>

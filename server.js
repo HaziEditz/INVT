@@ -222,6 +222,7 @@ const ACC_CLIENTS_FILE          = path.join(DATA_DIR, 'acc_clients.json');
 const ACC_APPROVALS_FILE        = path.join(DATA_DIR, 'acc_approvals.json');
 const BUSINESS_ACCOUNTS_FILE    = path.join(DATA_DIR, 'business_accounts.json');
 const PASSENGERS_FILE           = path.join(DATA_DIR, 'passengers.json');
+const MESSAGES_FILE             = path.join(DATA_DIR, 'messages.json');
 const COMPANY_JOB_SEQ_FILE      = path.join(DATA_DIR, 'companyJobSeq.json');
 const STRIPE_PAYMENTS_FILE      = path.join(DATA_DIR, 'stripe_payments.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
@@ -2696,6 +2697,75 @@ function _resolveDriverVehicleIds(driverId, vehicleId, companyId) {
     }
   }
   return { driverId: _normalizeNotifyDriverId(did) || did, vehicleId: vid || did };
+}
+
+/** Match driver app X-User-Key (passforlink) to ZONE_DRIVERS row. */
+function _lookupZoneDriverByUserKey(userKey, driverIdHint) {
+  const key = String(userKey || '').trim();
+  if (key) {
+    const hit = ZONE_DRIVERS.find(d => d && (
+      String(d.passforlink || '').trim() === key ||
+      String(d.userKey || '').trim() === key ||
+      String(d.UserKey || '').trim() === key
+    ));
+    if (hit) return hit;
+  }
+  const hint = String(driverIdHint || '').trim();
+  if (hint) {
+    return ZONE_DRIVERS.find(d => d && (
+      String(d.driverid).trim() === hint || String(d.VehicleId).trim() === hint
+    )) || null;
+  }
+  return null;
+}
+
+function _driverPhoneFromRecord(zd, fallback) {
+  return String(
+    zd?.PhoneNo || zd?.phone || zd?.driverphone || zd?.DriverPhone || fallback || '',
+  ).trim();
+}
+
+function _vehicleLabelFromRecord(zd) {
+  return String(zd?.vehiclenumber || zd?.VehicleNo || zd?.VehicleId || '').trim();
+}
+
+async function _writeSosEmergency(cid, driverId, payload, tok) {
+  const path = `Emergency/${cid}/${driverId}`;
+  await firebaseDbSet(path, payload, tok);
+  return path;
+}
+
+async function _clearSosEmergency(cid, driverId, tok) {
+  await firebaseDbDelete(`Emergency/${cid}/${driverId}`, tok);
+}
+
+async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
+  const srcId = String(sourceDriverId);
+  const others = ZONE_DRIVERS.filter(d =>
+    d && String(d.companyId || '') === String(cid) &&
+    String(d.driverid) !== srcId &&
+    String(d.vehiclestatus || '').toLowerCase() !== 'offline',
+  );
+  const content = `Emergency: ${sosPayload.driverName || 'Driver'} (Vehicle ${sosPayload.vehiclenumber || ''})`;
+  for (const d of others) {
+    const did = String(d.driverid);
+    try {
+      await firebaseDbSet(`notification/${did}`, {
+        type: 'driver_sos',
+        eventType: 'driver_sos',
+        sosDriverId: srcId,
+        driverName: sosPayload.driverName,
+        vehiclenumber: sosPayload.vehiclenumber,
+        lat: sosPayload.lat,
+        lng: sosPayload.lng,
+        content,
+        bookingid: `0,SOS,0,${cid},Dispatcher`,
+      }, tok);
+    } catch (e) {
+      console.warn(`  [SOS] notification/${did} failed: ${e && e.message}`);
+    }
+  }
+  return others.length;
 }
 
 function _attachedDriverIdFromJob(job, withdrawHint) {
@@ -5865,9 +5935,81 @@ function _isDispatchableJob(job, cid) {
   return true;
 }
 
-// ─── In-memory message store ──────────────────────────────────────────────────
+// ─── Message store (JSON + Firebase mirror) ─────────────────────────────────
 let nextMsgId = 100;
-const messageStore = [];
+let messageStore = [];
+loadJsonStore(MESSAGES_FILE, messageStore, 'message(s)');
+if (messageStore.length) {
+  nextMsgId = Math.max(nextMsgId, ...messageStore.map(m => parseInt(m.Id, 10) || 0)) + 1;
+}
+
+function saveMessageStore() {
+  saveJsonStore(MESSAGES_FILE, messageStore);
+}
+
+function _appendMessageRecord(msg) {
+  messageStore.push(msg);
+  const mid = parseInt(msg.Id, 10) || 0;
+  if (mid >= nextMsgId) nextMsgId = mid + 1;
+  saveMessageStore();
+  return msg;
+}
+
+function _chatDatetimeParts(dateTime) {
+  const raw = String(dateTime || '').trim();
+  const datePart = raw.substring(0, 10) || new Date().toISOString().substring(0, 10);
+  const timePart = raw.length > 11 ? raw.substring(11) : new Date().toTimeString().substring(0, 5);
+  const full = raw || `${datePart} ${timePart}`;
+  return { datePart, timePart, dateTime: full };
+}
+
+function _buildChatBookingId(senderName, message, dateTime, companyId, sourceTag) {
+  return `${senderName},${message},${dateTime},${companyId},${sourceTag}`;
+}
+
+async function _fanoutChatMessage(driverId, opts, tok) {
+  const did = String(driverId || '').trim();
+  if (!did || !tok) return false;
+  const senderName = String(opts.senderName || 'Dispatcher').trim();
+  const message = String(opts.message || '').trim();
+  const companyId = String(opts.companyId || '').trim();
+  const dateTime = String(opts.dateTime || '').trim() || _chatDatetimeParts().dateTime;
+  const sourceTag = String(opts.sourceTag || 'Dispatcher');
+  const bookingid = _buildChatBookingId(senderName, message, dateTime, companyId, sourceTag);
+  const chatPayload = {
+    bookingid,
+    content: opts.notificationContent != null ? String(opts.notificationContent) : message,
+  };
+  await firebaseDbSet(`chat/${did}`, chatPayload, tok);
+  await firebaseDbSet(`notification/${did}`, {
+    bookingid,
+    content: message,
+    type: 'chat_message',
+    eventType: 'chat_message',
+  }, tok);
+  return true;
+}
+
+async function _persistChatMessageFirebase(cid, threadDriverId, msg, tok) {
+  if (!cid || !threadDriverId || !tok || !msg) return null;
+  const pushed = await firebaseDbPush(`messages/${cid}/${threadDriverId}`, {
+    id: msg.Id,
+    senderId: String(msg.SenderId),
+    receiverId: String(msg.ReceiverId),
+    senderName: msg.SenderName,
+    message: msg.Message,
+    date: msg.Date,
+    time: msg.Time,
+    isRead: !!msg.IsRead,
+    createdAt: Date.now(),
+  }, tok);
+  return (pushed && pushed.name) ? pushed.name : null;
+}
+
+async function _pushDriverMsgNotify(cid, payload, tok) {
+  if (!cid || !tok) return null;
+  return firebaseDbPush(`driverMsg/${cid}`, payload, tok);
+}
 
 function buildDriverChatList(cid) {
   const drivers = cid ? ZONE_DRIVERS.filter(d => d.companyId && String(d.companyId) === String(cid)) : ZONE_DRIVERS;
@@ -10129,6 +10271,8 @@ const server = http.createServer(async (req, res) => {
         lat:           -46.40 + (Math.random() * 0.1),
         lng:           168.35 + (Math.random() * 0.1),
         companyId:     ltCid,
+        passforlink:   `regtest-key-${did}`,
+        PhoneNo:       `021 ${800000 + i}`,
         _isLoadTest:   true,
       });
     }
@@ -10256,6 +10400,10 @@ const server = http.createServer(async (req, res) => {
         if (parsed.lng != null) zd.lng = parseFloat(parsed.lng);
         if (parsed.vehiclestatus != null) zd.vehiclestatus = String(parsed.vehiclestatus);
         if (parsed.passforlink != null) zd.passforlink = String(parsed.passforlink);
+        if (parsed.phone != null || parsed.PhoneNo != null) {
+          zd.PhoneNo = String(parsed.phone ?? parsed.PhoneNo);
+          zd.phone = zd.PhoneNo;
+        }
       }
       const zd = matches[0];
       res.writeHead(200, JSON_HEADERS);
@@ -12188,6 +12336,206 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── POST /api/driver/sos — driver emergency signal ─────────────────────────
+  if (urlPath === '/api/driver/sos' && req.method === 'POST') {
+    const _sosRaw = await readBody(req);
+    let _sosBody = {};
+    try { _sosBody = JSON.parse(_sosRaw); } catch (e) {}
+    const _sosHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _sosUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _sosAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _sosDriver = _lookupZoneDriverByUserKey(_sosUserKey, _sosBody.driverId);
+    if (!_sosDriver && _sosAdminKey && process.env.BW_ADMIN_KEY && _sosAdminKey === process.env.BW_ADMIN_KEY) {
+      _sosDriver = _lookupZoneDriverByUserKey('', _sosBody.driverId);
+    }
+    if (!_sosDriver) {
+      res.writeHead(401, _sosHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown driver (X-User-Key required)' }));
+      return;
+    }
+    const _sosCid = String(_sosDriver.companyId || '').trim();
+    const _sosDrvId = String(_sosDriver.driverid || '').trim();
+    if (!_sosCid || !_sosDrvId) {
+      res.writeHead(403, _sosHdr);
+      res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
+      return;
+    }
+    const _sosLat = parseFloat(_sosBody.lat ?? _sosDriver.lat ?? 0) || 0;
+    const _sosLng = parseFloat(_sosBody.lng ?? _sosDriver.lng ?? 0) || 0;
+    const _sosNow = new Date();
+    const _sosTime = _sosNow.toISOString().replace('T', ' ').substring(0, 19);
+    const _sosPayload = {
+      sosId: _sosDrvId,
+      driverId: _sosDrvId,
+      driverName: String(_sosDriver.drivername || _sosBody.driverName || 'Driver').trim(),
+      driverPhone: _driverPhoneFromRecord(_sosDriver, _sosBody.phone),
+      vehiclenumber: _vehicleLabelFromRecord(_sosDriver),
+      lat: _sosLat,
+      lng: _sosLng,
+      time: _sosTime,
+      status: 'active',
+      triggeredAt: _sosNow.getTime(),
+      companyId: _sosCid,
+    };
+    try {
+      const _sosTok = await getFirebaseServerToken();
+      if (_sosTok) {
+        await _writeSosEmergency(_sosCid, _sosDrvId, _sosPayload, _sosTok);
+        const _nearby = await _fanoutSosNearbyDrivers(_sosCid, _sosDrvId, _sosPayload, _sosTok);
+        console.log(`  [SOS] Emergency/${_sosCid}/${_sosDrvId} written; nearby notified=${_nearby}`);
+      }
+    } catch (e) {
+      console.warn(`  [SOS] Firebase write failed: ${e && e.message}`);
+      res.writeHead(500, _sosHdr);
+      res.end(JSON.stringify({ ok: false, error: 'Firebase SOS write failed' }));
+      return;
+    }
+    res.writeHead(200, _sosHdr);
+    res.end(JSON.stringify({ ok: true, sosId: _sosDrvId, companyId: _sosCid, status: 'active' }));
+    return;
+  }
+
+  // ── POST /api/driver/sos/cancel — driver cancels their own SOS ─────────────
+  if (urlPath === '/api/driver/sos/cancel' && req.method === 'POST') {
+    const _sosCRaw = await readBody(req);
+    let _sosCBody = {};
+    try { _sosCBody = JSON.parse(_sosCRaw); } catch (e) {}
+    const _sosCHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _sosCUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _sosCAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _sosCDriver = _lookupZoneDriverByUserKey(_sosCUserKey, _sosCBody.driverId);
+    if (!_sosCDriver && _sosCAdminKey && process.env.BW_ADMIN_KEY && _sosCAdminKey === process.env.BW_ADMIN_KEY) {
+      _sosCDriver = _lookupZoneDriverByUserKey('', _sosCBody.driverId);
+    }
+    if (!_sosCDriver) {
+      res.writeHead(401, _sosCHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown driver' }));
+      return;
+    }
+    const _sosCCid = String(_sosCDriver.companyId || '').trim();
+    const _sosCDrvId = String(_sosCDriver.driverid || '').trim();
+    try {
+      const _sosCTok = await getFirebaseServerToken();
+      if (_sosCTok) await _clearSosEmergency(_sosCCid, _sosCDrvId, _sosCTok);
+    } catch (e) {
+      console.warn(`  [SOS cancel] Firebase delete failed: ${e && e.message}`);
+    }
+    res.writeHead(200, _sosCHdr);
+    res.end(JSON.stringify({ ok: true, sosId: _sosCDrvId, cleared: true }));
+    return;
+  }
+
+  // ── POST /api/driver/message — driver → dispatcher chat ───────────────────
+  if (urlPath === '/api/driver/message' && req.method === 'POST') {
+    const _msgRaw = await readBody(req);
+    let _msgBody = {};
+    try { _msgBody = JSON.parse(_msgRaw); } catch (e) {}
+    const _msgHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _msgUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _msgAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _msgDriver = _lookupZoneDriverByUserKey(_msgUserKey, _msgBody.driverId);
+    if (!_msgDriver && _msgAdminKey && process.env.BW_ADMIN_KEY && _msgAdminKey === process.env.BW_ADMIN_KEY) {
+      _msgDriver = _lookupZoneDriverByUserKey('', _msgBody.driverId);
+    }
+    if (!_msgDriver) {
+      res.writeHead(401, _msgHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown driver (X-User-Key required)' }));
+      return;
+    }
+    const message = String(_msgBody.message || '').trim();
+    if (!message) {
+      res.writeHead(400, _msgHdr);
+      res.end(JSON.stringify({ ok: false, error: 'message is required' }));
+      return;
+    }
+    const _msgCid = String(_msgDriver.companyId || '').trim();
+    const _msgDrvId = String(_msgDriver.driverid || '').trim();
+    const { datePart, timePart, dateTime: dtFull } = _chatDatetimeParts(_msgBody.dateTime);
+    const senderName = String(_msgDriver.drivername || _msgBody.driverName || ('Driver ' + _msgDrvId)).trim();
+    const msg = {
+      Id: nextMsgId++,
+      SenderId: _msgDrvId,
+      ReceiverId: 'Dispatcher',
+      SenderName: senderName,
+      Message: message,
+      Date: datePart,
+      Time: timePart,
+      IsRead: false,
+      companyId: _msgCid,
+    };
+    _appendMessageRecord(msg);
+    try {
+      const tok = await getFirebaseServerToken();
+      if (tok && _msgCid) {
+        await _persistChatMessageFirebase(_msgCid, _msgDrvId, msg, tok);
+        await _pushDriverMsgNotify(_msgCid, {
+          driverId: _msgDrvId,
+          driverName: senderName,
+          message,
+          timestamp: Date.now(),
+        }, tok);
+        const bookingid = _buildChatBookingId(senderName, message, dtFull, _msgCid, 'Driver');
+        await firebaseDbSet(`chat/${_msgDrvId}`, { bookingid, content: message }, tok);
+      }
+    } catch (e) {
+      console.warn(`  [/api/driver/message] Firebase failed: ${e && e.message}`);
+    }
+    console.log(`  [/api/driver/message] driver ${_msgDrvId} → dispatch: "${message.substring(0, 40)}"`);
+    res.writeHead(200, _msgHdr);
+    res.end(JSON.stringify({ ok: true, messageId: msg.Id }));
+    return;
+  }
+
+  // ── POST /api/sos/acknowledge | /api/sos/resolve | /api/sos/false-alarm ──
+  if ((urlPath === '/api/sos/acknowledge' || urlPath === '/api/sos/resolve' || urlPath === '/api/sos/false-alarm') && req.method === 'POST') {
+    const _sosDHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _sosDCid = getSessionCompanyId(req) || '';
+    if (!_sosDCid) {
+      res.writeHead(401, _sosDHdr);
+      res.end(JSON.stringify({ ok: false, error: 'dispatcher session required' }));
+      return;
+    }
+    const _sosDRaw = await readBody(req);
+    let _sosDBody = {};
+    try { _sosDBody = JSON.parse(_sosDRaw); } catch (e) {}
+    const _sosDId = String(_sosDBody.sosId || _sosDBody.driverId || '').trim();
+    if (!_sosDId) {
+      res.writeHead(400, _sosDHdr);
+      res.end(JSON.stringify({ ok: false, error: 'sosId (driverId) is required' }));
+      return;
+    }
+    const _sosDAction = urlPath === '/api/sos/acknowledge' ? 'acknowledged'
+      : urlPath === '/api/sos/false-alarm' ? 'false_alarm' : 'resolved';
+    try {
+      const _sosDTok = await getFirebaseServerToken();
+      if (!_sosDTok) throw new Error('no firebase token');
+      if (_sosDAction === 'acknowledged') {
+        const existing = await firebaseDbGet(`Emergency/${_sosDCid}/${_sosDId}`, _sosDTok).catch(() => null);
+        if (!existing) {
+          res.writeHead(404, _sosDHdr);
+          res.end(JSON.stringify({ ok: false, error: 'SOS record not found' }));
+          return;
+        }
+        await firebaseDbPatch(`Emergency/${_sosDCid}/${_sosDId}`, {
+          status: 'acknowledged',
+          acknowledgedAt: Date.now(),
+          acknowledgedBy: String(_sosDBody.dispatcherName || 'Dispatcher'),
+        }, _sosDTok);
+      } else {
+        await _clearSosEmergency(_sosDCid, _sosDId, _sosDTok);
+      }
+      console.log(`  [SOS] ${_sosDAction} Emergency/${_sosDCid}/${_sosDId} by dispatcher`);
+    } catch (e) {
+      console.warn(`  [SOS dispatcher] ${urlPath} failed: ${e && e.message}`);
+      res.writeHead(500, _sosDHdr);
+      res.end(JSON.stringify({ ok: false, error: 'Firebase SOS update failed' }));
+      return;
+    }
+    res.writeHead(200, _sosDHdr);
+    res.end(JSON.stringify({ ok: true, sosId: _sosDId, status: _sosDAction }));
+    return;
+  }
+
   // ── POST /api/payment/confirm — Stripe / web-portal payment confirmation ────
   // Called by the SA portal (or a Stripe webhook adapter) once Stripe confirms a
   // successful payment for a web booking.
@@ -14089,33 +14437,54 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const senderId   = (param('SenderId') || 'Dispatcher').toString().trim();
         const message    = param('Message') || '';
         const dateTime   = param('DateTime') || '';
-        const datePart   = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
-        const timePart   = dateTime.substring(11) || '';
+        const { datePart, timePart, dateTime: dtFull } = _chatDatetimeParts(dateTime);
         if (message.trim() && receiverId) {
-          // Resolve sender name from ZONE_DRIVERS if it's a driver ID (not 'Dispatcher')
           let senderName = 'Dispatcher';
-          if (senderId && senderId !== 'Dispatcher') {
+          if (senderId && senderId !== 'Dispatcher' && senderId !== '0') {
             const zdSend = ZONE_DRIVERS.find(d => String(d.driverid) === senderId || String(d.VehicleId) === senderId);
             senderName = (zdSend && zdSend.drivername) || ('Driver ' + senderId);
           }
           const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: receiverId, SenderName: senderName, Message: message, Date: datePart, Time: timePart, IsRead: true, companyId: sessionCompanyId || '' };
-          messageStore.push(msg);
+          _appendMessageRecord(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message from ${senderName} to driver #${receiverId}`);
+          if (sessionCompanyId) {
+            getFirebaseServerToken().then(async (tok) => {
+              if (!tok) return;
+              await _persistChatMessageFirebase(sessionCompanyId, receiverId, msg, tok);
+              await _fanoutChatMessage(receiverId, {
+                senderName,
+                message: message.trim(),
+                dateTime: dtFull,
+                companyId: sessionCompanyId,
+                sourceTag: 'Dispatcher',
+              }, tok);
+            }).catch(e => console.warn(`  [MessageInsert] Firebase fanout failed: ${e && e.message}`));
+          }
         }
         successD(res, 'Message Saved');
 
       } else if (action === '[DriverMessageInsert]') {
-        // Incoming message FROM a driver → dispatcher (sent via Firebase, stored here for history)
         const senderId  = (param('SenderId') || '').toString().trim();
         const message   = param('Message') || '';
         const dateTime  = param('DateTime') || '';
-        const datePart  = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
-        const timePart  = dateTime.substring(11) || '';
+        const { datePart, timePart } = _chatDatetimeParts(dateTime);
         const driver    = ZONE_DRIVERS.find(d => String(d.driverid) === senderId || String(d.VehicleId) === senderId) || { drivername: 'Driver ' + senderId };
         if (message.trim()) {
           const msg = { Id: nextMsgId++, SenderId: senderId, ReceiverId: 'Dispatcher', SenderName: driver.drivername || ('Driver ' + senderId), Message: message, Date: datePart, Time: timePart, IsRead: false, companyId: sessionCompanyId || '' };
-          messageStore.push(msg);
+          _appendMessageRecord(msg);
           console.log(`200: POST ${urlPath} [action=${action}] -> message stored from driver #${senderId}`);
+          if (sessionCompanyId) {
+            getFirebaseServerToken().then(async (tok) => {
+              if (!tok) return;
+              await _persistChatMessageFirebase(sessionCompanyId, senderId, msg, tok);
+              await _pushDriverMsgNotify(sessionCompanyId, {
+                driverId: senderId,
+                driverName: msg.SenderName,
+                message: message.trim(),
+                timestamp: Date.now(),
+              }, tok);
+            }).catch(e => console.warn(`  [DriverMessageInsert] Firebase persist failed: ${e && e.message}`));
+          }
         }
         successD(res, 'Message stored');
 
@@ -14155,6 +14524,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const msgId = parseInt(param('Id') || '0') || 0;
         const idx = messageStore.findIndex(m => m.Id === msgId);
         if (idx !== -1) messageStore.splice(idx, 1);
+        saveMessageStore();
         console.log(`200: POST ${urlPath} [action=${action}] -> deleted message #${msgId}`);
         successD(res, 'Message Deleted');
 
@@ -15665,6 +16035,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const driverId = (param('Id') || '').toString().trim();
         const unread = companyMessages(messageStore).filter(m => String(m.SenderId) === driverId && !m.IsRead);
         unread.forEach(m => { m.IsRead = true; });
+        if (unread.length) saveMessageStore();
         const mapped = unread.map(m => ({
           Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
           Message: m.Message, Date: m.Date, Time: m.Time,
@@ -17608,8 +17979,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[DispatcherConversation]') {
         const driverId = (param('Id') || '').toString().trim();
         const dt1 = [{ PlayerId: '' }];
-        const convo = messageStore.filter(m => String(m.SenderId) === driverId || String(m.ReceiverId) === driverId);
-        convo.forEach(m => { if (String(m.SenderId) === driverId) m.IsRead = true; });
+        const convo = companyMessages(messageStore).filter(m => String(m.SenderId) === driverId || String(m.ReceiverId) === driverId);
+        let markedRead = false;
+        convo.forEach(m => {
+          if (String(m.SenderId) === driverId && !m.IsRead) {
+            m.IsRead = true;
+            markedRead = true;
+          }
+        });
+        if (markedRead) saveMessageStore();
         const dt2 = convo.map(m => ({
           Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
           Message: m.Message, Date: m.Date, Time: m.Time,

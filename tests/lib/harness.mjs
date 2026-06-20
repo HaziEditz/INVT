@@ -170,6 +170,56 @@ export async function createHarness(opts = {}) {
       return { response: r, scheduledAt, driverId, body };
     },
 
+    async triggerDriverSos(driverId, { lat, lng, phone } = {}) {
+      const r = await post(
+        '/api/driver/sos',
+        {
+          lat: lat ?? -46.412,
+          lng: lng ?? 168.353,
+          phone: phone ?? `021 ${800000 + driverId}`,
+        },
+        h.driverHeaders(driverId),
+      );
+      return r;
+    },
+
+    async cancelDriverSos(driverId) {
+      return post('/api/driver/sos/cancel', {}, h.driverHeaders(driverId));
+    },
+
+    async acknowledgeSos(sosId, dispatcherName = 'Regtest Dispatcher') {
+      return post('/api/sos/acknowledge', { sosId, dispatcherName }, h.dispatcherHeaders);
+    },
+
+    async resolveSos(sosId) {
+      return post('/api/sos/resolve', { sosId }, h.dispatcherHeaders);
+    },
+
+    async sendDispatchMessage(driverId, message) {
+      const dt = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      return h.dpost(DP, '[MessageInsert]', [
+        'RecieverId', String(driverId),
+        'Message', message,
+        'DateTime', dt,
+      ]);
+    },
+
+    async sendDriverMessage(driverId, message) {
+      return post('/api/driver/message', { message }, h.driverHeaders(driverId));
+    },
+
+    async retrieveMessageDrivers() {
+      const r = await h.dpost(DSL, '[RetrieveMessages]', []);
+      return parseDataManager(r.body);
+    },
+
+    async unreadCountForDriver(driverId) {
+      const list = await h.retrieveMessageDrivers();
+      if (!Array.isArray(list)) return 0;
+      const row = list.find((d) => String(d.Id) === String(driverId));
+      return row?.Count ?? 0;
+    },
+
     async createScheduledJob({ minutesAhead = 120, dispatchBefore = 30, notesSuffix = 'scheduled' } = {}) {
       const id = await h.createJobViaInsert({ dispatchBefore: 0, notesSuffix });
       const dt = new Date(Date.now() + minutesAhead * 60000);
@@ -501,6 +551,7 @@ export async function createHarness(opts = {}) {
       for (const did of driverIds) {
         try {
           await h.driverStatusChanged(did, 'Available');
+          await h.resolveSos(String(did)).catch(() => h.cancelDriverSos(did));
         } catch {
           /* best effort */
         }

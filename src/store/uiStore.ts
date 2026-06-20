@@ -91,7 +91,16 @@ interface UiStore {
   mapVisible: boolean;
   mapFullscreen: boolean;
   mapPoppedOut: boolean;
-  emergency: { driverName: string; vehicle: string; lat: number; lng: number; time: string } | null;
+  emergency: {
+    sosId: string;
+    driverName: string;
+    driverPhone: string;
+    vehicle: string;
+    lat: number;
+    lng: number;
+    time: string;
+    status: 'active' | 'acknowledged';
+  } | null;
   settings: CompanySettings | null;
   routePreview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } | null;
   mapInstance: google.maps.Map | null;
