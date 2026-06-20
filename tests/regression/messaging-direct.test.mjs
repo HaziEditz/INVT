@@ -66,6 +66,16 @@ test('Phase 1 messaging: dispatch send → Firebase chat → driver reply → un
   assert.ok(Array.isArray(unreadRows) && unreadRows.length >= 1);
   assert.ok(unreadRows.some((r) => String(r.Message || '').includes('REGTEST driver reply')));
 
+  const convRes = await h.dpost(DSL, '[DispatcherConversation]', ['Id', String(driverId)]);
+  assert.equal(convRes.status, 200, JSON.stringify(convRes.body));
+  const convPayload = parseDataManager(convRes.body);
+  const convRows = convPayload?.dt2 ?? convPayload;
+  assert.ok(Array.isArray(convRows), 'DispatcherConversation must return dt2 array via DataSelectorLess');
+  assert.ok(
+    convRows.some((r) => String(r.Message || '').includes('REGTEST driver reply')),
+    `conversation thread empty: ${JSON.stringify(convRows).slice(0, 200)}`,
+  );
+
   assert.equal(await h.unreadCountForDriver(driverId), 0);
 });
 

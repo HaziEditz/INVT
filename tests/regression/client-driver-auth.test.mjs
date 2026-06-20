@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { requireFirebaseSecret, TEST_CID } from '../lib/config.mjs';
+import { requireFirebaseSecret, TEST_CID, DSL } from '../lib/config.mjs';
+import { parseDataManager } from '../lib/http.mjs';
 import { getHarness } from '../lib/harness.mjs';
 import { pollFirebasePeek } from '../lib/jobTrace.mjs';
 
@@ -52,8 +53,10 @@ test('Client contract: driver message via driverId + companyId (no matching X-Us
   assert.equal(reply.status, 200, JSON.stringify(reply.body));
   assert.equal(reply.body.ok, true);
 
-  const unread = await h.unreadCountForDriver(driverId);
-  assert.ok(unread >= 1);
+  const convRes = await h.dpost(DSL, '[DispatcherConversation]', ['Id', String(driverId)]);
+  const convPayload = parseDataManager(convRes.body);
+  const convRows = convPayload?.dt2 ?? [];
+  assert.ok(Array.isArray(convRows) && convRows.length >= 1, JSON.stringify(convPayload));
 });
 
 test.after(async () => {

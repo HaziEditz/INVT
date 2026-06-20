@@ -6053,10 +6053,37 @@ function buildDriverChatList(cid) {
   });
   return unique.map(d => {
     const did = String(d.driverid || d.VehicleId || '');
-    const unread = msgs.filter(m => String(m.SenderId) === did && !m.IsRead).length;
+    const unread = msgs.filter(m => _messageMatchesDriverId(m, did) && String(m.SenderId) !== 'Dispatcher' && !m.IsRead).length;
     const dn = d.drivername || '';
     return { Id: d.driverid || d.VehicleId, UserFName: dn.split(' ')[0], UserLName: dn.split(' ').slice(1).join(' '), Count: unread, PlayerId: '' };
   });
+}
+
+function _messageMatchesDriverId(msg, driverId) {
+  const did = String(driverId || '').trim();
+  if (!did || !msg) return false;
+  const sid = String(msg.SenderId || '');
+  const rid = String(msg.ReceiverId || '');
+  if (sid === 'Dispatcher' && _driverIdsMatch(rid, did)) return true;
+  return _driverIdsMatch(sid, did) || _driverIdsMatch(rid, did) ||
+    sid === did || rid === did;
+}
+
+function _buildDispatcherConversation(driverId) {
+  const convo = messageStore.filter(m => _messageMatchesDriverId(m, driverId));
+  let markedRead = false;
+  convo.forEach(m => {
+    if (_driverIdsMatch(m.SenderId, driverId) && !m.IsRead) {
+      m.IsRead = true;
+      markedRead = true;
+    }
+  });
+  if (markedRead) saveMessageStore();
+  const dt2 = convo.map(m => ({
+    Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
+    Message: m.Message, Date: m.Date, Time: m.Time,
+  }));
+  return { dt1: [{ PlayerId: '' }], dt2 };
 }
 
 // ─── Closed job store ─────────────────────────────────────────────────────────
@@ -8226,6 +8253,44 @@ async function _fetchParsedCompanyZones(cid) {
   return { ok: true, companyId: c, zones, diagnostics };
 }
 
+/** Merge tariffZones/{cid} + tariffs/{cid} via server token (bypasses RTDB rule quirks). */
+function _ingestTariffNodeIntoMap(val, into) {
+  if (!val || typeof val !== 'object') return;
+  if (Array.isArray(val)) {
+    val.forEach((rec, i) => {
+      if (rec && typeof rec === 'object') into[String(rec.Id ?? rec.id ?? i)] = rec;
+    });
+    return;
+  }
+  for (const [key, rec] of Object.entries(val)) {
+    if (key.startsWith('zone_grid_')) continue;
+    if (rec && typeof rec === 'object') into[String((rec).Id ?? (rec).id ?? key)] = rec;
+  }
+}
+
+async function _fetchCompanyTariffs(cid) {
+  const c = String(cid || '').trim();
+  if (!c) throw new Error('companyId required');
+  const tok = await getFirebaseServerToken();
+  if (!tok) throw new Error('no Firebase server token');
+  const base = {};
+  const zones = {};
+  try {
+    const tRaw = await firebaseDbGet(`tariffs/${c}`, tok);
+    _ingestTariffNodeIntoMap(tRaw, base);
+  } catch (e) {
+    console.warn(`[company-tariffs] tariffs/${c} read failed:`, e && e.message);
+  }
+  try {
+    const zRaw = await firebaseDbGet(`tariffZones/${c}`, tok);
+    _ingestTariffNodeIntoMap(zRaw, zones);
+  } catch (e) {
+    console.warn(`[company-tariffs] tariffZones/${c} read failed:`, e && e.message);
+  }
+  const merged = Object.assign({}, base, zones);
+  return { ok: true, companyId: c, tariffs: merged, count: Object.keys(merged).length };
+}
+
 const ZONE_QUEUES = {}; // cid → zoneId → { zoneName, zoneNumber, order[], updatedAt }
 const _COMPANY_ZONES_CACHE = {}; // cid → { loadedAt, byId, byName }
 
@@ -8932,6 +8997,34 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(500, JSON_HEADERS);
       res.end(JSON.stringify({ ok: false, error: e && e.message || 'zones fetch failed' }));
+    }
+    return;
+  }
+
+  // GET /api/company-tariffs?companyId= — live tariffs via server Firebase token.
+  // Driver app and dispatch use this when RTDB rules block direct client reads.
+  if (urlPath === '/api/company-tariffs' && req.method === 'GET') {
+    const qs = new URL('http://x' + req.url).searchParams;
+    const sessionCid = getSessionCompanyId(req) || '';
+    let cid = String(qs.get('cid') || qs.get('companyId') || sessionCid || '').trim();
+    if (sessionCid && cid && cid !== sessionCid) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'Company mismatch' }));
+      return;
+    }
+    if (sessionCid) cid = sessionCid;
+    if (!cid) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'companyId required' }));
+      return;
+    }
+    try {
+      const payload = await _fetchCompanyTariffs(cid);
+      res.writeHead(200, { ...JSON_HEADERS, 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(payload));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: e && e.message || 'tariffs fetch failed' }));
     }
     return;
   }
@@ -12375,8 +12468,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error: 'unknown driver (X-User-Key required)' }));
       return;
     }
-    const _sosCid = String(_sosDriver.companyId || '').trim();
-    const _sosDrvId = String(_sosDriver.driverid || '').trim();
+    const _sosCid = String(_sosBody.companyId || _sosDriver.companyId || '').trim();
+    const _sosDrvId = String(_sosDriver.driverid || _sosBody.driverId || '').trim();
+    if (_sosCid && !_sosDriver.companyId) _sosDriver.companyId = _sosCid;
     if (!_sosCid || !_sosDrvId) {
       res.writeHead(403, _sosHdr);
       res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
@@ -12401,11 +12495,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     };
     try {
       const _sosTok = await getFirebaseServerToken();
-      if (_sosTok) {
-        await _writeSosEmergency(_sosCid, _sosDrvId, _sosPayload, _sosTok);
-        const _nearby = await _fanoutSosNearbyDrivers(_sosCid, _sosDrvId, _sosPayload, _sosTok);
-        console.log(`  [SOS] Emergency/${_sosCid}/${_sosDrvId} written; nearby notified=${_nearby}`);
+      if (!_sosTok) {
+        res.writeHead(503, _sosHdr);
+        res.end(JSON.stringify({ ok: false, error: 'Firebase unavailable for SOS broadcast' }));
+        return;
       }
+      await _writeSosEmergency(_sosCid, _sosDrvId, _sosPayload, _sosTok);
+      const _nearby = await _fanoutSosNearbyDrivers(_sosCid, _sosDrvId, _sosPayload, _sosTok);
+      console.log(`  [SOS] Emergency/${_sosCid}/${_sosDrvId} written; nearby notified=${_nearby}`);
     } catch (e) {
       console.warn(`  [SOS] Firebase write failed: ${e && e.message}`);
       res.writeHead(500, _sosHdr);
@@ -16055,7 +16152,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
       } else if (action === '[DispatcherUnReadMessages]') {
         const driverId = (param('Id') || '').toString().trim();
-        const unread = companyMessages(messageStore).filter(m => String(m.SenderId) === driverId && !m.IsRead);
+        const unread = companyMessages(messageStore).filter(m => _driverIdsMatch(m.SenderId, driverId) && !m.IsRead);
         unread.forEach(m => { m.IsRead = true; });
         if (unread.length) saveMessageStore();
         const mapped = unread.map(m => ({
@@ -16064,6 +16161,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }));
         console.log(`200: POST ${urlPath} [action=${action}] -> ${mapped.length} unread from driver #${driverId}`);
         arrayD(res, mapped);
+
+      } else if (action === '[DispatcherConversation]') {
+        const driverId = (param('Id') || '').toString().trim();
+        const payload = _buildDispatcherConversation(driverId);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${payload.dt2.length} messages for driver #${driverId}`);
+        objectD(res, payload);
 
       // ── ACC / Accident Claim handlers (real persistent storage) ───────────
       } else if (action === 'Manager_ACC_GET') {
@@ -18000,22 +18103,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
       } else if (action === '[DispatcherConversation]') {
         const driverId = (param('Id') || '').toString().trim();
-        const dt1 = [{ PlayerId: '' }];
-        const convo = companyMessages(messageStore).filter(m => String(m.SenderId) === driverId || String(m.ReceiverId) === driverId);
-        let markedRead = false;
-        convo.forEach(m => {
-          if (String(m.SenderId) === driverId && !m.IsRead) {
-            m.IsRead = true;
-            markedRead = true;
-          }
-        });
-        if (markedRead) saveMessageStore();
-        const dt2 = convo.map(m => ({
-          Id: m.Id, SenderID: m.SenderId, User: m.SenderName,
-          Message: m.Message, Date: m.Date, Time: m.Time,
-        }));
-        console.log(`200: POST ${urlPath} [action=${action}] -> ${dt2.length} messages for driver #${driverId}`);
-        objectD(res, { dt1, dt2 });
+        const payload = _buildDispatcherConversation(driverId);
+        console.log(`200: POST ${urlPath} [action=${action}] -> ${payload.dt2.length} messages for driver #${driverId}`);
+        objectD(res, payload);
 
       } else if (action === '[SearchJobByName]') {
         const searchName = (param('Id') || '').toLowerCase();

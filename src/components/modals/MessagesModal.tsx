@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useUiStore } from '@/store/uiStore';
-import { getDb, ref, onChildAdded, get, remove } from '@/lib/firebase';
+import { getDb, ref, onChildAdded } from '@/lib/firebase';
 import {
   type ChatMessageRow,
   type DriverChatListItem,
@@ -31,7 +31,6 @@ export function MessagesModal({ companyId }: Props) {
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<string | null>(null);
-  const listenerReadyRef = useRef(false);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -68,56 +67,26 @@ export function MessagesModal({ companyId }: Props) {
     return () => clearInterval(iv);
   }, [open, refreshDriverList]);
 
-  // Live driver→dispatch alerts. Purge stale nodes on open; only toast after listener is armed.
+  // Refresh open thread when a new driver message arrives (global toast handled in useRealtimeNotifications).
   useEffect(() => {
     if (!open || !companyId) return;
     const db = getDb();
     const msgRef = ref(db, `driverMsg/${companyId}`);
-    listenerReadyRef.current = false;
-
-    let unsub = () => {};
-    void (async () => {
-      try {
-        const snap = await get(msgRef);
-        if (snap.exists()) {
-          const removals: Promise<void>[] = [];
-          snap.forEach((child) => {
-            if (child.key) {
-              removals.push(
-                remove(ref(db, `driverMsg/${companyId}/${child.key}`)).catch(() => undefined),
-              );
-            }
-          });
-          await Promise.all(removals);
-        }
-      } catch (e) {
-        console.warn('[Messages] stale driverMsg purge failed', e);
+    const startedAt = Date.now();
+    const unsub = onChildAdded(msgRef, (snap) => {
+      const val = snap.val() as Record<string, unknown> | null;
+      if (!val) return;
+      const ts = parseInt(String(val.timestamp ?? ''), 10);
+      if (ts && ts < startedAt - 5000) return;
+      const driverId = String(val.driverId ?? val.DriverId ?? '');
+      void refreshDriverList();
+      const activeId = selectedIdRef.current;
+      if (activeId && driverId && String(activeId) === driverId) {
+        void loadConversation(driverId);
       }
-
-      listenerReadyRef.current = true;
-      unsub = onChildAdded(msgRef, (childSnap) => {
-        if (!listenerReadyRef.current) return;
-        const val = childSnap.val() as Record<string, unknown> | null;
-        const key = childSnap.key;
-        if (!val || !key) return;
-        const driverId = String(val.driverId ?? val.DriverId ?? '');
-        const driverName = String(val.driverName ?? val.DriverName ?? 'Driver');
-        const body = String(val.message ?? val.Message ?? '');
-        addToast({ type: 'info', title: `Message from ${driverName}`, message: body || 'New driver message' });
-        void refreshDriverList();
-        const activeId = selectedIdRef.current;
-        if (activeId && driverId && String(activeId) === driverId) {
-          void loadConversation(driverId);
-        }
-        void remove(ref(db, `driverMsg/${companyId}/${key}`)).catch(() => undefined);
-      });
-    })();
-
-    return () => {
-      listenerReadyRef.current = false;
-      unsub();
-    };
-  }, [open, companyId, addToast, refreshDriverList, loadConversation]);
+    });
+    return () => unsub();
+  }, [open, companyId, refreshDriverList, loadConversation]);
 
   useEffect(() => {
     if (selectedId) void loadConversation(selectedId);
@@ -189,13 +158,17 @@ export function MessagesModal({ companyId }: Props) {
             <li key={id}>
               <button
                 type="button"
-                className={`w-full text-left px-3 py-2 flex justify-between items-center ${sel ? 'bg-bw-primary/20' : 'hover:bg-bw-bg'}`}
+                className={`w-full text-left px-3 py-2 flex justify-between items-center ${
+                  sel ? 'bg-bw-primary text-white' : 'hover:bg-bw-bg text-bw-text'
+                }`}
                 onClick={() => {
                   setSelectedId(id);
                   if (tab === 'inbox') setTab('direct');
                 }}
               >
-                <span className="text-sm font-medium text-[#e8eaf0]">{driverDisplayName(d)}</span>
+                <span className={`text-sm font-medium ${sel ? 'text-white' : 'text-bw-text'}`}>
+                  {driverDisplayName(d)}
+                </span>
                 {(d.Count || 0) > 0 ? (
                   <span className="text-xs bg-red-500 text-white rounded-full px-2 py-0.5">{d.Count}</span>
                 ) : null}
@@ -210,7 +183,7 @@ export function MessagesModal({ companyId }: Props) {
   const chatPanel = (
     <div className="flex flex-col min-h-[280px] border border-bw-border rounded">
       <div className="px-3 py-2 border-b border-bw-border bg-bw-bg/80">
-        <p className="text-sm font-bold text-[#e8eaf0]">
+        <p className="text-sm font-bold text-bw-text">
           {selectedId ? selectedName : 'Select a driver'}
         </p>
       </div>
@@ -226,7 +199,7 @@ export function MessagesModal({ companyId }: Props) {
             const out = selectedId ? isOutboundMessage(m, selectedId) : true;
             return (
               <div key={m.Id} className={`flex ${out ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${out ? 'bg-bw-primary text-white' : 'bg-bw-surface border border-bw-border text-[#e8eaf0]'}`}>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${out ? 'bg-bw-primary text-white' : 'bg-bw-surface border border-bw-border text-bw-text'}`}>
                   {!out ? <p className="text-xs text-bw-muted mb-1">{m.User}</p> : null}
                   <p>{m.Message}</p>
                   <p className="text-[10px] opacity-70 mt-1">{m.Date} {m.Time}</p>
@@ -238,10 +211,7 @@ export function MessagesModal({ companyId }: Props) {
         <div ref={chatEndRef} />
       </div>
       {selectedId ? (
-        <div
-          className="p-2 border-t border-bw-border flex gap-2"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+        <div className="p-2 border-t border-bw-border flex gap-2" onMouseDown={(e) => e.stopPropagation()}>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -252,7 +222,7 @@ export function MessagesModal({ companyId }: Props) {
               }
             }}
             placeholder="Type a message…"
-            className="flex-1 h-16 px-3 py-2 rounded bg-bw-bg border border-bw-border text-sm resize-none select-text"
+            className="flex-1 h-16 px-3 py-2 rounded bg-bw-bg border border-bw-border text-sm text-bw-text resize-none select-text"
             autoFocus
           />
           <Button variant="primary" disabled={sending || !text.trim()} onClick={() => void send()}>
@@ -289,9 +259,7 @@ export function MessagesModal({ companyId }: Props) {
       )}
 
       {tab === 'broadcast' && (
-        <div>
-          <p className="text-sm text-bw-muted">Broadcast messaging — Phase 2 (server actions ready).</p>
-        </div>
+        <p className="text-sm text-bw-muted">Broadcast messaging — Phase 2 (server actions ready).</p>
       )}
       {tab === 'group' && <p className="text-sm text-bw-muted">Group / zone-filtered messaging — Phase 2.</p>}
       {tab === 'd2d' && <p className="text-sm text-bw-muted">Driver-to-driver relay — Phase 2.</p>}
