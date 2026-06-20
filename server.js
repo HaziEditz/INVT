@@ -3685,6 +3685,51 @@ async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, original
   }
 }
 
+/** Busy-driver statuses — must match _collectBusyEligibleDriversForJob. */
+const _BUSY_FOR_QUEUE_STATUSES = new Set(['Busy', 'Picking', 'Assigned', 'Active', 'OnTrip', 'Arrived']);
+
+function _driverIsBusyForQueue(drv) {
+  return !!(drv && _BUSY_FOR_QUEUE_STATUSES.has(String(drv.vehiclestatus || '')));
+}
+
+// Mirror Queued into allbookings + driverQueue and remove pendingjobs pool node.
+async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, opts) {
+  opts = opts || {};
+  if (!cid || !driverId || !bookingId || !job) {
+    throw new Error('queued fanout missing cid, driverId, bookingId, or job');
+  }
+  const tok = await getFirebaseServerToken();
+  if (!tok) throw new Error('queued fanout: no Firebase token');
+
+  const vehicleId = String(opts.vehicleId || job.VehicleNo || job.VehicleId || '').trim();
+  const originalStatus = opts.originalStatus || job.originalStatus || 'pending';
+  const seq = (parseInt(job.updateSeq) || 0) + 1;
+  job.updateSeq = seq;
+  job.lastUpdatedAt = new Date().toISOString();
+  job.lastUpdatedBy = opts.by || 'driver';
+
+  const abPatch = {
+    BookingStatus: 'Queued',
+    Status: 'Queued',
+    DriverId: driverId,
+    VehicleId: vehicleId,
+    AssignedDriverId: driverId,
+    AssignedDriver: driverId,
+    queuedAt: job.queuedAt || Date.now(),
+    originalStatus,
+    updateSeq: seq,
+    version: seq,
+    _seq: seq,
+    lastUpdatedAt: job.lastUpdatedAt,
+    eventType: 'queued',
+    updatedAt: _FB_SERVER_TIMESTAMP,
+  };
+
+  await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, abPatch, tok);
+  await _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus, { strict: true });
+  await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
+}
+
 function _acceptPoolStatuses() {
   return new Set(['Pending', 'Offered', 'No One']);
 }
@@ -3824,8 +3869,22 @@ async function acceptPendingJobByDriver(opts) {
     };
   }
 
-  // Idempotent — already queued for this driver.
+  // Idempotent — already queued for this driver. Re-fanout Firebase in case a
+  // prior accept left jobStore Queued while allbookings stayed Pending (split-brain).
   if (_cur === 'Queued' && String(job.DriverId) === String(driverId)) {
+    const _cidHeal = String(job.companyId || opts.companyId || '');
+    if (_cidHeal) {
+      try {
+        await _fanoutQueuedJobToFirebaseAwait(_cidHeal, driverId, bookingId, job, {
+          vehicleId: job.VehicleNo || job.VehicleId,
+          originalStatus: job.originalStatus,
+          by: 'driver',
+          source: `${source}/idempotent-heal`,
+        });
+      } catch (e) {
+        console.warn(`  [${source}] idempotent queue heal failed: ${e && e.message}`);
+      }
+    }
     return {
       ok: true, status: 'Queued', queued: true, idempotent: true,
       driverId, booking: _publicBooking(job),
@@ -3848,8 +3907,7 @@ async function acceptPendingJobByDriver(opts) {
   }
   const vehicleId = String((drv && (drv.VehicleId || drv.vehiclenumber)) || job.VehicleNo || '').trim();
   const _cid = String(job.companyId || opts.companyId || '');
-  const _busySt = new Set(['Busy', 'Picking', 'Assigned', 'Active']);
-  const isBusy = drv && _busySt.has(String(drv.vehiclestatus || ''));
+  const isBusy = _driverIsBusyForQueue(drv);
 
   _ACCEPT_IN_FLIGHT.add(_acceptKey);
   try {
@@ -3916,12 +3974,13 @@ async function acceptPendingJobByDriver(opts) {
       saveJobStore();
 
       try {
-        await _writeDriverQueueFirebase(_cid, driverId, bookingId, _preSave, _preSave.originalStatus, { strict: true });
-        if (_cid) {
-          const tok = await getFirebaseServerToken();
-          if (!tok) throw new Error('pendingjobs delete: no Firebase token');
-          await fbRequest(`${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
-        }
+        await _fanoutQueuedJobToFirebaseAwait(_cid, driverId, bookingId, _preSave, {
+          vehicleId,
+          originalStatus: _preSave.originalStatus,
+          previousStatus: _liveSt,
+          by: 'driver',
+          source,
+        });
       } catch (e) {
         _restoreJobFromAcceptRollback(_preSave, _rollbackSnap);
         saveJobStore();
@@ -16770,9 +16829,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }
         else if (_qJob.BookingStatus !== 'Offered' && _qJob.BookingStatus !== 'Pending' && _qJob.BookingStatus !== 'No One') {
           objectD(res, { ok: false, msg: `cannot queue job with status ${_qJob.BookingStatus}` });
-        } else {
+        }         else {
           // Remember the pre-queue status so [RecallQueuedJob] can restore to the right state.
           const _origSt = _qJob._origStatus || _qJob.BookingStatus || 'Pending';
+          const _rollbackSnap = _snapshotJobForAcceptRollback(_qJob);
           _qJob._origStatus  = _origSt;
           _qJob.originalStatus = (_origSt === 'No One' || _qJob.manualOffer) ? 'manual' : 'pending';
           _qJob.BookingStatus = 'Queued';
@@ -16781,10 +16841,30 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           saveJobStore();
           const _qCid = String(_qJob.companyId || sessionCompanyId || '');
           if (_qCid) {
-            _writeDriverQueueFirebase(_qCid, _qDriverId, _qBookingId, _qJob, _qJob.originalStatus);
-            getFirebaseServerToken().then(tok => {
-              if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_qCid}/${_qBookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-            });
+            try {
+              await _fanoutQueuedJobToFirebaseAwait(_qCid, _qDriverId, _qBookingId, _qJob, {
+                vehicleId: _qJob.VehicleNo || _qJob.VehicleId,
+                originalStatus: _qJob.originalStatus,
+                previousStatus: _origSt,
+                by: 'driver',
+                source: '[QueueJob]',
+              });
+              await _dispatchRefreshForJob(_qJob, {
+                cid: _qCid,
+                previousStatus: _origSt,
+                status: 'Queued',
+                action: 'queue',
+                driverId: _qDriverId,
+              });
+              await _syncDriverJobCount(_qCid, _qDriverId, '[QueueJob]');
+            } catch (e) {
+              _restoreJobFromAcceptRollback(_qJob, _rollbackSnap);
+              saveJobStore();
+              await _removeDriverQueueFirebase(_qCid, _qDriverId, _qBookingId).catch(() => {});
+              console.warn(`[QueueJob] job #${_qBookingId} queue rollback: ${e && e.message}`);
+              objectD(res, { ok: false, msg: (e && e.message) || 'Firebase queue write failed' });
+              return;
+            }
           }
           console.log(`[QueueJob] job #${_qBookingId} (was ${_origSt}) → Queued for driver ${_qDriverId} originalStatus=${_qJob.originalStatus}`);
           objectD(res, { ok: true, origStatus: _origSt, originalStatus: _qJob.originalStatus });
@@ -19025,10 +19105,9 @@ async function _refreshBusyPoolBroadcastForJob(job) {
 
 function _collectBusyEligibleDriversForJob(cid, job) {
   const companyId = String(cid || '');
-  const _busySt = new Set(['Busy', 'Picking', 'Assigned', 'Active', 'OnTrip']);
   return ZONE_DRIVERS.filter(d =>
     String(d.companyId || '') === companyId &&
-    _busySt.has(String(d.vehiclestatus || '')) &&
+    _BUSY_FOR_QUEUE_STATUSES.has(String(d.vehiclestatus || '')) &&
     _driverEligibleForJob(d, job)
   );
 }

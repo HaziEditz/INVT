@@ -33,6 +33,7 @@ test('Phase 3 queue-while-busy: offer → Queue → Recall → clean Pending poo
     hint.jobStoreVsAllbookingsMismatch === true ||
     hint.jobStoreVsPendingMismatch === true ||
     hint.pendingVsAllbookingsMismatch === true;
+  assert.equal(queued.splitBrainDiagnosis?.detected, false, JSON.stringify(queued.splitBrainDiagnosis));
   if (!syncLag) {
     assertFirebaseHealthy(queued, 'after QueueJob');
   }
