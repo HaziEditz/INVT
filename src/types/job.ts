@@ -107,6 +107,8 @@ export interface Job {
   lastOfferDriverName?: string;
   lastEditedAt?: string;
   lastEditedBy?: string;
+  /** Dispatch edit stamp — used to invalidate stale driver live-fare display. */
+  jobUpdatedAt?: number;
   editHistory?: JobEditHistoryEntry[];
   bookingType?: string;
   timeline?: JobTimelineEvent[];
@@ -313,6 +315,12 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
       String(rec.lastOfferDriverName ?? rec.LastOfferDriverName ?? '').trim() || undefined,
     lastEditedAt: String(rec.lastEditedAt ?? rec.LastEditedAt ?? '').trim() || undefined,
     lastEditedBy: String(rec.lastEditedBy ?? rec.LastEditedBy ?? '').trim() || undefined,
+    jobUpdatedAt: (() => {
+      const raw = rec.jobUpdatedAt ?? rec.JobUpdatedAt;
+      if (raw == null) return undefined;
+      const n = typeof raw === 'number' ? raw : Date.parse(String(raw));
+      return Number.isNaN(n) || n <= 0 ? undefined : n;
+    })(),
     editHistory: parseJobEditHistory(rec.editHistory ?? rec.EditHistory),
     bookingType: String(rec.bookingType ?? rec.BookingType ?? '').trim() || undefined,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ''),
@@ -1081,11 +1089,14 @@ export interface LiveMeterDisplay {
 type LiveMeterDriver = {
   liveFare?: number;
   liveTariffName?: string;
+  liveTariffId?: string;
   liveJobId?: string;
   bookingId?: string;
   liveDistanceKm?: number;
   liveWaitingMin?: number;
   meterOnAt?: string;
+  /** Set when dispatch invalidates heartbeat fare after a mid-trip tariff edit. */
+  fareInvalidatedAt?: number;
 };
 
 type LiveMeterTariff = {
@@ -1110,11 +1121,29 @@ function parseMeterStart(raw?: string): Date | null {
 
 function driverLiveFareForJob(job: Job, driver?: LiveMeterDriver | null): number | undefined {
   if (!driver || driver.liveFare == null) return undefined;
+  if (driver.fareInvalidatedAt != null) return undefined;
   const jobId = String(job.id);
   const matches =
     (driver.liveJobId && driver.liveJobId === jobId) ||
     (driver.bookingId && driver.bookingId === jobId);
-  return matches ? driver.liveFare : undefined;
+  if (!matches) return undefined;
+
+  const jobTariffId = job.tariffId?.trim();
+  const driverTariffId = driver.liveTariffId?.trim();
+  if (jobTariffId && driverTariffId && jobTariffId !== driverTariffId) return undefined;
+
+  const jobTariffLabel = job.tariffName?.trim().toLowerCase();
+  const driverTariffLabel = driver.liveTariffName?.trim().toLowerCase();
+  if (
+    job.jobUpdatedAt &&
+    jobTariffLabel &&
+    driverTariffLabel &&
+    jobTariffLabel !== driverTariffLabel
+  ) {
+    return undefined;
+  }
+
+  return driver.liveFare;
 }
 
 /** Active-tab live meter — driver's GPS heartbeat fare first, then client-side simulation. */

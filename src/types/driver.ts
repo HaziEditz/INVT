@@ -72,7 +72,7 @@ function pendingOfferBookingId(
   return id;
 }
 
-function resolveDriverStatusFromPresence(
+export function resolveDriverStatusFromPresence(
   rec: Record<string, unknown>,
   current: Record<string, unknown>,
 ): DriverStatus {
@@ -178,12 +178,19 @@ export function parseLiveMeterFromRecord(
 ): {
   liveFare?: number;
   liveTariffName?: string;
+  liveTariffId?: string;
   liveJobId?: string;
   liveDistanceKm?: number;
   liveWaitingMin?: number;
   meterOnAt?: string;
+  fareInvalidatedAt?: number;
 } {
-  const liveFare = pickNum(
+  const fareInvalidatedAt = pickNum(
+    current.tariffChangedAt,
+    current.fareChangedAt,
+    current.fareInvalidatedAt,
+  );
+  const liveFareRaw = pickNum(
     current.fare,
     current.meterFare,
     current.TotalFare,
@@ -192,6 +199,7 @@ export function parseLiveMeterFromRecord(
     current.jobFare,
     current.Fare,
   );
+  const liveFare = fareInvalidatedAt != null && liveFareRaw == null ? undefined : liveFareRaw;
   const liveTariffName = pickStr(
     current.currentTariffName,
     current.CurrentTariffName,
@@ -199,6 +207,11 @@ export function parseLiveMeterFromRecord(
     current.tariffName,
     current.TarriffType,
     current.tarriffname,
+  );
+  const liveTariffId = pickStr(
+    current.tariffId,
+    current.TariffId,
+    current.TarriffId,
   );
   const liveJobId = pickStr(
     current.currentJobId,
@@ -222,7 +235,16 @@ export function parseLiveMeterFromRecord(
     current.waitingTime,
   );
   const meterOnAt = pickStr(current.meterOnAt, current.MeterOnAt);
-  return { liveFare, liveTariffName, liveJobId, liveDistanceKm, liveWaitingMin, meterOnAt };
+  return {
+    liveFare,
+    liveTariffName,
+    liveTariffId,
+    liveJobId,
+    liveDistanceKm,
+    liveWaitingMin,
+    meterOnAt,
+    fareInvalidatedAt,
+  };
 }
 
 /** Stray post-sign-out node: Available (or empty) with no bound driver identity. */
@@ -352,6 +374,25 @@ const ZONE_QUEUE_INACTIVE = new Set<DriverStatus>([
   'Offered',
   'Clearing',
 ]);
+
+/** Zone queue vehicle colour — green Available, amber Away, red busy/on-trip. */
+export function zoneQueueVehicleColorClass(status: string): string {
+  const s = String(status || '').trim();
+  if (s === 'Available') return 'text-emerald-400';
+  if (s === 'Away') return 'text-amber-400';
+  if (
+    s === 'Active' ||
+    s === 'OnTrip' ||
+    s === 'Busy' ||
+    s === 'Picking' ||
+    s === 'Arrived' ||
+    s === 'Assigned' ||
+    s === 'Offered'
+  ) {
+    return 'text-red-400';
+  }
+  return 'text-red-400';
+}
 
 export function isZoneQueueInactive(status: string): boolean {
   const s = String(status || '').trim() as DriverStatus;

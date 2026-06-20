@@ -5206,6 +5206,60 @@ const _FB_SERVER_TIMESTAMP = { '.sv': 'timestamp' };
 // Statuses where the booking is currently visible inside the driver app.
 const _UB_DRIVER_VISIBLE = new Set(['Offered', 'Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Queued']);
 
+const _METER_LIVE_STATUSES = new Set(['Picking', 'Arrived', 'Active', 'OnTrip']);
+
+// Mid-trip tariff edit — invalidate heartbeat fare on online/current so dispatch
+// recalculates from new rates and the driver meter picks up the new tariff.
+async function _fanoutTariffChangeToDriverMeter(opts) {
+  opts = opts || {};
+  const cid = String(opts.cid || '').trim();
+  const vid = String(opts.vehicleId || opts.vehicleNo || '').trim();
+  const bookingId = opts.bookingId;
+  const job = opts.job || {};
+  const source = opts.source || '_fanoutTariffChangeToDriverMeter';
+  if (!cid || !vid || !bookingId) return false;
+
+  const tok = opts.token || await getFirebaseServerToken();
+  if (!tok) return false;
+
+  const now = Date.now();
+  const tariffId = String(job.TariffId || job.TarriffId || job.tariffId || '').trim();
+  const tariffName = String(job.TarriffName || job.TarriffType || job.tariffName || '').trim();
+  const patch = {
+    TariffId: tariffId,
+    TarriffId: tariffId,
+    tariffId,
+    TariffName: tariffName,
+    TarriffType: String(job.TarriffType || tariffName),
+    tariffName,
+    currentTariffName: tariffName || String(job.TarriffType || ''),
+    tariffChangedAt: now,
+    fareChangedAt: now,
+    fareInvalidatedAt: now,
+    jobUpdatedAt: now,
+    eventType: 'FareChanged',
+    fare: null,
+    meterFare: null,
+    jobfare: null,
+    jobFare: null,
+    TotalFare: null,
+    totalFare: null,
+  };
+
+  try {
+    await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok);
+    await firebaseDbPatch(`online/${cid}/${vid}`, {
+      TariffName: patch.TariffName,
+      TarriffType: patch.TarriffType,
+    }, tok).catch(() => {});
+    console.log(`  [${source}] online/${cid}/${vid}/current → tariff fanout booking #${bookingId} tariff=${tariffName || tariffId || 'auto'}`);
+    return true;
+  } catch (e) {
+    console.warn(`  [${source}] tariff fanout failed: ${e && e.message}`);
+    return false;
+  }
+}
+
 // Unified driver-app edit notification — used by updateBooking(), ProcUpdateJobv6, and any future edit path.
 async function _writeDriverJobUpdatedNotification(opts) {
   opts = opts || {};
@@ -5252,6 +5306,19 @@ async function _writeDriverJobUpdatedNotification(opts) {
     _payload.jobname = (diff.Name || diff.PassengerName).to;
   }
   if (diff.PhoneNo) _payload.JobphoneNo = diff.PhoneNo.to;
+  if (diff.TariffId || diff.TarriffId) {
+    _payload.TariffId = (diff.TariffId || diff.TarriffId).to;
+    _payload.tariffId = _payload.TariffId;
+  }
+  if (diff.TarriffType) {
+    _payload.TarriffType = diff.TarriffType.to;
+    _payload.TariffName = diff.TarriffType.to;
+  }
+  if (diff.CustomeRate || diff.EstimatedFare || diff.RideCost) {
+    const fareDiff = diff.CustomeRate || diff.EstimatedFare || diff.RideCost;
+    _payload.EstimatedFare = fareDiff.to;
+    _payload.RideCost = fareDiff.to;
+  }
   if (!_payload.jobpickup) _payload.jobpickup = String(job.PickAddress || job.PickLocation || '');
   if (!_payload.jobdropoff) _payload.jobdropoff = String(job.DropAddress || job.DropLocation || '');
 
@@ -5723,6 +5790,21 @@ async function updateBooking(opts) {
         job: _notifyJob, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
         eventTypes: _eventTypes,
       });
+      if (
+        _eventTypes.includes('FareChanged') &&
+        _METER_LIVE_STATUSES.has(job.BookingStatus || '') &&
+        _vid &&
+        _vid !== '0' &&
+        _vid !== '-1'
+      ) {
+        await _fanoutTariffChangeToDriverMeter({
+          cid: _cid,
+          vehicleId: _vid,
+          bookingId,
+          job,
+          source: `${source}/tariff`,
+        });
+      }
     } catch (_e) {
       console.warn(`  [${source}] §FIX-UB notification write failed: ${_e && _e.message}`);
     }
@@ -14183,6 +14265,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     job, diff: _ubDiff, seq: _ubNewSeq, by: 'dispatcher',
                     source: 'ProcUpdateJobv6/notify', eventTypes: _ubTypes,
                   });
+                  if (
+                    _ubTypes.includes('FareChanged') &&
+                    _METER_LIVE_STATUSES.has(job.BookingStatus || '') &&
+                    _euVidOk &&
+                    _euVid
+                  ) {
+                    await _fanoutTariffChangeToDriverMeter({
+                      cid: _euCid,
+                      vehicleId: _euVid,
+                      bookingId: job.Id,
+                      job,
+                      source: 'ProcUpdateJobv6/tariff',
+                    });
+                  }
                 } catch (_e) { console.warn(`  [ProcUpdateJobv6] §FIX-UB notify failed: ${_e && _e.message}`); }
               })();
               }

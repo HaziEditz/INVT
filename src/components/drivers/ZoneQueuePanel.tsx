@@ -1,17 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useDriverQueue, type ZoneQueueDriver } from '@/hooks/useDrivers';
+import { zoneQueueVehicleColorClass } from '@/types/driver';
 import { cn } from '@/lib/utils';
 
 interface ZoneQueuePanelProps {
   companyId: string;
-}
-
-/** Green = Available, amber = Away, red = busy/other. */
-function zoneVehicleColorClass(status: string): string {
-  const s = String(status || '').trim();
-  if (s === 'Available') return 'text-emerald-400';
-  if (s === 'Away') return 'text-amber-400';
-  return 'text-red-400';
 }
 
 function sortZoneDrivers(drivers: ZoneQueueDriver[]): ZoneQueueDriver[] {
@@ -97,7 +90,7 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
                           key={`${d.driverId}-${d.vehicleNo}`}
                           className={cn(
                             'font-mono text-[11px] font-semibold tabular-nums',
-                            zoneVehicleColorClass(d.status),
+                            zoneQueueVehicleColorClass(d.status),
                             match && 'underline decoration-2 underline-offset-2',
                           )}
                           title={d.status}

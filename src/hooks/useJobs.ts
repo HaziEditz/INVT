@@ -11,8 +11,11 @@ import {
   isPreBookedJob,
   jobDispatchTime,
   type Job,
-  type JobTab,
 } from '@/types/job';
+import {
+  markOptimisticLiveTransition,
+  shouldPreserveAbsentStoreJob,
+} from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
@@ -55,8 +58,6 @@ const ACTIVE_BOOKING_STATUSES = new Set([
 
 const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
-const LIVE_DISPATCH_TABS = new Set<JobTab>(['offer', 'assign', 'active', 'queue']);
-
 type DispatchRefreshPayload = {
   action?: string;
   status?: string;
@@ -87,21 +88,6 @@ const LIVE_OFFER_STATUSES = new Set(['Offered', 'Assigned']);
 
 function isPoolUaStatus(status: string): boolean {
   return POOL_UA_STATUSES.has(normalizeJobStatus(status) as Job['status']);
-}
-
-function shouldPreserveAbsentStoreJob(
-  job: Job,
-  pendingRef: Map<number, Job>,
-  bookingsRef: Map<number, Job>,
-): boolean {
-  if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
-  const tab = jobTabForStatus(job);
-  if (tab === 'ua') return true;
-  if (!LIVE_DISPATCH_TABS.has(tab)) return false;
-  if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
-  if (isPoolUaStatus(job.status)) return true;
-  // Keep live-tab jobs during Firebase listener/refresh races (e.g. accept → pendingjobs deleted before allbookings lands).
-  return LIVE_DISPATCH_TABS.has(tab);
 }
 
 function pendingjobsAbsentIsPoolRestore(
@@ -212,6 +198,9 @@ function optimisticDispatchRefresh(
   } else if (st === 'Pending' || st === 'No One') {
     pendingRef.set(job.id, job);
     bookingsRef.delete(bookingId);
+  }
+  if (['accept', 'assign', 'offer', 'queue', 'active'].includes(refresh.action || '')) {
+    markOptimisticLiveTransition(bookingId);
   }
   upsertJob(job);
   syncAll();

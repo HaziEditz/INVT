@@ -7,6 +7,7 @@ import {
   isLoggedOutOnlineNode,
   isZoneQueueInactive,
   isZoneQueueRanked,
+  resolveDriverStatusFromPresence,
 } from '@/types/driver';
 import { findZoneAtCoords, subscribeCompanyZones, type CompanyZone } from '@/lib/companyZones';
 
@@ -137,7 +138,7 @@ export function useDriverQueue(companyId: string | null) {
           if (isLoggedOutOnlineNode(rec, current) || isGhostOnlineNode(rec, current)) continue;
           const zone = resolveDriverZoneName(rec, current, configuredRef.current);
           if (!zone) continue;
-          const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? 'Away');
+          const status = resolveDriverStatusFromPresence(rec, current);
           const qRaw = rec.zonequeue ?? current.zonequeue ?? rec.zoneQueue ?? current.zoneQueue;
           const q = isZoneQueueRanked(status) && qRaw != null ? Number(qRaw) : 0;
           if (!live[zone]) live[zone] = [];

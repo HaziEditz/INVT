@@ -38,13 +38,15 @@ export function SearchJobsModal({ companyId: _companyId }: SearchJobsModalProps)
       wide
       footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}
     >
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-bw-bg border border-bw-border text-sm mb-3"
-        placeholder="Booking ID, passenger, phone, driver, address…"
-        autoFocus
-      />
+      <div onMouseDown={(e) => e.stopPropagation()}>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full px-3 py-2 rounded-lg bg-bw-bg border border-bw-border text-sm mb-3 select-text"
+          placeholder="Booking ID, passenger, phone, driver, address…"
+          autoFocus
+        />
+      </div>
 
       <div className="space-y-2 max-h-[50vh] overflow-y-auto min-h-[120px]">
         {!debounced.trim() ? (
