@@ -2699,8 +2699,23 @@ function _resolveDriverVehicleIds(driverId, vehicleId, companyId) {
   return { driverId: _normalizeNotifyDriverId(did) || did, vehicleId: vid || did };
 }
 
+function _driverIdsMatch(a, b) {
+  const na = _normalizeNotifyDriverId(a);
+  const nb = _normalizeNotifyDriverId(b);
+  if (na && nb && na === nb) return true;
+  const stripD = (s) => {
+    const m = String(s || '').match(/^([dD])0*(\d+)$/);
+    if (m) return String(parseInt(m[2], 10));
+    return String(s || '').trim();
+  };
+  const sa = stripD(na || a);
+  const sb = stripD(nb || b);
+  if (sa && sb && sa === sb) return true;
+  return String(a || '').trim() === String(b || '').trim();
+}
+
 /** Match driver app X-User-Key (passforlink) to ZONE_DRIVERS row. */
-function _lookupZoneDriverByUserKey(userKey, driverIdHint) {
+function _lookupZoneDriverByUserKey(userKey, driverIdHint, companyIdHint) {
   const key = String(userKey || '').trim();
   if (key) {
     const hit = ZONE_DRIVERS.find(d => d && (
@@ -2711,12 +2726,19 @@ function _lookupZoneDriverByUserKey(userKey, driverIdHint) {
     if (hit) return hit;
   }
   const hint = String(driverIdHint || '').trim();
-  if (hint) {
-    return ZONE_DRIVERS.find(d => d && (
-      String(d.driverid).trim() === hint || String(d.VehicleId).trim() === hint
-    )) || null;
+  if (!hint) return null;
+  const cid = String(companyIdHint || '').trim();
+  const candidates = ZONE_DRIVERS.filter(d => d && (
+    _driverIdsMatch(d.driverid, hint) ||
+    String(d.VehicleId || '').trim() === hint ||
+    String(d.vehiclenumber || '').trim() === hint
+  ));
+  if (!candidates.length) return null;
+  if (cid) {
+    const scoped = candidates.filter(d => String(d.companyId || '').trim() === cid);
+    if (scoped.length) return scoped[0];
   }
-  return null;
+  return candidates[0];
 }
 
 function _driverPhoneFromRecord(zd, fallback) {
@@ -12344,9 +12366,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _sosHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     const _sosUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
     const _sosAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
-    let _sosDriver = _lookupZoneDriverByUserKey(_sosUserKey, _sosBody.driverId);
+    let _sosDriver = _lookupZoneDriverByUserKey(_sosUserKey, _sosBody.driverId, _sosBody.companyId);
     if (!_sosDriver && _sosAdminKey && process.env.BW_ADMIN_KEY && _sosAdminKey === process.env.BW_ADMIN_KEY) {
-      _sosDriver = _lookupZoneDriverByUserKey('', _sosBody.driverId);
+      _sosDriver = _lookupZoneDriverByUserKey('', _sosBody.driverId, _sosBody.companyId);
     }
     if (!_sosDriver) {
       res.writeHead(401, _sosHdr);
@@ -12403,9 +12425,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _sosCHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     const _sosCUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
     const _sosCAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
-    let _sosCDriver = _lookupZoneDriverByUserKey(_sosCUserKey, _sosCBody.driverId);
+    let _sosCDriver = _lookupZoneDriverByUserKey(_sosCUserKey, _sosCBody.driverId, _sosCBody.companyId);
     if (!_sosCDriver && _sosCAdminKey && process.env.BW_ADMIN_KEY && _sosCAdminKey === process.env.BW_ADMIN_KEY) {
-      _sosCDriver = _lookupZoneDriverByUserKey('', _sosCBody.driverId);
+      _sosCDriver = _lookupZoneDriverByUserKey('', _sosCBody.driverId, _sosCBody.companyId);
     }
     if (!_sosCDriver) {
       res.writeHead(401, _sosCHdr);
@@ -12433,9 +12455,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _msgHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     const _msgUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
     const _msgAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
-    let _msgDriver = _lookupZoneDriverByUserKey(_msgUserKey, _msgBody.driverId);
+    let _msgDriver = _lookupZoneDriverByUserKey(_msgUserKey, _msgBody.driverId, _msgBody.companyId);
     if (!_msgDriver && _msgAdminKey && process.env.BW_ADMIN_KEY && _msgAdminKey === process.env.BW_ADMIN_KEY) {
-      _msgDriver = _lookupZoneDriverByUserKey('', _msgBody.driverId);
+      _msgDriver = _lookupZoneDriverByUserKey('', _msgBody.driverId, _msgBody.companyId);
     }
     if (!_msgDriver) {
       res.writeHead(401, _msgHdr);

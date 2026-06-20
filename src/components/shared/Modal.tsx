@@ -13,7 +13,12 @@ interface ModalProps {
 export function Modal({ open, onClose, title, wide, children, footer }: ModalProps) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         className={cn(
           'bw-card flex flex-col max-h-[92vh] shadow-2xl',

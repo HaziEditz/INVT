@@ -68,6 +68,21 @@ export async function createHarness(opts = {}) {
       return { 'X-Admin-Key': ADMIN_KEY, 'X-User-Key': `regtest-key-${driverId}` };
     },
 
+    /** Production driver-app shape: driverId + companyId in body; optional wrong/missing X-User-Key. */
+    driverAppHeaders(_driverId, { userKey } = {}) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (userKey) headers['X-User-Key'] = userKey;
+      return headers;
+    },
+
+    driverAppBody(driverId, fields = {}) {
+      return {
+        driverId: String(driverId),
+        companyId: TEST_CID,
+        ...fields,
+      };
+    },
+
     async dpost(path, action, pairs = []) {
       return post(
         path,
@@ -170,21 +185,23 @@ export async function createHarness(opts = {}) {
       return { response: r, scheduledAt, driverId, body };
     },
 
-    async triggerDriverSos(driverId, { lat, lng, phone } = {}) {
-      const r = await post(
-        '/api/driver/sos',
-        {
-          lat: lat ?? -46.412,
-          lng: lng ?? 168.353,
-          phone: phone ?? `021 ${800000 + driverId}`,
-        },
-        h.driverHeaders(driverId),
-      );
-      return r;
+    async triggerDriverSos(driverId, { lat, lng, phone, appClient, userKey } = {}) {
+      const body = h.driverAppBody(driverId, {
+        lat: lat ?? -46.412,
+        lng: lng ?? 168.353,
+        phone: phone ?? `021 ${800000 + driverId}`,
+      });
+      const headers = appClient
+        ? h.driverAppHeaders(driverId, { userKey })
+        : h.driverHeaders(driverId);
+      return post('/api/driver/sos', body, headers);
     },
 
-    async cancelDriverSos(driverId) {
-      return post('/api/driver/sos/cancel', {}, h.driverHeaders(driverId));
+    async cancelDriverSos(driverId, { appClient, userKey } = {}) {
+      const headers = appClient
+        ? h.driverAppHeaders(driverId, { userKey })
+        : h.driverHeaders(driverId);
+      return post('/api/driver/sos/cancel', h.driverAppBody(driverId, {}), headers);
     },
 
     async acknowledgeSos(sosId, dispatcherName = 'Regtest Dispatcher') {
@@ -204,8 +221,11 @@ export async function createHarness(opts = {}) {
       ]);
     },
 
-    async sendDriverMessage(driverId, message) {
-      return post('/api/driver/message', { message }, h.driverHeaders(driverId));
+    async sendDriverMessage(driverId, message, { appClient, userKey } = {}) {
+      const headers = appClient
+        ? h.driverAppHeaders(driverId, { userKey })
+        : h.driverHeaders(driverId);
+      return post('/api/driver/message', h.driverAppBody(driverId, { message }), headers);
     },
 
     async retrieveMessageDrivers() {
