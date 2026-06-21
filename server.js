@@ -3244,6 +3244,7 @@ async function completeBooking(opts) {
           },
           bwClearSeparateTry: true,
           bwClearErrorLabel: 'idempotent Firebase cleanup failed',
+          removeDriverQueue: true,
           restoreDriverState: _drvIdem
             ? { driverId: _drvIdem, vehicleId: _vehIdem, awaited: true }
             : null,
@@ -3363,6 +3364,7 @@ async function completeBooking(opts) {
       },
       bwClearSeparateTry: true,
       bwClearErrorLabel: 'complete Firebase cleanup failed',
+      removeDriverQueue: true,
       restoreDriverState: { driverId: _drvId, vehicleId: _vehId, awaited: true },
       dispatchRefresh: {
         job,
@@ -4081,6 +4083,86 @@ async function _removeDriverQueueFirebase(cid, driverId, bookingId) {
     await fbRequest(`${FB_DB_URL}/driverQueue/${cid}/${driverId}/queued/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
     await fbRequest(`${FB_DB_URL}/driverQueue/${cid}/${driverId}/current.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
   } catch (e) { /* non-fatal */ }
+}
+
+/** Max age for driverQueue/{cid}/{driverId}/queued entries before heal removes them. */
+const _DRIVER_QUEUE_MAX_AGE_MS = parseInt(process.env.DRIVER_QUEUE_MAX_AGE_MS || String(48 * 60 * 60 * 1000), 10);
+
+function _driverQueueEntryIsStale(rec, abRec, driverId, now) {
+  const queuedAt = Number(rec?.queuedAt ?? rec?.acceptedAt ?? 0);
+  if (queuedAt > 0 && now - queuedAt > _DRIVER_QUEUE_MAX_AGE_MS) {
+    return { stale: true, reason: 'expired_ttl' };
+  }
+  if (!abRec || typeof abRec !== 'object') {
+    return { stale: true, reason: 'allbookings_missing' };
+  }
+  const abSt = String(abRec.BookingStatus ?? abRec.Status ?? '').trim();
+  if (abSt !== 'Queued') {
+    return { stale: true, reason: `allbookings_${abSt || 'unknown'}` };
+  }
+  const abDrv = String(abRec.DriverId ?? abRec.driverId ?? '').trim();
+  if (abDrv && abDrv !== '0' && abDrv !== String(driverId).trim()) {
+    return { stale: true, reason: 'driver_mismatch' };
+  }
+  const bid = parseInt(String(rec?.BookingId ?? rec?.jobId ?? ''), 10);
+  if (!bid) {
+    return { stale: true, reason: 'invalid_booking_id' };
+  }
+  return { stale: false, reason: null };
+}
+
+/**
+ * Remove orphaned driverQueue nodes (Firebase-only ghosts not backed by Queued allbookings).
+ * Called from admin tools, driver prune API, and periodic heal.
+ */
+async function healStaleDriverQueueEntries(opts) {
+  opts = opts || {};
+  const cid = String(opts.companyId || opts.cid || '').trim();
+  if (!cid) return { ok: false, error: 'companyId required', removed: [] };
+  const driverFilter = String(opts.driverId || '').trim();
+  const dryRun = !!opts.dryRun;
+  const tok = await getFirebaseServerToken();
+  if (!tok) return { ok: false, error: 'Firebase token unavailable', removed: [] };
+
+  const root = await firebaseDbGet(`driverQueue/${cid}`, tok).catch(() => null);
+  if (!root || typeof root !== 'object') {
+    return { ok: true, companyId: cid, removed: [], scanned: 0 };
+  }
+
+  const now = Date.now();
+  const removed = [];
+  let scanned = 0;
+
+  for (const [driverId, node] of Object.entries(root)) {
+    if (driverFilter && String(driverId) !== driverFilter) continue;
+    const queued = node && node.queued;
+    if (!queued || typeof queued !== 'object') continue;
+    for (const [bookingKey, rec] of Object.entries(queued)) {
+      scanned++;
+      const bookingId = parseInt(String(rec?.BookingId ?? rec?.jobId ?? bookingKey), 10) || parseInt(bookingKey, 10);
+      if (!bookingId) {
+        if (!dryRun) await _removeDriverQueueFirebase(cid, driverId, bookingKey).catch(() => {});
+        removed.push({ driverId, bookingId: bookingKey, reason: 'invalid_booking_id' });
+        continue;
+      }
+      const abRec = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok).catch(() => null);
+      const { stale, reason } = _driverQueueEntryIsStale(rec, abRec, driverId, now);
+      if (!stale) continue;
+      if (!dryRun) await _removeDriverQueueFirebase(cid, driverId, bookingId);
+      removed.push({
+        driverId,
+        bookingId,
+        reason,
+        queuedAt: rec?.queuedAt ?? rec?.acceptedAt ?? null,
+        allbookingsStatus: abRec ? String(abRec.BookingStatus ?? abRec.Status ?? '') : null,
+      });
+    }
+  }
+
+  if (removed.length && !dryRun) {
+    console.log(`  [driverQueue/heal] cid=${cid} removed ${removed.length} stale entr(y/ies)`);
+  }
+  return { ok: true, companyId: cid, driverId: driverFilter || null, dryRun, scanned, removed };
 }
 
 async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
@@ -10252,6 +10334,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // GET /admin/healDriverQueue?cid=860869&driverId=D002&dryRun=1
+    if (urlPath === '/admin/healDriverQueue' && req.method === 'GET') {
+      try {
+        const _qs = new URL('http://x' + req.url).searchParams;
+        const report = await healStaleDriverQueueEntries({
+          companyId: (_qs.get('cid') || _qs.get('companyId') || '').trim(),
+          driverId: (_qs.get('driverId') || '').trim(),
+          dryRun: _qs.get('dryRun') === '1' || _qs.get('dryRun') === 'true',
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
     // GET /admin/scanStaleTerminalFirebase?cid=860869&sinceHours=24
     // Lists terminal closedJobStore rows whose Firebase pendingjobs/allbookings still look live.
     if (urlPath === '/admin/scanStaleTerminalFirebase' && req.method === 'GET') {
@@ -12227,6 +12325,50 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       fetchedAt: Date.now()
     }));
     console.log(`200: GET /api/driver/active-bookings driver=${_g6Drv} cid=${_g6Cid} → ${_g6Rows.length} booking(s)`);
+    return;
+  }
+
+  // ── POST /api/driver/prune-queue — remove orphaned driverQueue Firebase ghosts ─
+  if (urlPath === '/api/driver/prune-queue' && req.method === 'POST') {
+    const _pqBody = await readBody(req);
+    let _pq = {};
+    try { _pq = _pqBody ? JSON.parse(_pqBody) : {}; } catch (e) { /* ignore */ }
+    const _pqUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _pqAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    const _pqDriverIdQ = String(_pq.driverId || _pq.driverid || '').trim();
+    let _pqDriver = null;
+    if (_pqUserKey) {
+      _pqDriver = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _pqUserKey ||
+        String(d.userKey || '').trim() === _pqUserKey ||
+        String(d.UserKey || '').trim() === _pqUserKey
+      )) || null;
+    }
+    if (!_pqDriver && _pqAdminKey && process.env.BW_ADMIN_KEY && _pqAdminKey === process.env.BW_ADMIN_KEY && _pqDriverIdQ) {
+      _pqDriver = ZONE_DRIVERS.find(d => d &&
+        (String(d.driverid).trim() === _pqDriverIdQ || String(d.VehicleId).trim() === _pqDriverIdQ)
+      ) || null;
+    }
+    if (!_pqDriver) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'unknown driver (provide X-User-Key)' }));
+      return;
+    }
+    const _pqCid = String(_pqDriver.companyId || _pq.companyId || '').trim();
+    const _pqDrv = String(_pqDriver.driverid || '').trim();
+    if (!_pqCid || !_pqDrv) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
+      return;
+    }
+    const report = await healStaleDriverQueueEntries({
+      companyId: _pqCid,
+      driverId: _pqDrv,
+      dryRun: !!_pq.dryRun,
+    });
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify(report));
+    console.log(`200: POST /api/driver/prune-queue driver=${_pqDrv} cid=${_pqCid} removed=${(report.removed || []).length}`);
     return;
   }
 
@@ -19211,6 +19353,13 @@ setInterval(async () => {
   try {
     const healed = await _healStuckOfferedJobs('staleOfferWatchdog-90s');
     if (healed) console.log(`[stale-offer watchdog] healed ${healed} stuck Offered job(s)`);
+    const cids = [...new Set(jobStore.map(j => j && j.companyId).filter(Boolean))];
+    for (const cid of cids) {
+      const dq = await healStaleDriverQueueEntries({ companyId: cid }).catch(() => null);
+      if (dq && dq.removed && dq.removed.length) {
+        console.log(`[driverQueue watchdog] cid=${cid} removed ${dq.removed.length} stale entr(y/ies)`);
+      }
+    }
   } catch (e) {
     console.warn(`[stale-offer watchdog] heal pass failed: ${e && e.message}`);
   }
