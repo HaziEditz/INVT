@@ -14,6 +14,10 @@ import {
 } from '@/types/job';
 import {
   markOptimisticLiveTransition,
+  markQueueAwaitingAllbookings,
+  clearQueueAwaitingAllbookings,
+  minimalJobFromDispatchRefresh,
+  reinjectQueueAwaitingJobs,
   shouldPreserveAbsentStoreJob,
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
@@ -177,6 +181,7 @@ function applyRefreshStatusHint(
 
 /** Apply dispatchConsole refresh hint immediately — avoids Assign-tab flash while Firebase catches up. */
 function optimisticDispatchRefresh(
+  companyId: string,
   bookingId: number,
   refresh: DispatchRefreshPayload,
   pendingRef: Map<number, Job>,
@@ -185,10 +190,15 @@ function optimisticDispatchRefresh(
   syncAll: () => void,
 ): void {
   if (refreshImpliesTerminal(refresh) || !refresh.status) return;
-  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
-  if (!prior || useJobStore.getState().isJobBlacklisted(bookingId)) return;
+  if (useJobStore.getState().isJobBlacklisted(bookingId)) return;
 
-  let job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  let job: Job | null = null;
+  if (prior) {
+    job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  } else if (refresh.action === 'queue') {
+    job = minimalJobFromDispatchRefresh(bookingId, companyId, refresh);
+  }
   if (!job) return;
 
   pendingRef.delete(bookingId);
@@ -198,6 +208,9 @@ function optimisticDispatchRefresh(
   } else if (st === 'Pending' || st === 'No One') {
     pendingRef.set(job.id, job);
     bookingsRef.delete(bookingId);
+  }
+  if (refresh.action === 'queue' && st === 'Queued') {
+    markQueueAwaitingAllbookings(bookingId);
   }
   if (['accept', 'assign', 'offer', 'queue', 'active'].includes(refresh.action || '')) {
     markOptimisticLiveTransition(bookingId);
@@ -267,6 +280,10 @@ async function refreshJobFromFirebaseCaches(
     job = applyRefreshStatusHint(null, prior, refresh, bookingId);
   }
 
+  if (action === 'queue') {
+    markQueueAwaitingAllbookings(bookingId);
+  }
+
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
 
   const pjVal = pjSnap.val();
@@ -284,6 +301,9 @@ async function refreshJobFromFirebaseCaches(
     );
     if (st !== job.status) {
       job = mergeJobUpdate(job, { status: st } as Job);
+    }
+    if (st === 'Queued') {
+      clearQueueAwaitingAllbookings(bookingId);
     }
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
       bookingsRef.set(job.id, job);
@@ -468,11 +488,15 @@ export function useJobs(companyId: string | null) {
 
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               bookingsRef.current.set(stored.id, stored);
+              if (effectiveStatus === 'Queued') {
+                clearQueueAwaitingAllbookings(stored.id);
+              }
             } else if (isPoolUaStatus(effectiveStatus)) {
               pendingRef.current.set(stored.id, stored);
             }
           }
         }
+        reinjectQueueAwaitingJobs(bookingsRef.current, useJobStore.getState().jobs);
         for (const tid of terminalIds) {
           pendingRef.current.delete(tid);
           bookingsRef.current.delete(tid);
@@ -515,6 +539,7 @@ export function useJobs(companyId: string | null) {
         };
         notifyOfferReturned(bid, refreshPayload);
         optimisticDispatchRefresh(
+          companyId,
           bid,
           refreshPayload,
           pendingRef.current,
