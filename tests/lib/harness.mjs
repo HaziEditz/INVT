@@ -605,6 +605,31 @@ export async function createHarness(opts = {}) {
         }
       }
     },
+
+    async mutateJobStore(bookingId, patch) {
+      const r = await post('/dev/loadtest/mutate-jobstore', { bookingId, patch }, h.adminHeaders);
+      if (r.status !== 200 || !r.body?.ok) {
+        throw new Error(`mutate-jobstore #${bookingId}: ${JSON.stringify(r.body)}`);
+      }
+      return r.body;
+    },
+
+    async setFirebaseBooking(bookingId, patch, companyId = h.companyId) {
+      const r = await post(
+        '/dev/loadtest/set-firebase-booking',
+        { bookingId, patch, companyId },
+        h.adminHeaders,
+      );
+      if (r.status !== 200 || !r.body?.ok) {
+        throw new Error(`set-firebase-booking #${bookingId}: ${JSON.stringify(r.body)}`);
+      }
+      return r.body;
+    },
+
+    async repairBooking(bookingId, action = 'sync') {
+      const r = await post('/dev/loadtest/repair-booking', { bookingId, action }, h.adminHeaders);
+      return r;
+    },
   };
 
   await h.cancelAllLiveJobs();
@@ -640,6 +665,17 @@ export async function createHarness(opts = {}) {
 export async function prepareCleanDispatch(h) {
   await h.cancelAllLiveJobs();
   await h.cancelAllOffered();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const rq = await get(
+      `/admin/jobTrace?cid=${encodeURIComponent(h.companyId)}&status=Queued`,
+      h.adminHeaders,
+    );
+    if (rq.status !== 200 || !Array.isArray(rq.body.jobs) || rq.body.jobs.length === 0) break;
+    for (const j of rq.body.jobs) {
+      await h.recallQueuedJob(j.id).catch(() => undefined);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
   for (let attempt = 0; attempt < 8; attempt++) {
     const r = await get(
       `/admin/jobTrace?cid=${encodeURIComponent(h.companyId)}&status=Offered`,

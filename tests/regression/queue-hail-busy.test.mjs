@@ -9,10 +9,14 @@ test.before(async () => {
   await getHarness({ fresh: true });
 });
 
+test.beforeEach(async () => {
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+});
+
 test('Queue while busy: accept pool job during Hail trip syncs Queued to allbookings (no split-brain)', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
-  await prepareCleanDispatch(h);
 
   const hailDriver = h.driverIds[2];
   const otherDrivers = h.driverIds.filter((id) => id !== hailDriver);
@@ -28,8 +32,16 @@ test('Queue while busy: accept pool job during Hail trip syncs Queued to allbook
   });
   assert.equal(busyRes.status, 200);
 
+  await h.configureDriver(hailDriver, {
+    vehiclestatus: 'Busy',
+    lat: -46.4121,
+    lng: 168.3531,
+    zonename: 'Central',
+  });
+
   const activeList = await pollActiveForDriver(h, hailDriver);
   assert.ok(activeList.length >= 1, 'expected Active Hail trip job after Busy status');
+  const hailJobId = activeList[0].id;
 
   const poolJobId = await createPoolJobRelaxed(h, 'hail-busy-pool');
   await h.triggerAutoDispatch();
@@ -37,11 +49,19 @@ test('Queue while busy: accept pool job during Hail trip syncs Queued to allbook
   await h.poll(
     poolJobId,
     (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
       const pj = t.firebase?.pendingjobs;
-      return pj && String(pj.BookingStatus || pj.Status || '') === 'Pending';
+      return st === 'Pending' && pj && String(pj.BookingStatus || pj.Status || '') === 'Pending';
     },
     { timeoutMs: 45000 },
   );
+
+  const hailStillActive = await h.poll(
+    hailJobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Active',
+    { timeoutMs: 10000 },
+  );
+  assert.equal(String(hailStillActive.jobStore.lifecycle.BookingStatus), 'Active');
 
   const acceptRes = await h.acceptJob(poolJobId, hailDriver);
   assert.equal(acceptRes.status, 200, JSON.stringify(acceptRes.body));
@@ -82,6 +102,23 @@ test('Queue while busy: accept pool job during Hail trip syncs Queued to allbook
     await h.driverStatusChanged(id, 'Available', { zonename: 'Central' });
   }
   await h.driverStatusChanged(hailDriver, 'Available', { zonename: 'Central' });
+});
+
+test.afterEach(async () => {
+  const h = await getHarness();
+  const hailDriver = h.driverIds[2];
+  for (const status of ['Active', 'Queued', 'Assigned']) {
+    const r = await get(
+      `/admin/jobTrace?cid=${encodeURIComponent(TEST_CID)}&status=${status}`,
+      h.adminHeaders,
+    );
+    if (r.status !== 200 || !Array.isArray(r.body.jobs)) continue;
+    for (const j of r.body.jobs) {
+      if (String(j.driverId) !== String(hailDriver)) continue;
+      await h.cancelAssigned(j.id).catch(() => undefined);
+    }
+  }
+  await prepareCleanDispatch(h);
 });
 
 async function pollActiveForDriver(h, driverId) {

@@ -3692,6 +3692,25 @@ function _driverIsBusyForQueue(drv) {
   return !!(drv && _BUSY_FOR_QUEUE_STATUSES.has(String(drv.vehiclestatus || '')));
 }
 
+function _driverHasLiveAttachedJob(driverId, companyId, excludeBookingId) {
+  const did = String(driverId || '').trim();
+  const cid = String(companyId || '').trim();
+  if (!did) return false;
+  const attached = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued']);
+  return jobStore.some(j => {
+    if (!j || !j.Id) return false;
+    if (excludeBookingId && j.Id === excludeBookingId) return false;
+    if (cid && String(j.companyId || '') !== cid) return false;
+    const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
+    if (jDrv !== did) return false;
+    return attached.has(String(j.BookingStatus || ''));
+  });
+}
+
+function _driverShouldQueueOnAccept(drv, driverId, companyId, bookingId) {
+  return _driverIsBusyForQueue(drv) || _driverHasLiveAttachedJob(driverId, companyId, bookingId);
+}
+
 // Mirror Queued into allbookings + driverQueue and remove pendingjobs pool node.
 async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, opts) {
   opts = opts || {};
@@ -3708,26 +3727,320 @@ async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, op
   job.lastUpdatedAt = new Date().toISOString();
   job.lastUpdatedBy = opts.by || 'driver';
 
-  const abPatch = {
-    BookingStatus: 'Queued',
-    Status: 'Queued',
-    DriverId: driverId,
-    VehicleId: vehicleId,
-    AssignedDriverId: driverId,
-    AssignedDriver: driverId,
-    queuedAt: job.queuedAt || Date.now(),
-    originalStatus,
-    updateSeq: seq,
-    version: seq,
-    _seq: seq,
-    lastUpdatedAt: job.lastUpdatedAt,
-    eventType: 'queued',
-    updatedAt: _FB_SERVER_TIMESTAMP,
-  };
+  const abMirror = _buildAllbookingsMirrorFromJob(job);
+  abMirror.BookingStatus = 'Queued';
+  abMirror.Status = 'Queued';
+  abMirror.DriverId = driverId;
+  abMirror.VehicleId = vehicleId;
+  abMirror.AssignedDriverId = driverId;
+  abMirror.AssignedDriver = driverId;
+  abMirror.queuedAt = job.queuedAt || Date.now();
+  abMirror.originalStatus = originalStatus;
+  abMirror.eventType = 'queued';
 
-  await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, abPatch, tok);
+  await firebaseDbSet(`allbookings/${cid}/${bookingId}`, abMirror, tok);
   await _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus, { strict: true });
   await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
+
+  const verified = await _verifyFirebaseBookingMatches(cid, bookingId, {
+    status: 'Queued',
+    driverId,
+  }, tok);
+  if (!verified.ok) {
+    throw new Error(`queued fanout verify failed: ${verified.reason || 'unknown'} (actual=${verified.actual || '?'})`);
+  }
+}
+
+function _firebaseStatusFromRecord(rec) {
+  if (!rec || typeof rec !== 'object') return '';
+  return String(rec.BookingStatus || rec.Status || rec.status || '').trim();
+}
+
+function _buildAllbookingsMirrorFromJob(job) {
+  const st = String(job.BookingStatus || 'Pending');
+  const normed = _normFbJob(job);
+  const driverId = String(job.DriverId ?? '0');
+  const vehicleId = String(job.VehicleNo || job.VehicleId || '0');
+  const rawCreated = job.createdAt || job.CreatedAt || null;
+  let createdAtMs = null;
+  if (typeof rawCreated === 'number' && rawCreated > 0) createdAtMs = rawCreated;
+  else if (rawCreated) {
+    const parsed = Date.parse(String(rawCreated));
+    if (!Number.isNaN(parsed)) createdAtMs = parsed;
+  }
+  return _mirrorFbJobFields({
+    BookingId: job.Id,
+    Status: st,
+    BookingStatus: st,
+    DriverId: driverId,
+    VehicleId: vehicleId,
+    AssignedDriver: driverId !== '0' ? driverId : '',
+    AssignedDriverId: driverId !== '0' ? driverId : '',
+    PassengerName: normed.name,
+    Name: normed.name,
+    PhoneNo: normed.phone,
+    PickAddress: normed.pickAddress,
+    DropAddress: normed.dropAddress,
+    PickLatLng: normed.pickLatLng,
+    DropLatLng: normed.dropLatLng,
+    VehicleType: normed.vehicleType || job.VehicleType || '',
+    Passengers: job.Passengers || job.PassengersNo || job.passengers || 1,
+    serviceType: job.serviceType || job.ServiceType || 'taxi',
+    ServiceType: job.serviceType || job.ServiceType || 'taxi',
+    Fare: job.EstimatedFare || job.TotalFare || normed.estimatedFare || '',
+    PaymentType: normed.paymentMethod,
+    returnReason: job.returnReason || '',
+    ReturnReason: job.returnReason || '',
+    originalStatus: job.originalStatus || '',
+    queuedAt: job.queuedAt || null,
+    offeredAt: job.offeredAt || null,
+    createdAt: createdAtMs,
+    CreatedAt: createdAtMs ? new Date(createdAtMs).toISOString() : (job.CreatedAt || null),
+    NotifyDispatchAt: job.NotifyDispatchAt || job.notifyDispatchAt || null,
+    DispatchTimebefore: job.DispatchTimebefore || job.dispatchTimebefore || null,
+    ScheduledFor: job.ScheduledFor || job.scheduledFor || null,
+    Pickingtime: job.Pickingtime || job.BookingDateTime || '',
+    BookingDateTime: job.BookingDateTime || job.Pickingtime || '',
+    BookingSource: job.BookingSource || job.source || 'dispatch',
+    TarriffId: job.TarriffId ?? job.TariffId ?? job.tariffId ?? '',
+    TariffId: job.TarriffId ?? job.TariffId ?? job.tariffId ?? '',
+    TarriffName: job.TarriffName ?? job.TariffName ?? job.tariffName ?? '',
+    TariffName: job.TarriffName ?? job.TariffName ?? job.tariffName ?? '',
+    updateSeq: parseInt(job.updateSeq) || 0,
+    version: parseInt(job.updateSeq) || 0,
+    _seq: parseInt(job.updateSeq) || 0,
+    lastUpdatedAt: job.lastUpdatedAt || new Date().toISOString(),
+    eventType: st === 'Queued' ? 'queued' : 'updated',
+    updatedAt: _FB_SERVER_TIMESTAMP,
+  });
+}
+
+async function _verifyFirebaseBookingMatches(cid, bookingId, expected, tok) {
+  expected = expected || {};
+  if (!tok) tok = await getFirebaseServerToken();
+  if (!tok) return { ok: false, reason: 'no_token' };
+  let rec;
+  try {
+    rec = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+  } catch (e) {
+    return { ok: false, reason: 'read_failed', error: e && e.message };
+  }
+  if (!rec || typeof rec !== 'object') {
+    return { ok: false, reason: 'missing', actual: null };
+  }
+  const st = _firebaseStatusFromRecord(rec);
+  if (expected.status && st !== expected.status) {
+    return { ok: false, reason: 'status_mismatch', actual: st };
+  }
+  if (expected.driverId != null) {
+    const fbDrv = String(rec.DriverId ?? rec.AssignedDriverId ?? rec.AssignedDriver ?? '0');
+    if (fbDrv !== String(expected.driverId)) {
+      return { ok: false, reason: 'driver_mismatch', actual: st, fbDrv };
+    }
+  }
+  return { ok: true, record: rec, actual: st };
+}
+
+async function _readFirebaseBookingRecord(cid, bookingId, tok) {
+  if (!tok) tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok || !cid || !bookingId) return null;
+  try {
+    const ab = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+    if (ab && typeof ab === 'object') return { source: 'allbookings', record: ab };
+    const pj = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok);
+    if (pj && typeof pj === 'object') return { source: 'pendingjobs', record: pj };
+  } catch (e) {
+    console.warn(`  [reconcile] Firebase read failed #${bookingId}: ${e && e.message}`);
+  }
+  return null;
+}
+
+/** Trust Firebase when terminal; re-fanout when jobStore is authoritative (Queued/Assigned). */
+async function _reconcileLiveJobWithFirebase(job, opts) {
+  opts = opts || {};
+  const cid = String(job.companyId || opts.companyId || '').trim();
+  const bookingId = parseInt(job.Id) || 0;
+  if (!cid || !bookingId) return { action: 'none' };
+
+  const tok = opts.token || await getFirebaseServerToken().catch(() => null);
+  if (!tok) return { action: 'none', reason: 'no_token' };
+
+  const fb = await _readFirebaseBookingRecord(cid, bookingId, tok);
+  const jsSt = String(job.BookingStatus || '');
+  const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
+
+  if (_TERMINAL_JOB_STATUSES.has(fbSt) && !_TERMINAL_JOB_STATUSES.has(jsSt)) {
+    if (!opts.forceTrustTerminal && !_RECONCILE_TRUST_FB_TERMINAL_FROM.has(jsSt)) {
+      return {
+        action: 'none',
+        reason: 'live_trip_not_auto_purged',
+        firebaseStatus: fbSt,
+        jobStoreStatus: jsSt,
+      };
+    }
+    const closed = closedJobStore.find(j => j && j.Id === bookingId);
+    if (!closed) {
+      const closedCopy = Object.assign({}, job, { BookingStatus: fbSt, companyId: cid });
+      closedJobStore.push(closedCopy);
+      saveClosedJobStore();
+    }
+    _purgeLiveJobFromStore(bookingId);
+    console.log(`  [${opts.source || 'reconcile'}] #${bookingId} jobStore ${jsSt} → purged (Firebase ${fbSt})`);
+    return { action: 'trust_firebase_terminal', firebaseStatus: fbSt, previousStatus: jsSt };
+  }
+
+  if (jsSt === 'Queued') {
+    const poolLike = !fbSt || fbSt === 'Pending' || fbSt === 'No One' || fbSt === 'Offered';
+    const drv = String(job.DriverId || '').trim();
+    const fbDrv = fb ? String(fb.record.DriverId ?? fb.record.AssignedDriverId ?? '0') : '';
+    if (poolLike || (drv && fbDrv !== drv)) {
+      try {
+        await _fanoutQueuedJobToFirebaseAwait(cid, drv, bookingId, job, {
+          vehicleId: job.VehicleNo || job.VehicleId,
+          originalStatus: job.originalStatus,
+          by: 'system',
+          source: opts.source || 'reconcile-queued',
+        });
+        saveJobStore();
+        console.log(`  [${opts.source || 'reconcile'}] re-fanned Queued #${bookingId} (Firebase was ${fbSt || 'missing'})`);
+        return { action: 'fanout_queued', firebaseStatus: fbSt };
+      } catch (e) {
+        console.warn(`  [${opts.source || 'reconcile'}] Queued re-fanout failed #${bookingId}: ${e && e.message}`);
+        return { action: 'fanout_failed', error: e && e.message };
+      }
+    }
+  }
+
+  return { action: 'none', firebaseStatus: fbSt, jobStoreStatus: jsSt };
+}
+
+async function _reconcileJobStoreBeforeDispatch(opts) {
+  opts = opts || {};
+  if (!process.env.BW_FIREBASE_SECRET) return { healed: 0, skipped: 'no_secret' };
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) return { healed: 0, skipped: 'no_token' };
+
+  let healed = 0;
+  const snapshot = jobStore.filter(j => j && j.Id);
+  for (const job of snapshot) {
+    const r = await _reconcileLiveJobWithFirebase(job, {
+      token: tok,
+      source: opts.source || 'pre-dispatch-reconcile',
+    });
+    if (r.action && r.action !== 'none') healed++;
+  }
+  return { healed };
+}
+
+const STALE_OFFER_HEAL_MS = 2 * 60 * 1000;
+const STALE_OFFER_QUARANTINE_MS = 10 * 60 * 1000;
+/** Only these jobStore statuses may be auto-purged when Firebase is terminal. Live trips (Active/…) need admin trust_firebase. */
+const _RECONCILE_TRUST_FB_TERMINAL_FROM = new Set(['Offered', 'Pending', 'No One', 'Scheduled', 'Queued']);
+
+async function _releaseStaleOfferedJobToPool(job, sourceTag) {
+  if (!job || job.BookingStatus !== 'Offered') return false;
+  const cid = String(job.companyId || '').trim();
+  const bookingId = job.Id;
+  const prevDriver = job.DriverId;
+  const prevVehicle = job.VehicleId || job.VehicleNo;
+
+  clearOfferOnFirebase(cid, prevVehicle, prevDriver, bookingId, sourceTag || 'stale-offer-heal');
+
+  const prevSt = job.BookingStatus;
+  job.BookingStatus = 'Pending';
+  job.offeredAt = null;
+  job.DriverId = 0;
+  job.VehicleId = 0;
+  job.returnReason = 'Offer expired (stale offered job)';
+  job.releasedAt = Date.now();
+  _bumpJobUpdateSeq(job, 'system');
+  saveJobStore();
+
+  if (cid && bookingId) {
+    await _writePendingJobFirebase(cid, bookingId, job, 'Pending');
+    await _fanVersionToFirebaseAwait(cid, bookingId, {
+      BookingStatus: 'Pending',
+      Status: 'Pending',
+      DriverId: '0',
+      VehicleId: '0',
+      AssignedDriver: '',
+      AssignedDriverId: '',
+      updateSeq: parseInt(job.updateSeq) || 0,
+      _seq: parseInt(job.updateSeq) || 0,
+      version: parseInt(job.updateSeq) || 0,
+      eventType: 'updated',
+      returnReason: job.returnReason,
+    }, false);
+    await _dispatchRefreshForJob(job, {
+      cid,
+      previousStatus: prevSt,
+      status: 'Pending',
+      action: 'timeout',
+      driverId: '0',
+      returnReason: job.returnReason,
+    });
+  }
+  return true;
+}
+
+async function _healStuckOfferedJobs(sourceTag) {
+  const now = Date.now();
+  let healed = 0;
+  const tok = await getFirebaseServerToken().catch(() => null);
+
+  for (const job of [...jobStore]) {
+    if (!job || job.BookingStatus !== 'Offered') continue;
+
+    const st = String(job.BookingStatus || '');
+    const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
+    if (!_isValidJobRecord(job, { requireSource: needsSource })) {
+      console.log(`[${sourceTag}] removing invalid phantom Offered job #${job.Id}`);
+      const idx = jobStore.indexOf(job);
+      if (idx >= 0) {
+        jobStore.splice(idx, 1);
+        saveJobStore();
+      }
+      healed++;
+      continue;
+    }
+
+    if (tok) {
+      const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
+      const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
+      if (_TERMINAL_JOB_STATUSES.has(fbSt)) {
+        await _reconcileLiveJobWithFirebase(job, { token: tok, source: `${sourceTag}/offered-terminal` });
+        healed++;
+        continue;
+      }
+    }
+
+    if (_jobHasMisassignedDriverId(job)) {
+      clearOfferOnFirebase(job.companyId, job.VehicleId || job.VehicleNo, job.DriverId, job.Id, `${sourceTag}/misassigned`);
+      job.BookingStatus = 'Pending';
+      job.offeredAt = null;
+      job.DriverId = 0;
+      job.VehicleId = 0;
+      job.returnReason = job.returnReason || 'Recovered (misassigned driver id)';
+      job.releasedAt = now;
+      saveJobStore();
+      healed++;
+      continue;
+    }
+
+    const age = job.offeredAt ? (now - job.offeredAt) : STALE_OFFER_HEAL_MS + 1;
+    if (age > STALE_OFFER_HEAL_MS) {
+      await _releaseStaleOfferedJobToPool(job, `${sourceTag}/stale`);
+      healed++;
+    }
+  }
+  return healed;
+}
+
+function _isGenuineInFlightOffer(job) {
+  if (!job || job.BookingStatus !== 'Offered') return false;
+  const offeredAt = Number(job.offeredAt) || 0;
+  const age = offeredAt > 0 ? (Date.now() - offeredAt) : STALE_OFFER_HEAL_MS + 1;
+  return age <= STALE_OFFER_HEAL_MS;
 }
 
 function _acceptPoolStatuses() {
@@ -3907,10 +4220,15 @@ async function acceptPendingJobByDriver(opts) {
   }
   const vehicleId = String((drv && (drv.VehicleId || drv.vehiclenumber)) || job.VehicleNo || '').trim();
   const _cid = String(job.companyId || opts.companyId || '');
-  const isBusy = _driverIsBusyForQueue(drv);
 
   _ACCEPT_IN_FLIGHT.add(_acceptKey);
   try {
+    const isBusy = _driverShouldQueueOnAccept(
+      _zoneDriverRowForEligibility(driverId, _cid, opts.vehicleId),
+      driverId,
+      _cid,
+      bookingId,
+    );
     const originalStatus = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
     job.originalStatus = originalStatus === 'manual' ? 'manual' : 'pending';
 
@@ -3930,6 +4248,16 @@ async function acceptPendingJobByDriver(opts) {
       if (!_live) return { ok: false, error_code: 'not_found', error: 'job not found' };
       const _liveSt = _live.BookingStatus || '';
       if (_liveSt === 'Queued' && String(_live.DriverId) === String(driverId)) {
+        try {
+          await _fanoutQueuedJobToFirebaseAwait(_cid, driverId, bookingId, _live, {
+            vehicleId,
+            originalStatus: _live.originalStatus,
+            by: 'driver',
+            source: `${source}/busy-idempotent-heal`,
+          });
+        } catch (e) {
+          console.warn(`  [${source}] busy idempotent queue heal failed: ${e && e.message}`);
+        }
         return {
           ok: true, status: 'Queued', queued: true, idempotent: true,
           driverId, booking: _publicBooking(_live),
@@ -3956,6 +4284,16 @@ async function acceptPendingJobByDriver(opts) {
       const _preSave = jobStore.find(j => j && j.Id === bookingId);
       const _preSaveSt = (_preSave && _preSave.BookingStatus) || '';
       if (_preSaveSt === 'Queued' && String(_preSave.DriverId) === String(driverId)) {
+        try {
+          await _fanoutQueuedJobToFirebaseAwait(_cid, driverId, bookingId, _preSave, {
+            vehicleId,
+            originalStatus: _preSave.originalStatus,
+            by: 'driver',
+            source: `${source}/busy-idempotent-heal`,
+          });
+        } catch (e) {
+          console.warn(`  [${source}] busy idempotent queue heal failed: ${e && e.message}`);
+        }
         return {
           ok: true, status: 'Queued', queued: true, idempotent: true,
           driverId, booking: _publicBooking(_preSave),
@@ -4825,10 +5163,16 @@ function _analyzeAutoDispatchForJob(job, cid) {
     return { eligible: false, reasons: ['job not in jobStore'], lastTick: _AUTO_DISPATCH_LAST };
   }
   const offeredBlockers = jobStore.filter(j =>
-    String(j.companyId) === companyId && j.BookingStatus === 'Offered'
+    String(j.companyId) === companyId && j.BookingStatus === 'Offered' && _isGenuineInFlightOffer(j)
+  );
+  const staleOffers = jobStore.filter(j =>
+    String(j.companyId) === companyId && j.BookingStatus === 'Offered' && !_isGenuineInFlightOffer(j)
   );
   if (offeredBlockers.length) {
     reasons.push(`company blocked: ${offeredBlockers.length} Offered job(s) in store (${offeredBlockers.map(j => j.Id).join(', ')})`);
+  }
+  if (staleOffers.length) {
+    reasons.push(`stale Offered job(s) present but not blocking (${staleOffers.map(j => j.Id).join(', ')}) — will heal on next tick`);
   }
   const st = String(job.BookingStatus || '');
   if (st !== 'Pending') {
@@ -6722,6 +7066,66 @@ async function repairBookingFirebaseSync(opts) {
 
     console.log(`  [${source}] repaired orphan #${bookingId} (was ${prevSt}, driver=${drvId || 'none'}) → Pending`);
     return { ok: true, action: 'pending', previousStatus: prevSt, booking: _publicBooking(job) };
+  }
+
+  if (action === 'trust_firebase' || action === 'trust-firebase') {
+    const tok = await getFirebaseServerToken().catch(() => null);
+    if (!tok) return { ok: false, error: 'no Firebase token' };
+    const fb = await _readFirebaseBookingRecord(cid, bookingId, tok);
+    if (!fb || !fb.record) {
+      return { ok: false, error: 'Firebase record not found for booking' };
+    }
+    const fbSt = _firebaseStatusFromRecord(fb.record);
+    const jsSt = String(job.BookingStatus || '');
+    if (!_TERMINAL_JOB_STATUSES.has(fbSt)) {
+      return {
+        ok: false,
+        error: `Firebase status ${fbSt || '?'} is not terminal — use action=sync or action=pending instead`,
+        firebaseStatus: fbSt,
+        jobStoreStatus: jsSt,
+      };
+    }
+    const r = await _reconcileLiveJobWithFirebase(job, {
+      token: tok,
+      source: `${source}/trust_firebase`,
+      forceTrustTerminal: true,
+    });
+    const stillLive = jobStore.find(j => j && j.Id === bookingId);
+    if (stillLive) {
+      return {
+        ok: false,
+        error: `trust_firebase failed to purge #${bookingId}`,
+        reconcile: r,
+        booking: _publicBooking(stillLive),
+        purged: false,
+      };
+    }
+    console.log(`  [${source}] trust_firebase #${bookingId}: jobStore ${jsSt} → purged (Firebase ${fbSt})`);
+    return {
+      ok: true,
+      action: 'trust_firebase',
+      previousStatus: jsSt,
+      firebaseStatus: fbSt,
+      reconcile: r,
+      booking: null,
+      purged: true,
+    };
+  }
+
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (tok) {
+    const fb = await _readFirebaseBookingRecord(cid, bookingId, tok);
+    const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
+    const jsSt = String(job.BookingStatus || '');
+    if (_TERMINAL_JOB_STATUSES.has(fbSt) && !_TERMINAL_JOB_STATUSES.has(jsSt)) {
+      return {
+        ok: false,
+        error: `refusing sync: Firebase is terminal (${fbSt}) but jobStore is ${jsSt} — use action=trust_firebase`,
+        firebaseStatus: fbSt,
+        jobStoreStatus: jsSt,
+        hint: 'For completed trips stuck Active in jobStore (e.g. Hail), trust_firebase purges jobStore to match Firebase.',
+      };
+    }
   }
 
   const seq = parseInt(job.updateSeq) || 0;
@@ -10721,6 +11125,120 @@ const server = http.createServer(async (req, res) => {
       const zd = matches[0];
       res.writeHead(200, JSON_HEADERS);
       res.end(JSON.stringify({ ok: true, driver: { driverid: zd.driverid, vehicletype: zd.vehicletype, seatCapacity: zd.seatCapacity || zd.seats, zoneid: zd.zoneid } }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/mutate-jobstore' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const bookingId = parseInt(parsed.bookingId || parsed.jobId || 0);
+      if (!bookingId) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'bookingId required' }));
+        return;
+      }
+      const job = jobStore.find(j => j && j.Id === bookingId);
+      if (!job) {
+        res.writeHead(404, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'job not in jobStore' }));
+        return;
+      }
+      const patch = parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : parsed;
+      const allowed = [
+        'BookingStatus', 'DriverId', 'VehicleId', 'VehicleNo', 'offeredAt', 'returnReason',
+        'queuedAt', 'originalStatus', 'releasedAt', 'companyId',
+      ];
+      for (const k of allowed) {
+        if (patch[k] !== undefined) job[k] = patch[k];
+      }
+      if (patch.BookingStatus) job.Status = patch.BookingStatus;
+      saveJobStore();
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, bookingId, job: _publicBooking(job) }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/set-firebase-booking' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const bookingId = parseInt(parsed.bookingId || parsed.jobId || 0);
+      const jobForCid = jobStore.find(j => j && j.Id === bookingId);
+      const cid = String(parsed.companyId || parsed.cid || jobForCid?.companyId || 'bwtest').trim();
+      if (!bookingId) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'bookingId required' }));
+        return;
+      }
+      const patch = parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : {};
+      if (!Object.keys(patch).length) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'patch object required' }));
+        return;
+      }
+      const tok = await getFirebaseServerToken();
+      if (!tok) {
+        res.writeHead(503, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'no Firebase token' }));
+        return;
+      }
+      let existing = null;
+      try {
+        existing = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+      } catch {
+        /* new node */
+      }
+      const merged = Object.assign({}, existing && typeof existing === 'object' ? existing : {}, patch, {
+        BookingId: bookingId,
+        Id: bookingId,
+        updatedAt: _FB_SERVER_TIMESTAMP,
+      });
+      if (merged.BookingStatus && !merged.Status) merged.Status = merged.BookingStatus;
+      await firebaseDbSet(`allbookings/${cid}/${bookingId}`, merged, tok);
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, bookingId, companyId: cid, patch: merged }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/repair-booking' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const bookingId = parseInt(parsed.bookingId || 0);
+      const action = String(parsed.action || 'sync').toLowerCase();
+      const report = await repairBookingFirebaseSync({
+        bookingId,
+        action,
+        companyId: parsed.companyId,
+        source: 'loadtest/repair-booking',
+      });
+      res.writeHead(report.ok ? 200 : 400, JSON_HEADERS);
+      res.end(JSON.stringify(report));
     } catch (e) {
       res.writeHead(500, JSON_HEADERS);
       res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
@@ -16600,9 +17118,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         objectD(res, _assignedResp);
 
       } else if (action === 'AutoDispatchVehiclesallride') {
-        // Stale-offer watchdog: if a job has been stuck in "Offered" for more than 2 minutes,
-        // the browser that was tracking it must have closed/refreshed without resolving it.
-        // Reset it to Pending so auto-dispatch can re-offer it to the next available driver.
+        // Stale-offer watchdog: heal stuck Offered jobs (async, full Firebase sync).
+        _healStuckOfferedJobs('staleOfferWatchdog-AD').catch(e => {
+          console.warn(`  [AutoDispatch] stale-offer heal failed: ${e && e.message}`);
+        });
+        // Legacy inline heal for misassigned/orphan paths that predate _healStuckOfferedJobs.
         const STALE_OFFER_MS = 2 * 60 * 1000; // 2 minutes
         const now = Date.now();
         jobStore.forEach(j => {
@@ -16618,20 +17138,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               j.releasedAt = Date.now();
               return;
             }
-            // If no offeredAt recorded (pre-watchdog jobs), treat as stale immediately.
             const age = j.offeredAt ? (now - j.offeredAt) : STALE_OFFER_MS + 1;
             if (age > STALE_OFFER_MS) {
-              console.log(`  [AutoDispatch] stale-offer watchdog: resetting job #${j.Id} (offered to driver ${j.DriverId}, age ${Math.round(age/1000)}s) → Pending`);
-              console.log(`[§FIX-OfferClear/staleOfferWatchdog-AD] *** SERVER WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — pushing clear-offer to driver-app Firebase nodes.`);
-              // §FIX-OfferClear — push clear-offer to driver-app Firebase nodes so a recovered
-              // (post-crash) driver app drops the stale Accept popup instead of acting on it.
-              // Use j.companyId (not sessionCompanyId) — jobStore is global across tenants
-              // and the AD watchdog iterates all jobs, so cross-tenant clears must be avoided.
-              clearOfferOnFirebase(j.companyId, j.VehicleId, j.DriverId, j.Id, 'staleOfferWatchdog-AD');
-              j.BookingStatus = 'Pending';
-              j.offeredAt = null;
-              j.DriverId = 0;
-              j.VehicleId = 0;
+              _releaseStaleOfferedJobToPool(j, 'staleOfferWatchdog-AD').catch(e => {
+                console.warn(`  [AutoDispatch] stale offer release failed #${j.Id}: ${e && e.message}`);
+              });
             }
           }
           // Orphaned-job watchdog: Assigned status but no driver assigned (DriverId=0/null).
@@ -18696,49 +19207,13 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason, opts)
 // If a job has been stuck in Offered for > 2 minutes, the 27-s browser timer
 // that was tracking it died (page refresh / tab close).  Reset to Pending so
 // the next auto-dispatch cycle or dispatcher action can re-offer it.
-setInterval(() => {
-  const STALE_MS = 2 * 60 * 1000;
-  const now = Date.now();
-  let changed = false;
-  jobStore.forEach(j => {
-    if (j.BookingStatus !== 'Offered') return;
-    if (_jobHasMisassignedDriverId(j)) {
-      console.log(`[stale-offer watchdog] job #${j.Id} misassigned DriverId=${j.DriverId} — resetting to Pending`);
-      clearOfferOnFirebase(j.companyId, j.VehicleId || j.VehicleNo, j.DriverId, j.Id, 'misassignedDriverWatchdog-90s');
-      j.BookingStatus = 'Pending';
-      j.offeredAt = null;
-      j.DriverId = 0;
-      j.VehicleId = 0;
-      j.returnReason = j.returnReason || 'Recovered (misassigned driver id)';
-      j.releasedAt = Date.now();
-      changed = true;
-      return;
-    }
-    const st = String(j.BookingStatus || '');
-    const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
-    if (!_isValidJobRecord(j, { requireSource: needsSource })) {
-      console.log(`[stale-offer watchdog] removing invalid phantom job #${j.Id} (was Offered)`);
-      const idx = jobStore.indexOf(j);
-      if (idx >= 0) jobStore.splice(idx, 1);
-      changed = true;
-      return;
-    }
-    const age = j.offeredAt ? (now - j.offeredAt) : STALE_MS + 1;
-    if (age > STALE_MS) {
-      console.log(`[stale-offer watchdog] job #${j.Id} stuck as Offered for ${Math.round(age/1000)}s (driver ${j.DriverId}) — resetting to Pending`);
-      console.log(`[§FIX-OfferClear/staleOfferWatchdog-90s] *** SERVER 90s WATCHDOG FIRED *** job#${j.Id} prevDriverId=${j.DriverId} prevVehicleId=${j.VehicleId} offeredAt=${j.offeredAt} ageMs=${age} — pushing clear-offer to driver-app Firebase nodes.`);
-      // §FIX-OfferClear — push clear-offer so a recovered driver app drops the stale Accept popup.
-      // j.companyId is stamped at intake by IngestPassengerJob / ProcUpdateJobv6.
-      clearOfferOnFirebase(j.companyId, j.VehicleId, j.DriverId, j.Id, 'staleOfferWatchdog-90s');
-      j.BookingStatus = 'Pending';
-      j.offeredAt     = null;
-      j.DriverId      = 0;
-      j.VehicleId     = 0;
-      j.returnReason  = 'Offer expired (stale offered job)';
-      changed = true;
-    }
-  });
-  if (changed) saveJobStore();
+setInterval(async () => {
+  try {
+    const healed = await _healStuckOfferedJobs('staleOfferWatchdog-90s');
+    if (healed) console.log(`[stale-offer watchdog] healed ${healed} stuck Offered job(s)`);
+  } catch (e) {
+    console.warn(`[stale-offer watchdog] heal pass failed: ${e && e.message}`);
+  }
 }, 90 * 1000);
 
 // ── pendingjobs Firebase normalizer — runs every 15 s ─────────────────────────
@@ -19817,6 +20292,20 @@ async function _serverAutoDispatchTick() {
   }
   _purgeInvalidJobsFromStore('server-auto-dispatch');
   _healMisassignedDriverIdsInJobStore('server-auto-dispatch');
+  if (process.env.BW_FIREBASE_SECRET) {
+    try {
+      const offerHealed = await _healStuckOfferedJobs('server-auto-dispatch');
+      if (offerHealed) {
+        console.log(`[server-auto-dispatch] healed ${offerHealed} stuck Offered job(s) before tick`);
+      }
+      const recon = await _reconcileJobStoreBeforeDispatch({ source: 'server-auto-dispatch' });
+      if (recon.healed) {
+        console.log(`[server-auto-dispatch] reconciled ${recon.healed} jobStore/Firebase drift(s) before tick`);
+      }
+    } catch (e) {
+      console.warn(`[server-auto-dispatch] pre-tick reconcile failed: ${e && e.message}`);
+    }
+  }
   const cids = _fixsCollectCompanyIds();
   const tickReport = { at: new Date(now).toISOString(), companies: {} };
   for (const cid of cids) {
@@ -19830,9 +20319,14 @@ async function _serverAutoDispatchTick() {
       targetDriverId: null,
     };
     const offeredJobs = jobStore.filter(j => String(j.companyId) === String(cid) && j.BookingStatus === 'Offered');
+    const blockingOffers = offeredJobs.filter(_isGenuineInFlightOffer);
     companyReport.offeredCount = offeredJobs.length;
-    if (offeredJobs.length) {
-      companyReport.skipReason = `company has ${offeredJobs.length} Offered job(s): ${offeredJobs.map(j => j.Id).join(', ')}`;
+    companyReport.blockingOfferCount = blockingOffers.length;
+    if (blockingOffers.length) {
+      companyReport.skipReason = `company has ${blockingOffers.length} in-flight Offered job(s): ${blockingOffers.map(j => j.Id).join(', ')}`;
+      if (offeredJobs.length > blockingOffers.length) {
+        companyReport.skipReason += ` (${offeredJobs.length - blockingOffers.length} stale Offered ignored)`;
+      }
       tickReport.companies[cid] = companyReport;
       continue;
     }
@@ -19903,6 +20397,8 @@ async function _serverAutoDispatchTick() {
     fresh.VehicleId = _bestVid || _bestDrv;
     fresh.VehicleNo = best.vehiclenumber || _bestVid || best.VehicleId;
     fresh.offeredAt = now;
+    fresh.returnReason = '';
+    fresh.ReturnReason = '';
     fresh.originalStatus = 'pending';
     saveJobStore();
     await _writeDriverOfferNotification(cid, best, fresh);
