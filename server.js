@@ -3707,6 +3707,26 @@ async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, original
   }
 }
 
+/** On-trip statuses — driver is actively working a job (Queued alone is NOT a trip). */
+const _ACTIVE_TRIP_JOB_STATUSES = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip']);
+
+/** Zone vehiclestatus values that mean on-trip (not mere pool Busy/Assigned without a trip). */
+const _ON_TRIP_PRESENCE_STATUSES = new Set(['Picking', 'Arrived', 'Active', 'OnTrip']);
+
+function _driverHasActiveTripJob(driverId, companyId, excludeBookingId) {
+  const did = String(driverId || '').trim();
+  const cid = String(companyId || '').trim();
+  if (!did) return false;
+  return jobStore.some(j => {
+    if (!j || !j.Id) return false;
+    if (excludeBookingId && j.Id === excludeBookingId) return false;
+    if (cid && String(j.companyId || '') !== cid) return false;
+    const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
+    if (jDrv !== did) return false;
+    return _ACTIVE_TRIP_JOB_STATUSES.has(String(j.BookingStatus || ''));
+  });
+}
+
 /** Busy-driver statuses — must match _collectBusyEligibleDriversForJob. */
 const _BUSY_FOR_QUEUE_STATUSES = new Set(['Busy', 'Picking', 'Assigned', 'Active', 'OnTrip', 'Arrived']);
 
@@ -3714,23 +3734,20 @@ function _driverIsBusyForQueue(drv) {
   return !!(drv && _BUSY_FOR_QUEUE_STATUSES.has(String(drv.vehiclestatus || '')));
 }
 
+/** @deprecated Use _driverHasActiveTripJob — Queued must not count as an active trip. */
 function _driverHasLiveAttachedJob(driverId, companyId, excludeBookingId) {
-  const did = String(driverId || '').trim();
-  const cid = String(companyId || '').trim();
-  if (!did) return false;
-  const attached = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Queued']);
-  return jobStore.some(j => {
-    if (!j || !j.Id) return false;
-    if (excludeBookingId && j.Id === excludeBookingId) return false;
-    if (cid && String(j.companyId || '') !== cid) return false;
-    const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
-    if (jDrv !== did) return false;
-    return attached.has(String(j.BookingStatus || ''));
-  });
+  return _driverHasActiveTripJob(driverId, companyId, excludeBookingId);
 }
 
+/**
+ * Queue-on-accept only when the driver is genuinely on another active trip.
+ * Stale Queued rows, zone Busy/Assigned without a trip, and driverQueue ghosts
+ * must not send a normal Available accept to Queue.
+ */
 function _driverShouldQueueOnAccept(drv, driverId, companyId, bookingId) {
-  return _driverIsBusyForQueue(drv) || _driverHasLiveAttachedJob(driverId, companyId, bookingId);
+  if (_driverHasActiveTripJob(driverId, companyId, bookingId)) return true;
+  const vs = String((drv && drv.vehiclestatus) || '').trim();
+  return _ON_TRIP_PRESENCE_STATUSES.has(vs);
 }
 
 // Mirror Queued into allbookings + driverQueue and remove pendingjobs pool node.

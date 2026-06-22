@@ -72,8 +72,12 @@ export const OPTIMISTIC_LIVE_RETAIN_MS = 8_000;
 /** Queue jobs stay visible until allbookings confirms Queued (or this cap). */
 export const QUEUE_AWAIT_ALLBOOKINGS_MS = 120_000;
 
+/** Offered jobs stay on the Offer tab until allbookings confirms (or this cap). */
+export const OFFER_AWAIT_ALLBOOKINGS_MS = 120_000;
+
 const optimisticLiveUntil = new Map<number, number>();
 const queueAwaitingAllbookings = new Map<number, number>();
+const offerAwaitingAllbookings = new Map<number, number>();
 
 export type DispatchRefreshHint = {
   action?: string;
@@ -96,6 +100,24 @@ export function markQueueAwaitingAllbookings(jobId: number, now = Date.now()): v
 
 export function clearQueueAwaitingAllbookings(jobId: number): void {
   queueAwaitingAllbookings.delete(jobId);
+}
+
+export function markOfferAwaitingAllbookings(jobId: number, now = Date.now()): void {
+  offerAwaitingAllbookings.set(jobId, now + OFFER_AWAIT_ALLBOOKINGS_MS);
+}
+
+export function clearOfferAwaitingAllbookings(jobId: number): void {
+  offerAwaitingAllbookings.delete(jobId);
+}
+
+export function isOfferAwaitingAllbookings(jobId: number, now = Date.now()): boolean {
+  const until = offerAwaitingAllbookings.get(jobId);
+  if (until == null) return false;
+  if (now >= until) {
+    offerAwaitingAllbookings.delete(jobId);
+    return false;
+  }
+  return true;
 }
 
 export function isQueueAwaitingAllbookings(jobId: number, now = Date.now()): boolean {
@@ -150,6 +172,25 @@ export function reinjectQueueAwaitingJobs(
   }
 }
 
+/** Re-inject Offered jobs when pendingjobs/allbookings lag behind dispatch refresh. */
+export function reinjectOfferAwaitingJobs(
+  bookingsRef: Map<number, Job>,
+  pendingRef: Map<number, Job>,
+  storeJobs: Job[],
+  now = Date.now(),
+): void {
+  for (const j of storeJobs) {
+    if (normalizeJobStatus(j.status) !== 'Offered') continue;
+    if (bookingsRef.has(j.id) || pendingRef.has(j.id)) continue;
+    if (!isOfferAwaitingAllbookings(j.id, now)) continue;
+    bookingsRef.set(j.id, j);
+  }
+  for (const j of pendingRef.values()) {
+    if (normalizeJobStatus(j.status) !== 'Offered') continue;
+    if (!bookingsRef.has(j.id)) bookingsRef.set(j.id, j);
+  }
+}
+
 function isPoolUaStatus(status: string): boolean {
   return POOL_UA_STATUSES.has(normalizeJobStatus(status) as Job['status']);
 }
@@ -182,6 +223,9 @@ export function shouldPreserveAbsentStoreJob(
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
   if (normalizeJobStatus(job.status) === 'Queued' && isQueueAwaitingAllbookings(job.id, now)) {
+    return true;
+  }
+  if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
     return true;
   }
   return isWithinOptimisticWindow(job.id, now);

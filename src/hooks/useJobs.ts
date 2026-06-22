@@ -16,8 +16,11 @@ import {
   markOptimisticLiveTransition,
   markQueueAwaitingAllbookings,
   clearQueueAwaitingAllbookings,
+  markOfferAwaitingAllbookings,
+  clearOfferAwaitingAllbookings,
   minimalJobFromDispatchRefresh,
   reinjectQueueAwaitingJobs,
+  reinjectOfferAwaitingJobs,
   shouldPreserveAbsentStoreJob,
   staleTerminalAllbookingsSuperseded,
 } from '@/lib/jobPoolSync';
@@ -213,6 +216,9 @@ function optimisticDispatchRefresh(
   if (refresh.action === 'queue' && st === 'Queued') {
     markQueueAwaitingAllbookings(bookingId);
   }
+  if (refresh.action === 'offer' && st === 'Offered') {
+    markOfferAwaitingAllbookings(bookingId);
+  }
   if (['accept', 'assign', 'offer', 'queue', 'active'].includes(refresh.action || '')) {
     markOptimisticLiveTransition(bookingId);
   }
@@ -284,6 +290,9 @@ async function refreshJobFromFirebaseCaches(
   if (action === 'queue') {
     markQueueAwaitingAllbookings(bookingId);
   }
+  if (action === 'offer') {
+    markOfferAwaitingAllbookings(bookingId);
+  }
 
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
 
@@ -305,6 +314,9 @@ async function refreshJobFromFirebaseCaches(
     }
     if (st === 'Queued') {
       clearQueueAwaitingAllbookings(bookingId);
+    }
+    if (st === 'Offered') {
+      clearOfferAwaitingAllbookings(bookingId);
     }
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
       bookingsRef.set(job.id, job);
@@ -516,12 +528,20 @@ export function useJobs(companyId: string | null) {
               if (effectiveStatus === 'Queued') {
                 clearQueueAwaitingAllbookings(stored.id);
               }
+              if (effectiveStatus === 'Offered') {
+                clearOfferAwaitingAllbookings(stored.id);
+              }
             } else if (isPoolUaStatus(effectiveStatus)) {
               pendingRef.current.set(stored.id, stored);
             }
           }
         }
         reinjectQueueAwaitingJobs(bookingsRef.current, useJobStore.getState().jobs);
+        reinjectOfferAwaitingJobs(
+          bookingsRef.current,
+          pendingRef.current,
+          useJobStore.getState().jobs,
+        );
         for (const tid of terminalIds) {
           pendingRef.current.delete(tid);
           bookingsRef.current.delete(tid);

@@ -10,9 +10,11 @@ const POOL_UA = new Set(['Pending', 'No One', 'Scheduled']);
 
 export const OPTIMISTIC_LIVE_RETAIN_MS = 8_000;
 export const QUEUE_AWAIT_ALLBOOKINGS_MS = 120_000;
+export const OFFER_AWAIT_ALLBOOKINGS_MS = 120_000;
 
 const optimisticLiveUntil = new Map();
 const queueAwaitingAllbookings = new Map();
+const offerAwaitingAllbookings = new Map();
 
 export function markOptimisticLiveTransition(jobId, now = Date.now()) {
   optimisticLiveUntil.set(jobId, now + OPTIMISTIC_LIVE_RETAIN_MS);
@@ -28,6 +30,24 @@ export function markQueueAwaitingAllbookings(jobId, now = Date.now()) {
 
 export function clearQueueAwaitingAllbookings(jobId) {
   queueAwaitingAllbookings.delete(jobId);
+}
+
+export function markOfferAwaitingAllbookings(jobId, now = Date.now()) {
+  offerAwaitingAllbookings.set(jobId, now + OFFER_AWAIT_ALLBOOKINGS_MS);
+}
+
+export function clearOfferAwaitingAllbookings(jobId) {
+  offerAwaitingAllbookings.delete(jobId);
+}
+
+export function isOfferAwaitingAllbookings(jobId, now = Date.now()) {
+  const until = offerAwaitingAllbookings.get(jobId);
+  if (until == null) return false;
+  if (now >= until) {
+    offerAwaitingAllbookings.delete(jobId);
+    return false;
+  }
+  return true;
 }
 
 export function isQueueAwaitingAllbookings(jobId, now = Date.now()) {
@@ -69,6 +89,19 @@ export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, now = Date.now
     if (bookingsRef.has(j.id)) continue;
     if (!isQueueAwaitingAllbookings(j.id, now)) continue;
     bookingsRef.set(j.id, j);
+  }
+}
+
+export function reinjectOfferAwaitingJobs(bookingsRef, pendingRef, storeJobs, now = Date.now()) {
+  for (const j of storeJobs) {
+    if (normalizeJobStatus(j.status) !== 'Offered') continue;
+    if (bookingsRef.has(j.id) || pendingRef.has(j.id)) continue;
+    if (!isOfferAwaitingAllbookings(j.id, now)) continue;
+    bookingsRef.set(j.id, j);
+  }
+  for (const j of pendingRef.values()) {
+    if (normalizeJobStatus(j.status) !== 'Offered') continue;
+    if (!bookingsRef.has(j.id)) bookingsRef.set(j.id, j);
   }
 }
 
@@ -140,6 +173,9 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
   if (normalizeJobStatus(job.status) === 'Queued' && isQueueAwaitingAllbookings(job.id, now)) {
+    return true;
+  }
+  if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
     return true;
   }
   return isWithinOptimisticWindow(job.id, now);
