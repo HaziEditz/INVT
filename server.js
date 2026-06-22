@@ -3713,18 +3713,98 @@ const _ACTIVE_TRIP_JOB_STATUSES = new Set(['Assigned', 'Picking', 'Arrived', 'Ac
 /** Zone vehiclestatus values that mean on-trip (not mere pool Busy/Assigned without a trip). */
 const _ON_TRIP_PRESENCE_STATUSES = new Set(['Picking', 'Arrived', 'Active', 'OnTrip']);
 
-function _driverHasActiveTripJob(driverId, companyId, excludeBookingId) {
+const _ACCEPT_QUEUE_DIAG_RING = [];
+const _ACCEPT_QUEUE_DIAG_RING_MAX = 40;
+
+function _pushAcceptQueueDiag(diag) {
+  if (!diag || typeof diag !== 'object') return;
+  _ACCEPT_QUEUE_DIAG_RING.push(Object.assign({ at: new Date().toISOString() }, diag));
+  while (_ACCEPT_QUEUE_DIAG_RING.length > _ACCEPT_QUEUE_DIAG_RING_MAX) {
+    _ACCEPT_QUEUE_DIAG_RING.shift();
+  }
+}
+
+function _driverAttachedJobStoreRows(driverId, companyId, excludeBookingId) {
   const did = String(driverId || '').trim();
   const cid = String(companyId || '').trim();
-  if (!did) return false;
-  return jobStore.some(j => {
+  if (!did) return [];
+  return jobStore.filter(j => {
     if (!j || !j.Id) return false;
     if (excludeBookingId && j.Id === excludeBookingId) return false;
     if (cid && String(j.companyId || '') !== cid) return false;
     const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
-    if (jDrv !== did) return false;
-    return _ACTIVE_TRIP_JOB_STATUSES.has(String(j.BookingStatus || ''));
+    if (jDrv !== did && !_driverIdsMatch(jDrv, did)) return false;
+    return true;
+  }).map(j => ({
+    bookingId: j.Id,
+    status: j.BookingStatus || null,
+    driverId: j.DriverId || null,
+    vehicleId: j.VehicleNo || j.VehicleId || null,
+    companyId: j.companyId || null,
+    updateSeq: j.updateSeq ?? null,
+    queuedAt: j.queuedAt ?? null,
+    lastUpdatedAt: j.lastUpdatedAt ?? null,
+    lastUpdatedBy: j.lastUpdatedBy ?? null,
+  }));
+}
+
+/**
+ * Whether a jobStore row should block Available accept (queue instead of assign).
+ * Assigned rows are ignored when zone driver is Available with no BookingId — production
+ * often keeps stale Assigned ghosts after complete while Firebase/zone are clean.
+ */
+function _jobStoreRowBlocksAcceptQueue(job, zoneDrv) {
+  const st = String((job && job.BookingStatus) || '');
+  if (!_ACTIVE_TRIP_JOB_STATUSES.has(st)) {
+    return { blocks: false, reason: 'not_active_trip_status', status: st, bookingId: job && job.Id };
+  }
+  if (['Picking', 'Arrived', 'Active', 'OnTrip'].includes(st)) {
+    return { blocks: true, reason: 'on_trip_job_status', status: st, bookingId: job.Id };
+  }
+  if (st === 'Assigned') {
+    const bid = String(job.Id || '');
+    const zoneBid = String(
+      (zoneDrv && (zoneDrv.BookingId || zoneDrv.currentJobId || zoneDrv.joboffer)) || '',
+    ).trim();
+    const vs = String((zoneDrv && zoneDrv.vehiclestatus) || '').trim();
+    if (zoneBid && zoneBid === bid) {
+      return { blocks: true, reason: 'assigned_zone_booking_match', status: st, bookingId: job.Id, zoneBid, zoneVehiclestatus: vs };
+    }
+    if (vs === 'Available' && (!zoneBid || zoneBid === '0')) {
+      return { blocks: false, reason: 'assigned_stale_zone_available', status: st, bookingId: job.Id, zoneBid, zoneVehiclestatus: vs };
+    }
+    if (zoneBid && zoneBid !== bid) {
+      return { blocks: false, reason: 'assigned_zone_other_booking', status: st, bookingId: job.Id, zoneBid, zoneVehiclestatus: vs };
+    }
+    if (['Busy', 'Assigned', 'Picking'].includes(vs)) {
+      return { blocks: true, reason: 'assigned_zone_busy_unmatched', status: st, bookingId: job.Id, zoneBid, zoneVehiclestatus: vs };
+    }
+    return { blocks: false, reason: 'assigned_unverified_treated_stale', status: st, bookingId: job.Id, zoneBid, zoneVehiclestatus: vs };
+  }
+  return { blocks: false, reason: 'unhandled_status', status: st, bookingId: job && job.Id };
+}
+
+function _driverHasActiveTripJob(driverId, companyId, excludeBookingId, zoneDrv, diagOut) {
+  const did = String(driverId || '').trim();
+  const cid = String(companyId || '').trim();
+  if (!did) return false;
+  const zd = zoneDrv || _zoneDriverRowForEligibility(driverId, cid, null);
+  const matches = [];
+  const found = jobStore.some(j => {
+    if (!j || !j.Id) return false;
+    if (excludeBookingId && j.Id === excludeBookingId) return false;
+    if (cid && String(j.companyId || '') !== cid) return false;
+    const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
+    if (jDrv !== did && !_driverIdsMatch(jDrv, did)) return false;
+    const block = _jobStoreRowBlocksAcceptQueue(j, zd);
+    if (block.blocks) {
+      matches.push(block);
+      return true;
+    }
+    return false;
   });
+  if (diagOut) diagOut.activeTripMatches = matches;
+  return found;
 }
 
 /** Busy-driver statuses — must match _collectBusyEligibleDriversForJob. */
@@ -3740,14 +3820,60 @@ function _driverHasLiveAttachedJob(driverId, companyId, excludeBookingId) {
 }
 
 /**
+ * Evaluate whether accept should queue (busy) or assign (free).
+ * Returns { shouldQueue, diag } — pass log:true to emit [accept-queue-diag] console line.
+ */
+function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts) {
+  opts = opts || {};
+  const did = String(driverId || '').trim();
+  const cid = String(companyId || '').trim();
+  const bid = parseInt(bookingId) || 0;
+  const activeTripDiag = {};
+  const hasActiveTrip = _driverHasActiveTripJob(did, cid, bid, drv, activeTripDiag);
+  const vs = String((drv && drv.vehiclestatus) || '').trim();
+  const onTripZone = _ON_TRIP_PRESENCE_STATUSES.has(vs);
+  const otherAttached = _driverAttachedJobStoreRows(did, cid, bid);
+  const diag = {
+    bookingId: bid,
+    driverId: did,
+    companyId: cid,
+    zoneVehiclestatus: vs || null,
+    zoneDriverId: drv ? String(drv.driverid || '') : null,
+    zoneVehicleId: drv ? String(drv.VehicleId || drv.vehiclenumber || '') : null,
+    zoneBookingId: drv ? String(drv.BookingId || drv.currentJobId || drv.joboffer || '') : null,
+    zoneJobCount: drv ? (parseInt(drv.jobCount) || 0) : null,
+    otherAttachedJobs: otherAttached,
+    activeTripMatches: activeTripDiag.activeTripMatches || [],
+    onTripZoneStatus: onTripZone,
+    shouldQueue: false,
+    reason: null,
+  };
+  if (hasActiveTrip) {
+    diag.shouldQueue = true;
+    diag.reason = 'active_trip_job';
+  } else if (onTripZone) {
+    diag.shouldQueue = true;
+    diag.reason = 'on_trip_zone_status';
+  } else {
+    diag.shouldQueue = false;
+    diag.reason = 'available_assign';
+  }
+  if (opts.log !== false) {
+    console.log(`[accept-queue-diag] ${JSON.stringify(diag)}`);
+  }
+  if (opts.record !== false) {
+    _pushAcceptQueueDiag(diag);
+  }
+  return { shouldQueue: diag.shouldQueue, diag };
+}
+
+/**
  * Queue-on-accept only when the driver is genuinely on another active trip.
  * Stale Queued rows, zone Busy/Assigned without a trip, and driverQueue ghosts
  * must not send a normal Available accept to Queue.
  */
 function _driverShouldQueueOnAccept(drv, driverId, companyId, bookingId) {
-  if (_driverHasActiveTripJob(driverId, companyId, bookingId)) return true;
-  const vs = String((drv && drv.vehiclestatus) || '').trim();
-  return _ON_TRIP_PRESENCE_STATUSES.has(vs);
+  return _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, { log: true, record: true }).shouldQueue;
 }
 
 // Mirror Queued into allbookings + driverQueue and remove pendingjobs pool node.
@@ -4321,6 +4447,16 @@ async function acceptPendingJobByDriver(opts) {
   // Idempotent — already queued for this driver. Re-fanout Firebase in case a
   // prior accept left jobStore Queued while allbookings stayed Pending (split-brain).
   if (_cur === 'Queued' && String(job.DriverId) === String(driverId)) {
+    const _idempotentDiag = {
+      bookingId,
+      driverId,
+      path: 'idempotent_already_queued',
+      incomingStatus: _cur,
+      skippedQueueDecision: true,
+      otherAttachedJobs: _driverAttachedJobStoreRows(driverId, String(job.companyId || opts.companyId || ''), bookingId),
+    };
+    console.log(`[accept-queue-diag] ${JSON.stringify(_idempotentDiag)}`);
+    _pushAcceptQueueDiag(_idempotentDiag);
     const _cidHeal = String(job.companyId || opts.companyId || '');
     if (_cidHeal) {
       try {
@@ -4359,11 +4495,15 @@ async function acceptPendingJobByDriver(opts) {
 
   _ACCEPT_IN_FLIGHT.add(_acceptKey);
   try {
-    const isBusy = _driverShouldQueueOnAccept(
-      _zoneDriverRowForEligibility(driverId, _cid, opts.vehicleId),
-      driverId,
-      _cid,
-      bookingId,
+    const _zoneDrv = _zoneDriverRowForEligibility(driverId, _cid, opts.vehicleId);
+    const _queueDecision = _evaluateAcceptQueueDecision(_zoneDrv, driverId, _cid, bookingId, {
+      log: true,
+      record: true,
+    });
+    const isBusy = _queueDecision.shouldQueue;
+    console.log(
+      `  [${source}] accept #${bookingId} driver=${driverId} incoming=${_cur} ` +
+      `isBusy=${isBusy} reason=${_queueDecision.diag && _queueDecision.diag.reason || '?'}`,
     );
     const originalStatus = String(job.originalStatus || opts.originalStatus || 'pending').toLowerCase();
     job.originalStatus = originalStatus === 'manual' ? 'manual' : 'pending';
@@ -5553,6 +5693,21 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     staleOfferAssessment,
     splitBrainDiagnosis,
     closedStoreDiagnosis,
+    acceptQueuePreview: (() => {
+      const drvId = job ? String(job.DriverId || job.lastOfferDriverId || '').trim() : '';
+      if (!job || !drvId || drvId === '0') return null;
+      const cidPreview = String(cid || job.companyId || '').trim();
+      const zd = _zoneDriverRowForEligibility(drvId, cidPreview, job.VehicleNo || job.VehicleId);
+      return _evaluateAcceptQueueDecision(zd, drvId, cidPreview, job.Id, { log: false, record: false }).diag;
+    })(),
+    driverAttachedJobs: (() => {
+      const drvId = job ? String(job.DriverId || job.lastOfferDriverId || '').trim() : '';
+      if (!drvId || drvId === '0') return [];
+      return _driverAttachedJobStoreRows(drvId, cid, null);
+    })(),
+    recentAcceptQueueDiags: _ACCEPT_QUEUE_DIAG_RING.filter(d =>
+      !bid || d.bookingId === bid || d.driverId === String(job && job.DriverId || ''),
+    ).slice(-10),
     dispatchUiHint: {
       expectedTab: job ? (String(job.BookingStatus) === 'Offered' ? 'offer'
         : ['Assigned', 'Picking', 'Arrived'].includes(String(job.BookingStatus)) ? 'assign'
@@ -6017,6 +6172,7 @@ async function _writeDriverJobUpdatedNotification(opts) {
     _payload.jobname = (diff.Name || diff.PassengerName).to;
   }
   if (diff.PhoneNo) _payload.JobphoneNo = diff.PhoneNo.to;
+  if (diff.passengerPhone) _payload.passengerPhone = diff.passengerPhone.to;
   if (diff.TariffId || diff.TarriffId) {
     _payload.TariffId = (diff.TariffId || diff.TarriffId).to;
     _payload.tariffId = _payload.TariffId;
@@ -6036,6 +6192,41 @@ async function _writeDriverJobUpdatedNotification(opts) {
   await firebaseDbSet(`notification/${_drv}`, _payload, _tok);
   console.log(`  [${source}] notification/${_drv} → job_updated seq=${seq}`);
   return true;
+}
+
+/** Keep driverQueue/{cid}/{driverId}/queued in sync when dispatch edits a Queued job. */
+async function _patchDriverQueueFromJobEdit(cid, driverId, bookingId, job, diff, source) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const _bid = parseInt(bookingId) || 0;
+  if (!_cid || !_drv || !_bid || !job) return false;
+  if (String(job.BookingStatus || '') !== 'Queued') return false;
+  const patch = {};
+  const set = (k, v) => { if (v != null && String(v).trim() !== '') patch[k] = v; };
+  if (diff.PickAddress) set('PickAddress', diff.PickAddress.to);
+  if (diff.DropAddress) set('DropAddress', diff.DropAddress.to);
+  if (diff.PhoneNo) set('PhoneNo', diff.PhoneNo.to);
+  if (diff.Name || diff.PassengerName) set('passengername', (diff.Name || diff.PassengerName).to);
+  if (diff.Notes || diff.JobInfo || diff.Instructions) set('Notes', (diff.Notes || diff.JobInfo || diff.Instructions).to);
+  if (diff.Pickingtime || diff.BookingDateTime) {
+    const t = (diff.Pickingtime || diff.BookingDateTime).to;
+    set('Pickingtime', t);
+    set('BookingDateTime', t);
+  }
+  if (diff.EstimatedFare || diff.CustomeRate || diff.RideCost) {
+    set('Fare', (diff.EstimatedFare || diff.CustomeRate || diff.RideCost).to);
+  }
+  if (!Object.keys(patch).length) return false;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return false;
+    await firebaseDbPatch(`driverQueue/${_cid}/${_drv}/queued/${_bid}`, patch, tok);
+    console.log(`  [${source || 'driverQueue'}] patched queued #${_bid} for driver ${_drv}`);
+    return true;
+  } catch (e) {
+    console.warn(`  [${source || 'driverQueue'}] patch queued #${_bid} failed: ${e && e.message}`);
+    return false;
+  }
 }
 
 const _IMMUTABLE_ON_EDIT = new Set([
@@ -6506,6 +6697,9 @@ async function updateBooking(opts) {
         job: _notifyJob, diff: _diff, seq: _newSeq, by, source: `${source}/notify`,
         eventTypes: _eventTypes,
       });
+      if (String(job.BookingStatus || '') === 'Queued' && _notifyDrvOnEdit) {
+        await _patchDriverQueueFromJobEdit(_cid, _notifyDrvOnEdit, bookingId, job, _diff, `${source}/driverQueue`);
+      }
       if (
         _eventTypes.includes('FareChanged') &&
         _METER_LIVE_STATUSES.has(job.BookingStatus || '') &&
@@ -12946,7 +13140,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_result));
-    console.log(`${_status}: POST /api/job/accept #${_aJob} driver=${_aDrv} → ${JSON.stringify({ ok: _result.ok, status: _result.status, queued: _result.queued })}`);
+    console.log(`${_status}: POST /api/job/accept #${_aJob} driver=${_aDrv} → ${JSON.stringify({
+      ok: _result.ok,
+      status: _result.status,
+      queued: _result.queued,
+      idempotent: _result.idempotent,
+      error_code: _result.error_code,
+    })}`);
     return;
   }
 

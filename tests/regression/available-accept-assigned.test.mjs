@@ -77,6 +77,48 @@ test('Available driver accept: stale Queued jobStore ghost must not queue a fres
   await h.cancelUnassigned(ghostJobId).catch(() => undefined);
 });
 
+test('Available driver accept: stale Assigned jobStore ghost must not queue a fresh auto-dispatch offer', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  const driverId = h.driverIds[1];
+  await h.ensureDriverReady(driverId);
+
+  const ghostJobId = await h.createAsapJob('avail-accept-assigned-ghost');
+  await h.assignAccept(ghostJobId, driverId);
+
+  await h.setFirebaseBooking(ghostJobId, {
+    BookingStatus: 'Completed',
+    Status: 'Completed',
+    DriverId: driverId,
+    updateSeq: 99,
+  });
+
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Available',
+    lat: -46.412,
+    lng: 168.353,
+    zonename: 'Central',
+  });
+  await h.driverStatusChanged(driverId, 'Available');
+
+  const newJobId = await h.createAsapJob('avail-accept-assigned-fresh');
+  await h.triggerAutoDispatch();
+  const offered = await h.waitForAutoOffer(newJobId, driverId, { timeoutMs: 45000 });
+  assert.equal(String(offered.jobStore.lifecycle.BookingStatus), 'Offered');
+
+  const accept = await h.acceptJob(newJobId, driverId);
+  assert.equal(accept.status, 200, JSON.stringify(accept.body));
+  assert.equal(accept.body.ok, true, JSON.stringify(accept.body));
+  assert.notEqual(accept.body.queued, true, JSON.stringify(accept.body));
+  assert.equal(accept.body.status, 'Assigned', JSON.stringify(accept.body));
+
+  const trace = await h.jobTrace(newJobId);
+  assert.equal(trace.acceptQueuePreview?.reason, 'available_assign', JSON.stringify(trace.acceptQueuePreview));
+
+  await h.cancelAssigned(newJobId).catch(() => undefined);
+  await h.cancelAssigned(ghostJobId).catch(() => undefined);
+});
+
 test.afterEach(async () => {
   const h = await getHarness();
   await prepareCleanDispatch(h);

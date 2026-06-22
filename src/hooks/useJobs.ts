@@ -215,6 +215,12 @@ function optimisticDispatchRefresh(
   }
   if (refresh.action === 'queue' && st === 'Queued') {
     markQueueAwaitingAllbookings(bookingId);
+    // Merge pool/offer fields so Queue tab is populated before allbookings snapshot lands.
+    if (prior && prior.id === bookingId) {
+      const enriched = mergeJobUpdate(prior, { ...job, status: 'Queued' as Job['status'] });
+      bookingsRef.set(bookingId, enriched);
+      job = enriched;
+    }
   }
   if (refresh.action === 'offer' && st === 'Offered') {
     markOfferAwaitingAllbookings(bookingId);
@@ -384,6 +390,12 @@ export function useJobs(companyId: string | null) {
     listenerBookingsCache = bookingsRef.current;
 
     const syncAll = () => {
+      reinjectQueueAwaitingJobs(bookingsRef.current, useJobStore.getState().jobs);
+      reinjectOfferAwaitingJobs(
+        bookingsRef.current,
+        pendingRef.current,
+        useJobStore.getState().jobs,
+      );
       const removed = new Set(useJobStore.getState().removedJobIds);
       const merged = mergeJobs([pendingRef.current, bookingsRef.current]).filter(
         (j) => !removed.has(j.id)
