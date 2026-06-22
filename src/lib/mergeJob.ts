@@ -33,7 +33,13 @@ function mergeJobStatus(
   if (!incoming) return existing;
   const ex = normalizeJobStatus(existing);
   const inc = normalizeJobStatus(incoming);
-  if (inc === 'Cancelled' || inc === 'Completed' || inc === 'No Show') return inc;
+  if (inc === 'Cancelled' || inc === 'Completed' || inc === 'No Show') {
+    const exNorm = normalizeJobStatus(existing);
+    const exRank = statusRank(exNorm);
+    // Stale terminal from a reused booking Id must not beat a live active status.
+    if (exRank > 0 && exRank < 100 && incomingSeq <= existingSeq) return ex;
+    return inc;
+  }
   // Pool statuses (No One / Pending / Scheduled) are peers — never let a stale
   // Pending snapshot beat a newer No One (or vice versa) via progression rank.
   const POOL: JobStatus[] = ['No One', 'Pending', 'Scheduled'];

@@ -1,6 +1,10 @@
 /** Keep in sync with src/lib/jobPoolSync.ts */
 
 const TERMINAL = new Set(['Completed', 'Cancelled', 'No Show']);
+const LIVE_DISPATCH = new Set([
+  'Offered', 'Queued', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip',
+  'Pending', 'No One', 'Scheduled',
+]);
 const LIVE_TABS = new Set(['offer', 'assign', 'active', 'queue']);
 const POOL_UA = new Set(['Pending', 'No One', 'Scheduled']);
 
@@ -95,6 +99,37 @@ function isWithinOptimisticWindow(jobId, now = Date.now()) {
     return false;
   }
   return true;
+}
+
+function seqFromRecord(rec) {
+  if (!rec || typeof rec !== 'object') return 0;
+  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
+  const n = parseInt(String(raw ?? ''), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/** Keep in sync with src/lib/jobPoolSync.ts */
+export function staleTerminalAllbookingsSuperseded(jobId, abRec, pendingRef, bookingsRef, storeJobs = []) {
+  const abStatus = normalizeJobStatus(String(abRec.BookingStatus ?? abRec.Status ?? abRec.status ?? ''));
+  if (!TERMINAL.has(abStatus)) return false;
+
+  const abSeq = seqFromRecord(abRec);
+  const candidates = [];
+  const pending = pendingRef.get(jobId);
+  const booking = bookingsRef.get(jobId);
+  const store = storeJobs.find((j) => j.id === jobId);
+  if (pending) candidates.push(pending);
+  if (booking) candidates.push(booking);
+  if (store) candidates.push(store);
+
+  for (const job of candidates) {
+    const st = normalizeJobStatus(job.status);
+    if (!LIVE_DISPATCH.has(st)) continue;
+    const jobSeq = job.updateSeq ?? 0;
+    if (jobSeq > abSeq) return true;
+    if (jobSeq === abSeq && st !== abStatus) return true;
+  }
+  return false;
 }
 
 export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now = Date.now()) {

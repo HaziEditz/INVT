@@ -3006,8 +3006,7 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
 
   await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, _pjPatch, tok)
     .catch(e => console.warn(`  [${sourceTag}] pendingjobs patch failed: ${e && e.message}`));
-  await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, _pjPatch, tok)
-    .catch(e => console.warn(`  [${sourceTag}] allbookings patch failed: ${e && e.message}`));
+  await _writeAllbookingsLiveAwait(cid, bookingId, _pjPatch, job, tok);
 
   console.log(`  [${sourceTag}] _writeManualDriverOffer job #${bookingId} → driver ${did} veh ${vid} (${_svc}/${_src})`);
 }
@@ -3888,6 +3887,19 @@ async function _reconcileLiveJobWithFirebase(job, opts) {
   const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
 
   if (_TERMINAL_JOB_STATUSES.has(fbSt) && !_TERMINAL_JOB_STATUSES.has(jsSt)) {
+    const staleTerminalReuse = _liveJobIsIdReuseOverClosed(job);
+    if (staleTerminalReuse && ['Offered', 'Pending', 'No One', 'Scheduled'].includes(jsSt)) {
+      try {
+        const healed = await _healStaleTerminalAllbookingsForJob(
+          job, cid, bookingId, tok, opts.source || 'reconcile',
+        );
+        console.log(`  [${opts.source || 'reconcile'}] healed stale terminal allbookings #${bookingId} (${jsSt})`);
+        return Object.assign({ firebaseStatus: fbSt, jobStoreStatus: jsSt }, healed);
+      } catch (e) {
+        console.warn(`  [${opts.source || 'reconcile'}] stale allbookings heal failed #${bookingId}: ${e && e.message}`);
+        return { action: 'heal_failed', error: e && e.message, firebaseStatus: fbSt, jobStoreStatus: jsSt };
+      }
+    }
     if (!opts.forceTrustTerminal && !_RECONCILE_TRUST_FB_TERMINAL_FROM.has(jsSt)) {
       return {
         action: 'none',
@@ -4237,6 +4249,10 @@ async function _writePendingJobFirebase(cid, bookingId, job, poolStatus) {
       TariffName: job.TarriffName ?? job.TariffName ?? job.tariffName ?? '',
     };
     await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, fbJob, tok);
+    await _writeAllbookingsLiveAwait(cid, bookingId, Object.assign({}, fbJob, {
+      BookingStatus: restored,
+      Status: restored,
+    }), job, tok);
   } catch (e) {
     console.warn(`  [pendingjobs] write failed: ${e && e.message}`);
   }
@@ -5639,12 +5655,121 @@ function _fanVersionToFirebase(cid, bookingId, patch, isTerminal) {
   })();
 }
 
+/** Keys left on a terminal allbookings row that must be cleared on booking-id reuse. */
+const _ALLBOOKINGS_STALE_TERMINAL_KEYS = [
+  'completedAt', 'JobCompleteTime', 'completedAtMs', 'cancelledAt', 'CancelledAt',
+  'cancelledBy', 'cancelSource', 'CancelSource', 'TerminalKind', 'terminalKind',
+];
+
+function _stripStaleTerminalAllbookingsFields(obj) {
+  const out = Object.assign({}, obj);
+  for (const k of _ALLBOOKINGS_STALE_TERMINAL_KEYS) {
+    if (k in out) out[k] = null;
+  }
+  return out;
+}
+
+function _jobCreatedAtMs(job) {
+  if (!job) return 0;
+  const raw = job.createdAt ?? job.CreatedAt ?? null;
+  if (typeof raw === 'number' && raw > 0) return raw;
+  if (raw) {
+    const parsed = Date.parse(String(raw));
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
+/** True when a live jobStore row is a newer booking reusing an Id still terminal in closedJobStore. */
+function _liveJobIsIdReuseOverClosed(job) {
+  if (!job || !job.Id) return false;
+  const closed = _findClosedJobEntry(job.Id);
+  if (!closed) return false;
+  const jobMs = _jobCreatedAtMs(job);
+  const closedMs = Date.parse(closed.JobCompleteTime || closed.CancelledAt || closed.lastUpdatedAt || '') || 0;
+  if (jobMs > 0 && closedMs > 0 && jobMs > closedMs) return true;
+  const jsSeq = parseInt(job.updateSeq) || 0;
+  const closedSeq = parseInt(closed.updateSeq) || 0;
+  return jsSeq > closedSeq;
+}
+
+/**
+ * Write a live (non-terminal) job to allbookings. When the node is missing or still
+ * terminal from a prior trip with the same Id, SET a full mirror so dispatch/drivers
+ * never see a stale Completed row after id reuse.
+ */
+async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok) {
+  if (!cid || !bookingId || !patch) return;
+  if (!tok) tok = await getFirebaseServerToken();
+  if (!tok) return;
+
+  let existing = null;
+  try {
+    existing = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+  } catch (_e) { /* best-effort */ }
+
+  const existingSt = existing ? _firebaseStatusFromRecord(existing) : '';
+  const mustReplace = !existing || _TERMINAL_JOB_STATUSES.has(existingSt);
+
+  if (mustReplace) {
+    let payload;
+    if (jobOrNull && jobOrNull.Id) {
+      const st = patch.BookingStatus || patch.Status || jobOrNull.BookingStatus || 'Pending';
+      const merged = Object.assign({}, jobOrNull, { BookingStatus: st, Status: st });
+      payload = _stripStaleTerminalAllbookingsFields(
+        Object.assign(_buildAllbookingsMirrorFromJob(merged), _mirrorFbJobFields(patch)),
+      );
+    } else {
+      payload = _stripStaleTerminalAllbookingsFields(_mirrorFbJobFields(patch));
+    }
+    await firebaseDbSet(`allbookings/${cid}/${bookingId}`, payload, tok)
+      .catch(_e => console.warn(`  [allbookings-live] SET allbookings/${cid}/${bookingId} failed: ${_e && _e.message}`));
+    if (existingSt && _TERMINAL_JOB_STATUSES.has(existingSt)) {
+      console.log(`  [allbookings-live] allbookings/${cid}/${bookingId} replaced stale ${existingSt} → ${payload.BookingStatus || payload.Status}`);
+    }
+  } else {
+    await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok)
+      .catch(_e => console.warn(`  [allbookings-live] PATCH allbookings/${cid}/${bookingId} failed: ${_e && _e.message}`));
+  }
+}
+
+async function _healStaleTerminalAllbookingsForJob(job, cid, bookingId, tok, sourceTag) {
+  const jsSt = String(job.BookingStatus || '');
+  if (jsSt === 'Offered') {
+    const did = String(job.DriverId || '').trim();
+    const vid = String(job.VehicleNo || job.VehicleId || '').trim();
+    await _writeManualDriverOffer(job, did, vid, 'system', `${sourceTag}/heal-stale-ab`, {
+      originalStatus: job.originalStatus || 'pending',
+      manualOffer: job.manualOffer,
+      bookingSource: job.BookingSource || job.bookingSource || job.source,
+    });
+    return { action: 'heal_stale_terminal_allbookings', status: jsSt };
+  }
+  const poolSt = jsSt === 'No One' ? 'No One' : 'Pending';
+  await _writePendingJobFirebase(cid, bookingId, job, poolSt);
+  await _fanVersionToFirebaseAwait(cid, bookingId, {
+    BookingStatus: jsSt,
+    Status: jsSt,
+    DriverId: String(job.DriverId ?? (jsSt === 'No One' ? '-1' : '0')),
+    VehicleId: String(job.VehicleNo || job.VehicleId || '0'),
+    updateSeq: parseInt(job.updateSeq) || 0,
+    _seq: parseInt(job.updateSeq) || 0,
+    version: parseInt(job.updateSeq) || 0,
+    eventType: 'updated',
+  }, false);
+  return { action: 'heal_stale_terminal_allbookings', status: jsSt };
+}
+
 async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
   if (!cid || !bookingId || !patch) return;
   const _tok = await getFirebaseServerToken();
   if (!_tok) return;
-  await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, _tok)
-    .catch(_e => console.warn(`  [ver-fanout] allbookings/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+  if (isTerminal) {
+    await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, _tok)
+      .catch(_e => console.warn(`  [ver-fanout] allbookings/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
+  } else {
+    await _writeAllbookingsLiveAwait(cid, bookingId, patch, null, _tok);
+  }
   if (!isTerminal) {
     await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, _tok)
       .catch(_e => console.warn(`  [ver-fanout] pendingjobs/${cid}/${bookingId} patch failed: ${_e && _e.message}`));
@@ -6742,7 +6867,7 @@ function _archiveClosedJob(job) {
   for (let i = closedJobStore.length - 1; i >= 0; i--) {
     if (closedJobStore[i] && closedJobStore[i].Id === bid) closedJobStore.splice(i, 1);
   }
-  _archiveClosedJob(job);
+  closedJobStore.push(job);
 }
 
 function _findClosedJobEntry(bookingId) {

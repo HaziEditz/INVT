@@ -19,6 +19,7 @@ import {
   minimalJobFromDispatchRefresh,
   reinjectQueueAwaitingJobs,
   shouldPreserveAbsentStoreJob,
+  staleTerminalAllbookingsSuperseded,
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
 
@@ -409,6 +410,18 @@ export function useJobs(companyId: string | null) {
 
       const effectiveStatus = jobStatusFromFirebaseRecord(rec);
       if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+        const storeJobs = useJobStore.getState().jobs;
+        if (
+          staleTerminalAllbookingsSuperseded(
+            job.id,
+            rec,
+            pendingRef.current,
+            bookingsRef.current,
+            storeJobs,
+          )
+        ) {
+          return;
+        }
         pendingRef.current.delete(job.id);
         bookingsRef.current.delete(job.id);
         removeJob(job.id);
@@ -482,6 +495,18 @@ export function useJobs(companyId: string | null) {
               effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
 
             if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+              const storeJobs = useJobStore.getState().jobs;
+              if (
+                staleTerminalAllbookingsSuperseded(
+                  stored.id,
+                  rec,
+                  pendingRef.current,
+                  bookingsRef.current,
+                  storeJobs,
+                )
+              ) {
+                continue;
+              }
               terminalIds.push(stored.id);
               continue;
             }

@@ -7,6 +7,61 @@ import {
 
 export const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
+const LIVE_DISPATCH_STATUSES = new Set([
+  'Offered',
+  'Queued',
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+  'Pending',
+  'No One',
+  'Scheduled',
+]);
+
+function seqFromRecord(rec: Record<string, unknown> | null | undefined): number {
+  if (!rec || typeof rec !== 'object') return 0;
+  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
+  const n = parseInt(String(raw ?? ''), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/**
+ * Stale terminal allbookings from a prior trip with the same booking Id must not
+ * evict a live job that pendingjobs / store already show as active.
+ */
+export function staleTerminalAllbookingsSuperseded(
+  jobId: number,
+  abRec: Record<string, unknown>,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+  storeJobs: Job[] = [],
+): boolean {
+  const abStatus = normalizeJobStatus(
+    String(abRec.BookingStatus ?? abRec.Status ?? abRec.status ?? ''),
+  );
+  if (!TERMINAL_BOOKING_STATUSES.has(abStatus)) return false;
+
+  const abSeq = seqFromRecord(abRec);
+  const candidates: Job[] = [];
+  const pending = pendingRef.get(jobId);
+  const booking = bookingsRef.get(jobId);
+  const store = storeJobs.find((j) => j.id === jobId);
+  if (pending) candidates.push(pending);
+  if (booking) candidates.push(booking);
+  if (store) candidates.push(store);
+
+  for (const job of candidates) {
+    const st = normalizeJobStatus(job.status);
+    if (!LIVE_DISPATCH_STATUSES.has(st)) continue;
+    const jobSeq = job.updateSeq ?? 0;
+    if (jobSeq > abSeq) return true;
+    if (jobSeq === abSeq && st !== abStatus) return true;
+  }
+  return false;
+}
+
 export const LIVE_DISPATCH_TABS = new Set<JobTab>(['offer', 'assign', 'active', 'queue']);
 
 const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One', 'Scheduled']);
