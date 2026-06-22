@@ -2054,6 +2054,9 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
   }
   if (driverHasRemainingAssignments(driverId, excludeBookingId, companyId)) {
     console.log(`  [${_src}] §FIX-CB driver ${driverId} keeps state — has remaining active assignment(s)`);
+    if (companyId) {
+      _syncDriverJobCount(companyId, driverId, `${_src}/remaining`).catch(() => {});
+    }
     return { driverFreed: false, driverState: 'unchanged', queueNo: null };
   }
   const zd = ZONE_DRIVERS.find(d =>
@@ -3397,6 +3400,8 @@ async function completeBooking(opts) {
     const _holdVid = _vehId || String(_queuedAfterComplete.VehicleNo || _queuedAfterComplete.VehicleId || '').trim();
     await _holdDriverBusyForQueuePromotion(_holdCid, _drvId, _holdVid, _queuedAfterComplete.Id);
     console.log(`  [${source}] driver ${_drvId} has queued #${_queuedAfterComplete.Id} — auto-dispatch hold + Busy mirror`);
+  } else if (_cid && _drvId) {
+    await _syncDriverJobCount(_cid, _drvId, `${source}/post-complete`);
   }
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
   return {
@@ -20384,7 +20389,6 @@ async function _holdDriverBusyForQueuePromotion(cid, driverId, vehicleId, queued
   );
   if (zd) {
     zd.vehiclestatus = 'Busy';
-    zd.jobCount = Math.max(1, parseInt(zd.jobCount) || 0);
   }
   try {
     const tok = await getFirebaseServerToken();
@@ -20403,6 +20407,7 @@ async function _holdDriverBusyForQueuePromotion(cid, driverId, vehicleId, queued
       jobId: null,
       queuePromotionPending: String(queuedBookingId || ''),
     }, tok).catch(e => console.warn(`  [queue-hold] online/${cid}/${vid}/current failed: ${e && e.message}`));
+    await _syncDriverJobCount(cid, did, 'queue-hold');
   } catch (e) {
     console.warn(`  [queue-hold] failed driver ${did}: ${e && e.message}`);
   }

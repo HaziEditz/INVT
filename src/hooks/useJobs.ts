@@ -191,9 +191,19 @@ function optimisticDispatchRefresh(
   pendingRef: Map<number, Job>,
   bookingsRef: Map<number, Job>,
   upsertJob: (job: Job) => void,
+  removeJob: (id: number) => void,
+  clearRemovedJob: (id: number) => void,
   syncAll: () => void,
 ): void {
-  if (refreshImpliesTerminal(refresh) || !refresh.status) return;
+  if (refreshImpliesTerminal(refresh)) {
+    pendingRef.delete(bookingId);
+    bookingsRef.delete(bookingId);
+    removeJob(bookingId);
+    clearRemovedJob(bookingId);
+    syncAll();
+    return;
+  }
+  if (!refresh.status) return;
   if (useJobStore.getState().isJobBlacklisted(bookingId)) return;
 
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
@@ -215,6 +225,7 @@ function optimisticDispatchRefresh(
   }
   if (refresh.action === 'queue' && st === 'Queued') {
     markQueueAwaitingAllbookings(bookingId);
+    pendingRef.delete(bookingId);
     // Merge pool/offer fields so Queue tab is populated before allbookings snapshot lands.
     if (prior && prior.id === bookingId) {
       const enriched = mergeJobUpdate(prior, { ...job, status: 'Queued' as Job['status'] });
@@ -602,6 +613,8 @@ export function useJobs(companyId: string | null) {
           pendingRef.current,
           bookingsRef.current,
           upsertJob,
+          removeJob,
+          clearRemovedJob,
           syncAll,
         );
         void refreshJobFromFirebaseCaches(
