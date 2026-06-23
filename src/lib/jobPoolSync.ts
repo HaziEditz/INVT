@@ -94,6 +94,30 @@ export function clearOptimisticLiveTransition(jobId: number): void {
   optimisticLiveUntil.delete(jobId);
 }
 
+/** Suppress stale live allbookings rows briefly after a job completes. */
+export const COMPLETED_SUPPRESS_MS = 90_000;
+
+const completedSuppressUntil = new Map<number, number>();
+
+export function markCompletedJobSuppress(jobId: number, now = Date.now()): void {
+  completedSuppressUntil.set(jobId, now + COMPLETED_SUPPRESS_MS);
+}
+
+export function clearCompletedJobSuppress(jobId: number): void {
+  completedSuppressUntil.delete(jobId);
+}
+
+/** True while stale Active/Assigned snapshots must not re-enter the live pool. */
+export function isCompletedJobSuppressed(jobId: number, now = Date.now()): boolean {
+  const until = completedSuppressUntil.get(jobId);
+  if (until == null) return false;
+  if (now >= until) {
+    completedSuppressUntil.delete(jobId);
+    return false;
+  }
+  return true;
+}
+
 export function markQueueAwaitingAllbookings(jobId: number, now = Date.now()): void {
   queueAwaitingAllbookings.set(jobId, now + QUEUE_AWAIT_ALLBOOKINGS_MS);
 }
@@ -216,6 +240,7 @@ export function shouldPreserveAbsentStoreJob(
   bookingsRef: Map<number, Job>,
   now = Date.now(),
 ): boolean {
+  if (isCompletedJobSuppressed(job.id, now)) return false;
   if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
   const tab = jobTabForStatus(job);
   if (tab === 'ua') return true;

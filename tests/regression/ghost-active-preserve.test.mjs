@@ -8,6 +8,8 @@ import {
   mergeStoreWithFirebaseCaches,
   OPTIMISTIC_LIVE_RETAIN_MS,
   shouldPreserveAbsentStoreJob,
+  markCompletedJobSuppress,
+  clearCompletedJobSuppress,
 } from '../lib/jobPoolSync.mjs';
 
 test('ghost Active card: completed job absent from Firebase caches is not preserved', () => {
@@ -53,6 +55,15 @@ test('ghost Active card: optimistic window retains accept race briefly', () => {
   );
 });
 
+test('ghost Active card: completed suppress blocks stale Active re-inject', () => {
+  const pending = new Map();
+  const bookings = new Map();
+  const job = { id: 400, status: 'Active', pickAddress: 'Done St' };
+  markCompletedJobSuppress(400);
+  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), false);
+  clearCompletedJobSuppress(400);
+});
+
 test('ghost Active card: U-A pool jobs still preserved when absent from caches', () => {
   const pending = new Map();
   const bookings = new Map();
@@ -81,8 +92,10 @@ test('ghost Active card: integration complete removes job from live pool', async
   assert.ok(trace.jobStore?.closedFound || !trace.jobStore?.found);
 
   const staleActive = { id: jobId, status: 'Active', pickAddress: 'Should not linger' };
+  markCompletedJobSuppress(jobId);
   const merged = mergeStoreWithFirebaseCaches([staleActive], new Map(), new Map());
   assert.equal(merged.length, 0, 'completed job must not reappear on Active when Firebase nodes are gone');
+  clearCompletedJobSuppress(jobId);
 });
 
 test.after(async () => {

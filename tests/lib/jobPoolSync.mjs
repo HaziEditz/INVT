@@ -60,6 +60,27 @@ export function isQueueAwaitingAllbookings(jobId, now = Date.now()) {
   return true;
 }
 
+export const COMPLETED_SUPPRESS_MS = 90_000;
+const completedSuppressUntil = new Map();
+
+export function markCompletedJobSuppress(jobId, now = Date.now()) {
+  completedSuppressUntil.set(jobId, now + COMPLETED_SUPPRESS_MS);
+}
+
+export function clearCompletedJobSuppress(jobId) {
+  completedSuppressUntil.delete(jobId);
+}
+
+export function isCompletedJobSuppressed(jobId, now = Date.now()) {
+  const until = completedSuppressUntil.get(jobId);
+  if (until == null) return false;
+  if (now >= until) {
+    completedSuppressUntil.delete(jobId);
+    return false;
+  }
+  return true;
+}
+
 export function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
   if (!refresh.status) return null;
   const status = normalizeJobStatus(refresh.status);
@@ -166,6 +187,7 @@ export function staleTerminalAllbookingsSuperseded(jobId, abRec, pendingRef, boo
 }
 
 export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now = Date.now()) {
+  if (isCompletedJobSuppressed(job.id, now)) return false;
   if (TERMINAL.has(normalizeJobStatus(job.status))) return false;
   const tab = jobTabForStatus(job);
   if (tab === 'ua') return true;

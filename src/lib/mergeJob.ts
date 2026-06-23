@@ -70,7 +70,11 @@ const PRESERVE_IF_EMPTY: (keyof Job)[] = [
 ];
 
 /** Merge an incoming job patch into an existing record without wiping known-good fields. */
-export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
+export function mergeJobUpdate(
+  existing: Job,
+  incoming: Partial<Job>,
+  opts?: { forceStatus?: JobStatus },
+): Job {
   const merged: Job = { ...existing, ...incoming };
   for (const key of PRESERVE_IF_EMPTY) {
     const nextVal = incoming[key];
@@ -92,7 +96,9 @@ export function mergeJobUpdate(existing: Job, incoming: Partial<Job>): Job {
   }
   const existingSeq = existing.updateSeq ?? 0;
   const incomingSeq = incoming.updateSeq ?? existingSeq;
-  if (incoming.status != null) {
+  if (opts?.forceStatus) {
+    merged.status = opts.forceStatus;
+  } else if (incoming.status != null) {
     merged.status = mergeJobStatus(existing.status, incoming.status, existingSeq, incomingSeq);
   }
   const incDriver = incoming.driverId != null ? String(incoming.driverId) : null;

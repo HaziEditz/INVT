@@ -11,13 +11,19 @@ import {
   isPreBookedJob,
   jobDispatchTime,
   type Job,
+  type JobStatus,
 } from '@/types/job';
 import {
   markOptimisticLiveTransition,
+  clearOptimisticLiveTransition,
   markQueueAwaitingAllbookings,
   clearQueueAwaitingAllbookings,
   markOfferAwaitingAllbookings,
   clearOfferAwaitingAllbookings,
+  markCompletedJobSuppress,
+  clearCompletedJobSuppress,
+  isCompletedJobSuppressed,
+  isQueueAwaitingAllbookings,
   minimalJobFromDispatchRefresh,
   reinjectQueueAwaitingJobs,
   reinjectOfferAwaitingJobs,
@@ -25,6 +31,28 @@ import {
   staleTerminalAllbookingsSuperseded,
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
+
+function applyQueueForcedMerge(prior: Job | null, job: Job): Job {
+  if (prior) {
+    return mergeJobUpdate(prior, { ...job, status: 'Queued' }, { forceStatus: 'Queued' });
+  }
+  return { ...job, status: 'Queued' };
+}
+
+function handleTerminalRefresh(
+  bookingId: number,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+  removeJob: (id: number) => void,
+  syncAll: () => void,
+): void {
+  pendingRef.delete(bookingId);
+  bookingsRef.delete(bookingId);
+  markCompletedJobSuppress(bookingId);
+  clearOptimisticLiveTransition(bookingId);
+  removeJob(bookingId);
+  syncAll();
+}
 
 function mergeJobs(maps: Map<number, Job>[]): Job[] {
   const byId = new Map<number, Job>();
@@ -196,11 +224,7 @@ function optimisticDispatchRefresh(
   syncAll: () => void,
 ): void {
   if (refreshImpliesTerminal(refresh)) {
-    pendingRef.delete(bookingId);
-    bookingsRef.delete(bookingId);
-    removeJob(bookingId);
-    clearRemovedJob(bookingId);
-    syncAll();
+    handleTerminalRefresh(bookingId, pendingRef, bookingsRef, removeJob, syncAll);
     return;
   }
   if (!refresh.status) return;
@@ -226,12 +250,12 @@ function optimisticDispatchRefresh(
   if (refresh.action === 'queue' && st === 'Queued') {
     markQueueAwaitingAllbookings(bookingId);
     pendingRef.delete(bookingId);
-    // Merge pool/offer fields so Queue tab is populated before allbookings snapshot lands.
     if (prior && prior.id === bookingId) {
-      const enriched = mergeJobUpdate(prior, { ...job, status: 'Queued' as Job['status'] });
-      bookingsRef.set(bookingId, enriched);
-      job = enriched;
+      job = applyQueueForcedMerge(prior, job);
+    } else {
+      job = { ...job, status: 'Queued' };
     }
+    bookingsRef.set(bookingId, job);
   }
   if (refresh.action === 'offer' && st === 'Offered') {
     markOfferAwaitingAllbookings(bookingId);
@@ -261,11 +285,7 @@ async function refreshJobFromFirebaseCaches(
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
 
   if (refreshImpliesTerminal(refresh)) {
-    pendingRef.delete(bookingId);
-    bookingsRef.delete(bookingId);
-    hooks.removeJob(bookingId);
-    hooks.clearRemovedJob(bookingId);
-    hooks.syncAll();
+    handleTerminalRefresh(bookingId, pendingRef, bookingsRef, hooks.removeJob, hooks.syncAll);
     return;
   }
 
@@ -285,7 +305,9 @@ async function refreshJobFromFirebaseCaches(
     if (parsed && !useJobStore.getState().isJobBlacklisted(parsed.id)) {
       const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? parsed.status));
       if (ACTIVE_BOOKING_STATUSES.has(st)) {
-        job = parsed;
+        if (!isCompletedJobSuppressed(bookingId)) {
+          job = parsed;
+        }
       } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
         bookingsRef.delete(bookingId);
         hooks.removeJob(bookingId);
@@ -312,6 +334,9 @@ async function refreshJobFromFirebaseCaches(
   }
 
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
+  if (action === 'queue' && job) {
+    job = applyQueueForcedMerge(prior, job);
+  }
 
   const pjVal = pjSnap.val();
   const pjRecord = pjVal && typeof pjVal === 'object' ? (pjVal as Record<string, unknown>) : null;
@@ -327,7 +352,10 @@ async function refreshJobFromFirebaseCaches(
         : { BookingStatus: job.status, Status: job.status },
     );
     if (st !== job.status) {
-      job = mergeJobUpdate(job, { status: st } as Job);
+      job =
+        action === 'queue' && st === 'Queued'
+          ? mergeJobUpdate(job, { status: st }, { forceStatus: 'Queued' })
+          : mergeJobUpdate(job, { status: st } as Job);
     }
     if (st === 'Queued') {
       clearQueueAwaitingAllbookings(bookingId);
@@ -336,7 +364,9 @@ async function refreshJobFromFirebaseCaches(
       clearOfferAwaitingAllbookings(bookingId);
     }
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
-      bookingsRef.set(job.id, job);
+      if (!isCompletedJobSuppressed(job.id)) {
+        bookingsRef.set(job.id, job);
+      }
     } else if (st === 'Pending' || st === 'No One') {
       pendingRef.set(job.id, job);
       bookingsRef.delete(bookingId);
@@ -415,7 +445,14 @@ export function useJobs(companyId: string | null) {
       const storeJobs = useJobStore.getState().jobs;
       for (const [id, job] of byId) {
         const existing = storeJobs.find((j) => j.id === id);
-        if (existing) byId.set(id, mergeJobUpdate(existing, job));
+        if (existing) {
+          const forceQueued =
+            normalizeJobStatus(job.status) === 'Queued' && isQueueAwaitingAllbookings(id);
+          byId.set(
+            id,
+            mergeJobUpdate(existing, job, forceQueued ? { forceStatus: 'Queued' as JobStatus } : undefined),
+          );
+        }
       }
       for (const j of storeJobs) {
         if (byId.has(j.id) || removed.has(j.id)) continue;
@@ -529,6 +566,10 @@ export function useJobs(companyId: string | null) {
             const stored =
               effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
 
+            if (isCompletedJobSuppressed(jobId) && !TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+              continue;
+            }
+
             if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
               const storeJobs = useJobStore.getState().jobs;
               if (
@@ -568,6 +609,7 @@ export function useJobs(companyId: string | null) {
         for (const tid of terminalIds) {
           pendingRef.current.delete(tid);
           bookingsRef.current.delete(tid);
+          clearCompletedJobSuppress(tid);
           removeJob(tid);
           clearRemovedJob(tid);
         }
