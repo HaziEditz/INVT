@@ -6,9 +6,11 @@ import {
   applyQueueAcceptOptimistic,
   clearQueueAwaitingAllbookings,
   isQueueAwaitingAllbookings,
+  jobTabForStatus,
   markQueueAwaitingAllbookings,
   mergeStoreWithFirebaseCaches,
   minimalJobFromDispatchRefresh,
+  pendingSnapshotWouldRegressQueue,
   QUEUE_AWAIT_ALLBOOKINGS_MS,
   reinjectQueueAwaitingJobs,
 } from '../lib/jobPoolSync.mjs';
@@ -50,7 +52,7 @@ test('dispatch UI: allbookings snapshot gap retains queued job until confirmed',
   assert.equal(mergedGap.length, 1, 'queue-await window must keep job visible during Firebase gap');
   assert.equal(mergedGap[0].status, 'Queued');
 
-  reinjectQueueAwaitingJobs(bookings, store, now);
+  reinjectQueueAwaitingJobs(bookings, store, pending, now);
   assert.equal(bookings.has(bookingId), true, 'reinject restores bookingsRef between full snapshots');
 
   clearQueueAwaitingAllbookings(bookingId);
@@ -136,6 +138,38 @@ test('dispatch UI: integration accept-while-busy emits Queued refresh consumable
     await h.driverStatusChanged(id, 'Available', { zonename: 'Central' });
   }
   await h.driverStatusChanged(hailDriver, 'Available', { zonename: 'Central' });
+});
+
+test('dispatch UI: stale pendingjobs Assigned/Active/Pending cannot pull queue-await job to U-A or Assign', () => {
+  const now = Date.now();
+  const bookingId = 8692700004;
+  const job = { id: bookingId, status: 'Queued', driverId: 'D001', updateSeq: 5, pickAddress: 'Queue St' };
+  markQueueAwaitingAllbookings(bookingId, now);
+
+  for (const staleStatus of ['Pending', 'Assigned', 'Active']) {
+    const pending = new Map([[bookingId, { id: bookingId, status: staleStatus, updateSeq: 5 }]]);
+    const bookings = new Map();
+    const store = [job];
+    const merged = mergeStoreWithFirebaseCaches(store, pending, bookings, now);
+    assert.equal(merged.length, 1, `stale ${staleStatus} must not duplicate or drop job`);
+    assert.equal(merged[0].status, 'Queued', `stale ${staleStatus} must not beat Queued`);
+    assert.equal(jobTabForStatus(merged[0]), 'queue', `stale ${staleStatus} must land on Queue tab`);
+    assert.equal(pending.has(bookingId), false, `stale ${staleStatus} must be purged from pendingRef`);
+    assert.equal(bookings.has(bookingId), true, `stale ${staleStatus} must reinject into bookingsRef`);
+  }
+
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Assigned' }, now),
+    true,
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Pending' }, now),
+    true,
+  );
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Queued' }, now),
+    false,
+  );
 });
 
 test.after(async () => {

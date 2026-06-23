@@ -154,6 +154,34 @@ export function isQueueAwaitingAllbookings(jobId: number, now = Date.now()): boo
   return true;
 }
 
+/** mergeJobUpdate opts while queue-await window is active for a booking. */
+export function queueAwaitingMergeOpts(
+  jobId: number,
+  now = Date.now(),
+): { forceStatus: Job['status'] } | undefined {
+  return isQueueAwaitingAllbookings(jobId, now) ? { forceStatus: 'Queued' } : undefined;
+}
+
+/** True when a pendingjobs row would wrongly pull a queue-await job back to U-A / Assign / Active. */
+export function pendingSnapshotWouldRegressQueue(
+  bookingId: number,
+  pjVal: Record<string, unknown>,
+  now = Date.now(),
+): boolean {
+  if (!isQueueAwaitingAllbookings(bookingId, now)) return false;
+  const pjSt = normalizeJobStatus(
+    String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''),
+  );
+  if (pjSt === 'Queued') return false;
+  return pjSt !== 'Offered';
+}
+
+/** Force Queued status for jobs in the queue-await window. */
+export function coerceQueuedIfAwaiting(job: Job, now = Date.now()): Job {
+  if (!isQueueAwaitingAllbookings(job.id, now)) return job;
+  return normalizeJobStatus(job.status) === 'Queued' ? job : { ...job, status: 'Queued' };
+}
+
 /** Minimal job shell when dispatch refresh arrives before pendingjobs snapshot exists. */
 export function minimalJobFromDispatchRefresh(
   bookingId: number,
@@ -186,13 +214,14 @@ export function minimalJobFromDispatchRefresh(
 export function reinjectQueueAwaitingJobs(
   bookingsRef: Map<number, Job>,
   storeJobs: Job[],
+  pendingRef?: Map<number, Job>,
   now = Date.now(),
 ): void {
   for (const j of storeJobs) {
-    if (normalizeJobStatus(j.status) !== 'Queued') continue;
-    if (bookingsRef.has(j.id)) continue;
     if (!isQueueAwaitingAllbookings(j.id, now)) continue;
-    bookingsRef.set(j.id, j);
+    pendingRef?.delete(j.id);
+    const queued = coerceQueuedIfAwaiting(j, now);
+    bookingsRef.set(j.id, queued);
   }
 }
 
@@ -247,7 +276,7 @@ export function shouldPreserveAbsentStoreJob(
   if (!LIVE_DISPATCH_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
-  if (normalizeJobStatus(job.status) === 'Queued' && isQueueAwaitingAllbookings(job.id, now)) {
+  if (isQueueAwaitingAllbookings(job.id, now)) {
     return true;
   }
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {

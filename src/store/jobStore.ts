@@ -1,7 +1,8 @@
-import { create } from 'zustand';
 import { mergeJobUpdate } from '@/lib/mergeJob';
+import { create } from 'zustand';
 import type { Job, JobTab } from '@/types/job';
 import { jobScheduledTime, jobTabForStatus } from '@/types/job';
+import { queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
 
 interface JobStore {
   jobs: Job[];
@@ -50,13 +51,17 @@ export const useJobStore = create<JobStore>((set, get) => ({
   upsertJob: (job) =>
     set((s) => {
       if (s.removedJobIds.includes(job.id)) return s;
+      const queueOpts = queueAwaitingMergeOpts(job.id);
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {
         const next = [...s.jobs];
-        next[idx] = mergeJobUpdate(next[idx], job);
+        next[idx] = mergeJobUpdate(next[idx], job, queueOpts);
         return { jobs: next };
       }
-      return { jobs: [...s.jobs, job] };
+      const inserted = queueOpts
+        ? mergeJobUpdate(job as Job, { status: 'Queued' }, queueOpts)
+        : job;
+      return { jobs: [...s.jobs, inserted] };
     }),
   removeJob: (id) =>
     set((s) => {

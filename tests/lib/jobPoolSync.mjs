@@ -60,6 +60,22 @@ export function isQueueAwaitingAllbookings(jobId, now = Date.now()) {
   return true;
 }
 
+export function queueAwaitingMergeOpts(jobId, now = Date.now()) {
+  return isQueueAwaitingAllbookings(jobId, now) ? { forceStatus: 'Queued' } : undefined;
+}
+
+export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, now = Date.now()) {
+  if (!isQueueAwaitingAllbookings(bookingId, now)) return false;
+  const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''));
+  if (pjSt === 'Queued') return false;
+  return pjSt !== 'Offered';
+}
+
+function coerceQueuedIfAwaiting(job, now = Date.now()) {
+  if (!isQueueAwaitingAllbookings(job.id, now)) return job;
+  return normalizeJobStatus(job.status) === 'Queued' ? job : { ...job, status: 'Queued' };
+}
+
 export const COMPLETED_SUPPRESS_MS = 90_000;
 const completedSuppressUntil = new Map();
 
@@ -104,12 +120,11 @@ export function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
   };
 }
 
-export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, now = Date.now()) {
+export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef, now = Date.now()) {
   for (const j of storeJobs) {
-    if (normalizeJobStatus(j.status) !== 'Queued') continue;
-    if (bookingsRef.has(j.id)) continue;
     if (!isQueueAwaitingAllbookings(j.id, now)) continue;
-    bookingsRef.set(j.id, j);
+    pendingRef?.delete(j.id);
+    bookingsRef.set(j.id, coerceQueuedIfAwaiting(j, now));
   }
 }
 
@@ -140,6 +155,8 @@ function jobTabForStatus(job) {
   if (st === 'Offered') return 'offer';
   return 'ua';
 }
+
+export { jobTabForStatus };
 
 function isPoolUaStatus(status) {
   return POOL_UA.has(normalizeJobStatus(status));
@@ -194,7 +211,7 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
   if (!LIVE_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
-  if (normalizeJobStatus(job.status) === 'Queued' && isQueueAwaitingAllbookings(job.id, now)) {
+  if (isQueueAwaitingAllbookings(job.id, now)) {
     return true;
   }
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
@@ -205,16 +222,52 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
 
 /** Simulate syncAll merge: store jobs absent from Firebase caches. */
 export function mergeStoreWithFirebaseCaches(storeJobs, pendingRef, bookingsRef, now = Date.now()) {
+  for (const id of [...pendingRef.keys()]) {
+    if (isQueueAwaitingAllbookings(id, now)) pendingRef.delete(id);
+  }
+  reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef, now);
   const byId = new Map();
   for (const j of pendingRef.values()) byId.set(j.id, j);
-  for (const j of bookingsRef.values()) byId.set(j.id, j);
+  for (const j of bookingsRef.values()) {
+    const prev = byId.get(j.id);
+    const opts = queueAwaitingMergeOpts(j.id, now);
+    byId.set(j.id, prev ? mergeJobRank(prev, j, opts) : opts ? mergeJobRank(j, { status: 'Queued' }, opts) : j);
+  }
   for (const j of storeJobs) {
     if (byId.has(j.id)) continue;
     if (shouldPreserveAbsentStoreJob(j, pendingRef, bookingsRef, now)) {
-      byId.set(j.id, j);
+      byId.set(
+        j.id,
+        isQueueAwaitingAllbookings(j.id, now) ? { ...j, status: 'Queued' } : j,
+      );
     }
   }
+  for (const [id, job] of byId) {
+    if (!isQueueAwaitingAllbookings(id, now)) continue;
+    const storeJob = storeJobs.find((j) => j.id === id);
+    const base = storeJob ?? job;
+    byId.set(id, { ...base, status: 'Queued' });
+  }
   return Array.from(byId.values());
+}
+
+const STATUS_RANK = {
+  Pending: 1,
+  Offered: 2,
+  Queued: 3,
+  Assigned: 4,
+  Active: 7,
+};
+
+function statusRank(st) {
+  return STATUS_RANK[normalizeJobStatus(st)] ?? 1;
+}
+
+function mergeJobRank(existing, incoming, opts) {
+  if (opts?.forceStatus) return { ...existing, ...incoming, status: opts.forceStatus };
+  const inc = incoming.status ?? existing.status;
+  if (statusRank(inc) < statusRank(existing.status)) return { ...existing, ...incoming, status: existing.status };
+  return { ...existing, ...incoming };
 }
 
 /** Simulate queue accept: refresh arrives before allbookings/pending snapshot. */
@@ -227,6 +280,6 @@ export function applyQueueAcceptOptimistic(companyId, bookingId, driverId, pendi
   markQueueAwaitingAllbookings(bookingId, now);
   markOptimisticLiveTransition(bookingId, now);
   const nextStore = [...storeJobs.filter((j) => j.id !== bookingId), job];
-  reinjectQueueAwaitingJobs(bookingsRef, nextStore, now);
+  reinjectQueueAwaitingJobs(bookingsRef, nextStore, pendingRef, now);
   return mergeStoreWithFirebaseCaches(nextStore, pendingRef, bookingsRef, now);
 }
