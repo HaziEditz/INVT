@@ -614,10 +614,10 @@ export async function createHarness(opts = {}) {
       return r.body;
     },
 
-    async setFirebaseBooking(bookingId, patch, companyId = h.companyId) {
+    async setFirebaseBooking(bookingId, patch, companyId = h.companyId, opts = {}) {
       const r = await post(
         '/dev/loadtest/set-firebase-booking',
-        { bookingId, patch, companyId },
+        { bookingId, patch, companyId, preserveTimestamps: !!opts.preserveTimestamps },
         h.adminHeaders,
       );
       if (r.status !== 200 || !r.body?.ok) {

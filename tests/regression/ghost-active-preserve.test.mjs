@@ -64,11 +64,28 @@ test('ghost Active card: completed suppress blocks stale Active re-inject', () =
   clearCompletedJobSuppress(400);
 });
 
-test('ghost Active card: U-A pool jobs still preserved when absent from caches', () => {
+test('ghost Active card: stale U-A pool jobs are not preserved when absent from caches', () => {
   const pending = new Map();
   const bookings = new Map();
-  const job = { id: 300, status: 'Pending', pickAddress: 'Pool Rd' };
-  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), true);
+  const stale = {
+    id: 300,
+    status: 'Pending',
+    pickAddress: 'Pool Rd',
+    createdAt: Date.now() - 25 * 60 * 60 * 1000,
+  };
+  assert.equal(shouldPreserveAbsentStoreJob(stale, pending, bookings), false);
+});
+
+test('ghost Active card: recent U-A pool jobs preserved when absent from caches', () => {
+  const pending = new Map();
+  const bookings = new Map();
+  const recent = {
+    id: 301,
+    status: 'Pending',
+    pickAddress: 'Pool Rd',
+    createdAt: Date.now() - 60_000,
+  };
+  assert.equal(shouldPreserveAbsentStoreJob(recent, pending, bookings), true);
 });
 
 test('ghost Active card: integration complete removes job from live pool', async () => {

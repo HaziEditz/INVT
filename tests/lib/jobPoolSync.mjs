@@ -11,6 +11,51 @@ const POOL_UA = new Set(['Pending', 'No One', 'Scheduled']);
 export const OPTIMISTIC_LIVE_RETAIN_MS = 8_000;
 export const QUEUE_AWAIT_ALLBOOKINGS_MS = 120_000;
 export const OFFER_AWAIT_ALLBOOKINGS_MS = 120_000;
+export const DISPATCH_POOL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function recordActivityMs(rec) {
+  if (!rec || typeof rec !== 'object') return 0;
+  const fields = [
+    rec.lastUpdatedAt, rec.LastUpdatedAt, rec.updatedAt, rec.UpdatedAt,
+    rec.jobUpdatedAt, rec.JobUpdatedAt,
+    rec.createdAt, rec.CreatedAt,
+    rec.queuedAt, rec.QueuedAt,
+    rec.assignedAt, rec.AssignedAt,
+    rec.offeredAt, rec.OfferedAt,
+    rec.BookingDateTime, rec.bookingDateTime,
+  ];
+  let best = 0;
+  for (const raw of fields) {
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (!Number.isNaN(n) && n > 0) {
+      const ms = n < 1e12 ? n * 1000 : n;
+      if (ms > best) best = ms;
+      continue;
+    }
+    const p = Date.parse(String(raw));
+    if (!Number.isNaN(p) && p > 0 && p > best) best = p;
+  }
+  return best;
+}
+
+export function jobActivityMs(job) {
+  return job.jobUpdatedAt ?? job.createdAt ?? 0;
+}
+
+export function isDispatchPoolRowLive(bookingId, rec, pendingRef, now = Date.now()) {
+  if (isQueueAwaitingAllbookings(bookingId)) return true;
+  if (isOfferAwaitingAllbookings(bookingId, now)) return true;
+  if (isWithinOptimisticWindow(bookingId, now)) return true;
+  const recordMs = recordActivityMs(rec);
+  if (recordMs > 0 && now - recordMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  const pending = pendingRef.get(bookingId);
+  if (pending) {
+    const pendingMs = jobActivityMs(pending);
+    if (pendingMs > 0 && now - pendingMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  }
+  return false;
+}
 
 const optimisticLiveUntil = new Map();
 const queueAwaitingAllbookings = new Set();
@@ -201,18 +246,15 @@ export function staleTerminalAllbookingsSuperseded(jobId, abRec, pendingRef, boo
 export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now = Date.now()) {
   if (isCompletedJobSuppressed(job.id, now)) return false;
   if (TERMINAL.has(normalizeJobStatus(job.status))) return false;
-  const tab = jobTabForStatus(job);
-  if (tab === 'ua') return true;
-  if (!LIVE_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
-  if (isPoolUaStatus(job.status)) return true;
-  if (isQueueAwaitingAllbookings(job.id)) {
-    return true;
-  }
+  if (isQueueAwaitingAllbookings(job.id)) return true;
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
     return true;
   }
-  return isWithinOptimisticWindow(job.id, now);
+  if (isWithinOptimisticWindow(job.id, now)) return true;
+  const activityMs = jobActivityMs(job);
+  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  return false;
 }
 
 /** Simulate syncAll merge: store jobs absent from Firebase caches. */

@@ -31,7 +31,8 @@ import {
   reinjectOfferAwaitingJobs,
   shouldPreserveAbsentStoreJob,
   staleTerminalAllbookingsSuperseded,
-  pickLiveJobSupersedingStaleTerminal,
+  isDispatchPoolRowLive,
+  recordActivityMs,
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
 
@@ -634,6 +635,14 @@ export function useJobs(companyId: string | null) {
       const job = jobFromFirebase(key, rec, companyId);
       if (!job || isBlacklisted(job.id)) return;
 
+      if (
+        !isQueueAwaitingAllbookings(jobId) &&
+        !isDispatchPoolRowLive(jobId, rec, pendingRef.current)
+      ) {
+        pendingRef.current.delete(jobId);
+        return;
+      }
+
       if (isQueueAwaitingAllbookings(jobId)) {
         pendingRef.current.delete(jobId);
         const forced = mergeJobUpdate(job, { status: 'Queued' }, { forceStatus: 'Queued' });
@@ -740,6 +749,16 @@ export function useJobs(companyId: string | null) {
             const job = jobFromFirebase(key, rec, companyId);
             if (!job) {
               traceAllbookingsIngest(jobId, 'parse failed', { firebaseKey: key });
+              continue;
+            }
+
+            if (!isDispatchPoolRowLive(jobId, rec, pendingRef.current)) {
+              traceAllbookingsIngest(jobId, 'skipped orphan (stale pool row)', {
+                recordActivityMs: recordActivityMs(rec),
+                hasPending: pendingRef.current.has(jobId),
+                bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                statusRaw: rec.Status ?? rec.status ?? null,
+              });
               continue;
             }
 

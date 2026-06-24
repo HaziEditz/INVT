@@ -132,6 +132,69 @@ export function clearOptimisticLiveTransition(jobId: number): void {
 /** Suppress stale live allbookings rows briefly after a job completes. */
 export const COMPLETED_SUPPRESS_MS = 90_000;
 
+/** Dispatch UI / pool ingest: rows older than this with no live pendingjobs are orphans. */
+export const DISPATCH_POOL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function recordActivityMs(rec: Record<string, unknown>): number {
+  const fields = [
+    rec.lastUpdatedAt,
+    rec.LastUpdatedAt,
+    rec.updatedAt,
+    rec.UpdatedAt,
+    rec.jobUpdatedAt,
+    rec.JobUpdatedAt,
+    rec.createdAt,
+    rec.CreatedAt,
+    rec.queuedAt,
+    rec.QueuedAt,
+    rec.assignedAt,
+    rec.AssignedAt,
+    rec.offeredAt,
+    rec.OfferedAt,
+    rec.BookingDateTime,
+    rec.bookingDateTime,
+  ];
+  let best = 0;
+  for (const raw of fields) {
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (!Number.isNaN(n) && n > 0) {
+      const ms = n < 1e12 ? n * 1000 : n;
+      if (ms > best) best = ms;
+      continue;
+    }
+    const p = Date.parse(String(raw));
+    if (!Number.isNaN(p) && p > 0 && p > best) best = p;
+  }
+  return best;
+}
+
+export function jobActivityMs(job: Job): number {
+  return job.jobUpdatedAt ?? job.createdAt ?? 0;
+}
+
+/** Match auto-dispatch: live pendingjobs row OR Firebase activity within 24h (plus optimistic windows). */
+export function isDispatchPoolRowLive(
+  bookingId: number,
+  rec: Record<string, unknown>,
+  pendingRef: Map<number, Job>,
+  now = Date.now(),
+): boolean {
+  if (isQueueAwaitingAllbookings(bookingId)) return true;
+  if (isOfferAwaitingAllbookings(bookingId, now)) return true;
+  if (isWithinOptimisticWindow(bookingId, now)) return true;
+
+  const recordMs = recordActivityMs(rec);
+  if (recordMs > 0 && now - recordMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+
+  const pending = pendingRef.get(bookingId);
+  if (pending) {
+    const pendingMs = jobActivityMs(pending);
+    if (pendingMs > 0 && now - pendingMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  }
+  return false;
+}
+
 const completedSuppressUntil = new Map<number, number>();
 
 export function markCompletedJobSuppress(jobId: number, now = Date.now()): void {
@@ -274,7 +337,7 @@ function isPoolUaStatus(status: string): boolean {
   return POOL_UA_STATUSES.has(normalizeJobStatus(status) as Job['status']);
 }
 
-function isWithinOptimisticWindow(jobId: number, now = Date.now()): boolean {
+export function isWithinOptimisticWindow(jobId: number, now = Date.now()): boolean {
   const until = optimisticLiveUntil.get(jobId);
   if (until == null) return false;
   if (now >= until) {
@@ -297,16 +360,13 @@ export function shouldPreserveAbsentStoreJob(
 ): boolean {
   if (isCompletedJobSuppressed(job.id, now)) return false;
   if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
-  const tab = jobTabForStatus(job);
-  if (tab === 'ua') return true;
-  if (!LIVE_DISPATCH_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
-  if (isPoolUaStatus(job.status)) return true;
-  if (isQueueAwaitingAllbookings(job.id)) {
-    return true;
-  }
+  if (isQueueAwaitingAllbookings(job.id)) return true;
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
     return true;
   }
-  return isWithinOptimisticWindow(job.id, now);
+  if (isWithinOptimisticWindow(job.id, now)) return true;
+  const activityMs = jobActivityMs(job);
+  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  return false;
 }

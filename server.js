@@ -7569,6 +7569,116 @@ function _fixsCollectCompanyIds() {
   return Array.from(set).filter(Boolean);
 }
 
+const _STALE_ALLBOOKINGS_POOL_STATUSES = new Set(['Pending', 'Queued', 'No One', 'NoOne']);
+
+function _allbookingsRecordActivityMs(rec) {
+  if (!rec || typeof rec !== 'object') return 0;
+  const fields = [
+    rec.lastUpdatedAt, rec.LastUpdatedAt, rec.updatedAt, rec.UpdatedAt,
+    rec.jobUpdatedAt, rec.JobUpdatedAt,
+    rec.createdAt, rec.CreatedAt,
+    rec.queuedAt, rec.QueuedAt,
+    rec.assignedAt, rec.AssignedAt,
+    rec.offeredAt, rec.OfferedAt,
+    rec.BookingDateTime, rec.bookingDateTime,
+  ];
+  let best = 0;
+  for (const raw of fields) {
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (!Number.isNaN(n) && n > 0) {
+      const ms = n < 1e12 ? n * 1000 : n;
+      if (ms > best) best = ms;
+      continue;
+    }
+    const p = Date.parse(String(raw));
+    if (!Number.isNaN(p) && p > 0 && p > best) best = p;
+  }
+  return best;
+}
+
+async function cleanupStaleAllbookingsJobs(opts = {}) {
+  const dryRun = !!opts.dryRun;
+  const maxAgeMs = opts.maxAgeMs || 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const targetCid = opts.companyId ? String(opts.companyId).trim() : '';
+  const token = await getFirebaseServerToken();
+  if (!token) throw new Error('cleanupStaleAllbookingsJobs: no Firebase token');
+
+  const cids = targetCid ? [targetCid] : _fixsCollectCompanyIds();
+  const cleaned = [];
+  const skipped = [];
+
+  for (const cid of cids) {
+    let data = null;
+    try {
+      const resp = await fetch(
+        `${FB_DB_URL}/allbookings/${cid}.json?auth=${encodeURIComponent(token)}`,
+        { headers: { Accept: 'application/json' } },
+      );
+      if (!resp.ok) continue;
+      data = await resp.json();
+    } catch {
+      continue;
+    }
+    if (!data || typeof data !== 'object') continue;
+
+    for (const [key, rec] of Object.entries(data)) {
+      if (!rec || typeof rec !== 'object') continue;
+      const bookingId = parseInt(key, 10) ||
+        parseInt(rec.BookingId || rec.bookingId || '', 10) || 0;
+      if (!bookingId) continue;
+
+      const st = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
+      const normSt = st === 'NoOne' ? 'No One' : st;
+      if (!_STALE_ALLBOOKINGS_POOL_STATUSES.has(normSt)) continue;
+
+      const live = jobStore.find(j =>
+        j.Id === bookingId && String(j.companyId || '') === cid,
+      );
+      if (live) {
+        skipped.push({ bookingId, cid, reason: 'live_jobStore' });
+        continue;
+      }
+
+      const activityMs = _allbookingsRecordActivityMs(rec);
+      if (activityMs > 0 && now - activityMs <= maxAgeMs) {
+        skipped.push({ bookingId, cid, reason: 'within_max_age', activityMs });
+        continue;
+      }
+
+      if (!dryRun) {
+        const cancelledAt = new Date().toISOString();
+        await firebaseDbPatch(
+          `allbookings/${cid}/${bookingId}`,
+          Object.assign(_terminalFirebaseStatusFields('Cancelled'), {
+            cancelledAt,
+            CancelledAt: cancelledAt,
+            cancelledBy: 'System',
+            CancelledBy: 'System',
+            cancelReason: 'Stale orphan cleanup (no live jobStore, >24h)',
+            CancelReason: 'Stale orphan cleanup (no live jobStore, >24h)',
+            CancelSource: 'System',
+          }),
+          token,
+        ).catch(() => {});
+        await firebaseDbDelete(`pendingjobs/${cid}/${bookingId}`, token).catch(() => {});
+      }
+      cleaned.push({ bookingId, cid, status: normSt, activityMs: activityMs || null });
+    }
+  }
+
+  return {
+    ok: true,
+    dryRun,
+    maxAgeMs,
+    cleanedCount: cleaned.length,
+    skippedCount: skipped.length,
+    cleaned,
+    skipped,
+  };
+}
+
 function _fixsTripTimestampMs(b) {
   // Pick the best "trip closed at" timestamp from the Firebase record.
   const raw = b && (b.newcompelete || b.JobCompleteTime || b.MeterOffAt || b.DropoffTime
@@ -10824,6 +10934,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /admin/cleanupStaleJobs — terminate orphaned allbookings pool rows (>24h, no jobStore)
+    if (urlPath === '/admin/cleanupStaleJobs' && req.method === 'POST') {
+      let body = {};
+      try {
+        const raw = await readBody(req);
+        body = raw ? JSON.parse(raw) : {};
+      } catch (_) { /* empty */ }
+      try {
+        const report = await cleanupStaleAllbookingsJobs({
+          companyId: body.companyId,
+          dryRun: !!body.dryRun,
+          maxAgeMs: body.maxAgeMs,
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
     // GET /admin/version — confirm deployed server build (no auth beyond /admin gate)
     if (urlPath === '/admin/version' && req.method === 'GET') {
       jsonReply(res, {
@@ -12005,8 +12135,10 @@ const server = http.createServer(async (req, res) => {
       const merged = Object.assign({}, existing && typeof existing === 'object' ? existing : {}, patch, {
         BookingId: bookingId,
         Id: bookingId,
-        updatedAt: _FB_SERVER_TIMESTAMP,
       });
+      if (!parsed.preserveTimestamps) {
+        merged.updatedAt = _FB_SERVER_TIMESTAMP;
+      }
       if (merged.BookingStatus && !merged.Status) merged.Status = merged.BookingStatus;
       await firebaseDbSet(`allbookings/${cid}/${bookingId}`, merged, tok);
       res.writeHead(200, JSON_HEADERS);
@@ -20077,6 +20209,17 @@ setInterval(async () => {
     console.warn(`[stale-offer watchdog] heal pass failed: ${e && e.message}`);
   }
 }, 90 * 1000);
+
+// ── Stale allbookings orphan cleanup — hourly ─────────────────────────────────
+setInterval(() => {
+  cleanupStaleAllbookingsJobs({ dryRun: false })
+    .then((report) => {
+      if (report.cleanedCount) {
+        console.log(`[stale-allbookings cleanup] terminated ${report.cleanedCount} orphan(s)`);
+      }
+    })
+    .catch((e) => console.warn(`[stale-allbookings cleanup] failed: ${e && e.message}`));
+}, 60 * 60 * 1000);
 
 // ── pendingjobs Firebase normalizer — runs every 15 s ─────────────────────────
 // Two responsibilities:
