@@ -11557,6 +11557,14 @@ const server = http.createServer(async (req, res) => {
       console.log(`[session] synced ownerUid=${uid} → companyId=${companyId}`);
     }
 
+    // Dispatch console needs adminAccess to read all allbookings (not only driver-assigned rows).
+    if (uid) {
+      getFirebaseServerToken()
+        .then((tok) => (tok ? firebaseDbSet(`adminAccess/${companyId}/${uid}`, true, tok) : null))
+        .then(() => console.log(`[session] adminAccess/${companyId}/${uid} ensured for dispatch`))
+        .catch((e) => console.warn(`[session] adminAccess grant failed: ${e && e.message}`));
+    }
+
     const token = createSessionToken(companyId);
     res.writeHead(200, {
       'Content-Type': 'application/json',

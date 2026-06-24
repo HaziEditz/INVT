@@ -123,7 +123,7 @@ const ACTIVE_BOOKING_STATUSES = new Set([
 const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
 /** Pin dispatch Queue-tab investigations to specific booking ids (console: dispatch-queue-debug). */
-const DISPATCH_QUEUE_TRACE_IDS = new Set([8692606255]);
+const DISPATCH_QUEUE_TRACE_IDS = new Set([8692606255, 8692606256]);
 
 type MergeTraceCtx = {
   pendingRef: Map<number, Job>;
@@ -876,6 +876,34 @@ export function useJobs(companyId: string | null) {
                   ? Object.keys(val as Record<string, unknown>).length
                   : 0,
             });
+            void get(ref(db, `allbookings/${companyId}/${traceId}`))
+              .then((directSnap) => {
+                const directVal = directSnap.val() as Record<string, unknown> | null;
+                console.log('[dispatch-queue-debug] allbookings direct-get probe', {
+                  jobId: traceId,
+                  exists: directSnap.exists(),
+                  bookingStatusRaw: directVal?.BookingStatus ?? directVal?.bookingStatus ?? null,
+                  statusRaw: directVal?.Status ?? directVal?.status ?? null,
+                  driverId: directVal?.DriverId ?? directVal?.driverId ?? null,
+                });
+              })
+              .catch((err) => {
+                console.log('[dispatch-queue-debug] allbookings direct-get probe failed', {
+                  jobId: traceId,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              });
+            void get(ref(db, `pendingjobs/${companyId}/${traceId}`))
+              .then((pjSnap) => {
+                const pjVal = pjSnap.val() as Record<string, unknown> | null;
+                console.log('[dispatch-queue-debug] pendingjobs direct-get probe', {
+                  jobId: traceId,
+                  exists: pjSnap.exists(),
+                  bookingStatusRaw: pjVal?.BookingStatus ?? pjVal?.bookingStatus ?? null,
+                  statusRaw: pjVal?.Status ?? pjVal?.status ?? null,
+                });
+              })
+              .catch(() => undefined);
           }
         }
         reinjectQueueAwaitingJobs(

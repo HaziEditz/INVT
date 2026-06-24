@@ -212,9 +212,9 @@
     },
     "allbookings": {
       "$companyId": {
-        ".read": "auth != null && root.child('drivers').child(auth.uid).exists()",
+        ".read": "auth != null && (root.child('adminAccess').child($companyId).child(auth.uid).exists() || root.child('drivers').child(auth.uid).exists())",
         "$bookingId": {
-          ".read": "auth != null && root.child('drivers').child(auth.uid).exists() && (!data.exists() || data.child('DriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('AssignedDriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('assignedDriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid)",
+          ".read": "auth != null && (root.child('adminAccess').child($companyId).child(auth.uid).exists() || (!data.exists() || data.child('DriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('driverid').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('AssignedDriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('assignedDriverId').val() == root.child('drivers').child(auth.uid).child('id').val() || data.child('PlayerId').val() == auth.uid))",
           ".write": "auth != null"
         }
       }
