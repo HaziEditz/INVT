@@ -51,6 +51,7 @@ function handleTerminalRefresh(
   pendingRef.delete(bookingId);
   bookingsRef.delete(bookingId);
   markCompletedJobSuppress(bookingId);
+  clearQueueAwaitingAllbookings(bookingId);
   clearOptimisticLiveTransition(bookingId);
   removeJob(bookingId);
   syncAll();
@@ -561,6 +562,7 @@ export function useJobs(companyId: string | null) {
       const storeJob = useJobStore.getState().jobs.find((j) => j.id === job.id);
       const pendingSt = normalizeJobStatus(effectiveStatus);
       const liveQueued =
+        isQueueAwaitingAllbookings(jobId) ||
         normalizeJobStatus(booking?.status) === 'Queued' ||
         normalizeJobStatus(storeJob?.status) === 'Queued';
       if (liveQueued && (pendingSt === 'Assigned' || pendingSt === 'Active' || pendingSt === 'Arrived')) {

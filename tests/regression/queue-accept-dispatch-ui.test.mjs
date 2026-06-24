@@ -11,7 +11,6 @@ import {
   mergeStoreWithFirebaseCaches,
   minimalJobFromDispatchRefresh,
   pendingSnapshotWouldRegressQueue,
-  QUEUE_AWAIT_ALLBOOKINGS_MS,
   reinjectQueueAwaitingJobs,
 } from '../lib/jobPoolSync.mjs';
 
@@ -45,34 +44,34 @@ test('dispatch UI: allbookings snapshot gap retains queued job until confirmed',
   const pending = new Map();
   const bookings = new Map();
   const store = [job];
-  markQueueAwaitingAllbookings(bookingId, now);
+  markQueueAwaitingAllbookings(bookingId);
 
   // Simulate pendingjobs removed + allbookings rebuild without Queued yet.
   const mergedGap = mergeStoreWithFirebaseCaches(store, pending, bookings, now);
-  assert.equal(mergedGap.length, 1, 'queue-await window must keep job visible during Firebase gap');
+  assert.equal(mergedGap.length, 1, 'queue-await must keep job visible during Firebase gap');
   assert.equal(mergedGap[0].status, 'Queued');
 
-  reinjectQueueAwaitingJobs(bookings, store, pending, now);
+  reinjectQueueAwaitingJobs(bookings, store, pending);
   assert.equal(bookings.has(bookingId), true, 'reinject restores bookingsRef between full snapshots');
 
   clearQueueAwaitingAllbookings(bookingId);
   bookings.set(bookingId, { ...job, status: 'Queued' });
   const mergedConfirmed = mergeStoreWithFirebaseCaches(store, pending, bookings, now);
   assert.equal(mergedConfirmed.length, 1);
-  assert.equal(isQueueAwaitingAllbookings(bookingId, now), false);
+  assert.equal(isQueueAwaitingAllbookings(bookingId), false);
 });
 
 test('dispatch UI: queue retention outlasts 8s optimistic window', () => {
   const now = Date.now();
   const bookingId = 8692700003;
   const job = { id: bookingId, status: 'Queued', pickAddress: 'Queue St' };
-  markQueueAwaitingAllbookings(bookingId, now);
+  markQueueAwaitingAllbookings(bookingId);
   const pending = new Map();
   const bookings = new Map();
 
   const atNineSeconds = now + 9_000;
   const merged = mergeStoreWithFirebaseCaches([job], pending, bookings, atNineSeconds);
-  assert.equal(merged.length, 1, `queue job should persist past 8s until ${QUEUE_AWAIT_ALLBOOKINGS_MS}ms cap`);
+  assert.equal(merged.length, 1, 'queue job persists until allbookings confirms Queued (no time cap)');
 });
 
 test('dispatch UI: integration accept-while-busy emits Queued refresh consumable by UI merge', async () => {
@@ -144,7 +143,7 @@ test('dispatch UI: stale pendingjobs Assigned/Active/Pending cannot pull queue-a
   const now = Date.now();
   const bookingId = 8692700004;
   const job = { id: bookingId, status: 'Queued', driverId: 'D001', updateSeq: 5, pickAddress: 'Queue St' };
-  markQueueAwaitingAllbookings(bookingId, now);
+  markQueueAwaitingAllbookings(bookingId);
 
   for (const staleStatus of ['Pending', 'Assigned', 'Active']) {
     const pending = new Map([[bookingId, { id: bookingId, status: staleStatus, updateSeq: 5 }]]);
@@ -159,15 +158,15 @@ test('dispatch UI: stale pendingjobs Assigned/Active/Pending cannot pull queue-a
   }
 
   assert.equal(
-    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Assigned' }, now),
+    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Assigned' }),
     true,
   );
   assert.equal(
-    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Pending' }, now),
+    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Pending' }),
     true,
   );
   assert.equal(
-    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Queued' }, now),
+    pendingSnapshotWouldRegressQueue(bookingId, { BookingStatus: 'Queued' }),
     false,
   );
 });

@@ -13,7 +13,7 @@ export const QUEUE_AWAIT_ALLBOOKINGS_MS = 120_000;
 export const OFFER_AWAIT_ALLBOOKINGS_MS = 120_000;
 
 const optimisticLiveUntil = new Map();
-const queueAwaitingAllbookings = new Map();
+const queueAwaitingAllbookings = new Set();
 const offerAwaitingAllbookings = new Map();
 
 export function markOptimisticLiveTransition(jobId, now = Date.now()) {
@@ -24,8 +24,8 @@ export function clearOptimisticLiveTransition(jobId) {
   optimisticLiveUntil.delete(jobId);
 }
 
-export function markQueueAwaitingAllbookings(jobId, now = Date.now()) {
-  queueAwaitingAllbookings.set(jobId, now + QUEUE_AWAIT_ALLBOOKINGS_MS);
+export function markQueueAwaitingAllbookings(jobId) {
+  queueAwaitingAllbookings.add(jobId);
 }
 
 export function clearQueueAwaitingAllbookings(jobId) {
@@ -50,29 +50,23 @@ export function isOfferAwaitingAllbookings(jobId, now = Date.now()) {
   return true;
 }
 
-export function isQueueAwaitingAllbookings(jobId, now = Date.now()) {
-  const until = queueAwaitingAllbookings.get(jobId);
-  if (until == null) return false;
-  if (now >= until) {
-    queueAwaitingAllbookings.delete(jobId);
-    return false;
-  }
-  return true;
+export function isQueueAwaitingAllbookings(jobId) {
+  return queueAwaitingAllbookings.has(jobId);
 }
 
-export function queueAwaitingMergeOpts(jobId, now = Date.now()) {
-  return isQueueAwaitingAllbookings(jobId, now) ? { forceStatus: 'Queued' } : undefined;
+export function queueAwaitingMergeOpts(jobId) {
+  return isQueueAwaitingAllbookings(jobId) ? { forceStatus: 'Queued' } : undefined;
 }
 
-export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, now = Date.now()) {
-  if (!isQueueAwaitingAllbookings(bookingId, now)) return false;
+export function pendingSnapshotWouldRegressQueue(bookingId, pjVal) {
+  if (!isQueueAwaitingAllbookings(bookingId)) return false;
   const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''));
   if (pjSt === 'Queued') return false;
   return pjSt !== 'Offered';
 }
 
-function coerceQueuedIfAwaiting(job, now = Date.now()) {
-  if (!isQueueAwaitingAllbookings(job.id, now)) return job;
+function coerceQueuedIfAwaiting(job) {
+  if (!isQueueAwaitingAllbookings(job.id)) return job;
   return normalizeJobStatus(job.status) === 'Queued' ? job : { ...job, status: 'Queued' };
 }
 
@@ -120,11 +114,11 @@ export function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
   };
 }
 
-export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef, now = Date.now()) {
+export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef) {
   for (const j of storeJobs) {
-    if (!isQueueAwaitingAllbookings(j.id, now)) continue;
+    if (!isQueueAwaitingAllbookings(j.id)) continue;
     pendingRef?.delete(j.id);
-    bookingsRef.set(j.id, coerceQueuedIfAwaiting(j, now));
+    bookingsRef.set(j.id, coerceQueuedIfAwaiting(j));
   }
 }
 
@@ -211,7 +205,7 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
   if (!LIVE_TABS.has(tab)) return false;
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isPoolUaStatus(job.status)) return true;
-  if (isQueueAwaitingAllbookings(job.id, now)) {
+  if (isQueueAwaitingAllbookings(job.id)) {
     return true;
   }
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
@@ -223,14 +217,14 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
 /** Simulate syncAll merge: store jobs absent from Firebase caches. */
 export function mergeStoreWithFirebaseCaches(storeJobs, pendingRef, bookingsRef, now = Date.now()) {
   for (const id of [...pendingRef.keys()]) {
-    if (isQueueAwaitingAllbookings(id, now)) pendingRef.delete(id);
+    if (isQueueAwaitingAllbookings(id)) pendingRef.delete(id);
   }
-  reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef, now);
+  reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef);
   const byId = new Map();
   for (const j of pendingRef.values()) byId.set(j.id, j);
   for (const j of bookingsRef.values()) {
     const prev = byId.get(j.id);
-    const opts = queueAwaitingMergeOpts(j.id, now);
+    const opts = queueAwaitingMergeOpts(j.id);
     byId.set(j.id, prev ? mergeJobRank(prev, j, opts) : opts ? mergeJobRank(j, { status: 'Queued' }, opts) : j);
   }
   for (const j of storeJobs) {
@@ -238,12 +232,12 @@ export function mergeStoreWithFirebaseCaches(storeJobs, pendingRef, bookingsRef,
     if (shouldPreserveAbsentStoreJob(j, pendingRef, bookingsRef, now)) {
       byId.set(
         j.id,
-        isQueueAwaitingAllbookings(j.id, now) ? { ...j, status: 'Queued' } : j,
+        isQueueAwaitingAllbookings(j.id) ? { ...j, status: 'Queued' } : j,
       );
     }
   }
   for (const [id, job] of byId) {
-    if (!isQueueAwaitingAllbookings(id, now)) continue;
+    if (!isQueueAwaitingAllbookings(id)) continue;
     const storeJob = storeJobs.find((j) => j.id === id);
     const base = storeJob ?? job;
     byId.set(id, { ...base, status: 'Queued' });
@@ -277,9 +271,9 @@ export function applyQueueAcceptOptimistic(companyId, bookingId, driverId, pendi
   if (!job) return storeJobs;
   pendingRef.delete(bookingId);
   bookingsRef.set(bookingId, job);
-  markQueueAwaitingAllbookings(bookingId, now);
+  markQueueAwaitingAllbookings(bookingId);
   markOptimisticLiveTransition(bookingId, now);
   const nextStore = [...storeJobs.filter((j) => j.id !== bookingId), job];
-  reinjectQueueAwaitingJobs(bookingsRef, nextStore, pendingRef, now);
+  reinjectQueueAwaitingJobs(bookingsRef, nextStore, pendingRef);
   return mergeStoreWithFirebaseCaches(nextStore, pendingRef, bookingsRef, now);
 }

@@ -9,8 +9,8 @@ const TABS: { id: JobTab; label: string }[] = [
   { id: 'ua', label: 'U-A' },
   { id: 'offer', label: 'Offer' },
   { id: 'assign', label: 'Assign' },
-  { id: 'active', label: 'Active' },
   { id: 'queue', label: 'Queue' },
+  { id: 'active', label: 'Active' },
   { id: 'dy', label: 'DY' },
 ];
 

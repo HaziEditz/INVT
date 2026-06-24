@@ -3361,7 +3361,11 @@ async function completeBooking(opts) {
     JobCompleteTime: _nowIso,
   }, _terminalFirebaseStatusFields('Completed'));
   let _ds = { driverFreed: false, driverState: 'unchanged', queueNo: null };
+  const _perfStart = Date.now();
+  let _perfCleanupMs = 0;
+  let _perfPostMs = 0;
   if (_cid) {
+    const _tCleanup = Date.now();
     _ds = await executeJobCleanup({
       profile: 'terminal',
       bookingId,
@@ -3393,7 +3397,9 @@ async function completeBooking(opts) {
         },
       },
     });
+    _perfCleanupMs = Date.now() - _tCleanup;
   }
+  const _tPost = Date.now();
   const _queuedAfterComplete = _findQueuedJobForDriver(_drvId, _cid);
   if (_isLiveQueuedJobForDriver(_queuedAfterComplete, _drvId, _cid, bookingId)) {
     const _holdCid = _cid || String(_queuedAfterComplete.companyId || opts.companyId || '').trim();
@@ -3411,6 +3417,15 @@ async function completeBooking(opts) {
       await _healStaleZoneOnTripPresence(_drvId, _cid, _vehId, `${source}/post-complete`, bookingId);
     }
   }
+  _perfPostMs = Date.now() - _tPost;
+  const _srcTag = String(job.BookingSource || job.bookingSource || job.source || '').toLowerCase();
+  const _isHailComplete = _srcTag.includes('hail') ||
+    /^hail\s*-/i.test(String(job.PickAddress || '')) ||
+    String(opts.source || source || '').toLowerCase().includes('hail');
+  console.log(
+    `  [${source}] complete perf #${bookingId} hail=${_isHailComplete} ` +
+    `cleanupMs=${_perfCleanupMs} postMs=${_perfPostMs} totalMs=${Date.now() - _perfStart}`,
+  );
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
   return {
     ok: true, idempotent: false, status: 'Completed',
@@ -3538,6 +3553,7 @@ async function acceptBooking(opts) {
         }, _tok).catch(e => console.warn(`  [${source}] jobs/${_cid}/${_vid}/${_did}/${bookingId} accept write failed: ${e && e.message}`));
       }
       await _mirrorDriverOnlineStatus(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, 'Assigned', source);
+      await _mirrorDriverTripAddressesOnline(_cid, _finalDrv, job.VehicleNo || job.VehicleId || _vid, job, bookingId, source);
     } catch (e) {
       console.warn(`  [${source}] accept fanout failed: ${e && e.message}`);
     }
@@ -3645,7 +3661,8 @@ function _computeDriverJobCount(driverId, cid) {
   for (const j of jobStore) {
     if (!j) continue;
     if (cid && String(j.companyId || '') !== String(cid)) continue;
-    if (String(j.DriverId || '').trim() !== did) continue;
+    const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
+    if (!jDrv || (!_driverIdsMatch(jDrv, did) && jDrv !== did)) continue;
     const st = j.BookingStatus || '';
     if (st === 'Queued') count++;
     else if (tripSt.has(st)) count++;
@@ -3659,7 +3676,7 @@ async function _syncDriverJobCount(cid, driverId, sourceTag) {
   if (!did || did === '0' || did === '-1') return;
   const count = _computeDriverJobCount(did, cid);
   const zd = ZONE_DRIVERS.find(d =>
-    d && (String(d.driverid) === did || String(d.VehicleId) === did)
+    d && (_driverIdsMatch(d.driverid, did) || _driverIdsMatch(d.VehicleId, did))
   );
   if (zd) zd.jobCount = count;
   const vid = zd && (zd.VehicleId || zd.vehiclenumber);
@@ -4767,6 +4784,51 @@ async function driverRecallJob(opts) {
   });
 }
 
+/** Mirror booking trip addresses to online/{cid}/{vid} (+ /current) for dispatch zone board. */
+async function _mirrorDriverTripAddressesOnline(cid, driverId, vehicleId, job, bookingId, sourceTag) {
+  const vid = String(vehicleId || job.VehicleNo || job.CallSign || job.VehicleId || '').trim();
+  if (!cid || !vid || vid === '0') return;
+  const pick = String(job.PickAddress || job.PickLocation || job.jobpickup || '').trim();
+  const drop = String(job.DropAddress || job.DropLocation || job.jobdropoff || '').trim();
+  const phone = String(job.PhoneNo || job.passengerPhone || '').trim();
+  const name = String(job.Name || job.PassengerName || job.UserFName || '').trim();
+  const bid = String(bookingId || job.Id || '').trim();
+  if (!pick && !drop && !bid) return;
+
+  const zd = ZONE_DRIVERS.find(d =>
+    d && String(d.companyId || '') === String(cid) &&
+    (_driverIdsMatch(d.driverid, driverId) ||
+      String(d.VehicleId || '').trim() === vid ||
+      String(d.vehiclenumber || '').trim() === vid)
+  );
+  if (zd) {
+    if (pick) zd.jobpickup = pick;
+    if (drop) zd.jobdropoff = drop;
+    if (phone) zd.JobphoneNo = phone;
+    if (name) zd.jobname = name;
+    if (bid) zd.BookingId = bid;
+  }
+
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const patch = {
+      ...(pick ? { jobpickup: pick } : {}),
+      ...(drop ? { jobdropoff: drop } : {}),
+      ...(phone ? { JobphoneNo: phone } : {}),
+      ...(name ? { jobname: name } : {}),
+      ...(bid ? { currentJobId: bid, jobId: bid, bookingId: bid } : {}),
+    };
+    if (!Object.keys(patch).length) return;
+    await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok)
+      .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid} trip mirror failed: ${e && e.message}`));
+    await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok)
+      .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid}/current trip mirror failed: ${e && e.message}`));
+  } catch (e) {
+    console.warn(`  [${sourceTag}] _mirrorDriverTripAddressesOnline failed: ${e && e.message}`);
+  }
+}
+
 /** Mirror booking trip stage to online/{cid}/{vid} vehiclestatus for dispatch status bar + map. */
 async function _mirrorDriverOnlineStatus(cid, driverId, vehicleId, bookingStatus, sourceTag) {
   const pres =
@@ -4869,6 +4931,7 @@ async function driverStageJob(opts) {
     }, false);
     const _vid = String(job.VehicleNo || job.VehicleId || job.CallSign || '').trim();
     await _mirrorDriverOnlineStatus(_cid, driverId, _vid, job.BookingStatus, source);
+    await _mirrorDriverTripAddressesOnline(_cid, driverId, _vid, job, bookingId, source);
   }
 
   console.log(`  [${source}] job #${bookingId} (was ${prev}) → ${job.BookingStatus} by driver ${driverId}`);
@@ -8403,6 +8466,7 @@ function _resolveHailAddressFromFirebase(cid, job) {
           }
         } catch (_eCj) { /* persist best-effort */ }
       }
+      _mirrorDriverTripAddressesOnline(cid, job.DriverId, job.VehicleNo || job.VehicleId, job, job.Id, 'hail-resolve').catch(function() {});
     } else {
       console.log(`  [§FIX-J/diag] job #${job.Id} no resolution: src=${out.source} fbPick="${out.resolvedPick || ''}" localPick="${job.PickAddress}"`);
     }
@@ -13660,6 +13724,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           }
           _zdH.vehiclestatus = 'Busy';
           console.log(`  [/api/job/create] §FIX-HAIL/2 ZONE_DRIVERS ${_hDrv} → BookingId=${_hBid} status=Busy jobCount=${_zdH.jobCount}${_alreadyAttached ? ' (idempotent)' : ''}`);
+          _syncDriverJobCount(_hCid, _hDrv, '/api/job/create/hail').catch(() => {});
         } else {
           console.log(`  [/api/job/create] §FIX-HAIL/2 driver ${_hDrv} not in ZONE_DRIVERS — popover sync skipped`);
         }
@@ -13715,7 +13780,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               JobphoneNo:   _cjJob.PhoneNo     || '',
               jobname:      _cjJob.Name        || '',
               vehiclestatus: 'Busy'
-            }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online/current patch failed: ${e && e.message}`))
+            }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online/current patch failed: ${e && e.message}`)),
+            firebaseDbPatch(`online/${_hCid}/${_hVid}`, {
+              jobpickup:    _cjJob.PickAddress || '',
+              jobdropoff:   _cjJob.DropAddress || '',
+              JobphoneNo:   _cjJob.PhoneNo     || '',
+              jobname:      _cjJob.Name        || '',
+              currentJobId: String(_hBid),
+              jobId:        String(_hBid),
+              bookingId:    String(_hBid),
+            }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online root patch failed: ${e && e.message}`))
           ]);
           console.log(`  [/api/job/create] §FIX-HAIL/2 Firebase fanout complete for #${_hBid} (pendingjobs+allbookings+online/${_hVid}/current)`);
           // Booking lifecycle event so any listeners see the Active create.
