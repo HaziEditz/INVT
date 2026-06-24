@@ -684,12 +684,34 @@ export function preDispatchAssignBlockMessage(job: Job): string {
 
 export function jobTabForStatus(job: Job): JobTab {
   if (job.serviceType === 'food' || job.serviceType === 'freight') return 'dy';
+  const raw = job.status;
   const st = normalizeJobStatus(job.status);
-  if (st === 'Queued') return 'queue';
-  if (st === 'Active' || st === 'OnTrip') return 'active';
-  if (st === 'Assigned' || st === 'Picking' || st === 'Arrived') return 'assign';
-  if (st === 'Offered') return 'offer';
-  return 'ua';
+  const tab: JobTab =
+    st === 'Queued'
+      ? 'queue'
+      : st === 'Active' || st === 'OnTrip'
+        ? 'active'
+        : st === 'Assigned' || st === 'Picking' || st === 'Arrived'
+          ? 'assign'
+          : st === 'Offered'
+            ? 'offer'
+            : 'ua';
+  if (
+    String(raw).toLowerCase().includes('queue') ||
+    st === 'Queued' ||
+    tab === 'queue' ||
+    String(raw) === 'Busy'
+  ) {
+    console.log('[dispatch-queue-debug] jobTabForStatus', {
+      id: job.id,
+      rawStatus: raw,
+      normalizedStatus: st,
+      tab,
+      serviceType: job.serviceType,
+      driverId: job.driverId,
+    });
+  }
+  return tab;
 }
 
 /** When the job record was created in the system. */

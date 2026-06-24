@@ -26,6 +26,34 @@ export function JobTabs() {
   const countForTab = (tab: JobTab) => jobs.filter((j) => jobTabForStatus(j) === tab).length;
 
   useEffect(() => {
+    const queueTabJobs = jobs.filter((j) => jobTabForStatus(j) === 'queue');
+    const queueLike = jobs.filter((j) => {
+      const raw = String(j.status ?? '').toLowerCase();
+      return raw.includes('queue') || raw === 'busy';
+    });
+    if (queueTabJobs.length > 0 || queueLike.length > 0 || activeTab === 'queue') {
+      console.log('[dispatch-queue-debug] JobTabs store', {
+        totalJobs: jobs.length,
+        activeTab,
+        queueTabCount: queueTabJobs.length,
+        queueTabIds: queueTabJobs.map((j) => j.id),
+        queueLike: queueLike.map((j) => ({
+          id: j.id,
+          status: j.status,
+          tab: jobTabForStatus(j),
+          driverId: j.driverId,
+        })),
+        allJobs: jobs.map((j) => ({ id: j.id, status: j.status, tab: jobTabForStatus(j) })),
+      });
+      console.log('[dispatch-queue-debug] JobTabs filter', {
+        activeTab,
+        tabJobsCount: tabJobs.length,
+        tabJobIds: tabJobs.map((j) => j.id),
+      });
+    }
+  }, [jobs, activeTab, tabJobs]);
+
+  useEffect(() => {
     const el = tabRefs.current[activeTab];
     if (el?.parentElement) {
       const parent = el.parentElement.getBoundingClientRect();

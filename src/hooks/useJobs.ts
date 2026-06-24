@@ -503,6 +503,25 @@ export function useJobs(companyId: string | null) {
         }
       }
       setJobs(Array.from(byId.values()));
+      const queuedInMerge = Array.from(byId.values()).filter(
+        (j) => jobTabForStatus(j) === 'queue' || String(j.status).toLowerCase().includes('queue'),
+      );
+      if (queuedInMerge.length > 0 || bookingsRef.current.size > 0) {
+        console.log('[dispatch-queue-debug] useJobs syncAll', {
+          mergedCount: byId.size,
+          bookingsRefSize: bookingsRef.current.size,
+          pendingRefSize: pendingRef.current.size,
+          removedBlacklist: [...removed],
+          queuedInMerge: queuedInMerge.map((j) => ({
+            id: j.id,
+            status: j.status,
+            tab: jobTabForStatus(j),
+          })),
+          bookingsRefQueued: [...bookingsRef.current.values()]
+            .filter((j) => String(j.status).toLowerCase().includes('queue'))
+            .map((j) => ({ id: j.id, status: j.status })),
+        });
+      }
     };
 
     const notifyNewJob = (job: Job) => {
