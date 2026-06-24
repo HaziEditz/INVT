@@ -381,6 +381,7 @@ async function refreshJobFromFirebaseCaches(
       pendingRef.set(job.id, job);
       bookingsRef.delete(bookingId);
     } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
+      markCompletedJobSuppress(bookingId);
       bookingsRef.delete(bookingId);
       hooks.removeJob(bookingId);
       hooks.clearRemovedJob(bookingId);
@@ -549,15 +550,24 @@ export function useJobs(companyId: string | null) {
         }
         pendingRef.current.delete(job.id);
         bookingsRef.current.delete(job.id);
+        markCompletedJobSuppress(job.id);
         removeJob(job.id);
         clearRemovedJob(job.id);
         syncAll();
         return;
       }
 
-      pendingRef.current.set(job.id, job);
       const booking = bookingsRef.current.get(job.id);
       const storeJob = useJobStore.getState().jobs.find((j) => j.id === job.id);
+      const pendingSt = normalizeJobStatus(effectiveStatus);
+      const liveQueued =
+        normalizeJobStatus(booking?.status) === 'Queued' ||
+        normalizeJobStatus(storeJob?.status) === 'Queued';
+      if (liveQueued && (pendingSt === 'Assigned' || pendingSt === 'Active' || pendingSt === 'Arrived')) {
+        return;
+      }
+
+      pendingRef.current.set(job.id, job);
       let merged = booking ? mergeJobUpdate(booking, job) : job;
       if (storeJob) merged = mergeJobUpdate(storeJob, merged);
       upsertJob(merged);
@@ -675,7 +685,7 @@ export function useJobs(companyId: string | null) {
         for (const tid of terminalIds) {
           pendingRef.current.delete(tid);
           bookingsRef.current.delete(tid);
-          clearCompletedJobSuppress(tid);
+          markCompletedJobSuppress(tid);
           removeJob(tid);
           clearRemovedJob(tid);
         }
