@@ -1,7 +1,7 @@
 import { mergeJobUpdate } from '@/lib/mergeJob';
 import { create } from 'zustand';
 import type { Job, JobTab } from '@/types/job';
-import { jobScheduledTime, jobTabForStatus } from '@/types/job';
+import { jobScheduledTime, jobTabForStatus, normalizeJobStatus } from '@/types/job';
 import { queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
 
 interface JobStore {
@@ -41,6 +41,19 @@ export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
     });
 }
 
+function isLivePoolStatus(status: string): boolean {
+  const st = normalizeJobStatus(status);
+  return (
+    st === 'Queued' ||
+    st === 'Offered' ||
+    st === 'Assigned' ||
+    st === 'Picking' ||
+    st === 'Arrived' ||
+    st === 'Active' ||
+    st === 'OnTrip'
+  );
+}
+
 export const useJobStore = create<JobStore>((set, get) => ({
   jobs: [],
   removedJobIds: [],
@@ -50,7 +63,11 @@ export const useJobStore = create<JobStore>((set, get) => ({
   setJobs: (jobs) => set({ jobs: [...jobs] }),
   upsertJob: (job) =>
     set((s) => {
-      if (s.removedJobIds.includes(job.id)) return s;
+      const live = isLivePoolStatus(job.status);
+      const removedJobIds = live
+        ? s.removedJobIds.filter((id) => id !== job.id)
+        : s.removedJobIds;
+      if (!live && removedJobIds.includes(job.id)) return s;
       const queueOpts = queueAwaitingMergeOpts(job.id);
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {

@@ -471,6 +471,11 @@ export function useJobs(companyId: string | null) {
         pendingRef.current,
         useJobStore.getState().jobs,
       );
+      for (const j of mergeJobs([pendingRef.current, bookingsRef.current])) {
+        if (ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(j.status))) {
+          clearRemovedJob(j.id);
+        }
+      }
       const removed = new Set(useJobStore.getState().removedJobIds);
       const merged = mergeJobs([pendingRef.current, bookingsRef.current]).filter(
         (j) => !removed.has(j.id)
@@ -640,13 +645,18 @@ export function useJobs(companyId: string | null) {
         if (val && typeof val === 'object') {
           for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
             const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
-            if (!jobId || isBlacklisted(jobId)) continue;
+            if (!jobId) continue;
 
             const job = jobFromFirebase(key, rec, companyId);
-            if (!job || isBlacklisted(job.id)) continue;
+            if (!job) continue;
 
             // Prefer record-level resolution (BookingStatus wins over stale Status: Pending).
-            let effectiveStatus = jobStatusFromFirebaseRecord(rec);
+            let effectiveStatus = normalizeJobStatus(jobStatusFromFirebaseRecord(rec));
+            if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+              clearRemovedJob(jobId);
+            } else if (isBlacklisted(jobId)) {
+              continue;
+            }
             if (
               isQueueAwaitingAllbookings(jobId) &&
               !TERMINAL_BOOKING_STATUSES.has(effectiveStatus) &&

@@ -171,6 +171,11 @@ test('dispatch UI: stale pendingjobs Assigned/Active/Pending cannot pull queue-a
   );
 });
 
+test('dispatch UI: lowercase queued status routes to Queue tab', () => {
+  assert.equal(jobTabForStatus({ id: 1, status: 'queued' }), 'queue');
+  assert.equal(jobTabForStatus({ id: 2, status: 'QUEUED' }), 'queue');
+});
+
 test.after(async () => {
   const h = await getHarness();
   await h.cleanupAll();

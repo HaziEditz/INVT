@@ -138,6 +138,7 @@ export function reinjectOfferAwaitingJobs(bookingsRef, pendingRef, storeJobs, no
 function normalizeJobStatus(st) {
   const s = String(st || '').trim();
   if (s === 'Unassigned') return 'Pending';
+  if (s === 'queued' || s === 'QUEUED') return 'Queued';
   return s;
 }
 
