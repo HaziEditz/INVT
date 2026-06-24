@@ -2052,8 +2052,9 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
   if (!driverId || String(driverId).trim() === '' || String(driverId) === '0') {
     return { driverFreed: false, driverState: 'unchanged', queueNo: null };
   }
-  if (driverHasRemainingAssignments(driverId, excludeBookingId, companyId)) {
-    console.log(`  [${_src}] §FIX-CB driver ${driverId} keeps state — has remaining active assignment(s)`);
+  // Use trip-aware check — stale Assigned ghosts must not block Available restore after complete.
+  if (_driverHasActiveTripJob(driverId, companyId, excludeBookingId)) {
+    console.log(`  [${_src}] §FIX-CB driver ${driverId} keeps state — has remaining active trip job(s)`);
     if (companyId) {
       _syncDriverJobCount(companyId, driverId, `${_src}/remaining`).catch(() => {});
     }
@@ -3402,6 +3403,7 @@ async function completeBooking(opts) {
     console.log(`  [${source}] driver ${_drvId} has queued #${_queuedAfterComplete.Id} — auto-dispatch hold + Busy mirror`);
   } else if (_cid && _drvId) {
     await _syncDriverJobCount(_cid, _drvId, `${source}/post-complete`);
+    await _healStaleZoneOnTripPresence(_drvId, _cid, _vehId, `${source}/post-complete`, bookingId);
   }
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
   return {
@@ -3824,6 +3826,63 @@ function _driverHasLiveAttachedJob(driverId, companyId, excludeBookingId) {
   return _driverHasActiveTripJob(driverId, companyId, excludeBookingId);
 }
 
+function _zoneDriverHasLiveBookingPointer(drv) {
+  const bid = String(
+    (drv && (drv.BookingId || drv.currentJobId || drv.joboffer)) || '',
+  ).trim();
+  return !!(bid && bid !== '0');
+}
+
+/** Reset stale Picking/Active zone with no live booking pointer (sync — ZONE_DRIVERS only). */
+function _healStaleZoneOnTripPresenceSync(drv, driverId, companyId, excludeBookingId) {
+  if (!drv || !driverId) return drv;
+  const vs = String(drv.vehiclestatus || '').trim();
+  if (!_ON_TRIP_PRESENCE_STATUSES.has(vs)) return drv;
+  if (_zoneDriverHasLiveBookingPointer(drv)) return drv;
+  if (_driverHasActiveTripJob(driverId, companyId, excludeBookingId, drv)) return drv;
+  const _q = calcRestoredQueue(driverId, drv.zonename || '');
+  drv.zonequeue = _q;
+  drv.queueWaitSince = Date.now();
+  drv.vehiclestatus = 'Available';
+  drv.JobphoneNo = '';
+  drv.jobpickup = '';
+  drv.jobdropoff = '';
+  drv.jobCount = 0;
+  clearDriverHomeState(driverId);
+  return drv;
+}
+
+/** Mirror healed Available to Firebase online/{cid}/{vid} after complete or before accept. */
+async function _healStaleZoneOnTripPresence(driverId, companyId, vehicleId, sourceTag, excludeBookingId) {
+  const cid = String(companyId || '').trim();
+  const did = String(driverId || '').trim();
+  if (!did) return false;
+  const zd = _zoneDriverRowForEligibility(did, cid, vehicleId);
+  if (!zd) return false;
+  const before = String(zd.vehiclestatus || '').trim();
+  _healStaleZoneOnTripPresenceSync(zd, did, cid, excludeBookingId);
+  const after = String(zd.vehiclestatus || '').trim();
+  if (before === after || after !== 'Available') return false;
+  const vid = String(vehicleId || zd.VehicleId || zd.vehiclenumber || '').trim();
+  if (cid && vid) {
+    try {
+      const tok = await getFirebaseServerToken();
+      if (tok) {
+        const patch = _onlineTripClearPatch('Available');
+        await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok)
+          .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid} heal failed: ${e && e.message}`));
+        await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok)
+          .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid}/current heal failed: ${e && e.message}`));
+      }
+    } catch (e) {
+      console.warn(`  [${sourceTag}] zone heal mirror failed: ${e && e.message}`);
+    }
+    if (cid) applyZoneQueueSyncForDriver(cid, did, vid, `${sourceTag}/healed`);
+  }
+  console.log(`  [${sourceTag}] healed stale zone ${before} → Available for driver ${did}`);
+  return true;
+}
+
 /**
  * Evaluate whether accept should queue (busy) or assign (free).
  * Returns { shouldQueue, diag } — pass log:true to emit [accept-queue-diag] console line.
@@ -3833,6 +3892,9 @@ function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts)
   const did = String(driverId || '').trim();
   const cid = String(companyId || '').trim();
   const bid = parseInt(bookingId) || 0;
+  if (drv) {
+    drv = _healStaleZoneOnTripPresenceSync(drv, did, cid, bid);
+  }
   const activeTripDiag = {};
   const hasActiveTrip = _driverHasActiveTripJob(did, cid, bid, drv, activeTripDiag);
   const vs = String((drv && drv.vehiclestatus) || '').trim();
@@ -3856,12 +3918,13 @@ function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts)
   if (hasActiveTrip) {
     diag.shouldQueue = true;
     diag.reason = 'active_trip_job';
-  } else if (onTripZone) {
+  } else if (onTripZone && _zoneDriverHasLiveBookingPointer(drv)) {
     diag.shouldQueue = true;
     diag.reason = 'on_trip_zone_status';
   } else {
     diag.shouldQueue = false;
     diag.reason = 'available_assign';
+    if (onTripZone) diag.staleZoneStatusIgnored = vs;
   }
   if (opts.log !== false) {
     console.log(`[accept-queue-diag] ${JSON.stringify(diag)}`);
@@ -4500,6 +4563,7 @@ async function acceptPendingJobByDriver(opts) {
 
   _ACCEPT_IN_FLIGHT.add(_acceptKey);
   try {
+    await _healStaleZoneOnTripPresence(driverId, _cid, opts.vehicleId || vehicleId, source, bookingId);
     const _zoneDrv = _zoneDriverRowForEligibility(driverId, _cid, opts.vehicleId);
     const _queueDecision = _evaluateAcceptQueueDecision(_zoneDrv, driverId, _cid, bookingId, {
       log: true,
@@ -5703,7 +5767,8 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
       if (!job || !drvId || drvId === '0') return null;
       const cidPreview = String(cid || job.companyId || '').trim();
       const zd = _zoneDriverRowForEligibility(drvId, cidPreview, job.VehicleNo || job.VehicleId);
-      return _evaluateAcceptQueueDecision(zd, drvId, cidPreview, job.Id, { log: false, record: false }).diag;
+      const healed = zd ? _healStaleZoneOnTripPresenceSync(zd, drvId, cidPreview, job.Id) : zd;
+      return _evaluateAcceptQueueDecision(healed, drvId, cidPreview, job.Id, { log: false, record: false }).diag;
     })(),
     driverAttachedJobs: (() => {
       const drvId = job ? String(job.DriverId || job.lastOfferDriverId || '').trim() : '';
