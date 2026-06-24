@@ -98,6 +98,81 @@ const ACTIVE_BOOKING_STATUSES = new Set([
 
 const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
+/** Pin dispatch Queue-tab investigations to specific booking ids (console: dispatch-queue-debug). */
+const DISPATCH_QUEUE_TRACE_IDS = new Set([8692606255]);
+
+type MergeTraceCtx = {
+  pendingRef: Map<number, Job>;
+  bookingsRef: Map<number, Job>;
+  storeJobs: Job[];
+  mergedPreFilter: Job[];
+  mergedPostFilter: Job[];
+  byId: Map<number, Job>;
+  removed: Set<number>;
+};
+
+function mergeTraceRow(id: number, ctx: MergeTraceCtx) {
+  const pending = ctx.pendingRef.get(id);
+  const booking = ctx.bookingsRef.get(id);
+  const store = ctx.storeJobs.find((j) => j.id === id);
+  const pre = ctx.mergedPreFilter.find((j) => j.id === id);
+  const postFilter = ctx.mergedPostFilter.find((j) => j.id === id);
+  const final = ctx.byId.get(id);
+  return {
+    id,
+    blacklisted: ctx.removed.has(id),
+    queueAwaiting: isQueueAwaitingAllbookings(id),
+    pendingStatus: pending?.status ?? null,
+    pendingUpdateSeq: pending?.updateSeq ?? null,
+    bookingsStatus: booking?.status ?? null,
+    bookingsUpdateSeq: booking?.updateSeq ?? null,
+    storeStatus: store?.status ?? null,
+    storeUpdateSeq: store?.updateSeq ?? null,
+    afterMergeJobsStatus: pre?.status ?? null,
+    afterBlacklistFilterStatus: postFilter?.status ?? null,
+    finalStatus: final?.status ?? null,
+    finalTab: final ? jobTabForStatus(final) : null,
+    preservedFromStoreOnly: !pending && !booking && !!store && !!final,
+  };
+}
+
+function logSyncAllMergePipeline(ctx: MergeTraceCtx) {
+  const allIds = new Set<number>([
+    ...ctx.pendingRef.keys(),
+    ...ctx.bookingsRef.keys(),
+    ...ctx.storeJobs.map((j) => j.id),
+    ...ctx.byId.keys(),
+    ...DISPATCH_QUEUE_TRACE_IDS,
+  ]);
+  const rows = [...allIds].sort((a, b) => a - b).map((id) => mergeTraceRow(id, ctx));
+  const shouldLog =
+    ctx.byId.size > 0 ||
+    [...DISPATCH_QUEUE_TRACE_IDS].some(
+      (id) =>
+        ctx.pendingRef.has(id) ||
+        ctx.bookingsRef.has(id) ||
+        ctx.storeJobs.some((j) => j.id === id) ||
+        ctx.byId.has(id),
+    );
+  if (!shouldLog) return;
+  console.log('[dispatch-queue-debug] syncAll merge pipeline', {
+    mergedCount: ctx.byId.size,
+    bookingsRefSize: ctx.bookingsRef.size,
+    pendingRefSize: ctx.pendingRef.size,
+    removedBlacklist: [...ctx.removed],
+    rows,
+    focus: [...DISPATCH_QUEUE_TRACE_IDS].map((id) => mergeTraceRow(id, ctx)),
+    allJobsFinal: [...ctx.byId.values()].map((j) => ({
+      id: j.id,
+      status: j.status,
+      normalizedStatus: normalizeJobStatus(j.status),
+      tab: jobTabForStatus(j),
+      driverId: j.driverId,
+      updateSeq: j.updateSeq ?? null,
+    })),
+  });
+}
+
 type DispatchRefreshPayload = {
   action?: string;
   status?: string;
@@ -477,9 +552,8 @@ export function useJobs(companyId: string | null) {
         }
       }
       const removed = new Set(useJobStore.getState().removedJobIds);
-      const merged = mergeJobs([pendingRef.current, bookingsRef.current]).filter(
-        (j) => !removed.has(j.id)
-      );
+      const mergedPreFilter = mergeJobs([pendingRef.current, bookingsRef.current]);
+      const merged = mergedPreFilter.filter((j) => !removed.has(j.id));
       const byId = new Map(merged.map((j) => [j.id, j]));
       const storeJobs = useJobStore.getState().jobs;
       for (const [id, job] of byId) {
@@ -507,26 +581,16 @@ export function useJobs(companyId: string | null) {
           );
         }
       }
+      logSyncAllMergePipeline({
+        pendingRef: pendingRef.current,
+        bookingsRef: bookingsRef.current,
+        storeJobs,
+        mergedPreFilter,
+        mergedPostFilter: merged,
+        byId,
+        removed,
+      });
       setJobs(Array.from(byId.values()));
-      const queuedInMerge = Array.from(byId.values()).filter(
-        (j) => jobTabForStatus(j) === 'queue' || String(j.status).toLowerCase().includes('queue'),
-      );
-      if (queuedInMerge.length > 0 || bookingsRef.current.size > 0) {
-        console.log('[dispatch-queue-debug] useJobs syncAll', {
-          mergedCount: byId.size,
-          bookingsRefSize: bookingsRef.current.size,
-          pendingRefSize: pendingRef.current.size,
-          removedBlacklist: [...removed],
-          queuedInMerge: queuedInMerge.map((j) => ({
-            id: j.id,
-            status: j.status,
-            tab: jobTabForStatus(j),
-          })),
-          bookingsRefQueued: [...bookingsRef.current.values()]
-            .filter((j) => String(j.status).toLowerCase().includes('queue'))
-            .map((j) => ({ id: j.id, status: j.status })),
-        });
-      }
     };
 
     const notifyNewJob = (job: Job) => {
@@ -691,6 +755,17 @@ export function useJobs(companyId: string | null) {
 
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               bookingsRef.current.set(stored.id, stored);
+              if (DISPATCH_QUEUE_TRACE_IDS.has(jobId)) {
+                console.log('[dispatch-queue-debug] allbookings ingest', {
+                  jobId,
+                  effectiveStatus,
+                  storedStatus: stored.status,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                  blacklisted: isBlacklisted(jobId),
+                  completedSuppressed: isCompletedJobSuppressed(jobId),
+                });
+              }
               if (effectiveStatus === 'Queued') {
                 const fbBooking = normalizeJobStatus(String(rec.BookingStatus ?? ''));
                 if (fbBooking === 'Queued') clearQueueAwaitingAllbookings(stored.id);
@@ -700,6 +775,17 @@ export function useJobs(companyId: string | null) {
               }
             } else if (isPoolUaStatus(effectiveStatus)) {
               pendingRef.current.set(stored.id, stored);
+            } else if (DISPATCH_QUEUE_TRACE_IDS.has(jobId)) {
+              console.log('[dispatch-queue-debug] allbookings skipped (not active/ua)', {
+                jobId,
+                effectiveStatus,
+                storedStatus: stored.status,
+                bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                statusRaw: rec.Status ?? rec.status ?? null,
+                blacklisted: isBlacklisted(jobId),
+                completedSuppressed: isCompletedJobSuppressed(jobId),
+                terminal: TERMINAL_BOOKING_STATUSES.has(effectiveStatus),
+              });
             }
           }
         }
