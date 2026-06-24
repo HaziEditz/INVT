@@ -62,6 +62,40 @@ export function staleTerminalAllbookingsSuperseded(
   return false;
 }
 
+/** Live store/pending row that outranks a stale terminal allbookings snapshot. */
+export function pickLiveJobSupersedingStaleTerminal(
+  jobId: number,
+  abRec: Record<string, unknown>,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+  storeJobs: Job[] = [],
+): Job | null {
+  const abStatus = normalizeJobStatus(
+    String(abRec.BookingStatus ?? abRec.Status ?? abRec.status ?? ''),
+  );
+  if (!TERMINAL_BOOKING_STATUSES.has(abStatus)) return null;
+
+  const abSeq = seqFromRecord(abRec);
+  const candidates: Job[] = [];
+  const pending = pendingRef.get(jobId);
+  const booking = bookingsRef.get(jobId);
+  const store = storeJobs.find((j) => j.id === jobId);
+  if (pending) candidates.push(pending);
+  if (booking) candidates.push(booking);
+  if (store) candidates.push(store);
+
+  let best: Job | null = null;
+  for (const job of candidates) {
+    const st = normalizeJobStatus(job.status);
+    if (!LIVE_DISPATCH_STATUSES.has(st) || TERMINAL_BOOKING_STATUSES.has(st)) continue;
+    const jobSeq = job.updateSeq ?? 0;
+    const supersedes = jobSeq > abSeq || (jobSeq === abSeq && st !== abStatus);
+    if (!supersedes) continue;
+    if (!best || jobSeq > (best.updateSeq ?? 0)) best = job;
+  }
+  return best;
+}
+
 export const LIVE_DISPATCH_TABS = new Set<JobTab>(['offer', 'assign', 'active', 'queue']);
 
 const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One', 'Scheduled']);

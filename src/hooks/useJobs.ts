@@ -31,6 +31,7 @@ import {
   reinjectOfferAwaitingJobs,
   shouldPreserveAbsentStoreJob,
   staleTerminalAllbookingsSuperseded,
+  pickLiveJobSupersedingStaleTerminal,
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
 
@@ -67,6 +68,29 @@ function mergeJobs(maps: Map<number, Job>[]): Job[] {
     }
   }
   return Array.from(byId.values());
+}
+
+/** Coerce mirror quirks (Busy hold, queued event fields) before ingest routing. */
+function coerceAllbookingsLiveStatus(
+  rec: Record<string, unknown>,
+  effectiveStatus: JobStatus,
+): JobStatus {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking =
+    bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  if (fbBooking === 'Queued') return 'Queued';
+  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
+  if (eventType === 'queued' || rec.queuedAt != null) return 'Queued';
+  return effectiveStatus;
+}
+
+function traceAllbookingsIngest(
+  jobId: number,
+  reason: string,
+  detail: Record<string, unknown>,
+) {
+  if (!DISPATCH_QUEUE_TRACE_IDS.has(jobId)) return;
+  console.log(`[dispatch-queue-debug] allbookings ${reason}`, { jobId, ...detail });
 }
 
 function isUaJob(job: Job): boolean {
@@ -705,20 +729,34 @@ export function useJobs(companyId: string | null) {
       onValue(bRef, (snap) => {
         bookingsRef.current = new Map();
         const terminalIds: number[] = [];
+        const seenInSnapshot = new Set<number>();
         const val = snap.val();
         if (val && typeof val === 'object') {
           for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
             const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
             if (!jobId) continue;
+            seenInSnapshot.add(jobId);
 
             const job = jobFromFirebase(key, rec, companyId);
-            if (!job) continue;
+            if (!job) {
+              traceAllbookingsIngest(jobId, 'parse failed', { firebaseKey: key });
+              continue;
+            }
 
             // Prefer record-level resolution (BookingStatus wins over stale Status: Pending).
-            let effectiveStatus = normalizeJobStatus(jobStatusFromFirebaseRecord(rec));
+            let effectiveStatus = coerceAllbookingsLiveStatus(
+              rec,
+              normalizeJobStatus(jobStatusFromFirebaseRecord(rec)),
+            );
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               clearRemovedJob(jobId);
+              clearCompletedJobSuppress(jobId);
             } else if (isBlacklisted(jobId)) {
+              traceAllbookingsIngest(jobId, 'skipped blacklisted', {
+                effectiveStatus,
+                bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                statusRaw: rec.Status ?? rec.status ?? null,
+              });
               continue;
             }
             if (
@@ -729,16 +767,49 @@ export function useJobs(companyId: string | null) {
               pendingRef.current.delete(jobId);
               effectiveStatus = 'Queued';
             }
-            const stored =
+            let stored =
               effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
 
             if (isCompletedJobSuppressed(jobId) && !TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
-              continue;
+              if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+                clearCompletedJobSuppress(jobId);
+              } else {
+                traceAllbookingsIngest(jobId, 'skipped completedSuppressed', {
+                  effectiveStatus,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                });
+                continue;
+              }
             }
 
             if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
               const storeJobs = useJobStore.getState().jobs;
-              if (
+              const superseding = pickLiveJobSupersedingStaleTerminal(
+                jobId,
+                rec,
+                pendingRef.current,
+                bookingsRef.current,
+                storeJobs,
+              );
+              if (superseding) {
+                effectiveStatus = normalizeJobStatus(superseding.status);
+                stored = mergeJobUpdate(
+                  superseding,
+                  { ...job, status: effectiveStatus },
+                  effectiveStatus === 'Queued'
+                    ? { forceStatus: 'Queued' }
+                    : queueAwaitingMergeOpts(jobId),
+                );
+                clearCompletedJobSuppress(jobId);
+                traceAllbookingsIngest(jobId, 'stale terminal superseded by live row', {
+                  effectiveStatus,
+                  supersedingStatus: superseding.status,
+                  supersedingUpdateSeq: superseding.updateSeq ?? null,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                });
+              } else if (
                 staleTerminalAllbookingsSuperseded(
                   stored.id,
                   rec,
@@ -747,25 +818,33 @@ export function useJobs(companyId: string | null) {
                   storeJobs,
                 )
               ) {
+                traceAllbookingsIngest(jobId, 'skipped staleTerminalSuperseded (no live row)', {
+                  effectiveStatus,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                });
+                continue;
+              } else {
+                terminalIds.push(stored.id);
+                traceAllbookingsIngest(jobId, 'terminal', {
+                  effectiveStatus,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                });
                 continue;
               }
-              terminalIds.push(stored.id);
-              continue;
             }
 
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               bookingsRef.current.set(stored.id, stored);
-              if (DISPATCH_QUEUE_TRACE_IDS.has(jobId)) {
-                console.log('[dispatch-queue-debug] allbookings ingest', {
-                  jobId,
-                  effectiveStatus,
-                  storedStatus: stored.status,
-                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
-                  statusRaw: rec.Status ?? rec.status ?? null,
-                  blacklisted: isBlacklisted(jobId),
-                  completedSuppressed: isCompletedJobSuppressed(jobId),
-                });
-              }
+              traceAllbookingsIngest(jobId, 'ingest', {
+                effectiveStatus,
+                storedStatus: stored.status,
+                bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                statusRaw: rec.Status ?? rec.status ?? null,
+                blacklisted: isBlacklisted(jobId),
+                completedSuppressed: isCompletedJobSuppressed(jobId),
+              });
               if (effectiveStatus === 'Queued') {
                 const fbBooking = normalizeJobStatus(String(rec.BookingStatus ?? ''));
                 if (fbBooking === 'Queued') clearQueueAwaitingAllbookings(stored.id);
@@ -775,9 +854,8 @@ export function useJobs(companyId: string | null) {
               }
             } else if (isPoolUaStatus(effectiveStatus)) {
               pendingRef.current.set(stored.id, stored);
-            } else if (DISPATCH_QUEUE_TRACE_IDS.has(jobId)) {
-              console.log('[dispatch-queue-debug] allbookings skipped (not active/ua)', {
-                jobId,
+            } else {
+              traceAllbookingsIngest(jobId, 'skipped (not active/ua)', {
                 effectiveStatus,
                 storedStatus: stored.status,
                 bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
@@ -787,6 +865,17 @@ export function useJobs(companyId: string | null) {
                 terminal: TERMINAL_BOOKING_STATUSES.has(effectiveStatus),
               });
             }
+          }
+        }
+        for (const traceId of DISPATCH_QUEUE_TRACE_IDS) {
+          if (!seenInSnapshot.has(traceId)) {
+            console.log('[dispatch-queue-debug] allbookings missing from snapshot', {
+              jobId: traceId,
+              snapshotChildCount:
+                val && typeof val === 'object'
+                  ? Object.keys(val as Record<string, unknown>).length
+                  : 0,
+            });
           }
         }
         reinjectQueueAwaitingJobs(
