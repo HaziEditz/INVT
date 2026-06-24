@@ -3395,15 +3395,21 @@ async function completeBooking(opts) {
     });
   }
   const _queuedAfterComplete = _findQueuedJobForDriver(_drvId, _cid);
-  if (_queuedAfterComplete && _drvId) {
+  if (_isLiveQueuedJobForDriver(_queuedAfterComplete, _drvId, _cid, bookingId)) {
     const _holdCid = _cid || String(_queuedAfterComplete.companyId || opts.companyId || '').trim();
     _setQueuePromotionHold(_holdCid, _drvId, _queuedAfterComplete.Id);
     const _holdVid = _vehId || String(_queuedAfterComplete.VehicleNo || _queuedAfterComplete.VehicleId || '').trim();
     await _holdDriverBusyForQueuePromotion(_holdCid, _drvId, _holdVid, _queuedAfterComplete.Id);
     console.log(`  [${source}] driver ${_drvId} has queued #${_queuedAfterComplete.Id} — auto-dispatch hold + Busy mirror`);
-  } else if (_cid && _drvId) {
-    await _syncDriverJobCount(_cid, _drvId, `${source}/post-complete`);
-    await _healStaleZoneOnTripPresence(_drvId, _cid, _vehId, `${source}/post-complete`, bookingId);
+  } else {
+    if (_queuedAfterComplete) {
+      console.log(`  [${source}] skipped queue-promotion hold for driver ${_drvId} — queued #${_queuedAfterComplete.Id} not live`);
+    }
+    if (_cid && _drvId) {
+      _clearQueuePromotionHold(_cid, _drvId);
+      await _syncDriverJobCount(_cid, _drvId, `${source}/post-complete`);
+      await _healStaleZoneOnTripPresence(_drvId, _cid, _vehId, `${source}/post-complete`, bookingId);
+    }
   }
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
   return {
@@ -20396,6 +20402,17 @@ function _findQueuedJobForDriver(driverId, companyId) {
     const jDrv = String(j.DriverId || '').trim();
     return _driverIdsMatch(jDrv, did);
   }) || null;
+}
+
+/** True when a Queued row is a live promotion candidate (not the job just completed). */
+function _isLiveQueuedJobForDriver(job, driverId, companyId, excludeBookingId) {
+  if (!job || !job.Id) return false;
+  if (excludeBookingId && job.Id === excludeBookingId) return false;
+  if (job.BookingStatus !== 'Queued') return false;
+  const did = String(driverId || '').trim();
+  if (!did || !_driverIdsMatch(String(job.DriverId || ''), did)) return false;
+  if (companyId && job.companyId && String(job.companyId) !== companyId) return false;
+  return true;
 }
 
 function _driverHasQueuedJobPending(driverId, companyId) {
