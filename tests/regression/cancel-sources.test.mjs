@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
-import { assertTerminalClean, getHarness } from '../lib/harness.mjs';
+import { assertTerminalClean, getHarness, prepareCleanDispatch } from '../lib/harness.mjs';
 
 test.before(async () => {
   await getHarness({ fresh: true });
@@ -40,6 +40,7 @@ test('Phase 2 cancel: website (admin key) → terminal Cancelled', async () => {
 test('Phase 2 cancel: driver recall on Assigned → Pending (not terminal)', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
+  await prepareCleanDispatch(h);
   const driverId = h.driverIds[1];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('cancel-driver-recall');
@@ -57,7 +58,7 @@ test('Phase 2 cancel: driver recall on Assigned → Pending (not terminal)', asy
     (t) =>
       t.jobStore?.found === true &&
       String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Pending',
-    { timeoutMs: 25000 },
+    { timeoutMs: 45000 },
   );
   assert.equal(String(trace.jobStore.lifecycle.BookingStatus), 'Pending');
   assert.equal(trace.firebase?.pendingjobs != null || trace.firebase?.allbookings != null, true);

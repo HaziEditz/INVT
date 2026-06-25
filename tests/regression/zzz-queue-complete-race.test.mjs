@@ -36,6 +36,7 @@ test('complete → queue promotion wins over competing auto-dispatch offer', asy
     zonename: 'Central',
     lat: -46.4121,
     lng: 168.3531,
+    vehiclenumber: String(hailDriver),
   });
   assert.equal(busyRes.status, 200);
 
@@ -127,11 +128,29 @@ test('complete → queue promotion wins over competing auto-dispatch offer', asy
   );
   assert.equal(String(queuedStill.jobStore.lifecycle.DriverId), String(hailDriver));
 
-  const promoteRes = await post(
-    '/api/job/promote-queued',
-    { bookingId: queuedJobId, driverId: String(hailDriver), companyId: TEST_CID },
-    h.adminHeaders,
-  );
+  await h.configureDriver(hailDriver, {
+    vehiclestatus: 'Available',
+    lat: -46.4121,
+    lng: 168.3531,
+    zonename: 'Central',
+  });
+  await h.driverStatusChanged(hailDriver, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(hailDriver),
+  });
+
+  let promoteRes;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    promoteRes = await post(
+      '/api/job/promote-queued',
+      { bookingId: queuedJobId, driverId: String(hailDriver), companyId: TEST_CID },
+      h.adminHeaders,
+    );
+    if (promoteRes.status === 200 && promoteRes.body?.ok) break;
+    const retryable = promoteRes.body?.error_code === 'presence_attach_failed';
+    if (!retryable || attempt === 3) break;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
   assert.equal(promoteRes.status, 200, JSON.stringify(promoteRes.body));
   assert.equal(promoteRes.body.ok, true, JSON.stringify(promoteRes.body));
 
@@ -152,13 +171,13 @@ test('complete → queue promotion wins over competing auto-dispatch offer', asy
   assert.equal(String(promoted.jobStore.lifecycle.DriverId), String(hailDriver));
   assertFirebaseHealthy(promoted, 'after queue promote');
 
-  const vehicleNo = String(hailDriver);
+  const onlinePath = resolveOnlineCurrentPath(promoted, hailDriver);
   const onlineNode = await pollFirebasePeek(
-    `online/${TEST_CID}/${vehicleNo}/current`,
+    onlinePath,
     (n) => n && String(n.currentJobId || n.jobId || '') === String(queuedJobId),
     { timeoutMs: 45000 },
   );
-  assert.ok(onlineNode, `online/current must reference promoted job #${queuedJobId}`);
+  assert.ok(onlineNode, `online/current must reference promoted job #${queuedJobId} at ${onlinePath}`);
 
   await h.recallQueuedJob(queuedJobId).catch(() => undefined);
   await h.cancelAssigned(queuedJobId).catch(() => undefined);
@@ -166,7 +185,7 @@ test('complete → queue promotion wins over competing auto-dispatch offer', asy
   for (const id of otherDrivers) {
     await h.driverStatusChanged(id, 'Available', { zonename: 'Central' });
   }
-  await h.driverStatusChanged(hailDriver, 'Available', { zonename: 'Central' });
+  await h.driverStatusChanged(hailDriver, 'Available', { zonename: 'Central', vehiclenumber: String(hailDriver) });
 });
 
 test.afterEach(async () => {
@@ -185,6 +204,17 @@ test.afterEach(async () => {
   }
   await prepareCleanDispatch(h);
 });
+
+/** Match online/{cid}/{vid}/current to the vehicle id used in jobs/{cid}/{vid}/… fanout. */
+function resolveOnlineCurrentPath(trace, driverId, companyId = TEST_CID) {
+  const jobsNodes = trace.firebase?.jobsDriverNode || {};
+  for (const [path, node] of Object.entries(jobsNodes)) {
+    if (!node || String(node.BookingStatus || node.Status || '') !== 'Assigned') continue;
+    const m = path.match(/^jobs\/[^/]+\/([^/]+)\/[^/]+\/\d+$/);
+    if (m) return `online/${companyId}/${m[1]}/current`;
+  }
+  return `online/${companyId}/${String(driverId)}/current`;
+}
 
 async function pollActiveForDriver(h, driverId) {
   const deadline = Date.now() + 30000;

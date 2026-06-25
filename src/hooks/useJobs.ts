@@ -28,6 +28,7 @@ import {
   isQueueAwaitingAllbookings,
   minimalJobFromDispatchRefresh,
   allbookingsRecordIsQueued,
+  coerceAllbookingsLiveStatus,
   pendingSnapshotWouldRegressQueue,
   purgeStalePendingForQueuedBookings,
   queueAwaitingMergeOpts,
@@ -75,20 +76,6 @@ function mergeJobs(maps: Map<number, Job>[]): Job[] {
     }
   }
   return Array.from(byId.values());
-}
-
-/** Coerce mirror quirks (Busy hold, queued event fields) before ingest routing. */
-function coerceAllbookingsLiveStatus(
-  rec: Record<string, unknown>,
-  effectiveStatus: JobStatus,
-): JobStatus {
-  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  const fbBooking =
-    bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
-  if (fbBooking === 'Queued') return 'Queued';
-  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
-  if (eventType === 'queued' || rec.queuedAt != null) return 'Queued';
-  return effectiveStatus;
 }
 
 function traceAllbookingsIngest(
@@ -756,6 +743,11 @@ export function useJobs(companyId: string | null) {
         const existing = storeJobs.find((j) => j.id === id);
         if (isQueueAwaitingAllbookings(id)) {
           const base = existing ?? job;
+          const baseSt = normalizeJobStatus(base.status);
+          if (TERMINAL_BOOKING_STATUSES.has(baseSt) || isCompletedJobSuppressed(id)) {
+            clearQueueAwaitingAllbookings(id);
+            continue;
+          }
           byId.set(
             id,
             mergeJobUpdate(base, { ...job, status: 'Queued' }, { forceStatus: 'Queued' }),
@@ -769,9 +761,12 @@ export function useJobs(companyId: string | null) {
       for (const j of storeJobs) {
         if (byId.has(j.id) || removed.has(j.id)) continue;
         if (shouldPreserveAbsentStoreJob(j, pendingRef.current, bookingsRef.current)) {
+          const awaiting = isQueueAwaitingAllbookings(j.id);
+          const terminal = TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(j.status));
+          if (awaiting && terminal) clearQueueAwaitingAllbookings(j.id);
           byId.set(
             j.id,
-            isQueueAwaitingAllbookings(j.id)
+            awaiting && !terminal
               ? mergeJobUpdate(j, { status: 'Queued' }, { forceStatus: 'Queued' })
               : j,
           );
@@ -1137,6 +1132,15 @@ export function useJobs(companyId: string | null) {
               .catch(() => undefined);
           }
         }
+        for (const row of terminalRows) {
+          clearQueueAwaitingAllbookings(row.id);
+          clearOfferAwaitingAllbookings(row.id);
+          pendingRef.current.delete(row.id);
+          bookingsRef.current.delete(row.id);
+          markCompletedJobSuppress(row.id, row.seq);
+          removeJob(row.id);
+          clearRemovedJob(row.id);
+        }
         reinjectQueueAwaitingJobs(
           bookingsRef.current,
           useJobStore.getState().jobs,
@@ -1147,13 +1151,6 @@ export function useJobs(companyId: string | null) {
           pendingRef.current,
           useJobStore.getState().jobs,
         );
-        for (const row of terminalRows) {
-          pendingRef.current.delete(row.id);
-          bookingsRef.current.delete(row.id);
-          markCompletedJobSuppress(row.id, row.seq);
-          removeJob(row.id);
-          clearRemovedJob(row.id);
-        }
         syncAll();
       })
     );

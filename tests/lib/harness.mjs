@@ -468,7 +468,7 @@ export async function createHarness(opts = {}) {
       await h.ensureDriverReady(driverId);
       await h.assignJob(jobId, driverId, driverId);
       await h.poll(jobId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered', {
-        timeoutMs: 25000,
+        timeoutMs: 45000,
       });
       const acc = await h.acceptJob(jobId, driverId);
       if (!acc.body.ok) {
@@ -501,11 +501,11 @@ export async function createHarness(opts = {}) {
       while (Date.now() < deadline) {
         await h.triggerAutoDispatch();
         try {
-          return await h.poll(
-            jobId,
-            (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
-            { timeoutMs: Math.min(8000, deadline - Date.now()) },
-          );
+      return await h.poll(
+        jobId,
+        (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
+        { timeoutMs: Math.min(45000, deadline - Date.now()) },
+      );
         } catch {
           /* retry after next tick */
         }

@@ -1861,7 +1861,7 @@ function _findZoneDriverRow(rawId, opts) {
     }, null);
   };
 
-  const byDriverId = rows.filter(d => String(d.driverid || '').trim() === raw);
+  const byDriverId = rows.filter(d => _driverIdsMatch(d.driverid, raw));
   if (byDriverId.length) return _pickBestDriverRows(byDriverId);
 
   let zd = rows.find(d => {
@@ -3173,7 +3173,8 @@ async function assignBooking(opts) {
     };
   }
 
-  const _zdAssign = _zoneDriverRowForEligibility(_targetDrv, _cidEarly, vehicleId || _targetVid);
+  const _zdAssign = _validatedAssign.row ||
+    _zoneDriverRowForEligibility(_targetDrv, _cidEarly, vehicleId || _targetVid || _resolved.vehicleId);
   if (!_zdAssign) {
     return {
       ok: false,
@@ -5147,7 +5148,13 @@ async function promoteQueuedJobByDriver(opts) {
     return { ok: false, error_code: 'forbidden', error: 'queued job belongs to another driver' };
   }
   const _cid = String(job.companyId || opts.companyId || '');
-  const _zdPromote = _zoneDriverRowForEligibility(driverId, _cid, job.VehicleId || job.VehicleNo);
+  const _validatedPromote = _validateDriverIdForWrite(driverId, { companyId: _cid, source });
+  if (!_validatedPromote.ok && !_validatedPromote.skip) {
+    return { ok: false, error_code: 'invalid_driver_id', error: _validatedPromote.error || 'invalid driver' };
+  }
+  const _promoteDrv = _validatedPromote.driverId || driverId;
+  const _zdPromote = _validatedPromote.row ||
+    _zoneDriverRowForEligibility(_promoteDrv, _cid, job.VehicleId || job.VehicleNo);
   if (_zdPromote && !_driverEligibleForJob(_zdPromote, job)) {
     await _releaseJobIfDriverIneligible(job, { source: `${source}/ineligible`, companyId: _cid });
     return {
@@ -5162,7 +5169,7 @@ async function promoteQueuedJobByDriver(opts) {
   job.assignedAt = Date.now();
   job.queuedAt = null;
   if (!job.DriverAcceptedAt) job.DriverAcceptedAt = new Date().toISOString();
-  const _resolvedPromote = _resolveDriverVehicleIds(driverId, job.VehicleId || job.VehicleNo, _cid);
+  const _resolvedPromote = _resolveDriverVehicleIds(_promoteDrv, '', _cid);
   if (_resolvedPromote.vehicleId) {
     job.VehicleId = _resolvedPromote.vehicleId;
     job.VehicleNo = _resolvedPromote.vehicleId;
@@ -5170,14 +5177,14 @@ async function promoteQueuedJobByDriver(opts) {
   }
   if (_resolvedPromote.driverId) job.DriverId = _resolvedPromote.driverId;
   if (!String(job.VehicleId || job.VehicleNo || '').trim()) {
-    job.VehicleId = _resolvedPromote.vehicleId || driverId;
+    job.VehicleId = _resolvedPromote.vehicleId || _promoteDrv;
     job.VehicleNo = job.VehicleId;
     job.CallSign = job.VehicleId;
   }
   _afterJobStatusChange(job, prev, 'driver', source);
   saveJobStore();
   if (_cid) {
-    await _removeDriverQueueFirebase(_cid, driverId, bookingId).catch(() => {});
+    await _removeDriverQueueFirebase(_cid, _promoteDrv, bookingId).catch(() => {});
     const _promoteMirror = _buildAllbookingsMirrorFromJob(job);
     _promoteMirror.BookingStatus = 'Assigned';
     _promoteMirror.Status = 'Assigned';
@@ -5196,7 +5203,7 @@ async function promoteQueuedJobByDriver(opts) {
       ).catch(() => {});
     }
     try {
-      await _attachAssignedJobToDriverPresence(_cid, driverId, job, source);
+      await _attachAssignedJobToDriverPresence(_cid, _promoteDrv, job, source);
     } catch (e) {
       console.warn(`  [${source}] presence attach failed #${bookingId}: ${e && e.message}`);
       return {

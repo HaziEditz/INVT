@@ -169,6 +169,22 @@ export function queueAwaitingMergeOpts(jobId) {
   return isQueueAwaitingAllbookings(jobId) ? { forceStatus: 'Queued' } : undefined;
 }
 
+export function coerceAllbookingsLiveStatus(rec, effectiveStatus) {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  const statusRaw = rec.Status ?? rec.status;
+  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+
+  if (fbBooking && TERMINAL.has(fbBooking)) return fbBooking;
+  if (fbStatus && TERMINAL.has(fbStatus)) return fbStatus;
+  if (TERMINAL.has(normalizeJobStatus(effectiveStatus))) return effectiveStatus;
+
+  if (fbBooking === 'Queued') return 'Queued';
+  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
+  if (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) return 'Queued';
+  return effectiveStatus;
+}
+
 export function allbookingsRecordIsQueued(rec) {
   const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
   if (bookingRaw != null && normalizeJobStatus(String(bookingRaw)) === 'Queued') return true;
@@ -215,7 +231,12 @@ export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
 
 function coerceQueuedIfAwaiting(job) {
   if (!isQueueAwaitingAllbookings(job.id)) return job;
-  return normalizeJobStatus(job.status) === 'Queued' ? job : { ...job, status: 'Queued' };
+  const st = normalizeJobStatus(job.status);
+  if (TERMINAL.has(st)) {
+    clearQueueAwaitingAllbookings(job.id);
+    return job;
+  }
+  return st === 'Queued' ? job : { ...job, status: 'Queued' };
 }
 
 export const COMPLETED_SUPPRESS_MS = 90_000;
@@ -282,6 +303,11 @@ export function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
 export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef) {
   for (const j of storeJobs) {
     if (!isQueueAwaitingAllbookings(j.id)) continue;
+    const st = normalizeJobStatus(j.status);
+    if (TERMINAL.has(st) || isCompletedJobSuppressed(j.id)) {
+      clearQueueAwaitingAllbookings(j.id);
+      continue;
+    }
     pendingRef?.delete(j.id);
     bookingsRef.set(j.id, coerceQueuedIfAwaiting(j));
   }

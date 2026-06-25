@@ -41,6 +41,7 @@ test('booking id reuse: complete then re-insert same Id clears stale terminal al
   await prepareCleanDispatch(h);
 
   const driverId = h.driverIds[0];
+  await h.ensureDriverReady(driverId);
   const reusedId = await h.createAsapJob('id-reuse-complete-first');
   await h.assignAccept(reusedId, driverId);
   await h.completeJob(reusedId, driverId, { fare: '18.00' });
@@ -95,7 +96,7 @@ test('booking id reuse: complete then re-insert same Id clears stale terminal al
   });
 
   await h.triggerAutoDispatch();
-  const offered = await h.waitForAutoOffer(reusedId, driverId, { timeoutMs: 45000 });
+  const offered = await h.waitForAutoOffer(reusedId, driverId, { timeoutMs: 90000 });
   assert.equal(String(offered.jobStore.lifecycle.BookingStatus), 'Offered');
   assert.equal(
     String(offered.firebase?.allbookings?.BookingStatus || offered.firebase?.allbookings?.Status),

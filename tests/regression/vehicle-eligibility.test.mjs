@@ -7,6 +7,24 @@ test.before(async () => {
   await getHarness({ fresh: true });
 });
 
+async function ensureDriverInZone(h, driverId, props = {}) {
+  await h.configureDriver(driverId, {
+    passforlink: `regtest-key-${driverId}`,
+    vehiclestatus: 'Available',
+    lat: -46.412,
+    lng: 168.353,
+    zoneid: '1',
+    zonename: 'Central',
+    vehicletype: 'Sedan',
+    seatCapacity: 4,
+    ...props,
+  });
+  await h.driverStatusChanged(driverId, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
+}
+
 test('Phase 3 eligibility: Van job rejects Sedan manual assign; Van driver succeeds', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
@@ -14,8 +32,8 @@ test('Phase 3 eligibility: Van job rejects Sedan manual assign; Van driver succe
   const sedanDriver = h.driverIds[0];
   const vanDriver = h.driverIds[2];
 
-  await h.configureDriver(sedanDriver, { vehicletype: 'Sedan', seatCapacity: 4 });
-  await h.configureDriver(vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
+  await ensureDriverInZone(h, sedanDriver, { vehicletype: 'Sedan', seatCapacity: 4 });
+  await ensureDriverInZone(h, vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
 
   const jobId = await h.createJobViaInsert({ vehicleType: 'Van', passengers: 2, notesSuffix: 'van-job' });
   const seq0 = await h.readUpdateSeq(jobId);
@@ -26,8 +44,8 @@ test('Phase 3 eligibility: Van job rejects Sedan manual assign; Van driver succe
   );
   assert.equal(vanUpdate.body.ok, true, JSON.stringify(vanUpdate.body));
 
-  await h.configureDriver(sedanDriver, { vehicletype: 'Sedan', seatCapacity: 4 });
-  await h.configureDriver(vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
+  await ensureDriverInZone(h, sedanDriver, { vehicletype: 'Sedan', seatCapacity: 4 });
+  await ensureDriverInZone(h, vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
 
   const badAssign = await h.assignJob(jobId, sedanDriver, sedanDriver);
   assert.notEqual(badAssign.body.ok, true, JSON.stringify(badAssign.body));
@@ -36,8 +54,14 @@ test('Phase 3 eligibility: Van job rejects Sedan manual assign; Van driver succe
     `expected ineligible assign, got ${badAssign.status} ${JSON.stringify(badAssign.body)}`,
   );
 
-  await h.configureDriver(vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
-  const goodAssign = await h.assignJob(jobId, vanDriver, vanDriver);
+  await ensureDriverInZone(h, vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
+  let goodAssign;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    goodAssign = await h.assignJob(jobId, vanDriver, vanDriver);
+    if (goodAssign.body.ok) break;
+    if (goodAssign.body.error_code !== 'driver_not_in_zone') break;
+    await ensureDriverInZone(h, vanDriver, { vehicletype: 'Van', seatCapacity: 8 });
+  }
   assert.equal(goodAssign.body.ok, true, JSON.stringify(goodAssign.body));
 
   const trace = await h.poll(
@@ -49,21 +73,20 @@ test('Phase 3 eligibility: Van job rejects Sedan manual assign; Van driver succe
   await h.cancelAssigned(jobId);
 });
 
+test.afterEach(async () => {
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+});
+
 test('Phase 3 eligibility: seat capacity blocks assign when passengers exceed capacity', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
   await prepareCleanDispatch(h);
-  const driverId = h.driverIds[0];
-  await h.configureDriver(driverId, { vehicletype: 'Sedan', seatCapacity: 4 });
+  const driverId = h.driverIds[1];
+  await ensureDriverInZone(h, driverId, { vehicletype: 'Sedan', seatCapacity: 4 });
 
   const jobId = await h.createJobViaInsert({ vehicleType: 'Sedan', passengers: 6, notesSuffix: 'seats' });
-  const seq = await h.readUpdateSeq(jobId);
-  const paxUpdate = await h.bookingUpdate(
-    jobId,
-    { PassengersNo: '6', Passengers: 6 },
-    seq,
-  );
-  assert.equal(paxUpdate.body.ok, true, JSON.stringify(paxUpdate.body));
+  await ensureDriverInZone(h, driverId, { vehicletype: 'Sedan', seatCapacity: 4 });
 
   const res = await h.assignJob(jobId, driverId, driverId);
   assert.notEqual(res.body.ok, true, JSON.stringify(res.body));

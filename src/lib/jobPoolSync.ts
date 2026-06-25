@@ -369,6 +369,31 @@ export type PendingQueueRegressCtx = {
   abRec?: Record<string, unknown> | null;
 };
 
+/**
+ * Coerce mirror quirks (queuedAt, eventType) before ingest routing.
+ * Terminal BookingStatus must win over stale queue lifecycle fields.
+ */
+export function coerceAllbookingsLiveStatus(
+  rec: Record<string, unknown>,
+  effectiveStatus: Job['status'],
+): Job['status'] {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking =
+    bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  const statusRaw = rec.Status ?? rec.status;
+  const fbStatus =
+    statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+
+  if (fbBooking && TERMINAL_BOOKING_STATUSES.has(fbBooking)) return fbBooking;
+  if (fbStatus && TERMINAL_BOOKING_STATUSES.has(fbStatus)) return fbStatus;
+  if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) return effectiveStatus;
+
+  if (fbBooking === 'Queued') return 'Queued';
+  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
+  if (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) return 'Queued';
+  return effectiveStatus;
+}
+
 /** True when allbookings (or mirror fields) confirms Queued. */
 export function allbookingsRecordIsQueued(rec: Record<string, unknown>): boolean {
   const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
@@ -432,7 +457,12 @@ export function pendingSnapshotWouldRegressQueue(
 /** Force Queued status for jobs in the queue-await window. */
 export function coerceQueuedIfAwaiting(job: Job): Job {
   if (!isQueueAwaitingAllbookings(job.id)) return job;
-  return normalizeJobStatus(job.status) === 'Queued' ? job : { ...job, status: 'Queued' };
+  const st = normalizeJobStatus(job.status);
+  if (TERMINAL_BOOKING_STATUSES.has(st)) {
+    clearQueueAwaitingAllbookings(job.id);
+    return job;
+  }
+  return st === 'Queued' ? job : { ...job, status: 'Queued' };
 }
 
 /** Minimal job shell when dispatch refresh arrives before pendingjobs snapshot exists. */
@@ -471,6 +501,11 @@ export function reinjectQueueAwaitingJobs(
 ): void {
   for (const j of storeJobs) {
     if (!isQueueAwaitingAllbookings(j.id)) continue;
+    const st = normalizeJobStatus(j.status);
+    if (TERMINAL_BOOKING_STATUSES.has(st) || isCompletedJobSuppressed(j.id)) {
+      clearQueueAwaitingAllbookings(j.id);
+      continue;
+    }
     pendingRef?.delete(j.id);
     const queued = coerceQueuedIfAwaiting(j);
     bookingsRef.set(j.id, queued);
