@@ -114,6 +114,15 @@ export function purgeCancelledJobFromListeners(jobId: number) {
   listenerBookingsCache?.delete(jobId);
 }
 
+/** Drop a terminal/cancelled job from dispatch listeners and blacklist re-ingest. */
+export function purgeDispatchTerminalJob(jobId: number, suppressSeq = 0) {
+  markCompletedJobSuppress(jobId, suppressSeq);
+  clearQueueAwaitingAllbookings(jobId);
+  clearOfferAwaitingAllbookings(jobId);
+  purgeCancelledJobFromListeners(jobId);
+  useJobStore.getState().removeJob(jobId);
+}
+
 let listenerPendingCache: Map<number, Job> | null = null;
 let listenerBookingsCache: Map<number, Job> | null = null;
 
@@ -454,6 +463,17 @@ function optimisticDispatchRefresh(
   if (useJobStore.getState().isJobBlacklisted(bookingId)) return;
 
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  const targetStatus = refresh.status ? normalizeJobStatus(refresh.status) : null;
+  if (
+    prior &&
+    normalizeJobStatus(prior.status) === 'Queued' &&
+    (POOL_RESTORE_ACTIONS.has(refresh.action || '') ||
+      targetStatus === 'Pending' ||
+      targetStatus === 'No One')
+  ) {
+    clearQueueAwaitingAllbookings(bookingId);
+  }
+
   let job: Job | null = null;
   if (prior) {
     job = applyRefreshStatusHint(null, prior, refresh, bookingId);
@@ -567,6 +587,13 @@ async function refreshJobFromFirebaseCaches(
   }
   if (action === 'offer') {
     markOfferAwaitingAllbookings(bookingId);
+  }
+  if (
+    POOL_RESTORE_ACTIONS.has(action || '') &&
+    prior &&
+    normalizeJobStatus(prior.status) === 'Queued'
+  ) {
+    clearQueueAwaitingAllbookings(bookingId);
   }
 
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
@@ -713,7 +740,10 @@ export function useJobs(companyId: string | null) {
         useJobStore.getState().jobs,
       );
       for (const j of mergeJobs([pendingRef.current, bookingsRef.current])) {
-        if (ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(j.status))) {
+        if (
+          ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(j.status)) &&
+          !useJobStore.getState().isJobBlacklisted(j.id)
+        ) {
           clearRemovedJob(j.id);
         }
       }
@@ -775,6 +805,20 @@ export function useJobs(companyId: string | null) {
 
       const job = jobFromFirebase(key, rec, companyId);
       if (!job || isBlacklisted(job.id)) return;
+
+      const pendingEffective = jobStatusFromFirebaseRecord(rec);
+      if (
+        isCompletedJobSuppressed(jobId) &&
+        !TERMINAL_BOOKING_STATUSES.has(pendingEffective) &&
+        (ACTIVE_BOOKING_STATUSES.has(pendingEffective) ||
+          pendingEffective === 'Assigned' ||
+          pendingEffective === 'Picking' ||
+          pendingEffective === 'Arrived' ||
+          pendingEffective === 'Offered')
+      ) {
+        pendingRef.current.delete(jobId);
+        return;
+      }
 
       const bookingsQueued = bookingsRef.current.get(jobId);
       const storeQueued = useJobStore.getState().jobs.find((j) => j.id === jobId);

@@ -1,8 +1,16 @@
-import type { Job, JobStatus } from '@/types/job';
-import { jobFromFirebase, jobUpdateSeqFromRecord, normalizeJobStatus, isPreDispatchWindow, preDispatchAssignBlockMessage } from '@/types/job';
+import {
+  jobFromFirebase,
+  jobUpdateSeqFromRecord,
+  normalizeJobStatus,
+  isPreDispatchWindow,
+  preDispatchAssignBlockMessage,
+  type Job,
+  type JobStatus,
+} from '@/types/job';
+import { clearQueueAwaitingAllbookings } from '@/lib/jobPoolSync';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
-import { purgeCancelledJobFromListeners } from '@/hooks/useJobs';
+import { purgeCancelledJobFromListeners, purgeDispatchTerminalJob } from '@/hooks/useJobs';
 import { mergeJobUpdate } from '@/lib/mergeJob';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useJobStore } from '@/store/jobStore';
@@ -432,6 +440,13 @@ async function persistJobUpdate(
   const authoritativeSeq = result.seq ?? ifSeq + 1;
   const current = latestStoreJob(jobId) ?? baseJob;
   const merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
+  if (
+    normalizeJobStatus(baseline.status) === 'Queued' &&
+    (normalizeJobStatus(merged.status) === 'Pending' || normalizeJobStatus(merged.status) === 'No One')
+  ) {
+    clearQueueAwaitingAllbookings(jobId);
+    useJobStore.getState().clearRemovedJob(jobId);
+  }
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
 
@@ -644,8 +659,8 @@ export async function cancelJob(
     throw new Error(result.error || 'Cancel rejected by server');
   }
 
-  purgeCancelledJobFromListeners(bookingId);
-  useJobStore.getState().removeJob(bookingId);
+  const suppressSeq = latestJobSeq(bookingId);
+  purgeDispatchTerminalJob(bookingId, suppressSeq);
 
   try {
     const db = getDb();

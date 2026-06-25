@@ -1334,6 +1334,87 @@ function _purgeLiveJobFromStore(bookingId) {
   return true;
 }
 
+/** Collect every driver/vehicle alias that may own jobs/{cid}/{vid}/{drv}/{bookingId}. */
+function _collectJobsNodeIdentityCandidates(job, cid, closed) {
+  const driverIds = new Set();
+  const vehicleIds = new Set();
+  const attach = (rec) => {
+    if (!rec || typeof rec !== 'object') return;
+    const drv = _normJobDriverId(
+      rec.DriverId || rec.driverId || rec.AssignedDriver || rec.AssignedDriverId || rec.lastOfferDriverId,
+    );
+    const veh = String(rec.VehicleNo || rec.CallSign || rec.VehicleId || rec.vehicleId || '').trim();
+    if (drv) {
+      driverIds.add(drv);
+      const norm = _normalizeNotifyDriverId(drv);
+      if (norm) driverIds.add(norm);
+    }
+    if (veh && veh !== '0') vehicleIds.add(veh);
+    else if (drv) vehicleIds.add(drv);
+  };
+  attach(job);
+  attach(closed);
+  if (cid) {
+    for (const drv of [...driverIds]) {
+      const resolved = _resolveDriverVehicleIds(drv, '', cid);
+      const rDrv = _normJobDriverId(resolved.driverId);
+      const rVid = String(resolved.vehicleId || '').trim();
+      if (rDrv) {
+        driverIds.add(rDrv);
+        const norm = _normalizeNotifyDriverId(rDrv);
+        if (norm) driverIds.add(norm);
+      }
+      if (rVid && rVid !== '0') vehicleIds.add(rVid);
+      const zd = _findZoneDriverRow(drv, { companyId: cid });
+      if (zd) {
+        const zDrv = _normJobDriverId(zd.driverid);
+        const zVid = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+        if (zDrv) {
+          driverIds.add(zDrv);
+          const norm = _normalizeNotifyDriverId(zDrv);
+          if (norm) driverIds.add(norm);
+        }
+        if (zVid && zVid !== '0') vehicleIds.add(zVid);
+      }
+    }
+  }
+  return { driverIds: [...driverIds].filter(Boolean), vehicleIds: [...vehicleIds].filter(Boolean) };
+}
+
+/** Delete every jobs/{cid}/{vid}/{drv}/{bookingId} node for a booking (all driver/vehicle aliases). */
+async function _deleteAllJobsNodesForBooking(cid, bookingId, opts) {
+  opts = opts || {};
+  const _cid = String(cid || '').trim();
+  const _bid = parseInt(bookingId) || 0;
+  if (!_cid || !_bid) return;
+  const job = opts.job || jobStore.find(j => j && j.Id === _bid) || null;
+  const closed = closedJobStore.find(j => j && j.Id === _bid) || null;
+  const { driverIds, vehicleIds } = _collectJobsNodeIdentityCandidates(job, _cid, closed);
+  if (!driverIds.length && !vehicleIds.length) return;
+  const tok = await getFirebaseServerToken();
+  if (!tok) return;
+  const auth = encodeURIComponent(tok);
+  const evType = opts.eventType || 'cancelled';
+  const vids = vehicleIds.length ? vehicleIds : driverIds;
+  const drvs = driverIds.length ? driverIds : vehicleIds;
+  const tag = opts.source || 'jobs-purge';
+  for (const veh of vids) {
+    for (const drv of drvs) {
+      if (!veh || !drv) continue;
+      const url = `${FB_DB_URL}/jobs/${_cid}/${veh}/${drv}/${_bid}.json?auth=${auth}`;
+      try {
+        await fbRequest(url, 'PATCH', { eventType: evType });
+      } catch (_e) { /* best-effort */ }
+      try {
+        const d = await fbRequest(url, 'DELETE', null);
+        console.log(`  [${tag}] jobs/${_cid}/${veh}/${drv}/${_bid} → eventType=${evType} then deleted [${d && d.status}]`);
+      } catch (e) {
+        console.warn(`  [${tag}] jobs/${_cid}/${veh}/${drv}/${_bid} DELETE failed: ${e && e.message}`);
+      }
+    }
+  }
+}
+
 async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus, metaFields) {
   try {
     if (!cid || !bookingId) return;
@@ -1434,23 +1515,18 @@ async function _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, finalStatus
       }
     })());
 
-    // 2. /jobs/{cid}/{vehId}/{drvId}/{bookingId} — write eventType then DELETE.
-    //    §FIX-DA-G2 + C2: driver-app team needs the reason for the terminal
-    //    transition. We PATCH eventType (= 'cancelled' or 'completed') first
-    //    so Firebase's onChildRemoved snapshot carries it, then DELETE the
-    //    child. No cross-listener coordination required. Other active
-    //    bookings on this driver are untouched.
-    if (_vId && _dId) {
-      const _url    = `${FB_DB_URL}/jobs/${_cid}/${_vId}/${_dId}/${_bId}.json?auth=${auth}`;
-      const _evType = (_final === 'Completed') ? 'completed' : 'cancelled';
-      tasks.push(
-        fbRequest(_url, 'PATCH', { eventType: _evType })
-          .catch(e => console.warn(`${_tag} jobs child eventType PATCH failed: ${e && e.message}`))
-          .then(() => fbRequest(_url, 'DELETE', null))
-          .then(d => console.log(`${_tag} jobs/${_cid}/${_vId}/${_dId}/${_bId} → eventType=${_evType} then deleted [${d && d.status}]`))
-          .catch(e => console.warn(`${_tag} jobs child DELETE failed: ${e && e.message}`))
-      );
-    }
+    // 2. /jobs/{cid}/{vehId}/{drvId}/{bookingId} — purge every alias path for this booking.
+    const _evType = (_final === 'Completed') ? 'completed' : 'cancelled';
+    const _jobForPurge = (typeof jobStore !== 'undefined' ? jobStore : [])
+      .concat(typeof closedJobStore !== 'undefined' ? closedJobStore : [])
+      .find(j => j && String(j.Id) === _bId) || null;
+    tasks.push(
+      _deleteAllJobsNodesForBooking(_cid, _bId, {
+        job: _jobForPurge,
+        source: `${_tag}/jobs`,
+        eventType: _evType,
+      }).catch(e => console.warn(`${_tag} jobs purge failed: ${e && e.message}`)),
+    );
 
     // 3. /joback/{bookingId} — DELETE offer-back ack node (driver app offer screen).
     tasks.push(
@@ -1544,6 +1620,11 @@ async function executeJobCleanup(opts) {
       if (opts.clearOffer !== false && driverId) {
         clearOfferOnFirebase(companyId, vehicleId, driverId, bookingId, source, 'recall');
       }
+      await _deleteAllJobsNodesForBooking(companyId, bookingId, {
+        job: opts.job,
+        source: `${source}/pool_restore`,
+        eventType: 'removed',
+      });
       if (opts.removeDriverQueue && driverId) {
         await _removeDriverQueueFirebase(companyId, driverId, bookingId);
       }
@@ -2037,6 +2118,10 @@ async function _withdrawJobFromDriver(opts) {
   if (prevStatus === 'Queued') {
     await _removeDriverQueueFirebase(cid, drvId, bookingId).catch(() => {});
   }
+  await _deleteAllJobsNodesForBooking(cid, bookingId, {
+    source,
+    eventType: 'removed',
+  }).catch(() => {});
   _syncDriverJobCount(cid, drvId, `${source}/withdraw`).catch(() => {});
 
   const _restoreStates = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy', 'Offered', 'Queued']);
@@ -2547,7 +2632,9 @@ async function cancelBooking(opts) {
           terminalKind: job.BookingStatus === 'No Show' ? 'No Show' : 'Cancelled',
           driverId: _rDrv,
           vehicleId: _rVid,
+          job,
           markRecentlyCancelled: true,
+          removeDriverQueue: _cancelStage === 'Queued',
           allbookingsMeta: _terminalMeta,
           consoleRefresh: {
             bookingId,
@@ -2606,7 +2693,7 @@ const _BOOKING_STATE_MACHINE = {
   'OnTrip':    { cancel: 'Cancelled', update: 'OnTrip', complete: 'Completed' },
   'Active':    { cancel: 'Cancelled', update: 'Active',  complete: 'Completed' },
   'Busy':      { cancel: 'Cancelled', update: 'Busy',    complete: 'Completed' },
-  'Queued':    { cancel: 'Cancelled', update: 'Queued' },
+  'Queued':    { cancel: 'Cancelled', update: 'Queued', recall: 'Pending' },
   'Completed': { complete: 'Completed' },   // idempotent
   'Cancelled': { cancel: 'Cancelled' },     // idempotent
   'No One':    { assign: 'Offered', update: 'No One', cancel: 'Cancelled' },
@@ -5884,22 +5971,9 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
   attach(fb.pendingjobs);
   attach(fb.allbookings);
 
-  if (cid) {
-    for (const drv of [...driverIds]) {
-      const resolved = _resolveDriverVehicleIds(drv, '', cid);
-      const rDrv = _normJobDriverId(resolved.driverId);
-      const rVid = String(resolved.vehicleId || '').trim();
-      if (rDrv) driverIds.add(rDrv);
-      if (rVid && rVid !== '0') vehicleIds.add(rVid);
-      const zd = _findZoneDriverRow(drv, { companyId: cid });
-      if (zd) {
-        const zDrv = _normJobDriverId(zd.driverid);
-        const zVid = String(zd.VehicleId || zd.vehiclenumber || '').trim();
-        if (zDrv) driverIds.add(zDrv);
-        if (zVid && zVid !== '0') vehicleIds.add(zVid);
-      }
-    }
-  }
+  const _jobsCandidates = _collectJobsNodeIdentityCandidates(job, cid, closed);
+  for (const drv of _jobsCandidates.driverIds) driverIds.add(drv);
+  for (const veh of _jobsCandidates.vehicleIds) vehicleIds.add(veh);
 
   if (cid && driverIds.size && vehicleIds.size) {
     const jobsNodes = {};
@@ -18589,28 +18663,75 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }
 
       } else if (action === '[RecallQueuedJob]') {
-        const _rqBookingId = param('bookingid');
-        const _rqDriverId  = (param('driverid') || '').toString().trim(); // driver who recalled
-        const _rqJob = jobStore.find(j => String(j.Id) === String(_rqBookingId));
+        const _rqBookingId = parseInt(param('bookingid')) || 0;
+        const _rqDriverId  = (param('driverid') || '').toString().trim();
+        const _rqJob = jobStore.find(j => j && j.Id === _rqBookingId);
         if (!_rqJob) { objectD(res, { ok: false, msg: 'job not found' }); }
-        else {
+        else if (_rqJob.BookingStatus !== 'Queued') {
+          objectD(res, { ok: false, msg: `cannot recall job with status ${_rqJob.BookingStatus}` });
+        } else {
           const _prevSt = _rqJob.BookingStatus;
           const _orig = _rqJob.originalStatus || ((_rqJob._origStatus === 'No One') ? 'manual' : 'pending');
           const _restoreSt = _orig === 'manual' ? 'No One' : 'Pending';
+          const _rollbackSnap = _snapshotJobForAcceptRollback(_rqJob);
+          _rqJob._origStatus = _rqJob._origStatus || _prevSt;
           _rqJob.BookingStatus = _restoreSt;
           _rqJob.DriverId      = _orig === 'manual' ? 0 : -2;
           _rqJob.VehicleId     = 0;
+          _rqJob.VehicleNo     = '';
           _rqJob.queuedAt      = null;
           _rqJob.returnReason  = _rqDriverId ? `Recalled by ${_rqDriverId}` : 'Recalled by Driver';
           delete _rqJob._origStatus;
           saveJobStore();
           const _rqCid = String(_rqJob.companyId || sessionCompanyId || '');
+          const _rqDrv = String(_rqDriverId || _rqJob.DriverId || '').trim();
           if (_rqCid) {
-            if (_restoreSt === 'Pending') _writePendingJobFirebase(_rqCid, _rqBookingId, _rqJob);
-            else getFirebaseServerToken().then(tok => {
-              if (tok) fbRequest(`${FB_DB_URL}/pendingjobs/${_rqCid}/${_rqBookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE').catch(() => {});
-            });
-            if (_rqDriverId) _removeDriverQueueFirebase(_rqCid, _rqDriverId, _rqBookingId);
+            try {
+              const _resolvedRq = _resolveDriverVehicleIds(_rqDrv, _rqJob.VehicleNo || _rqJob.VehicleId, _rqCid);
+              await executeJobCleanup({
+                profile: 'pool_restore',
+                bookingId: _rqBookingId,
+                companyId: _rqCid,
+                source: '[RecallQueuedJob]',
+                driverId: _resolvedRq.driverId || _rqDrv,
+                vehicleId: _resolvedRq.vehicleId,
+                job: _rqJob,
+                poolStatus: _restoreSt,
+                writePendingJob: true,
+                removeDriverQueue: true,
+                consoleRefresh: {
+                  bookingId: _rqBookingId,
+                  action: 'recall',
+                  status: _restoreSt,
+                  driverId: _resolvedRq.driverId || _rqDrv || '0',
+                },
+                dispatchRefresh: {
+                  job: _rqJob,
+                  payload: {
+                    cid: _rqCid,
+                    previousStatus: _prevSt,
+                    status: _restoreSt,
+                    action: 'recall',
+                    driverId: '0',
+                  },
+                },
+                restoreDriverState: _rqDrv ? {
+                  driverId: _resolvedRq.driverId || _rqDrv,
+                  vehicleId: _resolvedRq.vehicleId,
+                  driverFault: false,
+                  source: '[RecallQueuedJob]',
+                } : null,
+              });
+            } catch (e) {
+              _restoreJobFromAcceptRollback(_rqJob, _rollbackSnap);
+              saveJobStore();
+              if (_rqCid && _rqDrv) {
+                await _removeDriverQueueFirebase(_rqCid, _rqDrv, _rqBookingId).catch(() => {});
+              }
+              console.warn(`[RecallQueuedJob] job #${_rqBookingId} recall rollback: ${e && e.message}`);
+              objectD(res, { ok: false, msg: (e && e.message) || 'Firebase recall failed' });
+              return;
+            }
           }
           console.log(`[RecallQueuedJob] job #${_rqBookingId} (was ${_prevSt}) → ${_restoreSt} originalStatus=${_orig}`);
           objectD(res, { ok: true, restoredStatus: _restoreSt, originalStatus: _orig });
