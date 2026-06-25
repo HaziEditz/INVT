@@ -13,6 +13,7 @@ import { findZoneAtCoords, subscribeCompanyZones, type CompanyZone } from '@/lib
 
 export type ZoneQueueDriver = {
   vehicleNo: string;
+  driverName: string;
   driverId: string;
   status: string;
   queue: number;
@@ -141,9 +142,17 @@ export function useDriverQueue(companyId: string | null) {
           const status = resolveDriverStatusFromPresence(rec, current);
           const qRaw = rec.zonequeue ?? current.zonequeue ?? rec.zoneQueue ?? current.zoneQueue;
           const q = isZoneQueueRanked(status) && qRaw != null ? Number(qRaw) : 0;
+          const rawVehicleNo = String(rec.vehiclenumber ?? rec.vehicleNo ?? vid);
+          const vehicleNo = /^DD\d+$/i.test(rawVehicleNo)
+            ? rawVehicleNo.slice(1)
+            : rawVehicleNo;
+          const driverName = String(
+            rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? '',
+          ).trim();
           if (!live[zone]) live[zone] = [];
           live[zone].push({
-            vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vid),
+            vehicleNo,
+            driverName,
             driverId: String(rec.driverid ?? rec.driverId ?? ''),
             status,
             queue: Number.isFinite(q) && q > 0 ? q : isZoneQueueRanked(status) ? 999 : 0,

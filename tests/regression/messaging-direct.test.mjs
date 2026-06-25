@@ -63,6 +63,7 @@ test('Phase 1 messaging: dispatch send → Firebase chat → driver reply → un
     { timeoutMs: 20000 },
   );
 
+  await h.ensureDriverReady(driverId);
   const reply = await h.sendDriverMessage(driverId, driverReply);
   assert.equal(reply.status, 200, JSON.stringify(reply.body));
   assert.equal(reply.body.ok, true);

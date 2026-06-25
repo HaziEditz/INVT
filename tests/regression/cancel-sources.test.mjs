@@ -41,6 +41,7 @@ test('Phase 2 cancel: driver recall on Assigned → Pending (not terminal)', asy
   requireFirebaseSecret();
   const h = await getHarness();
   const driverId = h.driverIds[1];
+  await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('cancel-driver-recall');
   await h.assignJob(jobId, driverId, driverId);
   await h.poll(jobId, (t) => ['Offered', 'Assigned'].includes(String(t.jobStore?.lifecycle?.BookingStatus || '')));

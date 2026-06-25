@@ -2879,6 +2879,11 @@ function _offerPaymentTypeFromJob(job) {
 async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, offerOpts) {
   offerOpts = offerOpts || {};
   if (!job || !job.Id || !driverId) return;
+  const live = jobStore.find(j => j && j.Id === job.Id);
+  if (live && String(live.BookingStatus || '') !== 'Offered') {
+    console.log(`  [${sourceTag}] skip stale offer fanout #${job.Id} — job is ${live.BookingStatus}`);
+    return;
+  }
   const cid = String(job.companyId || '').trim();
   if (!cid) return;
   const _validated = _validateDriverIdForWrite(driverId, { companyId: cid, source: `${sourceTag}/offer` });
@@ -3062,6 +3067,24 @@ async function assignBooking(opts) {
   const _resolved  = _resolveDriverVehicleIds(_validatedAssign.driverId, vehicleId || _validatedAssign.vehicleId, _cidEarly);
   const _targetDrv = _resolved.driverId;
   const _targetVid = _resolved.vehicleId;
+
+  // Idempotency fast-path: if this booking is already offered/assigned to the same
+  // driver, succeed even when zone pool snapshot is temporarily stale/missing.
+  if ((_curStatus === 'Offered' || _curStatus === 'Assigned') && _curDrv === _targetDrv) {
+    if (opts.fanout === true) {
+      try {
+        await _writeManualDriverOffer(job, _targetDrv, _curVid || _targetVid, by, source);
+      } catch (e) {
+        console.warn(`  [${source}] _writeManualDriverOffer (idempotent refanout) failed: ${e && e.message}`);
+      }
+    }
+    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already ${_curStatus} to driver ${_targetDrv}`);
+    return {
+      ok: true, idempotent: true, status: _curStatus, driverId: _targetDrv,
+      vehicleId: _curVid || _targetVid, version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job)
+    };
+  }
 
   const _zdAssign = _zoneDriverRowForEligibility(_targetDrv, _cidEarly, vehicleId || _targetVid);
   if (!_zdAssign) {
@@ -3861,9 +3884,48 @@ function _zoneDriverHasLiveBookingPointer(drv) {
 }
 
 /** Reset stale Picking/Active zone with no live booking pointer (sync — ZONE_DRIVERS only). */
+function _zonePointerBookingIsStale(pointerBid, driverId, companyId, excludeBookingId) {
+  const bid = parseInt(pointerBid, 10) || 0;
+  if (!bid) return true;
+  if (excludeBookingId && bid === parseInt(excludeBookingId, 10)) return false;
+  const closed = _findClosedJobEntry(bid);
+  if (closed && _TERMINAL_JOB_STATUSES.has(String(closed.BookingStatus || ''))) return true;
+  const job = jobStore.find(j =>
+    j && j.Id === bid && (!companyId || String(j.companyId || '') === String(companyId)),
+  );
+  if (!job) return true;
+  const st = String(job.BookingStatus || '');
+  if (_TERMINAL_JOB_STATUSES.has(st)) return true;
+  const did = String(driverId || '').trim();
+  const jDrv = String(job.DriverId ?? job.driverId ?? '').trim();
+  if (did && jDrv && jDrv !== did && !_driverIdsMatch(jDrv, did)) return true;
+  return false;
+}
+
+function _clearZoneBookingPointer(drv) {
+  if (!drv) return;
+  drv.BookingId = '';
+  drv.currentJobId = '';
+  drv.joboffer = 0;
+  drv.JobphoneNo = '';
+  drv.jobpickup = '';
+  drv.jobdropoff = '';
+  drv.jobCount = 0;
+}
+
 function _healStaleZoneOnTripPresenceSync(drv, driverId, companyId, excludeBookingId) {
   if (!drv || !driverId) return drv;
   const vs = String(drv.vehiclestatus || '').trim();
+  if (_zoneDriverHasLiveBookingPointer(drv)) {
+    const pointerBid = String(
+      (drv.BookingId || drv.currentJobId || drv.joboffer) || '',
+    ).trim();
+    if (_zonePointerBookingIsStale(pointerBid, driverId, companyId, excludeBookingId)) {
+      _clearZoneBookingPointer(drv);
+    } else if (_ON_TRIP_PRESENCE_STATUSES.has(vs)) {
+      return drv;
+    }
+  }
   if (!_ON_TRIP_PRESENCE_STATUSES.has(vs)) return drv;
   if (_zoneDriverHasLiveBookingPointer(drv)) return drv;
   if (_driverHasActiveTripJob(driverId, companyId, excludeBookingId, drv)) return drv;
@@ -3926,6 +3988,7 @@ function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts)
   const hasActiveTrip = _driverHasActiveTripJob(did, cid, bid, drv, activeTripDiag);
   const vs = String((drv && drv.vehiclestatus) || '').trim();
   const onTripZone = _ON_TRIP_PRESENCE_STATUSES.has(vs);
+  const zoneBid = String((drv && (drv.BookingId || drv.currentJobId || drv.joboffer)) || '').trim();
   const otherAttached = _driverAttachedJobStoreRows(did, cid, bid);
   const diag = {
     bookingId: bid,
@@ -3945,6 +4008,10 @@ function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts)
   if (hasActiveTrip) {
     diag.shouldQueue = true;
     diag.reason = 'active_trip_job';
+  } else if (onTripZone && zoneBid && bid && zoneBid === String(bid)) {
+    diag.shouldQueue = false;
+    diag.reason = 'available_assign';
+    diag.staleZoneStatusIgnored = vs;
   } else if (onTripZone && _zoneDriverHasLiveBookingPointer(drv)) {
     diag.shouldQueue = true;
     diag.reason = 'on_trip_zone_status';
@@ -3982,6 +4049,8 @@ async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, op
 
   const vehicleId = String(opts.vehicleId || job.VehicleNo || job.VehicleId || '').trim();
   const originalStatus = opts.originalStatus || job.originalStatus || 'pending';
+  const resolved = _resolveDriverVehicleIds(driverId, vehicleId, cid);
+  const did = _normalizeNotifyDriverId(resolved.driverId) || resolved.driverId || String(driverId);
   const seq = (parseInt(job.updateSeq) || 0) + 1;
   job.updateSeq = seq;
   job.lastUpdatedAt = new Date().toISOString();
@@ -3990,22 +4059,43 @@ async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, op
   const abMirror = _buildAllbookingsMirrorFromJob(job);
   abMirror.BookingStatus = 'Queued';
   abMirror.Status = 'Queued';
-  abMirror.DriverId = driverId;
-  abMirror.VehicleId = vehicleId;
-  abMirror.AssignedDriverId = driverId;
-  abMirror.AssignedDriver = driverId;
+  abMirror.DriverId = did;
+  abMirror.VehicleId = vehicleId || resolved.vehicleId || did;
+  abMirror.AssignedDriverId = did;
+  abMirror.AssignedDriver = did;
   abMirror.queuedAt = job.queuedAt || Date.now();
   abMirror.originalStatus = originalStatus;
   abMirror.eventType = 'queued';
+  abMirror.updateSeq = seq;
+
+  // Clear offer channel first so a late async Offered fanout cannot win the verify read.
+  await fbRequest(
+    `${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`,
+    'DELETE',
+  ).catch(() => {});
+  await firebaseDbPatch(`notification/${did}`, { joboffer: 0, type: 'queued' }, tok).catch(() => {});
 
   await firebaseDbSet(`allbookings/${cid}/${bookingId}`, abMirror, tok);
   await _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus, { strict: true });
-  await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`, 'DELETE');
 
-  const verified = await _verifyFirebaseBookingMatches(cid, bookingId, {
+  let verified = await _verifyFirebaseBookingMatches(cid, bookingId, {
     status: 'Queued',
-    driverId,
+    driverId: did,
   }, tok);
+  if (!verified.ok) {
+    for (let attempt = 0; attempt < 5 && !verified.ok; attempt++) {
+      await firebaseDbSet(`allbookings/${cid}/${bookingId}`, abMirror, tok);
+      await fbRequest(
+        `${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`,
+        'DELETE',
+      ).catch(() => {});
+      await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+      verified = await _verifyFirebaseBookingMatches(cid, bookingId, {
+        status: 'Queued',
+        driverId: did,
+      }, tok);
+    }
+  }
   if (!verified.ok) {
     throw new Error(`queued fanout verify failed: ${verified.reason || 'unknown'} (actual=${verified.actual || '?'})`);
   }
@@ -4281,7 +4371,11 @@ async function _healStuckOfferedJobs(sourceTag) {
       const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
       const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
       if (_TERMINAL_JOB_STATUSES.has(fbSt)) {
-        await _reconcileLiveJobWithFirebase(job, { token: tok, source: `${sourceTag}/offered-terminal` });
+        await _reconcileLiveJobWithFirebase(job, {
+          token: tok,
+          source: `${sourceTag}/offered-terminal`,
+          forceTrustTerminal: true,
+        });
         healed++;
         continue;
       }
@@ -4981,19 +5075,39 @@ async function promoteQueuedJobByDriver(opts) {
   job.assignedAt = Date.now();
   job.queuedAt = null;
   if (!job.DriverAcceptedAt) job.DriverAcceptedAt = new Date().toISOString();
+  const _resolvedPromote = _resolveDriverVehicleIds(driverId, job.VehicleId || job.VehicleNo, _cid);
+  if (_resolvedPromote.vehicleId) {
+    job.VehicleId = _resolvedPromote.vehicleId;
+    job.VehicleNo = _resolvedPromote.vehicleId;
+    job.CallSign = _resolvedPromote.vehicleId;
+  }
+  if (_resolvedPromote.driverId) job.DriverId = _resolvedPromote.driverId;
+  if (!String(job.VehicleId || job.VehicleNo || '').trim()) {
+    job.VehicleId = _resolvedPromote.vehicleId || driverId;
+    job.VehicleNo = job.VehicleId;
+    job.CallSign = job.VehicleId;
+  }
   _afterJobStatusChange(job, prev, 'driver', source);
   saveJobStore();
   if (_cid) {
     await _removeDriverQueueFirebase(_cid, driverId, bookingId).catch(() => {});
-    await _fanVersionToFirebaseAwait(_cid, bookingId, {
-      BookingStatus: 'Assigned',
-      Status: 'Assigned',
-      status: 'Assigned',
-      DriverId: driverId,
-      DriverAcceptedAt: job.DriverAcceptedAt,
-      updateSeq: job.updateSeq,
-      eventType: 'updated',
-    }, false);
+    const _promoteMirror = _buildAllbookingsMirrorFromJob(job);
+    _promoteMirror.BookingStatus = 'Assigned';
+    _promoteMirror.Status = 'Assigned';
+    _promoteMirror.status = 'Assigned';
+    _promoteMirror.DriverId = String(job.DriverId || driverId);
+    _promoteMirror.VehicleId = String(job.VehicleId || job.VehicleNo || '');
+    _promoteMirror.DriverAcceptedAt = job.DriverAcceptedAt;
+    _promoteMirror.updateSeq = parseInt(job.updateSeq) || 0;
+    _promoteMirror.eventType = 'updated';
+    await _writeAllbookingsLiveAwait(_cid, bookingId, _promoteMirror, job, null);
+    const _promTok = await getFirebaseServerToken();
+    if (_promTok) {
+      await fbRequest(
+        `${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(_promTok)}`,
+        'DELETE',
+      ).catch(() => {});
+    }
     try {
       await _attachAssignedJobToDriverPresence(_cid, driverId, job, source);
     } catch (e) {
@@ -5006,6 +5120,7 @@ async function promoteQueuedJobByDriver(opts) {
       };
     }
     await _syncDriverJobCount(_cid, driverId, source);
+    _clearQueuePromotionHold(_cid, driverId);
     await _dispatchRefreshForJob(job, {
       cid: _cid,
       previousStatus: prev,
@@ -5762,11 +5877,29 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     const veh = String(rec.VehicleNo || rec.CallSign || rec.VehicleId || rec.vehicleId || '').trim();
     if (drv) driverIds.add(drv);
     if (veh && veh !== '0') vehicleIds.add(veh);
+    else if (drv) vehicleIds.add(drv);
   };
   attach(job);
   attach(closed);
   attach(fb.pendingjobs);
   attach(fb.allbookings);
+
+  if (cid) {
+    for (const drv of [...driverIds]) {
+      const resolved = _resolveDriverVehicleIds(drv, '', cid);
+      const rDrv = _normJobDriverId(resolved.driverId);
+      const rVid = String(resolved.vehicleId || '').trim();
+      if (rDrv) driverIds.add(rDrv);
+      if (rVid && rVid !== '0') vehicleIds.add(rVid);
+      const zd = _findZoneDriverRow(drv, { companyId: cid });
+      if (zd) {
+        const zDrv = _normJobDriverId(zd.driverid);
+        const zVid = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+        if (zDrv) driverIds.add(zDrv);
+        if (zVid && zVid !== '0') vehicleIds.add(zVid);
+      }
+    }
+  }
 
   if (cid && driverIds.size && vehicleIds.size) {
     const jobsNodes = {};
@@ -6020,6 +6153,7 @@ async function _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, to
   if (!job || !cid || !bookingId) return false;
   const jsSt = String(job.BookingStatus || '');
   if (!_POOL_JOBSTORE_STATUSES.has(jsSt)) return false;
+  if (jsSt === 'Offered' && !_isGenuineInFlightOffer(job)) return false;
   if (_liveJobIsIdReuseOverClosed(job)) return true;
   if (await _firebasePendingAgreesWithJobStore(cid, bookingId, jsSt, tok)) return true;
   const closed = _findClosedJobEntry(bookingId);
@@ -9410,9 +9544,7 @@ function getSavedZone(driverId) {
 // estimator always use the company's actual rates instead of hardcoded defaults.
 // The dispatch console pushes an update via [TariffSync] whenever it reads the
 // tariffZones Firebase node.
-const _DEFAULT_TARIFFS = [
-  { Id: 1, TariffName: 'Standard',  StartPrice: 3.50, DistanceRate: 2.20, WaitingRate: 0, MinimumFare: 0, CurrencyName: 'NZD' },
-];
+const _DEFAULT_TARIFFS = [];
 let TARIFF_STORE = _DEFAULT_TARIFFS;
 try {
   if (fs.existsSync(TARIFF_STORE_FILE)) {
@@ -9768,7 +9900,7 @@ async function _fetchCompanyTariffs(cid) {
   const merged = Object.assign({}, base, zones);
   for (const row of TARIFF_STORE) {
     if (!row || typeof row !== 'object') continue;
-    if (row.companyId && String(row.companyId) !== c) continue;
+    if (!row.companyId || String(row.companyId) !== c) continue;
     const node = _tariffStoreRowToApiNode(row);
     if (node) merged[String(node.id)] = node;
   }
@@ -12116,6 +12248,8 @@ const server = http.createServer(async (req, res) => {
         if (parsed.lng != null) zd.lng = parseFloat(parsed.lng);
         if (parsed.vehiclestatus != null) zd.vehiclestatus = String(parsed.vehiclestatus);
         if (parsed.passforlink != null) zd.passforlink = String(parsed.passforlink);
+        if (parsed.drivername != null) zd.drivername = String(parsed.drivername);
+        if (parsed.companyId != null) zd.companyId = String(parsed.companyId);
         if (parsed.phone != null || parsed.PhoneNo != null) {
           zd.PhoneNo = String(parsed.phone ?? parsed.PhoneNo);
           zd.phone = zd.PhoneNo;
@@ -16798,55 +16932,65 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Without this, a stale 'Assigned' entry from a previous session causes
           // the driver app to skip the offer screen (it thinks the job is already theirs).
           if (newStatus === 'Offered' && sessionCompanyId) {
+            const _offerBid = bookingId;
             (async () => {
               try {
-                if (job.DriverId && String(job.DriverId) !== '0') {
+                const _liveOffer = jobStore.find(j => j && j.Id === _offerBid);
+                if (!_liveOffer || String(_liveOffer.BookingStatus || '') !== 'Offered') {
+                  console.log(`  [changeriddestatusforoffer/DP] skip stale offer fanout #${_offerBid} (now ${_liveOffer ? _liveOffer.BookingStatus : 'missing'})`);
+                  return;
+                }
+                if (_liveOffer.DriverId && String(_liveOffer.DriverId) !== '0') {
                   await _writeManualDriverOffer(
-                    job,
-                    job.DriverId,
-                    job.VehicleId || job.VehicleNo,
+                    _liveOffer,
+                    _liveOffer.DriverId,
+                    _liveOffer.VehicleId || _liveOffer.VehicleNo,
                     'dispatcher',
                     'changeriddestatusforoffer/DP'
                   );
+                }
+                const _stillOffered = jobStore.find(j => j && j.Id === _offerBid);
+                if (!_stillOffered || String(_stillOffered.BookingStatus || '') !== 'Offered') {
+                  return;
                 }
                 const _tok = await getFirebaseServerToken();
                 if (_tok) {
                   const _pjUrl = `${FB_DB_URL}/pendingjobs/${sessionCompanyId}/${bookingId}.json?auth=${encodeURIComponent(_tok)}`;
                   const _pjParseLatLng = s => { const p = (s||'').split(','); return p.length===2?{lat:parseFloat(p[0]),lng:parseFloat(p[1])}:null; };
-                  const _pjPickLL = _pjParseLatLng(job.PickLatLng);
-                  const _pjDropLL = _pjParseLatLng(job.DropLatLng);
+                  const _pjPickLL = _pjParseLatLng(_stillOffered.PickLatLng);
+                  const _pjDropLL = _pjParseLatLng(_stillOffered.DropLatLng);
                   const _pjPatch = {
                     BookingId:      String(bookingId),
                     Status:         'Offered',
                     BookingStatus:  'Offered',
-                    DriverId:       String(job.DriverId || incomingDriverId || ''),
-                    AssignedDriver: String(job.DriverId || incomingDriverId || ''),
+                    DriverId:       String(_stillOffered.DriverId || incomingDriverId || ''),
+                    AssignedDriver: String(_stillOffered.DriverId || incomingDriverId || ''),
                     offeredAt:      Date.now(),
-                    PickAddress:    job.PickAddress  || '',
-                    DropAddress:    job.DropAddress  || '',
-                    PassengerName:  job.Name         || job.UserFName || '',
-                    PassengerPhone: job.PhoneNo      || '',
-                    Fare:           String(job.EstimatedFare || job.RideCost || job.CustomeRate || ''),
+                    PickAddress:    _stillOffered.PickAddress  || '',
+                    DropAddress:    _stillOffered.DropAddress  || '',
+                    PassengerName:  _stillOffered.Name         || _stillOffered.UserFName || '',
+                    PassengerPhone: _stillOffered.PhoneNo      || '',
+                    Fare:           String(_stillOffered.EstimatedFare || _stillOffered.RideCost || _stillOffered.CustomeRate || ''),
                     CompanyId:      String(sessionCompanyId),
-                    ServiceType:    job.serviceType  || 'taxi',
-                    BookingSource:  job.BookingSource|| 'Dispatch Console',
+                    ServiceType:    _stillOffered.serviceType  || 'taxi',
+                    BookingSource:  _stillOffered.BookingSource|| 'Dispatch Console',
                     WebBooking:     false,
                     // Payment visibility for driver app — covers website Stripe pre-pays,
                     // passenger-app card/cash, dispatcher card/cash, and account jobs.
-                    paymentMethod:  String(job.paymentMethod || job.PaymentMethod || ''),
-                    paymentStatus:  String(job.paymentStatus || job.PaymentStatus || ''),
-                    PaidAmount:     String(job.PaidAmount || job.Recieve_payment || ''),
-                    AccountId:      String(job.Account_id || job.AccountId || ''),
-                    AccountName:    String(job.Account_Name || job.AccountName || ''),
+                    paymentMethod:  String(_stillOffered.paymentMethod || _stillOffered.PaymentMethod || ''),
+                    paymentStatus:  String(_stillOffered.paymentStatus || _stillOffered.PaymentStatus || ''),
+                    PaidAmount:     String(_stillOffered.PaidAmount || _stillOffered.Recieve_payment || ''),
+                    AccountId:      String(_stillOffered.Account_id || _stillOffered.AccountId || ''),
+                    AccountName:    String(_stillOffered.Account_Name || _stillOffered.AccountName || ''),
                     // §FIXED-PRICE / pickup-time — driver app reads these to suppress the
                     // meter on fixed-price jobs and display the scheduled pickup time.
-                    Pickingtime:    String(job.BookingDateTime || job.Pickingtime || ''),
-                    TarriffType:    String(job.TarriffType || ''),
-                    CustomeRate:    String(job.CustomeRate || ''),
-                    Account_Name:   String(job.Account_Name || job.AccountName || '')
+                    Pickingtime:    String(_stillOffered.BookingDateTime || _stillOffered.Pickingtime || ''),
+                    TarriffType:    String(_stillOffered.TarriffType || ''),
+                    CustomeRate:    String(_stillOffered.CustomeRate || ''),
+                    Account_Name:   String(_stillOffered.Account_Name || _stillOffered.AccountName || '')
                   };
-                  if (_pjPickLL) _pjPatch.pickupLocation  = { address: job.PickAddress || '', lat: _pjPickLL.lat, lng: _pjPickLL.lng };
-                  if (_pjDropLL) _pjPatch.dropoffLocation = { address: job.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
+                  if (_pjPickLL) _pjPatch.pickupLocation  = { address: _stillOffered.PickAddress || '', lat: _pjPickLL.lat, lng: _pjPickLL.lng };
+                  if (_pjDropLL) _pjPatch.dropoffLocation = { address: _stillOffered.DropAddress || '', lat: _pjDropLL.lat, lng: _pjDropLL.lng };
                   await fbRequest(_pjUrl, 'PATCH', _pjPatch);
                   console.log(`  [changeriddestatusforoffer/DP] pendingjobs/${sessionCompanyId}/${bookingId} patched → Offered (full payload)`);
                   // §SINGLE-OFFER-CHANNEL: do NOT write jobpickup/jobdropoff/joboffer/etc.

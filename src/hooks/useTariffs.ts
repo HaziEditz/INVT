@@ -2,15 +2,6 @@ import { useEffect, useState } from 'react';
 import { getDbSafe, ref, onValue } from '@/lib/firebase';
 import { parseTariffRecord, type TariffRate } from '@/lib/fareEstimate';
 
-const DEFAULT_TARIFF: TariffRate = {
-  id: '1',
-  name: 'Standard',
-  startPrice: 3.5,
-  distanceRate: 2.2,
-  waitingRate: 0.6,
-  minimumFare: 0,
-};
-
 function mergeTariffMaps(maps: Map<string, TariffRate>[]): TariffRate[] {
   const out = new Map<string, TariffRate>();
   for (const m of maps) for (const [k, v] of m) out.set(k, v);
@@ -18,7 +9,7 @@ function mergeTariffMaps(maps: Map<string, TariffRate>[]): TariffRate[] {
 }
 
 export function useTariffs(companyId: string | null) {
-  const [tariffs, setTariffs] = useState<TariffRate[]>([DEFAULT_TARIFF]);
+  const [tariffs, setTariffs] = useState<TariffRate[]>([]);
 
   useEffect(() => {
     if (!companyId) return;
@@ -27,8 +18,7 @@ export function useTariffs(companyId: string | null) {
     const maps = [new Map<string, TariffRate>(), new Map<string, TariffRate>()];
 
     const sync = () => {
-      const merged = mergeTariffMaps(maps);
-      setTariffs(merged.length ? merged : [DEFAULT_TARIFF]);
+      setTariffs(mergeTariffMaps(maps));
     };
 
     const ingest = (idx: number, snap: { val: () => unknown; forEach?: (cb: (c: { key: string; val: () => unknown }) => void) => void }) => {

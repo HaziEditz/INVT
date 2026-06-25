@@ -85,6 +85,7 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
                   ) : (
                     drivers.map((d) => {
                       const match = q && d.vehicleNo.toLowerCase().includes(q);
+                      const label = d.driverName ? `${d.vehicleNo} ${d.driverName}` : d.vehicleNo;
                       return (
                         <span
                           key={`${d.driverId}-${d.vehicleNo}`}
@@ -95,7 +96,7 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
                           )}
                           title={d.status}
                         >
-                          {d.vehicleNo}
+                          {label}
                         </span>
                       );
                     })

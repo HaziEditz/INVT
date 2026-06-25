@@ -310,12 +310,14 @@ export function driverFromFirebase(
   const displayName = String(
     rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? '',
   ).trim();
+  const rawVehicleNo = String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId);
+  const vehicleNo = /^DD\d+$/i.test(rawVehicleNo) ? rawVehicleNo.slice(1) : rawVehicleNo;
   const liveMeter = parseLiveMeterFromRecord(rec, current);
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ''),
     vehicleId,
-    driverName: displayName || `Driver ${vehicleId}`,
-    vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
+    driverName: displayName || `Driver ${vehicleNo}`,
+    vehicleNo,
     vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? 'Sedan'),
     seatCapacity: (() => {
       const raw = rec.seatCapacity ?? rec.seats ?? rec.capacity ?? rec.SeatCapacity ?? rec.Capacity;
