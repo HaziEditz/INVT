@@ -12,23 +12,25 @@ import {
   clearCompletedJobSuppress,
 } from '../lib/jobPoolSync.mjs';
 
-test('ghost Active card: completed job absent from Firebase caches is not preserved', () => {
+test('ghost Active card: completed suppress drops Active ghost with passenger data', () => {
   const pending = new Map();
   const bookings = new Map();
   const completed = { id: 8692606213, status: 'Active', pickAddress: 'Done St' };
   const live = { id: 8692606214, status: 'Active', pickAddress: 'Live St' };
 
   bookings.set(live.id, live);
+  markCompletedJobSuppress(8692606213);
 
   assert.equal(
     shouldPreserveAbsentStoreJob(completed, pending, bookings),
     false,
-    'completed-looking Active tab job must drop when absent from both caches',
+    'completed-suppressed Active ghost must drop when absent from both caches',
   );
 
   const merged = mergeStoreWithFirebaseCaches([completed, live], pending, bookings);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].id, live.id);
+  clearCompletedJobSuppress(8692606213);
 });
 
 test('ghost Active card: terminal Completed status never preserved on live tabs', () => {
@@ -38,21 +40,15 @@ test('ghost Active card: terminal Completed status never preserved on live tabs'
   assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), false);
 });
 
-test('ghost Active card: optimistic window retains accept race briefly', () => {
+test('ghost Active card: Assigned job with real booking data stays preserved', () => {
   clearOptimisticLiveTransition(200);
   const pending = new Map();
   const bookings = new Map();
-  const job = { id: 200, status: 'Assigned', pickAddress: 'Race Ave' };
-  const now = Date.now();
+  const job = { id: 200, status: 'Assigned', pickAddress: 'Race Ave', passengerName: 'Pat' };
 
-  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings, now), false);
-
-  markOptimisticLiveTransition(200, now);
-  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings, now), true);
-  assert.equal(
-    shouldPreserveAbsentStoreJob(job, pending, bookings, now + OPTIMISTIC_LIVE_RETAIN_MS + 1),
-    false,
-  );
+  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), true);
+  markOptimisticLiveTransition(200);
+  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), true);
 });
 
 test('ghost Active card: completed suppress blocks stale Active re-inject', () => {
@@ -64,16 +60,27 @@ test('ghost Active card: completed suppress blocks stale Active re-inject', () =
   clearCompletedJobSuppress(400);
 });
 
-test('ghost Active card: stale U-A pool jobs are not preserved when absent from caches', () => {
+test('ghost Active card: stale empty U-A ghosts are not preserved when absent from caches', () => {
   const pending = new Map();
   const bookings = new Map();
   const stale = {
     id: 300,
     status: 'Pending',
-    pickAddress: 'Pool Rd',
     createdAt: Date.now() - 25 * 60 * 60 * 1000,
   };
   assert.equal(shouldPreserveAbsentStoreJob(stale, pending, bookings), false);
+});
+
+test('ghost Active card: stale U-A with real address is preserved when absent from caches', () => {
+  const pending = new Map();
+  const bookings = new Map();
+  const stale = {
+    id: 302,
+    status: 'Pending',
+    pickAddress: 'Pool Rd',
+    createdAt: Date.now() - 25 * 60 * 60 * 1000,
+  };
+  assert.equal(shouldPreserveAbsentStoreJob(stale, pending, bookings), true);
 });
 
 test('ghost Active card: recent U-A pool jobs preserved when absent from caches', () => {

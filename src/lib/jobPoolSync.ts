@@ -132,8 +132,103 @@ export function clearOptimisticLiveTransition(jobId: number): void {
 /** Suppress stale live allbookings rows briefly after a job completes. */
 export const COMPLETED_SUPPRESS_MS = 90_000;
 
-/** Dispatch UI / pool ingest: rows older than this with no live pendingjobs are orphans. */
+/** Orphan cleanup window — only rows meeting ALL orphan criteria and older than this are removed. */
 export const DISPATCH_POOL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+const ORPHAN_ELIGIBLE_STATUSES = new Set(['Pending', 'No One', 'Queued']);
+
+const LIVE_LIFECYCLE_STATUSES = new Set([
+  'Active',
+  'Picking',
+  'Arrived',
+  'OnTrip',
+  'Assigned',
+  'Offered',
+  'Scheduled',
+]);
+
+export function isUnassignedDriverId(driverId: unknown): boolean {
+  const d = String(driverId ?? '').trim();
+  return !d || d === '0' || d === '-1' || d === '-2';
+}
+
+export function hasRealPassengerData(rec: Record<string, unknown>): boolean {
+  const name = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? '').trim();
+  const phone = String(
+    rec.PhoneNo ?? rec.Phone ?? rec.passengerPhone ?? rec.phone ?? rec.PhoneNumber ?? '',
+  ).trim();
+  const pick = String(
+    rec.PickAddress ?? rec.PickupAddress ?? rec.pickAddress ?? rec.pickupAddress ?? '',
+  ).trim();
+  const drop = String(rec.DropAddress ?? rec.dropAddress ?? '').trim();
+  return !!(name || phone || pick || drop);
+}
+
+export function hasRealPassengerDataFromJob(job: Job): boolean {
+  return !!(
+    job.passengerName?.trim() ||
+    job.passengerPhone?.trim() ||
+    job.pickAddress?.trim() ||
+    job.dropAddress?.trim()
+  );
+}
+
+function recordPoolStatus(rec: Record<string, unknown>): string {
+  const raw = String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? '').trim();
+  return raw === 'NoOne' ? 'No One' : normalizeJobStatus(raw);
+}
+
+/** Pending / No One, or Queued without a queuedAt timestamp (test-session ghosts). */
+export function isOrphanEligiblePoolStatus(rec: Record<string, unknown>): boolean {
+  const st = recordPoolStatus(rec);
+  if (st === 'Pending' || st === 'No One') return true;
+  if (st === 'Queued') {
+    const queuedAt = rec.queuedAt ?? rec.QueuedAt;
+    return queuedAt == null || queuedAt === '';
+  }
+  return false;
+}
+
+/**
+ * True only when ALL orphan criteria match — safe to hide from dispatch UI or cancel via cleanup.
+ * Real customer bookings (passenger details, assigned driver, active lifecycle, scheduled, etc.) are never orphans.
+ */
+export function isStaleOrphanAllbookingsRow(
+  rec: Record<string, unknown>,
+  now = Date.now(),
+  opts?: { maxAgeMs?: number },
+): boolean {
+  const st = recordPoolStatus(rec);
+  if (LIVE_LIFECYCLE_STATUSES.has(st as Job['status'])) return false;
+  if (TERMINAL_BOOKING_STATUSES.has(st as Job['status'])) return false;
+
+  if (!isOrphanEligiblePoolStatus(rec)) return false;
+  if (!isUnassignedDriverId(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? rec.assignedDriverId)) {
+    return false;
+  }
+  if (hasRealPassengerData(rec)) return false;
+
+  const maxAgeMs = opts?.maxAgeMs ?? DISPATCH_POOL_MAX_AGE_MS;
+  const activityMs = recordActivityMs(rec);
+  if (activityMs > 0 && now - activityMs <= maxAgeMs) return false;
+  if (activityMs === 0) return false;
+
+  return true;
+}
+
+function isStaleOrphanJobShell(job: Job, now = Date.now()): boolean {
+  const st = normalizeJobStatus(job.status);
+  if (LIVE_LIFECYCLE_STATUSES.has(st)) return false;
+  if (TERMINAL_BOOKING_STATUSES.has(st)) return false;
+  if (!ORPHAN_ELIGIBLE_STATUSES.has(st)) return false;
+  if (st === 'Queued') return false;
+  if (!isUnassignedDriverId(job.driverId)) return false;
+  if (hasRealPassengerDataFromJob(job)) return false;
+  const activityMs = jobActivityMs(job);
+  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return false;
+  if (activityMs === 0) return false;
+  return true;
+}
 
 export function recordActivityMs(rec: Record<string, unknown>): number {
   const fields = [
@@ -173,7 +268,7 @@ export function jobActivityMs(job: Job): number {
   return job.jobUpdatedAt ?? job.createdAt ?? 0;
 }
 
-/** Match auto-dispatch: live pendingjobs row OR Firebase activity within 24h (plus optimistic windows). */
+/** Ingest pool rows unless they are confirmed stale orphans (all criteria — see isStaleOrphanAllbookingsRow). */
 export function isDispatchPoolRowLive(
   bookingId: number,
   rec: Record<string, unknown>,
@@ -184,15 +279,10 @@ export function isDispatchPoolRowLive(
   if (isOfferAwaitingAllbookings(bookingId, now)) return true;
   if (isWithinOptimisticWindow(bookingId, now)) return true;
 
-  const recordMs = recordActivityMs(rec);
-  if (recordMs > 0 && now - recordMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
-
   const pending = pendingRef.get(bookingId);
-  if (pending) {
-    const pendingMs = jobActivityMs(pending);
-    if (pendingMs > 0 && now - pendingMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
-  }
-  return false;
+  if (pending && !isStaleOrphanJobShell(pending, now)) return true;
+
+  return !isStaleOrphanAllbookingsRow(rec, now);
 }
 
 const completedSuppressUntil = new Map<number, number>();
@@ -418,7 +508,11 @@ export function shouldPreserveAbsentStoreJob(
     return true;
   }
   if (isWithinOptimisticWindow(job.id, now)) return true;
-  const activityMs = jobActivityMs(job);
-  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  const st = normalizeJobStatus(job.status);
+  if (LIVE_LIFECYCLE_STATUSES.has(st)) return true;
+  if (hasRealPassengerDataFromJob(job)) return true;
+  if (!isUnassignedDriverId(job.driverId)) return true;
+  if (st === 'Queued') return true;
+  if (isStaleOrphanJobShell(job, now)) return false;
   return false;
 }

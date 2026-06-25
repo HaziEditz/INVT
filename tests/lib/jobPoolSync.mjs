@@ -13,6 +13,77 @@ export const QUEUE_AWAIT_ALLBOOKINGS_MS = 120_000;
 export const OFFER_AWAIT_ALLBOOKINGS_MS = 120_000;
 export const DISPATCH_POOL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+const LIVE_LIFECYCLE_STATUSES = new Set([
+  'Active', 'Picking', 'Arrived', 'OnTrip', 'Assigned', 'Offered', 'Scheduled',
+]);
+const ORPHAN_ELIGIBLE_STATUSES = new Set(['Pending', 'No One', 'Queued']);
+
+export function isUnassignedDriverId(driverId) {
+  const d = String(driverId ?? '').trim();
+  return !d || d === '0' || d === '-1' || d === '-2';
+}
+
+export function hasRealPassengerData(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  const name = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? '').trim();
+  const phone = String(rec.PhoneNo ?? rec.Phone ?? rec.passengerPhone ?? rec.phone ?? '').trim();
+  const pick = String(rec.PickAddress ?? rec.PickupAddress ?? rec.pickAddress ?? '').trim();
+  const drop = String(rec.DropAddress ?? rec.dropAddress ?? '').trim();
+  return !!(name || phone || pick || drop);
+}
+
+export function hasRealPassengerDataFromJob(job) {
+  return !!(
+    (job.passengerName && String(job.passengerName).trim()) ||
+    (job.passengerPhone && String(job.passengerPhone).trim()) ||
+    (job.pickAddress && String(job.pickAddress).trim()) ||
+    (job.dropAddress && String(job.dropAddress).trim())
+  );
+}
+
+function recordPoolStatus(rec) {
+  const raw = String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? '').trim();
+  return raw === 'NoOne' ? 'No One' : normalizeJobStatus(raw);
+}
+
+export function isOrphanEligiblePoolStatus(rec) {
+  const st = recordPoolStatus(rec);
+  if (st === 'Pending' || st === 'No One') return true;
+  if (st === 'Queued') {
+    const queuedAt = rec.queuedAt ?? rec.QueuedAt;
+    return queuedAt == null || queuedAt === '';
+  }
+  return false;
+}
+
+export function isStaleOrphanAllbookingsRow(rec, now = Date.now(), opts = {}) {
+  const st = recordPoolStatus(rec);
+  if (LIVE_LIFECYCLE_STATUSES.has(st)) return false;
+  if (TERMINAL.has(st)) return false;
+  if (!isOrphanEligiblePoolStatus(rec)) return false;
+  if (!isUnassignedDriverId(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId)) return false;
+  if (hasRealPassengerData(rec)) return false;
+  const maxAgeMs = opts.maxAgeMs ?? DISPATCH_POOL_MAX_AGE_MS;
+  const activityMs = recordActivityMs(rec);
+  if (activityMs > 0 && now - activityMs <= maxAgeMs) return false;
+  if (activityMs === 0) return false;
+  return true;
+}
+
+function isStaleOrphanJobShell(job, now = Date.now()) {
+  const st = normalizeJobStatus(job.status);
+  if (LIVE_LIFECYCLE_STATUSES.has(st)) return false;
+  if (TERMINAL.has(st)) return false;
+  if (!ORPHAN_ELIGIBLE_STATUSES.has(st)) return false;
+  if (st === 'Queued') return false;
+  if (!isUnassignedDriverId(job.driverId)) return false;
+  if (hasRealPassengerDataFromJob(job)) return false;
+  const activityMs = jobActivityMs(job);
+  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return false;
+  if (activityMs === 0) return false;
+  return true;
+}
+
 export function recordActivityMs(rec) {
   if (!rec || typeof rec !== 'object') return 0;
   const fields = [
@@ -47,14 +118,9 @@ export function isDispatchPoolRowLive(bookingId, rec, pendingRef, now = Date.now
   if (isQueueAwaitingAllbookings(bookingId)) return true;
   if (isOfferAwaitingAllbookings(bookingId, now)) return true;
   if (isWithinOptimisticWindow(bookingId, now)) return true;
-  const recordMs = recordActivityMs(rec);
-  if (recordMs > 0 && now - recordMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
   const pending = pendingRef.get(bookingId);
-  if (pending) {
-    const pendingMs = jobActivityMs(pending);
-    if (pendingMs > 0 && now - pendingMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
-  }
-  return false;
+  if (pending && !isStaleOrphanJobShell(pending, now)) return true;
+  return !isStaleOrphanAllbookingsRow(rec, now);
 }
 
 const optimisticLiveUntil = new Map();
@@ -289,8 +355,12 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
     return true;
   }
   if (isWithinOptimisticWindow(job.id, now)) return true;
-  const activityMs = jobActivityMs(job);
-  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return true;
+  const st = normalizeJobStatus(job.status);
+  if (LIVE_LIFECYCLE_STATUSES.has(st)) return true;
+  if (hasRealPassengerDataFromJob(job)) return true;
+  if (!isUnassignedDriverId(job.driverId)) return true;
+  if (st === 'Queued') return true;
+  if (isStaleOrphanJobShell(job, now)) return false;
   return false;
 }
 

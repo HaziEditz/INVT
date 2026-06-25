@@ -7569,7 +7569,45 @@ function _fixsCollectCompanyIds() {
   return Array.from(set).filter(Boolean);
 }
 
-const _STALE_ALLBOOKINGS_POOL_STATUSES = new Set(['Pending', 'Queued', 'No One', 'NoOne']);
+function _isUnassignedDriverId(driverId) {
+  const d = String(driverId ?? '').trim();
+  return !d || d === '0' || d === '-1' || d === '-2';
+}
+
+function _hasRealPassengerData(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  const name = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? '').trim();
+  const phone = String(rec.PhoneNo ?? rec.Phone ?? rec.passengerPhone ?? rec.phone ?? '').trim();
+  const pick = String(rec.PickAddress ?? rec.PickupAddress ?? rec.pickAddress ?? '').trim();
+  const drop = String(rec.DropAddress ?? rec.dropAddress ?? '').trim();
+  return !!(name || phone || pick || drop);
+}
+
+function _isOrphanEligiblePoolStatus(rec) {
+  const st = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
+  const norm = st === 'NoOne' ? 'No One' : st;
+  if (norm === 'Pending' || norm === 'No One') return true;
+  if (norm === 'Queued') {
+    const queuedAt = rec.queuedAt ?? rec.QueuedAt;
+    return queuedAt == null || queuedAt === '';
+  }
+  return false;
+}
+
+function _isStaleOrphanAllbookingsRow(rec, now, maxAgeMs) {
+  const st = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
+  const norm = st === 'NoOne' ? 'No One' : st;
+  const liveLifecycle = new Set(['Active', 'Picking', 'Arrived', 'OnTrip', 'Assigned', 'Offered', 'Scheduled']);
+  if (liveLifecycle.has(norm)) return false;
+  if (_TERMINAL_JOB_STATUSES.has(norm)) return false;
+  if (!_isOrphanEligiblePoolStatus(rec)) return false;
+  if (!_isUnassignedDriverId(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId)) return false;
+  if (_hasRealPassengerData(rec)) return false;
+  const activityMs = _allbookingsRecordActivityMs(rec);
+  if (activityMs > 0 && now - activityMs <= maxAgeMs) return false;
+  if (activityMs === 0) return false;
+  return true;
+}
 
 function _allbookingsRecordActivityMs(rec) {
   if (!rec || typeof rec !== 'object') return 0;
@@ -7631,7 +7669,6 @@ async function cleanupStaleAllbookingsJobs(opts = {}) {
 
       const st = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
       const normSt = st === 'NoOne' ? 'No One' : st;
-      if (!_STALE_ALLBOOKINGS_POOL_STATUSES.has(normSt)) continue;
 
       const live = jobStore.find(j =>
         j.Id === bookingId && String(j.companyId || '') === cid,
@@ -7641,9 +7678,8 @@ async function cleanupStaleAllbookingsJobs(opts = {}) {
         continue;
       }
 
-      const activityMs = _allbookingsRecordActivityMs(rec);
-      if (activityMs > 0 && now - activityMs <= maxAgeMs) {
-        skipped.push({ bookingId, cid, reason: 'within_max_age', activityMs });
+      if (!_isStaleOrphanAllbookingsRow(rec, now, maxAgeMs)) {
+        skipped.push({ bookingId, cid, reason: 'not_stale_orphan', status: normSt });
         continue;
       }
 
@@ -7656,15 +7692,15 @@ async function cleanupStaleAllbookingsJobs(opts = {}) {
             CancelledAt: cancelledAt,
             cancelledBy: 'System',
             CancelledBy: 'System',
-            cancelReason: 'Stale orphan cleanup (no live jobStore, >24h)',
-            CancelReason: 'Stale orphan cleanup (no live jobStore, >24h)',
+            cancelReason: 'Stale orphan cleanup (empty test ghost, unassigned, >24h)',
+            CancelReason: 'Stale orphan cleanup (empty test ghost, unassigned, >24h)',
             CancelSource: 'System',
           }),
           token,
         ).catch(() => {});
         await firebaseDbDelete(`pendingjobs/${cid}/${bookingId}`, token).catch(() => {});
       }
-      cleaned.push({ bookingId, cid, status: normSt, activityMs: activityMs || null });
+      cleaned.push({ bookingId, cid, status: normSt, activityMs: _allbookingsRecordActivityMs(rec) || null });
     }
   }
 
