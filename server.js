@@ -11738,7 +11738,7 @@ const server = http.createServer(async (req, res) => {
       console.log(`[session] ensure-admin-access: companyId=${cid} uid=${uid}`);
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) });
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
     }
     return;
   }
