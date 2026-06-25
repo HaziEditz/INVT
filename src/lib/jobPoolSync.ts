@@ -285,25 +285,46 @@ export function isDispatchPoolRowLive(
   return !isStaleOrphanAllbookingsRow(rec, now);
 }
 
-const completedSuppressUntil = new Map<number, number>();
+type CompletedSuppressMeta = { until: number; seq: number };
 
-export function markCompletedJobSuppress(jobId: number, now = Date.now()): void {
-  completedSuppressUntil.set(jobId, now + COMPLETED_SUPPRESS_MS);
+const completedSuppressMeta = new Map<number, CompletedSuppressMeta>();
+
+export function markCompletedJobSuppress(
+  jobId: number,
+  suppressSeq = 0,
+  now = Date.now(),
+): void {
+  completedSuppressMeta.set(jobId, { until: now + COMPLETED_SUPPRESS_MS, seq: suppressSeq });
 }
 
 export function clearCompletedJobSuppress(jobId: number): void {
-  completedSuppressUntil.delete(jobId);
+  completedSuppressMeta.delete(jobId);
 }
 
 /** True while stale Active/Assigned snapshots must not re-enter the live pool. */
 export function isCompletedJobSuppressed(jobId: number, now = Date.now()): boolean {
-  const until = completedSuppressUntil.get(jobId);
-  if (until == null) return false;
-  if (now >= until) {
-    completedSuppressUntil.delete(jobId);
+  const meta = completedSuppressMeta.get(jobId);
+  if (meta == null) return false;
+  if (now >= meta.until) {
+    completedSuppressMeta.delete(jobId);
     return false;
   }
   return true;
+}
+
+/** Only lift completed-suppress when Firebase proves a newer lifecycle (booking-id reuse). */
+export function shouldClearCompletedSuppress(
+  jobId: number,
+  rec: Record<string, unknown>,
+  now = Date.now(),
+): boolean {
+  const meta = completedSuppressMeta.get(jobId);
+  if (meta == null) return true;
+  if (now >= meta.until) {
+    completedSuppressMeta.delete(jobId);
+    return true;
+  }
+  return seqFromRecord(rec) > meta.seq;
 }
 
 export function markQueueAwaitingAllbookings(jobId: number): void {

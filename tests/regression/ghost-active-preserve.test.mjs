@@ -10,6 +10,8 @@ import {
   shouldPreserveAbsentStoreJob,
   markCompletedJobSuppress,
   clearCompletedJobSuppress,
+  shouldClearCompletedSuppress,
+  isCompletedJobSuppressed,
 } from '../lib/jobPoolSync.mjs';
 
 test('ghost Active card: completed suppress drops Active ghost with passenger data', () => {
@@ -55,9 +57,42 @@ test('ghost Active card: completed suppress blocks stale Active re-inject', () =
   const pending = new Map();
   const bookings = new Map();
   const job = { id: 400, status: 'Active', pickAddress: 'Done St' };
-  markCompletedJobSuppress(400);
+  markCompletedJobSuppress(400, 8);
   assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), false);
   clearCompletedJobSuppress(400);
+});
+
+test('ghost Active card: stale Active allbookings ingest must not clear completed suppress', () => {
+  const jobId = 500;
+  markCompletedJobSuppress(jobId, 10);
+  const staleAbRec = {
+    BookingId: String(jobId),
+    BookingStatus: 'Active',
+    Status: 'Active',
+    updateSeq: 10,
+    PickAddress: 'Done St',
+  };
+  assert.equal(
+    shouldClearCompletedSuppress(jobId, staleAbRec),
+    false,
+    'same-seq Active snapshot must not lift completed suppress',
+  );
+  assert.equal(isCompletedJobSuppressed(jobId), true);
+  clearCompletedJobSuppress(jobId);
+});
+
+test('ghost Active card: higher-seq Active ingest may clear completed suppress (booking reuse)', () => {
+  const jobId = 501;
+  markCompletedJobSuppress(jobId, 10);
+  const freshAbRec = {
+    BookingId: String(jobId),
+    BookingStatus: 'Active',
+    Status: 'Active',
+    updateSeq: 12,
+    PickAddress: 'New St',
+  };
+  assert.equal(shouldClearCompletedSuppress(jobId, freshAbRec), true);
+  clearCompletedJobSuppress(jobId);
 });
 
 test('ghost Active card: stale empty U-A ghosts are not preserved when absent from caches', () => {

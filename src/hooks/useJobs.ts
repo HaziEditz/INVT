@@ -24,6 +24,7 @@ import {
   markCompletedJobSuppress,
   clearCompletedJobSuppress,
   isCompletedJobSuppressed,
+  shouldClearCompletedSuppress,
   isQueueAwaitingAllbookings,
   minimalJobFromDispatchRefresh,
   allbookingsRecordIsQueued,
@@ -53,10 +54,11 @@ function handleTerminalRefresh(
   bookingsRef: Map<number, Job>,
   removeJob: (id: number) => void,
   syncAll: () => void,
+  suppressSeq = 0,
 ): void {
   pendingRef.delete(bookingId);
   bookingsRef.delete(bookingId);
-  markCompletedJobSuppress(bookingId);
+  markCompletedJobSuppress(bookingId, suppressSeq);
   clearQueueAwaitingAllbookings(bookingId);
   clearOptimisticLiveTransition(bookingId);
   removeJob(bookingId);
@@ -389,6 +391,15 @@ function existingJobSnapshot(
   );
 }
 
+function priorTerminalSuppressSeq(
+  bookingId: number,
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+): number {
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  return prior?.updateSeq ?? 0;
+}
+
 function refreshImpliesTerminal(refresh: DispatchRefreshPayload): boolean {
   if (refresh.action === 'cancel' || refresh.action === 'complete') return true;
   if (!refresh.status) return false;
@@ -429,7 +440,14 @@ function optimisticDispatchRefresh(
   syncAll: () => void,
 ): void {
   if (refreshImpliesTerminal(refresh)) {
-    handleTerminalRefresh(bookingId, pendingRef, bookingsRef, removeJob, syncAll);
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      removeJob,
+      syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+    );
     return;
   }
   if (!refresh.status) return;
@@ -467,6 +485,9 @@ function optimisticDispatchRefresh(
   }
   if (['accept', 'assign', 'offer', 'queue', 'active'].includes(refresh.action || '')) {
     markOptimisticLiveTransition(bookingId);
+    if (refresh.updateSeq != null && refresh.updateSeq > 0) {
+      clearCompletedJobSuppress(bookingId);
+    }
   }
   upsertJob(job);
   syncAll();
@@ -490,7 +511,14 @@ async function refreshJobFromFirebaseCaches(
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
 
   if (refreshImpliesTerminal(refresh)) {
-    handleTerminalRefresh(bookingId, pendingRef, bookingsRef, hooks.removeJob, hooks.syncAll);
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      hooks.removeJob,
+      hooks.syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+    );
     return;
   }
 
@@ -861,7 +889,7 @@ export function useJobs(companyId: string | null) {
     unsubs.push(
       onValue(bRef, (snap) => {
         bookingsRef.current = new Map();
-        const terminalIds: number[] = [];
+        const terminalRows: Array<{ id: number; seq: number }> = [];
         const seenInSnapshot = new Set<number>();
         const val = snap.val();
         if (val && typeof val === 'object') {
@@ -893,7 +921,6 @@ export function useJobs(companyId: string | null) {
             );
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               clearRemovedJob(jobId);
-              clearCompletedJobSuppress(jobId);
             } else if (isBlacklisted(jobId)) {
               traceAllbookingsIngest(jobId, 'skipped blacklisted', {
                 effectiveStatus,
@@ -915,6 +942,14 @@ export function useJobs(companyId: string | null) {
 
             if (isCompletedJobSuppressed(jobId) && !TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
               if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+                if (!shouldClearCompletedSuppress(jobId, rec)) {
+                  traceAllbookingsIngest(jobId, 'skipped completedSuppressed (stale Active)', {
+                    effectiveStatus,
+                    bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                    statusRaw: rec.Status ?? rec.status ?? null,
+                  });
+                  continue;
+                }
                 clearCompletedJobSuppress(jobId);
               } else {
                 traceAllbookingsIngest(jobId, 'skipped completedSuppressed', {
@@ -968,7 +1003,10 @@ export function useJobs(companyId: string | null) {
                 });
                 continue;
               } else {
-                terminalIds.push(stored.id);
+                terminalRows.push({
+                  id: stored.id,
+                  seq: stored.updateSeq ?? seqFromFirebaseRecord(rec) ?? 0,
+                });
                 traceAllbookingsIngest(jobId, 'terminal', {
                   effectiveStatus,
                   bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
@@ -1065,12 +1103,12 @@ export function useJobs(companyId: string | null) {
           pendingRef.current,
           useJobStore.getState().jobs,
         );
-        for (const tid of terminalIds) {
-          pendingRef.current.delete(tid);
-          bookingsRef.current.delete(tid);
-          markCompletedJobSuppress(tid);
-          removeJob(tid);
-          clearRemovedJob(tid);
+        for (const row of terminalRows) {
+          pendingRef.current.delete(row.id);
+          bookingsRef.current.delete(row.id);
+          markCompletedJobSuppress(row.id, row.seq);
+          removeJob(row.id);
+          clearRemovedJob(row.id);
         }
         syncAll();
       })

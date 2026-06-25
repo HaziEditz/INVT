@@ -219,24 +219,41 @@ function coerceQueuedIfAwaiting(job) {
 }
 
 export const COMPLETED_SUPPRESS_MS = 90_000;
-const completedSuppressUntil = new Map();
+const completedSuppressMeta = new Map();
 
-export function markCompletedJobSuppress(jobId, now = Date.now()) {
-  completedSuppressUntil.set(jobId, now + COMPLETED_SUPPRESS_MS);
+export function markCompletedJobSuppress(jobId, suppressSeq = 0, now = Date.now()) {
+  completedSuppressMeta.set(jobId, { until: now + COMPLETED_SUPPRESS_MS, seq: suppressSeq });
 }
 
 export function clearCompletedJobSuppress(jobId) {
-  completedSuppressUntil.delete(jobId);
+  completedSuppressMeta.delete(jobId);
 }
 
 export function isCompletedJobSuppressed(jobId, now = Date.now()) {
-  const until = completedSuppressUntil.get(jobId);
-  if (until == null) return false;
-  if (now >= until) {
-    completedSuppressUntil.delete(jobId);
+  const meta = completedSuppressMeta.get(jobId);
+  if (meta == null) return false;
+  if (now >= meta.until) {
+    completedSuppressMeta.delete(jobId);
     return false;
   }
   return true;
+}
+
+function seqFromRecord(rec) {
+  if (!rec || typeof rec !== 'object') return 0;
+  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
+  const n = parseInt(String(raw ?? ''), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
+export function shouldClearCompletedSuppress(jobId, rec, now = Date.now()) {
+  const meta = completedSuppressMeta.get(jobId);
+  if (meta == null) return true;
+  if (now >= meta.until) {
+    completedSuppressMeta.delete(jobId);
+    return true;
+  }
+  return seqFromRecord(rec) > meta.seq;
 }
 
 export function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
@@ -313,13 +330,6 @@ function isWithinOptimisticWindow(jobId, now = Date.now()) {
     return false;
   }
   return true;
-}
-
-function seqFromRecord(rec) {
-  if (!rec || typeof rec !== 'object') return 0;
-  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
-  const n = parseInt(String(raw ?? ''), 10);
-  return Number.isNaN(n) ? 0 : n;
 }
 
 /** Keep in sync with src/lib/jobPoolSync.ts */
