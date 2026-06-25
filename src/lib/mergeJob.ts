@@ -48,12 +48,14 @@ function mergeJobStatus(
     return ex;
   }
   if ((inc === 'No One' || inc === 'Pending') && incomingSeq >= existingSeq) return inc;
-  // Queued is sticky — stale Assigned/Active snapshots must not outrank Queued
-  // unless they carry a strictly newer updateSeq (server promotion).
+  // Queued is sticky — stale pool / offer snapshots must not outrank Queued.
   const QUEUED_PROMOTE: JobStatus[] = ['Offered', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];
-  if (ex === 'Queued' && QUEUED_PROMOTE.includes(inc)) {
-    if (incomingSeq <= existingSeq) return ex;
-    return inc;
+  if (ex === 'Queued' && (POOL.includes(inc) || QUEUED_PROMOTE.includes(inc))) {
+    if (inc === 'Offered' || QUEUED_PROMOTE.includes(inc)) {
+      if (incomingSeq <= existingSeq) return ex;
+      return inc;
+    }
+    return ex;
   }
   if (statusRank(inc) < statusRank(ex)) return ex;
   if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;

@@ -171,6 +171,31 @@ test('dispatch UI: stale pendingjobs Assigned/Active/Pending cannot pull queue-a
   );
 });
 
+test('dispatch UI: confirmed allbookings Queued beats stale pendingjobs Pending (no queue-await)', () => {
+  const now = Date.now();
+  const bookingId = 8692606253;
+  const queuedJob = { id: bookingId, status: 'Queued', driverId: '9001', updateSeq: 8, pickAddress: 'Queue St' };
+  const pending = new Map([[bookingId, { id: bookingId, status: 'Pending', updateSeq: 3 }]]);
+  const bookings = new Map([[bookingId, queuedJob]]);
+  const store = [queuedJob];
+
+  assert.equal(isQueueAwaitingAllbookings(bookingId), false);
+  assert.equal(
+    pendingSnapshotWouldRegressQueue(
+      bookingId,
+      { BookingStatus: 'Pending' },
+      { bookingsRef: bookings, abRec: { BookingStatus: 'Queued' } },
+    ),
+    true,
+  );
+
+  const merged = mergeStoreWithFirebaseCaches(store, pending, bookings, now);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].status, 'Queued');
+  assert.equal(jobTabForStatus(merged[0]), 'queue');
+  assert.equal(pending.has(bookingId), false);
+});
+
 test('dispatch UI: lowercase queued status routes to Queue tab', () => {
   assert.equal(jobTabForStatus({ id: 1, status: 'queued' }), 'queue');
   assert.equal(jobTabForStatus({ id: 2, status: 'QUEUED' }), 'queue');

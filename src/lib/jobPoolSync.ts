@@ -253,16 +253,68 @@ export function queueAwaitingMergeOpts(
   return isQueueAwaitingAllbookings(jobId) ? { forceStatus: 'Queued' } : undefined;
 }
 
-/** True when a pendingjobs row would wrongly pull a queue-await job back to U-A / Assign / Active. */
+export type PendingQueueRegressCtx = {
+  bookingsRef?: Map<number, Job>;
+  abRec?: Record<string, unknown> | null;
+};
+
+/** True when allbookings (or mirror fields) confirms Queued. */
+export function allbookingsRecordIsQueued(rec: Record<string, unknown>): boolean {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  if (bookingRaw != null && normalizeJobStatus(String(bookingRaw)) === 'Queued') return true;
+  const statusRaw = rec.Status ?? rec.status;
+  if (statusRaw != null && normalizeJobStatus(String(statusRaw)) === 'Queued') return true;
+  if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
+  return rec.queuedAt != null || rec.QueuedAt != null;
+}
+
+/**
+ * Drop stale pendingjobs rows when bookingsRef or allbookings already confirms Queued.
+ * Also clears queue-await ids (handled before reinject).
+ */
+export function purgeStalePendingForQueuedBookings(
+  pendingRef: Map<number, Job>,
+  bookingsRef: Map<number, Job>,
+  storeJobs: Job[] = [],
+): void {
+  for (const id of [...pendingRef.keys()]) {
+    if (isQueueAwaitingAllbookings(id)) {
+      pendingRef.delete(id);
+      continue;
+    }
+    const booking = bookingsRef.get(id);
+    if (booking && normalizeJobStatus(booking.status) === 'Queued') {
+      pendingRef.delete(id);
+      continue;
+    }
+    const store = storeJobs.find((j) => j.id === id);
+    if (store && normalizeJobStatus(store.status) === 'Queued') {
+      pendingRef.delete(id);
+    }
+  }
+}
+
+/** True when a pendingjobs row would wrongly pull a queued job back to U-A / Assign / Active. */
 export function pendingSnapshotWouldRegressQueue(
   bookingId: number,
   pjVal: Record<string, unknown>,
+  ctx?: PendingQueueRegressCtx,
 ): boolean {
-  if (!isQueueAwaitingAllbookings(bookingId)) return false;
   const pjSt = normalizeJobStatus(
     String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''),
   );
   if (pjSt === 'Queued') return false;
+
+  const bookingsQueued =
+    !!ctx?.bookingsRef &&
+    normalizeJobStatus(ctx.bookingsRef.get(bookingId)?.status ?? '') === 'Queued';
+  const abQueued = ctx?.abRec ? allbookingsRecordIsQueued(ctx.abRec) : false;
+
+  if (bookingsQueued || abQueued) {
+    return pjSt !== 'Offered';
+  }
+
+  if (!isQueueAwaitingAllbookings(bookingId)) return false;
   return pjSt !== 'Offered';
 }
 

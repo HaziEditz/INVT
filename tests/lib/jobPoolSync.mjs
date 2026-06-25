@@ -103,10 +103,47 @@ export function queueAwaitingMergeOpts(jobId) {
   return isQueueAwaitingAllbookings(jobId) ? { forceStatus: 'Queued' } : undefined;
 }
 
-export function pendingSnapshotWouldRegressQueue(bookingId, pjVal) {
-  if (!isQueueAwaitingAllbookings(bookingId)) return false;
+export function allbookingsRecordIsQueued(rec) {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  if (bookingRaw != null && normalizeJobStatus(String(bookingRaw)) === 'Queued') return true;
+  const statusRaw = rec.Status ?? rec.status;
+  if (statusRaw != null && normalizeJobStatus(String(statusRaw)) === 'Queued') return true;
+  if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
+  return rec.queuedAt != null || rec.QueuedAt != null;
+}
+
+export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, storeJobs = []) {
+  for (const id of [...pendingRef.keys()]) {
+    if (isQueueAwaitingAllbookings(id)) {
+      pendingRef.delete(id);
+      continue;
+    }
+    const booking = bookingsRef.get(id);
+    if (booking && normalizeJobStatus(booking.status) === 'Queued') {
+      pendingRef.delete(id);
+      continue;
+    }
+    const store = storeJobs.find((j) => j.id === id);
+    if (store && normalizeJobStatus(store.status) === 'Queued') {
+      pendingRef.delete(id);
+    }
+  }
+}
+
+export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
   const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''));
   if (pjSt === 'Queued') return false;
+
+  const bookingsQueued =
+    !!ctx?.bookingsRef &&
+    normalizeJobStatus(ctx.bookingsRef.get(bookingId)?.status ?? '') === 'Queued';
+  const abQueued = ctx?.abRec ? allbookingsRecordIsQueued(ctx.abRec) : false;
+
+  if (bookingsQueued || abQueued) {
+    return pjSt !== 'Offered';
+  }
+
+  if (!isQueueAwaitingAllbookings(bookingId)) return false;
   return pjSt !== 'Offered';
 }
 
@@ -259,9 +296,7 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
 
 /** Simulate syncAll merge: store jobs absent from Firebase caches. */
 export function mergeStoreWithFirebaseCaches(storeJobs, pendingRef, bookingsRef, now = Date.now()) {
-  for (const id of [...pendingRef.keys()]) {
-    if (isQueueAwaitingAllbookings(id)) pendingRef.delete(id);
-  }
+  purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, storeJobs);
   reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef);
   const byId = new Map();
   for (const j of pendingRef.values()) byId.set(j.id, j);

@@ -25,7 +25,9 @@ import {
   isCompletedJobSuppressed,
   isQueueAwaitingAllbookings,
   minimalJobFromDispatchRefresh,
+  allbookingsRecordIsQueued,
   pendingSnapshotWouldRegressQueue,
+  purgeStalePendingForQueuedBookings,
   queueAwaitingMergeOpts,
   reinjectQueueAwaitingJobs,
   reinjectOfferAwaitingJobs,
@@ -124,7 +126,7 @@ const ACTIVE_BOOKING_STATUSES = new Set([
 const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
 /** Pin dispatch Queue-tab investigations to specific booking ids (console: dispatch-queue-debug). */
-const DISPATCH_QUEUE_TRACE_IDS = new Set([8692606255, 8692606256]);
+const DISPATCH_QUEUE_TRACE_IDS = new Set([8692606253, 8692606255, 8692606256]);
 
 type MergeTraceCtx = {
   pendingRef: Map<number, Job>;
@@ -502,12 +504,17 @@ async function refreshJobFromFirebaseCaches(
         );
       }
       if (job) pendingRef.set(job.id, job);
-    } else if (pendingSnapshotWouldRegressQueue(bookingId, pjRecord)) {
+    } else if (
+      pendingSnapshotWouldRegressQueue(bookingId, pjRecord, {
+        bookingsRef,
+        abRec: abVal && typeof abVal === 'object' ? (abVal as Record<string, unknown>) : null,
+      })
+    ) {
       if (import.meta.env.DEV) {
         console.warn(
           `[dispatch-refresh] ignored stale pendingjobs #${bookingId}`,
           pjRecord.BookingStatus ?? pjRecord.Status,
-          '→ queue-await Queued',
+          '→ confirmed Queued',
         );
       }
       pendingRef.delete(bookingId);
@@ -558,9 +565,11 @@ export function useJobs(companyId: string | null) {
     listenerBookingsCache = bookingsRef.current;
 
     const syncAll = () => {
-      for (const id of [...pendingRef.current.keys()]) {
-        if (isQueueAwaitingAllbookings(id)) pendingRef.current.delete(id);
-      }
+      purgeStalePendingForQueuedBookings(
+        pendingRef.current,
+        bookingsRef.current,
+        useJobStore.getState().jobs,
+      );
       reinjectQueueAwaitingJobs(
         bookingsRef.current,
         useJobStore.getState().jobs,
@@ -634,6 +643,17 @@ export function useJobs(companyId: string | null) {
 
       const job = jobFromFirebase(key, rec, companyId);
       if (!job || isBlacklisted(job.id)) return;
+
+      const bookingsQueued = bookingsRef.current.get(jobId);
+      const storeQueued = useJobStore.getState().jobs.find((j) => j.id === jobId);
+      if (
+        normalizeJobStatus(job.status) !== 'Queued' &&
+        (normalizeJobStatus(bookingsQueued?.status) === 'Queued' ||
+          normalizeJobStatus(storeQueued?.status) === 'Queued')
+      ) {
+        pendingRef.current.delete(jobId);
+        return;
+      }
 
       if (
         !isQueueAwaitingAllbookings(jobId) &&
@@ -855,6 +875,9 @@ export function useJobs(companyId: string | null) {
             }
 
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+              if (effectiveStatus === 'Queued') {
+                pendingRef.current.delete(jobId);
+              }
               bookingsRef.current.set(stored.id, stored);
               traceAllbookingsIngest(jobId, 'ingest', {
                 effectiveStatus,
@@ -866,7 +889,9 @@ export function useJobs(companyId: string | null) {
               });
               if (effectiveStatus === 'Queued') {
                 const fbBooking = normalizeJobStatus(String(rec.BookingStatus ?? ''));
-                if (fbBooking === 'Queued') clearQueueAwaitingAllbookings(stored.id);
+                if (fbBooking === 'Queued' || allbookingsRecordIsQueued(rec)) {
+                  clearQueueAwaitingAllbookings(stored.id);
+                }
               }
               if (effectiveStatus === 'Offered') {
                 clearOfferAwaitingAllbookings(stored.id);
