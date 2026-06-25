@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { mergeJobUpdate } from '@/lib/mergeJob';
-import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get } from '@/lib/firebase';
+import { getDb, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get, getFirebaseAuth } from '@/lib/firebase';
+import { ensureAdminAccess } from '@/lib/jobFlow';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import {
@@ -33,6 +34,7 @@ import {
   reinjectOfferAwaitingJobs,
   shouldPreserveAbsentStoreJob,
   staleTerminalAllbookingsSuperseded,
+  pickLiveJobSupersedingStaleTerminal,
   isDispatchPoolRowLive,
   recordActivityMs,
 } from '@/lib/jobPoolSync';
@@ -126,7 +128,103 @@ const ACTIVE_BOOKING_STATUSES = new Set([
 const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
 /** Pin dispatch Queue-tab investigations to specific booking ids (console: dispatch-queue-debug). */
-const DISPATCH_QUEUE_TRACE_IDS = new Set([8692606253, 8692606255, 8692606256]);
+const DISPATCH_QUEUE_TRACE_IDS = new Set([
+  8692606253,
+  8692606255,
+  8692606256,
+  8692606257,
+]);
+
+type DispatchFirebaseAuthCtx = {
+  uid: string | null;
+  isAnonymous: boolean;
+  adminAccessExists: boolean | null;
+};
+
+async function bootstrapDispatchFirebaseAccess(companyId: string): Promise<DispatchFirebaseAuthCtx> {
+  const user = getFirebaseAuth().currentUser;
+  const ctx: DispatchFirebaseAuthCtx = {
+    uid: user?.uid ?? null,
+    isAnonymous: !!user?.isAnonymous,
+    adminAccessExists: null,
+  };
+  if (!user) {
+    console.warn(
+      '[dispatch-queue-debug] no Firebase auth user — allbookings onValue may return a rules-filtered subset (sign in via /login)',
+    );
+    return ctx;
+  }
+  if (user.isAnonymous) {
+    console.warn(
+      '[dispatch-queue-debug] anonymous Firebase auth — adminAccess will not match; allbookings Queued rows for assigned drivers are omitted by RTDB rules',
+      { uid: user.uid, companyId },
+    );
+    return ctx;
+  }
+  try {
+    await ensureAdminAccess(companyId, user.uid);
+  } catch (e) {
+    console.warn('[dispatch-queue-debug] ensure-admin-access failed', e);
+  }
+  try {
+    const adminSnap = await get(ref(getDb(), `adminAccess/${companyId}/${user.uid}`));
+    ctx.adminAccessExists = adminSnap.exists();
+    console.log('[dispatch-queue-debug] adminAccess probe', {
+      companyId,
+      uid: user.uid,
+      adminAccessExists: ctx.adminAccessExists,
+    });
+    if (!ctx.adminAccessExists) {
+      console.warn(
+        '[dispatch-queue-debug] adminAccess node missing — per-child allbookings rules will filter to driver-assigned rows only',
+      );
+    }
+  } catch (e) {
+    console.warn('[dispatch-queue-debug] adminAccess probe failed', e);
+  }
+  return ctx;
+}
+
+function logAllbookingsSnapshotSummary(
+  companyId: string,
+  authCtx: DispatchFirebaseAuthCtx,
+  val: unknown,
+  seenInSnapshot: Set<number>,
+): void {
+  const rawKeys =
+    val && typeof val === 'object' ? Object.keys(val as Record<string, unknown>) : [];
+  const queuedInSnapshot: number[] = [];
+  const pendingInSnapshot: number[] = [];
+  if (val && typeof val === 'object') {
+    for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
+      const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+      if (!jobId) continue;
+      const st = normalizeJobStatus(
+        String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? ''),
+      );
+      if (st === 'Queued') queuedInSnapshot.push(jobId);
+      if (st === 'Pending' || st === 'No One') pendingInSnapshot.push(jobId);
+    }
+  }
+  const tracePresence: Record<string, boolean> = {};
+  for (const id of DISPATCH_QUEUE_TRACE_IDS) {
+    tracePresence[String(id)] = seenInSnapshot.has(id);
+  }
+  console.log('[dispatch-queue-debug] allbookings onValue snapshot', {
+    companyId,
+    firebaseUid: authCtx.uid,
+    firebaseIsAnonymous: authCtx.isAnonymous,
+    adminAccessExists: authCtx.adminAccessExists,
+    snapshotRawChildCount: rawKeys.length,
+    snapshotParsedJobCount: seenInSnapshot.size,
+    queuedInSnapshotCount: queuedInSnapshot.length,
+    queuedInSnapshotIds: queuedInSnapshot.slice(0, 40),
+    pendingInSnapshotCount: pendingInSnapshot.length,
+    tracePresence,
+    note:
+      'RTDB applies per-child .read rules on parent onValue — count can be lower than server jobStore when adminAccess is missing',
+  });
+}
 
 type MergeTraceCtx = {
   pendingRef: Map<number, Job>;
@@ -557,12 +655,18 @@ export function useJobs(companyId: string | null) {
 
   useEffect(() => {
     if (!companyId) return;
-    const db = getDb();
+    let cancelled = false;
     const unsubs: Array<() => void> = [];
     let bootstrapping = true;
 
     listenerPendingCache = pendingRef.current;
     listenerBookingsCache = bookingsRef.current;
+
+    void (async () => {
+      const authCtx = await bootstrapDispatchFirebaseAccess(companyId);
+      if (cancelled) return;
+
+      const db = getDb();
 
     const syncAll = () => {
       purgeStalePendingForQueuedBookings(
@@ -911,6 +1015,7 @@ export function useJobs(companyId: string | null) {
             }
           }
         }
+        logAllbookingsSnapshotSummary(companyId, authCtx, val, seenInSnapshot);
         for (const traceId of DISPATCH_QUEUE_TRACE_IDS) {
           if (!seenInSnapshot.has(traceId)) {
             console.log('[dispatch-queue-debug] allbookings missing from snapshot', {
@@ -1028,8 +1133,10 @@ export function useJobs(companyId: string | null) {
         );
       })
     );
+    })();
 
     return () => {
+      cancelled = true;
       for (const u of unsubs) u();
       if (listenerPendingCache === pendingRef.current) listenerPendingCache = null;
       if (listenerBookingsCache === bookingsRef.current) listenerBookingsCache = null;

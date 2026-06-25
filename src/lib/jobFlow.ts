@@ -113,6 +113,14 @@ export async function sessionLogin(companyId: string, uid: string) {
   );
 }
 
+/** Idempotent — server writes adminAccess/{companyId}/{uid} for RTDB allbookings list reads. */
+export async function ensureAdminAccess(companyId: string, uid: string) {
+  return jsonFetch<{ ok: boolean; companyId: string; uid: string }>(
+    `${API}/session/ensure-admin-access`,
+    { method: 'POST', body: JSON.stringify({ companyId, uid }) },
+  );
+}
+
 export async function sessionMe() {
   return jsonFetch<{
     ok: boolean;

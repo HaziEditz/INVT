@@ -1,5 +1,5 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, signInAnonymously, type Auth } from 'firebase/auth';
+import { getAuth, type Auth } from 'firebase/auth';
 import { getDatabase, type Database, ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get, off, set, update, push, remove } from 'firebase/database';
 
 let app: FirebaseApp | null = null;
@@ -38,11 +38,13 @@ export function getFirebaseAuth(): Auth {
   return auth;
 }
 
-/** RTDB listeners require auth != null. Legacy cookie-only dispatch sessions may lack Firebase sign-in. */
+/** RTDB listeners require auth != null. Dispatch must sign in via /login (email/password) so adminAccess matches auth.uid. */
 export async function ensureFirebaseAuth(): Promise<void> {
   const a = getFirebaseAuth();
   if (a.currentUser) return;
-  await signInAnonymously(a);
+  console.warn(
+    '[firebase] no Firebase user — RTDB listeners skipped. Sign in at /login so adminAccess matches your uid (anonymous auth cannot read all Queued allbookings).',
+  );
 }
 
 export { ref, onValue, onChildAdded, onChildChanged, onChildRemoved, get, off, set, update, push, remove };

@@ -11705,6 +11705,44 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /api/session/ensure-admin-access — idempotent adminAccess grant for dispatch RTDB reads
+  if (urlPath === '/api/session/ensure-admin-access' && req.method === 'POST') {
+    const cid = getSessionCompanyId(req);
+    if (!cid) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No valid session' }));
+      return;
+    }
+    let body = {};
+    try {
+      const raw = await readBody(req);
+      body = raw ? JSON.parse(raw) : {};
+    } catch (_) { /* empty */ }
+    const uid = String(body.uid || '').trim();
+    if (!uid) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'uid required' }));
+      return;
+    }
+    const reg = registrationStore.find(r => r.companyId === cid);
+    if (!reg) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Company not found' }));
+      return;
+    }
+    try {
+      const tok = await getFirebaseServerToken();
+      if (tok) await firebaseDbSet(`adminAccess/${cid}/${uid}`, true, tok);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, companyId: cid, uid }));
+      console.log(`[session] ensure-admin-access: companyId=${cid} uid=${uid}`);
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) });
+    }
+    return;
+  }
+
   // GET /api/session/me — returns the authenticated company ID from the BW_SID cookie.
   // Called by Default.aspx on page load to verify/correct any stale localStorage value.
   if (urlPath === '/api/session/me' && req.method === 'GET') {
