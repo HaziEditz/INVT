@@ -227,6 +227,10 @@ const COMPANY_JOB_SEQ_FILE      = path.join(DATA_DIR, 'companyJobSeq.json');
 const STRIPE_PAYMENTS_FILE      = path.join(DATA_DIR, 'stripe_payments.json');
 if (!fs.existsSync(DATA_DIR)) { try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch(e) {} }
 
+// Live drivers synced from Firebase online/{companyId}. Declared before boot self-heal
+// IIFEs and resolveDriverIdentity() — those run at module load (~line 7492).
+const ZONE_DRIVERS = [];
+
 // ─── Registration / account request store ────────────────────────────────────
 // status: pending | approved | rejected | trial | active | grace | deactivated
 // plan:   free_trial | starter | pro
@@ -9298,12 +9302,7 @@ function _normFbJob(job) {
 }
 
 
-// Live drivers come from Firebase (driverdatarealx/{companyId} or online/{companyId}).
-// This array is kept as an empty structure so dependent code paths don't crash.
-const ZONE_DRIVERS = [];
-
-// Used by VehiclesStatus to skip driver-ID sync during the first 90 s after restart
-// (ZONE_DRIVERS may be incomplete while Firebase re-delivers child_added events).
+// SERVER_START_TIME and load-test sets — see early ZONE_DRIVERS declaration near DATA_DIR.
 const SERVER_START_TIME = Date.now();
 
 // Guard: only send the "confirmed zero" clear-board signal (dt6=null) once at least
