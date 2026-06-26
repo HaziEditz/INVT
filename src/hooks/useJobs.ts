@@ -61,6 +61,7 @@ function handleTerminalRefresh(
   bookingsRef.delete(bookingId);
   markCompletedJobSuppress(bookingId, suppressSeq);
   clearQueueAwaitingAllbookings(bookingId);
+  clearOfferAwaitingAllbookings(bookingId);
   clearOptimisticLiveTransition(bookingId);
   removeJob(bookingId);
   syncAll();
@@ -472,6 +473,16 @@ function optimisticDispatchRefresh(
   ) {
     clearQueueAwaitingAllbookings(bookingId);
   }
+  if (
+    targetStatus === 'Pending' ||
+    targetStatus === 'No One' ||
+    targetStatus === 'Scheduled' ||
+    POOL_RESTORE_ACTIONS.has(refresh.action || '') ||
+    refresh.action === 'cancel'
+  ) {
+    clearOfferAwaitingAllbookings(bookingId);
+    clearOptimisticLiveTransition(bookingId);
+  }
 
   let job: Job | null = null;
   if (prior) {
@@ -631,6 +642,9 @@ async function refreshJobFromFirebaseCaches(
     if (st === 'Offered') {
       clearOfferAwaitingAllbookings(bookingId);
     }
+    if (st === 'Pending' || st === 'No One' || st === 'Scheduled' || trustPoolRestore) {
+      clearOfferAwaitingAllbookings(bookingId);
+    }
     if (ACTIVE_BOOKING_STATUSES.has(st)) {
       if (!isCompletedJobSuppressed(job.id)) {
         bookingsRef.set(job.id, job);
@@ -708,7 +722,7 @@ export function useJobs(companyId: string | null) {
   const clearRemovedJob = useJobStore((s) => s.clearRemovedJob);
   const pendingRef = useRef<Map<number, Job>>(new Map());
   const bookingsRef = useRef<Map<number, Job>>(new Map());
-  const lastDispatchRefreshAtRef = useRef(0);
+  const lastDispatchRefreshAtRef = useRef('');
 
   useEffect(() => {
     if (!companyId) return;
@@ -894,6 +908,11 @@ export function useJobs(companyId: string | null) {
         normalizeJobStatus(storeJob?.status) === 'Queued';
       if (liveQueued && (pendingSt === 'Assigned' || pendingSt === 'Active' || pendingSt === 'Arrived')) {
         return;
+      }
+
+      if (pendingSt === 'Pending' || pendingSt === 'No One' || pendingSt === 'Scheduled') {
+        clearOfferAwaitingAllbookings(jobId);
+        bookingsRef.current.delete(jobId);
       }
 
       pendingRef.current.set(job.id, job);
@@ -1197,10 +1216,10 @@ export function useJobs(companyId: string | null) {
           returnReason?: string;
           updateSeq?: number;
         } | null;
-        const refreshKey = `${v.at ?? 0}:${bid}`;
+        const bid = parseInt(String(v?.bookingId ?? '0'), 10);
+        const refreshKey = `${v?.at ?? 0}:${bid}`;
         if (refreshKey === lastDispatchRefreshAtRef.current) return;
         lastDispatchRefreshAtRef.current = refreshKey;
-        const bid = parseInt(String(v.bookingId ?? '0'), 10);
         if (!bid) {
           syncAll();
           return;

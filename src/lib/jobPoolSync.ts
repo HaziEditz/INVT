@@ -569,7 +569,12 @@ export function reinjectOfferAwaitingJobs(
     bookingsRef.set(j.id, j);
   }
   for (const j of pendingRef.values()) {
-    if (normalizeJobStatus(j.status) !== 'Offered') continue;
+    const pendingSt = normalizeJobStatus(j.status);
+    if (POOL_TAB_STATUSES.has(pendingSt)) {
+      clearOfferAwaitingAllbookings(j.id);
+      continue;
+    }
+    if (pendingSt !== 'Offered') continue;
     if (!bookingsRef.has(j.id)) bookingsRef.set(j.id, j);
   }
 }
@@ -604,7 +609,7 @@ export function shouldPreserveAbsentStoreJob(
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isQueueAwaitingAllbookings(job.id)) return true;
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
-    return true;
+    return bookingsRef.has(job.id);
   }
   if (isWithinOptimisticWindow(job.id, now)) return true;
   const st = normalizeJobStatus(job.status);
