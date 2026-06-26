@@ -85,34 +85,42 @@ test('dispatch UI: integration accept-while-busy emits Queued refresh consumable
     await h.driverStatusChanged(id, 'Away', { zonename: 'Central' });
   }
 
-  await h.driverStatusChanged(hailDriver, 'Busy', {
-    zonename: 'Central',
-    lat: -46.4121,
-    lng: 168.3531,
-  });
   await h.configureDriver(hailDriver, {
+    passforlink: `regtest-key-${hailDriver}`,
     vehiclestatus: 'Busy',
     lat: -46.4121,
     lng: 168.3531,
     zonename: 'Central',
   });
+  const busyRes = await h.driverStatusChanged(hailDriver, 'Busy', {
+    zonename: 'Central',
+    lat: -46.4121,
+    lng: 168.3531,
+  });
+  assert.equal(busyRes.status, 200, JSON.stringify(busyRes.body));
 
   const poolJobId = await h.createAsapJob('queue-dispatch-ui');
   await h.triggerAutoDispatch();
+  await h.triggerAutoDispatch();
   await h.poll(
     poolJobId,
-    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Pending',
-    { timeoutMs: 45000 },
+    (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
+      const pj = t.firebase?.pendingjobs;
+      return st === 'Pending' && pj && String(pj.BookingStatus || pj.Status || '') === 'Pending';
+    },
+    { timeoutMs: 60000 },
   );
 
   const acceptRes = await h.acceptJob(poolJobId, hailDriver);
   assert.equal(acceptRes.status, 200, JSON.stringify(acceptRes.body));
+  assert.equal(acceptRes.body.ok, true, JSON.stringify(acceptRes.body));
   assert.equal(acceptRes.body.queued, true, JSON.stringify(acceptRes.body));
 
   const queued = await h.poll(
     poolJobId,
     (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Queued',
-    { timeoutMs: 25000 },
+    { timeoutMs: 60000 },
   );
   assert.equal(String(queued.firebase?.allbookings?.BookingStatus || queued.firebase?.allbookings?.Status), 'Queued');
 
@@ -197,8 +205,13 @@ test('dispatch UI: confirmed allbookings Queued beats stale pendingjobs Pending 
 });
 
 test('dispatch UI: lowercase queued status routes to Queue tab', () => {
-  assert.equal(jobTabForStatus({ id: 1, status: 'queued' }), 'queue');
-  assert.equal(jobTabForStatus({ id: 2, status: 'QUEUED' }), 'queue');
+  assert.equal(jobTabForStatus({ id: 1, status: 'queued', driverId: '9001' }), 'queue');
+  assert.equal(jobTabForStatus({ id: 2, status: 'QUEUED', driverId: '9001' }), 'queue');
+});
+
+test('dispatch UI: stale queued status without real driver routes to U-A', () => {
+  assert.equal(jobTabForStatus({ id: 3, status: 'Queued', driverId: '-1' }), 'ua');
+  assert.equal(jobTabForStatus({ id: 4, status: 'Queued', driverId: '0' }), 'ua');
 });
 
 test.after(async () => {

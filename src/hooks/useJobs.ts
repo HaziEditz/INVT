@@ -973,8 +973,16 @@ export function useJobs(companyId: string | null) {
               !TERMINAL_BOOKING_STATUSES.has(effectiveStatus) &&
               effectiveStatus !== 'Queued'
             ) {
-              pendingRef.current.delete(jobId);
-              effectiveStatus = 'Queued';
+              if (
+                effectiveStatus === 'No One' ||
+                effectiveStatus === 'Pending' ||
+                effectiveStatus === 'Scheduled'
+              ) {
+                clearQueueAwaitingAllbookings(jobId);
+              } else {
+                pendingRef.current.delete(jobId);
+                effectiveStatus = 'Queued';
+              }
             }
             let stored =
               effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;

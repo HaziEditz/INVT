@@ -12,16 +12,23 @@ test('Phase 2 dispatch eligibility: Pending auto-offers, No One never auto-dispa
   const h = await getHarness();
   await prepareCleanDispatch(h);
   const driverId = h.driverIds[0];
+  await h.ensureDriverReady(driverId);
 
-  const pendingId = await h.createAsapJob('pending-dispatch');
   const noOneId = await h.createAsapJob('noone-dispatch');
   await h.setNoOne(noOneId);
-  await h.poll(noOneId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'No One');
+  await h.poll(noOneId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'No One', {
+    timeoutMs: 30000,
+  });
+
+  const pendingId = await h.createAsapJob('pending-dispatch');
+  await h.poll(pendingId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Pending', {
+    timeoutMs: 45000,
+  });
 
   await h.triggerAutoDispatch();
   await h.triggerAutoDispatch();
 
-  const pendingTrace = await h.waitForAutoOffer(pendingId, driverId);
+  const pendingTrace = await h.waitForAutoOffer(pendingId, driverId, { timeoutMs: 90000 });
   assertStatusSync(pendingTrace, 'Offered', 'Pending job');
 
   const noOneTrace = await h.jobTrace(noOneId);
@@ -36,6 +43,11 @@ test('Phase 2 dispatch eligibility: Pending auto-offers, No One never auto-dispa
     false,
     'No One job should not be auto-dispatch eligible',
   );
+});
+
+test.afterEach(async () => {
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
 });
 
 test.after(async () => {

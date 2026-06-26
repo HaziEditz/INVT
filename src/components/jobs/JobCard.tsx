@@ -189,6 +189,14 @@ export function JobCard({ job, tab }: JobCardProps) {
     for (const d of filterDriversForJob(onlineDrivers, job)) byId.set(d.driverId, d);
     return Array.from(byId.values());
   }, [allDrivers, job, onlineDrivers]);
+  const queueAssignDrivers = useMemo(
+    () =>
+      filterDriversForJob(onlineDrivers, job).filter(
+        (d) => d.driverId !== String(job.driverId ?? '').trim(),
+      ),
+    [onlineDrivers, job],
+  );
+  const assignDropdownDrivers = tab === 'queue' ? queueAssignDrivers : assignDrivers;
   const showAssignControls =
     tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active';
   const addToast = useUiStore((s) => s.addToast);
@@ -299,7 +307,7 @@ export function JobCard({ job, tab }: JobCardProps) {
   );
 
   const rightContact = useMemo(() => {
-    if (tab === 'active' || tab === 'assign') {
+    if (tab === 'active' || tab === 'assign' || tab === 'queue') {
       const name =
         assignedDriver?.driverName?.trim() ||
         job.driverName?.trim() ||
@@ -406,7 +414,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
     const selection = assignSelection;
     try {
-      const result = await applyJobAssignment(job, selection, assignDrivers);
+      const result = await applyJobAssignment(job, selection, assignDropdownDrivers);
       const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
       addToast({
         type: 'success',
@@ -602,10 +610,10 @@ export function JobCard({ job, tab }: JobCardProps) {
                 }}
               >
                 <option value="">Assign ▼</option>
-                <option value="__pending__">Pending</option>
+                {tab !== 'queue' && <option value="__pending__">Pending</option>}
                 <option value="__noone__">No One</option>
-                {assignDrivers.length > 0 && <option disabled>— drivers —</option>}
-                {assignDrivers.map((d) => (
+                {assignDropdownDrivers.length > 0 && <option disabled>— drivers —</option>}
+                {assignDropdownDrivers.map((d) => (
                   <option key={d.driverId} value={d.driverId}>
                     {d.vehicleNo} {d.driverName}
                   </option>

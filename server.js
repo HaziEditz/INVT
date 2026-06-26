@@ -5438,6 +5438,7 @@ function _applyPoolStatusFields(job, poolStatus) {
   job.AssignedDriverId = '';
   job.AssignedDriver = '';
   job.offeredAt = null;
+  job.queuedAt = null;
   job.releasedAt = Date.now();
   if (restored === 'No One') {
     job.manualOffer = true;
@@ -6949,6 +6950,12 @@ async function updateBooking(opts) {
     const _toSt = String(_diff.BookingStatus.to || '');
     if (_toSt === 'Arrived' && !job.ArrivedAt) job.ArrivedAt = new Date().toISOString();
     if (_toSt === 'Active' && !job.ActiveAt) job.ActiveAt = new Date().toISOString();
+    if (
+      (_toSt === 'Pending' || _toSt === 'No One' || _toSt === 'Scheduled') &&
+      _prevStatus === 'Queued'
+    ) {
+      delete job.queuedAt;
+    }
   }
   _appendJobEditHistory(job, _diff, by, { dispatcherName: _dispatcherName });
 
@@ -7020,6 +7027,11 @@ async function updateBooking(opts) {
     if (Array.isArray(job.editHistory) && job.editHistory.length) {
       _fbChanged.editHistory = job.editHistory.slice(-20);
       _fbChanged.EditHistory = _fbChanged.editHistory;
+    }
+    if (_prevStatus === 'Queued' && (_newStatus === 'Pending' || _newStatus === 'No One' || _newStatus === 'Scheduled')) {
+      _fbChanged.queuedAt = null;
+      _fbChanged.QueuedAt = null;
+      _fbChanged.eventType = 'updated';
     }
     // §FIX-DA-G5/G4 — driver-app public contract: version + serverTimestamp
     // + 6-value eventType on every booking write.

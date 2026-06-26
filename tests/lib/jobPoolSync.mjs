@@ -23,6 +23,11 @@ export function isUnassignedDriverId(driverId) {
   return !d || d === '0' || d === '-1' || d === '-2';
 }
 
+export function isGenuineQueuedJob(job) {
+  if (normalizeJobStatus(job.status) !== 'Queued') return false;
+  return !isUnassignedDriverId(job.driverId);
+}
+
 export function hasRealPassengerData(rec) {
   if (!rec || typeof rec !== 'object') return false;
   const name = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? '').trim();
@@ -179,17 +184,38 @@ export function coerceAllbookingsLiveStatus(rec, effectiveStatus) {
   if (fbStatus && TERMINAL.has(fbStatus)) return fbStatus;
   if (TERMINAL.has(normalizeJobStatus(effectiveStatus))) return effectiveStatus;
 
-  if (fbBooking === 'Queued') return 'Queued';
+  if (fbBooking && POOL_UA.has(fbBooking)) return fbBooking;
+  if (fbStatus && POOL_UA.has(fbStatus)) return fbStatus;
+
+  const drv = String(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? '').trim();
+  if (fbBooking === 'Queued') {
+    return isUnassignedDriverId(drv) ? effectiveStatus : 'Queued';
+  }
   const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
-  if (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) return 'Queued';
+  if (
+    (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) &&
+    !isUnassignedDriverId(drv) &&
+    fbBooking !== 'No One' &&
+    fbStatus !== 'No One' &&
+    fbBooking !== 'Pending' &&
+    fbStatus !== 'Pending'
+  ) {
+    return 'Queued';
+  }
   return effectiveStatus;
 }
 
 export function allbookingsRecordIsQueued(rec) {
+  const drv = String(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? '').trim();
+  if (isUnassignedDriverId(drv)) return false;
   const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  if (bookingRaw != null && normalizeJobStatus(String(bookingRaw)) === 'Queued') return true;
+  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  if (fbBooking && POOL_UA.has(fbBooking)) return false;
+  if (fbBooking === 'Queued') return true;
   const statusRaw = rec.Status ?? rec.status;
-  if (statusRaw != null && normalizeJobStatus(String(statusRaw)) === 'Queued') return true;
+  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+  if (fbStatus && POOL_UA.has(fbStatus)) return false;
+  if (fbStatus === 'Queued') return true;
   if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
   return rec.queuedAt != null || rec.QueuedAt != null;
 }
@@ -232,7 +258,7 @@ export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
 function coerceQueuedIfAwaiting(job) {
   if (!isQueueAwaitingAllbookings(job.id)) return job;
   const st = normalizeJobStatus(job.status);
-  if (TERMINAL.has(st)) {
+  if (TERMINAL.has(st) || POOL_UA.has(st)) {
     clearQueueAwaitingAllbookings(job.id);
     return job;
   }
@@ -304,7 +330,7 @@ export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef) {
   for (const j of storeJobs) {
     if (!isQueueAwaitingAllbookings(j.id)) continue;
     const st = normalizeJobStatus(j.status);
-    if (TERMINAL.has(st) || isCompletedJobSuppressed(j.id)) {
+    if (TERMINAL.has(st) || POOL_UA.has(st) || isCompletedJobSuppressed(j.id)) {
       clearQueueAwaitingAllbookings(j.id);
       continue;
     }
@@ -335,7 +361,9 @@ function normalizeJobStatus(st) {
 
 function jobTabForStatus(job) {
   const st = normalizeJobStatus(job.status);
-  if (st === 'Queued') return 'queue';
+  const drv = String(job.driverId ?? '').trim();
+  const hasQueuedDriver = !!drv && drv !== '0' && drv !== '-1' && drv !== '-2';
+  if (st === 'Queued' && hasQueuedDriver) return 'queue';
   if (st === 'Active' || st === 'OnTrip') return 'active';
   if (st === 'Assigned' || st === 'Picking' || st === 'Arrived') return 'assign';
   if (st === 'Offered') return 'offer';

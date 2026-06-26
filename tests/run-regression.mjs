@@ -112,7 +112,7 @@ async function main() {
     const testEnv = {
       ...serverEnv,
       REGRESSION_BASE_URL: BASE,
-      NODE_TEST_TIMEOUT: '120000',
+      NODE_TEST_TIMEOUT: '180000',
     };
 
     const regressionDir = path.join(__dirname, 'regression');

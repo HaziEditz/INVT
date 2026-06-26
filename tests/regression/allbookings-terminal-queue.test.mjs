@@ -5,6 +5,7 @@ import {
   reinjectQueueAwaitingJobs,
   markQueueAwaitingAllbookings,
   clearQueueAwaitingAllbookings,
+  allbookingsRecordIsQueued,
 } from '../lib/jobPoolSync.mjs';
 
 test('coerceAllbookingsLiveStatus: Cancelled wins over stale queuedAt', () => {
@@ -25,6 +26,37 @@ test('coerceAllbookingsLiveStatus: Completed wins over stale queuedAt', () => {
     queuedAt: Date.now(),
   };
   assert.equal(coerceAllbookingsLiveStatus(rec, 'Completed'), 'Completed');
+});
+
+test('coerceAllbookingsLiveStatus: No One wins over stale queuedAt', () => {
+  const rec = {
+    BookingStatus: 'No One',
+    Status: 'No One',
+    DriverId: '-1',
+    queuedAt: Date.now(),
+    eventType: 'queued',
+  };
+  assert.equal(coerceAllbookingsLiveStatus(rec, 'No One'), 'No One');
+});
+
+test('coerceAllbookingsLiveStatus: stale queuedAt without driver is not Queued', () => {
+  const rec = {
+    BookingStatus: 'Pending',
+    DriverId: '0',
+    queuedAt: Date.now(),
+  };
+  assert.equal(coerceAllbookingsLiveStatus(rec, 'Pending'), 'Pending');
+});
+
+test('allbookingsRecordIsQueued: false for No One with stale queuedAt', () => {
+  assert.equal(
+    allbookingsRecordIsQueued({
+      BookingStatus: 'No One',
+      DriverId: '-1',
+      queuedAt: Date.now(),
+    }),
+    false,
+  );
 });
 
 test('coerceAllbookingsLiveStatus: still coerces live queue rows', () => {

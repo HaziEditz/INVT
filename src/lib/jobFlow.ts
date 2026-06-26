@@ -762,6 +762,9 @@ export async function setPending(job: Job) {
     VehicleId: 0,
     releasedAt: null,
     manualOffer: false,
+    queuedAt: null,
+    QueuedAt: null,
+    eventType: 'updated',
     ...(hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}),
   }, job);
 }
@@ -773,6 +776,9 @@ export async function setNoOne(job: Job) {
     Status: 'No One',
     DriverId: -1,
     VehicleId: 0,
+    queuedAt: null,
+    QueuedAt: null,
+    eventType: 'updated',
     ...(hadDriver ? { manualOffer: true } : {}),
     ...(hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}),
   }, job);

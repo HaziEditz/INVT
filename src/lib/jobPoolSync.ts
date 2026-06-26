@@ -152,6 +152,20 @@ export function isUnassignedDriverId(driverId: unknown): boolean {
   return !d || d === '0' || d === '-1' || d === '-2';
 }
 
+const POOL_TAB_STATUSES = new Set(['Pending', 'No One', 'Scheduled']);
+
+/** Queue tab: BookingStatus Queued with a real assigned driver (not pool ids 0 / -1 / -2). */
+export function isGenuineQueuedJob(job: Pick<Job, 'status' | 'driverId'>): boolean {
+  if (normalizeJobStatus(job.status) !== 'Queued') return false;
+  return !isUnassignedDriverId(job.driverId);
+}
+
+function recordDriverId(rec: Record<string, unknown>): string {
+  return String(
+    rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? rec.assignedDriverId ?? '',
+  ).trim();
+}
+
 export function hasRealPassengerData(rec: Record<string, unknown>): boolean {
   const name = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? '').trim();
   const phone = String(
@@ -388,18 +402,38 @@ export function coerceAllbookingsLiveStatus(
   if (fbStatus && TERMINAL_BOOKING_STATUSES.has(fbStatus)) return fbStatus;
   if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) return effectiveStatus;
 
-  if (fbBooking === 'Queued') return 'Queued';
+  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return fbBooking;
+  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return fbStatus;
+
+  const drv = recordDriverId(rec);
+  if (fbBooking === 'Queued') {
+    return isUnassignedDriverId(drv) ? (effectiveStatus as Job['status']) : 'Queued';
+  }
   const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
-  if (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) return 'Queued';
+  if (
+    (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) &&
+    !isUnassignedDriverId(drv) &&
+    fbBooking !== 'No One' &&
+    fbStatus !== 'No One' &&
+    fbBooking !== 'Pending' &&
+    fbStatus !== 'Pending'
+  ) {
+    return 'Queued';
+  }
   return effectiveStatus;
 }
 
 /** True when allbookings (or mirror fields) confirms Queued. */
 export function allbookingsRecordIsQueued(rec: Record<string, unknown>): boolean {
+  if (isUnassignedDriverId(recordDriverId(rec))) return false;
   const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  if (bookingRaw != null && normalizeJobStatus(String(bookingRaw)) === 'Queued') return true;
+  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return false;
+  if (fbBooking === 'Queued') return true;
   const statusRaw = rec.Status ?? rec.status;
-  if (statusRaw != null && normalizeJobStatus(String(statusRaw)) === 'Queued') return true;
+  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return false;
+  if (fbStatus === 'Queued') return true;
   if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
   return rec.queuedAt != null || rec.QueuedAt != null;
 }
@@ -458,7 +492,7 @@ export function pendingSnapshotWouldRegressQueue(
 export function coerceQueuedIfAwaiting(job: Job): Job {
   if (!isQueueAwaitingAllbookings(job.id)) return job;
   const st = normalizeJobStatus(job.status);
-  if (TERMINAL_BOOKING_STATUSES.has(st)) {
+  if (TERMINAL_BOOKING_STATUSES.has(st) || POOL_TAB_STATUSES.has(st)) {
     clearQueueAwaitingAllbookings(job.id);
     return job;
   }
@@ -502,7 +536,11 @@ export function reinjectQueueAwaitingJobs(
   for (const j of storeJobs) {
     if (!isQueueAwaitingAllbookings(j.id)) continue;
     const st = normalizeJobStatus(j.status);
-    if (TERMINAL_BOOKING_STATUSES.has(st) || isCompletedJobSuppressed(j.id)) {
+    if (
+      TERMINAL_BOOKING_STATUSES.has(st) ||
+      POOL_TAB_STATUSES.has(st) ||
+      isCompletedJobSuppressed(j.id)
+    ) {
       clearQueueAwaitingAllbookings(j.id);
       continue;
     }
@@ -568,7 +606,7 @@ export function shouldPreserveAbsentStoreJob(
   if (LIVE_LIFECYCLE_STATUSES.has(st)) return true;
   if (hasRealPassengerDataFromJob(job)) return true;
   if (!isUnassignedDriverId(job.driverId)) return true;
-  if (st === 'Queued') return true;
+  if (isGenuineQueuedJob(job)) return true;
   if (isStaleOrphanJobShell(job, now)) return false;
   return false;
 }

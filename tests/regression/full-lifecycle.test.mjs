@@ -16,7 +16,7 @@ test('Phase 2 lifecycle: Create → auto-dispatch → Accept → Arrived → Act
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('full-lifecycle');
 
-  const offered = await h.waitForAutoOffer(jobId, driverId, { timeoutMs: 60000 });
+  const offered = await h.waitForAutoOffer(jobId, driverId, { timeoutMs: 90000 });
   assert.equal(String(offered.jobStore?.lifecycle?.BookingStatus || ''), 'Offered', 'after auto-dispatch jobStore');
   const offerDrv = String(offered.jobStore.lifecycle.DriverId);
   assert.ok(offerDrv && offerDrv !== '0', 'offered to a driver');

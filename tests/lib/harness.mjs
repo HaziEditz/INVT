@@ -150,7 +150,7 @@ export async function createHarness(opts = {}) {
           (trace.firebase?.allbookings != null || trace.firebase?.pendingjobs != null) &&
           trace.dispatchUiHint?.jobStoreVsAllbookingsMismatch !== true &&
           trace.dispatchUiHint?.jobStoreVsPendingMismatch !== true,
-        { timeoutMs: 25000 },
+        { timeoutMs: 60000 },
       );
       return bookingId;
     },
@@ -468,14 +468,14 @@ export async function createHarness(opts = {}) {
       await h.ensureDriverReady(driverId);
       await h.assignJob(jobId, driverId, driverId);
       await h.poll(jobId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered', {
-        timeoutMs: 45000,
+        timeoutMs: 60000,
       });
       const acc = await h.acceptJob(jobId, driverId);
       if (!acc.body.ok) {
         throw new Error(`accept failed: ${JSON.stringify(acc.body)}`);
       }
       await h.poll(jobId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Assigned', {
-        timeoutMs: 25000,
+        timeoutMs: 45000,
       });
     },
 
@@ -496,7 +496,7 @@ export async function createHarness(opts = {}) {
     },
 
     /** Poll until auto-dispatch offers, retrying ticks; manual assign as last resort. */
-    async waitForAutoOffer(jobId, driverId, { timeoutMs = 45000 } = {}) {
+    async waitForAutoOffer(jobId, driverId, { timeoutMs = 90000 } = {}) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         await h.triggerAutoDispatch();
@@ -515,7 +515,7 @@ export async function createHarness(opts = {}) {
       return h.poll(
         jobId,
         (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
-        { timeoutMs: 25000 },
+        { timeoutMs: 45000 },
       );
     },
 

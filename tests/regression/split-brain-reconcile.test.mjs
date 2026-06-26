@@ -19,6 +19,8 @@ test('Split-brain: stale Offered + Firebase Completed does not block other jobs'
 
   const driverA = h.driverIds[0];
   const driverB = h.driverIds[1];
+  await h.ensureDriverReady(driverA);
+  await h.ensureDriverReady(driverB);
   const stuckJobId = await h.createAsapJob('split-brain-stuck-offered');
   const freshJobId = await h.createAsapJob('split-brain-fresh-pending');
 

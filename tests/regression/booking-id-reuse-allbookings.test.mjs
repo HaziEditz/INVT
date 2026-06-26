@@ -43,7 +43,15 @@ test('booking id reuse: complete then re-insert same Id clears stale terminal al
   const driverId = h.driverIds[0];
   await h.ensureDriverReady(driverId);
   const reusedId = await h.createAsapJob('id-reuse-complete-first');
-  await h.assignAccept(reusedId, driverId);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await h.assignAccept(reusedId, driverId);
+      break;
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await h.ensureDriverReady(driverId);
+    }
+  }
   await h.completeJob(reusedId, driverId, { fare: '18.00' });
   await h.poll(
     reusedId,

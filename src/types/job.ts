@@ -687,8 +687,10 @@ export function jobTabForStatus(job: Job): JobTab {
   if (job.serviceType === 'food' || job.serviceType === 'freight') return 'dy';
   const raw = job.status;
   const st = normalizeJobStatus(job.status);
+  const drv = String(job.driverId ?? '').trim();
+  const hasQueuedDriver = !!drv && drv !== '0' && drv !== '-1' && drv !== '-2';
   const tab: JobTab =
-    st === 'Queued'
+    st === 'Queued' && hasQueuedDriver
       ? 'queue'
       : st === 'Active' || st === 'OnTrip'
         ? 'active'
