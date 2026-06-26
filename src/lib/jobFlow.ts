@@ -282,6 +282,11 @@ function firebasePatchFromChanges(changes: Record<string, unknown>): Record<stri
   if (changes.VehicleId !== undefined) patch.VehicleId = changes.VehicleId;
   if (changes.releasedAt !== undefined) patch.releasedAt = changes.releasedAt;
   if (changes.manualOffer !== undefined) patch.manualOffer = changes.manualOffer;
+  if (changes.queuedAt === null || changes.QueuedAt === null) {
+    patch.queuedAt = null;
+    patch.QueuedAt = null;
+    patch.eventType = changes.eventType ?? 'updated';
+  }
   if (changes.ScheduledFor === 0 || changes.ScheduledForMs === 0) {
     patch.ScheduledFor = null;
   }

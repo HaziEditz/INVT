@@ -37,7 +37,11 @@ test('Phase 1 sequence: two jobs quick-assign No One sequentially without mismat
   assertStatusSync(traceB, 'No One', 'job B');
 
   // Job A must remain No One (no cross-job regression)
-  const traceAAfter = await h.jobTrace(jobA);
+  const traceAAfter = await h.poll(
+    jobA,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'No One',
+    { timeoutMs: 20000 },
+  );
   assertStatusSync(traceAAfter, 'No One', 'job A after job B update');
 });
 

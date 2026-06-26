@@ -958,6 +958,13 @@ export function useJobs(companyId: string | null) {
               rec,
               normalizeJobStatus(jobStatusFromFirebaseRecord(rec)),
             );
+            const fbAttached = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Offered', 'Queued']);
+            const abRaw = normalizeJobStatus(
+              String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? ''),
+            );
+            if (fbAttached.has(abRaw) && !fbAttached.has(effectiveStatus)) {
+              effectiveStatus = abRaw;
+            }
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               clearRemovedJob(jobId);
             } else if (isBlacklisted(jobId)) {

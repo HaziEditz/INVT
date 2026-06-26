@@ -666,7 +666,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         }
 
         addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
-        onClose();
+        editLockJobIdRef.current = null;
+        releaseHeldEditLock(editingJob.id);
+        resetForm();
+        setRoutePreview(null);
+        closeModal();
         return;
       }
 

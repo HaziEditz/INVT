@@ -192,8 +192,13 @@ export function coerceAllbookingsLiveStatus(rec, effectiveStatus) {
     return isUnassignedDriverId(drv) ? effectiveStatus : 'Queued';
   }
   const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
+  if (eventType === 'queued' && !isUnassignedDriverId(drv)) {
+    if (fbBooking !== 'No One' && fbStatus !== 'No One' && fbBooking !== 'Pending' && fbStatus !== 'Pending') {
+      return 'Queued';
+    }
+  }
   if (
-    (eventType === 'queued' || rec.queuedAt != null || rec.QueuedAt != null) &&
+    (rec.queuedAt != null || rec.QueuedAt != null) &&
     !isUnassignedDriverId(drv) &&
     fbBooking !== 'No One' &&
     fbStatus !== 'No One' &&

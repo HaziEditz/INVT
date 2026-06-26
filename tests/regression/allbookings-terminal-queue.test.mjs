@@ -68,6 +68,15 @@ test('coerceAllbookingsLiveStatus: still coerces live queue rows', () => {
   assert.equal(coerceAllbookingsLiveStatus(rec, 'Queued'), 'Queued');
 });
 
+test('coerceAllbookingsLiveStatus: eventType queued alone does not override No One', () => {
+  const rec = {
+    BookingStatus: 'No One',
+    DriverId: '-1',
+    eventType: 'queued',
+  };
+  assert.equal(coerceAllbookingsLiveStatus(rec, 'No One'), 'No One');
+});
+
 test('reinjectQueueAwaitingJobs: skips terminal store rows and clears await flag', () => {
   const jobId = 8692606252;
   markQueueAwaitingAllbookings(jobId);

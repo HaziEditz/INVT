@@ -50,10 +50,12 @@ test('Phase 3 queue-while-busy: offer → Queue → Recall → clean Pending poo
     { timeoutMs: 45000 },
   );
   assert.equal(String(recalled.jobStore.lifecycle.BookingStatus), 'Pending');
-  // RecallQueuedJob restores Pending with DriverId -2 (unassigned pool marker).
+  const recalledDrv = recalled.jobStore.lifecycle.DriverId;
+  const recalledDrvStr =
+    recalledDrv === null || recalledDrv === undefined ? '' : String(recalledDrv);
   assert.ok(
-    ['0', '-2'].includes(String(recalled.jobStore.lifecycle.DriverId || '')),
-    `DriverId after recall: ${recalled.jobStore.lifecycle.DriverId}`,
+    recalledDrvStr === '0' || recalledDrvStr === '-2',
+    `DriverId after recall: ${recalledDrvStr}`,
   );
 
   await h.driverStatusChanged(driverId, 'Available', { zonename: 'North' });

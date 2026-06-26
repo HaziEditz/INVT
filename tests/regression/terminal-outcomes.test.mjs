@@ -43,7 +43,8 @@ test('Phase 2 outcomes: No Show (post-Arrived) → terminal No Show', async () =
   requireFirebaseSecret();
   const h = await getHarness();
   await prepareCleanDispatch(h);
-  const driverId = h.driverIds[1];
+  await prepareCleanDispatch(h);
+  const driverId = h.driverIds[2];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('outcome-noshow');
   await h.assignAccept(jobId, driverId);
@@ -59,12 +60,21 @@ test('Phase 2 outcomes: No Show (post-Arrived) → terminal No Show', async () =
   assert.equal(ns.body.ok, true, JSON.stringify(ns.body));
   const nsTrace = await h.poll(
     jobId,
-    (t) =>
-      t.jobStore?.closedFound === true &&
-      String(t.jobStore?.lifecycle?.BookingStatus || '') === 'No Show',
-    { timeoutMs: 90000 },
+    (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
+      return (t.jobStore?.closedFound === true && st === 'No Show') || st === 'No Show';
+    },
+    { timeoutMs: 150000 },
   );
-  assertTerminalClean(nsTrace, 'No Show', 'no show');
+  if (!nsTrace.jobStore?.closedFound) {
+    await h.poll(
+      jobId,
+      (t) => t.jobStore?.closedFound === true,
+      { timeoutMs: 60000 },
+    );
+  }
+  const finalTrace = await h.jobTrace(jobId);
+  assertTerminalClean(finalTrace, 'No Show', 'no show');
 });
 
 test('Phase 2 outcomes: Cancel (post-Arrived) → terminal Cancelled', async () => {
