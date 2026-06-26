@@ -4,7 +4,7 @@ Run **`npm run test:regression`** (full suite, all tests) before every push. Do 
 
 | ID | Bug | Guard test / commit |
 |----|-----|---------------------|
-| TARIFF-STD | Hardcoded **"Standard"** placeholder tariff leaks into dispatch/driver UI for company **860869** | `tests/regression/tariff-standard-guard.test.mjs` — commit `7ffff99`, reinforced here |
+| TARIFF-STD | Hardcoded **"Standard"** placeholder tariff leaks into dispatch/driver UI for company **860869** | `tests/regression/tariff-standard-guard.test.mjs`; driver app: `lib/tariffResolve.ts` + meter/booking sync |
 | DRIVER-WITHDRAW | Driver app keeps active job after dispatch unassigns (`jobs/` deleted, `currentJobId` null) | INVT-APP2 `lib/activeJobPresenceWatch.ts` |
 | DISPATCH-OFFER-STUCK | Offer tab job stuck after recall/cancel until manual refresh | `src/lib/jobPoolSync.ts` offer-awaiting purge |
 | DISPATCH-REFRESH | Dispatch tabs do not auto-refresh after status changes | `useJobs.ts` `dispatchConsole/refresh` listener |

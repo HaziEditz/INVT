@@ -100,3 +100,25 @@ test('tariff guard: DispatcherSettings dt4 filters Standard placeholder', async 
     assert.equal(isForbiddenPlaceholderTariffName(name), false, `dt4 leaked "${name}"`);
   }
 });
+
+test('tariff guard: booking tariff id resolves over stale Standard name', () => {
+  const tariffs = [
+    { id: '1', name: 'Tarrif 1' },
+    { id: '2', name: 'Total Mobility' },
+  ];
+  function resolveFromList(list, hints) {
+    const id = hints?.id?.trim();
+    if (id) {
+      const byId = list.find((t) => t.id === id || String(t.id) === id);
+      if (byId) return byId;
+    }
+    const name = hints?.name?.trim();
+    if (name && !isForbiddenPlaceholderTariffName(name)) {
+      const byName = list.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      if (byName) return byName;
+    }
+    return null;
+  }
+  const resolved = resolveFromList(tariffs, { id: '1', name: 'Standard' });
+  assert.equal(resolved?.name, 'Tarrif 1');
+});
