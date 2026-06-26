@@ -446,7 +446,7 @@ async function persistJobUpdate(
   const current = latestStoreJob(jobId) ?? baseJob;
   const merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
   if (
-    normalizeJobStatus(baseline.status) === 'Queued' &&
+    normalizeJobStatus(baseJob.status) === 'Queued' &&
     (normalizeJobStatus(merged.status) === 'Pending' || normalizeJobStatus(merged.status) === 'No One')
   ) {
     clearQueueAwaitingAllbookings(jobId);
@@ -465,6 +465,14 @@ async function persistJobUpdate(
 
 function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq: number): Job {
   const seq = Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0);
+  const optSt = normalizeJobStatus(optimistic.status);
+  const freshSt = normalizeJobStatus(fresh.status);
+  const poolUnassign =
+    (optSt === 'Pending' || optSt === 'No One') &&
+    ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Offered', 'Queued'].includes(freshSt);
+  if (poolUnassign && seq >= (fresh.updateSeq ?? 0)) {
+    return { ...optimistic, updateSeq: seq };
+  }
   let merged = mergeJobUpdate(optimistic, { ...fresh, updateSeq: seq });
   if ((fresh.dispatchBeforeMinutes ?? 0) === 0 && (optimistic.dispatchBeforeMinutes ?? 0) > 0) {
     merged = {
@@ -689,12 +697,32 @@ export async function cancelJob(
 }
 
 export async function recallJob(bookingId: number, originalStatus: JobStatus) {
-  return jobCommand({
+  const existing = latestStoreJob(bookingId);
+  const result = await jobCommand({
     bookingId,
     command: 'recall',
     by: 'dispatcher',
     payload: { originalStatus },
-  });
+  }) as { ok?: boolean; booking?: Record<string, unknown>; version?: number };
+  if (!result?.ok) {
+    throw new Error('Recall failed');
+  }
+  const booking = result.booking;
+  const restoredStatus = normalizeJobStatus(
+    String(booking?.BookingStatus ?? booking?.Status ?? 'Pending'),
+  );
+  const seq = Number(booking?.updateSeq ?? booking?.version ?? result.version ?? existing?.updateSeq ?? 0);
+  if (existing) {
+    useJobStore.getState().upsertJob({
+      ...existing,
+      status: restoredStatus,
+      driverId: undefined,
+      vehicleId: undefined,
+      updateSeq: seq || (existing.updateSeq ?? 0) + 1,
+      returnReason: String(booking?.returnReason ?? 'Recalled by dispatcher'),
+    });
+  }
+  return result;
 }
 
 export async function forceCompleteJob(bookingId: number) {

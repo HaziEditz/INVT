@@ -352,7 +352,19 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
     const storeJob =
       useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
-    const formKey = `${storeJob.id}:${storeJob.updateSeq ?? 0}:${effectiveJobStatus(storeJob)}`;
+    const formKey = [
+      storeJob.id,
+      storeJob.updateSeq ?? 0,
+      effectiveJobStatus(storeJob),
+      storeJob.pickAddress,
+      storeJob.dropAddress,
+      storeJob.passengerName,
+      storeJob.passengerPhone,
+      storeJob.notes,
+      storeJob.bookingDateTime,
+      storeJob.driverId,
+      storeJob.vehicleType,
+    ].join('|');
     if (loadedFormKeyRef.current !== formKey) {
       loadedFormKeyRef.current = formKey;
       const loaded = jobToForm(storeJob);
@@ -644,6 +656,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
         if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
           addToast({ type: 'info', title: 'No changes to save' });
+          editLockJobIdRef.current = null;
+          await releaseHeldEditLock(editingJob.id);
           onClose();
           return;
         }
@@ -667,7 +681,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
         addToast({ type: 'success', title: 'Job updated', category: 'job_updated' });
         editLockJobIdRef.current = null;
-        releaseHeldEditLock(editingJob.id);
+        await releaseHeldEditLock(editingJob.id);
         resetForm();
         setRoutePreview(null);
         closeModal();

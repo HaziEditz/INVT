@@ -313,6 +313,17 @@ export function driverFromFirebase(
   const rawVehicleNo = String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId);
   const vehicleNo = /^DD\d+$/i.test(rawVehicleNo) ? rawVehicleNo.slice(1) : rawVehicleNo;
   const liveMeter = parseLiveMeterFromRecord(rec, current);
+  const hasActiveTrip =
+    status === 'Picking' ||
+    status === 'Assigned' ||
+    status === 'Arrived' ||
+    status === 'Active' ||
+    status === 'OnTrip' ||
+    status === 'Busy';
+  let jobCount = rec.jobCount != null ? Number(rec.jobCount) : undefined;
+  if (hasActiveTrip && hasBookingRef && (jobCount == null || Number.isNaN(jobCount) || jobCount < 1)) {
+    jobCount = 1;
+  }
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ''),
     vehicleId,
@@ -330,7 +341,7 @@ export function driverFromFirebase(
     lng: rec.lng != null ? Number(rec.lng) : undefined,
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ''),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : undefined,
-    jobCount: rec.jobCount != null ? Number(rec.jobCount) : undefined,
+    jobCount,
     bookingId:
       status === 'Away' || !hasBookingRef ? '' : String(rawBookingRef),
     jobPickup: status === 'Away' ? '' : String(rec.jobpickup ?? current.jobpickup ?? ''),

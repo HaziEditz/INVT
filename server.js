@@ -3838,7 +3838,7 @@ function _driverCanDoService(driver, job) {
 function _computeDriverJobCount(driverId, cid) {
   const did = String(driverId || '').trim();
   if (!did || did === '0' || did === '-1') return 0;
-  const tripSt = new Set(['Assigned', 'Picking', 'OnTrip', 'Active', 'Busy']);
+  const tripSt = new Set(['Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Busy']);
   let count = 0;
   for (const j of jobStore) {
     if (!j) continue;
@@ -5114,11 +5114,19 @@ async function _mirrorDriverOnlineStatus(cid, driverId, vehicleId, bookingStatus
     (String(d.driverid || '') === did || String(d.VehicleId || '') === vid)
   );
   if (zd) zd.vehiclestatus = pres;
+  if (zd && did && cid) {
+    const count = _computeDriverJobCount(did, cid);
+    if (count > 0) zd.jobCount = count;
+  }
 
   try {
     const tok = await getFirebaseServerToken();
     if (!tok) return;
     const patch = { vehiclestatus: pres, VehicleStatus: pres, lastSeen: Date.now() };
+    if (did && cid) {
+      const count = _computeDriverJobCount(did, cid);
+      if (count > 0) patch.jobCount = count;
+    }
     await firebaseDbPatch(`online/${cid}/${vid}`, patch, tok)
       .catch(e => console.warn(`  [${sourceTag}] online/${cid}/${vid} status mirror failed: ${e && e.message}`));
     await firebaseDbPatch(`online/${cid}/${vid}/current`, patch, tok)
@@ -6630,6 +6638,31 @@ async function _writeDriverJobUpdatedNotification(opts) {
   if (!_payload.jobdropoff) _payload.jobdropoff = String(job.DropAddress || job.DropLocation || '');
 
   await firebaseDbSet(`notification/${_drv}`, _payload, _tok);
+  const _cid = String(job.companyId || '').trim();
+  const _vid = _fbIds.vehicleId;
+  if (_cid && _vid && _vid !== '0' && _vid !== '-1' && _drv && job.Id) {
+    const _jobPatch = {
+      PickAddress: _payload.jobpickup || String(job.PickAddress || ''),
+      DropAddress: _payload.jobdropoff || String(job.DropAddress || ''),
+      PhoneNo: _payload.JobphoneNo || String(job.PhoneNo || ''),
+      Name: _payload.jobname || String(job.Name || job.PassengerName || ''),
+      Notes: _payload.notes || String(job.Notes || ''),
+      Pickingtime: _payload.Pickingtime || String(job.Pickingtime || job.BookingDateTime || ''),
+      BookingDateTime: _payload.Pickingtime || String(job.BookingDateTime || job.Pickingtime || ''),
+      EstimatedFare: _payload.EstimatedFare || String(job.EstimatedFare || job.CustomeRate || ''),
+      updateSeq: seq,
+      eventType: 'updated',
+      editNotice: _payload.editNotice,
+    };
+    await firebaseDbPatch(`jobs/${_cid}/${_vid}/${_drv}/${job.Id}`, _jobPatch, _tok)
+      .catch(e => console.warn(`  [${source}] jobs live-edit patch failed: ${e && e.message}`));
+    await firebaseDbPatch(`allbookings/${_cid}/${job.Id}`, {
+      editNotice: _payload.editNotice,
+      jobUpdatedAt: Date.now(),
+      eventType: 'updated',
+      updateSeq: seq,
+    }, _tok).catch(() => {});
+  }
   console.log(`  [${source}] notification/${_drv} → job_updated seq=${seq}`);
   return true;
 }
@@ -7214,13 +7247,31 @@ async function updateBooking(opts) {
     }
   }
   if (_cid && _diff.BookingStatus) {
+    const _refreshAction =
+      (_newStatus === 'Pending' || _newStatus === 'No One') &&
+      (_DRIVER_ATTACHED_STATUSES.has(_prevStatus) || _prevStatus === 'Offered')
+        ? 'recall'
+        : _dispatchRefreshActionForStatus(job.BookingStatus);
     await _dispatchRefreshForJob(job, {
       cid: _cid,
       previousStatus: _prevStatus,
       status: job.BookingStatus,
-      action: _dispatchRefreshActionForStatus(job.BookingStatus),
-      driverId: _drv || _prevDrv,
+      action: _refreshAction,
+      driverId: _prevDrv || _drv || '0',
+      returnReason: job.returnReason || '',
     });
+  }
+  const _lockEntry = _getJobEditLock(bookingId);
+  if (
+    _lockEntry &&
+    _sameEditLockHolder(_lockEntry, { sessionId: opts.sessionId || opts.clientSessionId })
+  ) {
+    await _applyJobEditLock(bookingId, _cid, false, {
+      source: by,
+      actor: opts.actorName || opts.actor || '',
+      sessionId: opts.sessionId || opts.clientSessionId || '',
+      forceRelease: true,
+    }).catch(() => {});
   }
   return {
     ok: true, idempotent: false,
@@ -21230,6 +21281,7 @@ async function _attachAssignedJobToDriverPresence(cid, driverId, job, sourceTag)
     jobname: String(job.Name || job.PassengerName || job.UserFName || ''),
     vehiclestatus: 'Picking',
     VehicleStatus: 'Picking',
+    jobCount: _computeDriverJobCount(did, cid) || 1,
     queuePromotionPending: null,
     lastSeen: Date.now(),
   }, tok);
@@ -21241,6 +21293,7 @@ async function _attachAssignedJobToDriverPresence(cid, driverId, job, sourceTag)
   await firebaseDbPatch(`online/${cid}/${vid}`, {
     vehiclestatus: 'Picking',
     VehicleStatus: 'Picking',
+    jobCount: _computeDriverJobCount(did, cid) || 1,
     lastSeen: Date.now(),
   }, tok).catch(() => undefined);
   await firebaseDbPatch(`notification/${did}`, {

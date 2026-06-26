@@ -321,6 +321,18 @@ function notifyOfferReturned(bookingId: number, refresh: DispatchRefreshPayload)
 
 const POOL_RESTORE_ACTIONS = new Set(['status', 'timeout', 'decline', 'recall', 'scheduled_release']);
 
+function refreshTrustsPoolRestore(
+  refresh: DispatchRefreshPayload,
+  fbSeq: number | null | undefined,
+): boolean {
+  if (!refresh.status || !POOL_RESTORE_ACTIONS.has(refresh.action || '')) return false;
+  const target = normalizeJobStatus(refresh.status);
+  if (target !== 'Pending' && target !== 'No One' && target !== 'Scheduled') return false;
+  const hintSeq = refresh.updateSeq ?? 0;
+  if (hintSeq > 0 && fbSeq != null && hintSeq >= fbSeq) return true;
+  return POOL_RESTORE_ACTIONS.has(refresh.action || '');
+}
+
 const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One', 'Scheduled']);
 const LIVE_OFFER_STATUSES = new Set(['Offered', 'Assigned']);
 
@@ -539,6 +551,10 @@ async function refreshJobFromFirebaseCaches(
 
   let job: Job | null = null;
   const abVal = abSnap.val();
+  const pjVal = pjSnap.val();
+  const pjRecord = pjVal && typeof pjVal === 'object' ? (pjVal as Record<string, unknown>) : null;
+  const fbSeq = seqFromFirebaseRecord(abVal as Record<string, unknown>) ?? seqFromFirebaseRecord(pjRecord);
+  const trustPoolRestore = refreshTrustsPoolRestore(refresh, fbSeq);
   if (abVal && typeof abVal === 'object') {
     const rec = abVal as Record<string, unknown>;
     const parsed = jobFromFirebase(String(bookingId), rec, companyId);
@@ -548,7 +564,9 @@ async function refreshJobFromFirebaseCaches(
         st = 'Queued';
       }
       if (ACTIVE_BOOKING_STATUSES.has(st)) {
-        if (!isCompletedJobSuppressed(bookingId)) {
+        if (trustPoolRestore) {
+          job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+        } else if (!isCompletedJobSuppressed(bookingId)) {
           job = parsed;
         }
       } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
@@ -588,10 +606,7 @@ async function refreshJobFromFirebaseCaches(
     job = applyQueueForcedMerge(prior, job);
   }
 
-  const pjVal = pjSnap.val();
-  const pjRecord = pjVal && typeof pjVal === 'object' ? (pjVal as Record<string, unknown>) : null;
-  const fbSeq = seqFromFirebaseRecord(abVal as Record<string, unknown>) ?? seqFromFirebaseRecord(pjRecord);
-  if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq) {
+  if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq && !trustPoolRestore) {
     job = mergeJobUpdate(job, { updateSeq: fbSeq } as Job);
   }
 
@@ -601,7 +616,7 @@ async function refreshJobFromFirebaseCaches(
         ? (abVal as Record<string, unknown>)
         : { BookingStatus: job.status, Status: job.status },
     );
-    if (st !== job.status) {
+    if (st !== job.status && !trustPoolRestore) {
       job =
         action === 'queue' && st === 'Queued'
           ? mergeJobUpdate(job, { status: st }, { forceStatus: 'Queued' })
@@ -1182,8 +1197,9 @@ export function useJobs(companyId: string | null) {
           returnReason?: string;
           updateSeq?: number;
         } | null;
-        if (!v?.at || v.at === lastDispatchRefreshAtRef.current) return;
-        lastDispatchRefreshAtRef.current = v.at;
+        const refreshKey = `${v.at ?? 0}:${bid}`;
+        if (refreshKey === lastDispatchRefreshAtRef.current) return;
+        lastDispatchRefreshAtRef.current = refreshKey;
         const bid = parseInt(String(v.bookingId ?? '0'), 10);
         if (!bid) {
           syncAll();

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from 'react';
-import { ArrowRight, Ban, Car, CheckCircle, Edit, Lock, Luggage, MapPin, AlertTriangle, StickyNote, Tag, Users, X } from 'lucide-react';
+import { ArrowRight, Ban, Car, CheckCircle, Edit, Lock, Luggage, MapPin, AlertTriangle, RotateCcw, StickyNote, Tag, Users, X } from 'lucide-react';
 import type { Job, JobTab, JobTimerBadge } from '@/types/job';
 import {
   formatJobDateTimeCompact,
@@ -41,6 +41,7 @@ import {
   applyJobAssignment,
   cancelJob,
   forceCompleteJob,
+  recallJob,
   setPending,
 } from '@/lib/jobFlow';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
@@ -196,7 +197,16 @@ export function JobCard({ job, tab }: JobCardProps) {
       ),
     [onlineDrivers, job],
   );
-  const assignDropdownDrivers = tab === 'queue' ? queueAssignDrivers : assignDrivers;
+  const assignTabDrivers = useMemo(
+    () =>
+      filterDriversForJob(onlineDrivers, job).filter(
+        (d) => d.driverId !== String(job.driverId ?? '').trim(),
+      ),
+    [onlineDrivers, job],
+  );
+  const assignDropdownDrivers =
+    tab === 'queue' ? queueAssignDrivers : tab === 'assign' ? assignTabDrivers : assignDrivers;
+  const showPendingAssignOption = tab !== 'queue' && tab !== 'assign';
   const showAssignControls =
     tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active';
   const addToast = useUiStore((s) => s.addToast);
@@ -610,7 +620,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                 }}
               >
                 <option value="">Assign ▼</option>
-                {tab !== 'queue' && <option value="__pending__">Pending</option>}
+                {showPendingAssignOption && <option value="__pending__">Pending</option>}
                 <option value="__noone__">No One</option>
                 {assignDropdownDrivers.length > 0 && <option disabled>— drivers —</option>}
                 {assignDropdownDrivers.map((d) => (
@@ -685,6 +695,21 @@ export function JobCard({ job, tab }: JobCardProps) {
           {tab === 'assign' && (
             <>
               {editButton()}
+              <Tooltip label="Recall job to U-A (withdraw from driver)">
+                <button
+                  type="button"
+                  className={cn(iconBtn, 'text-amber-500')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void run(
+                      () => recallJob(job.id, effectiveJobStatus(job)),
+                      'Recalled to U-A',
+                    );
+                  }}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </Tooltip>
               <Tooltip label="Cancel job">
                 <button
                   type="button"
@@ -694,7 +719,7 @@ export function JobCard({ job, tab }: JobCardProps) {
                     handleCancelClick(job.id);
                   }}
                 >
-                  <X size={11} />
+                  <Ban size={11} />
                 </button>
               </Tooltip>
             </>
