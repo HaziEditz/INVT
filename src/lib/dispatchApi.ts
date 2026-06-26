@@ -1,4 +1,4 @@
-import { createJob } from '@/lib/jobFlow';
+import { filterForbiddenTariffDropdown } from '@/lib/tariffGuard';
 
 export type DataParam = { name: string; Value?: string; value?: string };
 
@@ -81,9 +81,32 @@ export async function fetchDispatcherSettings(): Promise<DispatcherSettingsPaylo
   return {
     companyName: payload.dt1?.[0]?.CompanyName || '',
     vehicleTypes: payload.dt3 || [],
-    tariffs: payload.dt4 || [],
+    tariffs: filterForbiddenTariffDropdown(payload.dt4 || []),
     stripePublicKey: payload.dt5?.[0]?.PublicKey || '',
   };
+}
+
+/** Push live Firebase tariffs into server TARIFF_STORE ([TariffSync]). */
+export async function syncTariffsToServer(
+  tariffs: Array<{ id: string; name: string; startPrice: number; distanceRate: number; waitingRate: number; minimumFare: number }>,
+): Promise<void> {
+  if (!tariffs.length) return;
+  const payload = tariffs.map((t) => ({
+    Id: parseInt(t.id, 10) || t.id,
+    TariffName: t.name,
+    StartPrice: t.startPrice,
+    DistanceRate: t.distanceRate,
+    WaitingRate: t.waitingRate,
+    MinimumFare: t.minimumFare,
+    CurrencyName: 'NZD',
+  }));
+  try {
+    await postDataManager('DataSelector', '[TariffSync]', [
+      { name: 'tariffs', value: JSON.stringify(payload) },
+    ]);
+  } catch (err) {
+    console.warn('[TariffSync] push failed:', err);
+  }
 }
 
 export interface InsertBookingResult {

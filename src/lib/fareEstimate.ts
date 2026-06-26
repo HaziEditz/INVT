@@ -1,3 +1,7 @@
+import {
+  isForbiddenPlaceholderTariffName,
+} from '@/lib/tariffGuard';
+
 export interface TariffRate {
   id: string;
   name: string;
@@ -20,7 +24,7 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
 /** Parse Owner Panel / Firebase tariff node. Keep aliases in sync with TARIFF_PARSER.md and INVT-APP2/lib/parseTariffRecord.ts. */
 export function parseTariffRecord(key: string, rec: Record<string, unknown>): TariffRate | null {
   const name = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? '').trim();
-  if (!name) return null;
+  if (!name || isForbiddenPlaceholderTariffName(name)) return null;
   const id = String(rec.Id ?? rec.id ?? key);
   return {
     id,

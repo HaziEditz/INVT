@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getDbSafe, ref, onValue } from '@/lib/firebase';
 import { parseTariffRecord, type TariffRate } from '@/lib/fareEstimate';
+import { filterForbiddenTariffRates } from '@/lib/tariffGuard';
+import { syncTariffsToServer } from '@/lib/dispatchApi';
 
 function mergeTariffMaps(maps: Map<string, TariffRate>[]): TariffRate[] {
   const out = new Map<string, TariffRate>();
@@ -18,7 +20,11 @@ export function useTariffs(companyId: string | null) {
     const maps = [new Map<string, TariffRate>(), new Map<string, TariffRate>()];
 
     const sync = () => {
-      setTariffs(mergeTariffMaps(maps));
+      const merged = filterForbiddenTariffRates(mergeTariffMaps(maps));
+      setTariffs(merged);
+      if (companyId && merged.length) {
+        void syncTariffsToServer(merged);
+      }
     };
 
     const ingest = (idx: number, snap: { val: () => unknown; forEach?: (cb: (c: { key: string; val: () => unknown }) => void) => void }) => {

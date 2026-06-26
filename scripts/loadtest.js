@@ -654,7 +654,7 @@ async function testTariffAndEstimation() {
 
   // Sync tariffs
   const tariffs = JSON.stringify([
-    { Id: 1, TariffName: 'Standard', StartPrice: 5.00, DistanceRate: 3.50, WaitingRate: 1.0, MinimumFare: 5.00, CurrencyName: 'NZD' },
+    { Id: 1, TariffName: 'Tarrif 1', StartPrice: 5.00, DistanceRate: 3.50, WaitingRate: 1.0, MinimumFare: 5.00, CurrencyName: 'NZD' },
     { Id: 2, TariffName: 'Airport',  StartPrice: 8.00, DistanceRate: 4.00, WaitingRate: 0.5, MinimumFare: 8.00, CurrencyName: 'NZD' },
   ]);
   const r1 = await post(DS, '[TariffSync]', params('tariffs', tariffs));

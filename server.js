@@ -72,6 +72,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Stripe = require('stripe');
+const {
+  isForbiddenPlaceholderTariffName,
+  filterForbiddenTariffRows,
+  collectTariffNamesFromMergedPayload,
+} = require('./lib/tariffGuard.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -9808,7 +9813,7 @@ try {
   if (fs.existsSync(TARIFF_STORE_FILE)) {
     const _loaded = JSON.parse(fs.readFileSync(TARIFF_STORE_FILE, 'utf8'));
     if (Array.isArray(_loaded) && _loaded.length > 0) {
-      TARIFF_STORE = _loaded;
+      TARIFF_STORE = filterForbiddenTariffRows(_loaded);
       console.log(`[persist] loaded ${TARIFF_STORE.length} tariff(s) from disk`);
     }
   }
@@ -10114,6 +10119,7 @@ function _tariffStoreRowToApiNode(t) {
   const id = String(t.Id ?? t.id ?? '').trim();
   if (!id) return null;
   const name = String(t.TariffName ?? t.name ?? 'Tariff').trim();
+  if (isForbiddenPlaceholderTariffName(name)) return null;
   const startPrice = t.StartPrice ?? t.baseFare ?? t.flagFall;
   const distanceRate = t.DistanceRate ?? t.pricePerKm ?? t.ratePerKm;
   return {
@@ -10161,6 +10167,10 @@ async function _fetchCompanyTariffs(cid) {
     if (!row.companyId || String(row.companyId) !== c) continue;
     const node = _tariffStoreRowToApiNode(row);
     if (node) merged[String(node.id)] = node;
+  }
+  for (const [id, rec] of Object.entries(merged)) {
+    const nm = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? '').trim();
+    if (isForbiddenPlaceholderTariffName(nm)) delete merged[id];
   }
   return { ok: true, companyId: c, tariffs: merged, count: Object.keys(merged).length };
 }
@@ -18751,7 +18761,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             { Id: 3, VehicleName: 'Van' },
             { Id: 4, VehicleName: 'Wheelchair' },
           ],
-          dt4: TARIFF_STORE,
+          dt4: filterForbiddenTariffRows(TARIFF_STORE),
           dt5: [{ PublicKey: STRIPE_PK }],
         };
         console.log(`200: POST ${urlPath} [action=${action}] -> dispatcher settings (CompanyName="${_dsCompanyName}")`);
@@ -18765,9 +18775,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const _raw = (param('tariffs') || '').toString().trim();
           const _arr = JSON.parse(_raw);
           if (Array.isArray(_arr) && _arr.length > 0) {
-            TARIFF_STORE = _arr;
+            TARIFF_STORE = filterForbiddenTariffRows(_arr);
             saveTariffStore();
-            console.log(`200: POST ${urlPath} [action=${action}] -> synced ${_arr.length} tariff(s): ${_arr.map(t => '"' + t.TariffName + '"').join(', ')}`);
+            console.log(`200: POST ${urlPath} [action=${action}] -> synced ${TARIFF_STORE.length} tariff(s): ${TARIFF_STORE.map(t => '"' + t.TariffName + '"').join(', ')}`);
             objectD(res, { ok: true, count: _arr.length });
           } else {
             objectD(res, { ok: false, error: 'empty or invalid array' });

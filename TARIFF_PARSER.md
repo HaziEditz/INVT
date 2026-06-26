@@ -22,7 +22,7 @@ Each record may use PascalCase (Owner Panel / legacy) or camelCase (newer writes
 | Concept | Aliases (first match wins) |
 |---------|----------------------------|
 | **id** | `Id`, `id`, Firebase child key |
-| **name** | `TariffName`, `tariffName`, `name`, `zoneName`, `label` — must be non-empty |
+| **name** | `TariffName`, `tariffName`, `name`, `zoneName`, `label` — must be non-empty and **not** a forbidden placeholder (`Standard`) |
 | **flag fall / start price** | `StartPrice`, `baseFare`, `startPrice`, `flagFall`, `flagfall`, `base` |
 | **distance rate** | `DistanceRate`, `pricePerKm`, `perKm`, `ratePerKm`, `kmRate` |
 | **waiting rate** | `WaitingRate`, `waitingRate`, `waitRate`, `waitingRatePerMinute`, `waitingPerMin`, `waitPerMin`, `waiting`, `waitingCostPerMin`, `waitingPerMinute` |
@@ -45,10 +45,17 @@ When adding a new alias or changing merge rules, update **both** files and both 
 
 `src/hooks/useTariffs.ts` — same merge logic for fare estimates and job-card rates.
 
+## Forbidden placeholder names
+
+`Standard` is a legacy dev placeholder and must **never** appear for live companies (especially `860869`). Enforced in:
+
+- `lib/tariffGuard.cjs` / `src/lib/tariffGuard.ts`
+- `parseTariffRecord` in dispatch and driver app
+- `tests/regression/tariff-standard-guard.test.mjs`
+
 ## Not covered here
 
-- Create Job **dropdown** names in dispatch still come from server `TARIFF_STORE` (`[DispatcherSettings]` dt4).
-- `[TariffSync]` pushes Firebase → server store; only legacy Angular dispatch calls it today.
+- Create Job **dropdown** prefers live Firebase tariffs (`useTariffs`); server `TARIFF_STORE` is kept in sync via `[TariffSync]` when Firebase tariffs load.
 
 ## Manual drift check
 

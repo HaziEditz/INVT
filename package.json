@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
-    "test:regression": "node tests/run-regression.mjs"
+    "test:regression": "node tests/run-regression.mjs",
+    "test:prepush": "node tests/run-regression.mjs"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.1.1",

@@ -27299,22 +27299,40 @@ class ChildEventRegistration {
   }
 }
 function addEventListener(query2, eventType, callback, cancelCallbackOrListenOptions, options) {
-  const callbackContext = new CallbackContext(callback, void 0);
+  let cancelCallback;
+  if (typeof cancelCallbackOrListenOptions === "object") {
+    cancelCallback = void 0;
+    options = cancelCallbackOrListenOptions;
+  }
+  if (typeof cancelCallbackOrListenOptions === "function") {
+    cancelCallback = cancelCallbackOrListenOptions;
+  }
+  if (options && options.onlyOnce) {
+    const userCallback = callback;
+    const onceCallback = (dataSnapshot, previousChildName) => {
+      repoRemoveEventCallbackForQuery(query2._repo, query2, container);
+      userCallback(dataSnapshot, previousChildName);
+    };
+    onceCallback.userCallback = callback.userCallback;
+    onceCallback.context = callback.context;
+    callback = onceCallback;
+  }
+  const callbackContext = new CallbackContext(callback, cancelCallback || void 0);
   const container = eventType === "value" ? new ValueEventRegistration(callbackContext) : new ChildEventRegistration(eventType, callbackContext);
   repoAddEventCallbackForQuery(query2._repo, query2, container);
   return () => repoRemoveEventCallbackForQuery(query2._repo, query2, container);
 }
 function onValue(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "value", callback);
+  return addEventListener(query2, "value", callback, cancelCallbackOrListenOptions, options);
 }
 function onChildAdded(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "child_added", callback);
+  return addEventListener(query2, "child_added", callback, cancelCallbackOrListenOptions, options);
 }
 function onChildChanged(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "child_changed", callback);
+  return addEventListener(query2, "child_changed", callback, cancelCallbackOrListenOptions, options);
 }
 function onChildRemoved(query2, callback, cancelCallbackOrListenOptions, options) {
-  return addEventListener(query2, "child_removed", callback);
+  return addEventListener(query2, "child_removed", callback, cancelCallbackOrListenOptions, options);
 }
 syncPointSetReferenceConstructor(ReferenceImpl);
 syncTreeSetReferenceConstructor(ReferenceImpl);
@@ -27544,6 +27562,13 @@ function getFirebaseAuth() {
   if (!auth) throw new Error("Firebase not initialized");
   return auth;
 }
+async function ensureFirebaseAuth() {
+  const a2 = getFirebaseAuth();
+  if (a2.currentUser) return;
+  console.warn(
+    "[firebase] no Firebase user — RTDB listeners skipped. Sign in at /login so adminAccess matches your uid (anonymous auth cannot read all Queued allbookings)."
+  );
+}
 async function fetchClientConfig() {
   const r = await fetch("/api/config/client");
   if (!r.ok) throw new Error("Failed to load client config");
@@ -27683,6 +27708,12 @@ function jobFromFirebase(key, rec, companyId) {
     lastOfferDriverName: String(rec.lastOfferDriverName ?? rec.LastOfferDriverName ?? "").trim() || void 0,
     lastEditedAt: String(rec.lastEditedAt ?? rec.LastEditedAt ?? "").trim() || void 0,
     lastEditedBy: String(rec.lastEditedBy ?? rec.LastEditedBy ?? "").trim() || void 0,
+    jobUpdatedAt: (() => {
+      const raw = rec.jobUpdatedAt ?? rec.JobUpdatedAt;
+      if (raw == null) return void 0;
+      const n2 = typeof raw === "number" ? raw : Date.parse(String(raw));
+      return Number.isNaN(n2) || n2 <= 0 ? void 0 : n2;
+    })(),
     editHistory: parseJobEditHistory(rec.editHistory ?? rec.EditHistory),
     bookingType: String(rec.bookingType ?? rec.BookingType ?? "").trim() || void 0,
     cancelledBy: String(rec.CancelledBy ?? rec.cancelledBy ?? ""),
@@ -27721,6 +27752,7 @@ function normalizeJobStatus(raw) {
   const s2 = String(raw || "").trim();
   if (s2 === "NoOne" || s2 === "no_one" || s2 === "NO ONE") return "No One";
   if (s2 === "pending" || s2 === "PENDING") return "Pending";
+  if (s2 === "queued" || s2 === "QUEUED") return "Queued";
   if (s2 === "OnBoard" || s2 === "onboard" || s2 === "On Board") return "Active";
   return s2;
 }
@@ -27931,12 +27963,22 @@ function preDispatchAssignBlockMessage(job) {
 }
 function jobTabForStatus(job) {
   if (job.serviceType === "food" || job.serviceType === "freight") return "dy";
+  const raw = job.status;
   const st2 = normalizeJobStatus(job.status);
-  if (st2 === "Queued") return "queue";
-  if (st2 === "Active" || st2 === "OnTrip") return "active";
-  if (st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived") return "assign";
-  if (st2 === "Offered") return "offer";
-  return "ua";
+  const drv = String(job.driverId ?? "").trim();
+  const hasQueuedDriver = !!drv && drv !== "0" && drv !== "-1" && drv !== "-2";
+  const tab = st2 === "Queued" && hasQueuedDriver ? "queue" : st2 === "Active" || st2 === "OnTrip" ? "active" : st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived" ? "assign" : st2 === "Offered" ? "offer" : "ua";
+  if (String(raw).toLowerCase().includes("queue") || st2 === "Queued" || tab === "queue" || String(raw) === "Busy") {
+    console.log("[dispatch-queue-debug] jobTabForStatus", {
+      id: job.id,
+      rawStatus: raw,
+      normalizedStatus: st2,
+      tab,
+      serviceType: job.serviceType,
+      driverId: job.driverId
+    });
+  }
+  return tab;
 }
 function jobCreatedAtTime(job) {
   return jobWaitStartTime(job);
@@ -28219,10 +28261,21 @@ function parseMeterStart(raw) {
   }
 }
 function driverLiveFareForJob(job, driver) {
+  var _a2, _b2, _c, _d;
   if (!driver || driver.liveFare == null) return void 0;
+  if (driver.fareInvalidatedAt != null) return void 0;
   const jobId = String(job.id);
   const matches = driver.liveJobId && driver.liveJobId === jobId || driver.bookingId && driver.bookingId === jobId;
-  return matches ? driver.liveFare : void 0;
+  if (!matches) return void 0;
+  const jobTariffId = (_a2 = job.tariffId) == null ? void 0 : _a2.trim();
+  const driverTariffId = (_b2 = driver.liveTariffId) == null ? void 0 : _b2.trim();
+  if (jobTariffId && driverTariffId && jobTariffId !== driverTariffId) return void 0;
+  const jobTariffLabel2 = (_c = job.tariffName) == null ? void 0 : _c.trim().toLowerCase();
+  const driverTariffLabel = (_d = driver.liveTariffName) == null ? void 0 : _d.trim().toLowerCase();
+  if (job.jobUpdatedAt && jobTariffLabel2 && driverTariffLabel && jobTariffLabel2 !== driverTariffLabel) {
+    return void 0;
+  }
+  return driver.liveFare;
 }
 function resolveLiveMeterDisplay(job, tab, opts = {}) {
   var _a2, _b2, _c, _d, _e, _f, _g;
@@ -28268,6 +28321,416 @@ function resolveLiveMeterDisplay(job, tab, opts = {}) {
   }
   return { tariffLabel, fare: (rateTariff == null ? void 0 : rateTariff.startPrice) ?? 0, ticking: !!meterStart };
 }
+const TERMINAL_BOOKING_STATUSES$1 = /* @__PURE__ */ new Set(["Completed", "Cancelled", "No Show"]);
+const LIVE_DISPATCH_STATUSES = /* @__PURE__ */ new Set([
+  "Offered",
+  "Queued",
+  "Assigned",
+  "Picking",
+  "Arrived",
+  "Active",
+  "OnTrip",
+  "Pending",
+  "No One",
+  "Scheduled"
+]);
+function seqFromRecord(rec) {
+  if (!rec || typeof rec !== "object") return 0;
+  const raw = rec.updateSeq ?? rec._seq ?? rec.version;
+  const n2 = parseInt(String(raw ?? ""), 10);
+  return Number.isNaN(n2) ? 0 : n2;
+}
+function staleTerminalAllbookingsSuperseded(jobId, abRec, pendingRef, bookingsRef, storeJobs = []) {
+  const abStatus = normalizeJobStatus(
+    String(abRec.BookingStatus ?? abRec.Status ?? abRec.status ?? "")
+  );
+  if (!TERMINAL_BOOKING_STATUSES$1.has(abStatus)) return false;
+  const abSeq = seqFromRecord(abRec);
+  const candidates = [];
+  const pending = pendingRef.get(jobId);
+  const booking = bookingsRef.get(jobId);
+  const store = storeJobs.find((j2) => j2.id === jobId);
+  if (pending) candidates.push(pending);
+  if (booking) candidates.push(booking);
+  if (store) candidates.push(store);
+  for (const job of candidates) {
+    const st2 = normalizeJobStatus(job.status);
+    if (!LIVE_DISPATCH_STATUSES.has(st2)) continue;
+    const jobSeq = job.updateSeq ?? 0;
+    if (jobSeq > abSeq) return true;
+    if (jobSeq === abSeq && st2 !== abStatus) return true;
+  }
+  return false;
+}
+function pickLiveJobSupersedingStaleTerminal(jobId, abRec, pendingRef, bookingsRef, storeJobs = []) {
+  const abStatus = normalizeJobStatus(
+    String(abRec.BookingStatus ?? abRec.Status ?? abRec.status ?? "")
+  );
+  if (!TERMINAL_BOOKING_STATUSES$1.has(abStatus)) return null;
+  const abSeq = seqFromRecord(abRec);
+  const candidates = [];
+  const pending = pendingRef.get(jobId);
+  const booking = bookingsRef.get(jobId);
+  const store = storeJobs.find((j2) => j2.id === jobId);
+  if (pending) candidates.push(pending);
+  if (booking) candidates.push(booking);
+  if (store) candidates.push(store);
+  let best = null;
+  for (const job of candidates) {
+    const st2 = normalizeJobStatus(job.status);
+    if (!LIVE_DISPATCH_STATUSES.has(st2) || TERMINAL_BOOKING_STATUSES$1.has(st2)) continue;
+    const jobSeq = job.updateSeq ?? 0;
+    const supersedes = jobSeq > abSeq || jobSeq === abSeq && st2 !== abStatus;
+    if (!supersedes) continue;
+    if (!best || jobSeq > (best.updateSeq ?? 0)) best = job;
+  }
+  return best;
+}
+const OPTIMISTIC_LIVE_RETAIN_MS = 8e3;
+const OFFER_AWAIT_ALLBOOKINGS_MS = 12e4;
+const optimisticLiveUntil = /* @__PURE__ */ new Map();
+const queueAwaitingAllbookings = /* @__PURE__ */ new Set();
+const offerAwaitingAllbookings = /* @__PURE__ */ new Map();
+function markOptimisticLiveTransition(jobId, now = Date.now()) {
+  optimisticLiveUntil.set(jobId, now + OPTIMISTIC_LIVE_RETAIN_MS);
+}
+function clearOptimisticLiveTransition(jobId) {
+  optimisticLiveUntil.delete(jobId);
+}
+const COMPLETED_SUPPRESS_MS = 9e4;
+const DISPATCH_POOL_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+const ORPHAN_ELIGIBLE_STATUSES = /* @__PURE__ */ new Set(["Pending", "No One", "Queued"]);
+const LIVE_LIFECYCLE_STATUSES = /* @__PURE__ */ new Set([
+  "Active",
+  "Picking",
+  "Arrived",
+  "OnTrip",
+  "Assigned",
+  "Offered",
+  "Scheduled"
+]);
+function isUnassignedDriverId(driverId) {
+  const d2 = String(driverId ?? "").trim();
+  return !d2 || d2 === "0" || d2 === "-1" || d2 === "-2";
+}
+const POOL_TAB_STATUSES = /* @__PURE__ */ new Set(["Pending", "No One", "Scheduled"]);
+function isGenuineQueuedJob(job) {
+  if (normalizeJobStatus(job.status) !== "Queued") return false;
+  return !isUnassignedDriverId(job.driverId);
+}
+function recordDriverId(rec) {
+  return String(
+    rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? rec.assignedDriverId ?? ""
+  ).trim();
+}
+function hasRealPassengerData(rec) {
+  const name2 = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? "").trim();
+  const phone = String(
+    rec.PhoneNo ?? rec.Phone ?? rec.passengerPhone ?? rec.phone ?? rec.PhoneNumber ?? ""
+  ).trim();
+  const pick = String(
+    rec.PickAddress ?? rec.PickupAddress ?? rec.pickAddress ?? rec.pickupAddress ?? ""
+  ).trim();
+  const drop = String(rec.DropAddress ?? rec.dropAddress ?? "").trim();
+  return !!(name2 || phone || pick || drop);
+}
+function hasRealPassengerDataFromJob(job) {
+  var _a2, _b2, _c, _d;
+  return !!(((_a2 = job.passengerName) == null ? void 0 : _a2.trim()) || ((_b2 = job.passengerPhone) == null ? void 0 : _b2.trim()) || ((_c = job.pickAddress) == null ? void 0 : _c.trim()) || ((_d = job.dropAddress) == null ? void 0 : _d.trim()));
+}
+function recordPoolStatus(rec) {
+  const raw = String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? "").trim();
+  return raw === "NoOne" ? "No One" : normalizeJobStatus(raw);
+}
+function isOrphanEligiblePoolStatus(rec) {
+  const st2 = recordPoolStatus(rec);
+  if (st2 === "Pending" || st2 === "No One") return true;
+  if (st2 === "Queued") {
+    const queuedAt = rec.queuedAt ?? rec.QueuedAt;
+    return queuedAt == null || queuedAt === "";
+  }
+  return false;
+}
+function isStaleOrphanAllbookingsRow(rec, now = Date.now(), opts) {
+  const st2 = recordPoolStatus(rec);
+  if (LIVE_LIFECYCLE_STATUSES.has(st2)) return false;
+  if (TERMINAL_BOOKING_STATUSES$1.has(st2)) return false;
+  if (!isOrphanEligiblePoolStatus(rec)) return false;
+  if (!isUnassignedDriverId(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? rec.assignedDriverId)) {
+    return false;
+  }
+  if (hasRealPassengerData(rec)) return false;
+  const maxAgeMs = DISPATCH_POOL_MAX_AGE_MS;
+  const activityMs = recordActivityMs(rec);
+  if (activityMs > 0 && now - activityMs <= maxAgeMs) return false;
+  if (activityMs === 0) return false;
+  return true;
+}
+function isStaleOrphanJobShell(job, now = Date.now()) {
+  const st2 = normalizeJobStatus(job.status);
+  if (LIVE_LIFECYCLE_STATUSES.has(st2)) return false;
+  if (TERMINAL_BOOKING_STATUSES$1.has(st2)) return false;
+  if (!ORPHAN_ELIGIBLE_STATUSES.has(st2)) return false;
+  if (st2 === "Queued") return false;
+  if (!isUnassignedDriverId(job.driverId)) return false;
+  if (hasRealPassengerDataFromJob(job)) return false;
+  const activityMs = jobActivityMs(job);
+  if (activityMs > 0 && now - activityMs <= DISPATCH_POOL_MAX_AGE_MS) return false;
+  if (activityMs === 0) return false;
+  return true;
+}
+function recordActivityMs(rec) {
+  const fields = [
+    rec.lastUpdatedAt,
+    rec.LastUpdatedAt,
+    rec.updatedAt,
+    rec.UpdatedAt,
+    rec.jobUpdatedAt,
+    rec.JobUpdatedAt,
+    rec.createdAt,
+    rec.CreatedAt,
+    rec.queuedAt,
+    rec.QueuedAt,
+    rec.assignedAt,
+    rec.AssignedAt,
+    rec.offeredAt,
+    rec.OfferedAt,
+    rec.BookingDateTime,
+    rec.bookingDateTime
+  ];
+  let best = 0;
+  for (const raw of fields) {
+    if (raw == null || raw === "") continue;
+    const n2 = Number(raw);
+    if (!Number.isNaN(n2) && n2 > 0) {
+      const ms = n2 < 1e12 ? n2 * 1e3 : n2;
+      if (ms > best) best = ms;
+      continue;
+    }
+    const p2 = Date.parse(String(raw));
+    if (!Number.isNaN(p2) && p2 > 0 && p2 > best) best = p2;
+  }
+  return best;
+}
+function jobActivityMs(job) {
+  return job.jobUpdatedAt ?? job.createdAt ?? 0;
+}
+function isDispatchPoolRowLive(bookingId, rec, pendingRef, now = Date.now()) {
+  if (isQueueAwaitingAllbookings(bookingId)) return true;
+  if (isOfferAwaitingAllbookings(bookingId, now)) return true;
+  if (isWithinOptimisticWindow(bookingId, now)) return true;
+  const pending = pendingRef.get(bookingId);
+  if (pending && !isStaleOrphanJobShell(pending, now)) return true;
+  return !isStaleOrphanAllbookingsRow(rec, now);
+}
+const completedSuppressMeta = /* @__PURE__ */ new Map();
+function markCompletedJobSuppress(jobId, suppressSeq = 0, now = Date.now()) {
+  completedSuppressMeta.set(jobId, { until: now + COMPLETED_SUPPRESS_MS, seq: suppressSeq });
+}
+function clearCompletedJobSuppress(jobId) {
+  completedSuppressMeta.delete(jobId);
+}
+function isCompletedJobSuppressed(jobId, now = Date.now()) {
+  const meta = completedSuppressMeta.get(jobId);
+  if (meta == null) return false;
+  if (now >= meta.until) {
+    completedSuppressMeta.delete(jobId);
+    return false;
+  }
+  return true;
+}
+function shouldClearCompletedSuppress(jobId, rec, now = Date.now()) {
+  const meta = completedSuppressMeta.get(jobId);
+  if (meta == null) return true;
+  if (now >= meta.until) {
+    completedSuppressMeta.delete(jobId);
+    return true;
+  }
+  return seqFromRecord(rec) > meta.seq;
+}
+function markQueueAwaitingAllbookings(jobId) {
+  queueAwaitingAllbookings.add(jobId);
+}
+function clearQueueAwaitingAllbookings(jobId) {
+  queueAwaitingAllbookings.delete(jobId);
+}
+function markOfferAwaitingAllbookings(jobId, now = Date.now()) {
+  offerAwaitingAllbookings.set(jobId, now + OFFER_AWAIT_ALLBOOKINGS_MS);
+}
+function clearOfferAwaitingAllbookings(jobId) {
+  offerAwaitingAllbookings.delete(jobId);
+}
+function isOfferAwaitingAllbookings(jobId, now = Date.now()) {
+  const until = offerAwaitingAllbookings.get(jobId);
+  if (until == null) return false;
+  if (now >= until) {
+    offerAwaitingAllbookings.delete(jobId);
+    return false;
+  }
+  return true;
+}
+function isQueueAwaitingAllbookings(jobId) {
+  return queueAwaitingAllbookings.has(jobId);
+}
+function queueAwaitingMergeOpts(jobId) {
+  return isQueueAwaitingAllbookings(jobId) ? { forceStatus: "Queued" } : void 0;
+}
+function coerceAllbookingsLiveStatus(rec, effectiveStatus) {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  const statusRaw = rec.Status ?? rec.status;
+  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+  if (fbBooking && TERMINAL_BOOKING_STATUSES$1.has(fbBooking)) return fbBooking;
+  if (fbStatus && TERMINAL_BOOKING_STATUSES$1.has(fbStatus)) return fbStatus;
+  if (TERMINAL_BOOKING_STATUSES$1.has(effectiveStatus)) return effectiveStatus;
+  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return fbBooking;
+  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return fbStatus;
+  const drv = recordDriverId(rec);
+  if (fbBooking === "Queued") {
+    return isUnassignedDriverId(drv) ? effectiveStatus : "Queued";
+  }
+  const eventType = String(rec.eventType ?? rec.EventType ?? "").toLowerCase();
+  if (eventType === "queued" && !isUnassignedDriverId(drv)) {
+    if (fbBooking !== "No One" && fbStatus !== "No One" && fbBooking !== "Pending" && fbStatus !== "Pending") {
+      return "Queued";
+    }
+  }
+  if ((rec.queuedAt != null || rec.QueuedAt != null) && !isUnassignedDriverId(drv) && fbBooking !== "No One" && fbStatus !== "No One" && fbBooking !== "Pending" && fbStatus !== "Pending") {
+    return "Queued";
+  }
+  return effectiveStatus;
+}
+function allbookingsRecordIsQueued(rec) {
+  if (isUnassignedDriverId(recordDriverId(rec))) return false;
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return false;
+  if (fbBooking === "Queued") return true;
+  const statusRaw = rec.Status ?? rec.status;
+  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return false;
+  if (fbStatus === "Queued") return true;
+  if (String(rec.eventType ?? rec.EventType ?? "").toLowerCase() === "queued") return true;
+  return rec.queuedAt != null || rec.QueuedAt != null;
+}
+function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, storeJobs = []) {
+  for (const id of [...pendingRef.keys()]) {
+    if (isQueueAwaitingAllbookings(id)) {
+      pendingRef.delete(id);
+      continue;
+    }
+    const booking = bookingsRef.get(id);
+    if (booking && normalizeJobStatus(booking.status) === "Queued") {
+      pendingRef.delete(id);
+      continue;
+    }
+    const store = storeJobs.find((j2) => j2.id === id);
+    if (store && normalizeJobStatus(store.status) === "Queued") {
+      pendingRef.delete(id);
+    }
+  }
+}
+function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
+  var _a2;
+  const pjSt = normalizeJobStatus(
+    String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? "")
+  );
+  if (pjSt === "Queued") return false;
+  const bookingsQueued = !!(ctx == null ? void 0 : ctx.bookingsRef) && normalizeJobStatus(((_a2 = ctx.bookingsRef.get(bookingId)) == null ? void 0 : _a2.status) ?? "") === "Queued";
+  const abQueued = (ctx == null ? void 0 : ctx.abRec) ? allbookingsRecordIsQueued(ctx.abRec) : false;
+  if (bookingsQueued || abQueued) {
+    return pjSt !== "Offered";
+  }
+  if (!isQueueAwaitingAllbookings(bookingId)) return false;
+  return pjSt !== "Offered";
+}
+function coerceQueuedIfAwaiting(job) {
+  if (!isQueueAwaitingAllbookings(job.id)) return job;
+  const st2 = normalizeJobStatus(job.status);
+  if (TERMINAL_BOOKING_STATUSES$1.has(st2) || POOL_TAB_STATUSES.has(st2)) {
+    clearQueueAwaitingAllbookings(job.id);
+    return job;
+  }
+  return st2 === "Queued" ? job : { ...job, status: "Queued" };
+}
+function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
+  if (!refresh.status) return null;
+  const status = normalizeJobStatus(refresh.status);
+  return {
+    id: bookingId,
+    companyId,
+    status,
+    source: "dispatch",
+    serviceType: "taxi",
+    pickAddress: "",
+    pickLatLng: "",
+    dropAddress: "",
+    dropLatLng: "",
+    passengerName: "",
+    passengerPhone: "",
+    paymentType: "Cash",
+    estimatedFare: "",
+    bookingDateTime: (/* @__PURE__ */ new Date()).toISOString(),
+    driverId: refresh.driverId != null && refresh.driverId !== "" ? String(refresh.driverId) : "0",
+    ...refresh.updateSeq != null ? { updateSeq: refresh.updateSeq } : {}
+  };
+}
+function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef) {
+  for (const j2 of storeJobs) {
+    if (!isQueueAwaitingAllbookings(j2.id)) continue;
+    const st2 = normalizeJobStatus(j2.status);
+    if (TERMINAL_BOOKING_STATUSES$1.has(st2) || POOL_TAB_STATUSES.has(st2) || isCompletedJobSuppressed(j2.id)) {
+      clearQueueAwaitingAllbookings(j2.id);
+      continue;
+    }
+    pendingRef == null ? void 0 : pendingRef.delete(j2.id);
+    const queued = coerceQueuedIfAwaiting(j2);
+    bookingsRef.set(j2.id, queued);
+  }
+}
+function reinjectOfferAwaitingJobs(bookingsRef, pendingRef, storeJobs, now = Date.now()) {
+  for (const j2 of storeJobs) {
+    if (normalizeJobStatus(j2.status) !== "Offered") continue;
+    if (bookingsRef.has(j2.id) || pendingRef.has(j2.id)) continue;
+    if (!isOfferAwaitingAllbookings(j2.id, now)) continue;
+    bookingsRef.set(j2.id, j2);
+  }
+  for (const j2 of pendingRef.values()) {
+    const pendingSt = normalizeJobStatus(j2.status);
+    if (POOL_TAB_STATUSES.has(pendingSt)) {
+      clearOfferAwaitingAllbookings(j2.id);
+      continue;
+    }
+    if (pendingSt !== "Offered") continue;
+    if (!bookingsRef.has(j2.id)) bookingsRef.set(j2.id, j2);
+  }
+}
+function isWithinOptimisticWindow(jobId, now = Date.now()) {
+  const until = optimisticLiveUntil.get(jobId);
+  if (until == null) return false;
+  if (now >= until) {
+    optimisticLiveUntil.delete(jobId);
+    return false;
+  }
+  return true;
+}
+function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now = Date.now()) {
+  if (isCompletedJobSuppressed(job.id, now)) return false;
+  if (TERMINAL_BOOKING_STATUSES$1.has(normalizeJobStatus(job.status))) return false;
+  if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
+  if (isQueueAwaitingAllbookings(job.id)) return true;
+  if (normalizeJobStatus(job.status) === "Offered" && isOfferAwaitingAllbookings(job.id, now)) {
+    return bookingsRef.has(job.id);
+  }
+  if (isWithinOptimisticWindow(job.id, now)) return true;
+  const st2 = normalizeJobStatus(job.status);
+  if (LIVE_LIFECYCLE_STATUSES.has(st2)) return true;
+  if (hasRealPassengerDataFromJob(job)) return true;
+  if (!isUnassignedDriverId(job.driverId)) return true;
+  if (isGenuineQueuedJob(job)) return true;
+  if (isStaleOrphanJobShell(job, now)) return false;
+  return false;
+}
 const SESSION_KEY = "bw_edit_lock_session";
 function getEditLockSessionId() {
   try {
@@ -28304,13 +28767,26 @@ function mergeJobStatus(existing, incoming, existingSeq, incomingSeq) {
   if (!incoming) return existing;
   const ex = normalizeJobStatus(existing);
   const inc = normalizeJobStatus(incoming);
-  if (inc === "Cancelled" || inc === "Completed" || inc === "No Show") return inc;
+  if (inc === "Cancelled" || inc === "Completed" || inc === "No Show") {
+    const exNorm = normalizeJobStatus(existing);
+    const exRank = statusRank(exNorm);
+    if (exRank > 0 && exRank < 100 && incomingSeq <= existingSeq) return ex;
+    return inc;
+  }
   const POOL = ["No One", "Pending", "Scheduled"];
   if (POOL.includes(ex) && POOL.includes(inc)) {
     if (incomingSeq >= existingSeq) return inc;
     return ex;
   }
   if ((inc === "No One" || inc === "Pending") && incomingSeq >= existingSeq) return inc;
+  const QUEUED_PROMOTE = ["Offered", "Assigned", "Picking", "Arrived", "Active", "OnTrip"];
+  if (ex === "Queued" && (POOL.includes(inc) || QUEUED_PROMOTE.includes(inc))) {
+    if (inc === "Offered" || QUEUED_PROMOTE.includes(inc)) {
+      if (incomingSeq <= existingSeq) return ex;
+      return inc;
+    }
+    return ex;
+  }
   if (statusRank(inc) < statusRank(ex)) return ex;
   if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;
   return inc;
@@ -28329,7 +28805,7 @@ const PRESERVE_IF_EMPTY = [
   "tariffId",
   "jobEditing"
 ];
-function mergeJobUpdate(existing, incoming) {
+function mergeJobUpdate(existing, incoming, opts) {
   var _a2, _b2, _c, _d, _e, _f;
   const merged = { ...existing, ...incoming };
   for (const key of PRESERVE_IF_EMPTY) {
@@ -28349,7 +28825,9 @@ function mergeJobUpdate(existing, incoming) {
   }
   const existingSeq = existing.updateSeq ?? 0;
   const incomingSeq = incoming.updateSeq ?? existingSeq;
-  if (incoming.status != null) {
+  if (opts == null ? void 0 : opts.forceStatus) {
+    merged.status = opts.forceStatus;
+  } else if (incoming.status != null) {
     merged.status = mergeJobStatus(existing.status, incoming.status, existingSeq, incomingSeq);
   }
   const incDriver = incoming.driverId != null ? String(incoming.driverId) : null;
@@ -28449,6 +28927,10 @@ function filterJobsForTab(jobs, tab) {
     return a2.id - b2.id;
   });
 }
+function isLivePoolStatus(status) {
+  const st2 = normalizeJobStatus(status);
+  return st2 === "Queued" || st2 === "Offered" || st2 === "Assigned" || st2 === "Picking" || st2 === "Arrived" || st2 === "Active" || st2 === "OnTrip";
+}
 const useJobStore = create((set2, get2) => ({
   jobs: [],
   removedJobIds: [],
@@ -28457,14 +28939,18 @@ const useJobStore = create((set2, get2) => ({
   activeTab: "ua",
   setJobs: (jobs) => set2({ jobs: [...jobs] }),
   upsertJob: (job) => set2((s2) => {
-    if (s2.removedJobIds.includes(job.id)) return s2;
+    const live = isLivePoolStatus(job.status);
+    const removedJobIds = live ? s2.removedJobIds.filter((id) => id !== job.id) : s2.removedJobIds;
+    if (!live && removedJobIds.includes(job.id)) return s2;
+    const queueOpts = queueAwaitingMergeOpts(job.id);
     const idx = s2.jobs.findIndex((j2) => j2.id === job.id);
     if (idx >= 0) {
       const next = [...s2.jobs];
-      next[idx] = mergeJobUpdate(next[idx], job);
+      next[idx] = mergeJobUpdate(next[idx], job, queueOpts);
       return { jobs: next };
     }
-    return { jobs: [...s2.jobs, job] };
+    const inserted = queueOpts ? mergeJobUpdate(job, { status: "Queued" }, queueOpts) : job;
+    return { jobs: [...s2.jobs, inserted] };
   }),
   removeJob: (id) => set2((s2) => {
     if (s2.removedJobIds.includes(id)) {
@@ -28559,6 +29045,52 @@ const SOUND_PROFILES = {
 };
 function playNotificationSound(kind = "general") {
   playTone(SOUND_PROFILES[kind] ?? SOUND_PROFILES.general);
+}
+let emergencyLoopTimer = null;
+let emergencyOscNodes = [];
+function startEmergencyAlarm() {
+  stopEmergencyAlarm();
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+  const pulse = () => {
+    emergencyOscNodes.forEach((o2) => {
+      try {
+        o2.stop();
+      } catch {
+      }
+    });
+    emergencyOscNodes = [];
+    [880, 660, 880, 660].forEach((freq, i2) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = freq;
+      const t0 = ctx.currentTime + i2 * 0.22;
+      gain.gain.setValueAtTime(1e-4, t0);
+      gain.gain.exponentialRampToValueAtTime(0.28, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(1e-4, t0 + 0.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.22);
+      emergencyOscNodes.push(osc);
+    });
+  };
+  pulse();
+  emergencyLoopTimer = setInterval(pulse, 900);
+}
+function stopEmergencyAlarm() {
+  if (emergencyLoopTimer) {
+    clearInterval(emergencyLoopTimer);
+    emergencyLoopTimer = null;
+  }
+  emergencyOscNodes.forEach((o2) => {
+    try {
+      o2.stop();
+    } catch {
+    }
+  });
+  emergencyOscNodes = [];
 }
 function inferCategory(t2) {
   if (t2.category) return t2.category;
@@ -28707,15 +29239,36 @@ function paymentBadgeColor(type) {
 function dispatcherInitials(name2) {
   return name2.split(/\s+/).filter(Boolean).map((p2) => p2[0]).join("").slice(0, 2).toUpperCase() || "D";
 }
+function applyQueueForcedMerge(prior, job) {
+  if (prior) {
+    return mergeJobUpdate(prior, { ...job, status: "Queued" }, { forceStatus: "Queued" });
+  }
+  return { ...job, status: "Queued" };
+}
+function handleTerminalRefresh(bookingId, pendingRef, bookingsRef, removeJob, syncAll, suppressSeq = 0) {
+  pendingRef.delete(bookingId);
+  bookingsRef.delete(bookingId);
+  markCompletedJobSuppress(bookingId, suppressSeq);
+  clearQueueAwaitingAllbookings(bookingId);
+  clearOfferAwaitingAllbookings(bookingId);
+  clearOptimisticLiveTransition(bookingId);
+  removeJob(bookingId);
+  syncAll();
+}
 function mergeJobs(maps) {
   const byId = /* @__PURE__ */ new Map();
   for (const m2 of maps) {
     for (const [id, job] of m2) {
       const prev = byId.get(id);
-      byId.set(id, prev ? mergeJobUpdate(prev, job) : job);
+      const opts = queueAwaitingMergeOpts(id);
+      byId.set(id, prev ? mergeJobUpdate(prev, job, opts) : opts ? mergeJobUpdate(job, { status: "Queued" }, opts) : job);
     }
   }
   return Array.from(byId.values());
+}
+function traceAllbookingsIngest(jobId, reason, detail) {
+  if (!DISPATCH_QUEUE_TRACE_IDS.has(jobId)) return;
+  console.log(`[dispatch-queue-debug] allbookings ${reason}`, { jobId, ...detail });
 }
 function isUaJob(job) {
   return jobTabForStatus(job) === "ua";
@@ -28726,6 +29279,13 @@ function isBlacklisted(jobId) {
 function purgeCancelledJobFromListeners(jobId) {
   listenerPendingCache == null ? void 0 : listenerPendingCache.delete(jobId);
   listenerBookingsCache == null ? void 0 : listenerBookingsCache.delete(jobId);
+}
+function purgeDispatchTerminalJob(jobId, suppressSeq = 0) {
+  markCompletedJobSuppress(jobId, suppressSeq);
+  clearQueueAwaitingAllbookings(jobId);
+  clearOfferAwaitingAllbookings(jobId);
+  purgeCancelledJobFromListeners(jobId);
+  useJobStore.getState().removeJob(jobId);
 }
 let listenerPendingCache = null;
 let listenerBookingsCache = null;
@@ -28739,7 +29299,142 @@ const ACTIVE_BOOKING_STATUSES = /* @__PURE__ */ new Set([
   "Offered"
 ]);
 const TERMINAL_BOOKING_STATUSES = /* @__PURE__ */ new Set(["Completed", "Cancelled", "No Show"]);
-const LIVE_DISPATCH_TABS = /* @__PURE__ */ new Set(["offer", "assign", "active", "queue"]);
+const DISPATCH_QUEUE_TRACE_IDS = /* @__PURE__ */ new Set([
+  8692606253,
+  8692606255,
+  8692606256,
+  8692606257
+]);
+async function bootstrapDispatchFirebaseAccess(companyId) {
+  const user = getFirebaseAuth().currentUser;
+  const ctx = {
+    uid: (user == null ? void 0 : user.uid) ?? null,
+    isAnonymous: !!(user == null ? void 0 : user.isAnonymous),
+    adminAccessExists: null
+  };
+  if (!user) {
+    console.warn(
+      "[dispatch-queue-debug] no Firebase auth user — allbookings onValue may return a rules-filtered subset (sign in via /login)"
+    );
+    return ctx;
+  }
+  if (user.isAnonymous) {
+    console.warn(
+      "[dispatch-queue-debug] anonymous Firebase auth — adminAccess will not match; allbookings Queued rows for assigned drivers are omitted by RTDB rules",
+      { uid: user.uid, companyId }
+    );
+    return ctx;
+  }
+  try {
+    await ensureAdminAccess(companyId, user.uid);
+  } catch (e) {
+    console.warn("[dispatch-queue-debug] ensure-admin-access failed", e);
+  }
+  try {
+    const adminSnap = await get(ref(getDb(), `adminAccess/${companyId}/${user.uid}`));
+    ctx.adminAccessExists = adminSnap.exists();
+    console.log("[dispatch-queue-debug] adminAccess probe", {
+      companyId,
+      uid: user.uid,
+      adminAccessExists: ctx.adminAccessExists
+    });
+    if (!ctx.adminAccessExists) {
+      console.warn(
+        "[dispatch-queue-debug] adminAccess node missing — per-child allbookings rules will filter to driver-assigned rows only"
+      );
+    }
+  } catch (e) {
+    console.warn("[dispatch-queue-debug] adminAccess probe failed", e);
+  }
+  return ctx;
+}
+function logAllbookingsSnapshotSummary(companyId, authCtx, val, seenInSnapshot) {
+  const rawKeys = val && typeof val === "object" ? Object.keys(val) : [];
+  const queuedInSnapshot = [];
+  const pendingInSnapshot = [];
+  if (val && typeof val === "object") {
+    for (const [key, rec] of Object.entries(val)) {
+      const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+      if (!jobId) continue;
+      const st2 = normalizeJobStatus(
+        String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? "")
+      );
+      if (st2 === "Queued") queuedInSnapshot.push(jobId);
+      if (st2 === "Pending" || st2 === "No One") pendingInSnapshot.push(jobId);
+    }
+  }
+  const tracePresence = {};
+  for (const id of DISPATCH_QUEUE_TRACE_IDS) {
+    tracePresence[String(id)] = seenInSnapshot.has(id);
+  }
+  console.log("[dispatch-queue-debug] allbookings onValue snapshot", {
+    companyId,
+    firebaseUid: authCtx.uid,
+    firebaseIsAnonymous: authCtx.isAnonymous,
+    adminAccessExists: authCtx.adminAccessExists,
+    snapshotRawChildCount: rawKeys.length,
+    snapshotParsedJobCount: seenInSnapshot.size,
+    queuedInSnapshotCount: queuedInSnapshot.length,
+    queuedInSnapshotIds: queuedInSnapshot.slice(0, 40),
+    pendingInSnapshotCount: pendingInSnapshot.length,
+    tracePresence,
+    note: "RTDB applies per-child .read rules on parent onValue — count can be lower than server jobStore when adminAccess is missing"
+  });
+}
+function mergeTraceRow(id, ctx) {
+  const pending = ctx.pendingRef.get(id);
+  const booking = ctx.bookingsRef.get(id);
+  const store = ctx.storeJobs.find((j2) => j2.id === id);
+  const pre = ctx.mergedPreFilter.find((j2) => j2.id === id);
+  const postFilter = ctx.mergedPostFilter.find((j2) => j2.id === id);
+  const final = ctx.byId.get(id);
+  return {
+    id,
+    blacklisted: ctx.removed.has(id),
+    queueAwaiting: isQueueAwaitingAllbookings(id),
+    pendingStatus: (pending == null ? void 0 : pending.status) ?? null,
+    pendingUpdateSeq: (pending == null ? void 0 : pending.updateSeq) ?? null,
+    bookingsStatus: (booking == null ? void 0 : booking.status) ?? null,
+    bookingsUpdateSeq: (booking == null ? void 0 : booking.updateSeq) ?? null,
+    storeStatus: (store == null ? void 0 : store.status) ?? null,
+    storeUpdateSeq: (store == null ? void 0 : store.updateSeq) ?? null,
+    afterMergeJobsStatus: (pre == null ? void 0 : pre.status) ?? null,
+    afterBlacklistFilterStatus: (postFilter == null ? void 0 : postFilter.status) ?? null,
+    finalStatus: (final == null ? void 0 : final.status) ?? null,
+    finalTab: final ? jobTabForStatus(final) : null,
+    preservedFromStoreOnly: !pending && !booking && !!store && !!final
+  };
+}
+function logSyncAllMergePipeline(ctx) {
+  const allIds = /* @__PURE__ */ new Set([
+    ...ctx.pendingRef.keys(),
+    ...ctx.bookingsRef.keys(),
+    ...ctx.storeJobs.map((j2) => j2.id),
+    ...ctx.byId.keys(),
+    ...DISPATCH_QUEUE_TRACE_IDS
+  ]);
+  const rows = [...allIds].sort((a2, b2) => a2 - b2).map((id) => mergeTraceRow(id, ctx));
+  const shouldLog = ctx.byId.size > 0 || [...DISPATCH_QUEUE_TRACE_IDS].some(
+    (id) => ctx.pendingRef.has(id) || ctx.bookingsRef.has(id) || ctx.storeJobs.some((j2) => j2.id === id) || ctx.byId.has(id)
+  );
+  if (!shouldLog) return;
+  console.log("[dispatch-queue-debug] syncAll merge pipeline", {
+    mergedCount: ctx.byId.size,
+    bookingsRefSize: ctx.bookingsRef.size,
+    pendingRefSize: ctx.pendingRef.size,
+    removedBlacklist: [...ctx.removed],
+    rows,
+    focus: [...DISPATCH_QUEUE_TRACE_IDS].map((id) => mergeTraceRow(id, ctx)),
+    allJobsFinal: [...ctx.byId.values()].map((j2) => ({
+      id: j2.id,
+      status: j2.status,
+      normalizedStatus: normalizeJobStatus(j2.status),
+      tab: jobTabForStatus(j2),
+      driverId: j2.driverId,
+      updateSeq: j2.updateSeq ?? null
+    }))
+  });
+}
 function notifyOfferReturned(bookingId, refresh) {
   const action = refresh.action;
   if (action !== "timeout" && action !== "decline") return;
@@ -28754,19 +29449,18 @@ function notifyOfferReturned(bookingId, refresh) {
   });
 }
 const POOL_RESTORE_ACTIONS = /* @__PURE__ */ new Set(["status", "timeout", "decline", "recall", "scheduled_release"]);
+function refreshTrustsPoolRestore(refresh, fbSeq) {
+  if (!refresh.status || !POOL_RESTORE_ACTIONS.has(refresh.action || "")) return false;
+  const target = normalizeJobStatus(refresh.status);
+  if (target !== "Pending" && target !== "No One" && target !== "Scheduled") return false;
+  const hintSeq = refresh.updateSeq ?? 0;
+  if (hintSeq > 0 && fbSeq != null && hintSeq >= fbSeq) return true;
+  return POOL_RESTORE_ACTIONS.has(refresh.action || "");
+}
 const POOL_UA_STATUSES = /* @__PURE__ */ new Set(["Pending", "No One", "Scheduled"]);
 const LIVE_OFFER_STATUSES = /* @__PURE__ */ new Set(["Offered", "Assigned"]);
 function isPoolUaStatus(status) {
   return POOL_UA_STATUSES.has(normalizeJobStatus(status));
-}
-function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef) {
-  if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
-  const tab = jobTabForStatus(job);
-  if (tab === "ua") return true;
-  if (!LIVE_DISPATCH_TABS.has(tab)) return false;
-  if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
-  if (isPoolUaStatus(job.status)) return true;
-  return LIVE_DISPATCH_TABS.has(tab);
 }
 function pendingjobsAbsentIsPoolRestore(job, refresh) {
   if (!job) return false;
@@ -28802,6 +29496,10 @@ function resolveRefreshDriverId(refresh, targetStatus, job, prior) {
 function existingJobSnapshot(bookingId, pendingRef, bookingsRef) {
   return bookingsRef.get(bookingId) ?? pendingRef.get(bookingId) ?? useJobStore.getState().jobs.find((j2) => j2.id === bookingId) ?? null;
 }
+function priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef) {
+  const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
+  return (prior == null ? void 0 : prior.updateSeq) ?? 0;
+}
 function refreshImpliesTerminal(refresh) {
   if (refresh.action === "cancel" || refresh.action === "complete") return true;
   if (!refresh.status) return false;
@@ -28813,19 +29511,44 @@ function applyRefreshStatusHint(job, prior, refresh, bookingId) {
   const driverId = resolveRefreshDriverId(refresh, targetStatus, job, prior);
   const updateSeq = refresh.updateSeq ?? (job == null ? void 0 : job.updateSeq) ?? (prior == null ? void 0 : prior.updateSeq);
   const patch = { status: targetStatus, driverId, ...updateSeq != null ? { updateSeq } : {} };
+  const queueOpts = refresh.action === "queue" ? { forceStatus: "Queued" } : void 0;
   if (job) {
-    return mergeJobUpdate(job, patch);
+    return mergeJobUpdate(job, patch, queueOpts);
   }
   if (prior && !useJobStore.getState().isJobBlacklisted(bookingId)) {
-    return mergeJobUpdate(prior, patch);
+    return mergeJobUpdate(prior, patch, queueOpts);
   }
   return job;
 }
-function optimisticDispatchRefresh(bookingId, refresh, pendingRef, bookingsRef, upsertJob, syncAll) {
-  if (refreshImpliesTerminal(refresh) || !refresh.status) return;
+function optimisticDispatchRefresh(companyId, bookingId, refresh, pendingRef, bookingsRef, upsertJob, removeJob, clearRemovedJob, syncAll) {
+  if (refreshImpliesTerminal(refresh)) {
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      removeJob,
+      syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef)
+    );
+    return;
+  }
+  if (!refresh.status) return;
+  if (useJobStore.getState().isJobBlacklisted(bookingId)) return;
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
-  if (!prior || useJobStore.getState().isJobBlacklisted(bookingId)) return;
-  let job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  const targetStatus = refresh.status ? normalizeJobStatus(refresh.status) : null;
+  if (prior && normalizeJobStatus(prior.status) === "Queued" && (POOL_RESTORE_ACTIONS.has(refresh.action || "") || targetStatus === "Pending" || targetStatus === "No One")) {
+    clearQueueAwaitingAllbookings(bookingId);
+  }
+  if (targetStatus === "Pending" || targetStatus === "No One" || targetStatus === "Scheduled" || POOL_RESTORE_ACTIONS.has(refresh.action || "") || refresh.action === "cancel") {
+    clearOfferAwaitingAllbookings(bookingId);
+    clearOptimisticLiveTransition(bookingId);
+  }
+  let job = null;
+  if (prior) {
+    job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+  } else if (refresh.action === "queue") {
+    job = minimalJobFromDispatchRefresh(bookingId, companyId, refresh);
+  }
   if (!job) return;
   pendingRef.delete(bookingId);
   const st2 = normalizeJobStatus(job.status);
@@ -28835,6 +29558,25 @@ function optimisticDispatchRefresh(bookingId, refresh, pendingRef, bookingsRef, 
     pendingRef.set(job.id, job);
     bookingsRef.delete(bookingId);
   }
+  if (refresh.action === "queue" && st2 === "Queued") {
+    markQueueAwaitingAllbookings(bookingId);
+    pendingRef.delete(bookingId);
+    if (prior && prior.id === bookingId) {
+      job = applyQueueForcedMerge(prior, job);
+    } else {
+      job = { ...job, status: "Queued" };
+    }
+    bookingsRef.set(bookingId, job);
+  }
+  if (refresh.action === "offer" && st2 === "Offered") {
+    markOfferAwaitingAllbookings(bookingId);
+  }
+  if (["accept", "assign", "offer", "queue", "active"].includes(refresh.action || "")) {
+    markOptimisticLiveTransition(bookingId);
+    if (refresh.updateSeq != null && refresh.updateSeq > 0) {
+      clearCompletedJobSuppress(bookingId);
+    }
+  }
   upsertJob(job);
   syncAll();
 }
@@ -28842,11 +29584,14 @@ async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendi
   const action = refresh.action;
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
   if (refreshImpliesTerminal(refresh)) {
-    pendingRef.delete(bookingId);
-    bookingsRef.delete(bookingId);
-    hooks.removeJob(bookingId);
-    hooks.clearRemovedJob(bookingId);
-    hooks.syncAll();
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      hooks.removeJob,
+      hooks.syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef)
+    );
     return;
   }
   const db2 = getDb();
@@ -28857,13 +29602,24 @@ async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendi
   pendingRef.delete(bookingId);
   let job = null;
   const abVal = abSnap.val();
+  const pjVal = pjSnap.val();
+  const pjRecord = pjVal && typeof pjVal === "object" ? pjVal : null;
+  const fbSeq = seqFromFirebaseRecord$1(abVal) ?? seqFromFirebaseRecord$1(pjRecord);
+  const trustPoolRestore = refreshTrustsPoolRestore(refresh, fbSeq);
   if (abVal && typeof abVal === "object") {
     const rec = abVal;
     const parsed = jobFromFirebase(String(bookingId), rec, companyId);
     if (parsed && !useJobStore.getState().isJobBlacklisted(parsed.id)) {
-      const st2 = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? parsed.status));
+      let st2 = jobStatusFromFirebaseRecord(rec);
+      if (action === "queue" && isQueueAwaitingAllbookings(bookingId) && st2 !== "Queued") {
+        st2 = "Queued";
+      }
       if (ACTIVE_BOOKING_STATUSES.has(st2)) {
-        job = parsed;
+        if (trustPoolRestore) {
+          job = applyRefreshStatusHint(null, prior, refresh, bookingId);
+        } else if (!isCompletedJobSuppressed(bookingId)) {
+          job = parsed;
+        }
       } else if (TERMINAL_BOOKING_STATUSES.has(st2)) {
         bookingsRef.delete(bookingId);
         hooks.removeJob(bookingId);
@@ -28880,26 +29636,50 @@ async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendi
   if (!job && prior && ["accept", "assign", "offer", "active", "queue"].includes(action || "")) {
     job = applyRefreshStatusHint(null, prior, refresh, bookingId);
   }
+  if (action === "queue") {
+    markQueueAwaitingAllbookings(bookingId);
+  }
+  if (action === "offer") {
+    markOfferAwaitingAllbookings(bookingId);
+  }
+  if (POOL_RESTORE_ACTIONS.has(action || "") && prior && normalizeJobStatus(prior.status) === "Queued") {
+    clearQueueAwaitingAllbookings(bookingId);
+  }
   job = applyRefreshStatusHint(job, prior, refresh, bookingId);
-  const pjVal = pjSnap.val();
-  const pjRecord = pjVal && typeof pjVal === "object" ? pjVal : null;
-  const fbSeq = seqFromFirebaseRecord$1(abVal) ?? seqFromFirebaseRecord$1(pjRecord);
-  if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq) {
+  if (action === "queue" && job) {
+    job = applyQueueForcedMerge(prior, job);
+  }
+  if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq && !trustPoolRestore) {
     job = mergeJobUpdate(job, { updateSeq: fbSeq });
   }
   if (job && !useJobStore.getState().isJobBlacklisted(job.id)) {
     const st2 = jobStatusFromFirebaseRecord(
       abVal && typeof abVal === "object" ? abVal : { BookingStatus: job.status, Status: job.status }
     );
-    if (st2 !== job.status) {
-      job = mergeJobUpdate(job, { status: st2 });
+    if (st2 !== job.status && !trustPoolRestore) {
+      job = action === "queue" && st2 === "Queued" ? mergeJobUpdate(job, { status: st2 }, { forceStatus: "Queued" }) : mergeJobUpdate(job, { status: st2 });
+    }
+    if (st2 === "Queued") {
+      const fbBooking = normalizeJobStatus(
+        String((abVal == null ? void 0 : abVal.BookingStatus) ?? "")
+      );
+      if (fbBooking === "Queued") clearQueueAwaitingAllbookings(bookingId);
+    }
+    if (st2 === "Offered") {
+      clearOfferAwaitingAllbookings(bookingId);
+    }
+    if (st2 === "Pending" || st2 === "No One" || st2 === "Scheduled" || trustPoolRestore) {
+      clearOfferAwaitingAllbookings(bookingId);
     }
     if (ACTIVE_BOOKING_STATUSES.has(st2)) {
-      bookingsRef.set(job.id, job);
+      if (!isCompletedJobSuppressed(job.id)) {
+        bookingsRef.set(job.id, job);
+      }
     } else if (st2 === "Pending" || st2 === "No One") {
       pendingRef.set(job.id, job);
       bookingsRef.delete(bookingId);
     } else if (TERMINAL_BOOKING_STATUSES.has(st2)) {
+      markCompletedJobSuppress(bookingId);
       bookingsRef.delete(bookingId);
       hooks.removeJob(bookingId);
       hooks.clearRemovedJob(bookingId);
@@ -28910,6 +29690,17 @@ async function refreshJobFromFirebaseCaches(companyId, bookingId, refresh, pendi
   if (pjRecord) {
     if (pendingSnapshotWouldRegressPool(refresh, pjRecord)) {
       if (job) pendingRef.set(job.id, job);
+    } else if (pendingSnapshotWouldRegressQueue(bookingId, pjRecord, {
+      bookingsRef,
+      abRec: abVal && typeof abVal === "object" ? abVal : null
+    })) {
+      pendingRef.delete(bookingId);
+      if (job) {
+        bookingsRef.set(
+          job.id,
+          mergeJobUpdate(job, { status: "Queued" }, { forceStatus: "Queued" })
+        );
+      }
     } else {
       hooks.applyPending(String(bookingId), pjRecord, false);
     }
@@ -28937,167 +29728,455 @@ function useJobs(companyId) {
   const clearRemovedJob = useJobStore((s2) => s2.clearRemovedJob);
   const pendingRef = reactExports.useRef(/* @__PURE__ */ new Map());
   const bookingsRef = reactExports.useRef(/* @__PURE__ */ new Map());
-  const lastDispatchRefreshAtRef = reactExports.useRef(0);
+  const lastDispatchRefreshAtRef = reactExports.useRef("");
   reactExports.useEffect(() => {
     if (!companyId) return;
-    const db2 = getDb();
+    let cancelled = false;
     const unsubs = [];
     let bootstrapping = true;
     listenerPendingCache = pendingRef.current;
     listenerBookingsCache = bookingsRef.current;
-    const syncAll = () => {
-      const removed = new Set(useJobStore.getState().removedJobIds);
-      const merged = mergeJobs([pendingRef.current, bookingsRef.current]).filter(
-        (j2) => !removed.has(j2.id)
-      );
-      const byId = new Map(merged.map((j2) => [j2.id, j2]));
-      const storeJobs = useJobStore.getState().jobs;
-      for (const [id, job] of byId) {
-        const existing = storeJobs.find((j2) => j2.id === id);
-        if (existing) byId.set(id, mergeJobUpdate(existing, job));
-      }
-      for (const j2 of storeJobs) {
-        if (byId.has(j2.id) || removed.has(j2.id)) continue;
-        if (shouldPreserveAbsentStoreJob(j2, pendingRef.current, bookingsRef.current)) {
-          byId.set(j2.id, j2);
-        }
-      }
-      setJobs(Array.from(byId.values()));
-    };
-    const notifyNewJob = (job) => {
-      if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
-      useUiStore.getState().addToast({
-        type: "info",
-        title: `New job #${job.id}`,
-        message: job.pickAddress || void 0,
-        category: "new_booking"
-      });
-    };
-    const applyPending = (key, rec, notify) => {
-      const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
-      if (!jobId || isBlacklisted(jobId)) return;
-      const job = jobFromFirebase(key, rec, companyId);
-      if (!job || isBlacklisted(job.id)) return;
-      const effectiveStatus = jobStatusFromFirebaseRecord(rec);
-      if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
-        pendingRef.current.delete(job.id);
-        bookingsRef.current.delete(job.id);
-        removeJob(job.id);
-        clearRemovedJob(job.id);
-        syncAll();
-        return;
-      }
-      pendingRef.current.set(job.id, job);
-      const booking = bookingsRef.current.get(job.id);
-      const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === job.id);
-      let merged = booking ? mergeJobUpdate(booking, job) : job;
-      if (storeJob) merged = mergeJobUpdate(storeJob, merged);
-      upsertJob(merged);
-      syncAll();
-      if (notify) notifyNewJob(job);
-    };
-    const jobsRef = ref(db2, `pendingjobs/${companyId}`);
-    const bRef = ref(db2, `allbookings/${companyId}`);
-    const addJobToStore = (snap) => {
-      const jobId = parseInt(snap.key || "0", 10);
-      if (!jobId || isBlacklisted(jobId)) return;
-      const val = snap.val();
-      if (!val || typeof val !== "object") return;
-      applyPending(snap.key, val, !bootstrapping);
-    };
-    const updateJobInStore = (snap) => {
-      const jobId = parseInt(snap.key || "0", 10);
-      if (!jobId || isBlacklisted(jobId)) return;
-      const val = snap.val();
-      if (!val || typeof val !== "object") return;
-      applyPending(snap.key, val, false);
-    };
-    const removeJobFromStore = (snap) => {
-      const jobId = parseInt(snap.key || "0", 10);
-      if (!jobId) return;
-      pendingRef.current.delete(jobId);
-      syncAll();
-    };
-    unsubs.push(onChildAdded(jobsRef, addJobToStore));
-    bootstrapping = false;
-    unsubs.push(onChildChanged(jobsRef, updateJobInStore));
-    unsubs.push(onChildRemoved(jobsRef, removeJobFromStore));
-    unsubs.push(
-      onValue(bRef, (snap) => {
-        bookingsRef.current = /* @__PURE__ */ new Map();
-        const terminalIds = [];
-        const val = snap.val();
-        if (val && typeof val === "object") {
-          for (const [key, rec] of Object.entries(val)) {
-            const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
-            if (!jobId || isBlacklisted(jobId)) continue;
-            const job = jobFromFirebase(key, rec, companyId);
-            if (!job || isBlacklisted(job.id)) continue;
-            const effectiveStatus = jobStatusFromFirebaseRecord(rec);
-            const stored = effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
-            if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
-              terminalIds.push(stored.id);
-              continue;
-            }
-            if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
-              bookingsRef.current.set(stored.id, stored);
-            } else if (isPoolUaStatus(effectiveStatus)) {
-              pendingRef.current.set(stored.id, stored);
-            }
+    void (async () => {
+      const authCtx = await bootstrapDispatchFirebaseAccess(companyId);
+      if (cancelled) return;
+      const db2 = getDb();
+      const syncAll = () => {
+        purgeStalePendingForQueuedBookings(
+          pendingRef.current,
+          bookingsRef.current,
+          useJobStore.getState().jobs
+        );
+        reinjectQueueAwaitingJobs(
+          bookingsRef.current,
+          useJobStore.getState().jobs,
+          pendingRef.current
+        );
+        reinjectOfferAwaitingJobs(
+          bookingsRef.current,
+          pendingRef.current,
+          useJobStore.getState().jobs
+        );
+        for (const j2 of mergeJobs([pendingRef.current, bookingsRef.current])) {
+          if (ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(j2.status)) && !useJobStore.getState().isJobBlacklisted(j2.id)) {
+            clearRemovedJob(j2.id);
           }
         }
-        for (const tid of terminalIds) {
-          pendingRef.current.delete(tid);
-          bookingsRef.current.delete(tid);
-          removeJob(tid);
-          clearRemovedJob(tid);
+        const removed = new Set(useJobStore.getState().removedJobIds);
+        const mergedPreFilter = mergeJobs([pendingRef.current, bookingsRef.current]);
+        const merged = mergedPreFilter.filter((j2) => !removed.has(j2.id));
+        const byId = new Map(merged.map((j2) => [j2.id, j2]));
+        const storeJobs = useJobStore.getState().jobs;
+        for (const [id, job] of byId) {
+          const existing = storeJobs.find((j2) => j2.id === id);
+          if (isQueueAwaitingAllbookings(id)) {
+            const base = existing ?? job;
+            const baseSt = normalizeJobStatus(base.status);
+            if (TERMINAL_BOOKING_STATUSES.has(baseSt) || isCompletedJobSuppressed(id)) {
+              clearQueueAwaitingAllbookings(id);
+              continue;
+            }
+            byId.set(
+              id,
+              mergeJobUpdate(base, { ...job, status: "Queued" }, { forceStatus: "Queued" })
+            );
+            continue;
+          }
+          if (existing) {
+            byId.set(id, mergeJobUpdate(existing, job, queueAwaitingMergeOpts(id)));
+          }
         }
-        syncAll();
-      })
-    );
-    unsubs.push(
-      onValue(ref(db2, `dispatchConsole/${companyId}/refresh`), (snap) => {
-        const v2 = snap.val();
-        if (!(v2 == null ? void 0 : v2.at) || v2.at === lastDispatchRefreshAtRef.current) return;
-        lastDispatchRefreshAtRef.current = v2.at;
-        const bid = parseInt(String(v2.bookingId ?? "0"), 10);
-        if (!bid) {
+        for (const j2 of storeJobs) {
+          if (byId.has(j2.id) || removed.has(j2.id)) continue;
+          if (shouldPreserveAbsentStoreJob(j2, pendingRef.current, bookingsRef.current)) {
+            const awaiting = isQueueAwaitingAllbookings(j2.id);
+            const terminal = TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(j2.status));
+            if (awaiting && terminal) clearQueueAwaitingAllbookings(j2.id);
+            byId.set(
+              j2.id,
+              awaiting && !terminal ? mergeJobUpdate(j2, { status: "Queued" }, { forceStatus: "Queued" }) : j2
+            );
+          }
+        }
+        logSyncAllMergePipeline({
+          pendingRef: pendingRef.current,
+          bookingsRef: bookingsRef.current,
+          storeJobs,
+          mergedPreFilter,
+          mergedPostFilter: merged,
+          byId,
+          removed
+        });
+        setJobs(Array.from(byId.values()));
+      };
+      const notifyNewJob = (job) => {
+        if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
+        useUiStore.getState().addToast({
+          type: "info",
+          title: `New job #${job.id}`,
+          message: job.pickAddress || void 0,
+          category: "new_booking"
+        });
+      };
+      const applyPending = (key, rec, notify) => {
+        const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+        if (!jobId || isBlacklisted(jobId)) return;
+        const job = jobFromFirebase(key, rec, companyId);
+        if (!job || isBlacklisted(job.id)) return;
+        const pendingEffective = jobStatusFromFirebaseRecord(rec);
+        if (isCompletedJobSuppressed(jobId) && !TERMINAL_BOOKING_STATUSES.has(pendingEffective) && (ACTIVE_BOOKING_STATUSES.has(pendingEffective) || pendingEffective === "Assigned" || pendingEffective === "Picking" || pendingEffective === "Arrived" || pendingEffective === "Offered")) {
+          pendingRef.current.delete(jobId);
+          return;
+        }
+        const bookingsQueued = bookingsRef.current.get(jobId);
+        const storeQueued = useJobStore.getState().jobs.find((j2) => j2.id === jobId);
+        if (normalizeJobStatus(job.status) !== "Queued" && (normalizeJobStatus(bookingsQueued == null ? void 0 : bookingsQueued.status) === "Queued" || normalizeJobStatus(storeQueued == null ? void 0 : storeQueued.status) === "Queued")) {
+          pendingRef.current.delete(jobId);
+          return;
+        }
+        if (!isQueueAwaitingAllbookings(jobId) && !isDispatchPoolRowLive(jobId, rec, pendingRef.current)) {
+          pendingRef.current.delete(jobId);
+          return;
+        }
+        if (isQueueAwaitingAllbookings(jobId)) {
+          pendingRef.current.delete(jobId);
+          const forced = mergeJobUpdate(job, { status: "Queued" }, { forceStatus: "Queued" });
+          bookingsRef.current.set(jobId, forced);
+          const storeJob2 = useJobStore.getState().jobs.find((j2) => j2.id === jobId);
+          const merged2 = storeJob2 ? mergeJobUpdate(storeJob2, forced, { forceStatus: "Queued" }) : forced;
+          upsertJob(merged2);
           syncAll();
           return;
         }
-        const refreshPayload = {
-          action: v2.action,
-          status: v2.status,
-          driverId: v2.driverId != null ? String(v2.driverId) : void 0,
-          declinedDriverId: v2.declinedDriverId,
-          returnReason: v2.returnReason,
-          updateSeq: v2.updateSeq != null ? parseInt(String(v2.updateSeq), 10) : void 0
-        };
-        notifyOfferReturned(bid, refreshPayload);
-        optimisticDispatchRefresh(
-          bid,
-          refreshPayload,
-          pendingRef.current,
-          bookingsRef.current,
-          upsertJob,
-          syncAll
-        );
-        void refreshJobFromFirebaseCaches(
-          companyId,
-          bid,
-          refreshPayload,
-          pendingRef.current,
-          bookingsRef.current,
-          {
-            applyPending,
+        const effectiveStatus = jobStatusFromFirebaseRecord(rec);
+        if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+          const storeJobs = useJobStore.getState().jobs;
+          if (staleTerminalAllbookingsSuperseded(
+            job.id,
+            rec,
+            pendingRef.current,
+            bookingsRef.current,
+            storeJobs
+          )) {
+            return;
+          }
+          pendingRef.current.delete(job.id);
+          bookingsRef.current.delete(job.id);
+          markCompletedJobSuppress(job.id);
+          removeJob(job.id);
+          clearRemovedJob(job.id);
+          syncAll();
+          return;
+        }
+        const booking = bookingsRef.current.get(job.id);
+        const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === job.id);
+        const pendingSt = normalizeJobStatus(effectiveStatus);
+        const liveQueued = isQueueAwaitingAllbookings(jobId) || normalizeJobStatus(booking == null ? void 0 : booking.status) === "Queued" || normalizeJobStatus(storeJob == null ? void 0 : storeJob.status) === "Queued";
+        if (liveQueued && (pendingSt === "Assigned" || pendingSt === "Active" || pendingSt === "Arrived")) {
+          return;
+        }
+        if (pendingSt === "Pending" || pendingSt === "No One" || pendingSt === "Scheduled") {
+          clearOfferAwaitingAllbookings(jobId);
+          bookingsRef.current.delete(jobId);
+        }
+        pendingRef.current.set(job.id, job);
+        let merged = booking ? mergeJobUpdate(booking, job) : job;
+        if (storeJob) merged = mergeJobUpdate(storeJob, merged);
+        upsertJob(merged);
+        syncAll();
+        if (notify) notifyNewJob(job);
+      };
+      const jobsRef = ref(db2, `pendingjobs/${companyId}`);
+      const bRef = ref(db2, `allbookings/${companyId}`);
+      const addJobToStore = (snap) => {
+        const jobId = parseInt(snap.key || "0", 10);
+        if (!jobId || isBlacklisted(jobId)) return;
+        const val = snap.val();
+        if (!val || typeof val !== "object") return;
+        applyPending(snap.key, val, !bootstrapping);
+      };
+      const updateJobInStore = (snap) => {
+        const jobId = parseInt(snap.key || "0", 10);
+        if (!jobId || isBlacklisted(jobId)) return;
+        const val = snap.val();
+        if (!val || typeof val !== "object") return;
+        applyPending(snap.key, val, false);
+      };
+      const removeJobFromStore = (snap) => {
+        const jobId = parseInt(snap.key || "0", 10);
+        if (!jobId) return;
+        pendingRef.current.delete(jobId);
+        syncAll();
+      };
+      unsubs.push(onChildAdded(jobsRef, addJobToStore));
+      bootstrapping = false;
+      unsubs.push(onChildChanged(jobsRef, updateJobInStore));
+      unsubs.push(onChildRemoved(jobsRef, removeJobFromStore));
+      unsubs.push(
+        onValue(bRef, (snap) => {
+          bookingsRef.current = /* @__PURE__ */ new Map();
+          const terminalRows = [];
+          const seenInSnapshot = /* @__PURE__ */ new Set();
+          const val = snap.val();
+          if (val && typeof val === "object") {
+            for (const [key, rec] of Object.entries(val)) {
+              const jobId = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
+              if (!jobId) continue;
+              seenInSnapshot.add(jobId);
+              const job = jobFromFirebase(key, rec, companyId);
+              if (!job) {
+                traceAllbookingsIngest(jobId, "parse failed", { firebaseKey: key });
+                continue;
+              }
+              if (!isDispatchPoolRowLive(jobId, rec, pendingRef.current)) {
+                traceAllbookingsIngest(jobId, "skipped orphan (stale pool row)", {
+                  recordActivityMs: recordActivityMs(rec),
+                  hasPending: pendingRef.current.has(jobId),
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null
+                });
+                continue;
+              }
+              let effectiveStatus = coerceAllbookingsLiveStatus(
+                rec,
+                normalizeJobStatus(jobStatusFromFirebaseRecord(rec))
+              );
+              const fbAttached = /* @__PURE__ */ new Set(["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Offered", "Queued"]);
+              const abRaw = normalizeJobStatus(
+                String(rec.BookingStatus ?? rec.bookingStatus ?? rec.Status ?? rec.status ?? "")
+              );
+              if (fbAttached.has(abRaw) && !fbAttached.has(effectiveStatus)) {
+                effectiveStatus = abRaw;
+              }
+              if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+                clearRemovedJob(jobId);
+              } else if (isBlacklisted(jobId)) {
+                traceAllbookingsIngest(jobId, "skipped blacklisted", {
+                  effectiveStatus,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null
+                });
+                continue;
+              }
+              if (isQueueAwaitingAllbookings(jobId) && !TERMINAL_BOOKING_STATUSES.has(effectiveStatus) && effectiveStatus !== "Queued") {
+                if (effectiveStatus === "No One" || effectiveStatus === "Pending" || effectiveStatus === "Scheduled") {
+                  clearQueueAwaitingAllbookings(jobId);
+                } else {
+                  pendingRef.current.delete(jobId);
+                  effectiveStatus = "Queued";
+                }
+              }
+              let stored = effectiveStatus !== job.status ? { ...job, status: effectiveStatus } : job;
+              if (isCompletedJobSuppressed(jobId) && !TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+                if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+                  if (!shouldClearCompletedSuppress(jobId, rec)) {
+                    traceAllbookingsIngest(jobId, "skipped completedSuppressed (stale Active)", {
+                      effectiveStatus,
+                      bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                      statusRaw: rec.Status ?? rec.status ?? null
+                    });
+                    continue;
+                  }
+                  clearCompletedJobSuppress(jobId);
+                } else {
+                  traceAllbookingsIngest(jobId, "skipped completedSuppressed", {
+                    effectiveStatus,
+                    bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                    statusRaw: rec.Status ?? rec.status ?? null
+                  });
+                  continue;
+                }
+              }
+              if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) {
+                const storeJobs = useJobStore.getState().jobs;
+                const superseding = pickLiveJobSupersedingStaleTerminal(
+                  jobId,
+                  rec,
+                  pendingRef.current,
+                  bookingsRef.current,
+                  storeJobs
+                );
+                if (superseding) {
+                  effectiveStatus = normalizeJobStatus(superseding.status);
+                  stored = mergeJobUpdate(
+                    superseding,
+                    { ...job, status: effectiveStatus },
+                    effectiveStatus === "Queued" ? { forceStatus: "Queued" } : queueAwaitingMergeOpts(jobId)
+                  );
+                  clearCompletedJobSuppress(jobId);
+                  traceAllbookingsIngest(jobId, "stale terminal superseded by live row", {
+                    effectiveStatus,
+                    supersedingStatus: superseding.status,
+                    supersedingUpdateSeq: superseding.updateSeq ?? null,
+                    bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                    statusRaw: rec.Status ?? rec.status ?? null
+                  });
+                } else if (staleTerminalAllbookingsSuperseded(
+                  stored.id,
+                  rec,
+                  pendingRef.current,
+                  bookingsRef.current,
+                  storeJobs
+                )) {
+                  traceAllbookingsIngest(jobId, "skipped staleTerminalSuperseded (no live row)", {
+                    effectiveStatus,
+                    bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                    statusRaw: rec.Status ?? rec.status ?? null
+                  });
+                  continue;
+                } else {
+                  terminalRows.push({
+                    id: stored.id,
+                    seq: stored.updateSeq ?? seqFromFirebaseRecord$1(rec) ?? 0
+                  });
+                  traceAllbookingsIngest(jobId, "terminal", {
+                    effectiveStatus,
+                    bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                    statusRaw: rec.Status ?? rec.status ?? null
+                  });
+                  continue;
+                }
+              }
+              if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
+                if (effectiveStatus === "Queued") {
+                  pendingRef.current.delete(jobId);
+                }
+                bookingsRef.current.set(stored.id, stored);
+                traceAllbookingsIngest(jobId, "ingest", {
+                  effectiveStatus,
+                  storedStatus: stored.status,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                  blacklisted: isBlacklisted(jobId),
+                  completedSuppressed: isCompletedJobSuppressed(jobId)
+                });
+                if (effectiveStatus === "Queued") {
+                  const fbBooking = normalizeJobStatus(String(rec.BookingStatus ?? ""));
+                  if (fbBooking === "Queued" || allbookingsRecordIsQueued(rec)) {
+                    clearQueueAwaitingAllbookings(stored.id);
+                  }
+                }
+                if (effectiveStatus === "Offered") {
+                  clearOfferAwaitingAllbookings(stored.id);
+                }
+              } else if (isPoolUaStatus(effectiveStatus)) {
+                pendingRef.current.set(stored.id, stored);
+              } else {
+                traceAllbookingsIngest(jobId, "skipped (not active/ua)", {
+                  effectiveStatus,
+                  storedStatus: stored.status,
+                  bookingStatusRaw: rec.BookingStatus ?? rec.bookingStatus ?? null,
+                  statusRaw: rec.Status ?? rec.status ?? null,
+                  blacklisted: isBlacklisted(jobId),
+                  completedSuppressed: isCompletedJobSuppressed(jobId),
+                  terminal: TERMINAL_BOOKING_STATUSES.has(effectiveStatus)
+                });
+              }
+            }
+          }
+          logAllbookingsSnapshotSummary(companyId, authCtx, val, seenInSnapshot);
+          for (const traceId of DISPATCH_QUEUE_TRACE_IDS) {
+            if (!seenInSnapshot.has(traceId)) {
+              console.log("[dispatch-queue-debug] allbookings missing from snapshot", {
+                jobId: traceId,
+                snapshotChildCount: val && typeof val === "object" ? Object.keys(val).length : 0
+              });
+              void get(ref(db2, `allbookings/${companyId}/${traceId}`)).then((directSnap) => {
+                const directVal = directSnap.val();
+                console.log("[dispatch-queue-debug] allbookings direct-get probe", {
+                  jobId: traceId,
+                  exists: directSnap.exists(),
+                  bookingStatusRaw: (directVal == null ? void 0 : directVal.BookingStatus) ?? (directVal == null ? void 0 : directVal.bookingStatus) ?? null,
+                  statusRaw: (directVal == null ? void 0 : directVal.Status) ?? (directVal == null ? void 0 : directVal.status) ?? null,
+                  driverId: (directVal == null ? void 0 : directVal.DriverId) ?? (directVal == null ? void 0 : directVal.driverId) ?? null
+                });
+              }).catch((err2) => {
+                console.log("[dispatch-queue-debug] allbookings direct-get probe failed", {
+                  jobId: traceId,
+                  error: err2 instanceof Error ? err2.message : String(err2)
+                });
+              });
+              void get(ref(db2, `pendingjobs/${companyId}/${traceId}`)).then((pjSnap) => {
+                const pjVal = pjSnap.val();
+                console.log("[dispatch-queue-debug] pendingjobs direct-get probe", {
+                  jobId: traceId,
+                  exists: pjSnap.exists(),
+                  bookingStatusRaw: (pjVal == null ? void 0 : pjVal.BookingStatus) ?? (pjVal == null ? void 0 : pjVal.bookingStatus) ?? null,
+                  statusRaw: (pjVal == null ? void 0 : pjVal.Status) ?? (pjVal == null ? void 0 : pjVal.status) ?? null
+                });
+              }).catch(() => void 0);
+            }
+          }
+          for (const row of terminalRows) {
+            clearQueueAwaitingAllbookings(row.id);
+            clearOfferAwaitingAllbookings(row.id);
+            pendingRef.current.delete(row.id);
+            bookingsRef.current.delete(row.id);
+            markCompletedJobSuppress(row.id, row.seq);
+            removeJob(row.id);
+            clearRemovedJob(row.id);
+          }
+          reinjectQueueAwaitingJobs(
+            bookingsRef.current,
+            useJobStore.getState().jobs,
+            pendingRef.current
+          );
+          reinjectOfferAwaitingJobs(
+            bookingsRef.current,
+            pendingRef.current,
+            useJobStore.getState().jobs
+          );
+          syncAll();
+        })
+      );
+      unsubs.push(
+        onValue(ref(db2, `dispatchConsole/${companyId}/refresh`), (snap) => {
+          const v2 = snap.val();
+          const bid = parseInt(String((v2 == null ? void 0 : v2.bookingId) ?? "0"), 10);
+          const refreshKey = `${(v2 == null ? void 0 : v2.at) ?? 0}:${bid}`;
+          if (refreshKey === lastDispatchRefreshAtRef.current) return;
+          lastDispatchRefreshAtRef.current = refreshKey;
+          if (!bid) {
+            syncAll();
+            return;
+          }
+          const refreshPayload = {
+            action: v2.action,
+            status: v2.status,
+            driverId: v2.driverId != null ? String(v2.driverId) : void 0,
+            declinedDriverId: v2.declinedDriverId,
+            returnReason: v2.returnReason,
+            updateSeq: v2.updateSeq != null ? parseInt(String(v2.updateSeq), 10) : void 0
+          };
+          notifyOfferReturned(bid, refreshPayload);
+          optimisticDispatchRefresh(
+            companyId,
+            bid,
+            refreshPayload,
+            pendingRef.current,
+            bookingsRef.current,
+            upsertJob,
             removeJob,
             clearRemovedJob,
             syncAll
-          }
-        );
-      })
-    );
+          );
+          void refreshJobFromFirebaseCaches(
+            companyId,
+            bid,
+            refreshPayload,
+            pendingRef.current,
+            bookingsRef.current,
+            {
+              applyPending,
+              removeJob,
+              clearRemovedJob,
+              syncAll
+            }
+          );
+        })
+      );
+    })();
     return () => {
+      cancelled = true;
       for (const u2 of unsubs) u2();
       if (listenerPendingCache === pendingRef.current) listenerPendingCache = null;
       if (listenerBookingsCache === bookingsRef.current) listenerBookingsCache = null;
@@ -29614,7 +30693,7 @@ function repeatBookingDates(form) {
   }
   return out;
 }
-const API$1 = "/api";
+const API$2 = "/api";
 const RELEASE_RETRIES = 3;
 function formatJobEditLockLabel(lock) {
   if (!lock) return "another user";
@@ -29650,7 +30729,7 @@ function clearLocalJobEditLock(jobId) {
   });
 }
 async function setJobEditLock(bookingId, locked, opts) {
-  const r = await fetch(`${API$1}/job/edit-lock`, {
+  const r = await fetch(`${API$2}/job/edit-lock`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -29709,7 +30788,7 @@ function releaseJobEditLockKeepalive(jobId, actorName) {
       sessionId: getEditLockSessionId(),
       forceRelease: true
     });
-    fetch(`${API$1}/job/edit-lock`, {
+    fetch(`${API$2}/job/edit-lock`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -29721,10 +30800,14 @@ function releaseJobEditLockKeepalive(jobId, actorName) {
   } catch {
   }
 }
-const API = "/api";
+const API$1 = "/api";
 const jobUpdateChains = /* @__PURE__ */ new Map();
 function latestStoreJob(jobId) {
   return useJobStore.getState().jobs.find((j2) => j2.id === jobId);
+}
+function latestJobSeq(jobId, fallback = 0) {
+  var _a2;
+  return ((_a2 = latestStoreJob(jobId)) == null ? void 0 : _a2.updateSeq) ?? fallback;
 }
 function editChangesTouchTiming(changes) {
   return [
@@ -29788,24 +30871,24 @@ function isExplicitUnassignChanges(changes) {
 }
 async function sessionLogin(companyId, uid) {
   return jsonFetch(
-    `${API}/session/login`,
+    `${API$1}/session/login`,
+    { method: "POST", body: JSON.stringify({ companyId, uid }) }
+  );
+}
+async function ensureAdminAccess(companyId, uid) {
+  return jsonFetch(
+    `${API$1}/session/ensure-admin-access`,
     { method: "POST", body: JSON.stringify({ companyId, uid }) }
   );
 }
 async function sessionMe() {
-  return jsonFetch(`${API}/session/me`);
+  return jsonFetch(`${API$1}/session/me`);
 }
 async function accountStatus(companyId) {
-  return jsonFetch(`${API}/account-status?companyId=${encodeURIComponent(companyId)}`);
+  return jsonFetch(`${API$1}/account-status?companyId=${encodeURIComponent(companyId)}`);
 }
 async function jobCommand(payload) {
-  return jsonFetch(`${API}/job/command`, { method: "POST", body: JSON.stringify(payload) });
-}
-async function createJob(body) {
-  return jsonFetch(`${API}/job/create`, {
-    method: "POST",
-    body: JSON.stringify(body)
-  });
+  return jsonFetch(`${API$1}/job/command`, { method: "POST", body: JSON.stringify(payload) });
 }
 function applyChangesToJob(job, changes, seq) {
   const status = changes.BookingStatus ?? changes.Status;
@@ -29896,6 +30979,11 @@ function firebasePatchFromChanges(changes) {
   if (changes.VehicleId !== void 0) patch.VehicleId = changes.VehicleId;
   if (changes.releasedAt !== void 0) patch.releasedAt = changes.releasedAt;
   if (changes.manualOffer !== void 0) patch.manualOffer = changes.manualOffer;
+  if (changes.queuedAt === null || changes.QueuedAt === null) {
+    patch.queuedAt = null;
+    patch.QueuedAt = null;
+    patch.eventType = changes.eventType ?? "updated";
+  }
   if (changes.ScheduledFor === 0 || changes.ScheduledForMs === 0) {
     patch.ScheduledFor = null;
   }
@@ -29927,7 +31015,7 @@ function mirrorJobChangesToFirebase(companyId, jobId, changes, status, authorita
   })();
 }
 async function postBookingUpdate(body) {
-  const r = await fetch(`${API}/booking/update`, {
+  const r = await fetch(`${API$1}/booking/update`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -30013,6 +31101,10 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
   const authoritativeSeq = result.seq ?? ifSeq + 1;
   const current = latestStoreJob(jobId) ?? baseJob;
   const merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
+  if (normalizeJobStatus(baseJob.status) === "Queued" && (normalizeJobStatus(merged.status) === "Pending" || normalizeJobStatus(merged.status) === "No One")) {
+    clearQueueAwaitingAllbookings(jobId);
+    useJobStore.getState().clearRemovedJob(jobId);
+  }
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
   const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
@@ -30024,6 +31116,12 @@ async function persistJobUpdate(jobId, companyId, changes, baseJob) {
 }
 function mergeJobUpdateFromServer(optimistic, fresh, authoritativeSeq) {
   const seq = Math.max(authoritativeSeq, fresh.updateSeq ?? 0, optimistic.updateSeq ?? 0);
+  const optSt = normalizeJobStatus(optimistic.status);
+  const freshSt = normalizeJobStatus(fresh.status);
+  const poolUnassign = (optSt === "Pending" || optSt === "No One") && ["Assigned", "Picking", "Arrived", "Active", "OnTrip", "Offered", "Queued"].includes(freshSt);
+  if (poolUnassign && seq >= (fresh.updateSeq ?? 0)) {
+    return { ...optimistic, updateSeq: seq };
+  }
   let merged = mergeJobUpdate(optimistic, { ...fresh, updateSeq: seq });
   if ((fresh.dispatchBeforeMinutes ?? 0) === 0 && (optimistic.dispatchBeforeMinutes ?? 0) > 0) {
     merged = {
@@ -30065,7 +31163,7 @@ async function updateJob(jobId, companyId, changes, existingJob) {
   }
 }
 async function postJobCommand(payload) {
-  const r = await fetch(`${API}/job/command`, {
+  const r = await fetch(`${API$1}/job/command`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -30122,7 +31220,7 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   const cancelledAt = (/* @__PURE__ */ new Date()).toISOString();
   const cancelSource = "Dispatcher";
   const cancelReason = dispatcherName && dispatcherName !== "Dispatcher" ? `Cancelled by ${dispatcherName}` : "Cancelled by Dispatcher";
-  const result = await jsonFetch(`${API}/cancel`, {
+  const result = await jsonFetch(`${API$1}/cancel`, {
     method: "POST",
     body: JSON.stringify({
       bookingId,
@@ -30137,8 +31235,8 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
   if (result.ok === false) {
     throw new Error(result.error || "Cancel rejected by server");
   }
-  purgeCancelledJobFromListeners(bookingId);
-  useJobStore.getState().removeJob(bookingId);
+  const suppressSeq = latestJobSeq(bookingId);
+  purgeDispatchTerminalJob(bookingId, suppressSeq);
   try {
     const db2 = getDb();
     await remove(ref(db2, `pendingjobs/${companyId}/${bookingId}`));
@@ -30157,6 +31255,34 @@ async function cancelJob(bookingId, companyId, dispatcherName = "Dispatcher") {
     });
   } catch {
   }
+}
+async function recallJob(bookingId, originalStatus) {
+  const existing = latestStoreJob(bookingId);
+  const result = await jobCommand({
+    bookingId,
+    command: "recall",
+    by: "dispatcher",
+    payload: { originalStatus }
+  });
+  if (!(result == null ? void 0 : result.ok)) {
+    throw new Error("Recall failed");
+  }
+  const booking = result.booking;
+  const restoredStatus = normalizeJobStatus(
+    String((booking == null ? void 0 : booking.BookingStatus) ?? (booking == null ? void 0 : booking.Status) ?? "Pending")
+  );
+  const seq = Number((booking == null ? void 0 : booking.updateSeq) ?? (booking == null ? void 0 : booking.version) ?? result.version ?? (existing == null ? void 0 : existing.updateSeq) ?? 0);
+  if (existing) {
+    useJobStore.getState().upsertJob({
+      ...existing,
+      status: restoredStatus,
+      driverId: void 0,
+      vehicleId: void 0,
+      updateSeq: seq || (existing.updateSeq ?? 0) + 1,
+      returnReason: String((booking == null ? void 0 : booking.returnReason) ?? "Recalled by dispatcher")
+    });
+  }
+  return result;
 }
 async function forceCompleteJob(bookingId) {
   return jobCommand({
@@ -30213,6 +31339,9 @@ async function setPending(job) {
     VehicleId: 0,
     releasedAt: null,
     manualOffer: false,
+    queuedAt: null,
+    QueuedAt: null,
+    eventType: "updated",
     ...hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}
   }, job);
 }
@@ -30223,6 +31352,9 @@ async function setNoOne(job) {
     Status: "No One",
     DriverId: -1,
     VehicleId: 0,
+    queuedAt: null,
+    QueuedAt: null,
+    eventType: "updated",
     ...hadDriver ? { manualOffer: true } : {},
     ...hadDriver && job.driverId ? { _withdrawDriverId: job.driverId } : {}
   }, job);
@@ -30239,12 +31371,13 @@ const jobFlow = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePrope
   applyJobAssignment,
   assignJob,
   cancelJob,
-  createJob,
+  ensureAdminAccess,
   forceCompleteJob,
   formatJobEditLockLabel,
   hydrateJobFromServer,
   jobCommand,
   logoutSession,
+  recallJob,
   sessionLogin,
   sessionMe,
   setJobEditLock,
@@ -30632,6 +31765,16 @@ const Plus = createLucideIcon("Plus", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const RotateCcw = createLucideIcon("RotateCcw", [
+  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
+]);
+/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const SquarePen = createLucideIcon("SquarePen", [
   ["path", { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" }],
   [
@@ -30915,7 +32058,6 @@ function NotificationRow({ item, onDismiss }) {
 const NAV = [
   { id: "searchJobs", label: "Filter" },
   { id: "suspended", label: "Suspended" },
-  { id: "searchJobs", label: "Search" },
   { id: "closedJobs", label: "Closed Jobs" },
   { id: "acc", label: "ACC" },
   { id: "alarms", label: "Alarms" },
@@ -31297,6 +32439,23 @@ function filterDriversForRequirements(drivers, req) {
   };
   return filterDriversForJob(drivers, job);
 }
+const FORBIDDEN_PLACEHOLDER_TARIFF_NAMES = /* @__PURE__ */ new Set(["standard"]);
+function isForbiddenPlaceholderTariffName(name2) {
+  const n2 = String(name2 ?? "").trim().toLowerCase();
+  return !n2 || FORBIDDEN_PLACEHOLDER_TARIFF_NAMES.has(n2);
+}
+function filterForbiddenTariffRates(rows) {
+  return rows.filter((row) => {
+    const name2 = String(row.TariffName ?? row.name ?? "").trim();
+    return name2 && !isForbiddenPlaceholderTariffName(name2);
+  });
+}
+function filterForbiddenTariffDropdown(rows) {
+  return rows.filter((row) => {
+    const name2 = String(row.TariffName ?? row.name ?? "").trim();
+    return name2 && !isForbiddenPlaceholderTariffName(name2);
+  });
+}
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R2 = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -31306,7 +32465,7 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 function parseTariffRecord(key, rec) {
   const name2 = String(rec.TariffName ?? rec.tariffName ?? rec.name ?? rec.zoneName ?? "").trim();
-  if (!name2) return null;
+  if (!name2 || isForbiddenPlaceholderTariffName(name2)) return null;
   const id = String(rec.Id ?? rec.id ?? key);
   return {
     id,
@@ -31321,29 +32480,142 @@ function estimateFare(km, tariff) {
   const raw = tariff.startPrice + km * tariff.distanceRate;
   return Math.max(raw, tariff.minimumFare || 0);
 }
-const DEFAULT_TARIFF = {
-  id: "1",
-  name: "Standard",
-  startPrice: 3.5,
-  distanceRate: 2.2,
-  waitingRate: 0.6,
-  minimumFare: 0
-};
+function paramVal(params, ...names) {
+  for (const name2 of names) {
+    const p2 = params.find((x2) => x2.name === name2);
+    const v2 = (p2 == null ? void 0 : p2.Value) ?? (p2 == null ? void 0 : p2.value);
+    if (v2 != null && String(v2).trim()) return String(v2).trim();
+  }
+  return "";
+}
+function parseLatLng(raw) {
+  const parts = raw.split(",").map((s2) => parseFloat(s2.trim()));
+  if (parts.length !== 2 || parts.some((n2) => Number.isNaN(n2))) return { lat: 0, lng: 0 };
+  return { lat: parts[0], lng: parts[1] };
+}
+async function postDataManager$1(selector, action, data) {
+  const r = await fetch(`/DataManager/Data.aspx/${selector}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, action })
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.error || `DataManager ${action} failed (${r.status})`);
+  return json;
+}
+async function searchCustomers(query) {
+  const json = await postDataManager$1("DataSelector", "[searchmulti]", [
+    { name: "claim_number", value: query }
+  ]);
+  const parsed = JSON.parse(json.d || "{}");
+  return {
+    acc: parsed.dt1 || [],
+    accounts: parsed.dt2 || [],
+    passengers: parsed.dt3 || []
+  };
+}
+async function fetchDispatcherSettings() {
+  var _a2, _b2, _c, _d;
+  const json = await postDataManager$1("DataSelector", "[DispatcherSettings]", []);
+  const payload = JSON.parse(json.d || "{}");
+  return {
+    companyName: ((_b2 = (_a2 = payload.dt1) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.CompanyName) || "",
+    vehicleTypes: payload.dt3 || [],
+    tariffs: filterForbiddenTariffDropdown(payload.dt4 || []),
+    stripePublicKey: ((_d = (_c = payload.dt5) == null ? void 0 : _c[0]) == null ? void 0 : _d.PublicKey) || ""
+  };
+}
+async function syncTariffsToServer(tariffs) {
+  if (!tariffs.length) return;
+  const payload = tariffs.map((t2) => ({
+    Id: parseInt(t2.id, 10) || t2.id,
+    TariffName: t2.name,
+    StartPrice: t2.startPrice,
+    DistanceRate: t2.distanceRate,
+    WaitingRate: t2.waitingRate,
+    MinimumFare: t2.minimumFare,
+    CurrencyName: "NZD"
+  }));
+  try {
+    await postDataManager$1("DataSelector", "[TariffSync]", [
+      { name: "tariffs", value: JSON.stringify(payload) }
+    ]);
+  } catch (err2) {
+    console.warn("[TariffSync] push failed:", err2);
+  }
+}
+async function insertDispatchBooking(companyId, params) {
+  var _a2;
+  const pickAddr = paramVal(params, "PickLocation", "PickAddress", "pickupAddress", "PickupAddress");
+  const dropAddr = paramVal(params, "DropLocation", "DropAddress", "dropoffAddress", "DropoffAddress");
+  const pickLL = parseLatLng(paramVal(params, "PickLatLng"));
+  const dropLL = parseLatLng(paramVal(params, "DropLatLng"));
+  const pre = await createJob({
+    source: "dispatch",
+    companyId,
+    pickup: { address: pickAddr, lat: pickLL.lat, lng: pickLL.lng },
+    dropoff: { address: dropAddr, lat: dropLL.lat, lng: dropLL.lng },
+    passenger: {
+      name: paramVal(params, "Name"),
+      phone: paramVal(params, "PassengerId")
+    },
+    notes: paramVal(params, "EntitiesDetails", "Notes")
+  });
+  const jobId = String(pre.jobId ?? pre.bookingId ?? "");
+  if (!jobId) throw new Error("Server did not return a job ID");
+  const withId = params.filter((p2) => p2.name !== "ExternalJobId").concat([{ name: "ExternalJobId", Value: jobId }]);
+  const json = await postDataManager$1("DataSelectorRide", "InsertBookingv4", withId);
+  const rows = JSON.parse(json.d || "[]");
+  const row = rows[0];
+  if (!row) throw new Error("Empty response from booking server");
+  if (row.Error || row.Result && row.Result.indexOf("Error") === 0) {
+    throw new Error(((_a2 = row.Result) == null ? void 0 : _a2.replace(/^Error:\s*/, "")) || "Booking failed");
+  }
+  if (row.Result !== "Booking Information Successfully Submitted") {
+    throw new Error(row.Result || "Booking was not accepted");
+  }
+  return {
+    bookingId: row.BookingId ?? parseInt(jobId, 10),
+    bookingStatus: row.BookingStatus || "Pending"
+  };
+}
+async function chargeStripeCard(opts) {
+  const r = await fetch("/Default.aspx/DispatchChargeing", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      Token: opts.token,
+      Amout: String(opts.amount),
+      JobId: opts.jobId ? String(opts.jobId) : "",
+      Email: opts.email || "",
+      Name: opts.name || "",
+      Phone: opts.phone || ""
+    })
+  });
+  const json = await r.json().catch(() => ({}));
+  const msg = String(json.d || "");
+  if (msg.startsWith("error")) throw new Error(msg.replace(/^error:\s*/i, ""));
+}
 function mergeTariffMaps(maps) {
   const out = /* @__PURE__ */ new Map();
   for (const m2 of maps) for (const [k2, v2] of m2) out.set(k2, v2);
   return Array.from(out.values());
 }
 function useTariffs(companyId) {
-  const [tariffs, setTariffs] = reactExports.useState([DEFAULT_TARIFF]);
+  const [tariffs, setTariffs] = reactExports.useState([]);
   reactExports.useEffect(() => {
     if (!companyId) return;
     const db2 = getDbSafe();
     if (!db2) return;
     const maps = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Map()];
     const sync = () => {
-      const merged = mergeTariffMaps(maps);
-      setTariffs(merged.length ? merged : [DEFAULT_TARIFF]);
+      const merged = filterForbiddenTariffRates(mergeTariffMaps(maps));
+      setTariffs(merged);
+      if (companyId && merged.length) {
+        void syncTariffsToServer(merged);
+      }
     };
     const ingest = (idx, snap) => {
       maps[idx] = /* @__PURE__ */ new Map();
@@ -31463,7 +32735,12 @@ function pickStr(...vals) {
   return void 0;
 }
 function parseLiveMeterFromRecord(rec, current) {
-  const liveFare = pickNum(
+  const fareInvalidatedAt = pickNum(
+    current.tariffChangedAt,
+    current.fareChangedAt,
+    current.fareInvalidatedAt
+  );
+  const liveFareRaw = pickNum(
     current.fare,
     current.meterFare,
     current.TotalFare,
@@ -31472,6 +32749,7 @@ function parseLiveMeterFromRecord(rec, current) {
     current.jobFare,
     current.Fare
   );
+  const liveFare = fareInvalidatedAt != null && liveFareRaw == null ? void 0 : liveFareRaw;
   const liveTariffName = pickStr(
     current.currentTariffName,
     current.CurrentTariffName,
@@ -31479,6 +32757,11 @@ function parseLiveMeterFromRecord(rec, current) {
     current.tariffName,
     current.TarriffType,
     current.tarriffname
+  );
+  const liveTariffId = pickStr(
+    current.tariffId,
+    current.TariffId,
+    current.TarriffId
   );
   const liveJobId = pickStr(
     current.currentJobId,
@@ -31502,7 +32785,16 @@ function parseLiveMeterFromRecord(rec, current) {
     current.waitingTime
   );
   const meterOnAt = pickStr(current.meterOnAt, current.MeterOnAt);
-  return { liveFare, liveTariffName, liveJobId, liveDistanceKm, liveWaitingMin, meterOnAt };
+  return {
+    liveFare,
+    liveTariffName,
+    liveTariffId,
+    liveJobId,
+    liveDistanceKm,
+    liveWaitingMin,
+    meterOnAt,
+    fareInvalidatedAt
+  };
 }
 function isGhostOnlineNode(rec, current) {
   const driverId = resolveOnlineDriverId(rec, current);
@@ -31547,12 +32839,19 @@ function driverFromFirebase(vehicleId, rec, companyId) {
   const displayName = String(
     rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? ""
   ).trim();
+  const rawVehicleNo = String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId);
+  const vehicleNo = /^DD\d+$/i.test(rawVehicleNo) ? rawVehicleNo.slice(1) : rawVehicleNo;
   const liveMeter = parseLiveMeterFromRecord(rec, current);
+  const hasActiveTrip = status === "Picking" || status === "Assigned" || status === "Arrived" || status === "Active" || status === "OnTrip" || status === "Busy";
+  let jobCount = rec.jobCount != null ? Number(rec.jobCount) : void 0;
+  if (hasActiveTrip && hasBookingRef && (jobCount == null || Number.isNaN(jobCount) || jobCount < 1)) {
+    jobCount = 1;
+  }
   return {
     driverId: String(rec.driverid ?? rec.driverId ?? current.driverId ?? current.driverid ?? ""),
     vehicleId,
-    driverName: displayName || `Driver ${vehicleId}`,
-    vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vehicleId),
+    driverName: displayName || `Driver ${vehicleNo}`,
+    vehicleNo,
     vehicleType: String(rec.vehicletype ?? rec.vehicleType ?? "Sedan"),
     seatCapacity: (() => {
       const raw = rec.seatCapacity ?? rec.seats ?? rec.capacity ?? rec.SeatCapacity ?? rec.Capacity;
@@ -31565,7 +32864,7 @@ function driverFromFirebase(vehicleId, rec, companyId) {
     lng: rec.lng != null ? Number(rec.lng) : void 0,
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ""),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : void 0,
-    jobCount: rec.jobCount != null ? Number(rec.jobCount) : void 0,
+    jobCount,
     bookingId: status === "Away" || !hasBookingRef ? "" : String(rawBookingRef),
     jobPickup: status === "Away" ? "" : String(rec.jobpickup ?? current.jobpickup ?? ""),
     jobDropoff: status === "Away" ? "" : String(rec.jobdropoff ?? current.jobdropoff ?? ""),
@@ -31612,6 +32911,15 @@ const ZONE_QUEUE_INACTIVE = /* @__PURE__ */ new Set([
   "Offered",
   "Clearing"
 ]);
+function zoneQueueVehicleColorClass(status) {
+  const s2 = String(status || "").trim();
+  if (s2 === "Available") return "text-emerald-400";
+  if (s2 === "Away") return "text-amber-400";
+  if (s2 === "Active" || s2 === "OnTrip" || s2 === "Busy" || s2 === "Picking" || s2 === "Arrived" || s2 === "Assigned" || s2 === "Offered") {
+    return "text-red-400";
+  }
+  return "text-red-400";
+}
 function isZoneQueueInactive(status) {
   const s2 = String(status || "").trim();
   if (isZoneQueueRanked(s2)) return false;
@@ -31748,6 +33056,20 @@ function JobCard({ job, tab }) {
     for (const d2 of filterDriversForJob(onlineDrivers, job)) byId.set(d2.driverId, d2);
     return Array.from(byId.values());
   }, [allDrivers, job, onlineDrivers]);
+  const queueAssignDrivers = reactExports.useMemo(
+    () => filterDriversForJob(onlineDrivers, job).filter(
+      (d2) => d2.driverId !== String(job.driverId ?? "").trim()
+    ),
+    [onlineDrivers, job]
+  );
+  const assignTabDrivers = reactExports.useMemo(
+    () => filterDriversForJob(onlineDrivers, job).filter(
+      (d2) => d2.driverId !== String(job.driverId ?? "").trim()
+    ),
+    [onlineDrivers, job]
+  );
+  const assignDropdownDrivers = tab === "queue" ? queueAssignDrivers : tab === "assign" ? assignTabDrivers : assignDrivers;
+  const showPendingAssignOption = tab !== "queue" && tab !== "assign";
   const showAssignControls = tab === "ua" || tab === "assign" || tab === "offer" || tab === "queue" || tab === "active";
   const addToast = useUiStore((s2) => s2.addToast);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
@@ -31838,7 +33160,7 @@ function JobCard({ job, tab }) {
   );
   const rightContact = reactExports.useMemo(() => {
     var _a3, _b2, _c, _d, _e, _f;
-    if (tab === "active" || tab === "assign") {
+    if (tab === "active" || tab === "assign" || tab === "queue") {
       const name2 = ((_a3 = assignedDriver == null ? void 0 : assignedDriver.driverName) == null ? void 0 : _a3.trim()) || ((_b2 = job.driverName) == null ? void 0 : _b2.trim()) || (job.driverId && job.driverId !== "0" && job.driverId !== "-1" ? `D${job.driverId}` : null);
       const vehicle = ((_c = assignedDriver == null ? void 0 : assignedDriver.vehicleNo) == null ? void 0 : _c.trim()) || ((_d = job.vehicleNo) == null ? void 0 : _d.trim()) || (job.vehicleId && job.vehicleId !== "0" ? job.vehicleId : null);
       if (vehicle && name2) return `${vehicle} ${name2}`.trim();
@@ -31922,7 +33244,7 @@ function JobCard({ job, tab }) {
     }
     const selection = assignSelection;
     try {
-      const result = await applyJobAssignment(job, selection, assignDrivers);
+      const result = await applyJobAssignment(job, selection, assignDropdownDrivers);
       const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
       addToast({
         type: "success",
@@ -32090,10 +33412,10 @@ function JobCard({ job, tab }) {
                   },
                   children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Assign ▼" }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
+                    showPendingAssignOption && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__pending__", children: "Pending" }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "__noone__", children: "No One" }),
-                    assignDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— drivers —" }),
-                    assignDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
+                    assignDropdownDrivers.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("option", { disabled: true, children: "— drivers —" }),
+                    assignDropdownDrivers.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: d2.driverId, children: [
                       d2.vehicleNo,
                       " ",
                       d2.driverName
@@ -32160,6 +33482,21 @@ function JobCard({ job, tab }) {
             ] }),
             tab === "assign" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
               editButton(),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Recall job to U-A (withdraw from driver)", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: cn(iconBtn, "text-amber-500"),
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    void run(
+                      () => recallJob(job.id, effectiveJobStatus(job)),
+                      "Recalled to U-A"
+                    );
+                  },
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 11 })
+                }
+              ) }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(Tooltip, { label: "Cancel job", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "button",
                 {
@@ -32169,7 +33506,7 @@ function JobCard({ job, tab }) {
                     e.stopPropagation();
                     handleCancelClick(job.id);
                   },
-                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 11 })
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(Ban, { size: 11 })
                 }
               ) })
             ] }),
@@ -32325,8 +33662,8 @@ const TABS = [
   { id: "ua", label: "U-A" },
   { id: "offer", label: "Offer" },
   { id: "assign", label: "Assign" },
-  { id: "active", label: "Active" },
   { id: "queue", label: "Queue" },
+  { id: "active", label: "Active" },
   { id: "dy", label: "DY" }
 ];
 function JobTabs() {
@@ -32337,6 +33674,33 @@ function JobTabs() {
   const [indicator, setIndicator] = reactExports.useState({ left: 0, width: 0 });
   const tabJobs = reactExports.useMemo(() => filterJobsForTab(jobs, activeTab), [jobs, activeTab]);
   const countForTab = (tab) => jobs.filter((j2) => jobTabForStatus(j2) === tab).length;
+  reactExports.useEffect(() => {
+    const queueTabJobs = jobs.filter((j2) => jobTabForStatus(j2) === "queue");
+    const queueLike = jobs.filter((j2) => {
+      const raw = String(j2.status ?? "").toLowerCase();
+      return raw.includes("queue") || raw === "busy";
+    });
+    if (queueTabJobs.length > 0 || queueLike.length > 0 || activeTab === "queue") {
+      console.log("[dispatch-queue-debug] JobTabs store", {
+        totalJobs: jobs.length,
+        activeTab,
+        queueTabCount: queueTabJobs.length,
+        queueTabIds: queueTabJobs.map((j2) => j2.id),
+        queueLike: queueLike.map((j2) => ({
+          id: j2.id,
+          status: j2.status,
+          tab: jobTabForStatus(j2),
+          driverId: j2.driverId
+        })),
+        allJobs: jobs.map((j2) => ({ id: j2.id, status: j2.status, tab: jobTabForStatus(j2) }))
+      });
+      console.log("[dispatch-queue-debug] JobTabs filter", {
+        activeTab,
+        tabJobsCount: tabJobs.length,
+        tabJobIds: tabJobs.map((j2) => j2.id)
+      });
+    }
+  }, [jobs, activeTab, tabJobs]);
   reactExports.useEffect(() => {
     const el = tabRefs.current[activeTab];
     if (el == null ? void 0 : el.parentElement) {
@@ -32608,105 +33972,6 @@ function AddressAutocomplete({
     }
   );
 }
-function paramVal(params, ...names) {
-  for (const name2 of names) {
-    const p2 = params.find((x2) => x2.name === name2);
-    const v2 = (p2 == null ? void 0 : p2.Value) ?? (p2 == null ? void 0 : p2.value);
-    if (v2 != null && String(v2).trim()) return String(v2).trim();
-  }
-  return "";
-}
-function parseLatLng(raw) {
-  const parts = raw.split(",").map((s2) => parseFloat(s2.trim()));
-  if (parts.length !== 2 || parts.some((n2) => Number.isNaN(n2))) return { lat: 0, lng: 0 };
-  return { lat: parts[0], lng: parts[1] };
-}
-async function postDataManager(selector, action, data) {
-  const r = await fetch(`/DataManager/Data.aspx/${selector}`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data, action })
-  });
-  const json = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(json.error || `DataManager ${action} failed (${r.status})`);
-  return json;
-}
-async function searchCustomers(query) {
-  const json = await postDataManager("DataSelector", "[searchmulti]", [
-    { name: "claim_number", value: query }
-  ]);
-  const parsed = JSON.parse(json.d || "{}");
-  return {
-    acc: parsed.dt1 || [],
-    accounts: parsed.dt2 || [],
-    passengers: parsed.dt3 || []
-  };
-}
-async function fetchDispatcherSettings() {
-  var _a2, _b2, _c, _d;
-  const json = await postDataManager("DataSelector", "[DispatcherSettings]", []);
-  const payload = JSON.parse(json.d || "{}");
-  return {
-    companyName: ((_b2 = (_a2 = payload.dt1) == null ? void 0 : _a2[0]) == null ? void 0 : _b2.CompanyName) || "",
-    vehicleTypes: payload.dt3 || [],
-    tariffs: payload.dt4 || [],
-    stripePublicKey: ((_d = (_c = payload.dt5) == null ? void 0 : _c[0]) == null ? void 0 : _d.PublicKey) || ""
-  };
-}
-async function insertDispatchBooking(companyId, params) {
-  var _a2;
-  const pickAddr = paramVal(params, "PickLocation", "PickAddress", "pickupAddress", "PickupAddress");
-  const dropAddr = paramVal(params, "DropLocation", "DropAddress", "dropoffAddress", "DropoffAddress");
-  const pickLL = parseLatLng(paramVal(params, "PickLatLng"));
-  const dropLL = parseLatLng(paramVal(params, "DropLatLng"));
-  const pre = await createJob({
-    source: "dispatch",
-    companyId,
-    pickup: { address: pickAddr, lat: pickLL.lat, lng: pickLL.lng },
-    dropoff: { address: dropAddr, lat: dropLL.lat, lng: dropLL.lng },
-    passenger: {
-      name: paramVal(params, "Name"),
-      phone: paramVal(params, "PassengerId")
-    },
-    notes: paramVal(params, "EntitiesDetails", "Notes")
-  });
-  const jobId = String(pre.jobId ?? pre.bookingId ?? "");
-  if (!jobId) throw new Error("Server did not return a job ID");
-  const withId = params.filter((p2) => p2.name !== "ExternalJobId").concat([{ name: "ExternalJobId", Value: jobId }]);
-  const json = await postDataManager("DataSelectorRide", "InsertBookingv4", withId);
-  const rows = JSON.parse(json.d || "[]");
-  const row = rows[0];
-  if (!row) throw new Error("Empty response from booking server");
-  if (row.Error || row.Result && row.Result.indexOf("Error") === 0) {
-    throw new Error(((_a2 = row.Result) == null ? void 0 : _a2.replace(/^Error:\s*/, "")) || "Booking failed");
-  }
-  if (row.Result !== "Booking Information Successfully Submitted") {
-    throw new Error(row.Result || "Booking was not accepted");
-  }
-  return {
-    bookingId: row.BookingId ?? parseInt(jobId, 10),
-    bookingStatus: row.BookingStatus || "Pending"
-  };
-}
-async function chargeStripeCard(opts) {
-  const r = await fetch("/Default.aspx/DispatchChargeing", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      Token: opts.token,
-      Amout: String(opts.amount),
-      JobId: opts.jobId ? String(opts.jobId) : "",
-      Email: opts.email || "",
-      Name: opts.name || "",
-      Phone: opts.phone || ""
-    })
-  });
-  const json = await r.json().catch(() => ({}));
-  const msg = String(json.d || "");
-  if (msg.startsWith("error")) throw new Error(msg.replace(/^error:\s*/i, ""));
-}
 function validCoord(p2) {
   return Math.abs(p2.lat) > 1e-4 || Math.abs(p2.lng) > 1e-4;
 }
@@ -32863,6 +34128,13 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
   const [cityDistLoading, setCityDistLoading] = reactExports.useState(false);
   const [tariffs, setTariffs] = reactExports.useState([]);
   const [stripePk, setStripePk] = reactExports.useState("");
+  const dropdownTariffs = reactExports.useMemo(() => {
+    const fromFirebase = filterForbiddenTariffDropdown(
+      fbTariffs.map((t2) => ({ Id: t2.id, TariffName: t2.name }))
+    );
+    if (fromFirebase.length) return fromFirebase;
+    return filterForbiddenTariffDropdown(tariffs);
+  }, [fbTariffs, tariffs]);
   const [accountHits, setAccountHits] = reactExports.useState([]);
   const [accHits, setAccHits] = reactExports.useState([]);
   const [cityDistLabel, setCityDistLabel] = reactExports.useState("");
@@ -32986,7 +34258,19 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
       });
     }
     const storeJob = useJobStore.getState().jobs.find((j2) => j2.id === editingJob.id) ?? editingJob;
-    const formKey = `${storeJob.id}:${storeJob.updateSeq ?? 0}:${effectiveJobStatus(storeJob)}`;
+    const formKey = [
+      storeJob.id,
+      storeJob.updateSeq ?? 0,
+      effectiveJobStatus(storeJob),
+      storeJob.pickAddress,
+      storeJob.dropAddress,
+      storeJob.passengerName,
+      storeJob.passengerPhone,
+      storeJob.notes,
+      storeJob.bookingDateTime,
+      storeJob.driverId,
+      storeJob.vehicleType
+    ].join("|");
     if (loadedFormKeyRef.current !== formKey) {
       loadedFormKeyRef.current = formKey;
       const loaded = jobToForm(storeJob);
@@ -33228,6 +34512,8 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
         const assignmentChanged = driverAssignmentChanged(liveJob, form);
         if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
           addToast({ type: "info", title: "No changes to save" });
+          editLockJobIdRef.current = null;
+          await releaseHeldEditLock(editingJob.id);
           onClose();
           return;
         }
@@ -33246,7 +34532,11 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
           });
         }
         addToast({ type: "success", title: "Job updated", category: "job_updated" });
-        onClose();
+        editLockJobIdRef.current = null;
+        await releaseHeldEditLock(editingJob.id);
+        resetForm();
+        setRoutePreview(null);
+        closeModal();
         return;
       }
       if (form.paymentType === "card" && form.cardAmount && stripePk && !form.cardPaid) {
@@ -33642,7 +34932,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                     value: form.tariffId,
                     onChange: (e) => {
                       const id = e.target.value;
-                      const t2 = tariffs.find((x2) => String(x2.Id) === id);
+                      const t2 = dropdownTariffs.find((x2) => String(x2.Id) === id);
                       patch({
                         tariffId: id,
                         tariffName: id === "0" ? "Automatic" : (t2 == null ? void 0 : t2.TariffName) || "Automatic"
@@ -33650,7 +34940,7 @@ function CreateJobModal({ mapsKey, companyId, dispatcherName }) {
                     },
                     children: [
                       /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "0", children: "Tariff: Auto" }),
-                      tariffs.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: String(t2.Id), children: t2.TariffName }, String(t2.Id)))
+                      dropdownTariffs.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: String(t2.Id), children: t2.TariffName }, String(t2.Id)))
                     ]
                   }
                 ),
@@ -33914,24 +35204,33 @@ function PaymentPanel({ children, onClose }) {
 }
 function Modal({ open: open2, onClose, title, wide, children, footer }) {
   if (!open2) return null;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60", onClick: onClose, children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
     "div",
     {
-      className: cn(
-        "bw-card flex flex-col max-h-[92vh] shadow-2xl",
-        wide ? "w-full max-w-5xl" : "w-full max-w-2xl"
-      ),
-      onClick: (e) => e.stopPropagation(),
-      children: [
-        title && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between px-4 py-3 border-b border-bw-border bg-bw-surface", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "text-sm font-semibold text-bw-text", children: title }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: onClose, className: "text-bw-muted hover:text-bw-text", children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 18 }) })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-4", children }),
-        footer && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border-t border-bw-border p-3 flex gap-2 justify-end bg-bw-surface", children: footer })
-      ]
+      className: "fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60",
+      onMouseDown: (e) => {
+        if (e.target === e.currentTarget) onClose();
+      },
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: cn(
+            "bw-card flex flex-col max-h-[92vh] shadow-2xl",
+            wide ? "w-full max-w-5xl" : "w-full max-w-2xl"
+          ),
+          onClick: (e) => e.stopPropagation(),
+          children: [
+            title && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between px-4 py-3 border-b border-bw-border bg-bw-surface", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "text-sm font-semibold text-bw-text", children: title }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: onClose, className: "text-bw-muted hover:text-bw-text", children: /* @__PURE__ */ jsxRuntimeExports.jsx(X$1, { size: 18 }) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 overflow-y-auto p-4", children }),
+            footer && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border-t border-bw-border p-3 flex gap-2 justify-end bg-bw-surface", children: footer })
+          ]
+        }
+      )
     }
-  ) });
+  );
 }
 const scriptRel = "modulepreload";
 const assetsURL = function(dep) {
@@ -41500,7 +42799,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CGWch6bm.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-3AZpJiku.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -44421,12 +45720,18 @@ function useDriverQueue(companyId) {
           if (isLoggedOutOnlineNode(rec, current) || isGhostOnlineNode(rec, current)) continue;
           const zone = resolveDriverZoneName(rec, current, configuredRef.current);
           if (!zone) continue;
-          const status = String(rec.vehiclestatus ?? current.vehiclestatus ?? "Away");
+          const status = resolveDriverStatusFromPresence(rec, current);
           const qRaw = rec.zonequeue ?? current.zonequeue ?? rec.zoneQueue ?? current.zoneQueue;
           const q2 = isZoneQueueRanked(status) && qRaw != null ? Number(qRaw) : 0;
+          const rawVehicleNo = String(rec.vehiclenumber ?? rec.vehicleNo ?? vid);
+          const vehicleNo = /^DD\d+$/i.test(rawVehicleNo) ? rawVehicleNo.slice(1) : rawVehicleNo;
+          const driverName = String(
+            rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? ""
+          ).trim();
           if (!live[zone]) live[zone] = [];
           live[zone].push({
-            vehicleNo: String(rec.vehiclenumber ?? rec.vehicleNo ?? vid),
+            vehicleNo,
+            driverName,
             driverId: String(rec.driverid ?? rec.driverId ?? ""),
             status,
             queue: Number.isFinite(q2) && q2 > 0 ? q2 : isZoneQueueRanked(status) ? 999 : 0
@@ -44440,73 +45745,98 @@ function useDriverQueue(companyId) {
   }, [companyId]);
   return { queueByZone, configuredZones };
 }
-function InactiveChip({ vehicleNo, status }) {
-  const busy = isZoneQueueInactive(status);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-    "span",
-    {
-      className: cn(
-        "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
-        "bg-[color-mix(in_srgb,var(--bw-card)_80%,transparent)] shadow-sm",
-        busy && "border-red-500/70 text-red-400"
-      ),
-      style: busy ? void 0 : { borderColor: statusColor(status), color: statusColor(status) },
-      children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[9px] bw-muted uppercase tracking-wide shrink-0", children: status }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: vehicleNo })
-      ]
-    }
-  );
+function sortZoneDrivers(drivers) {
+  return [...drivers].sort((a2, b2) => {
+    const aAvail = a2.status === "Available" ? 0 : 1;
+    const bAvail = b2.status === "Available" ? 0 : 1;
+    if (aAvail !== bAvail) return aAvail - bAvail;
+    return a2.vehicleNo.localeCompare(b2.vehicleNo, void 0, { numeric: true });
+  });
 }
 function ZoneQueuePanel({ companyId }) {
   const { queueByZone, configuredZones } = useDriverQueue(companyId);
+  const [vehicleQuery, setVehicleQuery] = reactExports.useState("");
   const zoneNames = configuredZones.length ? configuredZones.map((z2) => z2.name) : Object.keys(queueByZone);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t bw-border h-[180px] shrink-0 overflow-y-auto p-2.5 bw-surface", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold bw-muted uppercase mb-2 tracking-wider", children: "Zone Queue" }),
-    zoneNames.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs bw-muted", children: "No zones configured — add zones in the Owner Panel for this company." }) : zoneNames.map((zone) => {
+  const q2 = vehicleQuery.trim().toLowerCase();
+  const rows = reactExports.useMemo(() => {
+    return zoneNames.map((zone) => {
       const { ranked, inactive } = queueByZone[zone] ?? { ranked: [], inactive: [] };
-      const hasAnyone = ranked.length > 0 || inactive.length > 0;
-      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mb-3", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs font-bold bw-accent mb-1.5 uppercase tracking-wide border-b border-[color-mix(in_srgb,var(--bw-border)_50%,transparent)] pb-0.5", children: zone }),
-        !hasAnyone ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-[10px] bw-muted italic px-1", children: "No drivers in queue" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          ranked.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5 mb-1.5", children: ranked.map((d2, i2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "span",
+      const drivers = sortZoneDrivers([...ranked, ...inactive]);
+      const visible = !q2 || drivers.some((d2) => d2.vehicleNo.toLowerCase().includes(q2));
+      return { zone, drivers, visible };
+    });
+  }, [zoneNames, queueByZone, q2]);
+  const visibleRows = q2 ? rows.filter((r) => r.visible) : rows;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-t bw-border shrink-0 bw-surface flex flex-col max-h-[240px]", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "px-2.5 pt-2 pb-1.5 flex items-center gap-2 shrink-0", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-[10px] font-bold bw-muted uppercase tracking-wider shrink-0", children: "Zone Queue" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          value: vehicleQuery,
+          onChange: (e) => setVehicleQuery(e.target.value),
+          placeholder: "Cab / vehicle #",
+          className: "flex-1 min-w-0 px-2 py-1 text-[11px] rounded bg-bw-bg border border-bw-border"
+        }
+      ),
+      vehicleQuery ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          type: "button",
+          className: "text-[10px] text-[var(--bw-accent)] font-semibold shrink-0 hover:underline",
+          onClick: () => setVehicleQuery(""),
+          children: "All zones"
+        }
+      ) : null
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 min-h-0 overflow-y-auto px-2.5 pb-1", children: zoneNames.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs bw-muted py-2", children: "No zones configured — add zones in the Owner Panel for this company." }) : visibleRows.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs bw-muted py-4 text-center italic", children: "No zones match that vehicle" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-0.5", children: visibleRows.map(({ zone, drivers }) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: "flex items-center gap-2 py-1 border-b border-bw-border/40 last:border-0 min-h-[26px]",
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
             {
-              className: cn(
-                "inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full border font-medium",
-                "bg-[color-mix(in_srgb,var(--bw-card)_80%,transparent)] shadow-sm"
-              ),
-              style: {
-                borderColor: statusColor(d2.status),
-                color: statusColor(d2.status)
-              },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "span",
-                  {
-                    className: cn(
-                      "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0",
-                      i2 === 0 ? "bg-[#f5c542] text-[#1a1a2e]" : "bw-surface border bw-border bw-muted"
-                    ),
-                    children: i2 + 1
-                  }
+              className: "w-[28%] min-w-[72px] max-w-[120px] text-[11px] font-bold bw-accent truncate shrink-0",
+              title: zone,
+              children: zone
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0", children: drivers.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[11px] bw-muted", children: "—" }) : drivers.map((d2) => {
+            const match2 = q2 && d2.vehicleNo.toLowerCase().includes(q2);
+            const label = d2.driverName ? `${d2.vehicleNo} ${d2.driverName}` : d2.vehicleNo;
+            return /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: cn(
+                  "font-mono text-[11px] font-semibold tabular-nums",
+                  zoneQueueVehicleColorClass(d2.status),
+                  match2 && "underline decoration-2 underline-offset-2"
                 ),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-mono", children: d2.vehicleNo })
-              ]
-            },
-            `${d2.driverId}-${d2.vehicleNo}`
-          )) }),
-          inactive.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-1.5", children: inactive.map((d2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-            InactiveChip,
-            {
-              vehicleNo: d2.vehicleNo,
-              status: d2.status
-            },
-            `${d2.driverId}-${d2.vehicleNo}-inactive`
-          )) })
-        ] })
-      ] }, zone);
-    })
+                title: d2.status,
+                children: label
+              },
+              `${d2.driverId}-${d2.vehicleNo}`
+            );
+          }) })
+        ]
+      },
+      zone
+    )) }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "px-2.5 py-1.5 border-t bw-border/60 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] bw-muted shrink-0", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-emerald-400 font-mono font-bold", children: "■" }),
+        " Available"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-red-400 font-mono font-bold", children: "■" }),
+        " Busy"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-amber-400 font-mono font-bold", children: "■" }),
+        " Away"
+      ] })
+    ] })
   ] });
 }
 function DriverDetailModal() {
@@ -45258,29 +46588,260 @@ function DispatchMap({
     )) })
   ] });
 }
-function MessagesModal() {
+async function postDataManager(selector, action, data) {
+  const r = await fetch(`/DataManager/Data.aspx/${selector}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data, action })
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.error || `DataManager ${action} failed (${r.status})`);
+  return json;
+}
+function formatDateTime(d2 = /* @__PURE__ */ new Date()) {
+  const date = d2.getFullYear() + "-" + String(d2.getMonth() + 1).padStart(2, "0") + "-" + String(d2.getDate()).padStart(2, "0");
+  const h2 = String(d2.getHours()).padStart(2, "0");
+  const m2 = String(d2.getMinutes()).padStart(2, "0");
+  return `${date} ${h2}:${m2}`;
+}
+async function fetchDriverChatList() {
+  const json = await postDataManager("DataSelectorLess", "[RetrieveMessages]", []);
+  const rows = JSON.parse(json.d || "[]");
+  return Array.isArray(rows) ? rows : [];
+}
+async function fetchDispatcherConversation(driverId) {
+  const json = await postDataManager("DataSelectorLess", "[DispatcherConversation]", [
+    { name: "Id", value: driverId }
+  ]);
+  const parsed = JSON.parse(json.d || "{}");
+  return Array.isArray(parsed.dt2) ? parsed.dt2 : [];
+}
+async function fetchUnreadFromDriver(driverId) {
+  const json = await postDataManager("DataSelectorLess", "[DispatcherUnReadMessages]", [
+    { name: "Id", value: driverId }
+  ]);
+  const rows = JSON.parse(json.d || "[]");
+  return Array.isArray(rows) ? rows : [];
+}
+async function sendDirectMessage(receiverId, message2) {
+  const text = message2.trim();
+  if (!text) throw new Error("Message is empty");
+  const r = await fetch("/DataManager/Data.aspx/DataProcessor", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "[MessageInsert]",
+      data: [
+        { name: "RecieverId", value: receiverId },
+        { name: "Message", value: text },
+        { name: "DateTime", value: formatDateTime() }
+      ]
+    })
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.error || `Send failed (${r.status})`);
+}
+function isOutboundMessage(row, driverId) {
+  return String(row.SenderID) !== String(driverId);
+}
+function driverDisplayName(row) {
+  return `${row.UserFName || ""} ${row.UserLName || ""}`.trim() || `Driver ${row.Id}`;
+}
+function MessagesModal({ companyId }) {
   const open2 = useUiStore((s2) => s2.openModal === "messages");
   const closeModal = useUiStore((s2) => s2.closeModal);
+  const addToast = useUiStore((s2) => s2.addToast);
   const [tab, setTab] = reactExports.useState("direct");
+  const [drivers, setDrivers] = reactExports.useState([]);
+  const [selectedId, setSelectedId] = reactExports.useState(null);
+  const [messages, setMessages] = reactExports.useState([]);
   const [text, setText] = reactExports.useState("");
+  const [loading, setLoading] = reactExports.useState(false);
+  const [sending, setSending] = reactExports.useState(false);
+  const chatEndRef = reactExports.useRef(null);
+  const selectedIdRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+  const refreshDriverList = reactExports.useCallback(async () => {
+    try {
+      const list = await fetchDriverChatList();
+      setDrivers(list);
+    } catch (e) {
+      console.error("[Messages] driver list failed", e);
+    }
+  }, []);
+  const loadConversation = reactExports.useCallback(async (driverId) => {
+    setLoading(true);
+    try {
+      const rows = await fetchDispatcherConversation(driverId);
+      setMessages(rows);
+      await fetchUnreadFromDriver(driverId).catch(() => void 0);
+      await refreshDriverList();
+    } catch (e) {
+      console.error("[Messages] conversation failed", e);
+      addToast({ type: "error", title: "Messages", message: "Could not load conversation" });
+    } finally {
+      setLoading(false);
+    }
+  }, [addToast, refreshDriverList]);
+  reactExports.useEffect(() => {
+    if (!open2) return;
+    void refreshDriverList();
+    const iv = setInterval(() => void refreshDriverList(), 8e3);
+    return () => clearInterval(iv);
+  }, [open2, refreshDriverList]);
+  reactExports.useEffect(() => {
+    if (!open2 || !companyId) return;
+    const db2 = getDb();
+    const msgRef = ref(db2, `driverMsg/${companyId}`);
+    const startedAt = Date.now();
+    const unsub = onChildAdded(msgRef, (snap) => {
+      const val = snap.val();
+      if (!val) return;
+      const ts = parseInt(String(val.timestamp ?? ""), 10);
+      if (ts && ts < startedAt - 5e3) return;
+      const driverId = String(val.driverId ?? val.DriverId ?? "");
+      void refreshDriverList();
+      const activeId = selectedIdRef.current;
+      if (activeId && driverId && String(activeId) === driverId) {
+        void loadConversation(driverId);
+      }
+    });
+    return () => unsub();
+  }, [open2, companyId, refreshDriverList, loadConversation]);
+  reactExports.useEffect(() => {
+    if (selectedId) void loadConversation(selectedId);
+    else setMessages([]);
+  }, [selectedId, loadConversation]);
+  reactExports.useEffect(() => {
+    var _a2;
+    (_a2 = chatEndRef.current) == null ? void 0 : _a2.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+  const inboxDrivers = reactExports.useMemo(
+    () => drivers.filter((d2) => (d2.Count || 0) > 0).sort((a2, b2) => (b2.Count || 0) - (a2.Count || 0)),
+    [drivers]
+  );
+  const selectedName = reactExports.useMemo(() => {
+    if (!selectedId) return "";
+    const hit = drivers.find((d2) => String(d2.Id) === String(selectedId));
+    return hit ? driverDisplayName(hit) : `Driver ${selectedId}`;
+  }, [drivers, selectedId]);
+  const send = async () => {
+    if (!selectedId || !text.trim() || sending) return;
+    setSending(true);
+    const outgoing = text.trim();
+    setText("");
+    try {
+      await sendDirectMessage(selectedId, outgoing);
+      const now = /* @__PURE__ */ new Date();
+      const date = now.toISOString().substring(0, 10);
+      const time = now.toTimeString().substring(0, 5);
+      setMessages((prev) => [
+        ...prev,
+        {
+          Id: Date.now(),
+          SenderID: "Dispatcher",
+          User: "You",
+          Message: outgoing,
+          Date: date,
+          Time: time
+        }
+      ]);
+      await refreshDriverList();
+    } catch (e) {
+      setText(outgoing);
+      addToast({ type: "error", title: "Send failed", message: e instanceof Error ? e.message : "Could not send" });
+    } finally {
+      setSending(false);
+    }
+  };
   const tabs = [
     { id: "direct", label: "Direct" },
+    { id: "inbox", label: inboxDrivers.length ? `Inbox (${inboxDrivers.reduce((n2, d2) => n2 + (d2.Count || 0), 0)})` : "Inbox" },
     { id: "broadcast", label: "Broadcast" },
     { id: "group", label: "Group" },
-    { id: "d2d", label: "Driver" },
-    { id: "inbox", label: "Inbox" }
+    { id: "d2d", label: "Driver" }
   ];
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { open: open2, onClose: closeModal, title: "Messages", wide: true, footer: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: closeModal, children: "Close" }), children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-1 mb-3 border-b border-bw-border pb-2", children: tabs.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: `px-3 py-1 text-xs font-bold rounded ${tab === t2.id ? "bg-bw-primary text-white" : "text-bw-muted"}`, onClick: () => setTab(t2.id), children: t2.label }, t2.id)) }),
-    tab === "broadcast" && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-bw-muted mb-2", children: "Send to all online drivers" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: text, onChange: (e) => setText(e.target.value), className: "w-full h-24 px-3 py-2 rounded bg-bw-bg border border-bw-border mb-2" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", children: "Send Broadcast" })
+  const driverSidebar = (list) => /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "overflow-y-auto max-h-72 border border-bw-border rounded divide-y divide-bw-border", children: list.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("li", { className: "p-4 text-sm text-bw-muted text-center", children: "No drivers online" }) : list.map((d2) => {
+    const id = String(d2.Id);
+    const sel = selectedId === id;
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        type: "button",
+        className: `w-full text-left px-3 py-2 flex justify-between items-center ${sel ? "bg-bw-primary text-white" : "hover:bg-bw-bg text-bw-text"}`,
+        onClick: () => {
+          setSelectedId(id);
+          if (tab === "inbox") setTab("direct");
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `text-sm font-medium ${sel ? "text-white" : "text-bw-text"}`, children: driverDisplayName(d2) }),
+          (d2.Count || 0) > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-xs bg-red-500 text-white rounded-full px-2 py-0.5", children: d2.Count }) : null
+        ]
+      }
+    ) }, id);
+  }) });
+  const chatPanel = /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col min-h-[280px] border border-bw-border rounded", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "px-3 py-2 border-b border-bw-border bg-bw-bg/80", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm font-bold text-bw-text", children: selectedId ? selectedName : "Select a driver" }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex-1 overflow-y-auto p-3 space-y-2 max-h-56", children: [
+      !selectedId ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted text-center py-8", children: "Choose a driver to view the thread." }) : loading ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted text-center py-8", children: "Loading…" }) : messages.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted text-center py-8", children: "No messages yet." }) : messages.map((m2) => {
+        const out = selectedId ? isOutboundMessage(m2, selectedId) : true;
+        return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `flex ${out ? "justify-end" : "justify-start"}`, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `max-w-[85%] rounded-lg px-3 py-2 text-sm ${out ? "bg-bw-primary text-white" : "bg-bw-surface border border-bw-border text-bw-text"}`, children: [
+          !out ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-bw-muted mb-1", children: m2.User }) : null,
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: m2.Message }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[10px] opacity-70 mt-1", children: [
+            m2.Date,
+            " ",
+            m2.Time
+          ] })
+        ] }) }, m2.Id);
+      }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { ref: chatEndRef })
     ] }),
-    tab === "direct" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Select a driver from the online list to start a direct chat." }),
-    tab === "group" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Filter by zone and vehicle type — zones loaded from Firebase." }),
-    tab === "d2d" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Relay a message between two drivers." }),
-    tab === "inbox" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Firebase messages thread view." })
+    selectedId ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "p-2 border-t border-bw-border flex gap-2", onMouseDown: (e) => e.stopPropagation(), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "textarea",
+        {
+          value: text,
+          onChange: (e) => setText(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          },
+          placeholder: "Type a message…",
+          className: "flex-1 h-16 px-3 py-2 rounded bg-bw-bg border border-bw-border text-sm text-bw-text resize-none select-text",
+          autoFocus: true
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", disabled: sending || !text.trim(), onClick: () => void send(), children: "Send" })
+    ] }) : null
+  ] });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { open: open2, onClose: closeModal, title: "Messages", wide: true, footer: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: closeModal, children: "Close" }), children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex gap-1 mb-3 border-b border-bw-border pb-2 flex-wrap", children: tabs.map((t2) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        className: `px-3 py-1 text-xs font-bold rounded ${tab === t2.id ? "bg-bw-primary text-white" : "text-bw-muted"}`,
+        onClick: () => setTab(t2.id),
+        children: t2.label
+      },
+      t2.id
+    )) }),
+    (tab === "direct" || tab === "inbox") && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid grid-cols-1 md:grid-cols-[minmax(160px,34%)_1fr] gap-3", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xs text-bw-muted mb-2", children: tab === "inbox" ? "Unread threads" : "Online drivers" }),
+        driverSidebar(tab === "inbox" ? inboxDrivers : drivers)
+      ] }),
+      chatPanel
+    ] }),
+    tab === "broadcast" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Broadcast messaging — Phase 2 (server actions ready)." }),
+    tab === "group" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Group / zone-filtered messaging — Phase 2." }),
+    tab === "d2d" && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm text-bw-muted", children: "Driver-to-driver relay — Phase 2." })
   ] });
 }
 function formatCancelledAt(raw) {
@@ -45385,65 +46946,120 @@ function ClosedJobsModal({ companyId }) {
     ] }) })
   ] });
 }
-function SearchJobsModal({ companyId }) {
+const TERMINAL = /* @__PURE__ */ new Set(["Completed", "Cancelled", "No Show"]);
+const TAB_LABELS = {
+  ua: "U-A",
+  offer: "Offer",
+  assign: "Assign",
+  active: "Active",
+  queue: "Queue",
+  dy: "DY"
+};
+function jobTabDisplayLabel(tab) {
+  return TAB_LABELS[tab] ?? tab.toUpperCase();
+}
+function isLiveDispatchJob(job) {
+  return !TERMINAL.has(normalizeJobStatus(job.status));
+}
+function buildJobSearchHaystack(job) {
+  return [
+    job.id,
+    job.passengerName,
+    job.passengerPhone,
+    job.pickAddress,
+    job.dropAddress,
+    job.driverName,
+    job.driverId,
+    job.vehicleNo,
+    job.vehicleId,
+    job.status,
+    job.notes
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+function searchLiveJobs(jobs, query, limit = 50) {
+  const q2 = query.trim().toLowerCase();
+  if (!q2) return [];
+  const hits = [];
+  for (const job of jobs) {
+    if (!isLiveDispatchJob(job)) continue;
+    if (!buildJobSearchHaystack(job).includes(q2)) continue;
+    const tab = jobTabForStatus(job);
+    hits.push({ job, tab, tabLabel: jobTabDisplayLabel(tab) });
+    if (hits.length >= limit) return hits;
+  }
+  hits.sort((a2, b2) => {
+    const idCmp = a2.job.id - b2.job.id;
+    if (idCmp !== 0) return idCmp;
+    return a2.tabLabel.localeCompare(b2.tabLabel);
+  });
+  return hits;
+}
+function SearchJobsModal({ companyId: _companyId }) {
   const open2 = useUiStore((s2) => s2.openModal === "searchJobs");
   const closeModal = useUiStore((s2) => s2.closeModal);
   const openModalWith = useUiStore((s2) => s2.openModalWith);
-  const [mode, setMode] = reactExports.useState("id");
+  const jobs = useJobStore((s2) => s2.jobs);
   const [query, setQuery] = reactExports.useState("");
-  const [results, setResults] = reactExports.useState([]);
-  const [loading, setLoading] = reactExports.useState(false);
-  const search = async () => {
-    setLoading(true);
-    try {
-      const db2 = getDb();
-      const snap = await get(ref(db2, `allbookings/${companyId}`));
-      const list = [];
-      const val = snap.val();
-      if (val) {
-        for (const [key, rec] of Object.entries(val)) {
-          const job = jobFromFirebase(key, rec, companyId);
-          if (!job) continue;
-          const q2 = query.toLowerCase();
-          if (mode === "id" && String(job.id).includes(q2)) list.push(job);
-          else if (mode === "name" && job.passengerName.toLowerCase().includes(q2)) list.push(job);
-          else if (mode === "phone" && job.passengerPhone.includes(q2)) list.push(job);
-        }
-      }
-      setResults(list.slice(0, 50));
-    } finally {
-      setLoading(false);
+  const [debounced, setDebounced] = reactExports.useState("");
+  reactExports.useEffect(() => {
+    if (!open2) {
+      setQuery("");
+      setDebounced("");
+      return;
     }
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { open: open2, onClose: closeModal, title: "Search Jobs", wide: true, footer: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: closeModal, children: "Close" }), children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2 mb-3", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: mode, onChange: (e) => setMode(e.target.value), className: "px-2 py-1 rounded bg-bw-bg border border-bw-border text-sm", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "id", children: "Booking ID" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "name", children: "Passenger Name" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "phone", children: "Phone" })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: query, onChange: (e) => setQuery(e.target.value), className: "flex-1 px-3 py-1 rounded bg-bw-bg border border-bw-border", placeholder: "Search…" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "gold", onClick: search, disabled: loading, children: "Search" })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2 max-h-[50vh] overflow-y-auto", children: [
-      results.map((j2) => j2 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bw-card p-2 cursor-pointer hover:border-bw-primary", onClick: () => {
-        closeModal();
-        openModalWith("jobDetail", { jobId: j2.id });
-      }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "font-mono font-bold", children: [
-          "#",
-          j2.id
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-bw-muted", children: [
-          j2.passengerName,
-          " · ",
-          j2.status
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs truncate", children: j2.pickAddress })
-      ] }, j2.id)),
-      !loading && results.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-bw-muted text-sm text-center py-8", children: "No results" })
-    ] })
-  ] });
+    const t2 = setTimeout(() => setDebounced(query), 200);
+    return () => clearTimeout(t2);
+  }, [query, open2]);
+  const results = reactExports.useMemo(() => searchLiveJobs(jobs, debounced), [jobs, debounced]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    Modal,
+    {
+      open: open2,
+      onClose: closeModal,
+      title: "Filter Jobs",
+      wide: true,
+      footer: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "ghost", onClick: closeModal, children: "Close" }),
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { onMouseDown: (e) => e.stopPropagation(), children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            value: query,
+            onChange: (e) => setQuery(e.target.value),
+            className: "w-full px-3 py-2 rounded-lg bg-bw-bg border border-bw-border text-sm mb-3 select-text",
+            placeholder: "Booking ID, passenger, phone, driver, address…",
+            autoFocus: true
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "space-y-2 max-h-[50vh] overflow-y-auto min-h-[120px]", children: !debounced.trim() ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-bw-muted text-sm text-center py-10", children: "Type to search across all live job boards" }) : results.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-bw-muted text-sm text-center py-10", children: "No matching live jobs" }) : results.map(({ job, tabLabel }) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            className: "bw-card p-3 hover:border-bw-primary cursor-pointer border-l-4 border-l-[var(--bw-accent)]",
+            onClick: () => openModalWith("jobDetail", { jobId: job.id }),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-wrap items-center gap-2 mb-1", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "font-mono font-bold text-[var(--bw-accent)]", children: [
+                  "#",
+                  job.id
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { children: tabLabel }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-[10px] text-bw-muted uppercase", children: job.status })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-xs text-bw-text", children: [
+                job.passengerName || "—",
+                job.passengerPhone ? ` · ${job.passengerPhone}` : ""
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-xs text-bw-muted truncate mt-0.5", children: job.pickAddress || "—" }),
+              (job.driverName || job.vehicleNo) && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-[10px] text-bw-muted mt-1", children: [
+                job.driverName || job.driverId || "—",
+                job.vehicleNo ? ` · ${job.vehicleNo}` : ""
+              ] })
+            ]
+          },
+          job.id
+        )) })
+      ]
+    }
+  );
 }
 function AlarmsModal() {
   const open2 = useUiStore((s2) => s2.openModal === "alarms");
@@ -45575,7 +47191,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-BOL1Kh0P.js");
+        const { writeActiveDispatcher } = await import("./notifications-L2DdwsfQ.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -45602,7 +47218,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BOL1Kh0P.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-L2DdwsfQ.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -45657,39 +47273,144 @@ function useRealtimeNotifications(companyId) {
   const setEmergency = useUiStore((s2) => s2.setEmergency);
   reactExports.useEffect(() => {
     if (!companyId) return;
-    const db2 = getDb();
-    const emergRef = ref(db2, `Emergency/${companyId}`);
-    const unsubEmergency = onValue(emergRef, (snap) => {
-      const val = snap.val();
-      if (!val || typeof val !== "object") return;
-      for (const [, rec] of Object.entries(val)) {
-        setEmergency({
-          driverName: String(rec.driverName ?? "Driver"),
-          vehicle: String(rec.vehiclenumber ?? ""),
-          lat: Number(rec.lat ?? 0),
-          lng: Number(rec.lng ?? 0),
-          time: String(rec.time ?? (/* @__PURE__ */ new Date()).toISOString())
-        });
-        addToast({ type: "error", title: "Emergency alert", message: "Driver emergency signal received" });
-        break;
-      }
-    });
-    const regRef = ref(db2, `driverRegistrations/${companyId}`);
-    let regInit = true;
-    const unsubReg = onValue(regRef, (snap) => {
-      if (regInit) {
-        regInit = false;
+    let cancelled = false;
+    let hadActiveAlarm = false;
+    let toastShownFor = null;
+    let unsubEmergency = () => {
+    };
+    let unsubMsg = () => {
+    };
+    let unsubReg = () => {
+    };
+    const listenerStartedAt = Date.now();
+    void (async () => {
+      try {
+        await ensureFirebaseAuth();
+      } catch (e) {
+        console.error("[RealtimeNotifications] Firebase auth bootstrap failed", e);
         return;
       }
-      if (snap.exists()) {
-        addToast({ type: "info", title: "Driver registration", message: "New driver registration pending" });
-      }
-    });
+      if (cancelled) return;
+      const db2 = getDb();
+      const emergRef = ref(db2, `Emergency/${companyId}`);
+      unsubEmergency = onValue(
+        emergRef,
+        (snap) => {
+          const val = snap.val();
+          if (!val || typeof val !== "object") {
+            setEmergency(null);
+            if (hadActiveAlarm) {
+              stopEmergencyAlarm();
+              hadActiveAlarm = false;
+            }
+            return;
+          }
+          let best = null;
+          for (const [key2, rec2] of Object.entries(val)) {
+            const status2 = String(rec2.status ?? "active").toLowerCase();
+            if (status2 === "resolved" || status2 === "false_alarm") continue;
+            const priority = status2 === "active" ? 2 : status2 === "acknowledged" ? 1 : 0;
+            if (!best || priority > best.priority) best = { key: key2, rec: rec2, priority };
+          }
+          if (!best) {
+            setEmergency(null);
+            if (hadActiveAlarm) {
+              stopEmergencyAlarm();
+              hadActiveAlarm = false;
+            }
+            toastShownFor = null;
+            return;
+          }
+          const { key, rec } = best;
+          const statusRaw = String(rec.status ?? "active").toLowerCase();
+          const status = statusRaw === "acknowledged" ? "acknowledged" : "active";
+          setEmergency({
+            sosId: String(rec.sosId ?? rec.driverId ?? key),
+            driverName: String(rec.driverName ?? "Driver"),
+            driverPhone: String(rec.driverPhone ?? rec.phone ?? ""),
+            vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ""),
+            lat: Number(rec.lat ?? 0),
+            lng: Number(rec.lng ?? 0),
+            time: String(rec.time ?? (/* @__PURE__ */ new Date()).toISOString()),
+            status
+          });
+          if (status === "active") {
+            if (!hadActiveAlarm) startEmergencyAlarm();
+            hadActiveAlarm = true;
+            if (toastShownFor !== key) {
+              toastShownFor = key;
+              addToast({
+                type: "error",
+                title: "EMERGENCY SOS",
+                message: `${rec.driverName ?? "Driver"} — audible alert until acknowledged`
+              });
+            }
+          } else {
+            if (hadActiveAlarm) stopEmergencyAlarm();
+            hadActiveAlarm = false;
+          }
+        },
+        (err2) => console.error("[Emergency] RTDB listener error", err2)
+      );
+      const msgRef = ref(db2, `driverMsg/${companyId}`);
+      unsubMsg = onChildAdded(msgRef, (snap) => {
+        const val = snap.val();
+        const key = snap.key;
+        if (!val || !key) return;
+        const ts = parseInt(String(val.timestamp ?? ""), 10);
+        if (ts && ts < listenerStartedAt - 5e3) return;
+        const driverName = String(val.driverName ?? val.DriverName ?? "Driver");
+        const body = String(val.message ?? val.Message ?? "");
+        addToast({
+          type: "info",
+          title: `Message from ${driverName}`,
+          message: body || "New driver message"
+        });
+        void remove(ref(db2, `driverMsg/${companyId}/${key}`)).catch(() => void 0);
+      });
+      const regRef = ref(db2, `driverRegistrations/${companyId}`);
+      let regInit = true;
+      unsubReg = onValue(regRef, (snap) => {
+        if (regInit) {
+          regInit = false;
+          return;
+        }
+        if (snap.exists()) {
+          addToast({ type: "info", title: "Driver registration", message: "New driver registration pending" });
+        }
+      });
+    })();
     return () => {
+      cancelled = true;
       unsubEmergency();
+      unsubMsg();
       unsubReg();
+      stopEmergencyAlarm();
     };
   }, [companyId, addToast, setEmergency]);
+}
+const API = "/api";
+async function sosPost(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) {
+    throw new Error(String(data.error || `SOS action failed (${res.status})`));
+  }
+  return data;
+}
+function acknowledgeSos(sosId, dispatcherName) {
+  return sosPost("/sos/acknowledge", { sosId, dispatcherName });
+}
+function resolveSos(sosId) {
+  return sosPost("/sos/resolve", { sosId });
+}
+function falseAlarmSos(sosId) {
+  return sosPost("/sos/false-alarm", { sosId });
 }
 function DispatchPage() {
   var _a2, _b2, _c;
@@ -45826,7 +47547,7 @@ function DispatchPage() {
     /* @__PURE__ */ jsxRuntimeExports.jsx(CreateJobModal, { mapsKey, companyId, dispatcherName }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(JobDetailModal, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsx(DriverDetailModal, {}),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(MessagesModal, {}),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(MessagesModal, { companyId: activeCompanyId }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(ClosedJobsModal, { companyId }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(SearchJobsModal, { companyId }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(AlarmsModal, {}),
@@ -45837,17 +47558,94 @@ function DispatchPage() {
       Modal,
       {
         open: !!emergency,
-        onClose: () => setEmergency(null),
-        title: "EMERGENCY ALERT",
-        footer: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "danger", onClick: () => setEmergency(null), children: "Acknowledge" }),
-        children: emergency && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-center py-6", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-xl font-bold text-red-400 mb-2", children: "Driver Emergency" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-[#e8eaf0]", children: [
-            emergency.driverName,
-            " · Vehicle ",
-            emergency.vehicle
+        onClose: () => {
+        },
+        title: "EMERGENCY SOS",
+        footer: emergency ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex flex-wrap gap-2 justify-end w-full", children: emergency.status === "active" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          Button,
+          {
+            variant: "danger",
+            onClick: async () => {
+              try {
+                await acknowledgeSos(emergency.sosId, dispatcherName);
+                stopEmergencyAlarm();
+              } catch (e) {
+                console.error("[SOS] acknowledge failed", e);
+              }
+            },
+            children: "Acknowledge (stop alarm)"
+          }
+        ) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              variant: "primary",
+              onClick: async () => {
+                try {
+                  await resolveSos(emergency.sosId);
+                  setEmergency(null);
+                } catch (e) {
+                  console.error("[SOS] resolve failed", e);
+                }
+              },
+              children: "Resolved"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              variant: "ghost",
+              onClick: async () => {
+                try {
+                  await falseAlarmSos(emergency.sosId);
+                  setEmergency(null);
+                } catch (e) {
+                  console.error("[SOS] false alarm failed", e);
+                }
+              },
+              children: "False alarm"
+            }
+          )
+        ] }) }) : null,
+        children: emergency && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "py-4 space-y-4", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-2xl font-bold text-red-400 animate-pulse text-center", children: emergency.status === "active" ? "DRIVER EMERGENCY — ALARM ACTIVE" : "SOS acknowledged" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "grid gap-2 text-[#e8eaf0]", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted", children: "Driver:" }),
+              " ",
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: emergency.driverName })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted", children: "Phone:" }),
+              " ",
+              emergency.driverPhone ? /* @__PURE__ */ jsxRuntimeExports.jsx("a", { href: `tel:${emergency.driverPhone.replace(/\s/g, "")}`, className: "text-red-300 font-bold underline text-lg", children: emergency.driverPhone }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted", children: "Not on file" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted", children: "Vehicle:" }),
+              " ",
+              emergency.vehicle || "—"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted", children: "Location:" }),
+              " ",
+              emergency.lat.toFixed(5),
+              ", ",
+              emergency.lng.toFixed(5)
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-bw-muted", children: "Time:" }),
+              " ",
+              emergency.time
+            ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "text-sm bw-muted mt-2", children: emergency.time })
+          emergency.driverPhone ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "flex justify-center pt-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "a",
+            {
+              href: `tel:${emergency.driverPhone.replace(/\s/g, "")}`,
+              className: "inline-flex items-center justify-center px-6 py-3 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-lg",
+              children: "Call driver now"
+            }
+          ) }) : null
         ] })
       }
     )
@@ -45932,4 +47730,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-C9nTQvug.js.map
+//# sourceMappingURL=index-DfId_O6R.js.map

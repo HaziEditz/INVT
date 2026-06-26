@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, Loader2, Minus, Plus, X } from 'lucide-react';
 import { AddressAutocomplete } from '@/components/jobs/AddressAutocomplete';
 import { useTariffs } from '@/hooks/useTariffs';
+import { filterForbiddenTariffDropdown } from '@/lib/tariffGuard';
 import { useUiStore } from '@/store/uiStore';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
@@ -211,6 +212,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [cityDistLoading, setCityDistLoading] = useState(false);
   const [tariffs, setTariffs] = useState<Array<{ Id: string | number; TariffName: string }>>([]);
   const [stripePk, setStripePk] = useState('');
+
+  const dropdownTariffs = useMemo(() => {
+    const fromFirebase = filterForbiddenTariffDropdown(
+      fbTariffs.map((t) => ({ Id: t.id, TariffName: t.name })),
+    );
+    if (fromFirebase.length) return fromFirebase;
+    return filterForbiddenTariffDropdown(tariffs);
+  }, [fbTariffs, tariffs]);
+
   const [accountHits, setAccountHits] = useState<CustomerSearchResult['accounts']>([]);
   const [accHits, setAccHits] = useState<CustomerSearchResult['acc']>([]);
   const [cityDistLabel, setCityDistLabel] = useState('');
@@ -1100,7 +1110,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   value={form.tariffId}
                   onChange={(e) => {
                     const id = e.target.value;
-                    const t = tariffs.find((x) => String(x.Id) === id);
+                    const t = dropdownTariffs.find((x) => String(x.Id) === id);
                     patch({
                       tariffId: id,
                       tariffName: id === '0' ? 'Automatic' : t?.TariffName || 'Automatic',
@@ -1108,7 +1118,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   }}
                 >
                   <option value="0">Tariff: Auto</option>
-                  {tariffs.map((t) => (
+                  {dropdownTariffs.map((t) => (
                     <option key={String(t.Id)} value={String(t.Id)}>
                       {t.TariffName}
                     </option>
