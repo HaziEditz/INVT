@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDb, ref, onValue } from '@/lib/firebase';
 import { useDriverStore } from '@/store/driverStore';
+import { useJobStore } from '@/store/jobStore';
 import {
   driverFromFirebase,
   isGhostOnlineNode,
   isLoggedOutOnlineNode,
   isZoneQueueInactive,
   isZoneQueueRanked,
+  resolveDriverPanelJobCount,
   resolveDriverStatusFromPresence,
+  type Driver,
 } from '@/types/driver';
 import { findZoneAtCoords, subscribeCompanyZones, type CompanyZone } from '@/lib/companyZones';
 
@@ -27,6 +30,17 @@ export type ZoneQueueZoneData = {
 export function useDrivers(companyId: string | null) {
   const setDrivers = useDriverStore((s) => s.setDrivers);
   const zonesRef = useRef<CompanyZone[]>([]);
+  const onlineDriversRef = useRef<Driver[]>([]);
+
+  const publishDrivers = useCallback(() => {
+    const jobs = useJobStore.getState().jobs;
+    setDrivers(
+      onlineDriversRef.current.map((d) => ({
+        ...d,
+        jobCount: resolveDriverPanelJobCount(d, jobs),
+      })),
+    );
+  }, [setDrivers]);
 
   useEffect(() => {
     if (!companyId) return;
@@ -41,7 +55,7 @@ export function useDrivers(companyId: string | null) {
     const r = ref(db, `online/${companyId}`);
 
     const unsub = onValue(r, (snap) => {
-      const list = [];
+      const list: Driver[] = [];
       const val = snap.val();
       if (val && typeof val === 'object') {
         for (const [vehicleId, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
@@ -56,11 +70,22 @@ export function useDrivers(companyId: string | null) {
           list.push(driver);
         }
       }
-      setDrivers(list);
+      onlineDriversRef.current = list;
+      publishDrivers();
     });
 
     return () => unsub();
-  }, [companyId, setDrivers]);
+  }, [companyId, publishDrivers]);
+
+  useEffect(() => {
+    return useJobStore.subscribe((state, prev) => {
+      if (state.jobs !== prev.jobs) publishDrivers();
+    });
+  }, [publishDrivers]);
+
+  useEffect(() => {
+    publishDrivers();
+  }, [publishDrivers]);
 }
 
 function resolveDriverZoneName(

@@ -7193,7 +7193,10 @@ async function updateBooking(opts) {
       try {
         const _tok = await getFirebaseServerToken();
         if (!_tok) return;
-        await firebaseDbPatch(`pendingjobs/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB pendingjobs patch failed: ${_e.message}`); });
+        // Queued jobs live in allbookings/driverQueue — never mirror edits into pendingjobs (pool tab).
+        if (_newStatus !== 'Queued') {
+          await firebaseDbPatch(`pendingjobs/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB pendingjobs patch failed: ${_e.message}`); });
+        }
         await firebaseDbPatch(`allbookings/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB allbookings patch failed: ${_e.message}`); });
         // §FIX-DA-G2 — booking-keyed child: patch jobs/{cid}/{vid}/{drv}/{bookingId}
         // directly. The pre-read + cross-booking guard from §FIX-UB is no longer

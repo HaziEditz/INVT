@@ -1,22 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useDriverStore } from '@/store/driverStore';
-import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { resolveDriverPanelJobCount, statusColor } from '@/types/driver';
+import { statusColor } from '@/types/driver';
 
 export function DriverDetailModal() {
   const open = useUiStore((s) => s.openModal === 'driverDetail');
   const driverId = useUiStore((s) => s.modalDriverId);
   const closeModal = useUiStore((s) => s.closeModal);
   const drivers = useDriverStore((s) => s.drivers);
-  const jobs = useJobStore((s) => s.jobs);
   const driver = drivers.find((d) => d.driverId === driverId);
-  const jobCount = useMemo(
-    () => (driver ? resolveDriverPanelJobCount(driver, jobs) : 0),
-    [driver, jobs],
-  );
   const [msg, setMsg] = useState('');
 
   if (!driver) {
@@ -38,7 +32,7 @@ export function DriverDetailModal() {
         <div className="flex items-center gap-2">
           <span className="w-3 h-3 rounded-full" style={{ background: statusColor(driver.status) }} />
           <span className="font-bold">{driver.status}</span>
-          <span className="text-bw-muted">· Jobs today: {jobCount}</span>
+          <span className="text-bw-muted">· Jobs today: {driver.jobCount ?? 0}</span>
         </div>
         {driver.bookingId && (
           <div className="bw-card p-2 text-xs">

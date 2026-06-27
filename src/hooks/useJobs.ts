@@ -906,7 +906,9 @@ export function useJobs(companyId: string | null) {
         isQueueAwaitingAllbookings(jobId) ||
         normalizeJobStatus(booking?.status) === 'Queued' ||
         normalizeJobStatus(storeJob?.status) === 'Queued';
-      if (liveQueued && (pendingSt === 'Assigned' || pendingSt === 'Active' || pendingSt === 'Arrived')) {
+      // Queued jobs must never be demoted by a stale pendingjobs partial (edit fanout writes pool shape).
+      if (liveQueued && pendingSt !== 'Queued') {
+        pendingRef.current.delete(jobId);
         return;
       }
 

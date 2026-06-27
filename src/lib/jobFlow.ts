@@ -317,7 +317,14 @@ function mirrorJobChangesToFirebase(
       fbPatch._seq = authoritativeSeq;
       fbPatch.version = authoritativeSeq;
       fbPatch.updateSeq = authoritativeSeq;
-      fbPatch.eventType = 'updated';
+      const st = normalizeJobStatus(String(status));
+      if (st === 'Queued') {
+        fbPatch.BookingStatus = 'Queued';
+        fbPatch.Status = 'Queued';
+        fbPatch.eventType = 'queued';
+      } else {
+        fbPatch.eventType = 'updated';
+      }
       if (shouldMirrorToPendingJobs(status)) {
         await update(ref(db, `pendingjobs/${companyId}/${jobId}`), fbPatch);
       }
@@ -444,10 +451,18 @@ async function persistJobUpdate(
 
   const authoritativeSeq = result.seq ?? ifSeq + 1;
   const current = latestStoreJob(jobId) ?? baseJob;
-  const merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
-  if (
+  let merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
+  if (normalizeJobStatus(baseJob.status) === 'Queued') {
+    merged = {
+      ...merged,
+      status: 'Queued',
+      driverId: merged.driverId ?? baseJob.driverId,
+      vehicleId: merged.vehicleId ?? baseJob.vehicleId,
+    };
+  } else if (
     normalizeJobStatus(baseJob.status) === 'Queued' &&
-    (normalizeJobStatus(merged.status) === 'Pending' || normalizeJobStatus(merged.status) === 'No One')
+    (normalizeJobStatus(merged.status) === 'Pending' ||
+      normalizeJobStatus(merged.status) === 'No One')
   ) {
     clearQueueAwaitingAllbookings(jobId);
     useJobStore.getState().clearRemovedJob(jobId);
@@ -488,6 +503,12 @@ function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq:
     seq >= (fresh.updateSeq ?? 0)
   ) {
     merged.status = fresh.status;
+  }
+  if (
+    optSt === 'Queued' &&
+    (freshSt === 'Pending' || freshSt === 'No One' || freshSt === 'Scheduled')
+  ) {
+    merged = { ...merged, status: 'Queued', updateSeq: seq };
   }
   return merged;
 }
