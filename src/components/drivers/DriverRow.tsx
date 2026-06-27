@@ -1,4 +1,6 @@
-import { statusColor, type Driver } from '@/types/driver';
+import { useMemo } from 'react';
+import { resolveDriverPanelJobCount, statusColor, type Driver } from '@/types/driver';
+import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 
@@ -9,6 +11,8 @@ interface DriverRowProps {
 
 export function DriverRow({ driver, index }: DriverRowProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
+  const jobs = useJobStore((s) => s.jobs);
+  const jobCount = useMemo(() => resolveDriverPanelJobCount(driver, jobs), [driver, jobs]);
   const color = statusColor(driver.status);
   const isAvailable = driver.status === 'Available';
 
@@ -41,7 +45,7 @@ export function DriverRow({ driver, index }: DriverRowProps) {
           {driver.status}
         </span>
       </td>
-      <td className="py-1 px-0.5 text-center">{driver.jobCount ?? 0}</td>
+      <td className="py-1 px-0.5 text-center">{jobCount}</td>
       <td className="py-1 px-0.5 truncate" title={driver.passengerName || undefined}>{driver.passengerName || '—'}</td>
       <td className="py-1 px-0.5 truncate font-mono" title={driver.passengerPhone || undefined}>{driver.passengerPhone || '—'}</td>
       <td className="py-1 px-0.5 truncate" title={driver.jobPickup || undefined}>{driver.jobPickup || '—'}</td>

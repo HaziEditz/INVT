@@ -1,3 +1,5 @@
+import { normalizeJobStatus, type Job } from '@/types/job';
+
 export type DriverStatus =
   | 'Available'
   | 'Offered'
@@ -10,6 +12,58 @@ export type DriverStatus =
   | 'Arrived'
   | 'Clearing'
   | 'Suspended';
+
+/** Match driver/vehicle ids (D-prefix, numeric padding) — aligned with server _driverIdsMatch. */
+export function driverIdsMatch(a: string, b: string): boolean {
+  const stripD = (s: string) => {
+    const m = String(s || '').match(/^([dD])0*(\d+)$/);
+    if (m) return String(parseInt(m[2], 10));
+    return String(s || '').trim();
+  };
+  const sa = stripD(a);
+  const sb = stripD(b);
+  if (sa && sb && sa === sb) return true;
+  return String(a || '').trim() === String(b || '').trim();
+}
+
+const PANEL_JOB_COUNT_STATUSES = new Set([
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+  'Busy',
+  'Queued',
+]);
+
+/** Live assigned job count for driver panel (active + queued). Mirrors server _computeDriverJobCount. */
+export function countDriverAssignedJobs(
+  driver: Pick<Driver, 'driverId' | 'vehicleId' | 'vehicleNo'>,
+  jobs: ReadonlyArray<Pick<Job, 'driverId' | 'status'>>,
+): number {
+  let count = 0;
+  for (const job of jobs) {
+    const jDrv = String(job.driverId ?? '').trim();
+    if (!jDrv || jDrv === '0' || jDrv === '-1' || jDrv === '-2') continue;
+    const matched =
+      driverIdsMatch(jDrv, driver.driverId) ||
+      driverIdsMatch(jDrv, driver.vehicleId) ||
+      driverIdsMatch(jDrv, driver.vehicleNo);
+    if (!matched) continue;
+    const st = normalizeJobStatus(job.status);
+    if (PANEL_JOB_COUNT_STATUSES.has(st)) count++;
+  }
+  return count;
+}
+
+export function resolveDriverPanelJobCount(
+  driver: Pick<Driver, 'driverId' | 'vehicleId' | 'vehicleNo' | 'jobCount'>,
+  jobs: ReadonlyArray<Pick<Job, 'driverId' | 'status'>>,
+): number {
+  const fromStore = countDriverAssignedJobs(driver, jobs);
+  const fromFirebase = driver.jobCount != null && !Number.isNaN(driver.jobCount) ? driver.jobCount : 0;
+  return Math.max(fromStore, fromFirebase);
+}
 
 /** Trip lifecycle rank — higher = further along (used to resolve top vs current/ drift). */
 const DRIVER_STATUS_RANK: Partial<Record<DriverStatus, number>> = {
