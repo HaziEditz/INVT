@@ -4553,10 +4553,11 @@ async function _healStuckOfferedJobs(sourceTag) {
       const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
       const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
       if (_TERMINAL_JOB_STATUSES.has(fbSt)) {
+        const jsSt = String(job.BookingStatus || '');
         await _reconcileLiveJobWithFirebase(job, {
           token: tok,
           source: `${sourceTag}/offered-terminal`,
-          forceTrustTerminal: true,
+          forceTrustTerminal: !(jsSt === 'Offered' && _isGenuineInFlightOffer(job)),
         });
         healed++;
         continue;
@@ -6363,10 +6364,11 @@ async function _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, to
 /** True when a live jobStore row is a newer booking reusing an Id still terminal in closedJobStore. */
 function _liveJobIsIdReuseOverClosed(job) {
   if (!job || !job.Id) return false;
-  const closed = _findClosedJobEntry(job.Id);
-  if (!closed) return false;
   const liveSt = String(job.BookingStatus || '');
   if (!liveSt || _TERMINAL_JOB_STATUSES.has(liveSt)) return false;
+  if (job._bookingIdReused) return true;
+  const closed = _findClosedJobEntry(job.Id);
+  if (!closed) return false;
   // Live jobStore row + closed history for the same Id → booking-id reuse (closed row is stale).
   return true;
 }
@@ -7722,6 +7724,7 @@ function _purgeStaleClosedEntriesForLiveJob(job, source) {
     }
   }
   if (removed > 0) {
+    job._bookingIdReused = true;
     saveClosedJobStore();
     console.log(`  [${source || 'closed-purge'}] evicted ${removed} stale closedJobStore row(s) for live #${bid} (${liveSt})`);
   }
