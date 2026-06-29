@@ -3059,6 +3059,14 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   const vid = _resolved.vehicleId || _validated.vehicleId;
   if (!did) return;
 
+  // Stamp jobStore before any async Firebase I/O so _healStuckOfferedJobs cannot
+  // treat a live Offered row as instantly stale (missing offeredAt).
+  const _storeRow = live || job;
+  const _now = Date.now();
+  _storeRow.offeredAt = _now;
+  if (job !== _storeRow) job.offeredAt = _now;
+  saveJobStore();
+
   const tok = await getFirebaseServerToken();
   if (!tok) {
     console.warn(`  [${sourceTag}] _writeManualDriverOffer: no Firebase token — skipped`);
@@ -3075,7 +3083,6 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   const _payType = _offerPaymentTypeFromJob(job);
   const _pickLL = _parseLatLngPair(job.PickLatLng);
   const _dropLL = _parseLatLngPair(job.DropLatLng);
-  const _now = Date.now();
   const _skipNotif = offerOpts.skipNotification === true;
 
   const notifPayload = {
@@ -21856,6 +21863,16 @@ server.listen(PORT, HOST, () => {
 // ─── Firebase → jobStore hydration (survives Railway ephemeral disk) ─────────
 const _HYDRATE_ACTIVE = new Set(['Pending','Offered','Assigned','Picking','Active','OnTrip','Queued','Scheduled','No One','Busy']);
 
+function _offeredAtMsFromFbRecord(fb) {
+  if (!fb || typeof fb !== 'object') return null;
+  const raw = fb.offeredAt ?? fb.OfferedAt;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isNaN(n) && n > 0) return n < 1e12 ? n : n;
+  const p = Date.parse(String(raw));
+  return !Number.isNaN(p) && p > 0 ? p : null;
+}
+
 function _mergeFbIntoJob(job, fb) {
   if (!fb || typeof fb !== 'object') return job;
   if (fb.PickAddress || fb.pickup || fb.pickupAddress) job.PickAddress = fb.PickAddress || fb.pickup || fb.pickupAddress || job.PickAddress;
@@ -21866,6 +21883,10 @@ function _mergeFbIntoJob(job, fb) {
   if (fb.VehicleNo || fb.vehicleId) job.VehicleNo = fb.VehicleNo || fb.vehicleId;
   const st = fb.BookingStatus || fb.Status || fb.status;
   if (st && _HYDRATE_ACTIVE.has(String(st))) job.BookingStatus = String(st);
+  if (String(st || job.BookingStatus || '') === 'Offered') {
+    const offeredMs = _offeredAtMsFromFbRecord(fb);
+    if (offeredMs) job.offeredAt = offeredMs;
+  }
   if (fb.TotalFare != null || fb.fare != null) job.TotalFare = fb.TotalFare ?? fb.fare;
   if (fb.distanceKm != null) job.distance = fb.distanceKm;
   return job;
@@ -21894,6 +21915,10 @@ function _fbRecToJob(bid, cid, fb, fallbackStatus) {
     updateSeq: parseInt(fb.updateSeq || fb.version || 0) || 0,
     _hydratedFromFirebase: true,
   };
+  if (st === 'Offered') {
+    const offeredMs = _offeredAtMsFromFbRecord(fb);
+    if (offeredMs) rec.offeredAt = offeredMs;
+  }
   const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
   if (!_isValidJobRecord(rec, { requireSource: needsSource, companyId: cid, fallbackKey: bid })) return null;
   return rec;
