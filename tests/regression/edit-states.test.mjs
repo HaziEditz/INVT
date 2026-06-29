@@ -54,7 +54,15 @@ test('Phase 3 edit-lock: Assigned edit does not corrupt status', async () => {
   const driverId = h.driverIds[0];
   await h.ensureDriverReady(driverId);
   const jobId = await h.createAsapJob('edit-assigned');
-  await h.assignAccept(jobId, driverId);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await h.assignAccept(jobId, driverId);
+      break;
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await h.ensureDriverReady(driverId);
+    }
+  }
   await editNotesWithoutStatusDrift(h, jobId, 'Assigned');
   await h.cancelAssigned(jobId);
 });

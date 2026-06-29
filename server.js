@@ -3042,7 +3042,6 @@ function _offerPaymentTypeFromJob(job) {
 async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, offerOpts) {
   offerOpts = offerOpts || {};
   if (!job || !job.Id || !driverId) return;
-  _purgeStaleClosedEntriesForLiveJob(job, sourceTag);
   const live = jobStore.find(j => j && j.Id === job.Id);
   if (live && String(live.BookingStatus || '') !== 'Offered') {
     console.log(`  [${sourceTag}] skip stale offer fanout #${job.Id} — job is ${live.BookingStatus}`);
@@ -4053,14 +4052,11 @@ function _zonePointerBookingIsStale(pointerBid, driverId, companyId, excludeBook
   const bid = parseInt(pointerBid, 10) || 0;
   if (!bid) return true;
   if (excludeBookingId && bid === parseInt(excludeBookingId, 10)) return false;
+  const closed = _findClosedJobEntry(bid);
+  if (closed && _TERMINAL_JOB_STATUSES.has(String(closed.BookingStatus || ''))) return true;
   const job = jobStore.find(j =>
     j && j.Id === bid && (!companyId || String(j.companyId || '') === String(companyId)),
   );
-  if (job && !_TERMINAL_JOB_STATUSES.has(String(job.BookingStatus || ''))) {
-    return false;
-  }
-  const closed = _findClosedJobEntry(bid);
-  if (closed && _TERMINAL_JOB_STATUSES.has(String(closed.BookingStatus || ''))) return true;
   if (!job) return true;
   const st = String(job.BookingStatus || '');
   if (_TERMINAL_JOB_STATUSES.has(st)) return true;
@@ -4388,20 +4384,6 @@ async function _reconcileLiveJobWithFirebase(job, opts) {
   const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
 
   if (_TERMINAL_JOB_STATUSES.has(fbSt) && !_TERMINAL_JOB_STATUSES.has(jsSt)) {
-    const staleOffer = jsSt === 'Offered' && !_isGenuineInFlightOffer(job);
-    if (_liveJobIsIdReuseOverClosed(job) && !staleOffer) {
-      _purgeStaleClosedEntriesForLiveJob(job, opts.source || 'reconcile-id-reuse');
-      try {
-        const healed = await _healStaleTerminalAllbookingsForJob(
-          job, cid, bookingId, tok, opts.source || 'reconcile',
-        );
-        console.log(`  [${opts.source || 'reconcile'}] id-reuse heal #${bookingId} (${jsSt}) over stale Firebase ${fbSt}`);
-        return Object.assign({ firebaseStatus: fbSt, jobStoreStatus: jsSt }, healed);
-      } catch (e) {
-        console.warn(`  [${opts.source || 'reconcile'}] id-reuse heal failed #${bookingId}: ${e && e.message}`);
-        return { action: 'heal_failed', error: e && e.message, firebaseStatus: fbSt, jobStoreStatus: jsSt };
-      }
-    }
     if (!opts.forceTrustTerminal &&
         await _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, tok)) {
       try {
@@ -4553,11 +4535,10 @@ async function _healStuckOfferedJobs(sourceTag) {
       const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
       const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
       if (_TERMINAL_JOB_STATUSES.has(fbSt)) {
-        const jsSt = String(job.BookingStatus || '');
         await _reconcileLiveJobWithFirebase(job, {
           token: tok,
           source: `${sourceTag}/offered-terminal`,
-          forceTrustTerminal: !(jsSt === 'Offered' && _isGenuineInFlightOffer(job)),
+          forceTrustTerminal: true,
         });
         healed++;
         continue;
@@ -6131,7 +6112,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     updateBookingBug:
       !!job &&
       staleClosedMatches.length > 0 &&
-      !_TERMINAL_JOB_STATUSES.has(String(job.BookingStatus || '')),
+      _closedStoreBlocksMutation(bid),
     hint:
       !!job && staleClosedMatches.length > 0
         ? 'Live jobStore row exists alongside closedJobStore history — pre-fix updateBooking blocked edits on this Id'
@@ -6353,24 +6334,24 @@ async function _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, to
   const jsSt = String(job.BookingStatus || '');
   if (!_POOL_JOBSTORE_STATUSES.has(jsSt)) return false;
   if (jsSt === 'Offered' && !_isGenuineInFlightOffer(job)) return false;
-  if (_liveJobIsIdReuseOverClosed(job)) {
-    _purgeStaleClosedEntriesForLiveJob(job, 'jobStore-wins-ab');
-    return true;
-  }
+  if (_liveJobIsIdReuseOverClosed(job)) return true;
   if (await _firebasePendingAgreesWithJobStore(cid, bookingId, jsSt, tok)) return true;
+  const closed = _findClosedJobEntry(bookingId);
+  if (!closed) return true;
   return false;
 }
 
 /** True when a live jobStore row is a newer booking reusing an Id still terminal in closedJobStore. */
 function _liveJobIsIdReuseOverClosed(job) {
   if (!job || !job.Id) return false;
-  const liveSt = String(job.BookingStatus || '');
-  if (!liveSt || _TERMINAL_JOB_STATUSES.has(liveSt)) return false;
-  if (job._bookingIdReused) return true;
   const closed = _findClosedJobEntry(job.Id);
   if (!closed) return false;
-  // Live jobStore row + closed history for the same Id → booking-id reuse (closed row is stale).
-  return true;
+  const jobMs = _jobCreatedAtMs(job);
+  const closedMs = Date.parse(closed.JobCompleteTime || closed.CancelledAt || closed.lastUpdatedAt || '') || 0;
+  if (jobMs > 0 && closedMs > 0 && jobMs > closedMs) return true;
+  const jsSeq = parseInt(job.updateSeq) || 0;
+  const closedSeq = parseInt(closed.updateSeq) || 0;
+  return jsSeq > closedSeq;
 }
 
 /**
@@ -7708,27 +7689,6 @@ function _findClosedJobEntry(bookingId) {
     }
   }
   return best;
-}
-
-/** Evict closedJobStore history superseded by a live non-terminal jobStore row (booking-id reuse). */
-function _purgeStaleClosedEntriesForLiveJob(job, source) {
-  if (!job || !job.Id) return 0;
-  const liveSt = String(job.BookingStatus || '');
-  if (!liveSt || _TERMINAL_JOB_STATUSES.has(liveSt)) return 0;
-  const bid = job.Id;
-  let removed = 0;
-  for (let i = closedJobStore.length - 1; i >= 0; i--) {
-    if (closedJobStore[i] && closedJobStore[i].Id === bid) {
-      closedJobStore.splice(i, 1);
-      removed++;
-    }
-  }
-  if (removed > 0) {
-    job._bookingIdReused = true;
-    saveClosedJobStore();
-    console.log(`  [${source || 'closed-purge'}] evicted ${removed} stale closedJobStore row(s) for live #${bid} (${liveSt})`);
-  }
-  return removed;
 }
 
 // Safely convert a BookingDateTime/JobCompleteTime value to a string suitable
@@ -15564,7 +15524,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         } else {
           jobStore.push(newJob);
         }
-        _purgeStaleClosedEntriesForLiveJob(newJob, 'InsertBookingv4');
         saveJobStore();
         if (sessionCompanyId) {
           _writeBookingEvent(sessionCompanyId, newId, 'StatusChanged',

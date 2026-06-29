@@ -466,7 +466,10 @@ export async function createHarness(opts = {}) {
 
     async assignAccept(jobId, driverId) {
       await h.ensureDriverReady(driverId);
-      await h.assignJob(jobId, driverId, driverId);
+      const assignRes = await h.assignJob(jobId, driverId, driverId);
+      if (!assignRes.body?.ok) {
+        throw new Error(`assign failed: ${JSON.stringify(assignRes.body)}`);
+      }
       await h.poll(jobId, (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered', {
         timeoutMs: 60000,
       });
