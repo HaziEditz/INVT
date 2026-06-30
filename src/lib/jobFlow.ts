@@ -524,15 +524,7 @@ async function updateJobInner(
   const baseline = latestStoreJob(jobId) ?? existingJob;
   const effectiveChanges = applyClientTimingEditPrelude(baseline, changes);
   const optimisticSeq = (baseline.updateSeq ?? 0) + 1;
-  let optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
-  if (normalizeJobStatus(baseline.status) === 'Queued') {
-    optimisticJob = {
-      ...optimisticJob,
-      status: 'Queued',
-      driverId: optimisticJob.driverId ?? baseline.driverId,
-      vehicleId: optimisticJob.vehicleId ?? baseline.vehicleId,
-    };
-  }
+  const optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
   useJobStore.getState().upsertJob(optimisticJob);
 
   try {

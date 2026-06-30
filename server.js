@@ -7200,16 +7200,6 @@ async function updateBooking(opts) {
     // + 6-value eventType on every booking write.
     _fbChanged.updatedAt       = _FB_SERVER_TIMESTAMP;
     _fbChanged.eventType       = _ubMapEventType(_eventTypes[0] || 'JobUpdated');
-    // Metadata edits on queued jobs must keep queue tab markers — never demote to pool shape.
-    if (_newStatus === 'Queued' && _prevStatus === 'Queued') {
-      _fbChanged.BookingStatus = 'Queued';
-      _fbChanged.Status        = 'Queued';
-      _fbChanged.eventType     = 'queued';
-      if (job.queuedAt) {
-        _fbChanged.queuedAt = job.queuedAt;
-        _fbChanged.QueuedAt = job.queuedAt;
-      }
-    }
     (async () => {
       try {
         const _tok = await getFirebaseServerToken();
