@@ -912,6 +912,15 @@ export function useJobs(companyId: string | null) {
         return;
       }
 
+      const liveAssigned =
+        normalizeJobStatus(booking?.status) === 'Assigned' ||
+        normalizeJobStatus(storeJob?.status) === 'Assigned';
+      // Assigned jobs must never be demoted by a stale pendingjobs partial (edit fanout writes pool shape).
+      if (liveAssigned && pendingSt !== 'Assigned') {
+        pendingRef.current.delete(jobId);
+        return;
+      }
+
       if (pendingSt === 'Pending' || pendingSt === 'No One' || pendingSt === 'Scheduled') {
         clearOfferAwaitingAllbookings(jobId);
         bookingsRef.current.delete(jobId);

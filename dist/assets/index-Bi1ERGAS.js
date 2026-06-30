@@ -29875,6 +29875,11 @@ function useJobs(companyId) {
           pendingRef.current.delete(jobId);
           return;
         }
+        const liveAssigned = normalizeJobStatus(booking == null ? void 0 : booking.status) === "Assigned" || normalizeJobStatus(storeJob == null ? void 0 : storeJob.status) === "Assigned";
+        if (liveAssigned && pendingSt !== "Assigned") {
+          pendingRef.current.delete(jobId);
+          return;
+        }
         if (pendingSt === "Pending" || pendingSt === "No One" || pendingSt === "Scheduled") {
           clearOfferAwaitingAllbookings(jobId);
           bookingsRef.current.delete(jobId);
@@ -42861,7 +42866,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BhB0TZWN.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-CsmZ8vOH.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -47272,7 +47277,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DUQD7c7q.js");
+        const { writeActiveDispatcher } = await import("./notifications-BP9J9rgA.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -47299,7 +47304,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DUQD7c7q.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BP9J9rgA.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -47811,4 +47816,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BOQNDc8f.js.map
+//# sourceMappingURL=index-Bi1ERGAS.js.map
