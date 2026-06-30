@@ -3248,6 +3248,15 @@ async function assignBooking(opts) {
         console.warn(`  [${source}] _writeManualDriverOffer (idempotent refanout) failed: ${e && e.message}`);
       }
     }
+    if (_cidEarly) {
+      await _dispatchRefreshForJob(job, {
+        cid: _cidEarly,
+        previousStatus: _curStatus,
+        status: _curStatus,
+        action: _curStatus === 'Offered' ? 'offer' : 'assign',
+        driverId: _targetDrv,
+      });
+    }
     console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already ${_curStatus} to driver ${_targetDrv}`);
     return {
       ok: true, idempotent: true, status: _curStatus, driverId: _targetDrv,
@@ -6460,10 +6469,19 @@ async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
 // Nudge dispatch console to refresh job tabs immediately (Offer/Assign/U-A).
 async function _signalDispatchConsoleRefresh(cid, payload) {
   if (!cid) return;
+  const _refreshPayload = Object.assign({ at: Date.now() }, payload || {});
   try {
-    const tok = await getFirebaseServerToken();
+    let tok = await getFirebaseServerToken();
     if (!tok) return;
-    await firebaseDbPatch(`dispatchConsole/${cid}/refresh`, Object.assign({ at: Date.now() }, payload || {}), tok);
+    try {
+      await firebaseDbPatch(`dispatchConsole/${cid}/refresh`, _refreshPayload, tok);
+      return;
+    } catch (_firstErr) {
+      console.warn(`  [dispatchRefresh] cid=${cid} first attempt failed: ${_firstErr && _firstErr.message}`);
+      tok = await getFirebaseServerToken();
+      if (!tok) return;
+      await firebaseDbPatch(`dispatchConsole/${cid}/refresh`, _refreshPayload, tok);
+    }
   } catch (e) {
     console.warn(`  [dispatchRefresh] cid=${cid} failed: ${e && e.message}`);
   }
