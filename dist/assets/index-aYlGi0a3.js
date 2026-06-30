@@ -31165,7 +31165,15 @@ async function updateJobInner(jobId, companyId, changes, existingJob) {
   const baseline = latestStoreJob(jobId) ?? existingJob;
   const effectiveChanges = applyClientTimingEditPrelude(baseline, changes);
   const optimisticSeq = (baseline.updateSeq ?? 0) + 1;
-  const optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
+  let optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
+  if (normalizeJobStatus(baseline.status) === "Queued") {
+    optimisticJob = {
+      ...optimisticJob,
+      status: "Queued",
+      driverId: optimisticJob.driverId ?? baseline.driverId,
+      vehicleId: optimisticJob.vehicleId ?? baseline.vehicleId
+    };
+  }
   useJobStore.getState().upsertJob(optimisticJob);
   try {
     await persistJobUpdate(jobId, companyId, changes, baseline);
@@ -42861,7 +42869,7 @@ function ee(t2) {
  */
 (function(t2) {
   function e() {
-    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-BhB0TZWN.js"), true ? [] : void 0)).catch((function(t3) {
+    return (n.canvg ? Promise.resolve(n.canvg) : __vitePreload(() => import("./index.es-B0j2iREF.js"), true ? [] : void 0)).catch((function(t3) {
       return Promise.reject(new Error("Could not load canvg: " + t3));
     })).then((function(t3) {
       return t3.default ? t3.default : t3;
@@ -47272,7 +47280,7 @@ function useSession(companyId, sessionId, dispatcherName) {
     if (!companyId || !sessionId) return;
     const iv = setInterval(() => {
       __vitePreload(async () => {
-        const { writeActiveDispatcher } = await import("./notifications-DUQD7c7q.js");
+        const { writeActiveDispatcher } = await import("./notifications-BNelor9u.js");
         return { writeActiveDispatcher };
       }, true ? [] : void 0).then(
         ({ writeActiveDispatcher }) => writeActiveDispatcher(companyId, sessionId, { name: dispatcherName, active: true })
@@ -47299,7 +47307,7 @@ function useSession(companyId, sessionId, dispatcherName) {
 }
 async function writeActiveDispatcherOnce(cid, sid, name2) {
   const { writeActiveDispatcher } = await __vitePreload(async () => {
-    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-DUQD7c7q.js");
+    const { writeActiveDispatcher: writeActiveDispatcher2 } = await import("./notifications-BNelor9u.js");
     return { writeActiveDispatcher: writeActiveDispatcher2 };
   }, true ? [] : void 0);
   await writeActiveDispatcher(cid, sid, { name: name2, active: true });
@@ -47811,4 +47819,4 @@ export {
   ref as r,
   set as s
 };
-//# sourceMappingURL=index-BOQNDc8f.js.map
+//# sourceMappingURL=index-aYlGi0a3.js.map
