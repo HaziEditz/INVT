@@ -7228,7 +7228,7 @@ async function updateBooking(opts) {
       try {
         const _tok = await getFirebaseServerToken();
         if (!_tok) return;
-        // Queued/Assigned jobs live in allbookings/jobs — never mirror edits into pendingjobs (pool tab).
+        // Queued/Assigned jobs live in allbookings/jobs/driverQueue — never mirror edits into pendingjobs (U-A pool tab).
         if (_newStatus !== 'Queued' && _newStatus !== 'Assigned') {
           await firebaseDbPatch(`pendingjobs/${_cid}/${bookingId}`, _fbChanged, _tok).catch(_e => { console.warn(`  [${source}] §FIX-UB pendingjobs patch failed: ${_e.message}`); });
         }
