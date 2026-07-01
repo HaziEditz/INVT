@@ -16259,13 +16259,19 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // logic ignores.
             const _euVidStr = String(_euVid || '').trim();
             const _euVidOk  = _euVidStr !== '' && _euVidStr !== '0' && _euVidStr !== '-1';
+            // Queued/Assigned jobs are not in pendingjobs (pool/U-A tab) — mirror edits to allbookings/jobs only.
+            const _euSkipPendingjobs = job.BookingStatus === 'Queued' || job.BookingStatus === 'Assigned';
 
             getFirebaseServerToken().then(tok => {
               if (!tok) return Promise.resolve();
               const _writes = [
-                firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, _euPatch, tok).catch(e => { console.warn(`  [ProcUpdateJobv6] pendingjobs/${_euCid}/${job.Id} patch failed: ${e.message}`); }),
                 firebaseDbPatch(`allbookings/${_euCid}/${job.Id}`, _euPatch, tok).catch(e => { console.warn(`  [ProcUpdateJobv6] allbookings/${_euCid}/${job.Id} patch failed: ${e.message}`); }),
               ];
+              if (!_euSkipPendingjobs) {
+                _writes.unshift(
+                  firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, _euPatch, tok).catch(e => { console.warn(`  [ProcUpdateJobv6] pendingjobs/${_euCid}/${job.Id} patch failed: ${e.message}`); }),
+                );
+              }
               // Live driver-facing node — only patched when a driver is actually
               // currently assigned. Patching when no driver is on it would create
               // orphan nodes the cleanup logic might leave behind.
@@ -16326,10 +16332,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 };
                 getFirebaseServerToken().then(_tok => {
                   if (!_tok) return;
-                  return Promise.all([
-                    firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, _ubMirrorPatch, _tok).catch(() => {}),
+                  const _mirrorWrites = [
                     firebaseDbPatch(`allbookings/${_euCid}/${job.Id}`, _ubMirrorPatch, _tok).catch(() => {}),
-                  ]);
+                  ];
+                  if (!_euSkipPendingjobs) {
+                    _mirrorWrites.unshift(
+                      firebaseDbPatch(`pendingjobs/${_euCid}/${job.Id}`, _ubMirrorPatch, _tok).catch(() => {}),
+                    );
+                  }
+                  return Promise.all(_mirrorWrites);
                 }).catch(() => {});
                 for (const _t of _ubTypes) {
                   const _eventData = (_t === 'StatusChanged' && _ubDiff.BookingStatus)
