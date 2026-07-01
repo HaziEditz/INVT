@@ -377,12 +377,7 @@ async function fetchFreshJobFromFirebase(companyId: string, jobId: number): Prom
   };
   const fromAll = await readPath('allbookings');
   const fromPending = await readPath('pendingjobs');
-  if (fromAll && fromPending) {
-    const liveSt = normalizeJobStatus(fromAll.status);
-    // Queued/Assigned jobs are removed from pendingjobs — a stale pool row must not demote them on refresh.
-    if (liveSt === 'Queued' || liveSt === 'Assigned') return fromAll;
-    return mergeJobUpdate(fromAll, fromPending);
-  }
+  if (fromAll && fromPending) return mergeJobUpdate(fromAll, fromPending);
   return fromAll ?? fromPending;
 }
 
