@@ -2261,6 +2261,12 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
   }
   console.log(`  [${_src}] §FIX-CB driver ${driverId} → Available q=${_q} zone="${zd.zonename}" (no remaining assignments)`);
   if (companyId) applyZoneQueueSyncForDriver(companyId, driverId, vehId, `${_src}/Available`);
+  if (companyId && vehId) {
+    const _deferred = await _applyDeferredShiftLogout(companyId, driverId, vehId, `${_src}/shift-deferred`);
+    if (_deferred) {
+      return { driverFreed: true, driverState: 'LoggedOut', queueNo: null };
+    }
+  }
   return { driverFreed: true, driverState: 'Available', queueNo: _q };
 }
 
@@ -17462,6 +17468,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             });
             ZONE_DRIVERS.length = 0;
             _kept.forEach(d => ZONE_DRIVERS.push(d));
+            await _handleDriverLogoutPresence(sessionCompanyId, driverId, vehiclenumber, 'DriverStatusChanged/DP-logout');
             console.log(`200: POST ${urlPath} [action=[DriverStatusChanged]] -> driver ${driverId} logged out (removed ${_beforeLen - ZONE_DRIVERS.length} from ZONE_DRIVERS)`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
             return;
@@ -17935,6 +17942,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // If the driver isn't in ZONE_DRIVERS yet (first login), add them so dt6 (VehiclesStatus)
           // can accurately report who is online and detect logouts on the next poll.
           if (newStatus === 'Available') {
+            const _availVid = vehiclenumber || driverId;
+            if (sessionCompanyId && driverId && _availVid) {
+              await _evictStaleVehicleOccupant(sessionCompanyId, _availVid, driverId, 'DriverStatusChanged/DP');
+              await _trackShiftSessionFromOnline(sessionCompanyId, driverId, _availVid);
+              if (await _applyShiftExpiryIfDue(sessionCompanyId, driverId, _availVid, 'DriverStatusChanged/DP-shift-expiry')) {
+                console.log(`  [DriverStatusChanged/DP] driver ${driverId} shift expired — signed out`);
+                objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], shiftExpired: true });
+                return;
+              }
+            }
             const zdAvail = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
             if (zdAvail) {
               // Apply new zone if client sent one (GPS-detected zone change)
@@ -19654,6 +19671,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             });
             ZONE_DRIVERS.length = 0;
             _keptDS.forEach(d => ZONE_DRIVERS.push(d));
+            await _handleDriverLogoutPresence(sessionCompanyId, driverId, vehiclenumber, 'DriverStatusChanged/DS-logout');
             console.log(`200: POST ${urlPath} [action=[DriverStatusChanged]] -> driver ${driverId} logged out (DS path, removed ${_beforeLenDS - ZONE_DRIVERS.length} from ZONE_DRIVERS)`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [] });
             return;
@@ -20047,6 +20065,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // When driver goes Available: calculate their new queue position.
           // If the driver isn't in ZONE_DRIVERS yet (first login), add them so dt6 is accurate.
           if (newStatus === 'Available') {
+            const _availVidDS = vehiclenumber || driverId;
+            if (sessionCompanyId && driverId && _availVidDS) {
+              await _evictStaleVehicleOccupant(sessionCompanyId, _availVidDS, driverId, 'DriverStatusChanged/DS');
+              await _trackShiftSessionFromOnline(sessionCompanyId, driverId, _availVidDS);
+              if (await _applyShiftExpiryIfDue(sessionCompanyId, driverId, _availVidDS, 'DriverStatusChanged/DS-shift-expiry')) {
+                console.log(`  [DriverStatusChanged/DS] driver ${driverId} shift expired — signed out`);
+                objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], shiftExpired: true });
+                return;
+              }
+            }
             const zdAvailDS = ZONE_DRIVERS.find(d => String(d.driverid) === driverId || String(d.VehicleId) === driverId);
             if (zdAvailDS) {
               // Apply new zone if client sent one (GPS-detected zone change)
@@ -21421,6 +21449,15 @@ function _upsertZoneDriverFromFirebase(record) {
         ZONE_DRIVERS.splice(i, 1);
       }
     }
+    for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+      const d = ZONE_DRIVERS[i];
+      if (String(d.companyId || '') === cid &&
+          String(d.VehicleId || '') === vid &&
+          String(d.driverid || '') !== did &&
+          !_driverIdsMatch(d.driverid, did)) {
+        ZONE_DRIVERS.splice(i, 1);
+      }
+    }
   }
   const existing = _findZoneDriverEntry(record.companyId, record.driverid, record.VehicleId);
   if (existing) {
@@ -21494,6 +21531,184 @@ async function _deleteOnlinePresenceNode(cid, vid, reason) {
   console.log(`[online-presence] deleted online/${cid}/${vid} (${reason || 'admin'})`);
   return { ok: true, companyId: cid, vehicleId: vid, reason: reason || 'admin' };
 }
+
+// ─── Shift session + vehicle presence hygiene (NZTA 14h, stale occupant eviction) ─
+const NZTA_MAX_SHIFT_MS = 14 * 60 * 60 * 1000;
+const SHIFT_SESSIONS = new Map(); // `${cid}:${driverId}` → { cid, driverId, vid, shiftStartedAt, pendingLogout }
+
+function _shiftSessionKey(cid, driverId) {
+  return `${String(cid || '').trim()}:${String(driverId || '').trim()}`;
+}
+
+function _clearShiftSession(cid, driverId) {
+  if (!driverId) return;
+  SHIFT_SESSIONS.delete(_shiftSessionKey(cid, driverId));
+}
+
+function _parseShiftStartedMs(node, cur) {
+  const raw = (cur && cur.shiftStartedAt) || (node && node.shiftStartedAt);
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number' && raw > 0) return raw < 1e12 ? raw * 1000 : raw;
+  const p = Date.parse(String(raw));
+  return Number.isFinite(p) ? p : 0;
+}
+
+function _driverHasBlockingShiftJob(driverId, vid, cid) {
+  const _drv = String(driverId || '').trim();
+  const _vid = String(vid || '').trim();
+  return jobStore.some(j => {
+    if (!j) return false;
+    if (cid && j.companyId && String(j.companyId) !== String(cid)) return false;
+    const st = String(j.BookingStatus || '');
+    if (st !== 'Assigned' && st !== 'Active') return false;
+    const jDrv = String(j.DriverId || '').trim();
+    const jVid = String(j.VehicleNo || j.VehicleId || j.CallSign || '').trim();
+    if (_drv && (jDrv === _drv || _driverIdsMatch(jDrv, _drv))) return true;
+    if (_vid && (jVid === _vid || jDrv === _vid)) return true;
+    return false;
+  });
+}
+
+async function _forceDriverShiftEnd(cid, driverId, vid, reason) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const _vid = String(vid || '').trim();
+  const _kept = ZONE_DRIVERS.filter(d => {
+    if (_cid && d.companyId && String(d.companyId) !== _cid) return true;
+    if (_drv && String(d.driverid) === _drv) return false;
+    if (_vid && String(d.VehicleId) === _vid) return false;
+    return true;
+  });
+  ZONE_DRIVERS.length = 0;
+  _kept.forEach(d => ZONE_DRIVERS.push(d));
+  if (_cid && _vid) {
+    await _deleteOnlinePresenceNode(_cid, _vid, reason || 'shift-expiry');
+  }
+  _clearShiftSession(_cid, _drv);
+  console.log(`[shift-expiry] forced sign-out driver ${_drv} vehicle ${_vid} (${reason || 'shift-expiry'})`);
+}
+
+async function _trackShiftSessionFromOnline(cid, driverId, vid) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const _vid = String(vid || '').trim();
+  if (!_cid || !_drv || !_vid) return;
+  const key = _shiftSessionKey(_cid, _drv);
+  let startedAt = SHIFT_SESSIONS.get(key)?.shiftStartedAt || 0;
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (tok) {
+    try {
+      const r = await fbRequest(
+        `${FB_DB_URL}/online/${_cid}/${_vid}.json?auth=${encodeURIComponent(tok)}`,
+        'GET',
+        null,
+      );
+      if (r && r.status === 200 && r.body && typeof r.body === 'object') {
+        const cur = (r.body.current && typeof r.body.current === 'object') ? r.body.current : {};
+        const parsed = _parseShiftStartedMs(r.body, cur);
+        if (parsed) startedAt = parsed;
+      }
+    } catch (_e) { /* non-fatal */ }
+  }
+  if (!startedAt) startedAt = Date.now();
+  SHIFT_SESSIONS.set(key, {
+    cid: _cid,
+    driverId: _drv,
+    vid: _vid,
+    shiftStartedAt: startedAt,
+    pendingLogout: !!(SHIFT_SESSIONS.get(key) && SHIFT_SESSIONS.get(key).pendingLogout),
+  });
+}
+
+async function _applyShiftExpiryIfDue(cid, driverId, vid, source) {
+  const key = _shiftSessionKey(cid, driverId);
+  const sess = SHIFT_SESSIONS.get(key);
+  if (!sess || !sess.shiftStartedAt) return false;
+  if (Date.now() < sess.shiftStartedAt + NZTA_MAX_SHIFT_MS) return false;
+  if (_driverHasBlockingShiftJob(driverId, vid, cid)) {
+    sess.pendingLogout = true;
+    SHIFT_SESSIONS.set(key, sess);
+    console.log(`[shift-expiry] driver ${driverId} past 14h — deferred until Assigned/Active job completes`);
+    return false;
+  }
+  await _forceDriverShiftEnd(cid, driverId, vid, source || 'shift-14h-expiry');
+  return true;
+}
+
+async function _applyDeferredShiftLogout(cid, driverId, vid, source) {
+  const key = _shiftSessionKey(cid, driverId);
+  const sess = SHIFT_SESSIONS.get(key);
+  if (!sess) return false;
+  const due = sess.pendingLogout || (Date.now() >= sess.shiftStartedAt + NZTA_MAX_SHIFT_MS);
+  if (!due) return false;
+  if (_driverHasBlockingShiftJob(driverId, vid, cid)) return false;
+  await _forceDriverShiftEnd(cid, driverId, vid, source || 'shift-14h-deferred');
+  return true;
+}
+
+async function _evictStaleVehicleOccupant(cid, vid, incomingDriverId, source) {
+  const _cid = String(cid || '').trim();
+  const _vid = String(vid || '').trim();
+  const _incoming = String(incomingDriverId || '').trim();
+  if (!_cid || !_vid || !_incoming) return;
+  for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+    const d = ZONE_DRIVERS[i];
+    if (_cid && d.companyId && String(d.companyId) !== _cid) continue;
+    const dVid = String(d.VehicleId || d.vehiclenumber || '').trim();
+    if (dVid && dVid === _vid && String(d.driverid || '') !== _incoming &&
+        !_driverIdsMatch(d.driverid, _incoming)) {
+      console.log(`[presence] evicting stale ZONE_DRIVERS occupant ${d.driverid} from vehicle ${_vid} (incoming ${_incoming})`);
+      ZONE_DRIVERS.splice(i, 1);
+    }
+  }
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) return;
+  try {
+    const r = await fbRequest(
+      `${FB_DB_URL}/online/${_cid}/${_vid}.json?auth=${encodeURIComponent(tok)}`,
+      'GET',
+      null,
+    );
+    if (r && r.status === 200 && r.body && typeof r.body === 'object') {
+      const cur = (r.body.current && typeof r.body.current === 'object') ? r.body.current : {};
+      const existingDrv = _onlineNodeDriverId(cur, r.body);
+      if (existingDrv && !_driverIdsMatch(existingDrv, _incoming)) {
+        await _deleteOnlinePresenceNode(_cid, _vid, `${source || 'vehicle-swap'}/stale-occupant`);
+      }
+    }
+  } catch (_e) { /* non-fatal */ }
+}
+
+async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  let _vid = String(vehiclenumber || '').trim();
+  if (!_vid && _cid && _drv) {
+    const zd = ZONE_DRIVERS.find(d =>
+      String(d.companyId || '') === _cid &&
+      (String(d.driverid) === _drv || String(d.VehicleId) === _drv)
+    );
+    if (zd) _vid = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+  }
+  _clearShiftSession(_cid, _drv);
+  if (_cid && _vid) {
+    await _deleteOnlinePresenceNode(_cid, _vid, source || 'DriverStatusChanged-logout');
+  }
+}
+
+async function _runShiftExpiryWatchdog() {
+  for (const sess of SHIFT_SESSIONS.values()) {
+    try {
+      await _applyShiftExpiryIfDue(sess.cid, sess.driverId, sess.vid, 'shift-watchdog');
+    } catch (e) {
+      console.warn(`[shift-watchdog] failed for driver ${sess.driverId}: ${e && e.message}`);
+    }
+  }
+}
+
+setInterval(() => {
+  _runShiftExpiryWatchdog().catch(e => console.warn(`[shift-watchdog] tick failed: ${e && e.message}`));
+}, 60 * 1000);
 
 function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) {
   stats = stats || {};
