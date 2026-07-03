@@ -1,4 +1,16 @@
-/** Keep in sync with src/lib/jobPoolSync.ts */
+/** Keep in sync with src/lib/jobPoolSync.ts — lifecycle helpers from src/lib/jobLifecycleDecision.ts */
+import {
+  coerceAllbookingsLiveStatus,
+  allbookingsRecordIsQueued,
+  pendingSnapshotWouldRegressQueue as pendingSnapshotWouldRegressQueueCore,
+  isUnassignedDriverId,
+} from '../../src/lib/jobLifecycleDecision.ts';
+
+export {
+  coerceAllbookingsLiveStatus,
+  allbookingsRecordIsQueued,
+  isUnassignedDriverId,
+};
 
 const TERMINAL = new Set(['Completed', 'Cancelled', 'No Show']);
 const LIVE_DISPATCH = new Set([
@@ -17,11 +29,6 @@ const LIVE_LIFECYCLE_STATUSES = new Set([
   'Active', 'Picking', 'Arrived', 'OnTrip', 'Assigned', 'Offered', 'Scheduled',
 ]);
 const ORPHAN_ELIGIBLE_STATUSES = new Set(['Pending', 'No One', 'Queued']);
-
-export function isUnassignedDriverId(driverId) {
-  const d = String(driverId ?? '').trim();
-  return !d || d === '0' || d === '-1' || d === '-2';
-}
 
 export function isGenuineQueuedJob(job) {
   if (normalizeJobStatus(job.status) !== 'Queued') return false;
@@ -174,55 +181,11 @@ export function queueAwaitingMergeOpts(jobId) {
   return isQueueAwaitingAllbookings(jobId) ? { forceStatus: 'Queued' } : undefined;
 }
 
-export function coerceAllbookingsLiveStatus(rec, effectiveStatus) {
-  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
-  const statusRaw = rec.Status ?? rec.status;
-  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
-
-  if (fbBooking && TERMINAL.has(fbBooking)) return fbBooking;
-  if (fbStatus && TERMINAL.has(fbStatus)) return fbStatus;
-  if (TERMINAL.has(normalizeJobStatus(effectiveStatus))) return effectiveStatus;
-
-  if (fbBooking && POOL_UA.has(fbBooking)) return fbBooking;
-  if (fbStatus && POOL_UA.has(fbStatus)) return fbStatus;
-
-  const drv = String(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? '').trim();
-  if (fbBooking === 'Queued') {
-    return isUnassignedDriverId(drv) ? effectiveStatus : 'Queued';
-  }
-  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
-  if (eventType === 'queued' && !isUnassignedDriverId(drv)) {
-    if (fbBooking !== 'No One' && fbStatus !== 'No One' && fbBooking !== 'Pending' && fbStatus !== 'Pending') {
-      return 'Queued';
-    }
-  }
-  if (
-    (rec.queuedAt != null || rec.QueuedAt != null) &&
-    !isUnassignedDriverId(drv) &&
-    fbBooking !== 'No One' &&
-    fbStatus !== 'No One' &&
-    fbBooking !== 'Pending' &&
-    fbStatus !== 'Pending'
-  ) {
-    return 'Queued';
-  }
-  return effectiveStatus;
-}
-
-export function allbookingsRecordIsQueued(rec) {
-  const drv = String(rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? '').trim();
-  if (isUnassignedDriverId(drv)) return false;
-  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
-  if (fbBooking && POOL_UA.has(fbBooking)) return false;
-  if (fbBooking === 'Queued') return true;
-  const statusRaw = rec.Status ?? rec.status;
-  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
-  if (fbStatus && POOL_UA.has(fbStatus)) return false;
-  if (fbStatus === 'Queued') return true;
-  if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
-  return rec.queuedAt != null || rec.QueuedAt != null;
+export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
+  return pendingSnapshotWouldRegressQueueCore(bookingId, pjVal, {
+    ...ctx,
+    queueAwaiting: isQueueAwaitingAllbookings(bookingId),
+  });
 }
 
 export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, storeJobs = []) {
@@ -241,23 +204,6 @@ export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, stor
       pendingRef.delete(id);
     }
   }
-}
-
-export function pendingSnapshotWouldRegressQueue(bookingId, pjVal, ctx) {
-  const pjSt = normalizeJobStatus(String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''));
-  if (pjSt === 'Queued') return false;
-
-  const bookingsQueued =
-    !!ctx?.bookingsRef &&
-    normalizeJobStatus(ctx.bookingsRef.get(bookingId)?.status ?? '') === 'Queued';
-  const abQueued = ctx?.abRec ? allbookingsRecordIsQueued(ctx.abRec) : false;
-
-  if (bookingsQueued || abQueued) {
-    return pjSt !== 'Offered';
-  }
-
-  if (!isQueueAwaitingAllbookings(bookingId)) return false;
-  return pjSt !== 'Offered';
 }
 
 function coerceQueuedIfAwaiting(job) {

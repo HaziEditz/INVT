@@ -7,11 +7,12 @@ import {
   type Job,
   type JobStatus,
 } from '@/types/job';
-import { clearQueueAwaitingAllbookings } from '@/lib/jobPoolSync';
+import { clearQueueAwaitingAllbookings, isQueueAwaitingAllbookings } from '@/lib/jobPoolSync';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners, purgeDispatchTerminalJob } from '@/hooks/useJobs';
 import { mergeJobUpdate } from '@/lib/mergeJob';
+import { mergeJobSnapshots, applyQueuedPreservationOnServerMerge } from '@/lib/jobLifecycleDecision';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
@@ -360,23 +361,28 @@ function seqFromFirebaseRecord(rec: Record<string, unknown>): number {
   return jobUpdateSeqFromRecord(rec);
 }
 
+async function readJobFromFirebasePath(
+  companyId: string,
+  jobId: number,
+  node: 'allbookings' | 'pendingjobs',
+): Promise<Job | null> {
+  try {
+    const db = getDb();
+    const snap = await get(ref(db, `${node}/${companyId}/${jobId}`));
+    const val = snap.val();
+    if (!val || typeof val !== 'object') return null;
+    const rec = val as Record<string, unknown>;
+    const job = jobFromFirebase(String(jobId), rec, companyId);
+    if (!job) return null;
+    return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchFreshJobFromFirebase(companyId: string, jobId: number): Promise<Job | null> {
-  const readPath = async (path: string): Promise<Job | null> => {
-    try {
-      const db = getDb();
-      const snap = await get(ref(db, `${path}/${companyId}/${jobId}`));
-      const val = snap.val();
-      if (!val || typeof val !== 'object') return null;
-      const rec = val as Record<string, unknown>;
-      const job = jobFromFirebase(String(jobId), rec, companyId);
-      if (!job) return null;
-      return { ...job, updateSeq: seqFromFirebaseRecord(rec) };
-    } catch {
-      return null;
-    }
-  };
-  const fromAll = await readPath('allbookings');
-  const fromPending = await readPath('pendingjobs');
+  const fromAll = await readJobFromFirebasePath(companyId, jobId, 'allbookings');
+  const fromPending = await readJobFromFirebasePath(companyId, jobId, 'pendingjobs');
   if (fromAll && fromPending) return mergeJobUpdate(fromAll, fromPending);
   return fromAll ?? fromPending;
 }
@@ -450,17 +456,18 @@ async function persistJobUpdate(
   }
 
   const authoritativeSeq = result.seq ?? ifSeq + 1;
-  const current = latestStoreJob(jobId) ?? baseJob;
-  let merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
-  if (normalizeJobStatus(baseJob.status) === 'Queued') {
+  const baseStatus = normalizeJobStatus(baseJob.status);
+  const mergeBase = baseStatus === 'Queued' ? baseJob : (latestStoreJob(jobId) ?? baseJob);
+  let merged = applyChangesToJob(mergeBase, effectiveChanges, authoritativeSeq);
+  if (baseStatus === 'Queued') {
     merged = {
       ...merged,
       status: 'Queued',
-      driverId: merged.driverId ?? baseJob.driverId,
-      vehicleId: merged.vehicleId ?? baseJob.vehicleId,
+      driverId: baseJob.driverId,
+      vehicleId: baseJob.vehicleId,
     };
   } else if (
-    normalizeJobStatus(baseJob.status) === 'Queued' &&
+    baseStatus === 'Queued' &&
     (normalizeJobStatus(merged.status) === 'Pending' ||
       normalizeJobStatus(merged.status) === 'No One')
   ) {
@@ -470,11 +477,23 @@ async function persistJobUpdate(
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
 
-  const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
+  const fresh =
+    baseStatus === 'Queued'
+      ? await readJobFromFirebasePath(companyId, jobId, 'allbookings')
+      : await fetchFreshJobFromFirebase(companyId, jobId);
   if (fresh) {
-    useJobStore.getState().upsertJob(
-      mergeJobUpdateFromServer(merged, fresh, authoritativeSeq),
-    );
+    const finalJob =
+      baseStatus === 'Queued'
+        ? mergeJobSnapshots({
+            bookingId: jobId,
+            storeJob: merged,
+            optimisticJob: merged,
+            freshJob: fresh,
+            authoritativeSeq,
+            flags: { editContext: 'postEditSave', baseStatus: 'Queued' },
+          })
+        : mergeJobUpdateFromServer(merged, fresh, authoritativeSeq);
+    useJobStore.getState().upsertJob(finalJob);
   }
 }
 
@@ -504,12 +523,7 @@ function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq:
   ) {
     merged.status = fresh.status;
   }
-  if (
-    optSt === 'Queued' &&
-    (freshSt === 'Pending' || freshSt === 'No One' || freshSt === 'Scheduled')
-  ) {
-    merged = { ...merged, status: 'Queued', updateSeq: seq };
-  }
+  merged = applyQueuedPreservationOnServerMerge(merged, optimistic, fresh, seq);
   return merged;
 }
 
@@ -524,11 +538,32 @@ async function updateJobInner(
   const baseline = latestStoreJob(jobId) ?? existingJob;
   const effectiveChanges = applyClientTimingEditPrelude(baseline, changes);
   const optimisticSeq = (baseline.updateSeq ?? 0) + 1;
-  const optimisticJob = applyChangesToJob(baseline, effectiveChanges, optimisticSeq);
+  const existingStatus = normalizeJobStatus(existingJob.status);
+  const baselineStatus = normalizeJobStatus(baseline.status);
+  const queuedEdit =
+    existingStatus === 'Queued' ||
+    baselineStatus === 'Queued' ||
+    isQueueAwaitingAllbookings(jobId);
+  const mergeBase =
+    existingStatus === 'Queued'
+      ? existingJob
+      : baselineStatus === 'Queued'
+        ? baseline
+        : baseline;
+  let optimisticJob = applyChangesToJob(mergeBase, effectiveChanges, optimisticSeq);
+  if (queuedEdit) {
+    optimisticJob = {
+      ...optimisticJob,
+      status: 'Queued',
+      driverId: optimisticJob.driverId ?? existingJob.driverId ?? baseline.driverId,
+      vehicleId: optimisticJob.vehicleId ?? existingJob.vehicleId ?? baseline.vehicleId,
+    };
+  }
   useJobStore.getState().upsertJob(optimisticJob);
 
+  const persistBase = queuedEdit ? optimisticJob : baseline;
   try {
-    await persistJobUpdate(jobId, companyId, changes, baseline);
+    await persistJobUpdate(jobId, companyId, changes, persistBase);
   } catch (e) {
     useJobStore.getState().upsertJob(baseline);
     throw e;
