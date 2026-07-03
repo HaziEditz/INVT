@@ -7,7 +7,6 @@ import {
   type Job,
   type JobStatus,
 } from '@/types/job';
-import { clearQueueAwaitingAllbookings } from '@/lib/jobPoolSync';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners, purgeDispatchTerminalJob } from '@/hooks/useJobs';
@@ -450,22 +449,17 @@ async function persistJobUpdate(
   }
 
   const authoritativeSeq = result.seq ?? ifSeq + 1;
-  const current = latestStoreJob(jobId) ?? baseJob;
-  let merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
+  let merged: Job;
   if (normalizeJobStatus(baseJob.status) === 'Queued') {
     merged = {
-      ...merged,
+      ...applyChangesToJob(baseJob, effectiveChanges, authoritativeSeq),
       status: 'Queued',
-      driverId: merged.driverId ?? baseJob.driverId,
-      vehicleId: merged.vehicleId ?? baseJob.vehicleId,
+      driverId: baseJob.driverId,
+      vehicleId: baseJob.vehicleId,
     };
-  } else if (
-    normalizeJobStatus(baseJob.status) === 'Queued' &&
-    (normalizeJobStatus(merged.status) === 'Pending' ||
-      normalizeJobStatus(merged.status) === 'No One')
-  ) {
-    clearQueueAwaitingAllbookings(jobId);
-    useJobStore.getState().clearRemovedJob(jobId);
+  } else {
+    const current = latestStoreJob(jobId) ?? baseJob;
+    merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
   }
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
