@@ -36,6 +36,8 @@ const PANEL_JOB_COUNT_STATUSES = new Set([
   'Queued',
 ]);
 
+const TERMINAL_JOB_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
+
 /** Live assigned job count for driver panel (active + queued). Mirrors server _computeDriverJobCount. */
 export function countDriverAssignedJobs(
   driver: Pick<Driver, 'driverId' | 'vehicleId' | 'vehicleNo'>,
@@ -51,6 +53,7 @@ export function countDriverAssignedJobs(
       driverIdsMatch(jDrv, driver.vehicleNo);
     if (!matched) continue;
     const st = normalizeJobStatus(job.status);
+    if (TERMINAL_JOB_STATUSES.has(st)) continue;
     if (PANEL_JOB_COUNT_STATUSES.has(st)) count++;
   }
   return count;
