@@ -3477,6 +3477,16 @@ async function completeBooking(opts) {
           restoreDriverState: _drvIdem
             ? { driverId: _drvIdem, vehicleId: _vehIdem, awaited: true }
             : null,
+          dispatchRefresh: {
+            job: _closed,
+            payload: {
+              cid: _cidIdem,
+              previousStatus: 'Active',
+              status: 'Completed',
+              action: 'complete',
+              driverId: _drvIdem,
+            },
+          },
         });
       } catch (e) {
         console.warn(`  [${source}] idempotent Firebase repair failed: ${e && e.message}`);
@@ -14088,9 +14098,24 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error: 'bookingId, driverId, status required' }));
       return;
     }
+    let _sStatusNorm = _sStatus;
+    if (/^on\s*board$/i.test(_sStatusNorm) || _sStatusNorm === 'OnBoard' || _sStatusNorm === 'Boarded') {
+      _sStatusNorm = 'Active';
+    }
     const _result = await driverStageJob({
-      bookingId: _sJob, driverId: _sDrv, status: _sStatus, source: '/api/job/stage',
+      bookingId: _sJob, driverId: _sDrv, status: _sStatusNorm, source: '/api/job/stage',
     });
+    if (_result.ok && _result.status && !_result.idempotent) {
+      const _stageJob = jobStore.find(j => j && j.Id === _sJob);
+      if (_stageJob) {
+        await _dispatchRefreshForJob(_stageJob, {
+          cid: String(_stageJob.companyId || ''),
+          status: _result.status,
+          action: _dispatchRefreshActionForStatus(_result.status),
+          driverId: _sDrv,
+        }).catch(() => {});
+      }
+    }
     const _status = _result.ok ? 200
       : (_result.error_code === 'not_found' ? 404
       : (_result.error_code === 'forbidden' ? 403
@@ -14243,6 +14268,19 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       companyId: _ccCid,
       source: 'api/cancel/' + _ccBy,
     });
+    if (_ccResult.ok && String(_ccResult.terminalKind || '') === 'No Show') {
+      const _nsJob = closedJobStore.find(j => j && j.Id === _ccBooking)
+        || jobStore.find(j => j && j.Id === _ccBooking);
+      const _nsCid = String(_ccCid || (_nsJob && _nsJob.companyId) || '').trim();
+      if (_nsCid && _nsJob) {
+        await _dispatchRefreshForJob(_nsJob, {
+          cid: _nsCid,
+          status: 'No Show',
+          action: 'cancel',
+          driverId: String(_nsJob.DriverId || ''),
+        }).catch(() => {});
+      }
+    }
     const _ccStatus = _ccResult.ok ? 200
       : (_ccResult.error_code === 'not_found' ? 404
       : (_ccResult.error_code === 'forbidden' ? 403 : 400));
