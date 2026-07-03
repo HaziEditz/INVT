@@ -8469,6 +8469,58 @@ async function repairBookingFirebaseSync(opts) {
   return { ok: true, action: 'sync', patch, booking: _publicBooking(job) };
 }
 
+/** Force-purge live jobStore rows when Firebase is terminal (split-brain repair). */
+async function purgeJobStoreBatch(opts) {
+  opts = opts || {};
+  const action = String(opts.action || 'trust_firebase').toLowerCase();
+  const source = opts.source || 'purgeJobStoreBatch';
+  const ids = Array.isArray(opts.bookingIds) ? opts.bookingIds : [];
+  if (!ids.length) return { ok: false, error: 'bookingIds array required' };
+
+  const results = [];
+  for (const raw of ids) {
+    const bookingId = parseInt(raw, 10) || 0;
+    if (!bookingId) {
+      results.push({ bookingId: raw, ok: false, error: 'invalid bookingId' });
+      continue;
+    }
+    const live = jobStore.find(j => j && j.Id === bookingId);
+    if (!live) {
+      results.push({ bookingId, ok: true, action: 'not_in_jobstore', purged: false });
+      continue;
+    }
+    const r = await repairBookingFirebaseSync({
+      bookingId,
+      companyId: opts.companyId || live.companyId,
+      action,
+      source,
+    });
+    results.push(Object.assign({ bookingId }, r));
+  }
+
+  const purged = results.filter(r => r.purged === true).length;
+  const failed = results.filter(r => r.ok === false).length;
+  return { ok: failed === 0, action, purged, failed, results };
+}
+
+/** Incident 2026-07-03: eef5db1 left Active rows in jobStore after Firebase Completed. */
+const _BOOT_PURGE_STALE_JOBSTORE_IDS = [
+  { bookingId: 8692607031, companyId: '860869' },
+  { bookingId: 8692607032, companyId: '860869' },
+  { bookingId: 8692607033, companyId: '860869' },
+];
+
+async function _bootPurgeStaleJobStoreIncidents() {
+  if (!process.env.BW_FIREBASE_SECRET || !_BOOT_PURGE_STALE_JOBSTORE_IDS.length) return;
+  const report = await purgeJobStoreBatch({
+    bookingIds: _BOOT_PURGE_STALE_JOBSTORE_IDS.map(r => r.bookingId),
+    companyId: '860869',
+    action: 'trust_firebase',
+    source: 'boot-purge-stale-jobstore',
+  });
+  console.log(`[boot-purge-stale-jobstore] purged=${report.purged} failed=${report.failed} ${JSON.stringify(report.results)}`);
+}
+
 async function reconcileClosedJobsFromFirebase(opts) {
   opts = opts || {};
   const verbose = opts.verbose !== false;
@@ -8569,6 +8621,10 @@ async function reconcileClosedJobsFromFirebase(opts) {
 }
 
 // Boot run (45s delay so Firebase/network is warm) + periodic every 15 min.
+setTimeout(() => {
+  _bootPurgeStaleJobStoreIncidents().catch(e =>
+    console.warn('[boot-purge-stale-jobstore] failed:', (e && e.message) || e));
+}, 8000);
 setTimeout(() => {
   reconcileClosedJobsFromFirebase().catch(e =>
     console.warn('[§FIX-S/reconciler] boot run failed:', (e && e.message) || e));
@@ -11550,6 +11606,25 @@ const server = http.createServer(async (req, res) => {
           companyId: parsed.companyId,
           action: parsed.action || 'sync',
           source: '/admin/repairBooking',
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // POST /admin/purgeJobStoreBatch — force-purge live jobStore when Firebase is terminal
+    // body: { bookingIds: [123, 456], companyId?: '860869', action?: 'trust_firebase' }
+    if (urlPath === '/admin/purgeJobStoreBatch' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const report = await purgeJobStoreBatch({
+          bookingIds: parsed.bookingIds,
+          companyId: parsed.companyId,
+          action: parsed.action || 'trust_firebase',
+          source: '/admin/purgeJobStoreBatch',
         });
         jsonReply(res, report);
       } catch (e) {
