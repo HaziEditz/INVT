@@ -4,23 +4,8 @@ import {
   type Job,
   type JobTab,
 } from '@/types/job';
-import {
-  TERMINAL_BOOKING_STATUSES,
-  POOL_TAB_STATUSES,
-  coerceAllbookingsLiveStatus,
-  allbookingsRecordIsQueued,
-  pendingSnapshotWouldRegressQueue as pendingSnapshotWouldRegressQueueCore,
-  isUnassignedDriverId,
-  type PendingQueueRegressCtx,
-} from '@/lib/jobLifecycleDecision';
 
-export {
-  TERMINAL_BOOKING_STATUSES,
-  coerceAllbookingsLiveStatus,
-  allbookingsRecordIsQueued,
-  isUnassignedDriverId,
-};
-export type { PendingQueueRegressCtx };
+export const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
 const LIVE_DISPATCH_STATUSES = new Set([
   'Offered',
@@ -162,10 +147,23 @@ const LIVE_LIFECYCLE_STATUSES = new Set([
   'Scheduled',
 ]);
 
+export function isUnassignedDriverId(driverId: unknown): boolean {
+  const d = String(driverId ?? '').trim();
+  return !d || d === '0' || d === '-1' || d === '-2';
+}
+
+const POOL_TAB_STATUSES = new Set(['Pending', 'No One', 'Scheduled']);
+
 /** Queue tab: BookingStatus Queued with a real assigned driver (not pool ids 0 / -1 / -2). */
 export function isGenuineQueuedJob(job: Pick<Job, 'status' | 'driverId'>): boolean {
   if (normalizeJobStatus(job.status) !== 'Queued') return false;
   return !isUnassignedDriverId(job.driverId);
+}
+
+function recordDriverId(rec: Record<string, unknown>): string {
+  return String(
+    rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? rec.assignedDriverId ?? '',
+  ).trim();
 }
 
 export function hasRealPassengerData(rec: Record<string, unknown>): boolean {
@@ -380,6 +378,71 @@ export function queueAwaitingMergeOpts(
   return isQueueAwaitingAllbookings(jobId) ? { forceStatus: 'Queued' } : undefined;
 }
 
+export type PendingQueueRegressCtx = {
+  bookingsRef?: Map<number, Job>;
+  abRec?: Record<string, unknown> | null;
+};
+
+/**
+ * Coerce mirror quirks (queuedAt, eventType) before ingest routing.
+ * Terminal BookingStatus must win over stale queue lifecycle fields.
+ */
+export function coerceAllbookingsLiveStatus(
+  rec: Record<string, unknown>,
+  effectiveStatus: Job['status'],
+): Job['status'] {
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking =
+    bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  const statusRaw = rec.Status ?? rec.status;
+  const fbStatus =
+    statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+
+  if (fbBooking && TERMINAL_BOOKING_STATUSES.has(fbBooking)) return fbBooking;
+  if (fbStatus && TERMINAL_BOOKING_STATUSES.has(fbStatus)) return fbStatus;
+  if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) return effectiveStatus;
+
+  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return fbBooking;
+  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return fbStatus;
+
+  const drv = recordDriverId(rec);
+  if (fbBooking === 'Queued') {
+    return isUnassignedDriverId(drv) ? (effectiveStatus as Job['status']) : 'Queued';
+  }
+  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
+  if (eventType === 'queued' && !isUnassignedDriverId(drv)) {
+    if (fbBooking !== 'No One' && fbStatus !== 'No One' && fbBooking !== 'Pending' && fbStatus !== 'Pending') {
+      return 'Queued';
+    }
+  }
+  if (
+    (rec.queuedAt != null || rec.QueuedAt != null) &&
+    !isUnassignedDriverId(drv) &&
+    fbBooking !== 'No One' &&
+    fbStatus !== 'No One' &&
+    fbBooking !== 'Pending' &&
+    fbStatus !== 'Pending'
+  ) {
+    return 'Queued';
+  }
+  return effectiveStatus;
+}
+
+/** True when allbookings (or mirror fields) confirms Queued. */
+export function allbookingsRecordIsQueued(rec: Record<string, unknown>): boolean {
+  if (isUnassignedDriverId(recordDriverId(rec))) return false;
+  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
+  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
+  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return false;
+  if (fbBooking === 'Queued') return true;
+  const statusRaw = rec.Status ?? rec.status;
+  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
+  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return false;
+  if (fbStatus === 'Queued') return true;
+  if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
+  return rec.queuedAt != null || rec.QueuedAt != null;
+}
+
 /**
  * Drop stale pendingjobs rows when bookingsRef or allbookings already confirms Queued.
  * Also clears queue-await ids (handled before reinject).
@@ -412,10 +475,22 @@ export function pendingSnapshotWouldRegressQueue(
   pjVal: Record<string, unknown>,
   ctx?: PendingQueueRegressCtx,
 ): boolean {
-  return pendingSnapshotWouldRegressQueueCore(bookingId, pjVal, {
-    ...ctx,
-    queueAwaiting: isQueueAwaitingAllbookings(bookingId),
-  });
+  const pjSt = normalizeJobStatus(
+    String(pjVal.BookingStatus ?? pjVal.Status ?? pjVal.status ?? ''),
+  );
+  if (pjSt === 'Queued') return false;
+
+  const bookingsQueued =
+    !!ctx?.bookingsRef &&
+    normalizeJobStatus(ctx.bookingsRef.get(bookingId)?.status ?? '') === 'Queued';
+  const abQueued = ctx?.abRec ? allbookingsRecordIsQueued(ctx.abRec) : false;
+
+  if (bookingsQueued || abQueued) {
+    return pjSt !== 'Offered';
+  }
+
+  if (!isQueueAwaitingAllbookings(bookingId)) return false;
+  return pjSt !== 'Offered';
 }
 
 /** Force Queued status for jobs in the queue-await window. */

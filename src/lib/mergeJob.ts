@@ -1,5 +1,5 @@
-import type { Job, JobStatus } from '../types/job.ts';
-import { normalizeJobStatus } from '../types/job.ts';
+import type { Job, JobStatus } from '@/types/job';
+import { normalizeJobStatus } from '@/types/job';
 
 /** Progression rank — higher means further along the dispatch lifecycle. */
 const STATUS_RANK: Partial<Record<JobStatus, number>> = {

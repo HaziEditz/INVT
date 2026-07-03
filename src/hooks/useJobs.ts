@@ -41,9 +41,6 @@ import {
   recordActivityMs,
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
-import {
-  resolveJobLifecycle,
-} from '@/lib/jobLifecycleDecision';
 
 function applyQueueForcedMerge(prior: Job | null, job: Job): Job {
   if (prior) {
@@ -905,18 +902,21 @@ export function useJobs(companyId: string | null) {
       const booking = bookingsRef.current.get(job.id);
       const storeJob = useJobStore.getState().jobs.find((j) => j.id === job.id);
       const pendingSt = normalizeJobStatus(effectiveStatus);
-      // droppedPending → shouldIgnorePendingSnapshot (Queued/Assigned stale pending guard)
-      const { droppedPending } = resolveJobLifecycle({
-        bookingId: jobId,
-        storeJob: storeJob ?? null,
-        pendingRow: rec,
-        bookingCacheStatus: booking?.status ?? null,
-        flags: {
-          isQueueAwaiting: isQueueAwaitingAllbookings(jobId),
-          editContext: 'listener',
-        },
-      });
-      if (droppedPending) {
+      const liveQueued =
+        isQueueAwaitingAllbookings(jobId) ||
+        normalizeJobStatus(booking?.status) === 'Queued' ||
+        normalizeJobStatus(storeJob?.status) === 'Queued';
+      // Queued jobs must never be demoted by a stale pendingjobs partial (edit fanout writes pool shape).
+      if (liveQueued && pendingSt !== 'Queued') {
+        pendingRef.current.delete(jobId);
+        return;
+      }
+
+      const liveAssigned =
+        normalizeJobStatus(booking?.status) === 'Assigned' ||
+        normalizeJobStatus(storeJob?.status) === 'Assigned';
+      // Assigned jobs must never be demoted by a stale pendingjobs partial (edit fanout writes pool shape).
+      if (liveAssigned && pendingSt !== 'Assigned') {
         pendingRef.current.delete(jobId);
         return;
       }

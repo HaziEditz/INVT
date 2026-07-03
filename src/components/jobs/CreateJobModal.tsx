@@ -661,17 +661,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       if (isEdit && editingJob) {
         const liveJob =
           useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
-        const jobToSave =
-          normalizeJobStatus(editingJob.status) === 'Queued'
-            ? {
-                ...liveJob,
-                status: 'Queued' as const,
-                driverId: liveJob.driverId ?? editingJob.driverId,
-                vehicleId: liveJob.vehicleId ?? editingJob.vehicleId,
-              }
-            : liveJob;
-        const metadataChanges = buildJobEditChangesDelta(jobToSave, form, dispatcherName);
-        const assignmentChanged = driverAssignmentChanged(jobToSave, form);
+        const metadataChanges = buildJobEditChangesDelta(liveJob, form, dispatcherName);
+        const assignmentChanged = driverAssignmentChanged(liveJob, form);
 
         if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
           addToast({ type: 'info', title: 'No changes to save' });
@@ -682,7 +673,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         }
 
         if (Object.keys(metadataChanges).length > 0) {
-          await updateJob(jobToSave.id, companyId, metadataChanges, jobToSave);
+          await updateJob(liveJob.id, companyId, metadataChanges, liveJob);
         }
 
         if (assignmentChanged) {
