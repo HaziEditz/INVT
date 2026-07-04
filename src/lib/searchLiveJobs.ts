@@ -1,7 +1,9 @@
 import type { Job, JobTab } from '@/types/job';
-import { jobTabForStatus, normalizeJobStatus } from '@/types/job';
-
-const TERMINAL = new Set(['Completed', 'Cancelled', 'No Show']);
+import {
+  TERMINAL_BOOKING_STATUSES,
+  jobTabForStatus,
+  normalizeJobStatus,
+} from '@/lib/jobStatusAuthority';
 
 const TAB_LABELS: Record<JobTab, string> = {
   ua: 'U-A',
@@ -23,7 +25,7 @@ export function jobTabDisplayLabel(tab: JobTab): string {
 }
 
 export function isLiveDispatchJob(job: Job): boolean {
-  return !TERMINAL.has(normalizeJobStatus(job.status));
+  return !TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status));
 }
 
 /** Concatenated searchable text for partial matching (legacy Filter haystack). */

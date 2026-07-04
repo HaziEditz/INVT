@@ -14,13 +14,12 @@ import {
   jobPickupTime,
   jobPickupTypeLabel,
   jobReturnReasonAlert,
-  jobStatusAbbrev,
-  effectiveJobStatus,
   jobTimerBadge,
   preDispatchAssignBlockMessage,
   resolveLastOfferDriverName,
   resolveLiveMeterDisplay,
 } from '@/types/job';
+import { effectiveJobStatus, jobStatusAbbrev } from '@/lib/jobStatusAuthority';
 import {
   jobEditLockBlockedForSelf,
   tryAcquireJobEditLock,

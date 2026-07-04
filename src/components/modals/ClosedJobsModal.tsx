@@ -5,7 +5,7 @@ import { Button } from '@/components/shared/Button';
 import { Badge } from '@/components/shared/Badge';
 import { useUiStore } from '@/store/uiStore';
 import { useClosedJobs } from '@/hooks/useJobs';
-import { normalizeJobStatus } from '@/types/job';
+import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 interface ClosedJobsModalProps {
   companyId: string;

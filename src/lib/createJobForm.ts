@@ -1,7 +1,8 @@
 import type { DataParam } from '@/lib/dispatchApi';
 import type { Driver } from '@/types/driver';
 import type { Job } from '@/types/job';
-import { isPreBookedJob, normalizeJobStatus, parseLatLng, effectiveJobStatus } from '@/types/job';
+import { isPreBookedJob, parseLatLng } from '@/types/job';
+import { effectiveJobStatus, normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
 

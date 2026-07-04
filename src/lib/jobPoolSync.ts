@@ -1,24 +1,25 @@
+import type { Job } from '@/types/job';
 import {
-  jobTabForStatus,
+  TERMINAL_BOOKING_STATUSES,
+  LIVE_DISPATCH_STATUSES,
+  LIVE_DISPATCH_TABS,
+  LIVE_LIFECYCLE_STATUSES,
+  POOL_TAB_STATUSES,
+  allbookingsRecordIsQueued,
+  coerceAllbookingsLiveStatus,
+  isGenuineQueuedJob,
+  isUnassignedDriverId,
   normalizeJobStatus,
-  type Job,
-  type JobTab,
-} from '@/types/job';
+} from '@/lib/jobStatusAuthority';
 
-export const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
-
-const LIVE_DISPATCH_STATUSES = new Set([
-  'Offered',
-  'Queued',
-  'Assigned',
-  'Picking',
-  'Arrived',
-  'Active',
-  'OnTrip',
-  'Pending',
-  'No One',
-  'Scheduled',
-]);
+export {
+  TERMINAL_BOOKING_STATUSES,
+  LIVE_DISPATCH_TABS,
+  allbookingsRecordIsQueued,
+  coerceAllbookingsLiveStatus,
+  isGenuineQueuedJob,
+  isUnassignedDriverId,
+};
 
 function seqFromRecord(rec: Record<string, unknown> | null | undefined): number {
   if (!rec || typeof rec !== 'object') return 0;
@@ -96,10 +97,6 @@ export function pickLiveJobSupersedingStaleTerminal(
   return best;
 }
 
-export const LIVE_DISPATCH_TABS = new Set<JobTab>(['offer', 'assign', 'active', 'queue']);
-
-const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One', 'Scheduled']);
-
 /** Brief window to retain live-tab jobs during accept/assign Firebase races. */
 export const OPTIMISTIC_LIVE_RETAIN_MS = 8_000;
 
@@ -136,35 +133,6 @@ export const COMPLETED_SUPPRESS_MS = 90_000;
 export const DISPATCH_POOL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const ORPHAN_ELIGIBLE_STATUSES = new Set(['Pending', 'No One', 'Queued']);
-
-const LIVE_LIFECYCLE_STATUSES = new Set([
-  'Active',
-  'Picking',
-  'Arrived',
-  'OnTrip',
-  'Assigned',
-  'Offered',
-  'Scheduled',
-]);
-
-export function isUnassignedDriverId(driverId: unknown): boolean {
-  const d = String(driverId ?? '').trim();
-  return !d || d === '0' || d === '-1' || d === '-2';
-}
-
-const POOL_TAB_STATUSES = new Set(['Pending', 'No One', 'Scheduled']);
-
-/** Queue tab: BookingStatus Queued with a real assigned driver (not pool ids 0 / -1 / -2). */
-export function isGenuineQueuedJob(job: Pick<Job, 'status' | 'driverId'>): boolean {
-  if (normalizeJobStatus(job.status) !== 'Queued') return false;
-  return !isUnassignedDriverId(job.driverId);
-}
-
-function recordDriverId(rec: Record<string, unknown>): string {
-  return String(
-    rec.DriverId ?? rec.driverId ?? rec.AssignedDriverId ?? rec.assignedDriverId ?? '',
-  ).trim();
-}
 
 export function hasRealPassengerData(rec: Record<string, unknown>): boolean {
   const name = String(rec.Name ?? rec.PassengerName ?? rec.passengerName ?? rec.passengername ?? '').trim();
@@ -384,66 +352,6 @@ export type PendingQueueRegressCtx = {
 };
 
 /**
- * Coerce mirror quirks (queuedAt, eventType) before ingest routing.
- * Terminal BookingStatus must win over stale queue lifecycle fields.
- */
-export function coerceAllbookingsLiveStatus(
-  rec: Record<string, unknown>,
-  effectiveStatus: Job['status'],
-): Job['status'] {
-  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  const fbBooking =
-    bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
-  const statusRaw = rec.Status ?? rec.status;
-  const fbStatus =
-    statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
-
-  if (fbBooking && TERMINAL_BOOKING_STATUSES.has(fbBooking)) return fbBooking;
-  if (fbStatus && TERMINAL_BOOKING_STATUSES.has(fbStatus)) return fbStatus;
-  if (TERMINAL_BOOKING_STATUSES.has(effectiveStatus)) return effectiveStatus;
-
-  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return fbBooking;
-  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return fbStatus;
-
-  const drv = recordDriverId(rec);
-  if (fbBooking === 'Queued') {
-    return isUnassignedDriverId(drv) ? (effectiveStatus as Job['status']) : 'Queued';
-  }
-  const eventType = String(rec.eventType ?? rec.EventType ?? '').toLowerCase();
-  if (eventType === 'queued' && !isUnassignedDriverId(drv)) {
-    if (fbBooking !== 'No One' && fbStatus !== 'No One' && fbBooking !== 'Pending' && fbStatus !== 'Pending') {
-      return 'Queued';
-    }
-  }
-  if (
-    (rec.queuedAt != null || rec.QueuedAt != null) &&
-    !isUnassignedDriverId(drv) &&
-    fbBooking !== 'No One' &&
-    fbStatus !== 'No One' &&
-    fbBooking !== 'Pending' &&
-    fbStatus !== 'Pending'
-  ) {
-    return 'Queued';
-  }
-  return effectiveStatus;
-}
-
-/** True when allbookings (or mirror fields) confirms Queued. */
-export function allbookingsRecordIsQueued(rec: Record<string, unknown>): boolean {
-  if (isUnassignedDriverId(recordDriverId(rec))) return false;
-  const bookingRaw = rec.BookingStatus ?? rec.bookingStatus;
-  const fbBooking = bookingRaw != null ? normalizeJobStatus(String(bookingRaw)) : null;
-  if (fbBooking && POOL_TAB_STATUSES.has(fbBooking)) return false;
-  if (fbBooking === 'Queued') return true;
-  const statusRaw = rec.Status ?? rec.status;
-  const fbStatus = statusRaw != null ? normalizeJobStatus(String(statusRaw)) : null;
-  if (fbStatus && POOL_TAB_STATUSES.has(fbStatus)) return false;
-  if (fbStatus === 'Queued') return true;
-  if (String(rec.eventType ?? rec.EventType ?? '').toLowerCase() === 'queued') return true;
-  return rec.queuedAt != null || rec.QueuedAt != null;
-}
-
-/**
  * Drop stale pendingjobs rows when bookingsRef or allbookings already confirms Queued.
  * Also clears queue-await ids (handled before reinject).
  */
@@ -577,10 +485,6 @@ export function reinjectOfferAwaitingJobs(
     if (pendingSt !== 'Offered') continue;
     if (!bookingsRef.has(j.id)) bookingsRef.set(j.id, j);
   }
-}
-
-function isPoolUaStatus(status: string): boolean {
-  return POOL_UA_STATUSES.has(normalizeJobStatus(status) as Job['status']);
 }
 
 export function isWithinOptimisticWindow(jobId: number, now = Date.now()): boolean {

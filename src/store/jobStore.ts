@@ -1,7 +1,8 @@
 import { mergeJobUpdate } from '@/lib/mergeJob';
 import { create } from 'zustand';
 import type { Job, JobTab } from '@/types/job';
-import { jobScheduledTime, jobTabForStatus, normalizeJobStatus } from '@/types/job';
+import { jobScheduledTime } from '@/types/job';
+import { ACTIVE_BOOKING_STATUSES, jobTabForStatus, normalizeJobStatus } from '@/lib/jobStatusAuthority';
 import { queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
 
 interface JobStore {
@@ -42,16 +43,7 @@ export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
 }
 
 function isLivePoolStatus(status: string): boolean {
-  const st = normalizeJobStatus(status);
-  return (
-    st === 'Queued' ||
-    st === 'Offered' ||
-    st === 'Assigned' ||
-    st === 'Picking' ||
-    st === 'Arrived' ||
-    st === 'Active' ||
-    st === 'OnTrip'
-  );
+  return ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(status));
 }
 
 export const useJobStore = create<JobStore>((set, get) => ({
@@ -71,8 +63,24 @@ export const useJobStore = create<JobStore>((set, get) => ({
       const queueOpts = queueAwaitingMergeOpts(job.id);
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {
+        const prev = s.jobs[idx];
         const next = [...s.jobs];
-        next[idx] = mergeJobUpdate(next[idx], job, queueOpts);
+        const merged = mergeJobUpdate(prev, job, queueOpts);
+        const prevTab = jobTabForStatus(prev);
+        const incomingTab = jobTabForStatus(job);
+        const mergedTab = jobTabForStatus(merged);
+        if (prevTab === 'queue' && mergedTab !== 'queue') {
+          console.log('[queue-edit-pin]', {
+            phase: 'jobStore.upsertJob-left-queue',
+            jobId: job.id,
+            prev: { status: prev.status, driverId: prev.driverId, tab: prevTab },
+            incoming: { status: job.status, driverId: job.driverId, tab: incomingTab },
+            merged: { status: merged.status, driverId: merged.driverId, tab: mergedTab },
+            queueOpts: queueOpts ?? null,
+            at: Date.now(),
+          });
+        }
+        next[idx] = merged;
         return { jobs: next };
       }
       const inserted = queueOpts

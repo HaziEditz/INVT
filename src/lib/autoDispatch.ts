@@ -1,5 +1,6 @@
 import type { Job } from '@/types/job';
 import type { Driver } from '@/types/driver';
+import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 import { driverEligibleForJob } from '@/lib/jobVehicleEligibility';
 
 /** Haversine distance in km */
@@ -34,7 +35,7 @@ export function driverMatchesJob(driver: Driver, job: Job): boolean {
 }
 
 export function isInDispatchWindow(job: Job, now = Date.now()): boolean {
-  if (job.status !== 'Pending') return false;
+  if (normalizeJobStatus(job.status) !== 'Pending') return false;
   const notifyAt = job.notifyDispatchAt ? Date.parse(job.notifyDispatchAt) : NaN;
   if (!Number.isNaN(notifyAt) && now < notifyAt) return false;
   const db = job.dispatchBeforeMinutes || 0;
@@ -65,5 +66,5 @@ export function nearestDriver(
 
 /** Client-side auto-dispatch is disabled — server runs every 30s. This helper is for UI hints only. */
 export function canAutoDispatch(job: Job): boolean {
-  return job.status === 'Pending' && isInDispatchWindow(job);
+  return normalizeJobStatus(job.status) === 'Pending' && isInDispatchWindow(job);
 }

@@ -361,22 +361,17 @@ export function jobEditLockLabel(job: Job): string | null {
   return actor ? `${actor} editing` : 'Being edited';
 }
 
-export function normalizeJobStatus(raw: string): JobStatus {
-  const s = String(raw || '').trim();
-  if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
-  if (s === 'pending' || s === 'PENDING') return 'Pending';
-  if (s === 'queued' || s === 'QUEUED') return 'Queued';
-  if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
-  return s as JobStatus;
-}
+export {
+  normalizeJobStatus,
+  uaStatusBadge,
+  statusBadgeStyle,
+  jobStatusAbbrev,
+  jobStatusFromFirebaseRecord,
+  effectiveJobStatus,
+  jobTabForStatus,
+} from '@/lib/jobStatusAuthority';
 
-/** Single UA status badge — Pending OR No One, never both. */
-export function uaStatusBadge(job: Job): { label: string; color: string; bg: string } | null {
-  const st = normalizeJobStatus(job.status);
-  if (st === 'No One') return { label: 'NO ONE', color: '#94a3b8', bg: 'rgba(100,116,139,0.2)' };
-  if (st === 'Pending') return { label: 'PENDING', color: '#5b7cfa', bg: 'rgba(79,110,247,0.2)' };
-  return null;
-}
+import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 function normalizeSource(raw: string): BookingSource {
   const s = raw.toLowerCase();
@@ -385,53 +380,6 @@ function normalizeSource(raw: string): BookingSource {
   if (s.includes('passenger') || s === 'app') return 'passenger';
   if (s.includes('web') || s.includes('website')) return 'web';
   return 'dispatch';
-}
-
-/** Map a Firebase pendingjobs/allbookings record to the dispatch tab status. */
-export function jobStatusFromFirebaseRecord(rec: Record<string, unknown>): JobStatus {
-  return resolveJobStatus(rec);
-}
-
-function resolveJobStatus(rec: Record<string, unknown>): JobStatus {
-  const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
-  if (dId === -1 || dId === '-1') return 'No One';
-
-  const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
-  const status =
-    rec.Status != null || rec.status != null
-      ? normalizeJobStatus(String(rec.Status ?? rec.status))
-      : null;
-
-  if (booking === 'No One' || status === 'No One') return 'No One';
-
-  if (booking === 'Completed' || booking === 'Cancelled' || booking === 'No Show') return booking;
-  if (status === 'Completed' || status === 'Cancelled' || status === 'No Show') return status as JobStatus;
-
-  // BookingStatus is authoritative once a job is offered/assigned — stale root Status
-  // (e.g. Pending left from pool create) must not hide Assigned on the Assign tab.
-  const LIVE_BOOKING: JobStatus[] = [
-    'Offered',
-    'Queued',
-    'Assigned',
-    'Picking',
-    'Arrived',
-    'Active',
-    'OnTrip',
-    'Busy',
-  ];
-  if (booking && LIVE_BOOKING.includes(booking)) return booking;
-
-  if (booking === 'Pending' || status === 'Pending') return 'Pending';
-  if (booking) return booking;
-  if (status) return status;
-  return 'Pending';
-}
-
-/** Authoritative pool status for UI — driverId -1 means No One even if status field lagged. */
-export function effectiveJobStatus(job: Job): JobStatus {
-  const drv = String(job.driverId ?? '').trim();
-  if (drv === '-1') return 'No One';
-  return normalizeJobStatus(job.status);
 }
 
 export function isScheduledJob(job: Job): boolean {
@@ -659,14 +607,6 @@ export function jobCardBorderColor(job: Job): string {
   return '#4f6ef7';
 }
 
-export function statusBadgeStyle(status: JobStatus): { label: string; color: string; bg: string } | null {
-  const st = normalizeJobStatus(status);
-  if (st === 'No One') return { label: 'NO ONE', color: '#94a3b8', bg: 'rgba(100,116,139,0.2)' };
-  if (st === 'Pending') return { label: 'PENDING', color: '#5b7cfa', bg: 'rgba(79,110,247,0.2)' };
-  if (st === 'Scheduled') return { label: 'SCHEDULED', color: '#f59e0b', bg: 'rgba(245,158,11,0.2)' };
-  return null;
-}
-
 /** True while a pre-booked job is still before its dispatch window opens. */
 export function isPreDispatchWindow(job: Job, now = new Date()): boolean {
   const dispatchAt = jobDispatchTime(job);
@@ -681,40 +621,6 @@ export function preDispatchAssignBlockMessage(job: Job): string {
     ? pickup.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })
     : 'the scheduled time';
   return `This job is pre-booked for ${timeLabel}. To send it now, change it to 'Now' first.`;
-}
-
-export function jobTabForStatus(job: Job): JobTab {
-  if (job.serviceType === 'food' || job.serviceType === 'freight') return 'dy';
-  const raw = job.status;
-  const st = normalizeJobStatus(job.status);
-  const drv = String(job.driverId ?? '').trim();
-  const hasQueuedDriver = !!drv && drv !== '0' && drv !== '-1' && drv !== '-2';
-  const tab: JobTab =
-    st === 'Queued' && hasQueuedDriver
-      ? 'queue'
-      : st === 'Active' || st === 'OnTrip'
-        ? 'active'
-        : st === 'Assigned' || st === 'Picking' || st === 'Arrived'
-          ? 'assign'
-          : st === 'Offered'
-            ? 'offer'
-            : 'ua';
-  if (
-    String(raw).toLowerCase().includes('queue') ||
-    st === 'Queued' ||
-    tab === 'queue' ||
-    String(raw) === 'Busy'
-  ) {
-    console.log('[dispatch-queue-debug] jobTabForStatus', {
-      id: job.id,
-      rawStatus: raw,
-      normalizedStatus: st,
-      tab,
-      serviceType: job.serviceType,
-      driverId: job.driverId,
-    });
-  }
-  return tab;
 }
 
 /** When the job record was created in the system. */
@@ -795,33 +701,6 @@ export function formatJobDateTimeCompact(d: Date, now = new Date()): string {
     month: 'short',
   });
   return `${datePart} ${time}`;
-}
-
-export function jobStatusAbbrev(status: JobStatus): { abbrev: string; dotColor: string } {
-  const st = normalizeJobStatus(status);
-  switch (st) {
-    case 'No One':
-      return { abbrev: 'NON', dotColor: '#94a3b8' };
-    case 'Pending':
-      return { abbrev: 'PND', dotColor: '#4f6ef7' };
-    case 'Offered':
-      return { abbrev: 'OFR', dotColor: '#f59e0b' };
-    case 'Assigned':
-      return { abbrev: 'ASN', dotColor: '#6366f1' };
-    case 'Picking':
-      return { abbrev: 'PIK', dotColor: '#6366f1' };
-    case 'Arrived':
-      return { abbrev: 'ARR', dotColor: '#6366f1' };
-    case 'Active':
-    case 'OnTrip':
-      return { abbrev: 'ACT', dotColor: '#22c55e' };
-    case 'Scheduled':
-      return { abbrev: 'SCH', dotColor: '#0ea5e9' };
-    case 'Queued':
-      return { abbrev: 'QUE', dotColor: '#a855f7' };
-    default:
-      return { abbrev: st.slice(0, 3).toUpperCase(), dotColor: '#64748b' };
-  }
 }
 
 export type JobTimerBadge = {

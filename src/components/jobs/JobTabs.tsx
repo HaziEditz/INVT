@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { useJobStore, filterJobsForTab } from '@/store/jobStore';
 import type { JobTab } from '@/types/job';
-import { jobTabForStatus } from '@/types/job';
+import { jobTabForStatus } from '@/lib/jobStatusAuthority';
 import { JobCard } from './JobCard';
 import { cn } from '@/lib/utils';
 

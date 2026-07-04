@@ -1,4 +1,9 @@
-import { normalizeJobStatus, type Job } from '@/types/job';
+import type { Job } from '@/types/job';
+import {
+  TERMINAL_BOOKING_STATUSES,
+  isUnassignedDriverId,
+  normalizeJobStatus,
+} from '@/lib/jobStatusAuthority';
 
 export type DriverStatus =
   | 'Available'
@@ -36,8 +41,6 @@ const PANEL_JOB_COUNT_STATUSES = new Set([
   'Queued',
 ]);
 
-const TERMINAL_JOB_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
-
 /** Live assigned job count for driver panel (active + queued). Mirrors server _computeDriverJobCount. */
 export function countDriverAssignedJobs(
   driver: Pick<Driver, 'driverId' | 'vehicleId' | 'vehicleNo'>,
@@ -45,15 +48,15 @@ export function countDriverAssignedJobs(
 ): number {
   let count = 0;
   for (const job of jobs) {
+    if (isUnassignedDriverId(job.driverId)) continue;
     const jDrv = String(job.driverId ?? '').trim();
-    if (!jDrv || jDrv === '0' || jDrv === '-1' || jDrv === '-2') continue;
     const matched =
       driverIdsMatch(jDrv, driver.driverId) ||
       driverIdsMatch(jDrv, driver.vehicleId) ||
       driverIdsMatch(jDrv, driver.vehicleNo);
     if (!matched) continue;
     const st = normalizeJobStatus(job.status);
-    if (TERMINAL_JOB_STATUSES.has(st)) continue;
+    if (TERMINAL_BOOKING_STATUSES.has(st)) continue;
     if (PANEL_JOB_COUNT_STATUSES.has(st)) count++;
   }
   return count;

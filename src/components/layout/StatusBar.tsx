@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 
@@ -34,8 +35,14 @@ export function StatusBar() {
     [drivers]
   );
 
-  const pending = jobs.filter((j) => j.status === 'Pending' || j.status === 'No One').length;
-  const active = jobs.filter((j) => ['Active', 'OnTrip', 'Picking'].includes(j.status)).length;
+  const pending = jobs.filter((j) => {
+    const st = normalizeJobStatus(j.status);
+    return st === 'Pending' || st === 'No One';
+  }).length;
+  const active = jobs.filter((j) => {
+    const st = normalizeJobStatus(j.status);
+    return st === 'Active' || st === 'OnTrip' || st === 'Picking';
+  }).length;
   const nzTime = nzClockString(now);
 
   const stat = (label: string, value: number | string, color?: string) => (

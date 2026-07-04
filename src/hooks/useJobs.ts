@@ -6,14 +6,21 @@ import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import {
   jobFromFirebase,
-  jobStatusFromFirebaseRecord,
-  jobTabForStatus,
-  normalizeJobStatus,
   isPreBookedJob,
   jobDispatchTime,
   type Job,
   type JobStatus,
 } from '@/types/job';
+import {
+  ACTIVE_BOOKING_STATUSES,
+  LIVE_OFFER_STATUSES,
+  TERMINAL_BOOKING_STATUSES,
+  isPoolUaStatus,
+  isUaJob,
+  jobStatusFromFirebaseRecord,
+  jobTabForStatus,
+  normalizeJobStatus,
+} from '@/lib/jobStatusAuthority';
 import {
   markOptimisticLiveTransition,
   clearOptimisticLiveTransition,
@@ -88,10 +95,6 @@ function traceAllbookingsIngest(
   console.log(`[dispatch-queue-debug] allbookings ${reason}`, { jobId, ...detail });
 }
 
-function isUaJob(job: Job): boolean {
-  return jobTabForStatus(job) === 'ua';
-}
-
 function isBlacklisted(jobId: number): boolean {
   return useJobStore.getState().isJobBlacklisted(jobId);
 }
@@ -113,18 +116,6 @@ export function purgeDispatchTerminalJob(jobId: number, suppressSeq = 0) {
 
 let listenerPendingCache: Map<number, Job> | null = null;
 let listenerBookingsCache: Map<number, Job> | null = null;
-
-const ACTIVE_BOOKING_STATUSES = new Set([
-  'Assigned',
-  'Picking',
-  'Arrived',
-  'Active',
-  'OnTrip',
-  'Queued',
-  'Offered',
-]);
-
-const TERMINAL_BOOKING_STATUSES = new Set(['Completed', 'Cancelled', 'No Show']);
 
 /** Pin dispatch Queue-tab investigations to specific booking ids (console: dispatch-queue-debug). */
 const DISPATCH_QUEUE_TRACE_IDS = new Set([
@@ -332,13 +323,6 @@ function refreshTrustsPoolRestore(
   const hintSeq = refresh.updateSeq ?? 0;
   if (hintSeq > 0 && fbSeq != null && hintSeq >= fbSeq) return true;
   return POOL_RESTORE_ACTIONS.has(refresh.action || '');
-}
-
-const POOL_UA_STATUSES = new Set<Job['status']>(['Pending', 'No One', 'Scheduled']);
-const LIVE_OFFER_STATUSES = new Set(['Offered', 'Assigned']);
-
-function isPoolUaStatus(status: string): boolean {
-  return POOL_UA_STATUSES.has(normalizeJobStatus(status) as Job['status']);
 }
 
 function pendingjobsAbsentIsPoolRestore(

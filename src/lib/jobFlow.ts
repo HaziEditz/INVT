@@ -1,13 +1,16 @@
 import {
   jobFromFirebase,
   jobUpdateSeqFromRecord,
-  normalizeJobStatus,
   isPreDispatchWindow,
   preDispatchAssignBlockMessage,
   type Job,
   type JobStatus,
 } from '@/types/job';
-import { clearQueueAwaitingAllbookings } from '@/lib/jobPoolSync';
+import {
+  normalizeJobStatus,
+  pinQueuedOptimisticJob,
+  retainQueuedOptimisticAfterServerMerge,
+} from '@/lib/jobStatusAuthority';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners, purgeDispatchTerminalJob } from '@/hooks/useJobs';
@@ -450,31 +453,71 @@ async function persistJobUpdate(
   }
 
   const authoritativeSeq = result.seq ?? ifSeq + 1;
-  const current = latestStoreJob(jobId) ?? baseJob;
-  let merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
-  if (normalizeJobStatus(baseJob.status) === 'Queued') {
-    merged = {
-      ...merged,
-      status: 'Queued',
-      driverId: merged.driverId ?? baseJob.driverId,
-      vehicleId: merged.vehicleId ?? baseJob.vehicleId,
-    };
-  } else if (
-    normalizeJobStatus(baseJob.status) === 'Queued' &&
-    (normalizeJobStatus(merged.status) === 'Pending' ||
-      normalizeJobStatus(merged.status) === 'No One')
-  ) {
-    clearQueueAwaitingAllbookings(jobId);
-    useJobStore.getState().clearRemovedJob(jobId);
+  const storeBefore = latestStoreJob(jobId);
+  const appliedFromBase = applyChangesToJob(baseJob, effectiveChanges, authoritativeSeq);
+  const pinnedQueued = pinQueuedOptimisticJob(baseJob, appliedFromBase);
+  let merged: Job;
+  let upsertPath: string;
+  if (pinnedQueued) {
+    // Authority confirmed Queue tab — never upsert a U-A flash for queued edits.
+    merged = pinnedQueued;
+    upsertPath = 'pinned-queue';
+  } else {
+    const current = storeBefore ?? baseJob;
+    merged = applyChangesToJob(current, effectiveChanges, authoritativeSeq);
+    upsertPath = 'fallback-latest-store';
   }
+  console.log('[queue-edit-pin]', {
+    phase: 'persistJobUpdate-upsert',
+    jobId,
+    upsertPath,
+    authoritativeSeq,
+    changeKeys: Object.keys(effectiveChanges),
+    baseJob: {
+      status: baseJob.status,
+      driverId: baseJob.driverId,
+      vehicleId: baseJob.vehicleId,
+    },
+    storeBefore: storeBefore
+      ? { status: storeBefore.status, driverId: storeBefore.driverId, vehicleId: storeBefore.vehicleId }
+      : null,
+    appliedFromBase: {
+      status: appliedFromBase.status,
+      driverId: appliedFromBase.driverId,
+      vehicleId: appliedFromBase.vehicleId,
+    },
+    upsert: {
+      status: merged.status,
+      driverId: merged.driverId,
+      vehicleId: merged.vehicleId,
+    },
+    at: Date.now(),
+  });
   useJobStore.getState().upsertJob(merged);
   mirrorJobChangesToFirebase(companyId, jobId, effectiveChanges, merged.status, authoritativeSeq);
 
   const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
   if (fresh) {
-    useJobStore.getState().upsertJob(
-      mergeJobUpdateFromServer(merged, fresh, authoritativeSeq),
-    );
+    const afterFresh = mergeJobUpdateFromServer(merged, fresh, authoritativeSeq);
+    console.log('[queue-edit-pin]', {
+      phase: 'persistJobUpdate-after-fresh',
+      jobId,
+      fresh: { status: fresh.status, driverId: fresh.driverId, vehicleId: fresh.vehicleId, updateSeq: fresh.updateSeq },
+      afterFresh: {
+        status: afterFresh.status,
+        driverId: afterFresh.driverId,
+        vehicleId: afterFresh.vehicleId,
+        updateSeq: afterFresh.updateSeq,
+      },
+      at: Date.now(),
+    });
+    useJobStore.getState().upsertJob(afterFresh);
+  } else {
+    console.log('[queue-edit-pin]', {
+      phase: 'persistJobUpdate-no-fresh',
+      jobId,
+      at: Date.now(),
+    });
   }
 }
 
@@ -504,13 +547,7 @@ function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq:
   ) {
     merged.status = fresh.status;
   }
-  if (
-    optSt === 'Queued' &&
-    (freshSt === 'Pending' || freshSt === 'No One' || freshSt === 'Scheduled')
-  ) {
-    merged = { ...merged, status: 'Queued', updateSeq: seq };
-  }
-  return merged;
+  return retainQueuedOptimisticAfterServerMerge(optimistic, { ...merged, updateSeq: seq });
 }
 
 async function updateJobInner(
