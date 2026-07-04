@@ -394,7 +394,13 @@ function priorTerminalSuppressSeq(
 }
 
 function refreshImpliesTerminal(refresh: DispatchRefreshPayload): boolean {
-  if (refresh.action === 'cancel' || refresh.action === 'complete') return true;
+  if (
+    refresh.action === 'cancel' ||
+    refresh.action === 'no-show' ||
+    refresh.action === 'complete'
+  ) {
+    return true;
+  }
   if (!refresh.status) return false;
   return TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(refresh.status));
 }
@@ -462,7 +468,8 @@ function optimisticDispatchRefresh(
     targetStatus === 'No One' ||
     targetStatus === 'Scheduled' ||
     POOL_RESTORE_ACTIONS.has(refresh.action || '') ||
-    refresh.action === 'cancel'
+    refresh.action === 'cancel' ||
+    refresh.action === 'no-show'
   ) {
     clearOfferAwaitingAllbookings(bookingId);
     clearOptimisticLiveTransition(bookingId);
@@ -574,7 +581,7 @@ async function refreshJobFromFirebaseCaches(
         bookingsRef.delete(bookingId);
       }
     }
-  } else if (action === 'cancel') {
+  } else if (action === 'cancel' || action === 'no-show') {
     bookingsRef.delete(bookingId);
   }
 
@@ -687,7 +694,7 @@ async function refreshJobFromFirebaseCaches(
       pendingRef.set(job.id, job);
     }
     const liveActions = new Set(['accept', 'assign', 'offer', 'queue', 'active', 'status', 'timeout', 'decline', 'recall', 'scheduled_release']);
-    if (action === 'cancel') {
+    if (action === 'cancel' || action === 'no-show') {
       hooks.removeJob(bookingId);
       hooks.clearRemovedJob(bookingId);
     } else if (!liveActions.has(action || '') && !job) {

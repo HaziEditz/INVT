@@ -1284,6 +1284,32 @@ function _onlineTripClearPatch(vehiclestatus) {
   };
 }
 
+/**
+ * Force online/{cid}/{vid} (+ /current) to Available after No Show / trip clear.
+ * Unlike _clearOnlineTripFieldsForBooking, does not require currentJobId match —
+ * No Show must never leave presence stuck on Offered/Assigned/Picking.
+ */
+async function _forceOnlinePresenceAvailable(cid, vehId, source) {
+  const _cid = String(cid || '').trim();
+  const _vid = String(vehId || '').trim();
+  const _src = source || 'force-available';
+  if (!_cid || !_vid) return { ok: false };
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return { ok: false };
+    const patch = _onlineTripClearPatch('Available');
+    await firebaseDbPatch(`online/${_cid}/${_vid}`, patch, tok)
+      .catch((e) => console.warn(`  [${_src}] online/${_cid}/${_vid} Available failed: ${e && e.message}`));
+    await firebaseDbPatch(`online/${_cid}/${_vid}/current`, patch, tok)
+      .catch((e) => console.warn(`  [${_src}] online/${_cid}/${_vid}/current Available failed: ${e && e.message}`));
+    console.log(`  [${_src}] online/${_cid}/${_vid} → Available (forced)`);
+    return { ok: true };
+  } catch (e) {
+    console.warn(`  [${_src}] force Available failed: ${e && e.message}`);
+    return { ok: false };
+  }
+}
+
 /** Clear job pointers on online/{cid}/{vid} and online/{cid}/{vid}/current when they reference bookingId. */
 async function _clearOnlineTripFieldsForBooking(cid, vehId, bookingId, logTag) {
   const _tag = logTag || `[online-clear #${bookingId}]`;
@@ -2706,12 +2732,13 @@ async function cancelBooking(opts) {
           await _writeCancelNotify(_cid, _rVid, _rDrv, bookingId, cancelledByDisplay,
             { recalled: false, version: job.updateSeq });
         }
+        const _isNoShow = job.BookingStatus === 'No Show' || job.BookingStatus === 'NoShow';
         await executeJobCleanup({
           profile: 'terminal',
           bookingId,
           companyId: _cid,
           source,
-          terminalKind: job.BookingStatus === 'No Show' ? 'No Show' : 'Cancelled',
+          terminalKind: _isNoShow ? 'No Show' : 'Cancelled',
           driverId: _rDrv,
           vehicleId: _rVid,
           job,
@@ -2720,16 +2747,38 @@ async function cancelBooking(opts) {
           allbookingsMeta: _terminalMeta,
           consoleRefresh: {
             bookingId,
-            action: 'cancel',
+            action: _isNoShow ? 'no-show' : 'cancel',
             status: job.BookingStatus,
+            previousStatus: _cancelStage,
             driverId: _rDrv || _drvId,
           },
         });
         if (_hasDriver) {
-          const _ds = await _maybeRestoreDriverState(_rDrv, _rVid, _cid, bookingId, driverFault, source);
+          // No Show must return driver to Available on Firebase (not Away/driverFault).
+          // Covers direct assign, queue-promoted, and any booking source.
+          const _ds = await _maybeRestoreDriverState(
+            _rDrv,
+            _rVid,
+            _cid,
+            bookingId,
+            _isNoShow ? false : driverFault,
+            source,
+          );
           driverFreed = _ds.driverFreed;
           driverState = _ds.driverState;
           queueNo = _ds.queueNo;
+          if (_isNoShow) {
+            const _vidForPresence = _rVid || _vehId;
+            const _hasOtherTrip = _driverHasActiveTripJob(_rDrv, _cid, bookingId);
+            if (!_hasOtherTrip && _vidForPresence) {
+              await _forceOnlinePresenceAvailable(_cid, _vidForPresence, `${source}/no-show`);
+              if (_cid && _rDrv) {
+                applyZoneQueueSyncForDriver(_cid, _rDrv, _vidForPresence, `${source}/no-show-Available`);
+              }
+            } else if (_vidForPresence) {
+              await _clearOnlineTripFieldsForBooking(_cid, _vidForPresence, bookingId, `[${source}/no-show]`);
+            }
+          }
         }
       }
     } catch (e) {
@@ -6220,7 +6269,8 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
 function _dispatchRefreshActionForStatus(status) {
   const st = String(status || '');
   if (st === 'Completed') return 'complete';
-  if (st === 'Cancelled' || st === 'No Show') return 'cancel';
+  if (st === 'No Show' || st === 'NoShow') return 'no-show';
+  if (st === 'Cancelled') return 'cancel';
   if (st === 'Queued') return 'queue';
   if (st === 'Offered') return 'offer';
   if (st === 'Assigned') return 'assign';
@@ -14276,9 +14326,21 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         await _dispatchRefreshForJob(_nsJob, {
           cid: _nsCid,
           status: 'No Show',
-          action: 'cancel',
-          driverId: String(_nsJob.DriverId || ''),
+          action: 'no-show',
+          previousStatus: _ccResult.cancelStage || undefined,
+          driverId: String(_nsJob.DriverId || _nsJob.AssignedDriverId || ''),
         }).catch(() => {});
+        // Belt-and-suspenders: force Available when no other live trip remains.
+        const _nsVid = String(
+          _nsJob.VehicleNo || _nsJob.CallSign || _nsJob.VehicleId || _nsJob.AssignedVehicleId || '',
+        ).trim();
+        const _nsDrv = String(_nsJob.DriverId || _nsJob.AssignedDriverId || '').trim();
+        if (_nsVid && _nsDrv && !_driverHasActiveTripJob(_nsDrv, _nsCid, _ccBooking)) {
+          await _forceOnlinePresenceAvailable(_nsCid, _nsVid, 'api/cancel/no-show');
+          applyZoneQueueSyncForDriver(_nsCid, _nsDrv, _nsVid, 'api/cancel/no-show-Available');
+        } else if (_nsVid) {
+          await _clearOnlineTripFieldsForBooking(_nsCid, _nsVid, _ccBooking, '[api/cancel/no-show]');
+        }
       }
     }
     const _ccStatus = _ccResult.ok ? 200
