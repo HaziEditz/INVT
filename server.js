@@ -21845,20 +21845,22 @@ function _purgeZoneDriversForDriver(cid, driverId, vid) {
   }
 }
 
-/** Delete every online/{cid}/{vid} node owned by this driver (and known vehicle). */
-async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason) {
+/**
+ * Scan online/{cid} (+ ZONE_DRIVERS) for nodes owned by this driver and DELETE them.
+ * Skips `skipVid` (already deleted on the fast path).
+ */
+async function _scanAndPurgeDriverOnlineExtras(cid, driverId, skipVid, reason) {
   const _cid = String(cid || '').trim();
   const _drv = String(driverId || '').trim();
+  const _skip = String(skipVid || '').trim();
   const vids = new Set();
-  const _known = String(knownVid || '').trim();
-  if (_known) vids.add(_known);
 
   for (const d of ZONE_DRIVERS) {
     if (_cid && d.companyId && String(d.companyId) !== _cid) continue;
     const dDrv = String(d.driverid || '').trim();
     if (_drv && (dDrv === _drv || _driverIdsMatch(dDrv, _drv) || String(d.VehicleId) === _drv)) {
       const v = String(d.VehicleId || d.vehiclenumber || '').trim();
-      if (v) vids.add(v);
+      if (v && v !== _skip) vids.add(v);
     }
   }
 
@@ -21873,13 +21875,15 @@ async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason) {
       if (r && r.status === 200 && r.body && typeof r.body === 'object') {
         for (const [vid, node] of Object.entries(r.body)) {
           if (!node || typeof node !== 'object') continue;
+          const v = String(vid).trim();
+          if (!v || v === _skip) continue;
           const cur = (node.current && typeof node.current === 'object') ? node.current : {};
           const existingDrv = _onlineNodeDriverId(cur, node);
           if (
             existingDrv &&
             (String(existingDrv) === _drv || _driverIdsMatch(existingDrv, _drv))
           ) {
-            vids.add(String(vid).trim());
+            vids.add(v);
           }
         }
       }
@@ -21888,11 +21892,52 @@ async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason) {
     }
   }
 
+  const purged = [];
   for (const vid of vids) {
     if (!vid) continue;
     await _deleteOnlinePresenceNode(_cid, vid, reason || 'logout-purge');
+    purged.push(vid);
   }
-  return [...vids];
+  return purged;
+}
+
+/**
+ * Delete driver presence. Fast path: when knownVid is set, DELETE that node
+ * immediately, then optionally scan for orphans in the background.
+ */
+async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason, opts) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const _known = String(knownVid || '').trim();
+  const backgroundScan = !!(opts && opts.backgroundScan);
+  const _reason = reason || 'logout-purge';
+  const purged = [];
+
+  // Fast path — known vehicle deletes in one RTDB DELETE (no company-wide GET).
+  if (_known) {
+    await _deleteOnlinePresenceNode(_cid, _known, _reason);
+    purged.push(_known);
+  }
+
+  if (_known && backgroundScan) {
+    // Orphan scan must not delay the logout response / dispatch UI clear.
+    _scanAndPurgeDriverOnlineExtras(_cid, _drv, _known, `${_reason}/bg-scan`)
+      .then((extras) => {
+        if (extras.length) {
+          console.log(
+            `[presence] background purge extras driver=${_drv} nodes=[${extras.join(',')}]`,
+          );
+        }
+      })
+      .catch((e) => {
+        console.warn(`[presence] background purge failed driver=${_drv}: ${e && e.message}`);
+      });
+    return purged;
+  }
+
+  // No known vehicle (or caller wants a full sync scan) — must scan now.
+  const extras = await _scanAndPurgeDriverOnlineExtras(_cid, _drv, _known, _reason);
+  return purged.concat(extras);
 }
 
 async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source) {
@@ -21904,13 +21949,14 @@ async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source)
 
   if (past14h) {
     // Manual end after NZTA 14h: force-clear ALL presence regardless of job state.
-    // Do not defer for Assigned/Active — stale online nodes cause auto-dispatch split-brain.
+    // Fast path deletes known vehicle immediately; full online/{cid} scan is background-only.
     _purgeZoneDriversForDriver(_cid, _drv, _vid);
     const purged = await _purgeAllDriverOnlinePresence(
       _cid,
       _drv,
       _vid,
       `${_src}/14h-force`,
+      { backgroundScan: !!_vid },
     );
     _clearShiftSession(_cid, _drv);
     console.log(
@@ -21923,6 +21969,18 @@ async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source)
   _purgeZoneDriversForDriver(_cid, _drv, _vid);
   if (_cid && _vid) {
     await _deleteOnlinePresenceNode(_cid, _vid, _src);
+    // Background orphan scan only — do not block logout on company-wide GET.
+    _scanAndPurgeDriverOnlineExtras(_cid, _drv, _vid, `${_src}/bg-scan`)
+      .then((extras) => {
+        if (extras.length) {
+          console.log(
+            `[presence] background purge extras driver=${_drv} nodes=[${extras.join(',')}]`,
+          );
+        }
+      })
+      .catch((e) => {
+        console.warn(`[presence] background purge failed driver=${_drv}: ${e && e.message}`);
+      });
   } else if (_cid && _drv) {
     await _purgeAllDriverOnlinePresence(_cid, _drv, '', _src);
   }
