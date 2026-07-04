@@ -502,15 +502,29 @@ export async function createHarness(opts = {}) {
     async waitForAutoOffer(jobId, driverId, { timeoutMs = 90000 } = {}) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
-        await h.triggerAutoDispatch();
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
         try {
-      return await h.poll(
-        jobId,
-        (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
-        { timeoutMs: Math.min(45000, deadline - Date.now()) },
-      );
-        } catch {
-          /* retry after next tick */
+          await h.triggerAutoDispatch();
+        } catch (e) {
+          const msg = String(e && e.message ? e.message : e);
+          if (/timed out|ECONNRESET|ECONNREFUSED|EPIPE|socket hang up/i.test(msg)) {
+            throw new Error(`waitForAutoOffer transport error for #${jobId}: ${msg}`);
+          }
+        }
+        try {
+          return await h.poll(
+            jobId,
+            (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
+            // Cap each poll window; per-request HTTP timeout is 30s in jobTrace/http.
+            { timeoutMs: Math.min(45000, Math.max(1000, remaining)) },
+          );
+        } catch (e) {
+          const msg = String(e && e.message ? e.message : e);
+          if (/transport error|timed out after|ECONNRESET|ECONNREFUSED|EPIPE|socket hang up/i.test(msg)) {
+            throw new Error(`waitForAutoOffer transport error for #${jobId}: ${msg}`);
+          }
+          /* predicate not met — retry after next tick */
         }
       }
       await h.ensureDriverReady(driverId);

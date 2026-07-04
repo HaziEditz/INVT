@@ -10,7 +10,10 @@ function parseUrl(urlPath) {
   };
 }
 
-export function httpRequest(method, urlPath, { body, headers = {} } = {}) {
+/** Default per-request timeout — hung server must fail fast, not block for tens of minutes. */
+export const DEFAULT_HTTP_TIMEOUT_MS = 30_000;
+
+export function httpRequest(method, urlPath, { body, headers = {}, timeoutMs = DEFAULT_HTTP_TIMEOUT_MS } = {}) {
   const { hostname, port, path: reqPath } = parseUrl(urlPath);
   return new Promise((resolve, reject) => {
     const payload = body != null ? JSON.stringify(body) : null;
@@ -45,13 +48,20 @@ export function httpRequest(method, urlPath, { body, headers = {} } = {}) {
       });
     });
     req.on('error', reject);
+    if (timeoutMs > 0) {
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`HTTP ${method} ${urlPath} timed out after ${timeoutMs}ms`));
+      });
+    }
     if (payload) req.write(payload);
     req.end();
   });
 }
 
-export const get = (path, headers) => httpRequest('GET', path, { headers });
-export const post = (path, body, headers) => httpRequest('POST', path, { body, headers });
+export const get = (path, headers, opts = {}) =>
+  httpRequest('GET', path, { headers, timeoutMs: opts.timeoutMs });
+export const post = (path, body, headers, opts = {}) =>
+  httpRequest('POST', path, { body, headers, timeoutMs: opts.timeoutMs });
 
 export function cookieFromResponse(res) {
   const set = res.headers['set-cookie'] || [];

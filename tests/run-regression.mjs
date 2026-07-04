@@ -125,7 +125,13 @@ async function main() {
     let tapOutput = '';
     const testProc = spawn(
       process.execPath,
-      ['--test', '--test-concurrency=1', '--test-reporter=tap', ...testFiles],
+      [
+        '--test',
+        '--test-concurrency=1',
+        '--test-timeout=180000',
+        '--test-reporter=tap',
+        ...testFiles,
+      ],
       {
         cwd: REPO_ROOT,
         env: testEnv,

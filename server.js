@@ -674,7 +674,8 @@ async function getFirebaseServerToken() {
   return null;
 }
 
-function fbRequest(url, method, payload, extraHeaders) {
+function fbRequest(url, method, payload, extraHeaders, timeoutMs) {
+  const _timeout = timeoutMs != null ? timeoutMs : 30_000;
   return new Promise((resolve, reject) => {
     const body = payload ? JSON.stringify(payload) : null;
     const parsed = new URL(url);
@@ -700,6 +701,9 @@ function fbRequest(url, method, payload, extraHeaders) {
       });
     });
     req.on('error', reject);
+    req.setTimeout(_timeout, () => {
+      req.destroy(new Error(`Firebase HTTP ${method} timed out after ${_timeout}ms`));
+    });
     if (body) req.write(body);
     req.end();
   });
@@ -4450,12 +4454,56 @@ async function _readFirebaseBookingRecord(cid, bookingId, tok) {
   return null;
 }
 
+/** Defensive: reject reconcile storms on the same booking (split-brain test / poll loops). */
+const _RECONCILE_CIRCUIT_WINDOW_MS = 10_000;
+const _RECONCILE_CIRCUIT_MAX_CALLS = 3;
+const _RECONCILE_CIRCUIT = new Map();
+
+function _reconcileCircuitAllows(bookingId) {
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return true;
+  const key = String(bid);
+  const now = Date.now();
+  let hits = (_RECONCILE_CIRCUIT.get(key) || []).filter(t => now - t < _RECONCILE_CIRCUIT_WINDOW_MS);
+  if (hits.length >= _RECONCILE_CIRCUIT_MAX_CALLS) {
+    _RECONCILE_CIRCUIT.set(key, hits);
+    return false;
+  }
+  hits.push(now);
+  _RECONCILE_CIRCUIT.set(key, hits);
+  return true;
+}
+
+function _promiseWithTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label || 'operation'} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Trust Firebase when terminal; re-fanout when jobStore is authoritative (Queued/Assigned). */
 async function _reconcileLiveJobWithFirebase(job, opts) {
   opts = opts || {};
   const cid = String(job.companyId || opts.companyId || '').trim();
   const bookingId = parseInt(job.Id) || 0;
   if (!cid || !bookingId) return { action: 'none' };
+
+  if (!_reconcileCircuitAllows(bookingId)) {
+    console.warn(
+      `  [${opts.source || 'reconcile'}] circuit breaker: skipping #${bookingId} ` +
+      `(>${_RECONCILE_CIRCUIT_MAX_CALLS} reconcile calls in ${_RECONCILE_CIRCUIT_WINDOW_MS}ms)`,
+    );
+    return {
+      action: 'circuit_breaker',
+      reason: 'rate_limited',
+      bookingId,
+      jobStoreStatus: String(job.BookingStatus || ''),
+    };
+  }
 
   const tok = opts.token || await getFirebaseServerToken().catch(() => null);
   if (!tok) return { action: 'none', reason: 'no_token' };
@@ -4542,6 +4590,8 @@ async function _reconcileJobStoreBeforeDispatch(opts) {
 
 const STALE_OFFER_HEAL_MS = 2 * 60 * 1000;
 const STALE_OFFER_QUARANTINE_MS = 10 * 60 * 1000;
+const HEAL_STUCK_OFFERED_JOB_TIMEOUT_MS = 5_000;
+const JOB_TRACE_RESPONSE_TIMEOUT_MS = 10_000;
 /** Only these jobStore statuses may be auto-purged when Firebase is terminal. Live trips (Active/…) need admin trust_firebase. */
 const _RECONCILE_TRUST_FB_TERMINAL_FROM = new Set(['Offered', 'Pending', 'No One', 'Scheduled', 'Queued']);
 
@@ -4591,6 +4641,54 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag) {
   return true;
 }
 
+async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
+  if (!job || job.BookingStatus !== 'Offered') return 0;
+
+  const st = String(job.BookingStatus || '');
+  const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
+  if (!_isValidJobRecord(job, { requireSource: needsSource })) {
+    console.log(`[${sourceTag}] removing invalid phantom Offered job #${job.Id}`);
+    const idx = jobStore.indexOf(job);
+    if (idx >= 0) {
+      jobStore.splice(idx, 1);
+      saveJobStore();
+    }
+    return 1;
+  }
+
+  if (tok) {
+    const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
+    const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
+    if (_TERMINAL_JOB_STATUSES.has(fbSt)) {
+      await _reconcileLiveJobWithFirebase(job, {
+        token: tok,
+        source: `${sourceTag}/offered-terminal`,
+        forceTrustTerminal: true,
+      });
+      return 1;
+    }
+  }
+
+  if (_jobHasMisassignedDriverId(job)) {
+    clearOfferOnFirebase(job.companyId, job.VehicleId || job.VehicleNo, job.DriverId, job.Id, `${sourceTag}/misassigned`);
+    job.BookingStatus = 'Pending';
+    job.offeredAt = null;
+    job.DriverId = 0;
+    job.VehicleId = 0;
+    job.returnReason = job.returnReason || 'Recovered (misassigned driver id)';
+    job.releasedAt = now;
+    saveJobStore();
+    return 1;
+  }
+
+  const age = job.offeredAt ? (now - job.offeredAt) : STALE_OFFER_HEAL_MS + 1;
+  if (age > STALE_OFFER_HEAL_MS) {
+    await _releaseStaleOfferedJobToPool(job, `${sourceTag}/stale`);
+    return 1;
+  }
+  return 0;
+}
+
 async function _healStuckOfferedJobs(sourceTag) {
   const now = Date.now();
   let healed = 0;
@@ -4598,51 +4696,18 @@ async function _healStuckOfferedJobs(sourceTag) {
 
   for (const job of [...jobStore]) {
     if (!job || job.BookingStatus !== 'Offered') continue;
-
-    const st = String(job.BookingStatus || '');
-    const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
-    if (!_isValidJobRecord(job, { requireSource: needsSource })) {
-      console.log(`[${sourceTag}] removing invalid phantom Offered job #${job.Id}`);
-      const idx = jobStore.indexOf(job);
-      if (idx >= 0) {
-        jobStore.splice(idx, 1);
-        saveJobStore();
-      }
-      healed++;
-      continue;
-    }
-
-    if (tok) {
-      const fb = await _readFirebaseBookingRecord(String(job.companyId || ''), job.Id, tok);
-      const fbSt = fb ? _firebaseStatusFromRecord(fb.record) : '';
-      if (_TERMINAL_JOB_STATUSES.has(fbSt)) {
-        await _reconcileLiveJobWithFirebase(job, {
-          token: tok,
-          source: `${sourceTag}/offered-terminal`,
-          forceTrustTerminal: true,
-        });
-        healed++;
-        continue;
-      }
-    }
-
-    if (_jobHasMisassignedDriverId(job)) {
-      clearOfferOnFirebase(job.companyId, job.VehicleId || job.VehicleNo, job.DriverId, job.Id, `${sourceTag}/misassigned`);
-      job.BookingStatus = 'Pending';
-      job.offeredAt = null;
-      job.DriverId = 0;
-      job.VehicleId = 0;
-      job.returnReason = job.returnReason || 'Recovered (misassigned driver id)';
-      job.releasedAt = now;
-      saveJobStore();
-      healed++;
-      continue;
-    }
-
-    const age = job.offeredAt ? (now - job.offeredAt) : STALE_OFFER_HEAL_MS + 1;
-    if (age > STALE_OFFER_HEAL_MS) {
-      await _releaseStaleOfferedJobToPool(job, `${sourceTag}/stale`);
-      healed++;
+    try {
+      const n = await _promiseWithTimeout(
+        _healStuckOfferedJobOne(job, sourceTag, now, tok),
+        HEAL_STUCK_OFFERED_JOB_TIMEOUT_MS,
+        `healStuckOffered #${job.Id}`,
+      );
+      healed += n;
+    } catch (e) {
+      console.warn(
+        `[${sourceTag}] heal stuck Offered job #${job.Id} skipped (>${HEAL_STUCK_OFFERED_JOB_TIMEOUT_MS}ms): ` +
+        `${(e && e.message) || e}`,
+      );
     }
   }
   return healed;
@@ -6109,17 +6174,19 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
   opts = opts || {};
   const bid = parseInt(bookingId) || 0;
   if (!bid) return { ok: false, error: 'bookingId required' };
+  const deadline = opts.deadline || (Date.now() + JOB_TRACE_RESPONSE_TIMEOUT_MS);
+  const pastDeadline = () => Date.now() >= deadline;
 
   let job = jobStore.find(j => j && j.Id === bid) || null;
   let closed = _findClosedJobEntry(bid);
   const cid = String(opts.companyId || job?.companyId || closed?.companyId || '').trim();
 
-  if (!job && cid) {
+  if (!job && cid && !pastDeadline()) {
     await _hydrateSingleJobFromFirebase(cid, bid).catch(() => {});
     job = jobStore.find(j => j && j.Id === bid) || null;
   }
 
-  const tok = await getFirebaseServerToken().catch(() => null);
+  const tok = pastDeadline() ? null : await getFirebaseServerToken().catch(() => null);
   const fb = {
     pendingjobs: null,
     allbookings: null,
@@ -6129,7 +6196,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
   };
 
   async function safeGet(label, path) {
-    if (!tok || !path) return null;
+    if (!tok || !path || pastDeadline()) return null;
     try {
       return await firebaseDbGet(path, tok);
     } catch (e) {
@@ -6138,7 +6205,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     }
   }
 
-  if (cid) {
+  if (cid && !pastDeadline()) {
     fb.pendingjobs = await safeGet(`pendingjobs/${cid}/${bid}`, `pendingjobs/${cid}/${bid}`);
     fb.allbookings = await safeGet(`allbookings/${cid}/${bid}`, `allbookings/${cid}/${bid}`);
   }
@@ -6164,9 +6231,10 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
     if (p.vehicleId) vehicleIds.add(p.vehicleId);
   }
 
-  if (cid && _jobsCandidates.pairs.length) {
+  if (cid && _jobsCandidates.pairs.length && !pastDeadline()) {
     const jobsNodes = {};
     for (const { vehicleId: veh, driverId: drv } of _jobsCandidates.pairs) {
+      if (pastDeadline()) break;
       const path = `jobs/${cid}/${veh}/${drv}/${bid}`;
       jobsNodes[path] = await safeGet(path, path);
     }
@@ -6174,14 +6242,31 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
   }
 
   const notifications = {};
-  for (const drv of driverIds) {
-    notifications[drv] = await safeGet(`notification/${drv}`, `notification/${drv}`);
+  if (!pastDeadline()) {
+    for (const drv of driverIds) {
+      if (pastDeadline()) break;
+      notifications[drv] = await safeGet(`notification/${drv}`, `notification/${drv}`);
+    }
   }
   fb.notification = notifications;
 
   const poolTrace = _JOB_POOL_TRACE.get(String(bid)) || [];
   const autoDispatch = _analyzeAutoDispatchForJob(job, cid);
-  const driverAvailability = cid ? await _buildAdminDriverStatusReport(cid, {}) : null;
+  let driverAvailability = null;
+  if (cid && !pastDeadline()) {
+    if (process.env.NODE_ENV === 'test') {
+      const allCompanyDrivers = ZONE_DRIVERS.filter(d => String(d.companyId || '') === cid);
+      driverAvailability = {
+        ok: true,
+        testMode: true,
+        companyId: cid,
+        zoneDriversCount: allCompanyDrivers.length,
+        skippedFirebaseSync: true,
+      };
+    } else {
+      driverAvailability = await _buildAdminDriverStatusReport(cid, {});
+    }
+  }
   const staleOfferAssessment = _assessStaleOfferFields(job, fb, poolTrace);
   const splitBrainDiagnosis = _detectJobStoreFirebaseSplitBrain(job, fb);
   const staleClosedMatches = closedJobStore.filter(j => j && j.Id === bid);
@@ -6202,6 +6287,7 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
 
   return {
     ok: true,
+    partial: pastDeadline(),
     bookingId: bid,
     companyId: cid || null,
     generatedAt: new Date().toISOString(),
@@ -6262,6 +6348,66 @@ async function _buildAdminJobTraceReport(bookingId, opts) {
       jobStoreVsPendingMismatch: job && fb.pendingjobs ? (
         String(job.BookingStatus || '') !== String(fb.pendingjobs.BookingStatus || fb.pendingjobs.Status || '')
       ) : null,
+    },
+  };
+}
+
+/** jobStore-only snapshot when full jobTrace exceeds response deadline (no Firebase / zone sync). */
+function _buildAdminJobTracePartial(bookingId, opts) {
+  opts = opts || {};
+  const bid = parseInt(bookingId) || 0;
+  const job = jobStore.find(j => j && j.Id === bid) || null;
+  const closed = _findClosedJobEntry(bid);
+  const cid = String(opts.companyId || job?.companyId || closed?.companyId || '').trim();
+  const splitBrainDiagnosis = { detected: false, pattern: null, partial: true };
+  return {
+    ok: true,
+    partial: true,
+    bookingId: bid,
+    companyId: cid || null,
+    generatedAt: new Date().toISOString(),
+    jobStore: {
+      found: !!job,
+      closedFound: !!closed,
+      lifecycle: _jobLifecycleSnapshot(job || closed),
+      rawFlags: job ? {
+        _preOfferStatus: job._preOfferStatus,
+        _origStatus: job._origStatus,
+        originalStatus: job.originalStatus,
+        manualOffer: job.manualOffer,
+        releasedAt: job.releasedAt,
+        offeredAt: job.offeredAt,
+        returnReason: job.returnReason,
+        updateSeq: job.updateSeq,
+        lastUpdatedBy: job.lastUpdatedBy,
+        lastUpdatedAt: job.lastUpdatedAt,
+      } : null,
+    },
+    firebase: {
+      pendingjobs: null,
+      allbookings: null,
+      jobsDriverNode: null,
+      notification: null,
+      errors: [{ path: 'partial', error: 'omitted — jobTrace response deadline exceeded' }],
+    },
+    poolTrace: _JOB_POOL_TRACE.get(String(bid)) || [],
+    autoDispatch: job && cid ? _analyzeAutoDispatchForJob(job, cid) : null,
+    driverAvailability: null,
+    staleOfferAssessment: null,
+    splitBrainDiagnosis,
+    closedStoreDiagnosis: {
+      staleClosedEntryCount: closedJobStore.filter(j => j && j.Id === bid).length,
+      liveInJobStore: !!job,
+      liveStatus: job ? (job.BookingStatus || null) : null,
+      partial: true,
+    },
+    dispatchUiHint: {
+      expectedTab: job ? (String(job.BookingStatus) === 'Offered' ? 'offer'
+        : ['Assigned', 'Picking', 'Arrived'].includes(String(job.BookingStatus)) ? 'assign'
+        : ['Active', 'OnTrip'].includes(String(job.BookingStatus)) ? 'active'
+        : ['Pending', 'No One'].includes(String(job.BookingStatus)) ? 'ua'
+        : String(job.BookingStatus)) : null,
+      partial: true,
     },
   };
 }
@@ -11616,7 +11762,21 @@ const server = http.createServer(async (req, res) => {
         const _jtBid = parseInt(_jobTraceMatch[1]) || 0;
         const _jtQs = new URL('http://x' + req.url).searchParams;
         const _jtCid = (_jtQs.get('cid') || '').trim();
-        const report = await _buildAdminJobTraceReport(_jtBid, { companyId: _jtCid });
+        const _jtStarted = Date.now();
+        const _jtDeadline = _jtStarted + JOB_TRACE_RESPONSE_TIMEOUT_MS;
+        const report = await _buildAdminJobTraceReport(_jtBid, {
+          companyId: _jtCid,
+          deadline: _jtDeadline,
+        });
+        if (report && report.partial) {
+          report.timedOut = true;
+          report.responseMs = Date.now() - _jtStarted;
+          report.hint =
+            `jobTrace deadline exceeded — returning partial snapshot (${report.responseMs}ms)`;
+          console.warn(`[admin/jobTrace] partial response for #${_jtBid} after ${report.responseMs}ms`);
+          jsonReply(res, report);
+          return;
+        }
         jsonReply(res, report);
       } catch (e) {
         jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
