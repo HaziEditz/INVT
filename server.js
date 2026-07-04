@@ -21803,21 +21803,130 @@ async function _evictStaleVehicleOccupant(cid, vid, incomingDriverId, source) {
   } catch (_e) { /* non-fatal */ }
 }
 
-async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source) {
+function _shiftPast14h(cid, driverId) {
+  const sess = SHIFT_SESSIONS.get(_shiftSessionKey(cid, driverId));
+  if (!sess || !sess.shiftStartedAt) return false;
+  return !!(sess.pendingLogout || Date.now() >= sess.shiftStartedAt + NZTA_MAX_SHIFT_MS);
+}
+
+function _resolveLogoutVehicleId(cid, driverId, vehiclenumber) {
   const _cid = String(cid || '').trim();
   const _drv = String(driverId || '').trim();
   let _vid = String(vehiclenumber || '').trim();
-  if (!_vid && _cid && _drv) {
+  if (_vid) return _vid;
+  // SHIFT_SESSIONS survives ZONE_DRIVERS removal on the logout path.
+  const sess = SHIFT_SESSIONS.get(_shiftSessionKey(_cid, _drv));
+  if (sess && sess.vid) return String(sess.vid).trim();
+  if (_cid && _drv) {
     const zd = ZONE_DRIVERS.find(d =>
       String(d.companyId || '') === _cid &&
-      (String(d.driverid) === _drv || String(d.VehicleId) === _drv)
+      (String(d.driverid) === _drv ||
+        _driverIdsMatch(d.driverid, _drv) ||
+        String(d.VehicleId) === _drv)
     );
-    if (zd) _vid = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+    if (zd) return String(zd.VehicleId || zd.vehiclenumber || '').trim();
+  }
+  return '';
+}
+
+function _purgeZoneDriversForDriver(cid, driverId, vid) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const _vid = String(vid || '').trim();
+  for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
+    const d = ZONE_DRIVERS[i];
+    if (_cid && d.companyId && String(d.companyId) !== _cid) continue;
+    const dDrv = String(d.driverid || '').trim();
+    const dVid = String(d.VehicleId || d.vehiclenumber || '').trim();
+    const matchDrv =
+      (_drv && (dDrv === _drv || _driverIdsMatch(dDrv, _drv) || dVid === _drv));
+    const matchVid = _vid && dVid === _vid;
+    if (matchDrv || matchVid) ZONE_DRIVERS.splice(i, 1);
+  }
+}
+
+/** Delete every online/{cid}/{vid} node owned by this driver (and known vehicle). */
+async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const vids = new Set();
+  const _known = String(knownVid || '').trim();
+  if (_known) vids.add(_known);
+
+  for (const d of ZONE_DRIVERS) {
+    if (_cid && d.companyId && String(d.companyId) !== _cid) continue;
+    const dDrv = String(d.driverid || '').trim();
+    if (_drv && (dDrv === _drv || _driverIdsMatch(dDrv, _drv) || String(d.VehicleId) === _drv)) {
+      const v = String(d.VehicleId || d.vehiclenumber || '').trim();
+      if (v) vids.add(v);
+    }
+  }
+
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (tok && _cid && _drv) {
+    try {
+      const r = await fbRequest(
+        `${FB_DB_URL}/online/${_cid}.json?auth=${encodeURIComponent(tok)}`,
+        'GET',
+        null,
+      );
+      if (r && r.status === 200 && r.body && typeof r.body === 'object') {
+        for (const [vid, node] of Object.entries(r.body)) {
+          if (!node || typeof node !== 'object') continue;
+          const cur = (node.current && typeof node.current === 'object') ? node.current : {};
+          const existingDrv = _onlineNodeDriverId(cur, node);
+          if (
+            existingDrv &&
+            (String(existingDrv) === _drv || _driverIdsMatch(existingDrv, _drv))
+          ) {
+            vids.add(String(vid).trim());
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[presence] scan online/${_cid} for driver ${_drv} failed: ${e && e.message}`);
+    }
+  }
+
+  for (const vid of vids) {
+    if (!vid) continue;
+    await _deleteOnlinePresenceNode(_cid, vid, reason || 'logout-purge');
+  }
+  return [...vids];
+}
+
+async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source) {
+  const _cid = String(cid || '').trim();
+  const _drv = String(driverId || '').trim();
+  const _vid = _resolveLogoutVehicleId(_cid, _drv, vehiclenumber);
+  const past14h = _shiftPast14h(_cid, _drv);
+  const _src = source || 'DriverStatusChanged-logout';
+
+  if (past14h) {
+    // Manual end after NZTA 14h: force-clear ALL presence regardless of job state.
+    // Do not defer for Assigned/Active — stale online nodes cause auto-dispatch split-brain.
+    _purgeZoneDriversForDriver(_cid, _drv, _vid);
+    const purged = await _purgeAllDriverOnlinePresence(
+      _cid,
+      _drv,
+      _vid,
+      `${_src}/14h-force`,
+    );
+    _clearShiftSession(_cid, _drv);
+    console.log(
+      `[shift-expiry] manual logout past 14h — force-cleared presence driver=${_drv} vehicle=${_vid || '(scan)'} nodes=[${purged.join(',')}] (${_src})`,
+    );
+    return;
+  }
+
+  // Normal logout: clear ZONE_DRIVERS + online node (vid from session if caller already removed zone row).
+  _purgeZoneDriversForDriver(_cid, _drv, _vid);
+  if (_cid && _vid) {
+    await _deleteOnlinePresenceNode(_cid, _vid, _src);
+  } else if (_cid && _drv) {
+    await _purgeAllDriverOnlinePresence(_cid, _drv, '', _src);
   }
   _clearShiftSession(_cid, _drv);
-  if (_cid && _vid) {
-    await _deleteOnlinePresenceNode(_cid, _vid, source || 'DriverStatusChanged-logout');
-  }
 }
 
 async function _runShiftExpiryWatchdog() {
