@@ -2750,13 +2750,15 @@ async function cancelBooking(opts) {
           markRecentlyCancelled: true,
           removeDriverQueue: _cancelStage === 'Queued',
           allbookingsMeta: _terminalMeta,
-          consoleRefresh: _terminalDispatchConsoleRefreshPayload(
-            bookingId,
-            _terminalKind,
-            _cancelStage,
-            _rDrv || _drvId,
-            job.updateSeq,
-          ),
+          consoleRefresh: _isNoShow
+            ? null
+            : _terminalDispatchConsoleRefreshPayload(
+              bookingId,
+              _terminalKind,
+              _cancelStage,
+              _rDrv || _drvId,
+              job.updateSeq,
+            ),
         });
         if (_hasDriver) {
           // No Show must return driver to Available on Firebase (not Away/driverFault).
@@ -2782,6 +2784,19 @@ async function cancelBooking(opts) {
               }
             } else if (_vidForPresence) {
               await _clearOnlineTripFieldsForBooking(_cid, _vidForPresence, bookingId, `[${source}/no-show]`);
+            }
+            if (!String(source).startsWith('api/cancel')) {
+              _scheduleDispatchConsoleRefresh(
+                _cid,
+                _terminalDispatchConsoleRefreshPayload(
+                  bookingId,
+                  'No Show',
+                  _cancelStage,
+                  _rDrv || _drvId,
+                  job.updateSeq,
+                ),
+                500,
+              );
             }
           }
         }
@@ -6454,7 +6469,28 @@ function _terminalDispatchConsoleRefreshPayload(bookingId, terminalKind, previou
     declinedDriverId: '',
     returnReason: '',
     updateSeq: parseInt(updateSeq) || 0,
+    terminalAt: Date.now(),
   };
+}
+
+const _LIVE_DISPATCH_REFRESH_ACTIONS = new Set(['assign', 'offer', 'active', 'queue', 'status']);
+const _TERMINAL_DISPATCH_REFRESH_ACTIONS = new Set(['no-show', 'cancel', 'complete']);
+
+/** True when a live refresh must not overwrite a terminal closed/recent-cancel booking. */
+function _shouldSuppressStaleDispatchConsoleRefresh(bookingId, action, status) {
+  const bid = parseInt(bookingId) || 0;
+  if (!bid) return false;
+  const act = String(action || '');
+  const st = String(status || '');
+  if (_TERMINAL_DISPATCH_REFRESH_ACTIONS.has(act)) return false;
+  if (_TERMINAL_JOB_STATUSES.has(st)) return false;
+  if (!_LIVE_DISPATCH_REFRESH_ACTIONS.has(act)) return false;
+  const closed = _findClosedJobEntry(bid);
+  const closedSt = closed
+    ? String(closed.BookingStatus || closed.TerminalKind || '')
+    : '';
+  if (closed && _TERMINAL_JOB_STATUSES.has(closedSt)) return true;
+  return _isBlockedFromReIngest(bid);
 }
 
 function _dispatchRefreshForJob(job, opts) {
@@ -6471,15 +6507,10 @@ function _dispatchRefreshForJob(job, opts) {
   const proposedAction = String(
     opts.action || _dispatchRefreshActionForStatus(proposedStatus),
   );
-  const _liveActions = new Set(['assign', 'offer', 'active', 'queue']);
-  if (
-    closed &&
-    _TERMINAL_JOB_STATUSES.has(closedSt) &&
-    _liveActions.has(proposedAction) &&
-    !_TERMINAL_JOB_STATUSES.has(proposedStatus)
-  ) {
+  if (_shouldSuppressStaleDispatchConsoleRefresh(job.Id, proposedAction, proposedStatus)) {
+    const closedStLabel = closedSt || 'recent-cancel';
     console.log(
-      `  [dispatchRefresh] suppressed stale live refresh #${job.Id} ${proposedAction}/${proposedStatus} — closed as ${closedSt}`,
+      `  [dispatchRefresh] suppressed stale live refresh #${job.Id} ${proposedAction}/${proposedStatus} — closed as ${closedStLabel}`,
     );
     return Promise.resolve();
   }
@@ -6735,6 +6766,23 @@ async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
 }
 
 // Nudge dispatch console to refresh job tabs immediately (Offer/Assign/U-A).
+function _scheduleDispatchConsoleRefresh(cid, payload, delayMs) {
+  const ms = Math.max(0, parseInt(delayMs) || 0);
+  if (!cid || !payload) return;
+  const bid = payload.bookingId;
+  if (ms === 0) {
+    void _signalDispatchConsoleRefresh(cid, payload);
+    return;
+  }
+  console.log(
+    `  [dispatchRefresh] scheduling #${bid} in ${ms}ms → dispatchConsole/${cid}/refresh ` +
+    `action=${payload.action} status=${payload.status}`,
+  );
+  setTimeout(() => {
+    void _signalDispatchConsoleRefresh(cid, Object.assign({}, payload, { at: Date.now() }));
+  }, ms);
+}
+
 async function _signalDispatchConsoleRefresh(cid, payload) {
   if (!cid) {
     console.warn('  [dispatchRefresh] skipped — missing companyId');
@@ -6744,6 +6792,17 @@ async function _signalDispatchConsoleRefresh(cid, payload) {
   const _path = `dispatchConsole/${cid}/refresh`;
   const _action = String(_refreshPayload.action || '');
   const _status = String(_refreshPayload.status || '');
+  if (_shouldSuppressStaleDispatchConsoleRefresh(_refreshPayload.bookingId, _action, _status)) {
+    const closed = _findClosedJobEntry(_refreshPayload.bookingId);
+    const closedSt = closed
+      ? String(closed.BookingStatus || closed.TerminalKind || '')
+      : 'recent-cancel';
+    console.log(
+      `  [dispatchRefresh] suppressed stale live write #${_refreshPayload.bookingId} ` +
+      `${_action}/${_status} → ${_path} — closed as ${closedSt}`,
+    );
+    return;
+  }
   if (_action === 'no-show' || _status === 'No Show') {
     console.log(
       `  [dispatchRefresh/no-show] firing #${_refreshPayload.bookingId} → ${_path} ` +
@@ -14587,12 +14646,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           _ccResult.version,
         );
         console.log(
-          `[api/cancel/no-show] dispatchConsole refresh #${_ccBooking} cid=${_nsCid} ` +
-          `path=dispatchConsole/${_nsCid}/refresh payload=${JSON.stringify(_nsRefreshPayload)}`,
+          `[api/cancel/no-show] scheduling dispatchConsole refresh #${_ccBooking} cid=${_nsCid} ` +
+          `path=dispatchConsole/${_nsCid}/refresh delayMs=500 ` +
+          `payload=${JSON.stringify(_nsRefreshPayload)}`,
         );
-        await _signalDispatchConsoleRefresh(_nsCid, _nsRefreshPayload).catch((e) => {
-          console.warn(`[api/cancel/no-show] dispatchConsole refresh failed #${_ccBooking}: ${e && e.message}`);
-        });
+        _scheduleDispatchConsoleRefresh(_nsCid, _nsRefreshPayload, 500);
       }
     }
     const _ccStatus = _ccResult.ok ? 200
