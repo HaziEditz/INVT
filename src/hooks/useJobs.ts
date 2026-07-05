@@ -85,6 +85,12 @@ function applyQueueAuthoritativeReplace(
   };
 }
 
+type TerminalRefreshDebug = {
+  action?: string;
+  status?: string;
+  caller: string;
+};
+
 function handleTerminalRefresh(
   bookingId: number,
   pendingRef: Map<number, Job>,
@@ -92,7 +98,21 @@ function handleTerminalRefresh(
   removeJob: (id: number) => void,
   syncAll: () => void,
   suppressSeq = 0,
+  debug?: TerminalRefreshDebug,
 ): void {
+  const storeJob = useJobStore.getState().jobs.find((j) => j.id === bookingId);
+  console.log('[dispatch-terminal] handleTerminalRefresh', {
+    bookingId,
+    action: debug?.action ?? null,
+    status: debug?.status ?? null,
+    caller: debug?.caller ?? 'unknown',
+    suppressSeq,
+    hadInBookings: bookingsRef.has(bookingId),
+    hadInPending: pendingRef.has(bookingId),
+    storeHad: !!storeJob,
+    storeStatus: storeJob?.status ?? null,
+    blacklisted: useJobStore.getState().isJobBlacklisted(bookingId),
+  });
   pendingRef.delete(bookingId);
   bookingsRef.delete(bookingId);
   markCompletedJobSuppress(bookingId, suppressSeq);
@@ -488,6 +508,7 @@ function optimisticDispatchRefresh(
       removeJob,
       syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+      { action: refresh.action, status: refresh.status, caller: 'optimisticDispatchRefresh:refreshImpliesTerminal' },
     );
     return;
   }
@@ -506,6 +527,7 @@ function optimisticDispatchRefresh(
       removeJob,
       syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+      { action: refresh.action, status: refresh.status, caller: 'optimisticDispatchRefresh:terminalStatus' },
     );
     return;
   }
@@ -608,6 +630,7 @@ async function refreshJobFromFirebaseCaches(
       hooks.removeJob,
       hooks.syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+      { action: refresh.action, status: refresh.status, caller: 'refreshJobFromFirebaseCaches:refreshImpliesTerminal' },
     );
     return;
   }
@@ -643,6 +666,7 @@ async function refreshJobFromFirebaseCaches(
           hooks.removeJob,
           hooks.syncAll,
           refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+          { action, status: st, caller: 'refreshJobFromFirebaseCaches:allbookingsTerminal' },
         );
         return;
       }
@@ -664,6 +688,7 @@ async function refreshJobFromFirebaseCaches(
       hooks.removeJob,
       hooks.syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+      { action, status: refresh.status, caller: 'refreshJobFromFirebaseCaches:noAllbookingsTerminalAction' },
     );
     return;
   }
@@ -699,6 +724,7 @@ async function refreshJobFromFirebaseCaches(
       hooks.removeJob,
       hooks.syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+      { action, status: refresh.status, caller: 'refreshJobFromFirebaseCaches:refreshStatusTerminal' },
     );
     return;
   }
@@ -763,6 +789,7 @@ async function refreshJobFromFirebaseCaches(
         hooks.removeJob,
         hooks.syncAll,
         refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+        { action, status: st, caller: 'refreshJobFromFirebaseCaches:jobBlockTerminal' },
       );
       return;
     }
@@ -833,6 +860,7 @@ async function refreshJobFromFirebaseCaches(
         hooks.removeJob,
         hooks.syncAll,
         refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+        { action, status: refresh.status, caller: 'refreshJobFromFirebaseCaches:noPendingjobsTerminalAction' },
       );
       return;
     } else if (!liveActions.has(action || '') && !job) {
@@ -1359,6 +1387,16 @@ export function useJobs(companyId: string | null) {
         } | null;
         const bid = parseInt(String(v?.bookingId ?? '0'), 10);
         const refreshKey = `${v?.at ?? 0}:${bid}`;
+        console.log('[dispatch-terminal] dispatchConsole/refresh received', {
+          bookingId: bid,
+          action: v?.action ?? null,
+          status: v?.status ?? null,
+          driverId: v?.driverId ?? null,
+          updateSeq: v?.updateSeq ?? null,
+          at: v?.at ?? null,
+          refreshKey,
+          deduped: refreshKey === lastDispatchRefreshAtRef.current,
+        });
         if (refreshKey === lastDispatchRefreshAtRef.current) return;
         lastDispatchRefreshAtRef.current = refreshKey;
         if (!bid) {
