@@ -2737,25 +2737,26 @@ async function cancelBooking(opts) {
             { recalled: false, version: job.updateSeq });
         }
         const _isNoShow = job.BookingStatus === 'No Show' || job.BookingStatus === 'NoShow';
+        const _terminalKind = _isNoShow ? 'No Show' : 'Cancelled';
         await executeJobCleanup({
           profile: 'terminal',
           bookingId,
           companyId: _cid,
           source,
-          terminalKind: _isNoShow ? 'No Show' : 'Cancelled',
+          terminalKind: _terminalKind,
           driverId: _rDrv,
           vehicleId: _rVid,
           job,
           markRecentlyCancelled: true,
           removeDriverQueue: _cancelStage === 'Queued',
           allbookingsMeta: _terminalMeta,
-          consoleRefresh: {
+          consoleRefresh: _terminalDispatchConsoleRefreshPayload(
             bookingId,
-            action: _isNoShow ? 'no-show' : 'cancel',
-            status: job.BookingStatus,
-            previousStatus: _cancelStage,
-            driverId: _rDrv || _drvId,
-          },
+            _terminalKind,
+            _cancelStage,
+            _rDrv || _drvId,
+            job.updateSeq,
+          ),
         });
         if (_hasDriver) {
           // No Show must return driver to Available on Firebase (not Away/driverFault).
@@ -5303,7 +5304,17 @@ async function driverStageJob(opts) {
     return { ok: false, error_code: 'bad_request', error: 'bookingId, driverId, status ∈ {Assigned,Arrived,Active,Picking} required' };
   }
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
-  if (idx === -1) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  if (idx === -1) {
+    if (_jobIsClosedInStore(bookingId)) {
+      return {
+        ok: false,
+        error_code: 'already_terminal',
+        error: 'job is closed',
+        booking: _publicBooking(_findClosedJobEntry(bookingId)),
+      };
+    }
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
+  }
   const job = jobStore[idx];
   const _cid = String(job.companyId || opts.companyId || '');
   const prev = job.BookingStatus || '';
@@ -6426,16 +6437,61 @@ function _dispatchRefreshActionForStatus(status) {
   return 'status';
 }
 
+/** Authoritative dispatchConsole refresh payload for terminal outcomes (No Show / Cancelled / Completed). */
+function _terminalDispatchConsoleRefreshPayload(bookingId, terminalKind, previousStatus, driverId, updateSeq) {
+  const tk = terminalKind === 'No Show' || terminalKind === 'NoShow'
+    ? 'No Show'
+    : terminalKind === 'Cancelled'
+      ? 'Cancelled'
+      : 'Completed';
+  const action = tk === 'No Show' ? 'no-show' : tk === 'Cancelled' ? 'cancel' : 'complete';
+  return {
+    bookingId,
+    action,
+    status: tk,
+    previousStatus: previousStatus != null ? String(previousStatus) : '',
+    driverId: driverId != null ? String(driverId) : '0',
+    declinedDriverId: '',
+    returnReason: '',
+    updateSeq: parseInt(updateSeq) || 0,
+  };
+}
+
 function _dispatchRefreshForJob(job, opts) {
   opts = opts || {};
   if (!job || !job.Id) return Promise.resolve();
   const cid = String(opts.cid || job.companyId || '');
   if (!cid) return Promise.resolve();
+
+  const closed = _findClosedJobEntry(job.Id);
+  const closedSt = closed
+    ? String(closed.BookingStatus || closed.TerminalKind || '')
+    : '';
+  const proposedStatus = String(opts.status || job.BookingStatus || '');
+  const proposedAction = String(
+    opts.action || _dispatchRefreshActionForStatus(proposedStatus),
+  );
+  const _liveActions = new Set(['assign', 'offer', 'active', 'queue']);
+  if (
+    closed &&
+    _TERMINAL_JOB_STATUSES.has(closedSt) &&
+    _liveActions.has(proposedAction) &&
+    !_TERMINAL_JOB_STATUSES.has(proposedStatus)
+  ) {
+    console.log(
+      `  [dispatchRefresh] suppressed stale live refresh #${job.Id} ${proposedAction}/${proposedStatus} — closed as ${closedSt}`,
+    );
+    return Promise.resolve();
+  }
+
   const status = opts.status || job.BookingStatus || '';
   const action = opts.action || _dispatchRefreshActionForStatus(status);
   const driverId = opts.driverId != null
     ? opts.driverId
     : (_normJobDriverId(job.DriverId) || '0');
+  const updateSeq = opts.updateSeq != null
+    ? parseInt(opts.updateSeq) || 0
+    : parseInt(job.updateSeq) || 0;
   return _signalDispatchConsoleRefresh(cid, {
     bookingId: job.Id,
     action,
@@ -6444,7 +6500,7 @@ function _dispatchRefreshForJob(job, opts) {
     driverId,
     declinedDriverId: opts.declinedDriverId || '',
     returnReason: opts.returnReason || job.returnReason || '',
-    updateSeq: parseInt(job.updateSeq) || 0,
+    updateSeq,
   });
 }
 
@@ -14482,25 +14538,33 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       const _nsJob = closedJobStore.find(j => j && j.Id === _ccBooking)
         || jobStore.find(j => j && j.Id === _ccBooking);
       const _nsCid = String(_ccCid || (_nsJob && _nsJob.companyId) || '').trim();
-      if (_nsCid && _nsJob) {
-        await _dispatchRefreshForJob(_nsJob, {
-          cid: _nsCid,
-          status: 'No Show',
-          action: 'no-show',
-          previousStatus: _ccResult.cancelStage || undefined,
-          driverId: String(_nsJob.DriverId || _nsJob.AssignedDriverId || ''),
-        }).catch(() => {});
+      const _nsDrv = String(
+        (_nsJob && (_nsJob.DriverId || _nsJob.AssignedDriverId)) || _ccResult.driverId || '',
+      ).trim();
+      if (_nsCid) {
         // Belt-and-suspenders: force Available when no other live trip remains.
-        const _nsVid = String(
-          _nsJob.VehicleNo || _nsJob.CallSign || _nsJob.VehicleId || _nsJob.AssignedVehicleId || '',
-        ).trim();
-        const _nsDrv = String(_nsJob.DriverId || _nsJob.AssignedDriverId || '').trim();
+        const _nsVid = _nsJob
+          ? String(
+            _nsJob.VehicleNo || _nsJob.CallSign || _nsJob.VehicleId || _nsJob.AssignedVehicleId || '',
+          ).trim()
+          : String(_ccResult.vehicleId || '').trim();
         if (_nsVid && _nsDrv && !_driverHasActiveTripJob(_nsDrv, _nsCid, _ccBooking)) {
           await _forceOnlinePresenceAvailable(_nsCid, _nsVid, 'api/cancel/no-show');
-          applyZoneQueueSyncForDriver(_nsCid, _nsDrv, _nsVid, 'api/cancel/no-show-Available');
+          await applyZoneQueueSyncForDriver(_nsCid, _nsDrv, _nsVid, 'api/cancel/no-show-Available');
         } else if (_nsVid) {
           await _clearOnlineTripFieldsForBooking(_nsCid, _nsVid, _ccBooking, '[api/cancel/no-show]');
         }
+        // Final authoritative refresh — must run last so stale assign/Arrived cannot win.
+        await _signalDispatchConsoleRefresh(
+          _nsCid,
+          _terminalDispatchConsoleRefreshPayload(
+            _ccBooking,
+            'No Show',
+            _ccResult.cancelStage || '',
+            _nsDrv,
+            _ccResult.version,
+          ),
+        ).catch(() => {});
       }
     }
     const _ccStatus = _ccResult.ok ? 200
