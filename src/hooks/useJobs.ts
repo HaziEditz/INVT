@@ -91,7 +91,60 @@ type TerminalRefreshDebug = {
   action?: string;
   status?: string;
   caller: string;
+  at?: number;
+  terminalAt?: number;
 };
+
+/** Live statuses that must not reappear on Assign after a terminal dispatchConsole refresh. */
+const STALE_GUARD_LIVE_STATUSES = new Set<JobStatus>(['Arrived', 'Assigned']);
+
+/**
+ * Per-booking terminal authority from dispatchConsole/{cid}/refresh.
+ * Ignores stale live Arrived/Assigned hints that predate (or share the same
+ * updateSeq generation as) the last terminal signal for this bookingId.
+ */
+const lastTerminalAtByBookingId = new Map<
+  number,
+  { terminalAt: number; updateSeq: number }
+>();
+
+function recordTerminalRefreshGuard(
+  bookingId: number,
+  opts: { at?: number; terminalAt?: number; updateSeq?: number },
+): void {
+  if (!bookingId) return;
+  const terminalAt = Math.max(opts.terminalAt ?? 0, opts.at ?? 0) || Date.now();
+  const prev = lastTerminalAtByBookingId.get(bookingId);
+  lastTerminalAtByBookingId.set(bookingId, {
+    terminalAt: Math.max(prev?.terminalAt ?? 0, terminalAt),
+    updateSeq: Math.max(prev?.updateSeq ?? 0, opts.updateSeq ?? 0),
+  });
+}
+
+/** True when a live refresh must be dropped after terminal was already applied. */
+function shouldIgnoreStaleLiveDispatchRefresh(
+  bookingId: number,
+  refresh: DispatchRefreshPayload,
+  signalAt: number,
+): boolean {
+  const guard = lastTerminalAtByBookingId.get(bookingId);
+  if (!guard) return false;
+
+  const status = refresh.status ? normalizeJobStatus(refresh.status) : null;
+  if (!status || !STALE_GUARD_LIVE_STATUSES.has(status)) return false;
+
+  const refreshSeq = refresh.updateSeq ?? 0;
+  // Booking id reused — server advanced past the terminal generation.
+  if (refreshSeq > guard.updateSeq && refreshSeq > 0) return false;
+
+  // Primary rule: refresh `at` predates the last terminal signal.
+  if (signalAt > 0 && signalAt < guard.terminalAt) return true;
+
+  // Same updateSeq generation after terminal (late write with a fresh wall-clock `at`).
+  if (refreshSeq > 0 && refreshSeq <= guard.updateSeq) return true;
+
+  return false;
+}
 
 function handleTerminalRefresh(
   bookingId: number,
@@ -102,6 +155,11 @@ function handleTerminalRefresh(
   suppressSeq = 0,
   debug?: TerminalRefreshDebug,
 ): void {
+  recordTerminalRefreshGuard(bookingId, {
+    at: debug?.at,
+    terminalAt: debug?.terminalAt,
+    updateSeq: suppressSeq,
+  });
   const storeJob = useJobStore.getState().jobs.find((j) => j.id === bookingId);
   console.log('[dispatch-terminal] handleTerminalRefresh', {
     bookingId,
@@ -346,6 +404,8 @@ type DispatchRefreshPayload = {
   declinedDriverId?: string;
   returnReason?: string;
   updateSeq?: number;
+  at?: number;
+  terminalAt?: number;
 };
 
 function notifyOfferReturned(bookingId: number, refresh: DispatchRefreshPayload) {
@@ -456,6 +516,19 @@ function refreshImpliesTerminal(refresh: DispatchRefreshPayload): boolean {
   return TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(refresh.status));
 }
 
+function terminalRefreshDebug(
+  refresh: DispatchRefreshPayload,
+  caller: string,
+): TerminalRefreshDebug {
+  return {
+    action: refresh.action,
+    status: refresh.status,
+    caller,
+    at: refresh.at,
+    terminalAt: refresh.terminalAt,
+  };
+}
+
 function applyRefreshStatusHint(
   job: Job | null,
   prior: Job | null,
@@ -510,7 +583,7 @@ function optimisticDispatchRefresh(
       removeJob,
       syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
-      { action: refresh.action, status: refresh.status, caller: 'optimisticDispatchRefresh:refreshImpliesTerminal' },
+      terminalRefreshDebug(refresh, 'optimisticDispatchRefresh:refreshImpliesTerminal'),
     );
     return;
   }
@@ -529,7 +602,7 @@ function optimisticDispatchRefresh(
       removeJob,
       syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
-      { action: refresh.action, status: refresh.status, caller: 'optimisticDispatchRefresh:terminalStatus' },
+      terminalRefreshDebug(refresh, 'optimisticDispatchRefresh:terminalStatus'),
     );
     return;
   }
@@ -632,7 +705,7 @@ async function refreshJobFromFirebaseCaches(
       hooks.removeJob,
       hooks.syncAll,
       refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
-      { action: refresh.action, status: refresh.status, caller: 'refreshJobFromFirebaseCaches:refreshImpliesTerminal' },
+      terminalRefreshDebug(refresh, 'refreshJobFromFirebaseCaches:refreshImpliesTerminal'),
     );
     return;
   }
@@ -1379,6 +1452,7 @@ export function useJobs(companyId: string | null) {
       onValue(ref(db, `dispatchConsole/${companyId}/refresh`), (snap) => {
         const v = snap.val() as {
           at?: number;
+          terminalAt?: number;
           bookingId?: number;
           action?: string;
           status?: string;
@@ -1388,14 +1462,22 @@ export function useJobs(companyId: string | null) {
           updateSeq?: number;
         } | null;
         const bid = parseInt(String(v?.bookingId ?? '0'), 10);
-        const refreshKey = `${v?.at ?? 0}:${bid}`;
+        const signalAt =
+          typeof v?.at === 'number' ? v.at : parseInt(String(v?.at ?? '0'), 10) || 0;
+        const terminalAt =
+          typeof v?.terminalAt === 'number'
+            ? v.terminalAt
+            : parseInt(String(v?.terminalAt ?? '0'), 10) || 0;
+        const refreshKey = `${signalAt}:${terminalAt}:${bid}`;
         console.log('[dispatch-terminal] dispatchConsole/refresh received', {
           bookingId: bid,
           action: v?.action ?? null,
           status: v?.status ?? null,
           driverId: v?.driverId ?? null,
           updateSeq: v?.updateSeq ?? null,
-          at: v?.at ?? null,
+          at: signalAt || null,
+          terminalAt: terminalAt || null,
+          lastTerminalAt: bid ? lastTerminalAtByBookingId.get(bid)?.terminalAt ?? null : null,
           refreshKey,
           deduped: refreshKey === lastDispatchRefreshAtRef.current,
         });
@@ -1406,16 +1488,36 @@ export function useJobs(companyId: string | null) {
           return;
         }
         const refreshPayload: DispatchRefreshPayload = {
-          action: v.action,
-          status: v.status,
-          driverId: v.driverId != null ? String(v.driverId) : undefined,
-          declinedDriverId: v.declinedDriverId,
-          returnReason: v.returnReason,
+          action: v?.action,
+          status: v?.status,
+          driverId: v?.driverId != null ? String(v.driverId) : undefined,
+          declinedDriverId: v?.declinedDriverId,
+          returnReason: v?.returnReason,
           updateSeq:
-            v.updateSeq != null
+            v?.updateSeq != null
               ? parseInt(String(v.updateSeq), 10)
               : undefined,
+          at: signalAt || undefined,
+          terminalAt: terminalAt || undefined,
         };
+        if (refreshImpliesTerminal(refreshPayload)) {
+          recordTerminalRefreshGuard(bid, {
+            at: signalAt,
+            terminalAt,
+            updateSeq: refreshPayload.updateSeq,
+          });
+        } else if (shouldIgnoreStaleLiveDispatchRefresh(bid, refreshPayload, signalAt)) {
+          console.log('[dispatch-terminal] ignored stale live dispatchConsole/refresh', {
+            bookingId: bid,
+            action: refreshPayload.action ?? null,
+            status: refreshPayload.status ?? null,
+            signalAt: signalAt || null,
+            lastTerminalAt: lastTerminalAtByBookingId.get(bid)?.terminalAt ?? null,
+            lastTerminalUpdateSeq: lastTerminalAtByBookingId.get(bid)?.updateSeq ?? null,
+            refreshUpdateSeq: refreshPayload.updateSeq ?? null,
+          });
+          return;
+        }
         notifyOfferReturned(bid, refreshPayload);
         optimisticDispatchRefresh(
           companyId,
