@@ -110,14 +110,25 @@ const lastTerminalAtByBookingId = new Map<
 
 function recordTerminalRefreshGuard(
   bookingId: number,
-  opts: { at?: number; terminalAt?: number; updateSeq?: number },
+  opts: { at?: number; terminalAt?: number; updateSeq?: number; source?: string },
 ): void {
   if (!bookingId) return;
   const terminalAt = Math.max(opts.terminalAt ?? 0, opts.at ?? 0) || Date.now();
   const prev = lastTerminalAtByBookingId.get(bookingId);
-  lastTerminalAtByBookingId.set(bookingId, {
+  const next = {
     terminalAt: Math.max(prev?.terminalAt ?? 0, terminalAt),
     updateSeq: Math.max(prev?.updateSeq ?? 0, opts.updateSeq ?? 0),
+  };
+  lastTerminalAtByBookingId.set(bookingId, next);
+  console.log('[dispatch-terminal] lastTerminalAt set', {
+    bookingId,
+    source: opts.source ?? 'unknown',
+    signalAt: opts.at ?? null,
+    signalTerminalAt: opts.terminalAt ?? null,
+    resolvedTerminalAt: next.terminalAt,
+    updateSeq: next.updateSeq,
+    previousTerminalAt: prev?.terminalAt ?? null,
+    previousUpdateSeq: prev?.updateSeq ?? 0,
   });
 }
 
@@ -135,15 +146,53 @@ function shouldIgnoreStaleLiveDispatchRefresh(
 
   const refreshSeq = refresh.updateSeq ?? 0;
   // Booking id reused — server advanced past the terminal generation.
-  if (refreshSeq > guard.updateSeq && refreshSeq > 0) return false;
+  if (refreshSeq > guard.updateSeq && refreshSeq > 0) {
+    console.log('[dispatch-terminal] live refresh allowed (seq reuse)', {
+      bookingId,
+      status,
+      action: refresh.action ?? null,
+      signalAt: signalAt || null,
+      refreshSeq,
+      guardTerminalAt: guard.terminalAt,
+      guardUpdateSeq: guard.updateSeq,
+    });
+    return false;
+  }
 
-  // Primary rule: refresh `at` predates the last terminal signal.
-  if (signalAt > 0 && signalAt < guard.terminalAt) return true;
+  console.log('[dispatch-terminal] ignored stale live dispatchConsole/refresh', {
+    bookingId,
+    action: refresh.action ?? null,
+    status,
+    signalAt: signalAt || null,
+    refreshUpdateSeq: refreshSeq,
+    lastTerminalAt: guard.terminalAt,
+    lastTerminalUpdateSeq: guard.updateSeq,
+    reason: signalAt > 0 && signalAt < guard.terminalAt
+      ? 'signalAt_lt_terminalAt'
+      : 'post_terminal_live_status',
+  });
+  return true;
+}
 
-  // Same updateSeq generation after terminal (late write with a fresh wall-clock `at`).
-  if (refreshSeq > 0 && refreshSeq <= guard.updateSeq) return true;
-
-  return false;
+/** Block stale Arrived/Assigned rows in allbookings after terminal authority is recorded. */
+function shouldSkipStaleLiveAllbookingsIngest(
+  jobId: number,
+  effectiveStatus: JobStatus,
+  rec: Record<string, unknown>,
+): boolean {
+  const guard = lastTerminalAtByBookingId.get(jobId);
+  if (!guard) return false;
+  if (!STALE_GUARD_LIVE_STATUSES.has(effectiveStatus)) return false;
+  const fbSeq = seqFromFirebaseRecord(rec) ?? 0;
+  if (fbSeq > guard.updateSeq && fbSeq > 0) return false;
+  console.log('[dispatch-terminal] skipped stale live allbookings ingest', {
+    bookingId: jobId,
+    effectiveStatus,
+    fbSeq,
+    lastTerminalAt: guard.terminalAt,
+    lastTerminalUpdateSeq: guard.updateSeq,
+  });
+  return true;
 }
 
 function handleTerminalRefresh(
@@ -159,6 +208,7 @@ function handleTerminalRefresh(
     at: debug?.at,
     terminalAt: debug?.terminalAt,
     updateSeq: suppressSeq,
+    source: debug?.caller ?? 'handleTerminalRefresh',
   });
   const storeJob = useJobStore.getState().jobs.find((j) => j.id === bookingId);
   console.log('[dispatch-terminal] handleTerminalRefresh', {
@@ -1243,6 +1293,9 @@ export function useJobs(companyId: string | null) {
             if (fbAttached.has(abRaw) && !fbAttached.has(effectiveStatus)) {
               effectiveStatus = abRaw;
             }
+            if (shouldSkipStaleLiveAllbookingsIngest(jobId, effectiveStatus, rec)) {
+              continue;
+            }
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
               clearRemovedJob(jobId);
             } else if (isBlacklisted(jobId)) {
@@ -1426,6 +1479,10 @@ export function useJobs(companyId: string | null) {
           }
         }
         for (const row of terminalRows) {
+          recordTerminalRefreshGuard(row.id, {
+            updateSeq: row.seq,
+            source: 'allbookings:terminal',
+          });
           clearQueueAwaitingAllbookings(row.id);
           clearOfferAwaitingAllbookings(row.id);
           pendingRef.current.delete(row.id);
@@ -1505,18 +1562,22 @@ export function useJobs(companyId: string | null) {
             at: signalAt,
             terminalAt,
             updateSeq: refreshPayload.updateSeq,
+            source: 'dispatchConsole/refresh:terminal',
           });
         } else if (shouldIgnoreStaleLiveDispatchRefresh(bid, refreshPayload, signalAt)) {
-          console.log('[dispatch-terminal] ignored stale live dispatchConsole/refresh', {
+          return;
+        } else if (
+          refreshPayload.status &&
+          STALE_GUARD_LIVE_STATUSES.has(normalizeJobStatus(refreshPayload.status)) &&
+          !lastTerminalAtByBookingId.has(bid)
+        ) {
+          console.log('[dispatch-terminal] live refresh with no terminal guard recorded', {
             bookingId: bid,
             action: refreshPayload.action ?? null,
             status: refreshPayload.status ?? null,
             signalAt: signalAt || null,
-            lastTerminalAt: lastTerminalAtByBookingId.get(bid)?.terminalAt ?? null,
-            lastTerminalUpdateSeq: lastTerminalAtByBookingId.get(bid)?.updateSeq ?? null,
             refreshUpdateSeq: refreshPayload.updateSeq ?? null,
           });
-          return;
         }
         notifyOfferReturned(bid, refreshPayload);
         optimisticDispatchRefresh(

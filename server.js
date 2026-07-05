@@ -5327,6 +5327,21 @@ async function driverStageJob(opts) {
   if (!bookingId || !driverId || !_allowed.has(newStatus)) {
     return { ok: false, error_code: 'bad_request', error: 'bookingId, driverId, status ∈ {Assigned,Arrived,Active,Picking} required' };
   }
+  if (_isBlockedFromReIngest(bookingId) || _jobIsClosedInStore(bookingId)) {
+    const closed = _findClosedJobEntry(bookingId);
+    const closedSt = closed
+      ? String(closed.BookingStatus || closed.TerminalKind || 'closed')
+      : 'closed';
+    console.log(
+      `  [${source}] job #${bookingId} stage blocked — terminal/recent-cancel (${closedSt})`,
+    );
+    return {
+      ok: false,
+      error_code: 'already_terminal',
+      error: `job is ${closedSt}`,
+      booking: closed ? _publicBooking(closed) : undefined,
+    };
+  }
   const idx = jobStore.findIndex(j => j && j.Id === bookingId);
   if (idx === -1) {
     if (_jobIsClosedInStore(bookingId)) {
@@ -14527,17 +14542,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _result = await driverStageJob({
       bookingId: _sJob, driverId: _sDrv, status: _sStatusNorm, source: '/api/job/stage',
     });
-    if (_result.ok && _result.status && !_result.idempotent) {
-      const _stageJob = jobStore.find(j => j && j.Id === _sJob);
-      if (_stageJob) {
-        await _dispatchRefreshForJob(_stageJob, {
-          cid: String(_stageJob.companyId || ''),
-          status: _result.status,
-          action: _dispatchRefreshActionForStatus(_result.status),
-          driverId: _sDrv,
-        }).catch(() => {});
-      }
-    }
     const _status = _result.ok ? 200
       : (_result.error_code === 'not_found' ? 404
       : (_result.error_code === 'forbidden' ? 403
