@@ -2671,6 +2671,14 @@ async function cancelBooking(opts) {
     jobStore.splice(idx, 1);
     saveJobStore();
     saveClosedJobStore();
+    // No Show: stamp recently-cancelled immediately so in-flight /api/job/stage
+    // assign/Arrived refreshes are suppressed before executeJobCleanup + delayed refresh.
+    if (_tk === 'No Show' || _tk === 'NoShow') {
+      _markRecentlyCancelled(bookingId);
+      console.log(
+        `  [${source}] No Show #${bookingId} — marked recently-cancelled (suppress stale stage refresh)`,
+      );
+    }
     console.log(`  [${source}] §FIX-CB job #${bookingId} (was ${_cancelStage}) → ${job.BookingStatus} by ${cancelledByDisplay} (source=${cancelSource}, driver=${_drvId || 'none'}, payment=${job.PaymentMethod || '-'})`);
   }
 
@@ -2786,6 +2794,7 @@ async function cancelBooking(opts) {
               await _clearOnlineTripFieldsForBooking(_cid, _vidForPresence, bookingId, `[${source}/no-show]`);
             }
             if (!String(source).startsWith('api/cancel')) {
+              _markRecentlyCancelled(bookingId);
               _scheduleDispatchConsoleRefresh(
                 _cid,
                 _terminalDispatchConsoleRefreshPayload(
@@ -14709,6 +14718,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           _nsDrv,
           _ccResult.version,
         );
+        _markRecentlyCancelled(_ccBooking);
         console.log(
           `[api/cancel/no-show] scheduling dispatchConsole refresh #${_ccBooking} cid=${_nsCid} ` +
           `path=dispatchConsole/${_nsCid}/refresh delayMs=500 ` +
