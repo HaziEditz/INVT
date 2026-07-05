@@ -78,10 +78,12 @@ function applyQueueAuthoritativeReplace(
   const base = prior ?? job;
   return {
     ...base,
-    ...job,
     status: 'Queued',
     driverId,
     vehicleId,
+    ...(job.updateSeq != null
+      ? { updateSeq: Math.max(base.updateSeq ?? 0, job.updateSeq) }
+      : {}),
   };
 }
 

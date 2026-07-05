@@ -13,7 +13,7 @@ interface JobStore {
   activeTab: JobTab;
   setJobs: (jobs: Job[]) => void;
   upsertJob: (job: Job) => void;
-  /** Replace store entry without mergeJobUpdate — authoritative Firebase/refresh status. */
+  /** Authoritative status refresh — merges BookingStatus/updateSeq into existing store row. */
   replaceJob: (job: Job) => void;
   removeJob: (id: number) => void;
   clearRemovedJob: (id: number) => void;
@@ -46,6 +46,18 @@ export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
 
 function isLivePoolStatus(status: string): boolean {
   return ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(status));
+}
+
+/** Status-only merge for authoritative refresh — keep offeredAt, addresses, etc. from store. */
+function mergeReplaceJobStatus(existing: Job, incoming: Job): Job {
+  const merged: Job = { ...existing };
+  if (incoming.status != null) {
+    merged.status = incoming.status;
+  }
+  if (incoming.updateSeq != null) {
+    merged.updateSeq = Math.max(existing.updateSeq ?? 0, incoming.updateSeq);
+  }
+  return merged;
 }
 
 export const useJobStore = create<JobStore>((set, get) => ({
@@ -100,7 +112,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {
         const next = [...s.jobs];
-        next[idx] = job;
+        next[idx] = mergeReplaceJobStatus(s.jobs[idx], job);
         return { jobs: next, removedJobIds };
       }
       return { jobs: [...s.jobs, job], removedJobIds };
