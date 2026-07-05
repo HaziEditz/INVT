@@ -13,6 +13,8 @@ interface JobStore {
   activeTab: JobTab;
   setJobs: (jobs: Job[]) => void;
   upsertJob: (job: Job) => void;
+  /** Replace store entry without mergeJobUpdate — authoritative Firebase/refresh status. */
+  replaceJob: (job: Job) => void;
   removeJob: (id: number) => void;
   clearRemovedJob: (id: number) => void;
   isJobBlacklisted: (id: number) => boolean;
@@ -87,6 +89,21 @@ export const useJobStore = create<JobStore>((set, get) => ({
         ? mergeJobUpdate(job as Job, { status: 'Queued' }, queueOpts)
         : job;
       return { jobs: [...s.jobs, inserted] };
+    }),
+  replaceJob: (job) =>
+    set((s) => {
+      const live = isLivePoolStatus(job.status);
+      const removedJobIds = live
+        ? s.removedJobIds.filter((id) => id !== job.id)
+        : s.removedJobIds;
+      if (!live && removedJobIds.includes(job.id)) return s;
+      const idx = s.jobs.findIndex((j) => j.id === job.id);
+      if (idx >= 0) {
+        const next = [...s.jobs];
+        next[idx] = job;
+        return { jobs: next, removedJobIds };
+      }
+      return { jobs: [...s.jobs, job], removedJobIds };
     }),
   removeJob: (id) =>
     set((s) => {

@@ -15,8 +15,10 @@ import {
   ACTIVE_BOOKING_STATUSES,
   LIVE_OFFER_STATUSES,
   TERMINAL_BOOKING_STATUSES,
+  isGenuineQueuedJob,
   isPoolUaStatus,
   isUaJob,
+  isUnassignedDriverId,
   jobStatusFromFirebaseRecord,
   jobTabForStatus,
   normalizeJobStatus,
@@ -49,11 +51,38 @@ import {
 } from '@/lib/jobPoolSync';
 import { isExternalJobSource } from '@/lib/utils';
 
-function applyQueueForcedMerge(prior: Job | null, job: Job): Job {
-  if (prior) {
-    return mergeJobUpdate(prior, { ...job, status: 'Queued' }, { forceStatus: 'Queued' });
-  }
-  return { ...job, status: 'Queued' };
+/**
+ * Authoritative Queued replace — do not mergeJobUpdate with stale Pending/U-A store rows.
+ * Preserves passenger fields from prior when Firebase partial is thin, but status/driver
+ * always come from the Queued authority (refresh or allbookings).
+ */
+function applyQueueAuthoritativeReplace(
+  prior: Job | null,
+  job: Job,
+  refreshDriverId?: string | null,
+): Job {
+  const refreshDrv =
+    refreshDriverId != null && String(refreshDriverId).trim() !== ''
+      ? String(refreshDriverId).trim()
+      : '';
+  const jobDrv = job.driverId != null ? String(job.driverId).trim() : '';
+  const priorDrv = prior?.driverId != null ? String(prior.driverId).trim() : '';
+  const driverId = !isUnassignedDriverId(refreshDrv)
+    ? refreshDrv
+    : !isUnassignedDriverId(jobDrv)
+      ? jobDrv
+      : !isUnassignedDriverId(priorDrv)
+        ? priorDrv
+        : jobDrv || priorDrv || undefined;
+  const vehicleId = job.vehicleId ?? prior?.vehicleId;
+  const base = prior ?? job;
+  return {
+    ...base,
+    ...job,
+    status: 'Queued',
+    driverId,
+    vehicleId,
+  };
 }
 
 function handleTerminalRefresh(
@@ -413,9 +442,21 @@ function applyRefreshStatusHint(
 ): Job | null {
   if (!refresh.status) return job;
   const targetStatus = normalizeJobStatus(refresh.status);
+  // Terminal must never be merged into the live store — caller removes the job.
+  if (TERMINAL_BOOKING_STATUSES.has(targetStatus)) {
+    return null;
+  }
   const driverId = resolveRefreshDriverId(refresh, targetStatus, job, prior);
   const updateSeq = refresh.updateSeq ?? job?.updateSeq ?? prior?.updateSeq;
   const patch = { status: targetStatus, driverId, ...(updateSeq != null ? { updateSeq } : {}) } as Job;
+
+  // Queued + real driver: REPLACE (no mergeJobUpdate) so stale Pending cannot win.
+  if (targetStatus === 'Queued' && !isUnassignedDriverId(driverId)) {
+    const base = job ?? prior;
+    if (!base && useJobStore.getState().isJobBlacklisted(bookingId)) return null;
+    return applyQueueAuthoritativeReplace(base, { ...(base ?? { id: bookingId } as Job), ...patch }, refresh.driverId);
+  }
+
   const queueOpts = refresh.action === 'queue' ? ({ forceStatus: 'Queued' as JobStatus } as const) : undefined;
   if (job) {
     return mergeJobUpdate(job, patch, queueOpts);
@@ -434,6 +475,7 @@ function optimisticDispatchRefresh(
   pendingRef: Map<number, Job>,
   bookingsRef: Map<number, Job>,
   upsertJob: (job: Job) => void,
+  replaceJob: (job: Job) => void,
   removeJob: (id: number) => void,
   clearRemovedJob: (id: number) => void,
   syncAll: () => void,
@@ -454,6 +496,20 @@ function optimisticDispatchRefresh(
 
   const prior = existingJobSnapshot(bookingId, pendingRef, bookingsRef);
   const targetStatus = refresh.status ? normalizeJobStatus(refresh.status) : null;
+
+  // Terminal status on the wire — remove, never merge into Assign/U-A.
+  if (targetStatus && TERMINAL_BOOKING_STATUSES.has(targetStatus)) {
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      removeJob,
+      syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+    );
+    return;
+  }
+
   if (
     prior &&
     normalizeJobStatus(prior.status) === 'Queued' &&
@@ -478,28 +534,40 @@ function optimisticDispatchRefresh(
   let job: Job | null = null;
   if (prior) {
     job = applyRefreshStatusHint(null, prior, refresh, bookingId);
-  } else if (refresh.action === 'queue') {
+  } else if (refresh.action === 'queue' || targetStatus === 'Queued') {
     job = minimalJobFromDispatchRefresh(bookingId, companyId, refresh);
   }
   if (!job) return;
 
   pendingRef.delete(bookingId);
-  const st = normalizeJobStatus(job.status);
+  let st = normalizeJobStatus(job.status);
+
+  // Authoritative Queued + real driver — REPLACE store entry (no merge with stale Pending).
+  if (
+    (refresh.action === 'queue' || st === 'Queued' || targetStatus === 'Queued') &&
+    isGenuineQueuedJob(job)
+  ) {
+    markQueueAwaitingAllbookings(bookingId);
+    pendingRef.delete(bookingId);
+    job = applyQueueAuthoritativeReplace(prior, job, refresh.driverId);
+    st = 'Queued';
+    bookingsRef.set(bookingId, job);
+    if (['accept', 'assign', 'offer', 'queue', 'active'].includes(refresh.action || '')) {
+      markOptimisticLiveTransition(bookingId);
+      if (refresh.updateSeq != null && refresh.updateSeq > 0) {
+        clearCompletedJobSuppress(bookingId);
+      }
+    }
+    replaceJob(job);
+    syncAll();
+    return;
+  }
+
   if (ACTIVE_BOOKING_STATUSES.has(st)) {
     bookingsRef.set(job.id, job);
   } else if (st === 'Pending' || st === 'No One') {
     pendingRef.set(job.id, job);
     bookingsRef.delete(bookingId);
-  }
-  if (refresh.action === 'queue' && st === 'Queued') {
-    markQueueAwaitingAllbookings(bookingId);
-    pendingRef.delete(bookingId);
-    if (prior && prior.id === bookingId) {
-      job = applyQueueForcedMerge(prior, job);
-    } else {
-      job = { ...job, status: 'Queued' };
-    }
-    bookingsRef.set(bookingId, job);
   }
   if (refresh.action === 'offer' && st === 'Offered') {
     markOfferAwaitingAllbookings(bookingId);
@@ -525,6 +593,7 @@ async function refreshJobFromFirebaseCaches(
     applyPending: (key: string, rec: Record<string, unknown>, notify: boolean) => void;
     removeJob: (id: number) => void;
     clearRemovedJob: (id: number) => void;
+    replaceJob: (job: Job) => void;
     syncAll: () => void;
   },
 ) {
@@ -565,24 +634,38 @@ async function refreshJobFromFirebaseCaches(
       if (action === 'queue' && isQueueAwaitingAllbookings(bookingId) && st !== 'Queued') {
         st = 'Queued';
       }
+      // Firebase terminal → REMOVE from store entirely (never merge into Assign).
+      if (TERMINAL_BOOKING_STATUSES.has(st)) {
+        handleTerminalRefresh(
+          bookingId,
+          pendingRef,
+          bookingsRef,
+          hooks.removeJob,
+          hooks.syncAll,
+          refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+        );
+        return;
+      }
       if (ACTIVE_BOOKING_STATUSES.has(st)) {
         if (trustPoolRestore) {
           job = applyRefreshStatusHint(null, prior, refresh, bookingId);
         } else if (!isCompletedJobSuppressed(bookingId)) {
           job = parsed;
         }
-      } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
-        bookingsRef.delete(bookingId);
-        hooks.removeJob(bookingId);
-        hooks.clearRemovedJob(bookingId);
-        hooks.syncAll();
-        return;
       } else if (action !== 'accept' && action !== 'assign' && action !== 'offer' && action !== 'queue' && action !== 'active') {
         bookingsRef.delete(bookingId);
       }
     }
   } else if (action === 'cancel' || action === 'no-show') {
-    bookingsRef.delete(bookingId);
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      hooks.removeJob,
+      hooks.syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+    );
+    return;
   }
 
   if (!job && prior && ['accept', 'assign', 'offer', 'active', 'queue'].includes(action || '')) {
@@ -603,9 +686,63 @@ async function refreshJobFromFirebaseCaches(
     clearQueueAwaitingAllbookings(bookingId);
   }
 
-  job = applyRefreshStatusHint(job, prior, refresh, bookingId);
-  if (action === 'queue' && job) {
-    job = applyQueueForcedMerge(prior, job);
+  // Apply refresh hint — terminal returns null (already handled above for FB terminal).
+  const hinted = applyRefreshStatusHint(job, prior, refresh, bookingId);
+  if (
+    refresh.status &&
+    TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(refresh.status))
+  ) {
+    handleTerminalRefresh(
+      bookingId,
+      pendingRef,
+      bookingsRef,
+      hooks.removeJob,
+      hooks.syncAll,
+      refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+    );
+    return;
+  }
+  job = hinted;
+
+  // Firebase / refresh says Queued with a real driver — REPLACE, do not merge Pending.
+  const fbStatus =
+    abVal && typeof abVal === 'object'
+      ? jobStatusFromFirebaseRecord(abVal as Record<string, unknown>)
+      : job
+        ? normalizeJobStatus(job.status)
+        : null;
+  const queuedCandidate =
+    job &&
+    (action === 'queue' ||
+      fbStatus === 'Queued' ||
+      (refresh.status && normalizeJobStatus(refresh.status) === 'Queued'))
+      ? applyQueueAuthoritativeReplace(prior, job, refresh.driverId)
+      : null;
+  if (queuedCandidate && isGenuineQueuedJob(queuedCandidate)) {
+    markQueueAwaitingAllbookings(bookingId);
+    pendingRef.delete(bookingId);
+    if (fbSeq != null) {
+      queuedCandidate.updateSeq = Math.max(queuedCandidate.updateSeq ?? 0, fbSeq);
+    }
+    const fbBooking =
+      abVal && typeof abVal === 'object'
+        ? normalizeJobStatus(String((abVal as Record<string, unknown>).BookingStatus ?? ''))
+        : '';
+    if (fbBooking === 'Queued') clearQueueAwaitingAllbookings(bookingId);
+    bookingsRef.set(queuedCandidate.id, queuedCandidate);
+    hooks.replaceJob(queuedCandidate);
+    // Never apply stale pendingjobs Pending over confirmed Queued.
+    if (
+      pjRecord &&
+      pendingSnapshotWouldRegressQueue(bookingId, pjRecord, {
+        bookingsRef,
+        abRec: abVal && typeof abVal === 'object' ? (abVal as Record<string, unknown>) : null,
+      })
+    ) {
+      pendingRef.delete(bookingId);
+    }
+    hooks.syncAll();
+    return;
   }
 
   if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq && !trustPoolRestore) {
@@ -618,17 +755,19 @@ async function refreshJobFromFirebaseCaches(
         ? (abVal as Record<string, unknown>)
         : { BookingStatus: job.status, Status: job.status },
     );
-    if (st !== job.status && !trustPoolRestore) {
-      job =
-        action === 'queue' && st === 'Queued'
-          ? mergeJobUpdate(job, { status: st }, { forceStatus: 'Queued' })
-          : mergeJobUpdate(job, { status: st } as Job);
-    }
-    if (st === 'Queued') {
-      const fbBooking = normalizeJobStatus(
-        String((abVal as Record<string, unknown>)?.BookingStatus ?? ''),
+    if (TERMINAL_BOOKING_STATUSES.has(st)) {
+      handleTerminalRefresh(
+        bookingId,
+        pendingRef,
+        bookingsRef,
+        hooks.removeJob,
+        hooks.syncAll,
+        refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
       );
-      if (fbBooking === 'Queued') clearQueueAwaitingAllbookings(bookingId);
+      return;
+    }
+    if (st !== job.status && !trustPoolRestore) {
+      job = mergeJobUpdate(job, { status: st } as Job);
     }
     if (st === 'Offered') {
       clearOfferAwaitingAllbookings(bookingId);
@@ -643,13 +782,6 @@ async function refreshJobFromFirebaseCaches(
     } else if (st === 'Pending' || st === 'No One') {
       pendingRef.set(job.id, job);
       bookingsRef.delete(bookingId);
-    } else if (TERMINAL_BOOKING_STATUSES.has(st)) {
-      markCompletedJobSuppress(bookingId);
-      bookingsRef.delete(bookingId);
-      hooks.removeJob(bookingId);
-      hooks.clearRemovedJob(bookingId);
-      hooks.syncAll();
-      return;
     }
   }
 
@@ -679,10 +811,9 @@ async function refreshJobFromFirebaseCaches(
       }
       pendingRef.delete(bookingId);
       if (job) {
-        bookingsRef.set(
-          job.id,
-          mergeJobUpdate(job, { status: 'Queued' }, { forceStatus: 'Queued' }),
-        );
+        const queued = applyQueueAuthoritativeReplace(prior, job, refresh.driverId);
+        bookingsRef.set(queued.id, queued);
+        hooks.replaceJob(queued);
       }
     } else {
       hooks.applyPending(String(bookingId), pjRecord, false);
@@ -695,8 +826,15 @@ async function refreshJobFromFirebaseCaches(
     }
     const liveActions = new Set(['accept', 'assign', 'offer', 'queue', 'active', 'status', 'timeout', 'decline', 'recall', 'scheduled_release']);
     if (action === 'cancel' || action === 'no-show') {
-      hooks.removeJob(bookingId);
-      hooks.clearRemovedJob(bookingId);
+      handleTerminalRefresh(
+        bookingId,
+        pendingRef,
+        bookingsRef,
+        hooks.removeJob,
+        hooks.syncAll,
+        refresh.updateSeq ?? priorTerminalSuppressSeq(bookingId, pendingRef, bookingsRef),
+      );
+      return;
     } else if (!liveActions.has(action || '') && !job) {
       hooks.removeJob(bookingId);
       hooks.clearRemovedJob(bookingId);
@@ -709,6 +847,7 @@ async function refreshJobFromFirebaseCaches(
 export function useJobs(companyId: string | null) {
   const setJobs = useJobStore((s) => s.setJobs);
   const upsertJob = useJobStore((s) => s.upsertJob);
+  const replaceJob = useJobStore((s) => s.replaceJob);
   const removeJob = useJobStore((s) => s.removeJob);
   const clearRemovedJob = useJobStore((s) => s.clearRemovedJob);
   const pendingRef = useRef<Map<number, Job>>(new Map());
@@ -1245,6 +1384,7 @@ export function useJobs(companyId: string | null) {
           pendingRef.current,
           bookingsRef.current,
           upsertJob,
+          replaceJob,
           removeJob,
           clearRemovedJob,
           syncAll,
@@ -1259,6 +1399,7 @@ export function useJobs(companyId: string | null) {
             applyPending,
             removeJob,
             clearRemovedJob,
+            replaceJob,
             syncAll,
           },
         );
