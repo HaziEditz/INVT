@@ -6792,7 +6792,56 @@ async function _signalDispatchConsoleRefresh(cid, payload) {
   const _path = `dispatchConsole/${cid}/refresh`;
   const _action = String(_refreshPayload.action || '');
   const _status = String(_refreshPayload.status || '');
-  if (_shouldSuppressStaleDispatchConsoleRefresh(_refreshPayload.bookingId, _action, _status)) {
+
+  // Diagnostic logging: capture caller stack + suppression inputs for stale Assign-tab writes.
+  // Target signal: action=assign + status=Arrived overwriting a prior terminal No Show refresh.
+  const _bid = parseInt(_refreshPayload.bookingId) || 0;
+  const _diagWanted = (_action === 'assign' && _status === 'Arrived');
+  const _suppressionEval = (function() {
+    const bid = _bid;
+    const act = _action;
+    const st = _status;
+    const liveAction = _LIVE_DISPATCH_REFRESH_ACTIONS.has(act);
+    const terminalAction = _TERMINAL_DISPATCH_REFRESH_ACTIONS.has(act);
+    const terminalStatus = _TERMINAL_JOB_STATUSES.has(st);
+    const closed = bid ? _findClosedJobEntry(bid) : null;
+    const closedSt = closed ? String(closed.BookingStatus || closed.TerminalKind || '') : '';
+    const hasClosedTerminal = !!(closed && _TERMINAL_JOB_STATUSES.has(closedSt));
+    const cancelInFlight = bid ? _CANCEL_IN_FLIGHT.has(String(bid)) : false;
+    const recentAt = bid ? (_RECENTLY_CANCELLED.get(String(bid)) || 0) : 0;
+    const recentAgeMs = recentAt ? (Date.now() - recentAt) : null;
+    const blockedFromReIngest = bid ? _isBlockedFromReIngest(bid) : false;
+    const shouldSuppress = bid
+      ? _shouldSuppressStaleDispatchConsoleRefresh(bid, act, st)
+      : false;
+    return {
+      shouldSuppress,
+      bid,
+      action: act,
+      status: st,
+      updateSeq: parseInt(_refreshPayload.updateSeq) || 0,
+      at: _refreshPayload.at,
+      path: _path,
+      liveAction,
+      terminalAction,
+      terminalStatus,
+      hasClosedTerminal,
+      closedStatus: closedSt || null,
+      cancelInFlight,
+      recentlyCancelledAgeMs: recentAgeMs,
+      blockedFromReIngest,
+    };
+  })();
+
+  if (_diagWanted || _suppressionEval.shouldSuppress) {
+    const _stack = (new Error('[dispatchRefresh/diag] stack')).stack;
+    console.log(
+      `  [dispatchRefresh/diag] ${_diagWanted ? 'assign/Arrived' : 'suppressed'} → ` +
+      `${JSON.stringify(Object.assign({}, _suppressionEval, { stack: _stack }), null, 0)}`,
+    );
+  }
+
+  if (_suppressionEval.shouldSuppress) {
     const closed = _findClosedJobEntry(_refreshPayload.bookingId);
     const closedSt = closed
       ? String(closed.BookingStatus || closed.TerminalKind || '')
@@ -6802,6 +6851,21 @@ async function _signalDispatchConsoleRefresh(cid, payload) {
       `${_action}/${_status} → ${_path} — closed as ${closedSt}`,
     );
     return;
+  }
+  if (_diagWanted) {
+    const _stack = (new Error('[dispatchRefresh/diag] stack')).stack;
+    console.log(
+      `  [dispatchRefresh/diag] writing assign/Arrived → ` +
+      `${JSON.stringify({
+        bid: _suppressionEval.bid,
+        action: _action,
+        status: _status,
+        updateSeq: _suppressionEval.updateSeq,
+        at: _refreshPayload.at,
+        path: _path,
+        stack: _stack,
+      }, null, 0)}`,
+    );
   }
   if (_action === 'no-show' || _status === 'No Show') {
     console.log(
