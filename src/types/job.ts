@@ -160,7 +160,7 @@ export function jobUpdateSeqFromRecord(rec: Record<string, unknown>): number {
 export function jobFromFirebase(key: string, rec: Record<string, unknown>, companyId: string): Job | null {
   const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
   if (!id) return null;
-  const status = resolveJobStatus(rec);
+  const status = jobStatusFromFirebaseRecord(rec);
   const srcRaw = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? 'dispatch');
   const svc = String(rec.serviceType ?? rec.ServiceType ?? 'taxi').toLowerCase() as ServiceType;
   return {
@@ -371,7 +371,7 @@ export {
   jobTabForStatus,
 } from '@/lib/jobStatusAuthority';
 
-import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
+import { jobStatusFromFirebaseRecord, normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 function normalizeSource(raw: string): BookingSource {
   const s = raw.toLowerCase();
