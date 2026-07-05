@@ -6736,22 +6736,46 @@ async function _fanVersionToFirebaseAwait(cid, bookingId, patch, isTerminal) {
 
 // Nudge dispatch console to refresh job tabs immediately (Offer/Assign/U-A).
 async function _signalDispatchConsoleRefresh(cid, payload) {
-  if (!cid) return;
+  if (!cid) {
+    console.warn('  [dispatchRefresh] skipped — missing companyId');
+    return;
+  }
   const _refreshPayload = Object.assign({ at: Date.now() }, payload || {});
+  const _path = `dispatchConsole/${cid}/refresh`;
+  const _action = String(_refreshPayload.action || '');
+  const _status = String(_refreshPayload.status || '');
+  if (_action === 'no-show' || _status === 'No Show') {
+    console.log(
+      `  [dispatchRefresh/no-show] firing #${_refreshPayload.bookingId} → ${_path} ` +
+      `payload=${JSON.stringify(_refreshPayload)}`,
+    );
+  }
   try {
     let tok = await getFirebaseServerToken();
-    if (!tok) return;
+    if (!tok) {
+      console.warn(`  [dispatchRefresh] cid=${cid} skipped — no Firebase server token (BW_FIREBASE_SECRET?)`);
+      return;
+    }
     try {
-      await firebaseDbPatch(`dispatchConsole/${cid}/refresh`, _refreshPayload, tok);
+      await firebaseDbPatch(_path, _refreshPayload, tok);
+      if (_action === 'no-show' || _status === 'No Show') {
+        console.log(`  [dispatchRefresh/no-show] wrote OK → ${_path}`);
+      }
       return;
     } catch (_firstErr) {
       console.warn(`  [dispatchRefresh] cid=${cid} first attempt failed: ${_firstErr && _firstErr.message}`);
       tok = await getFirebaseServerToken();
-      if (!tok) return;
-      await firebaseDbPatch(`dispatchConsole/${cid}/refresh`, _refreshPayload, tok);
+      if (!tok) {
+        console.warn(`  [dispatchRefresh] cid=${cid} retry skipped — no Firebase server token`);
+        return;
+      }
+      await firebaseDbPatch(_path, _refreshPayload, tok);
+      if (_action === 'no-show' || _status === 'No Show') {
+        console.log(`  [dispatchRefresh/no-show] wrote OK on retry → ${_path}`);
+      }
     }
   } catch (e) {
-    console.warn(`  [dispatchRefresh] cid=${cid} failed: ${e && e.message}`);
+    console.warn(`  [dispatchRefresh] cid=${cid} failed path=${_path}: ${e && e.message}`);
   }
 }
 
@@ -14555,16 +14579,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           await _clearOnlineTripFieldsForBooking(_nsCid, _nsVid, _ccBooking, '[api/cancel/no-show]');
         }
         // Final authoritative refresh — must run last so stale assign/Arrived cannot win.
-        await _signalDispatchConsoleRefresh(
-          _nsCid,
-          _terminalDispatchConsoleRefreshPayload(
-            _ccBooking,
-            'No Show',
-            _ccResult.cancelStage || '',
-            _nsDrv,
-            _ccResult.version,
-          ),
-        ).catch(() => {});
+        const _nsRefreshPayload = _terminalDispatchConsoleRefreshPayload(
+          _ccBooking,
+          'No Show',
+          _ccResult.cancelStage || '',
+          _nsDrv,
+          _ccResult.version,
+        );
+        console.log(
+          `[api/cancel/no-show] dispatchConsole refresh #${_ccBooking} cid=${_nsCid} ` +
+          `path=dispatchConsole/${_nsCid}/refresh payload=${JSON.stringify(_nsRefreshPayload)}`,
+        );
+        await _signalDispatchConsoleRefresh(_nsCid, _nsRefreshPayload).catch((e) => {
+          console.warn(`[api/cancel/no-show] dispatchConsole refresh failed #${_ccBooking}: ${e && e.message}`);
+        });
       }
     }
     const _ccStatus = _ccResult.ok ? 200
