@@ -1262,6 +1262,167 @@ async function repairTerminalFirebaseCleanup(opts) {
   }
 }
 
+/**
+ * Force-terminal a Firebase ghost booking (no jobStore row / 404 on /api/cancel).
+ * PATCHes allbookings + clears pendingjobs/jobs via server Firebase secret.
+ */
+async function forceTerminateBookingFirebase(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const cid = String(opts.companyId || opts.cid || '').trim();
+  const source = opts.source || 'forceTerminateBookingFirebase';
+  const dryRun = opts.dryRun === true;
+  const terminalKind = opts.terminalKind === 'No Show' ? 'No Show'
+    : opts.terminalKind === 'Completed' ? 'Completed' : 'Cancelled';
+
+  if (!bookingId || !cid) {
+    return { ok: false, error: 'bookingId and companyId required' };
+  }
+
+  let token;
+  try { token = await getFirebaseServerToken(); } catch (e) {
+    return { ok: false, error: 'firebase token unavailable' };
+  }
+  if (!token) {
+    return { ok: false, error: 'BW_FIREBASE_SECRET or server Firebase token required' };
+  }
+
+  let allbookings = null;
+  let pending = null;
+  try {
+    [allbookings, pending] = await Promise.all([
+      firebaseDbGet(`allbookings/${cid}/${bookingId}`, token).catch(() => null),
+      firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, token).catch(() => null),
+    ]);
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+
+  const abBefore = allbookings && typeof allbookings === 'object' ? allbookings : null;
+  const pjBefore = pending && typeof pending === 'object' ? pending : null;
+
+  if (!abBefore && !pjBefore) {
+    return {
+      ok: false,
+      error: 'no Firebase allbookings or pendingjobs node found',
+      bookingId,
+      companyId: cid,
+    };
+  }
+
+  const abStatus = abBefore
+    ? String(abBefore.BookingStatus || abBefore.Status || abBefore.status || '').trim() : '';
+  const pjStatus = pjBefore
+    ? String(pjBefore.BookingStatus || pjBefore.Status || pjBefore.status || '').trim() : '';
+
+  if (_TERMINAL_JOB_STATUSES.has(abStatus) && (!pjBefore || _TERMINAL_JOB_STATUSES.has(pjStatus))) {
+    return {
+      ok: true,
+      idempotent: true,
+      bookingId,
+      companyId: cid,
+      terminalKind: abStatus || terminalKind,
+      before: { allbookingsStatus: abStatus || null, pendingjobsStatus: pjStatus || null },
+      message: 'already terminal in Firebase',
+    };
+  }
+
+  const drvId = String(
+    (abBefore && (abBefore.DriverId || abBefore.driverId || abBefore.AssignedDriverId || abBefore.AssignedDriver)) ||
+    (pjBefore && (pjBefore.DriverId || pjBefore.driverId || pjBefore.AssignedDriverId || pjBefore.AssignedDriver)) ||
+    '',
+  ).trim();
+  const vehId = String(
+    (abBefore && (abBefore.VehicleNo || abBefore.VehicleId || abBefore.vehicleId || abBefore.CallSign)) ||
+    (pjBefore && (pjBefore.VehicleNo || pjBefore.VehicleId || pjBefore.vehicleId || pjBefore.CallSign)) ||
+    '',
+  ).trim();
+
+  const nowIso = new Date().toISOString();
+  const reason = String(opts.reason || 'Admin forceTerminateBooking').trim();
+  const report = {
+    ok: true,
+    dryRun,
+    bookingId,
+    companyId: cid,
+    terminalKind,
+    before: {
+      allbookingsStatus: abStatus || null,
+      pendingjobsStatus: pjStatus || null,
+      driverId: drvId || null,
+      vehicleId: vehId || null,
+    },
+    jobStorePresent: !!(jobStore.find(j => j && j.Id === bookingId && String(j.companyId || '') === cid)),
+  };
+
+  if (dryRun) {
+    report.would = {
+      patchAllbookings: `allbookings/${cid}/${bookingId} → BookingStatus:${terminalKind}`,
+      clearPendingjobs: !!pjBefore,
+      clearJobsNode: !!(drvId || vehId),
+      dispatchRefresh: true,
+    };
+    return report;
+  }
+
+  const meta = {
+    cancelledBy: 'Admin',
+    CancelledBy: 'Admin',
+    cancelSource: 'Admin',
+    CancelSource: 'Admin',
+    cancelReason: reason,
+    CancelReason: reason,
+    cancelledAt: nowIso,
+    CancelledAt: nowIso,
+  };
+
+  try {
+    if (!abBefore && pjBefore) {
+      await firebaseDbSet(
+        `allbookings/${cid}/${bookingId}`,
+        Object.assign(
+          { BookingId: bookingId, bookingId },
+          _terminalFirebaseStatusFields(terminalKind),
+          meta,
+        ),
+        token,
+      );
+    }
+
+    await _bwClearJobFromFirebase(cid, bookingId, vehId, drvId, terminalKind, meta);
+
+    const liveIdx = jobStore.findIndex(j => j && j.Id === bookingId && String(j.companyId || '') === cid);
+    if (liveIdx >= 0) {
+      const removed = jobStore.splice(liveIdx, 1)[0];
+      saveJobStore();
+      report.jobStorePurged = true;
+      report.jobStoreStatus = removed.BookingStatus || null;
+    }
+
+    await _signalDispatchConsoleRefresh(cid, {
+      bookingId,
+      action: 'cancel',
+      status: terminalKind,
+      updateSeq: 0,
+      at: Date.now(),
+    });
+
+    let abAfter = null;
+    try {
+      abAfter = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, token);
+    } catch (_e) { /* best-effort */ }
+
+    report.after = {
+      allbookingsStatus: abAfter
+        ? String(abAfter.BookingStatus || abAfter.Status || '').trim() || null : null,
+    };
+    console.log(`  [${source}] force-terminated #${bookingId} cid=${cid} was=${abStatus || pjStatus || '-'} → ${terminalKind}`);
+    return report;
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e), bookingId, companyId: cid };
+  }
+}
+
 /** Scan closedJobStore + Firebase for terminal jobs whose pendingjobs/allbookings still look live. */
 async function scanStaleTerminalFirebase(opts) {
   opts = opts || {};
@@ -12249,6 +12410,28 @@ const server = http.createServer(async (req, res) => {
           bookingId: parsed.bookingId,
           companyId: parsed.companyId,
           source: '/admin/repairTerminalFirebase',
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
+    // POST /admin/forceTerminateBooking — Firebase-only ghost: stamp allbookings Cancelled
+    // (and clear pendingjobs/jobs) when job is absent from jobStore (/api/cancel → 404).
+    // body: { bookingId, companyId, terminalKind?: 'Cancelled'|'No Show', reason?, dryRun? }
+    if (urlPath === '/admin/forceTerminateBooking' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const report = await forceTerminateBookingFirebase({
+          bookingId: parsed.bookingId,
+          companyId: parsed.companyId || parsed.cid,
+          terminalKind: parsed.terminalKind,
+          reason: parsed.reason,
+          dryRun: parsed.dryRun === true,
+          source: '/admin/forceTerminateBooking',
         });
         jsonReply(res, report);
       } catch (e) {
