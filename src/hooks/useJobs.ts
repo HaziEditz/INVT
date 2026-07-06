@@ -24,6 +24,11 @@ import {
   normalizeJobStatus,
 } from '@/lib/jobStatusAuthority';
 import {
+  isClosedJobRecord,
+  jobFromClosedFirebaseRecord,
+  mergeClosedJobRecords,
+} from '@/lib/closedJobs';
+import {
   markOptimisticLiveTransition,
   clearOptimisticLiveTransition,
   markQueueAwaitingAllbookings,
@@ -1649,65 +1654,65 @@ export function useClosedJobs(companyId: string | null, enabled: boolean) {
   useEffect(() => {
     if (!companyId || !enabled) return;
     const db = getDb();
-    const maps: Job[][] = [[], [], []];
+
+    let allbookingsById = new Map<number, { job: Job; rec: Record<string, unknown> }>();
+    let completedById = new Map<number, Record<string, unknown>>();
 
     const mergeAndSet = () => {
       const merged = new Map<number, Job>();
-      for (const arr of maps) {
-        for (const j of arr) merged.set(j.id, j);
+
+      for (const [id, { job, rec }] of allbookingsById) {
+        const overlay = completedById.get(id);
+        merged.set(id, mergeClosedJobRecords(job, overlay, companyId));
       }
+
+      for (const [id, rec] of completedById) {
+        if (merged.has(id)) continue;
+        const job = jobFromClosedFirebaseRecord(String(id), rec, companyId);
+        if (job) merged.set(id, job);
+      }
+
       setClosed(
         Array.from(merged.values()).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
       );
     };
 
-    const ingestClosed = (idx: number, snap: { val: () => unknown }) => {
-      const list: Job[] = [];
-      const val = snap.val();
-      if (val && typeof val === 'object') {
-        for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-          const job = jobFromFirebase(key, rec, companyId);
-          if (!job) continue;
-          const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? job.status));
-          if (st === 'Cancelled' || st === 'No Show') {
-            job.status = st;
-            const at = job.cancelledAt || job.completedAt;
-            job.completedAt = at ? Date.parse(String(at)) || job.completedAt : job.completedAt;
-          } else {
-            job.status = 'Completed';
-          }
-          list.push(job);
-        }
-      }
-      maps[idx] = list;
-      mergeAndSet();
-    };
-
     const unsubs = [
-      onValue(ref(db, `completedJobs/${companyId}`), (snap) => ingestClosed(0, snap)),
-      onValue(ref(db, `closedJobs/${companyId}`), (snap) => ingestClosed(1, snap)),
       onValue(ref(db, `allbookings/${companyId}`), (snap) => {
-        const list: Job[] = [];
+        const next = new Map<number, { job: Job; rec: Record<string, unknown> }>();
         const val = snap.val();
         if (val && typeof val === 'object') {
           for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-            const st = normalizeJobStatus(String(rec.BookingStatus ?? rec.Status ?? rec.status ?? ''));
-            if (st !== 'Cancelled' && st !== 'No Show') continue;
-            const job = jobFromFirebase(key, rec, companyId);
+            if (!rec || typeof rec !== 'object') continue;
+            const job = jobFromClosedFirebaseRecord(key, rec, companyId);
             if (!job) continue;
-            job.status = st;
-            const at = job.cancelledAt || String(rec.cancelledAt ?? '');
-            job.completedAt = at ? Date.parse(at) || undefined : undefined;
-            list.push(job);
+            next.set(job.id, { job, rec });
           }
         }
-        maps[2] = list;
+        allbookingsById = next;
+        mergeAndSet();
+      }),
+      onValue(ref(db, `completedJobs/${companyId}`), (snap) => {
+        const next = new Map<number, Record<string, unknown>>();
+        const val = snap.val();
+        if (val && typeof val === 'object') {
+          for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
+            if (!rec || typeof rec !== 'object') continue;
+            if (!isClosedJobRecord(rec)) continue;
+            const id = parseInt(String(rec.bookingId ?? rec.BookingId ?? key), 10);
+            if (!id) continue;
+            next.set(id, rec);
+          }
+        }
+        completedById = next;
         mergeAndSet();
       }),
     ];
 
     return () => {
       for (const u of unsubs) u();
+      allbookingsById = new Map();
+      completedById = new Map();
     };
   }, [companyId, enabled]);
 

@@ -6,6 +6,7 @@ import { ResizableDispatchLayout } from '@/components/layout/ResizableDispatchLa
 import { JobTabs } from '@/components/jobs/JobTabs';
 import { CreateJobModal } from '@/components/jobs/CreateJobModal';
 import { JobDetailModal } from '@/components/jobs/JobDetailModal';
+import { ClosedJobDetailModal } from '@/components/jobs/ClosedJobDetailModal';
 import { ZoneBoard } from '@/components/drivers/ZoneBoard';
 import { ZoneQueuePanel } from '@/components/drivers/ZoneQueuePanel';
 import { DriverDetailModal } from '@/components/drivers/DriverDetailModal';
@@ -184,6 +185,7 @@ export function DispatchPage() {
 
       <CreateJobModal mapsKey={mapsKey} companyId={companyId} dispatcherName={dispatcherName} />
       <JobDetailModal />
+      <ClosedJobDetailModal companyId={companyId} mapsKey={mapsKey} />
       <DriverDetailModal />
       <MessagesModal companyId={activeCompanyId} />
       <ClosedJobsModal companyId={companyId} />

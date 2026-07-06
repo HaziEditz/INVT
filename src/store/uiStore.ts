@@ -11,6 +11,7 @@ import { playNotificationSound, type NotifySoundKind } from '@/lib/notifySound';
 export type ModalId =
   | 'createJob'
   | 'jobDetail'
+  | 'closedJobDetail'
   | 'driverDetail'
   | 'messages'
   | 'closedJobs'
