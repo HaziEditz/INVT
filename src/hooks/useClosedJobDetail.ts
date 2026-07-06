@@ -27,7 +27,7 @@ export function useClosedJobDetail(
         if (cancelled) return;
         if (!result) {
           setDetail(null);
-          setError('Closed job not found in Firebase.');
+          setError('Closed job not found.');
           return;
         }
         setDetail(result);

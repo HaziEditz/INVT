@@ -6,11 +6,12 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   wide?: boolean;
+  extraWide?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
 }
 
-export function Modal({ open, onClose, title, wide, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, wide, extraWide, children, footer }: ModalProps) {
   if (!open) return null;
   return (
     <div
@@ -22,7 +23,7 @@ export function Modal({ open, onClose, title, wide, children, footer }: ModalPro
       <div
         className={cn(
           'bw-card flex flex-col max-h-[92vh] shadow-2xl',
-          wide ? 'w-full max-w-5xl' : 'w-full max-w-2xl'
+          extraWide ? 'w-full max-w-[min(96vw,1400px)]' : wide ? 'w-full max-w-5xl' : 'w-full max-w-2xl'
         )}
         onClick={(e) => e.stopPropagation()}
       >

@@ -11760,6 +11760,44 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/closed-job-detail?jobId= — merged allbookings + completedJobs via server token.
+  // Dispatch session cannot read completedJobs directly (driver-only RTDB rules).
+  if (urlPath === '/api/closed-job-detail' && req.method === 'GET') {
+    const sessionCid = getSessionCompanyId(req);
+    if (!sessionCid) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'No valid dispatch session' }));
+      return;
+    }
+    const qs = new URL('http://x' + req.url).searchParams;
+    const jobId = parseInt(String(qs.get('jobId') || ''), 10);
+    if (!jobId || Number.isNaN(jobId)) {
+      res.writeHead(400, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'jobId required' }));
+      return;
+    }
+    try {
+      const tok = await getFirebaseServerToken();
+      if (!tok) throw new Error('no Firebase server token');
+      const cid = sessionCid;
+      const [allbookings, completedJobs] = await Promise.all([
+        firebaseDbGet(`allbookings/${cid}/${jobId}`, tok).catch(() => null),
+        firebaseDbGet(`completedJobs/${cid}/${jobId}`, tok).catch(() => null),
+      ]);
+      if (!allbookings && !completedJobs) {
+        res.writeHead(404, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'Closed job not found' }));
+        return;
+      }
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, allbookings, completedJobs }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || 'closed job fetch failed' }));
+    }
+    return;
+  }
+
   if (urlPath === '/') {
     if (req.method === 'GET' || req.method === 'HEAD') {
       const companyId = getSessionCompanyId(req);

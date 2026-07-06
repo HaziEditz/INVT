@@ -166,6 +166,34 @@ export function closedJobFareDisplay(job: Job): string {
   return raw.startsWith('$') ? raw : `$${raw}`;
 }
 
+/** True when a fare was actually collected (not just a booking-time payment preference). */
+export function closedJobPaymentCollected(
+  job: Job,
+  raw?: Record<string, unknown>,
+): boolean {
+  const totalRaw = (job.totalFare || '').replace(/^\$/, '').trim();
+  const total = parseFloat(totalRaw);
+  if (!Number.isNaN(total) && total > 0) return true;
+
+  if (raw) {
+    if (raw.cardPaid === true || raw.CardPaid === true || raw.paymentCollected === true) return true;
+    const ps = String(raw.paymentStatus ?? raw.PaymentStatus ?? '').toLowerCase();
+    if (ps === 'paid' || ps === 'collected') return true;
+    const meter = parseFloat(String(raw.meterFare ?? raw.MeterFare ?? ''));
+    if (!Number.isNaN(meter) && meter > 0) return true;
+  }
+  return false;
+}
+
+/** Payment column: Completed always; Cancelled/No Show only when fare was collected. */
+export function closedJobPaymentDisplay(job: Job, raw?: Record<string, unknown>): string {
+  const st = normalizeJobStatus(job.status);
+  const payment = (job.paymentType || '').trim();
+  if (st === 'Completed') return payment || '—';
+  if (!closedJobPaymentCollected(job, raw)) return '—';
+  return payment || '—';
+}
+
 export function closedJobDriverDisplay(job: Job): string {
   const name = (job.driverName || '').trim();
   const id = (job.driverId || '').trim();

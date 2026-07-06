@@ -11,6 +11,7 @@ import { serviceBorderColor, sourceDisplayName } from '@/lib/utils';
 import {
   closedJobDriverDisplay,
   closedJobFareDisplay,
+  closedJobPaymentDisplay,
   closedJobSourceDisplay,
   closedJobTypeDisplay,
   closedJobVehicleDisplay,
@@ -206,7 +207,7 @@ export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModa
             <div>
               <span className="text-bw-muted text-xs">Payment</span>
               <p>
-                {dash(job.paymentType)} · {closedJobFareDisplay(job)}
+                {closedJobPaymentDisplay(job, raw)} · {closedJobFareDisplay(job)}
               </p>
             </div>
             <div>

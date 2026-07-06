@@ -1,5 +1,3 @@
-import { get, ref } from 'firebase/database';
-import { getDb } from '@/lib/firebase';
 import {
   closedJobStatusFromRecord,
   closedJobTerminalAtMs,
@@ -161,20 +159,23 @@ export async function fetchClosedJobDetail(
   companyId: string,
   jobId: number,
 ): Promise<ClosedJobDetail | null> {
-  const db = getDb();
-  const [abSnap, cjSnap] = await Promise.all([
-    get(ref(db, `allbookings/${companyId}/${jobId}`)),
-    get(ref(db, `completedJobs/${companyId}/${jobId}`)),
-  ]);
+  const res = await fetch(`/api/closed-job-detail?jobId=${encodeURIComponent(String(jobId))}`, {
+    credentials: 'include',
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    allbookings?: Record<string, unknown> | null;
+    completedJobs?: Record<string, unknown> | null;
+  };
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
 
   const abRec =
-    abSnap.exists() && abSnap.val() && typeof abSnap.val() === 'object'
-      ? (abSnap.val() as Record<string, unknown>)
-      : null;
+    data.allbookings && typeof data.allbookings === 'object' ? data.allbookings : null;
   const cjRec =
-    cjSnap.exists() && cjSnap.val() && typeof cjSnap.val() === 'object'
-      ? (cjSnap.val() as Record<string, unknown>)
-      : null;
+    data.completedJobs && typeof data.completedJobs === 'object' ? data.completedJobs : null;
 
   const merged = mergeRaw(abRec, cjRec);
   if (!merged) return null;
