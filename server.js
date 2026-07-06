@@ -735,6 +735,106 @@ async function firebaseSignIn(email, password) {
   return { uid: r.body.localId, idToken: r.body.idToken };
 }
 
+function _extractBearerToken(req) {
+  const raw = String(req.headers.authorization || req.headers.Authorization || '').trim();
+  const m = raw.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : '';
+}
+
+/** Verify a client Firebase ID token (driver app Authorization header). */
+async function _verifyFirebaseIdToken(idToken) {
+  const tok = String(idToken || '').trim();
+  if (!tok || tok.split('.').length !== 3) return null;
+  try {
+    const r = await fbRequest(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FB_API_KEY}`,
+      'POST',
+      { idToken: tok },
+    );
+    if (r.status !== 200 || !r.body || !Array.isArray(r.body.users) || !r.body.users.length) {
+      return null;
+    }
+    const u = r.body.users[0];
+    return {
+      uid: String(u.localId || '').trim(),
+      email: String(u.email || '').trim().toLowerCase(),
+    };
+  } catch (e) {
+    console.warn('[firebase] idToken lookup failed:', e && e.message);
+    return null;
+  }
+}
+
+/**
+ * Bearer + driverId auth: ZONE_DRIVERS row must match driverId/company, and Firebase
+ * drivers/{cid}/{uid} (or drivers/{cid}/{driverId} with matching uid) must link token → driver.
+ */
+async function _resolveZoneDriverForFirebaseBearer(opts) {
+  opts = opts || {};
+  const uid = String(opts.uid || '').trim();
+  const driverIdRaw = String(opts.driverId || '').trim();
+  const email = String(opts.email || '').trim().toLowerCase();
+  if (!uid || !driverIdRaw) return null;
+
+  const companyHint = String(opts.companyId || '').trim();
+  let zd = _lookupZoneDriverByUserKey(null, driverIdRaw, companyHint);
+  if (!zd && companyHint) {
+    zd = _lookupZoneDriverByUserKey(null, driverIdRaw, '');
+  }
+  if (!zd) return null;
+
+  const cid = String(zd.companyId || companyHint || '').trim();
+  if (!cid) return null;
+
+  const drvNorm = _normalizeNotifyDriverId(driverIdRaw) || driverIdRaw;
+  let linked = false;
+
+  try {
+    const profUid = await firebaseDbGet(`drivers/${cid}/${uid}`, null);
+    if (profUid && typeof profUid === 'object') {
+      const profDrv = String(profUid.id || profUid.driverId || profUid.DriverId || '').trim();
+      if (!profDrv || _driverIdsMatch(profDrv, drvNorm)) linked = true;
+      else {
+        console.warn(
+          `[api/cancel/bearer] drivers/${cid}/${uid} id=${profDrv} ≠ driverId=${drvNorm}`,
+        );
+      }
+    }
+  } catch (e) {
+    console.warn(`[api/cancel/bearer] drivers/${cid}/${uid} read failed:`, e && e.message);
+  }
+
+  if (!linked) {
+    try {
+      const profDrv = await firebaseDbGet(`drivers/${cid}/${drvNorm}`, null);
+      if (profDrv && typeof profDrv === 'object') {
+        const nodeUid = String(
+          profDrv.uid || profDrv.authUid || profDrv.firebaseUid || profDrv.ownerUid || '',
+        ).trim();
+        if (nodeUid && nodeUid === uid) linked = true;
+        else if (!nodeUid && email) {
+          const nodeEmail = String(profDrv.email || '').trim().toLowerCase();
+          if (nodeEmail && nodeEmail === email) linked = true;
+        }
+      }
+    } catch (e) {
+      console.warn(`[api/cancel/bearer] drivers/${cid}/${drvNorm} read failed:`, e && e.message);
+    }
+  }
+
+  if (!linked) return null;
+
+  try {
+    const usersCid = await firebaseDbGet(`users/${uid}/companyId`, null);
+    if (usersCid != null && String(usersCid).trim() && String(usersCid).trim() !== cid) {
+      console.warn(`[api/cancel/bearer] users/${uid}/companyId tenant mismatch`);
+      return null;
+    }
+  } catch (_e) { /* optional node */ }
+
+  return zd;
+}
+
 // If BW_FIREBASE_SECRET env var is set, use it as admin token (bypasses rules).
 // Get it from: Firebase Console → Project Settings → Service Accounts → Database Secrets.
 // Otherwise falls back to the user's own ID token (requires rules to be deployed).
@@ -14673,7 +14773,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
   // Body: { bookingId, companyId, reason?, cancelledBy, terminalKind?, noShow?, forceTerminal? }
   // Driver: pre-Arrived → recall; post-Arrived → terminal (No Show or Cancelled).
-  //   driver     → X-User-Key (passforlink) matched in ZONE_DRIVERS; companyId derived server-side
+  //   driver     → X-User-Key (passforlink) matched in ZONE_DRIVERS; or Firebase Bearer + driverId
   //   passenger/website → X-Admin-Key header (BW_ADMIN_KEY env var)
   // Dispatcher console: BW_SID session cookie (cancelledBy must be "dispatcher").
   // Idempotent — re-cancelling returns { idempotent: true }.
@@ -14693,7 +14793,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _ccJobLive = jobStore.find(j => j && j.Id === _ccBooking) || null;
     const _ccJob = _ccJobLive || closedJobStore.find(j => j && j.Id === _ccBooking) || null;
-    // Auth — dispatcher: session; driver: X-User-Key; passenger/website: X-Admin-Key.
+    // Auth — dispatcher: session; driver: X-User-Key or Bearer+driverId; passenger/website: X-Admin-Key.
     let _ccCid = '';
     if (_ccBy === 'dispatcher') {
       _ccCid = getSessionCompanyId(req) || _ccCidBody;
@@ -14728,12 +14828,33 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           )) || null;
         }
       }
+      // Fallback: Firebase Bearer (driver app) + driverId — when passforlink / X-User-Key absent.
+      if (!_ccDrvRec) {
+        const _bearerDrvId = String(_cc.driverId || _cc.DriverId || '').trim();
+        const _bearerTok = _extractBearerToken(req);
+        if (_bearerTok && _bearerDrvId) {
+          const _fbAuth = await _verifyFirebaseIdToken(_bearerTok);
+          if (_fbAuth && _fbAuth.uid) {
+            _ccDrvRec = await _resolveZoneDriverForFirebaseBearer({
+              uid: _fbAuth.uid,
+              email: _fbAuth.email,
+              driverId: _bearerDrvId,
+              companyId: _ccCidBody || (_ccJob && _ccJob.companyId) || '',
+            });
+            if (_ccDrvRec) {
+              console.log(
+                `[api/cancel/bearer] driver ${_bearerDrvId} authenticated uid=${_fbAuth.uid} cid=${_ccDrvRec.companyId || '-'}`,
+              );
+            }
+          }
+        }
+      }
       if (!_ccDrvRec) {
         res.writeHead(401, JSON_HEADERS);
         res.end(JSON.stringify({
           ok: false,
           error_code: 'auth_failed',
-          error: 'driver cancel requires X-User-Key (or X-Admin-Key + driverId)',
+          error: 'driver cancel requires X-User-Key, Firebase Bearer + driverId, or X-Admin-Key + driverId',
         }));
         return;
       }
