@@ -232,7 +232,9 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
               <th className="text-left p-2 whitespace-nowrap">Service</th>
               <th className="text-left p-2 whitespace-nowrap">Source</th>
               <th className="text-left p-2 whitespace-nowrap">Type</th>
-              <th className="p-2 whitespace-nowrap">View</th>
+              <th className="p-2 whitespace-nowrap sticky right-0 z-20 bg-bw-card shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.45)]">
+                View
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -248,7 +250,7 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
                 const isCancelled = st === 'Cancelled';
                 const isNoShow = st === 'No Show';
                 return (
-                  <tr key={j.id} className="border-t border-bw-border hover:bg-bw-surface">
+                  <tr key={j.id} className="group border-t border-bw-border hover:bg-bw-surface">
                     <td className="p-2 font-mono whitespace-nowrap">#{j.id}</td>
                     <td className="p-2 whitespace-nowrap">{formatCreatedAt(j)}</td>
                     <td className="p-2 whitespace-nowrap">
@@ -276,13 +278,10 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
                     <td className="p-2 whitespace-nowrap">{serviceTypeDisplay(j.serviceType)}</td>
                     <td className="p-2 whitespace-nowrap">{closedJobSourceDisplay(j)}</td>
                     <td className="p-2 whitespace-nowrap">{closedJobTypeDisplay(j)}</td>
-                    <td className="p-2 whitespace-nowrap">
+                    <td className="p-2 whitespace-nowrap sticky right-0 z-10 bg-bw-card group-hover:bg-bw-surface shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.45)]">
                       <Button
-                        variant="ghost"
-                        onClick={() => {
-                          closeModal();
-                          openModalWith('closedJobDetail', { jobId: j.id });
-                        }}
+                        variant="primary"
+                        onClick={() => openModalWith('closedJobDetail', { jobId: j.id })}
                       >
                         View
                       </Button>
