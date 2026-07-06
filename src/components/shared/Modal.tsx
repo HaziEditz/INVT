@@ -7,11 +7,12 @@ interface ModalProps {
   title?: string;
   wide?: boolean;
   extraWide?: boolean;
+  bodyClassName?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
 }
 
-export function Modal({ open, onClose, title, wide, extraWide, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, wide, extraWide, bodyClassName, children, footer }: ModalProps) {
   if (!open) return null;
   return (
     <div
@@ -35,7 +36,7 @@ export function Modal({ open, onClose, title, wide, extraWide, children, footer 
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto p-4">{children}</div>
+        <div className={cn('flex-1 overflow-y-auto p-4', bodyClassName)}>{children}</div>
         {footer && <div className="border-t border-bw-border p-3 flex gap-2 justify-end bg-bw-surface">{footer}</div>}
       </div>
     </div>
