@@ -7794,11 +7794,12 @@ try {
   }
 } catch(e) { console.warn('[companyJobSeq] load failed:', e && e.message); }
 function _saveCompanyJobSeq() {
-  // Async write — best-effort durability. Belt-and-braces alongside
-  // syncCompanyJobSeq() which also seeds from jobStore + closedJobStore.
-  fs.writeFile(COMPANY_JOB_SEQ_FILE, JSON.stringify(_companyJobSeq, null, 2), (err) => {
-    if (err) console.warn('[companyJobSeq] save failed:', err.message);
-  });
+  // Sync write so Railway restarts cannot recycle today's sequence from memory.
+  try {
+    fs.writeFileSync(COMPANY_JOB_SEQ_FILE, JSON.stringify(_companyJobSeq, null, 2));
+  } catch (err) {
+    console.warn('[companyJobSeq] save failed:', err && err.message);
+  }
 }
 function newCompanyJobId(companyId) {
   let _cidRaw = String(companyId || '').trim();
@@ -7920,6 +7921,64 @@ function _jobBookingId(jobOrRec, fallbackKey) {
 function _jobExistsInStore(bid, cid) {
   if (!bid) return false;
   return jobStore.some(j => j && j.Id === bid && String(j.companyId || '') === String(cid || j.companyId || ''));
+}
+
+function _jobExistsInClosedStore(bid, cid) {
+  if (!bid) return false;
+  const scid = String(cid || '').trim();
+  return closedJobStore.some(j => j && j.Id === bid && String(j.companyId || '') === scid);
+}
+
+/** True when Firebase allbookings/{cid}/{id} holds any record (ghost/stale reuse guard). */
+async function _firebaseAllbookingsExists(cid, bookingId, tok) {
+  const scid = String(cid || '').trim();
+  const bid = parseInt(bookingId, 10) || 0;
+  if (!scid || !bid) return false;
+  if (!tok) tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) throw new Error('Firebase token unavailable — cannot verify allbookings for ID allocation');
+  const ab = await firebaseDbGet(`allbookings/${scid}/${bid}`, tok);
+  return ab != null && typeof ab === 'object';
+}
+
+/**
+ * Allocate a fresh company job ID that is unused in closedJobStore, jobStore,
+ * and Firebase allbookings/{cid}/{id}. Bumps and persists the daily sequence
+ * on each candidate; sync-writes companyJobSeq.json before returning.
+ */
+async function allocateCompanyJobId(companyId, opts) {
+  opts = opts || {};
+  const tag = opts.tag || 'allocateCompanyJobId';
+  const scid = String(companyId || '').trim();
+  const maxAttempts = opts.maxAttempts || 500;
+  let tok = opts.token || null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = newCompanyJobId(companyId);
+    if (_jobExistsInClosedStore(candidate, scid)) {
+      console.log(`[${tag}] ID ${candidate} in closedJobStore — allocating next`);
+      continue;
+    }
+    if (_jobExistsInStore(candidate, scid)) {
+      console.log(`[${tag}] ID ${candidate} in jobStore — allocating next`);
+      continue;
+    }
+    try {
+      if (await _firebaseAllbookingsExists(scid, candidate, tok)) {
+        console.log(
+          `[${tag}] ID ${candidate} exists in Firebase allbookings/${scid}/${candidate} — allocating next`,
+        );
+        continue;
+      }
+    } catch (e) {
+      console.error(`[${tag}] Firebase allbookings check failed for #${candidate}: ${e && e.message}`);
+      throw e;
+    }
+    if (attempt > 0) {
+      console.log(`[${tag}] allocated #${candidate} after ${attempt + 1} attempt(s)`);
+    }
+    return candidate;
+  }
+  throw new Error(`[${tag}] exhausted ${maxAttempts} ID allocation attempts for cid=${scid}`);
 }
 
 function _isValidJobRecord(rec, opts) {
@@ -14791,10 +14850,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
 
     // Always allocate a brand-new booking ID — never match or reuse by pickup address.
-    let _cjIdNum = newCompanyJobId(_cjCid);
-    while (_jobExistsInStore(_cjIdNum, _cjCid)) {
-      console.log(`[/api/job/create] ID ${_cjIdNum} already in store — allocating next (never dedupe by address)`);
-      _cjIdNum = newCompanyJobId(_cjCid);
+    // Triple-check closedJobStore, jobStore, and Firebase allbookings before issuing.
+    let _cjIdNum;
+    try {
+      _cjIdNum = await allocateCompanyJobId(_cjCid, { tag: '/api/job/create' });
+    } catch (e) {
+      console.error('[/api/job/create] ID allocation failed:', e && e.message);
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: 'Unable to allocate a unique booking ID — try again shortly' }));
+      return;
     }
     const _cjIdStr = String(_cjIdNum);
     const _cjCreated = Date.now();
