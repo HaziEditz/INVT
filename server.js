@@ -14673,7 +14673,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   // ── POST /api/cancel — §FIX-CB unified cancel REST endpoint ─────────────────
   // Body: { bookingId, companyId, reason?, cancelledBy, terminalKind?, noShow?, forceTerminal? }
   // Driver: pre-Arrived → recall; post-Arrived → terminal (No Show or Cancelled).
-  // Customer Web / server-to-server: X-Admin-Key header (BW_ADMIN_KEY env var).
+  //   driver     → X-User-Key (passforlink) matched in ZONE_DRIVERS; companyId derived server-side
+  //   passenger/website → X-Admin-Key header (BW_ADMIN_KEY env var)
   // Dispatcher console: BW_SID session cookie (cancelledBy must be "dispatcher").
   // Idempotent — re-cancelling returns { idempotent: true }.
   if (urlPath === '/api/cancel' && req.method === 'POST') {
@@ -14692,7 +14693,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _ccJobLive = jobStore.find(j => j && j.Id === _ccBooking) || null;
     const _ccJob = _ccJobLive || closedJobStore.find(j => j && j.Id === _ccBooking) || null;
-    // Auth — dispatcher uses session cookie; Customer Web / other callers require X-Admin-Key.
+    // Auth — dispatcher: session; driver: X-User-Key; passenger/website: X-Admin-Key.
     let _ccCid = '';
     if (_ccBy === 'dispatcher') {
       _ccCid = getSessionCompanyId(req) || _ccCidBody;
@@ -14702,6 +14703,47 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         return;
       }
       if (_ccJob && _ccJob.companyId && String(_ccJob.companyId) !== String(_ccCid)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error_code: 'forbidden', error: 'cross-tenant cancel forbidden' }));
+        return;
+      }
+    } else if (_ccBy === 'driver') {
+      const _ccUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+      const _ccAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+      let _ccDrvRec = null;
+      if (_ccUserKey) {
+        _ccDrvRec = ZONE_DRIVERS.find(d => d && (
+          String(d.passforlink || '').trim() === _ccUserKey ||
+          String(d.userKey      || '').trim() === _ccUserKey ||
+          String(d.UserKey      || '').trim() === _ccUserKey
+        )) || null;
+      }
+      // Fallback: admin key + driverId in payload (server-to-server / regression tests).
+      const _ccAdminSecret = process.env.BW_ADMIN_KEY || ADMIN_KEY;
+      if (!_ccDrvRec && _ccAdminKey && _ccAdminKey === _ccAdminSecret) {
+        const _fbDrvId = String(_cc.driverId || _cc.DriverId || '').trim();
+        if (_fbDrvId) {
+          _ccDrvRec = ZONE_DRIVERS.find(d => d && (
+            String(d.driverid).trim() === _fbDrvId || String(d.VehicleId).trim() === _fbDrvId
+          )) || null;
+        }
+      }
+      if (!_ccDrvRec) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({
+          ok: false,
+          error_code: 'auth_failed',
+          error: 'driver cancel requires X-User-Key (or X-Admin-Key + driverId)',
+        }));
+        return;
+      }
+      _ccCid = String(_ccDrvRec.companyId || '').trim();
+      if (!_ccCid) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error_code: 'bad_request', error: 'driver companyId not configured' }));
+        return;
+      }
+      if (_ccJob && _ccJob.companyId && String(_ccJob.companyId) !== _ccCid) {
         res.writeHead(403, JSON_HEADERS);
         res.end(JSON.stringify({ ok: false, error_code: 'forbidden', error: 'cross-tenant cancel forbidden' }));
         return;
