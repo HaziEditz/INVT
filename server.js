@@ -555,11 +555,27 @@ setTimeout(reconcileDispatchSignupsOnBoot, 3000);
 setTimeout(startOnboardRequestsListener, 5000);
 setTimeout(() => { _healMissingRegistrationBaseCoords('boot'); }, 8000);
 
+/** Boot heal: align known paid accounts where registrationStore drifted from Owner Panel billing. */
+async function reconcileStaleRegistrationBillingOnBoot() {
+  for (const reg of registrationStore) {
+    if (!reg.companyId) continue;
+    const settings = await readCompanySettingsNode(reg.companyId);
+    if (healRegistrationBillingFromFirebase(reg, settings)) continue;
+    if (reg.status === 'active') {
+      await ensureFirebaseBillingActive(reg.companyId, {
+        nextDueDate: settings?.billing?.nextDueDate || null,
+      });
+    }
+  }
+}
+setTimeout(() => { void reconcileStaleRegistrationBillingOnBoot(); }, 4500);
+
 // Run every 10 minutes — expire trials, move to grace period, then deactivate
 setInterval(() => {
   const now = Date.now();
   let changed = false;
   registrationStore.forEach(r => {
+    if (r.status === 'active') return;
     if (r.status === 'trial' && r.trialEnd && now > r.trialEnd) {
       r.status = 'grace';
       r.graceEnd = r.trialEnd + 24 * 60 * 60 * 1000;
@@ -857,6 +873,56 @@ function parseBillingDueMs(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+const STALE_REG_BILLING_STATUSES = new Set(['trial', 'grace', 'deactivated']);
+
+/** True when Firebase companySettings indicates a paying/current subscription. */
+function firebaseBillingGrantsAccess(settings) {
+  if (!settings || typeof settings !== 'object') return false;
+  const now = Date.now();
+  if (settings.active === true) return true;
+  const billing = settings.billing || {};
+  const plan = settings.plan || {};
+  const billingStatus = String(billing.status || plan.status || '').toLowerCase();
+  if (billingStatus === 'active' || billingStatus === 'paid') return true;
+  const dueMs = parseBillingDueMs(billing.nextDueDate);
+  return dueMs != null && dueMs > now;
+}
+
+/** Align registrationStore with authoritative Firebase billing (login-time self-heal). */
+function healRegistrationBillingFromFirebase(reg, settings) {
+  if (!reg || !firebaseBillingGrantsAccess(settings)) return false;
+  if (!STALE_REG_BILLING_STATUSES.has(String(reg.status || '').toLowerCase())) return false;
+  reg.status = 'active';
+  reg.trialEnd = null;
+  reg.graceEnd = null;
+  reg.activatedAt = reg.activatedAt || Date.now();
+  saveRegistrations();
+  console.log(`[billing] healed registrationStore ${reg.companyId} → active (Firebase billing)`);
+  return true;
+}
+
+async function ensureFirebaseBillingActive(companyId, billingPatch) {
+  if (!companyId) return;
+  try {
+    const tok = await getFirebaseServerToken();
+    if (!tok) return;
+    const now = Date.now();
+    await firebaseDbPatch(`companySettings/${companyId}`, { active: true, updatedAt: now }, tok);
+    await firebaseDbPatch(`companySettings/${companyId}/plan`, {
+      status: 'active',
+      trialEnd: null,
+      updatedAt: now,
+    }, tok);
+    await firebaseDbPatch(`companySettings/${companyId}/billing`, Object.assign({
+      status: 'active',
+      updatedAt: now,
+    }, billingPatch || {}), tok);
+    console.log(`[billing] ensured companySettings/${companyId} active`);
+  } catch (e) {
+    console.warn(`[billing] ensureFirebaseBillingActive/${companyId} failed:`, e.message);
+  }
+}
+
 /** Merge registration record with Firebase companySettings for login access. */
 function resolveCompanyAccess(reg, settings) {
   const now = Date.now();
@@ -867,6 +933,7 @@ function resolveCompanyAccess(reg, settings) {
   const trialEnd = Number(plan.trialEnd || reg.trialEnd || 0) || null;
   const billingStatus = String(billing.status || plan.status || '').toLowerCase();
   const planStatus = billingStatus || String(reg.status || 'active').toLowerCase();
+  const firebasePaid = firebaseBillingGrantsAccess(settings);
 
   const hasFirebaseBilling = !!(settings && (
     settings.active !== undefined ||
@@ -899,10 +966,17 @@ function resolveCompanyAccess(reg, settings) {
       planStatus !== 'deleted';
   }
 
+  if (firebasePaid) subscriptionOk = true;
+
+  let effectivePlanStatus = planStatus;
+  if (firebasePaid && STALE_REG_BILLING_STATUSES.has(effectivePlanStatus)) {
+    effectivePlanStatus = billingStatus || 'active';
+  }
+
   const loginBlocked = !subscriptionOk ||
-    planStatus === 'deactivated' ||
-    planStatus === 'suspended' ||
-    planStatus === 'deleted';
+    effectivePlanStatus === 'deactivated' ||
+    effectivePlanStatus === 'suspended' ||
+    effectivePlanStatus === 'deleted';
   const showBanner = !loginBlocked && (
     planStatus === 'trial' || planStatus === 'overdue' || planStatus === 'grace' ||
     reg.status === 'trial' || reg.status === 'grace' ||
@@ -934,6 +1008,7 @@ function resolveCompanyAccess(reg, settings) {
 async function resolveCompanyAccessAsync(reg) {
   if (!reg || !reg.companyId) return { loginBlocked: true, blockMessage: SUBSCRIPTION_EXPIRED_MSG };
   const settings = await readCompanySettingsNode(reg.companyId);
+  healRegistrationBillingFromFirebase(reg, settings);
   return resolveCompanyAccess(reg, settings);
 }
 
