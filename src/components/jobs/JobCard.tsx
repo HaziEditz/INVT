@@ -45,7 +45,10 @@ import {
 } from '@/lib/jobFlow';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { filterDriversForJob } from '@/lib/jobVehicleEligibility';
-import { useUiStore } from '@/store/uiStore';
+import {
+  notifyJobCancelled,
+  notifyJobRecalled,
+} from '@/lib/dispatchNotifications';
 import { useTariffs } from '@/hooks/useTariffs';
 import { useLiveJobMeter } from '@/hooks/useLiveJobMeter';
 
@@ -360,11 +363,7 @@ export function JobCard({ job, tab }: JobCardProps) {
     setCancelTargetJobId(null);
     try {
       await cancelJob(jobId, target.companyId, dispatcherName);
-      addToast({
-        type: 'success',
-        title: `Job #${jobId} cancelled`,
-        category: 'job_cancelled',
-      });
+      notifyJobCancelled(jobId, target);
     } catch (e) {
       addToast({
         type: 'error',
@@ -700,10 +699,18 @@ export function JobCard({ job, tab }: JobCardProps) {
                   className={cn(iconBtn, 'text-amber-500')}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void run(
-                      () => recallJob(job.id, effectiveJobStatus(job)),
-                      'Recalled to U-A',
-                    );
+                    void (async () => {
+                      try {
+                        await recallJob(job.id, effectiveJobStatus(job));
+                        notifyJobRecalled(job.id, job, job.driverId);
+                      } catch (err) {
+                        addToast({
+                          type: 'error',
+                          title: 'Recall failed',
+                          message: err instanceof Error ? err.message : '',
+                        });
+                      }
+                    })();
                   }}
                 >
                   <RotateCcw size={11} />

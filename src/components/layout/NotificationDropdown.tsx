@@ -7,8 +7,12 @@ const CATEGORY_ICON: Record<NotificationCategory, string> = {
   job_created: '✅',
   job_cancelled: '❌',
   job_updated: '✏️',
+  job_accepted: '✓',
+  job_recalled: '↩',
+  no_show: '⚠',
   driver_online: '🚗',
   new_booking: '📋',
+  sos_alert: '🚨',
   general: 'ℹ️',
 };
 

@@ -29,6 +29,10 @@ import {
   mergeClosedJobRecords,
 } from '@/lib/closedJobs';
 import {
+  notifyFromDispatchRefresh,
+  notifyNewBooking,
+} from '@/lib/dispatchNotifications';
+import {
   markOptimisticLiveTransition,
   clearOptimisticLiveTransition,
   markQueueAwaitingAllbookings,
@@ -1103,12 +1107,7 @@ export function useJobs(companyId: string | null) {
 
     const notifyNewJob = (job: Job) => {
       if (!isUaJob(job) || !isExternalJobSource(job.source)) return;
-      useUiStore.getState().addToast({
-        type: 'info',
-        title: `New job #${job.id}`,
-        message: job.pickAddress || undefined,
-        category: 'new_booking',
-      });
+      notifyNewBooking(job.id);
     };
 
     const applyPending = (key: string, rec: Record<string, unknown>, notify: boolean) => {
@@ -1585,6 +1584,14 @@ export function useJobs(companyId: string | null) {
           });
         }
         notifyOfferReturned(bid, refreshPayload);
+        notifyFromDispatchRefresh({
+          bookingId: bid,
+          action: refreshPayload.action,
+          status: refreshPayload.status,
+          driverId: refreshPayload.driverId,
+          signalAt: signalAt || undefined,
+          job: existingJobSnapshot(bid, pendingRef.current, bookingsRef.current),
+        });
         optimisticDispatchRefresh(
           companyId,
           bid,

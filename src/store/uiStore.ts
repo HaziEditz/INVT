@@ -34,8 +34,12 @@ export type NotificationCategory =
   | 'job_created'
   | 'job_cancelled'
   | 'job_updated'
+  | 'job_accepted'
+  | 'job_recalled'
+  | 'no_show'
   | 'driver_online'
   | 'new_booking'
+  | 'sos_alert'
   | 'general';
 
 export interface NotificationItem {
@@ -51,8 +55,13 @@ export interface NotificationItem {
 function inferCategory(t: Omit<ToastItem, 'id'>): NotificationCategory {
   if (t.category) return t.category;
   const hay = `${t.title} ${t.message ?? ''}`.toLowerCase();
+  if (hay.includes('sos alert')) return 'sos_alert';
+  if (hay.includes('no show')) return 'no_show';
+  if (hay.includes('job accepted')) return 'job_accepted';
+  if (hay.includes('job recalled')) return 'job_recalled';
   if (hay.includes('cancel')) return 'job_cancelled';
   if (hay.includes('updated') || hay.includes('edit')) return 'job_updated';
+  if (hay.includes('new booking')) return 'new_booking';
   if (hay.includes('booked') || hay.includes('created') || hay.includes('job #')) {
     if (hay.includes('new job')) return 'new_booking';
     return 'job_created';
@@ -68,6 +77,10 @@ function soundForToast(t: Omit<ToastItem, 'id'>): NotifySoundKind {
     if (t.category === 'job_created') return 'job_created';
     if (t.category === 'job_updated') return 'job_updated';
     if (t.category === 'job_cancelled') return 'job_cancelled';
+    if (t.category === 'job_accepted') return 'job_created';
+    if (t.category === 'job_recalled') return 'job_updated';
+    if (t.category === 'no_show') return 'alert';
+    if (t.category === 'sos_alert') return 'alert';
     if (t.category === 'driver_online') return 'driver_online';
     if (t.category === 'new_booking') return 'new_booking';
     return 'general';

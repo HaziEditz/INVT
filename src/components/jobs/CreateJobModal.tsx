@@ -3,9 +3,10 @@ import { ArrowUpDown, Loader2, Minus, Plus, X } from 'lucide-react';
 import { AddressAutocomplete } from '@/components/jobs/AddressAutocomplete';
 import { useTariffs } from '@/hooks/useTariffs';
 import { filterForbiddenTariffDropdown } from '@/lib/tariffGuard';
-import { useUiStore } from '@/store/uiStore';
+import { notifyJobCreated } from '@/lib/dispatchNotifications';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
+import { useUiStore } from '@/store/uiStore';
 import {
   chargeStripeCard,
   fetchDispatcherSettings,
@@ -775,12 +776,16 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       upsertJob(hydrated ?? createdJob);
       setActiveTab('ua');
 
-      addToast({
-        type: 'success',
-        title: targets.length > 1 ? `${targets.length} jobs created` : 'Job booked',
-        message: `#${lastId}${serverOffered && driverSelected ? ' · offer sent' : ''}`,
-        category: 'job_created',
-      });
+      if (targets.length > 1) {
+        addToast({
+          type: 'success',
+          title: `${targets.length} jobs created`,
+          message: `#${lastId}${serverOffered && driverSelected ? ' · offer sent' : ''}`,
+          category: 'job_created',
+        });
+      } else {
+        notifyJobCreated(lastId);
+      }
       onClose();
 
       if (needsClientOffer) {

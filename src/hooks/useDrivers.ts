@@ -13,6 +13,7 @@ import {
   type Driver,
 } from '@/types/driver';
 import { findZoneAtCoords, subscribeCompanyZones, type CompanyZone } from '@/lib/companyZones';
+import { notifyDriverOnline } from '@/lib/dispatchNotifications';
 
 export type ZoneQueueDriver = {
   vehicleNo: string;
@@ -31,6 +32,8 @@ export function useDrivers(companyId: string | null) {
   const setDrivers = useDriverStore((s) => s.setDrivers);
   const zonesRef = useRef<CompanyZone[]>([]);
   const onlineDriversRef = useRef<Driver[]>([]);
+  const onlineKeysRef = useRef<Set<string>>(new Set());
+  const onlineInitRef = useRef(true);
 
   const publishDrivers = useCallback(() => {
     const jobs = useJobStore.getState().jobs;
@@ -51,6 +54,8 @@ export function useDrivers(companyId: string | null) {
 
   useEffect(() => {
     if (!companyId) return;
+    onlineInitRef.current = true;
+    onlineKeysRef.current = new Set();
     const db = getDb();
     const r = ref(db, `online/${companyId}`);
 
@@ -71,10 +76,29 @@ export function useDrivers(companyId: string | null) {
         }
       }
       onlineDriversRef.current = list;
+
+      const nextKeys = new Set<string>();
+      for (const driver of list) {
+        const key = `${driver.driverId}:${driver.vehicleId}`;
+        nextKeys.add(key);
+        if (!onlineInitRef.current && !onlineKeysRef.current.has(key)) {
+          notifyDriverOnline(
+            driver.driverName || `Driver ${driver.driverId}`,
+            driver.vehicleNo || driver.vehicleId || '—',
+          );
+        }
+      }
+      onlineKeysRef.current = nextKeys;
+      onlineInitRef.current = false;
+
       publishDrivers();
     });
 
-    return () => unsub();
+    return () => {
+      unsub();
+      onlineInitRef.current = true;
+      onlineKeysRef.current = new Set();
+    };
   }, [companyId, publishDrivers]);
 
   useEffect(() => {
