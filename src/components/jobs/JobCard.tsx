@@ -36,6 +36,7 @@ import {
 } from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
+import { useUiStore } from '@/store/uiStore';
 import {
   applyJobAssignment,
   cancelJob,
