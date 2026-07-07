@@ -2,9 +2,15 @@ import { useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useDriverStore } from '@/store/driverStore';
+import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { kickDriver, suspendDriver } from '@/lib/suspendedApi';
-import { statusColor } from '@/types/driver';
+import { evaluateSuspendGuard } from '@/lib/suspendDriverGuards';
+import {
+  hasPendingSuspendAfterTrip,
+  queueSuspendAfterTrip,
+} from '@/lib/pendingSuspendAfterTrip';
+import { statusColor, type DriverStatus } from '@/types/driver';
 
 export function DriverDetailModal() {
   const open = useUiStore((s) => s.openModal === 'driverDetail');
@@ -12,10 +18,13 @@ export function DriverDetailModal() {
   const closeModal = useUiStore((s) => s.closeModal);
   const addToast = useUiStore((s) => s.addToast);
   const drivers = useDriverStore((s) => s.drivers);
+  const jobs = useJobStore((s) => s.jobs);
   const driver = drivers.find((d) => d.driverId === driverId);
   const [msg, setMsg] = useState('');
   const [suspendUntil, setSuspendUntil] = useState('');
   const [confirmKick, setConfirmKick] = useState(false);
+  const [suspendWarning, setSuspendWarning] = useState<string | null>(null);
+  const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [busy, setBusy] = useState(false);
 
   if (!driver) {
@@ -25,6 +34,8 @@ export function DriverDetailModal() {
       </Modal>
     );
   }
+
+  const scheduledAfterTrip = hasPendingSuspendAfterTrip(driver.driverId, driver.vehicleId);
 
   const run = async (fn: () => Promise<void>, ok: string) => {
     setBusy(true);
@@ -41,8 +52,54 @@ export function DriverDetailModal() {
     } finally {
       setBusy(false);
       setConfirmKick(false);
+      setConfirmSuspend(false);
+      setSuspendWarning(null);
     }
   };
+
+  const beginSuspend = () => {
+    const guard = evaluateSuspendGuard(driver, jobs);
+    if (!guard.canProceed) {
+      setSuspendWarning(guard.message || 'Cannot suspend this driver right now.');
+      return;
+    }
+    setConfirmSuspend(true);
+  };
+
+  const doSuspend = () =>
+    run(
+      () =>
+        suspendDriver({
+          driverId: driver.driverId,
+          vehicleId: driver.vehicleId || driver.driverId,
+          driverName: driver.driverName,
+          vehicleNo: driver.vehicleNo,
+          vehicleType: driver.vehicleType,
+          zoneName: driver.zoneName,
+          suspendedUntil: suspendUntil ? new Date(suspendUntil).toISOString() : undefined,
+        }),
+      `${driver.driverName} suspended`,
+    );
+
+  const scheduleAfterTrip = () => {
+    queueSuspendAfterTrip({
+      driverId: driver.driverId,
+      vehicleId: driver.vehicleId || driver.driverId,
+      driverName: driver.driverName,
+      vehicleNo: driver.vehicleNo,
+      vehicleType: driver.vehicleType,
+      zoneName: driver.zoneName,
+      suspendedUntil: suspendUntil ? new Date(suspendUntil).toISOString() : undefined,
+    });
+    setSuspendWarning(null);
+    addToast({
+      type: 'success',
+      title: 'Auto-suspend scheduled',
+      message: `${driver.driverName} will be suspended when the trip completes.`,
+    });
+  };
+
+  const guard = evaluateSuspendGuard(driver, jobs);
 
   return (
     <>
@@ -54,9 +111,15 @@ export function DriverDetailModal() {
       >
         <div className="space-y-3 text-sm">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full" style={{ background: statusColor(driver.status) }} />
+            <span
+              className="w-3 h-3 rounded-full"
+              style={{ background: statusColor(driver.status as DriverStatus) }}
+            />
             <span className="font-bold">{driver.status}</span>
             <span className="text-bw-muted">· Jobs today: {driver.jobCount ?? 0}</span>
+            {scheduledAfterTrip && (
+              <span className="text-xs text-amber-400">Suspend after trip</span>
+            )}
           </div>
           {driver.bookingId && (
             <div className="bw-card p-2 text-xs">
@@ -74,28 +137,7 @@ export function DriverDetailModal() {
             />
           </label>
           <div className="flex gap-2 flex-wrap">
-            <Button
-              variant="danger"
-              size="md"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  () =>
-                    suspendDriver({
-                      driverId: driver.driverId,
-                      vehicleId: driver.vehicleId || driver.driverId,
-                      driverName: driver.driverName,
-                      vehicleNo: driver.vehicleNo,
-                      vehicleType: driver.vehicleType,
-                      zoneName: driver.zoneName,
-                      suspendedUntil: suspendUntil
-                        ? new Date(suspendUntil).toISOString()
-                        : undefined,
-                    }),
-                  `${driver.driverName} suspended`,
-                )
-              }
-            >
+            <Button variant="danger" size="md" disabled={busy} onClick={beginSuspend}>
               Suspend
             </Button>
             <Button variant="gold" size="md" disabled={busy} onClick={() => setConfirmKick(true)}>
@@ -117,6 +159,42 @@ export function DriverDetailModal() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={confirmSuspend}
+        onClose={() => setConfirmSuspend(false)}
+        title="Suspend driver?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmSuspend(false)}>Cancel</Button>
+            <Button variant="danger" disabled={busy} onClick={() => void doSuspend()}>
+              Suspend now
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-bw-text">
+          Suspend <strong>{driver.driverName}</strong> ({driver.vehicleNo})?
+        </p>
+      </Modal>
+
+      <Modal
+        open={!!suspendWarning}
+        onClose={() => setSuspendWarning(null)}
+        title="Cannot suspend now"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSuspendWarning(null)}>OK</Button>
+            {guard.canScheduleAfterTrip && (
+              <Button variant="danger" disabled={busy} onClick={scheduleAfterTrip}>
+                Schedule after trip
+              </Button>
+            )}
+          </>
+        }
+      >
+        <p className="text-sm text-bw-text">{suspendWarning}</p>
       </Modal>
 
       <Modal

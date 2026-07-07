@@ -14,10 +14,10 @@ export type CompanyDriverRosterEntry = {
   onlineStatus: string;
 };
 
-function normVehicleNo(raw: string): string {
-  const s = String(raw || '').trim();
+function normVehicleNo(raw: string, vehicleIdFallback: string): string {
+  const s = String(raw || vehicleIdFallback || '').trim();
   if (/^DD\d+$/i.test(s)) return s.slice(1);
-  return s;
+  return s || vehicleIdFallback;
 }
 
 function rosterFromProfile(
@@ -43,21 +43,32 @@ function rosterFromProfile(
   const driverName = String(
     prof.name ?? prof.driverName ?? prof.drivername ?? prof.DriverName ?? '',
   ).trim();
-  const vehicleNo = normVehicleNo(
-    String(prof.vehicleNo ?? prof.vehiclenumber ?? prof.vehicleNumber ?? vehicleId),
-  );
+  const rawVehicleNo = String(
+    prof.vehicleNo ?? prof.vehiclenumber ?? prof.vehicleNumber ?? '',
+  ).trim();
+  const vehicleNo = normVehicleNo(rawVehicleNo, vehicleId);
   const vehicleType = String(prof.vehicleType ?? prof.vehicletype ?? 'Sedan').trim();
 
   return {
     driverId,
     vehicleId,
     driverName: driverName || `Driver ${driverId}`,
-    vehicleNo: vehicleNo || vehicleId,
+    vehicleNo,
     vehicleType,
     zoneName: '',
     isOnline: false,
     onlineStatus: 'Offline',
   };
+}
+
+function findByDriverId(
+  merged: Map<string, CompanyDriverRosterEntry>,
+  driverId: string,
+): CompanyDriverRosterEntry | undefined {
+  for (const entry of merged.values()) {
+    if (driverIdsMatch(entry.driverId, driverId)) return entry;
+  }
+  return undefined;
 }
 
 export function useCompanyDriverRoster(companyId: string | null) {
@@ -91,25 +102,26 @@ export function useCompanyDriverRoster(companyId: string | null) {
   return useMemo(() => {
     const merged = new Map<string, CompanyDriverRosterEntry>();
     for (const r of roster) {
-      merged.set(`${r.driverId}:${r.vehicleId}`, { ...r });
+      merged.set(rosterEntryKey(r), { ...r });
     }
     for (const d of onlineDrivers) {
       if (!d.driverId) continue;
-      const mapKey = `${d.driverId}:${d.vehicleId || d.driverId}`;
-      const existing = merged.get(mapKey);
+      const existing = findByDriverId(merged, d.driverId);
       if (existing) {
         existing.isOnline = true;
         existing.onlineStatus = d.status;
         existing.zoneName = d.zoneName || existing.zoneName;
         existing.driverName = d.driverName || existing.driverName;
-        existing.vehicleNo = d.vehicleNo || existing.vehicleNo;
+        if (d.vehicleId) existing.vehicleId = d.vehicleId;
+        existing.vehicleNo = normVehicleNo(d.vehicleNo || '', d.vehicleId || existing.vehicleId);
         existing.vehicleType = d.vehicleType || existing.vehicleType;
       } else {
-        merged.set(mapKey, {
+        const vehicleId = d.vehicleId || d.driverId;
+        merged.set(`${d.driverId}:${vehicleId}`, {
           driverId: d.driverId,
-          vehicleId: d.vehicleId || d.driverId,
+          vehicleId,
           driverName: d.driverName || d.driverId,
-          vehicleNo: d.vehicleNo || d.vehicleId,
+          vehicleNo: normVehicleNo(d.vehicleNo || '', vehicleId),
           vehicleType: d.vehicleType || 'Sedan',
           zoneName: d.zoneName || '',
           isOnline: true,
