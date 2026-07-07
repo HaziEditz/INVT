@@ -4,7 +4,11 @@ import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { Spinner } from '@/components/shared/Spinner';
 import { useUiStore } from '@/store/uiStore';
-import { useDriverStore } from '@/store/driverStore';
+import {
+  findRosterEntry,
+  rosterEntryKey,
+  useCompanyDriverRoster,
+} from '@/hooks/useCompanyDriverRoster';
 import {
   fetchSuspendedDrivers,
   kickDriver,
@@ -13,6 +17,14 @@ import {
   updateSuspensionUntil,
   type SuspendedDriverRow,
 } from '@/lib/suspendedApi';
+
+const FILTER_SELECT =
+  'px-2 py-1.5 rounded-md bg-bw-surface border border-bw-border text-xs text-bw-text min-w-[200px] focus:border-bw-primary focus:outline-none';
+
+const TH =
+  'text-left p-2 text-[10px] font-semibold text-bw-text uppercase tracking-wide border-r border-b border-bw-border bg-bw-surface whitespace-nowrap';
+
+const TD = 'p-2 text-bw-text border-r border-b border-bw-border align-middle';
 
 function formatWhen(iso?: string | null): string {
   if (!iso) return '—';
@@ -30,24 +42,29 @@ function toLocalInputValue(iso?: string | null): string {
   try {
     const d = parseISO(iso.includes('T') ? iso : iso.replace(' ', 'T'));
     if (Number.isNaN(d.getTime())) return '';
-    return format(d, "yyyy-MM-dd'T'HH:mm");
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
     return '';
   }
 }
 
-export function SuspendedModal() {
+interface SuspendedModalProps {
+  companyId: string;
+}
+
+export function SuspendedModal({ companyId }: SuspendedModalProps) {
   const open = useUiStore((s) => s.openModal === 'suspended');
   const closeModal = useUiStore((s) => s.closeModal);
   const addToast = useUiStore((s) => s.addToast);
-  const onlineDrivers = useDriverStore((s) => s.drivers);
+  const roster = useCompanyDriverRoster(companyId || null);
 
   const [rows, setRows] = useState<SuspendedDriverRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const [suspendDriverId, setSuspendDriverId] = useState('');
+  const [suspendPick, setSuspendPick] = useState('');
   const [suspendUntil, setSuspendUntil] = useState('');
   const [confirmKick, setConfirmKick] = useState<SuspendedDriverRow | null>(null);
   const [editUntil, setEditUntil] = useState<Record<string, string>>({});
@@ -59,10 +76,8 @@ export function SuspendedModal() {
 
   const suspendCandidates = useMemo(
     () =>
-      onlineDrivers.filter(
-        (d) => d.driverId && !suspendedKeys.has(`${d.driverId}:${d.vehicleId || d.driverId}`),
-      ),
-    [onlineDrivers, suspendedKeys],
+      roster.filter((d) => d.driverId && !suspendedKeys.has(rosterEntryKey(d))),
+    [roster, suspendedKeys],
   );
 
   const load = useCallback(async () => {
@@ -87,7 +102,7 @@ export function SuspendedModal() {
 
   useEffect(() => {
     if (!open) return;
-    setSuspendDriverId('');
+    setSuspendPick('');
     setSuspendUntil('');
     setConfirmKick(null);
     void load();
@@ -111,7 +126,8 @@ export function SuspendedModal() {
   };
 
   const handleSuspendNew = async () => {
-    const d = suspendCandidates.find((x) => x.driverId === suspendDriverId);
+    const [driverId, vehicleId] = suspendPick.split('|');
+    const d = findRosterEntry(roster, driverId, vehicleId);
     if (!d) {
       addToast({ type: 'error', title: 'Select a driver to suspend' });
       return;
@@ -131,7 +147,7 @@ export function SuspendedModal() {
         }),
       `${d.driverName || d.driverId} suspended`,
     );
-    setSuspendDriverId('');
+    setSuspendPick('');
     setSuspendUntil('');
   };
 
@@ -144,40 +160,49 @@ export function SuspendedModal() {
         wide
         footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}
       >
-        <div className="space-y-3 text-xs">
-          <div className="rounded-md border border-bw-border bg-bw-surface/60 p-3 space-y-2">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-bw-muted">
+        <div className="space-y-3 text-sm text-bw-text">
+          <div className="rounded-md border border-bw-border bg-bw-surface/80 p-3 space-y-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-bw-text">
               Suspend driver
             </div>
             <div className="flex flex-wrap gap-2 items-end">
-              <label className="flex-1 min-w-[180px]">
-                <span className="text-bw-muted block mb-1">Driver</span>
+              <label className="flex-1 min-w-[220px]">
+                <span className="text-bw-muted block mb-1 text-xs">Driver</span>
                 <select
-                  value={suspendDriverId}
-                  onChange={(e) => setSuspendDriverId(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-md bg-bw-surface border border-bw-border text-bw-text"
+                  value={suspendPick}
+                  onChange={(e) => setSuspendPick(e.target.value)}
+                  className={FILTER_SELECT}
                 >
-                  <option value="">Select online driver…</option>
+                  <option value="">Select driver…</option>
                   {suspendCandidates.map((d) => (
-                    <option key={`${d.driverId}:${d.vehicleId}`} value={d.driverId}>
-                      {d.driverName || d.driverId} · {d.vehicleNo || d.vehicleId}
+                    <option key={rosterEntryKey(d)} value={`${d.driverId}|${d.vehicleId}`}>
+                      {d.isOnline ? '● Online' : '○ Offline'} — {d.driverName} ·{' '}
+                      {d.vehicleNo || d.vehicleId}
+                      {d.isOnline && d.onlineStatus ? ` (${d.onlineStatus})` : ''}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                <span className="text-bw-muted block mb-1">Suspended until</span>
+                <span className="text-bw-muted block mb-1 text-xs">Suspended until</span>
                 <input
                   type="datetime-local"
                   value={suspendUntil}
                   onChange={(e) => setSuspendUntil(e.target.value)}
-                  className="px-2 py-1.5 rounded-md bg-bw-surface border border-bw-border text-bw-text"
+                  className="bw-datetime-input px-2 py-1.5 rounded-md border text-sm min-w-[180px]"
                 />
               </label>
-              <Button variant="danger" onClick={() => void handleSuspendNew()} disabled={busyId === 'new-suspend'}>
+              <Button
+                variant="danger"
+                onClick={() => void handleSuspendNew()}
+                disabled={busyId === 'new-suspend'}
+              >
                 Suspend
               </Button>
             </div>
+            {!loading && suspendCandidates.length === 0 && (
+              <p className="text-xs text-bw-muted">All company drivers are already suspended.</p>
+            )}
           </div>
 
           {loading ? (
@@ -188,19 +213,19 @@ export function SuspendedModal() {
           ) : error ? (
             <p className="text-red-400 py-6 text-center">{error}</p>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-bw-border">
-              <table className="w-full text-xs border-collapse min-w-[720px]">
-                <thead className="bg-bw-surface text-bw-muted uppercase text-[10px]">
+            <div className="overflow-x-auto rounded-md border border-bw-border bg-bw-card">
+              <table className="w-full text-xs border-collapse min-w-[820px]">
+                <thead>
                   <tr>
-                    <th className="text-left p-2 border-b border-bw-border">Driver</th>
-                    <th className="text-left p-2 border-b border-bw-border">Vehicle</th>
-                    <th className="text-left p-2 border-b border-bw-border">Suspended</th>
-                    <th className="text-left p-2 border-b border-bw-border">Until</th>
-                    <th className="text-left p-2 border-b border-bw-border">Zone</th>
-                    <th className="p-2 border-b border-bw-border">Actions</th>
+                    <th className={TH}>Driver</th>
+                    <th className={TH}>Vehicle</th>
+                    <th className={TH}>Suspended</th>
+                    <th className={TH}>Until</th>
+                    <th className={TH}>Zone</th>
+                    <th className={`${TH} border-r-0`}>Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="bg-bw-card">
                   {rows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="text-center text-bw-muted py-8">
@@ -212,25 +237,35 @@ export function SuspendedModal() {
                       const key = `${r.driverId}:${r.vehicleId}`;
                       const busy = busyId === key;
                       return (
-                        <tr key={key} className="border-b border-bw-border/60 hover:bg-bw-surface/50">
-                          <td className="p-2 whitespace-nowrap">{r.driverName || r.driverId}</td>
-                          <td className="p-2 whitespace-nowrap">{r.vehicleNo || r.vehicleId || '—'}</td>
-                          <td className="p-2 whitespace-nowrap">{formatWhen(r.suspendedAt)}</td>
-                          <td className="p-2">
+                        <tr
+                          key={key}
+                          className="border-b border-bw-border hover:bg-bw-surface/60"
+                        >
+                          <td className={`${TD} font-medium whitespace-nowrap`}>
+                            {r.driverName || r.driverId}
+                          </td>
+                          <td className={`${TD} whitespace-nowrap`}>
+                            {r.vehicleNo || r.vehicleId || '—'}
+                          </td>
+                          <td className={`${TD} whitespace-nowrap text-bw-muted`}>
+                            {formatWhen(r.suspendedAt)}
+                          </td>
+                          <td className={TD}>
                             <input
                               type="datetime-local"
                               value={editUntil[key] ?? ''}
                               onChange={(e) =>
                                 setEditUntil((prev) => ({ ...prev, [key]: e.target.value }))
                               }
-                              className="px-1.5 py-1 rounded bg-bw-bg border border-bw-border text-bw-text"
+                              className="bw-datetime-input px-1.5 py-1 rounded-md border text-xs min-w-[160px]"
                             />
                           </td>
-                          <td className="p-2 whitespace-nowrap">{r.zoneName || '—'}</td>
-                          <td className="p-2 whitespace-nowrap">
+                          <td className={`${TD} whitespace-nowrap`}>{r.zoneName || '—'}</td>
+                          <td className={`${TD} border-r-0 whitespace-nowrap`}>
                             <div className="flex flex-wrap gap-1">
                               <Button
                                 variant="ghost"
+                                size="sm"
                                 disabled={busy}
                                 onClick={() =>
                                   void runAction(
@@ -251,6 +286,7 @@ export function SuspendedModal() {
                               </Button>
                               <Button
                                 variant="primary"
+                                size="sm"
                                 disabled={busy}
                                 onClick={() =>
                                   void runAction(
@@ -264,6 +300,7 @@ export function SuspendedModal() {
                               </Button>
                               <Button
                                 variant="danger"
+                                size="sm"
                                 disabled={busy}
                                 onClick={() => setConfirmKick(r)}
                               >

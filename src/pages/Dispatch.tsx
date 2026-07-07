@@ -191,7 +191,7 @@ export function DispatchPage() {
       <ClosedJobsModal companyId={companyId} />
       <SearchJobsModal companyId={companyId} />
       <AlarmsModal />
-      <SuspendedModal />
+      <SuspendedModal companyId={companyId} />
       <AccModal />
       <ToastStack />
 

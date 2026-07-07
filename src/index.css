@@ -70,6 +70,18 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/* Native datetime picker — readable on dark dispatch themes */
+.bw-datetime-input {
+  color-scheme: light;
+  background-color: var(--bw-surface);
+  color: var(--bw-text);
+  border-color: var(--bw-border);
+}
+.bw-datetime-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.85;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
