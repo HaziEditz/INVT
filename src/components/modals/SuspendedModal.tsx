@@ -19,7 +19,7 @@ import {
   updateSuspensionUntil,
   type SuspendedDriverRow,
 } from '@/lib/suspendedApi';
-import { evaluateSuspendGuard } from '@/lib/suspendDriverGuards';
+import { evaluateSuspendGuard, evaluateKickGuard } from '@/lib/suspendDriverGuards';
 import {
   hasPendingSuspendAfterTrip,
   queueSuspendAfterTrip,
@@ -86,6 +86,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
   const [suspendFlow, setSuspendFlow] = useState<SuspendFlow | null>(null);
   const [confirmKickOnline, setConfirmKickOnline] = useState<CompanyDriverRosterEntry | null>(null);
   const [confirmKickSuspended, setConfirmKickSuspended] = useState<SuspendedDriverRow | null>(null);
+  const [kickWarning, setKickWarning] = useState<string | null>(null);
   const [editUntil, setEditUntil] = useState<Record<string, string>>({});
   const [offlineUntil, setOfflineUntil] = useState('');
   const [offlinePick, setOfflinePick] = useState('');
@@ -130,6 +131,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
     setSuspendFlow(null);
     setConfirmKickOnline(null);
     setConfirmKickSuspended(null);
+    setKickWarning(null);
     setOfflinePick('');
     setOfflineUntil('');
     void load();
@@ -165,6 +167,27 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
       canSchedule: guard.canScheduleAfterTrip,
       until,
     });
+  };
+
+  const beginKickOnline = (driver: CompanyDriverRosterEntry) => {
+    const guard = evaluateKickGuard(driver, jobs);
+    if (!guard.canProceed) {
+      setKickWarning(guard.message || 'Cannot kick this driver right now.');
+      return;
+    }
+    setConfirmKickOnline(driver);
+  };
+
+  const beginKickSuspended = (row: SuspendedDriverRow) => {
+    const guard = evaluateKickGuard(
+      { driverId: row.driverId, vehicleId: row.vehicleId, vehicleNo: row.vehicleNo },
+      jobs,
+    );
+    if (!guard.canProceed) {
+      setKickWarning(guard.message || 'Cannot kick this driver right now.');
+      return;
+    }
+    setConfirmKickSuspended(row);
   };
 
   const executeSuspend = async (driver: CompanyDriverRosterEntry, until: string) => {
@@ -262,7 +285,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                                 variant="gold"
                                 size="sm"
                                 disabled={busy}
-                                onClick={() => setConfirmKickOnline(d)}
+                                onClick={() => beginKickOnline(d)}
                               >
                                 Kick
                               </Button>
@@ -419,7 +442,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                                   variant="danger"
                                   size="sm"
                                   disabled={busy}
-                                  onClick={() => setConfirmKickSuspended(r)}
+                                  onClick={() => beginKickSuspended(r)}
                                 >
                                   Kick
                                 </Button>
@@ -606,6 +629,18 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
             removes them from the active roster.
           </p>
         )}
+      </Modal>
+
+      <Modal
+        open={!!kickWarning}
+        onClose={() => setKickWarning(null)}
+        title="Cannot kick now"
+        light
+        footer={
+          <Button variant="ghost" onClick={() => setKickWarning(null)}>OK</Button>
+        }
+      >
+        <p className="text-sm text-bw-text">{kickWarning}</p>
       </Modal>
     </>
   );

@@ -17982,6 +17982,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[KickDriver]') {
         const driverId  = param('DriverId') || '';
         const vehicleId = param('VehicleId') || '';
+        const _kickGuard = _evaluateDriverAdminJobGuard(driverId, vehicleId, sessionCompanyId, 'kick');
+        if (!_kickGuard.canProceed) {
+          console.log(`400: POST ${urlPath} [action=[KickDriver]] -> blocked: ${_kickGuard.message}`);
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ error: _kickGuard.message }));
+          return;
+        }
         const _kickZd = companyDrivers(ZONE_DRIVERS).find(d =>
           String(d.driverid) === driverId || String(d.VehicleId) === vehicleId
         );
@@ -18011,6 +18018,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[DispatcherKickUsers]') {
         const driverId  = (param('DriverId')  || '').toString().trim();
         const vehicleId = (param('VehicleId') || '').toString().trim();
+        const _suspGuard = _evaluateDriverAdminJobGuard(driverId, vehicleId, sessionCompanyId, 'suspend');
+        if (!_suspGuard.canProceed) {
+          console.log(`400: POST ${urlPath} [action=[DispatcherKickUsers]] -> blocked: ${_suspGuard.message}`);
+          res.writeHead(400, JSON_HEADERS);
+          res.end(JSON.stringify({ error: _suspGuard.message }));
+          return;
+        }
         const vehicleIdNum = parseInt(vehicleId) || 0;
         // Try to find full driver record in this company's ZONE_DRIVERS; fall back to request params if not found
         const _suspZd = companyDrivers(ZONE_DRIVERS).find(d =>
@@ -22938,6 +22952,77 @@ async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason, op
   // No known vehicle (or caller wants a full sync scan) — must scan now.
   const extras = await _scanAndPurgeDriverOnlineExtras(_cid, _drv, _known, _reason);
   return purged.concat(extras);
+}
+
+const _DRIVER_ADMIN_ACTIVE_TRIP = new Set(['Active', 'OnTrip', 'Picking', 'Arrived', 'Busy']);
+
+function _jobMatchesDriverAdmin(driverId, vehicleId, job) {
+  if (!job) return false;
+  const jDrv = String(job.DriverId ?? job.driverId ?? '').trim();
+  if (!jDrv || jDrv === '0' || jDrv === '-1' || jDrv === '-2') return false;
+  const drv = String(driverId || '').trim();
+  const veh = String(vehicleId || '').trim();
+  if (drv && (_driverIdsMatch(jDrv, drv) || jDrv === drv)) return true;
+  if (veh && (_driverIdsMatch(jDrv, veh) || jDrv === veh)) return true;
+  const jVeh = String(job.VehicleNo ?? job.VehicleId ?? job.vehiclenumber ?? '').trim();
+  if (veh && jVeh && (jVeh === veh || _driverIdsMatch(jVeh, veh))) return true;
+  return false;
+}
+
+/** Mirror dispatch UI suspend/kick guards — block when driver has live jobs. */
+function _evaluateDriverAdminJobGuard(driverId, vehicleId, companyId, action) {
+  const verb = action === 'kick' ? 'kick' : 'suspend';
+  let activeJob = null;
+  let queuedJob = null;
+  let assignedJob = null;
+
+  for (const j of jobStore) {
+    if (!j || !j.Id) continue;
+    if (companyId && j.companyId && String(j.companyId) !== String(companyId)) continue;
+    if (!_jobMatchesDriverAdmin(driverId, vehicleId, j)) continue;
+    const st = String(j.BookingStatus || '').trim();
+    if (_TERMINAL_JOB_STATUSES.has(st)) continue;
+    if (_DRIVER_ADMIN_ACTIVE_TRIP.has(st)) {
+      if (!activeJob) activeJob = j;
+    } else if (st === 'Queued') {
+      if (!queuedJob) queuedJob = j;
+    } else if (st === 'Assigned') {
+      if (!assignedJob) assignedJob = j;
+    }
+  }
+
+  if (activeJob) {
+    const message = action === 'kick'
+      ? 'Driver has a passenger on board. Cannot kick until trip completes.'
+      : 'Driver has passenger on board. Cannot suspend until trip completes.';
+    return {
+      canProceed: false,
+      reason: 'active',
+      jobId: activeJob.Id,
+      message,
+      canScheduleAfterTrip: action !== 'kick',
+    };
+  }
+  if (queuedJob) {
+    return {
+      canProceed: false,
+      reason: 'queued',
+      jobId: queuedJob.Id,
+      message: `Driver has queued job #${queuedJob.Id}. Reassign from Queue tab first, then ${verb}.`,
+      canScheduleAfterTrip: false,
+    };
+  }
+  if (assignedJob) {
+    return {
+      canProceed: false,
+      reason: 'assigned',
+      jobId: assignedJob.Id,
+      message: `Driver has assigned job #${assignedJob.Id}. Reassign from Assign tab first, then ${verb}.`,
+      canScheduleAfterTrip: false,
+    };
+  }
+
+  return { canProceed: true, reason: 'free', canScheduleAfterTrip: false };
 }
 
 /** Kick/suspend: purge Firebase online presence + notify driver app. */

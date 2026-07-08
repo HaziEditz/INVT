@@ -21,6 +21,7 @@ async function postProcessor(action: string, data: DataParam[]): Promise<{ d?: s
   });
   const json = (await r.json().catch(() => ({}))) as { d?: string; error?: string };
   if (!r.ok) throw new Error(json.error || `${action} failed (${r.status})`);
+  if (json.error) throw new Error(json.error);
   return json;
 }
 
@@ -33,6 +34,7 @@ async function postSelector(action: string, data: DataParam[] = []): Promise<{ d
   });
   const json = (await r.json().catch(() => ({}))) as { d?: string; error?: string };
   if (!r.ok) throw new Error(json.error || `${action} failed (${r.status})`);
+  if (json.error) throw new Error(json.error);
   return json;
 }
 

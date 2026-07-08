@@ -5,7 +5,7 @@ import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { kickDriver, suspendDriver } from '@/lib/suspendedApi';
-import { evaluateSuspendGuard } from '@/lib/suspendDriverGuards';
+import { evaluateSuspendGuard, evaluateKickGuard } from '@/lib/suspendDriverGuards';
 import {
   hasPendingSuspendAfterTrip,
   queueSuspendAfterTrip,
@@ -23,6 +23,7 @@ export function DriverDetailModal() {
   const [msg, setMsg] = useState('');
   const [suspendUntil, setSuspendUntil] = useState('');
   const [confirmKick, setConfirmKick] = useState(false);
+  const [kickWarning, setKickWarning] = useState<string | null>(null);
   const [suspendWarning, setSuspendWarning] = useState<string | null>(null);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,6 +53,7 @@ export function DriverDetailModal() {
     } finally {
       setBusy(false);
       setConfirmKick(false);
+      setKickWarning(null);
       setConfirmSuspend(false);
       setSuspendWarning(null);
     }
@@ -64,6 +66,15 @@ export function DriverDetailModal() {
       return;
     }
     setConfirmSuspend(true);
+  };
+
+  const beginKick = () => {
+    const guard = evaluateKickGuard(driver, jobs);
+    if (!guard.canProceed) {
+      setKickWarning(guard.message || 'Cannot kick this driver right now.');
+      return;
+    }
+    setConfirmKick(true);
   };
 
   const doSuspend = () =>
@@ -140,7 +151,7 @@ export function DriverDetailModal() {
             <Button variant="danger" size="md" disabled={busy} onClick={beginSuspend}>
               Suspend
             </Button>
-            <Button variant="gold" size="md" disabled={busy} onClick={() => setConfirmKick(true)}>
+            <Button variant="gold" size="md" disabled={busy} onClick={beginKick}>
               Kick
             </Button>
             <Button variant="primary" size="md" disabled>
@@ -222,6 +233,17 @@ export function DriverDetailModal() {
         <p className="text-sm text-bw-text">
           Force sign out <strong>{driver.driverName}</strong> ({driver.vehicleNo})?
         </p>
+      </Modal>
+
+      <Modal
+        open={!!kickWarning}
+        onClose={() => setKickWarning(null)}
+        title="Cannot kick now"
+        footer={
+          <Button variant="ghost" onClick={() => setKickWarning(null)}>OK</Button>
+        }
+      >
+        <p className="text-sm text-bw-text">{kickWarning}</p>
       </Modal>
     </>
   );
