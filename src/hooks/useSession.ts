@@ -7,6 +7,7 @@ import { parseCityFromFirebase } from '@/lib/mapCenter';
 import { startEmergencyAlarm, stopEmergencyAlarm } from '@/lib/notifySound';
 
 import { formatSosLocation, notifySosAlert } from '@/lib/dispatchNotifications';
+import { fetchMessageUnreadTotal } from '@/lib/messagesApi';
 
 import { useUiStore } from '@/store/uiStore';
 
@@ -197,12 +198,16 @@ export function useRealtimeNotifications(companyId: string | null) {
   const addToast = useUiStore((s) => s.addToast);
 
   const setEmergency = useUiStore((s) => s.setEmergency);
+  const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
 
 
 
   useEffect(() => {
 
-    if (!companyId) return;
+    if (!companyId) {
+      setMessageUnreadCount(0);
+      return;
+    }
 
 
 
@@ -241,6 +246,16 @@ export function useRealtimeNotifications(companyId: string | null) {
 
 
       const db = getDb();
+
+      const refreshMessageUnread = async () => {
+        try {
+          const total = await fetchMessageUnreadTotal();
+          setMessageUnreadCount(total);
+        } catch {
+          /* ignore unread refresh errors */
+        }
+      };
+      void refreshMessageUnread();
 
 
 
@@ -400,8 +415,10 @@ export function useRealtimeNotifications(companyId: string | null) {
           title: `Message from ${driverName}`,
 
           message: body || 'New driver message',
+          skipNotificationCount: true,
 
         });
+        void refreshMessageUnread();
 
         void remove(ref(db, `driverMsg/${companyId}/${key}`)).catch(() => undefined);
 
@@ -430,6 +447,12 @@ export function useRealtimeNotifications(companyId: string | null) {
         }
 
       });
+      const unreadIv = setInterval(() => void refreshMessageUnread(), 8000);
+      const prevUnsubReg = unsubReg;
+      unsubReg = () => {
+        clearInterval(unreadIv);
+        prevUnsubReg();
+      };
 
     })();
 
@@ -449,7 +472,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     };
 
-  }, [companyId, addToast, setEmergency]);
+  }, [companyId, addToast, setEmergency, setMessageUnreadCount]);
 
 }
 

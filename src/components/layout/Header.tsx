@@ -30,6 +30,7 @@ function ThemeIcon({ theme }: { theme: DispatchThemeId }) {
 
 export function Header({ companyId, companyName, dispatcherName, onNameChange }: HeaderProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
+  const messageUnreadCount = useUiStore((s) => s.messageUnreadCount);
   const theme = useUiStore((s) => s.theme);
   const cycleTheme = useUiStore((s) => s.cycleTheme);
   const billingBanner = useUiStore((s) => s.billingBanner);
@@ -83,7 +84,14 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
               className="bw-nav-link px-2.5"
               onClick={() => openModalWith(n.id as never)}
             >
-              {n.label}
+              <span className="inline-flex items-center gap-1">
+                {n.label}
+                {n.id === 'messages' && messageUnreadCount > 0 ? (
+                  <span className="bg-red-500 text-white text-[9px] rounded-full min-w-[16px] h-4 px-1 inline-flex items-center justify-center font-bold">
+                    {messageUnreadCount > 99 ? '99+' : messageUnreadCount}
+                  </span>
+                ) : null}
+              </span>
             </button>
           ))}
           <button className="bw-nav-link text-red-400 px-2.5" onClick={logoutSession}>

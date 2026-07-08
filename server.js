@@ -17942,16 +17942,45 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[BroadcastMessage]') {
         const message  = param('Message') || '';
         const dateTime = param('DateTime') || '';
-        const datePart = dateTime.substring(0, 10) || new Date().toISOString().substring(0, 10);
-        const timePart = dateTime.substring(11) || '';
-        if (message.trim()) {
+        const { datePart, timePart, dateTime: dtFull } = _chatDatetimeParts(dateTime);
+        const senderName = 'Dispatcher (Broadcast)';
+        const body = message.trim();
+        let sent = 0;
+        if (body && sessionCompanyId) {
           const _bcastDrivers = companyDrivers(ZONE_DRIVERS);
-          _bcastDrivers.forEach(d => {
-            messageStore.push({ Id: nextMsgId++, SenderId: 0, ReceiverId: d.driverid, SenderName: 'Dispatcher (Broadcast)', Message: message, Date: datePart, Time: timePart, IsRead: true, companyId: sessionCompanyId || '' });
-          });
-          console.log(`200: POST ${urlPath} [action=${action}] -> broadcast to ${_bcastDrivers.length} drivers`);
+          for (const d of _bcastDrivers) {
+            const receiverId = String(d.driverid || d.VehicleId || '').trim();
+            if (!receiverId) continue;
+            const msg = {
+              Id: nextMsgId++,
+              SenderId: 0,
+              ReceiverId: receiverId,
+              SenderName: senderName,
+              Message: body,
+              Date: datePart,
+              Time: timePart,
+              IsRead: true,
+              companyId: sessionCompanyId,
+            };
+            _appendMessageRecord(msg);
+            sent += 1;
+            getFirebaseServerToken().then(async (tok) => {
+              if (!tok) return;
+              const notifyDriverId = _resolveChatNotifyDriverId(receiverId, sessionCompanyId);
+              await _persistChatMessageFirebase(sessionCompanyId, notifyDriverId || receiverId, msg, tok);
+              await _fanoutChatMessage(receiverId, {
+                senderName,
+                message: body,
+                dateTime: dtFull,
+                companyId: sessionCompanyId,
+                sourceTag: 'Dispatcher',
+                messageId: msg.Id,
+              }, tok);
+            }).catch(e => console.warn(`  [BroadcastMessage] Firebase fanout failed for ${receiverId}: ${e && e.message}`));
+          }
+          console.log(`200: POST ${urlPath} [action=${action}] -> broadcast to ${sent} drivers`);
         }
-        successD(res, 'Broadcast sent successfully');
+        successD(res, sent > 0 ? `Broadcast sent to ${sent} drivers` : 'Broadcast sent successfully');
 
       } else if (action === '[GroupMessage]') {
         const message   = param('Message') || '';

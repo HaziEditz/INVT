@@ -23,10 +23,12 @@ function formatTime(ts: number) {
 export function NotificationDropdown() {
   const notifications = useUiStore((s) => s.notifications);
   const unreadCount = useUiStore((s) => s.notificationCount);
+  const messageUnreadCount = useUiStore((s) => s.messageUnreadCount);
   const dismissNotification = useUiStore((s) => s.dismissNotification);
   const clearAllNotifications = useUiStore((s) => s.clearAllNotifications);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const totalUnread = unreadCount + messageUnreadCount;
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -47,9 +49,9 @@ export function NotificationDropdown() {
         aria-label="Notifications"
       >
         <Bell size={16} />
-        {unreadCount > 0 && (
+        {totalUnread > 0 && (
           <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] rounded-full min-w-[16px] h-4 px-0.5 flex items-center justify-center font-bold">
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {totalUnread > 99 ? '99+' : totalUnread}
           </span>
         )}
       </button>

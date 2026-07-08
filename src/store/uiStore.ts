@@ -28,6 +28,8 @@ export interface ToastItem {
   title: string;
   message?: string;
   category?: NotificationCategory;
+  /** When true, toast does not increase bell notification count. */
+  skipNotificationCount?: boolean;
 }
 
 export type NotificationCategory =
@@ -96,6 +98,7 @@ interface UiStore {
   modalJobId: number | null;
   modalDriverId: string | null;
   notificationCount: number;
+  messageUnreadCount: number;
   notifications: NotificationItem[];
   toasts: ToastItem[];
   routeDrawing: boolean;
@@ -130,6 +133,7 @@ interface UiStore {
   clearAllNotifications: () => void;
   setRouteDrawing: (v: boolean) => void;
   setNotificationCount: (n: number) => void;
+  setMessageUnreadCount: (n: number) => void;
   setBillingBanner: (msg: string | null) => void;
   setMapTraffic: (v: boolean) => void;
   setMapZones: (v: boolean) => void;
@@ -146,6 +150,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   modalJobId: null,
   modalDriverId: null,
   notificationCount: 0,
+  messageUnreadCount: 0,
   notifications: [],
   toasts: [],
   routeDrawing: false,
@@ -176,6 +181,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
     const id = `${Date.now()}-${Math.random()}`;
     const category = inferCategory(t);
     playNotificationSound(soundForToast({ ...t, category }));
+    const skipBell = !!t.skipNotificationCount;
     const notification: NotificationItem = {
       id,
       type: t.type,
@@ -186,9 +192,9 @@ export const useUiStore = create<UiStore>((set, get) => ({
       createdAt: Date.now(),
     };
     set((s) => ({
-      notifications: [notification, ...s.notifications].slice(0, 100),
+      notifications: skipBell ? s.notifications : [notification, ...s.notifications].slice(0, 100),
       toasts: [...s.toasts, { ...t, id, category }].slice(-2),
-      notificationCount: s.notificationCount + 1,
+      notificationCount: skipBell ? s.notificationCount : s.notificationCount + 1,
     }));
     setTimeout(() => {
       get().removeToast(id);
@@ -207,6 +213,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   clearAllNotifications: () => set({ notifications: [], notificationCount: 0 }),
   setRouteDrawing: (v) => set({ routeDrawing: v }),
   setNotificationCount: (n) => set({ notificationCount: n }),
+  setMessageUnreadCount: (n) => set({ messageUnreadCount: Math.max(0, n) }),
   setBillingBanner: (msg) => set({ billingBanner: msg }),
   setMapTraffic: (v) => set({ mapTraffic: v }),
   setMapZones: (v) => set({ mapZones: v }),

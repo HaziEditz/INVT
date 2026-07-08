@@ -38,10 +38,19 @@ function formatDateTime(d = new Date()): string {
   return `${date} ${h}:${m}`;
 }
 
+export function sumUnreadMessages(list: ReadonlyArray<DriverChatListItem>): number {
+  return list.reduce((n, d) => n + (d.Count || 0), 0);
+}
+
 export async function fetchDriverChatList(): Promise<DriverChatListItem[]> {
   const json = await postDataManager<{ d: string }>('DataSelectorLess', '[RetrieveMessages]', []);
   const rows = JSON.parse(json.d || '[]') as DriverChatListItem[];
   return Array.isArray(rows) ? rows : [];
+}
+
+export async function fetchMessageUnreadTotal(): Promise<number> {
+  const list = await fetchDriverChatList();
+  return sumUnreadMessages(list);
 }
 
 export async function fetchDispatcherConversation(driverId: string): Promise<ChatMessageRow[]> {
@@ -60,28 +69,41 @@ export async function fetchUnreadFromDriver(driverId: string): Promise<ChatMessa
   return Array.isArray(rows) ? rows : [];
 }
 
-export async function sendDirectMessage(receiverId: string, message: string): Promise<void> {
-  const text = message.trim();
-  if (!text) throw new Error('Message is empty');
+async function postProcessor(action: string, data: Array<{ name: string; value: string }>): Promise<void> {
   const r = await fetch('/DataManager/Data.aspx/DataProcessor', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: '[MessageInsert]',
-      data: [
-        { name: 'RecieverId', value: receiverId },
-        { name: 'Message', value: text },
-        { name: 'DateTime', value: formatDateTime() },
-      ],
-    }),
+    body: JSON.stringify({ action, data }),
   });
   const json = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((json as { error?: string }).error || `Send failed (${r.status})`);
+  if ((json as { error?: string }).error) throw new Error((json as { error?: string }).error);
+}
+
+export async function sendDirectMessage(receiverId: string, message: string): Promise<void> {
+  const text = message.trim();
+  if (!text) throw new Error('Message is empty');
+  await postProcessor('[MessageInsert]', [
+    { name: 'RecieverId', value: receiverId },
+    { name: 'Message', value: text },
+    { name: 'DateTime', value: formatDateTime() },
+  ]);
+}
+
+export async function sendBroadcastMessage(message: string): Promise<void> {
+  const text = message.trim();
+  if (!text) throw new Error('Message is empty');
+  await postProcessor('[BroadcastMessage]', [
+    { name: 'Message', value: text },
+    { name: 'DateTime', value: formatDateTime() },
+  ]);
 }
 
 export function isOutboundMessage(row: ChatMessageRow, driverId: string): boolean {
-  return String(row.SenderID) !== String(driverId);
+  const sid = String(row.SenderID);
+  if (sid === '0' || sid === 'Dispatcher') return true;
+  return sid !== String(driverId);
 }
 
 export function driverDisplayName(row: DriverChatListItem): string {
