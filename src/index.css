@@ -82,6 +82,37 @@ body {
   opacity: 0.85;
 }
 
+/* Force light panel inside modals (Suspend/Kick, etc.) — readable on any dispatch theme */
+.bw-modal-light {
+  --bw-surface: #ffffff;
+  --bw-card: #ffffff;
+  --bw-card-hover: #f7fafc;
+  --bw-border: #e2e8f0;
+  --bw-text: #1a202c;
+  --bw-muted: #718096;
+  --bw-accent: #4f6ef7;
+  background-color: #ffffff;
+  color: #1a202c;
+}
+.bw-modal-light .bw-datetime-input,
+.bw-modal-light input[type='datetime-local'],
+.bw-modal-light input[type='date'] {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #1a202c;
+  border-color: #e2e8f0;
+}
+.bw-modal-light select {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #1a202c;
+  border-color: #e2e8f0;
+}
+.bw-modal-light .bw-datetime-input::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.75;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

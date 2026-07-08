@@ -7,12 +7,24 @@ interface ModalProps {
   title?: string;
   wide?: boolean;
   extraWide?: boolean;
+  /** Always use white background + dark text (readable on dark dispatch themes). */
+  light?: boolean;
   bodyClassName?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
 }
 
-export function Modal({ open, onClose, title, wide, extraWide, bodyClassName, children, footer }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  wide,
+  extraWide,
+  light,
+  bodyClassName,
+  children,
+  footer,
+}: ModalProps) {
   if (!open) return null;
   return (
     <div
@@ -23,7 +35,8 @@ export function Modal({ open, onClose, title, wide, extraWide, bodyClassName, ch
     >
       <div
         className={cn(
-          'bw-card flex flex-col max-h-[92vh] shadow-2xl',
+          'flex flex-col max-h-[92vh] shadow-2xl',
+          light ? 'bw-modal-light border border-bw-border rounded-lg' : 'bw-card',
           extraWide ? 'w-full max-w-[min(96vw,1400px)]' : wide ? 'w-full max-w-5xl' : 'w-full max-w-2xl'
         )}
         onClick={(e) => e.stopPropagation()}
@@ -36,8 +49,10 @@ export function Modal({ open, onClose, title, wide, extraWide, bodyClassName, ch
             </button>
           </div>
         )}
-        <div className={cn('flex-1 overflow-y-auto p-4', bodyClassName)}>{children}</div>
-        {footer && <div className="border-t border-bw-border p-3 flex gap-2 justify-end bg-bw-surface">{footer}</div>}
+        <div className={cn('flex-1 overflow-y-auto p-4 bg-bw-surface', bodyClassName)}>{children}</div>
+        {footer && (
+          <div className="border-t border-bw-border p-3 flex gap-2 justify-end bg-bw-surface">{footer}</div>
+        )}
       </div>
     </div>
   );

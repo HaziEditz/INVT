@@ -17982,6 +17982,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       } else if (action === '[KickDriver]') {
         const driverId  = param('DriverId') || '';
         const vehicleId = param('VehicleId') || '';
+        const _kickZd = companyDrivers(ZONE_DRIVERS).find(d =>
+          String(d.driverid) === driverId || String(d.VehicleId) === vehicleId
+        );
+        const _kickVehNo = (param('VehicleNumber') || param('VehicleNo') || (_kickZd && _kickZd.vehiclenumber) || vehicleId || '').toString().trim();
         // Remove driver from roster — only kick drivers belonging to this company
         const beforeLen = ZONE_DRIVERS.length;
         for (let i = ZONE_DRIVERS.length - 1; i >= 0; i--) {
@@ -17992,6 +17996,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
         }
+        await _forceDriverKickOrSuspend({
+          cid: sessionCompanyId,
+          driverId,
+          vehicleId,
+          vehicleNo: _kickVehNo,
+          type: 'kicked',
+          message: 'You have been kicked by dispatcher',
+          source: 'KickDriver',
+        });
         console.log(`200: POST ${urlPath} [action=[KickDriver]] -> driver ${driverId} kicked (removed ${beforeLen - ZONE_DRIVERS.length} entries)`);
         successD(res, 'Operation Successfully Performed');
 
@@ -18031,6 +18044,20 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }
           }
         }
+        const _suspVehNo = ((_suspZd && _suspZd.vehiclenumber) || param('VehicleNumber') || vehicleId || '').toString().trim();
+        const _suspUntilLabel = _suspUntil
+          ? new Date(_suspUntil).toLocaleString('en-NZ', { timeZone: getCompanyTZ(sessionCompanyId) })
+          : 'further notice';
+        await _forceDriverKickOrSuspend({
+          cid: sessionCompanyId,
+          driverId,
+          vehicleId,
+          vehicleNo: _suspVehNo,
+          type: 'suspended',
+          message: `You have been suspended by dispatcher until ${_suspUntilLabel}.`,
+          suspendedUntil: _suspUntil,
+          source: 'DispatcherKickUsers',
+        });
         console.log(`200: POST ${urlPath} [action=[DispatcherKickUsers]] -> driver ${driverId}/${vehicleId} suspended (removed ${beforeLen2 - ZONE_DRIVERS.length} entries, suspended list: ${SUSPENDED_DRIVERS.length})`);
         successD(res, 'Operation Successfully Performed');
 
@@ -22911,6 +22938,53 @@ async function _purgeAllDriverOnlinePresence(cid, driverId, knownVid, reason, op
   // No known vehicle (or caller wants a full sync scan) — must scan now.
   const extras = await _scanAndPurgeDriverOnlineExtras(_cid, _drv, _known, _reason);
   return purged.concat(extras);
+}
+
+/** Kick/suspend: purge Firebase online presence + notify driver app. */
+async function _forceDriverKickOrSuspend(opts) {
+  const {
+    cid,
+    driverId,
+    vehicleId,
+    vehicleNo,
+    type,
+    message,
+    suspendedUntil,
+    source,
+  } = opts || {};
+  const _cid = String(cid || '').trim();
+  const _drvRaw = String(driverId || '').trim();
+  const _drv = _normalizeNotifyDriverId(_drvRaw) || _drvRaw;
+  const _vehNo = String(vehicleNo || vehicleId || '').trim();
+  const _vid = _resolveLogoutVehicleId(_cid, _drv, _vehNo);
+
+  if (_cid && _drv) {
+    const payload = {
+      type,
+      eventType: type,
+      content: message,
+      message,
+      companyId: _cid,
+      driverId: _drv,
+      updatedAt: Date.now(),
+    };
+    if (suspendedUntil) payload.suspendedUntil = suspendedUntil;
+    try {
+      await firebaseDbSet(`notification/${_cid}/${_drv}`, payload, null);
+      await firebaseDbSet(`notification/${_drv}`, payload, null);
+      console.log(`  [${source}] notification/${_cid}/${_drv} → ${type}`);
+    } catch (e) {
+      console.warn(`  [${source}] notification write failed: ${e && e.message}`);
+    }
+  }
+
+  if (_cid && _drv) {
+    try {
+      await _handleDriverLogoutPresence(_cid, _drv, _vehNo || _vid, source);
+    } catch (e) {
+      console.warn(`  [${source}] presence purge failed: ${e && e.message}`);
+    }
+  }
 }
 
 async function _handleDriverLogoutPresence(cid, driverId, vehiclenumber, source) {

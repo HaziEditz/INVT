@@ -27,10 +27,16 @@ import {
 } from '@/lib/pendingSuspendAfterTrip';
 import { statusColor, type DriverStatus } from '@/types/driver';
 
+const FILTER_SELECT =
+  'px-2 py-1.5 rounded-md bg-bw-surface border border-bw-border text-xs text-bw-text min-w-[200px] focus:border-bw-primary focus:outline-none';
+
 const TH =
   'text-left p-2 text-[10px] font-semibold text-bw-text uppercase tracking-wide border-r border-b border-bw-border bg-bw-surface whitespace-nowrap';
 
-const TD = 'p-2 text-bw-text border-r border-b border-bw-border align-middle';
+const TD = 'p-2 text-bw-text border-r border-b border-bw-border align-middle bg-bw-card';
+
+const SECTION =
+  'rounded-lg border border-bw-border bg-bw-surface p-3 space-y-2';
 
 function formatWhen(iso?: string | null): string {
   if (!iso) return '—';
@@ -196,17 +202,18 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
         onClose={closeModal}
         title="Suspend / Kick"
         wide
+        light
         footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}
       >
         <div className="space-y-4 text-sm text-bw-text">
-          <section className="rounded-md border border-bw-border bg-bw-surface/80 p-3 space-y-2">
+          <section className={SECTION}>
             <div className="text-[10px] font-bold uppercase tracking-wide text-bw-text">
               Online drivers
             </div>
             {onlineDrivers.length === 0 ? (
               <p className="text-xs text-bw-muted py-2">No online drivers available to suspend.</p>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-bw-border bg-bw-card">
+              <div className="overflow-x-auto rounded-lg border border-bw-border bg-bw-card">
                 <table className="w-full text-xs border-collapse min-w-[720px]">
                   <thead>
                     <tr>
@@ -217,13 +224,13 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                       <th className={`${TH} border-r-0`}>Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-bw-card">
+                  <tbody>
                     {onlineDrivers.map((d) => {
                       const key = rosterEntryKey(d);
                       const busy = busyId === key;
                       const scheduled = hasPendingSuspendAfterTrip(d.driverId, d.vehicleId);
                       return (
-                        <tr key={key} className="border-b border-bw-border hover:bg-bw-surface/60">
+                        <tr key={key} className="border-b border-bw-border hover:bg-bw-card-hover">
                           <td className={`${TD} font-medium whitespace-nowrap`}>
                             <span className="inline-flex items-center gap-1.5">
                               <span
@@ -237,7 +244,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                           <td className={`${TD} whitespace-nowrap`}>
                             {d.onlineStatus}
                             {scheduled && (
-                              <span className="block text-[10px] text-amber-400">Suspend after trip</span>
+                              <span className="block text-[10px] text-amber-700">Suspend after trip</span>
                             )}
                           </td>
                           <td className={`${TD} whitespace-nowrap`}>{d.zoneName || '—'}</td>
@@ -271,7 +278,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
           </section>
 
           {offlineCandidates.length > 0 && (
-            <section className="rounded-md border border-bw-border bg-bw-surface/60 p-3 space-y-2">
+            <section className={SECTION}>
               <div className="text-[10px] font-bold uppercase tracking-wide text-bw-text">
                 Offline drivers
               </div>
@@ -281,7 +288,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                   <select
                     value={offlinePick}
                     onChange={(e) => setOfflinePick(e.target.value)}
-                    className="px-2 py-1.5 rounded-md bg-bw-surface border border-bw-border text-xs text-bw-text min-w-[200px] focus:border-bw-primary focus:outline-none w-full"
+                    className={`${FILTER_SELECT} w-full`}
                   >
                     <option value="">Select offline driver…</option>
                     {offlineCandidates.map((d) => (
@@ -321,9 +328,9 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                 Loading suspended drivers…
               </div>
             ) : error ? (
-              <p className="text-red-400 py-6 text-center">{error}</p>
+              <p className="text-red-600 py-6 text-center">{error}</p>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-bw-border bg-bw-card">
+              <div className="overflow-x-auto rounded-lg border border-bw-border bg-bw-card">
                 <table className="w-full text-xs border-collapse min-w-[820px]">
                   <thead>
                     <tr>
@@ -335,10 +342,10 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                       <th className={`${TH} border-r-0`}>Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-bw-card">
+                  <tbody>
                     {rows.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="text-center text-bw-muted py-8">
+                        <td colSpan={6} className="text-center text-bw-muted py-8 border-b border-bw-border">
                           No suspended drivers
                         </td>
                       </tr>
@@ -349,7 +356,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                         return (
                           <tr
                             key={key}
-                            className="border-b border-bw-border hover:bg-bw-surface/60"
+                            className="border-b border-bw-border hover:bg-bw-card-hover"
                           >
                             <td className={`${TD} font-medium whitespace-nowrap`}>
                               {r.driverName || r.driverId}
@@ -434,6 +441,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
         open={suspendFlow?.kind === 'confirm'}
         onClose={() => setSuspendFlow(null)}
         title="Suspend driver?"
+        light
         footer={
           <>
             <Button variant="ghost" onClick={() => setSuspendFlow(null)}>Cancel</Button>
@@ -452,7 +460,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
         }
       >
         {suspendFlow?.kind === 'confirm' && (
-          <div className="space-y-3 text-sm">
+          <div className="space-y-3 text-sm text-bw-text">
             <p>
               Suspend <strong>{suspendFlow.driver.driverName}</strong> (
               {suspendFlow.driver.vehicleNo})?
@@ -465,7 +473,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                 onChange={(e) =>
                   setSuspendFlow({ ...suspendFlow, until: e.target.value })
                 }
-                className="mt-1 w-full px-2 py-1.5 rounded bg-bw-bg border border-bw-border text-sm"
+                className="bw-datetime-input mt-1 w-full px-2 py-1.5 rounded-md border text-sm"
               />
             </label>
           </div>
@@ -476,6 +484,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
         open={suspendFlow?.kind === 'warning'}
         onClose={() => setSuspendFlow(null)}
         title="Cannot suspend now"
+        light
         footer={
           <>
             <Button variant="ghost" onClick={() => setSuspendFlow(null)}>OK</Button>
@@ -521,7 +530,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
                   onChange={(e) =>
                     setSuspendFlow({ ...suspendFlow, until: e.target.value })
                   }
-                  className="mt-1 w-full px-2 py-1.5 rounded bg-bw-bg border border-bw-border text-sm"
+                  className="bw-datetime-input mt-1 w-full px-2 py-1.5 rounded-md border text-sm"
                 />
               </label>
             )}
@@ -533,6 +542,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
         open={!!confirmKickOnline}
         onClose={() => setConfirmKickOnline(null)}
         title="Kick driver?"
+        light
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmKickOnline(null)}>Cancel</Button>
@@ -566,6 +576,7 @@ export function SuspendedModal({ companyId }: SuspendedModalProps) {
         open={!!confirmKickSuspended}
         onClose={() => setConfirmKickSuspended(null)}
         title="Kick driver?"
+        light
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmKickSuspended(null)}>Cancel</Button>
