@@ -410,6 +410,8 @@ export function useRealtimeNotifications(companyId: string | null) {
 
         const body = String(val.message ?? val.Message ?? '');
 
+        const driverId = String(val.driverId ?? val.DriverId ?? '');
+
         addToast({
 
           type: 'info',
@@ -419,7 +421,7 @@ export function useRealtimeNotifications(companyId: string | null) {
           message: body || 'New driver message',
           skipNotificationCount: true,
           durationMs: 10000,
-          onClick: () => openModalWith('messages'),
+          onClick: () => openModalWith('messages', { driverId: driverId || undefined }),
 
         });
         void refreshMessageUnread();

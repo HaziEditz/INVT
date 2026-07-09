@@ -43,6 +43,7 @@ type Props = {
 export function MessagesModal({ companyId }: Props) {
 
   const open = useUiStore((s) => s.openModal === 'messages');
+  const modalDriverId = useUiStore((s) => s.modalDriverId);
 
   const closeModal = useUiStore((s) => s.closeModal);
 
@@ -65,8 +66,17 @@ export function MessagesModal({ companyId }: Props) {
   const [sending, setSending] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const selectedIdRef = useRef<string | null>(null);
+
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    requestAnimationFrame(() => {
+      const el = chatScrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+      chatEndRef.current?.scrollIntoView({ behavior, block: 'end' });
+    });
+  }, []);
 
 
 
@@ -109,6 +119,10 @@ export function MessagesModal({ companyId }: Props) {
 
       await fetchUnreadFromDriver(driverId).catch(() => undefined);
 
+      setDrivers((prev) =>
+        prev.map((d) => (String(d.Id) === String(driverId) ? { ...d, Count: 0 } : d)),
+      );
+
       await refreshDriverList();
 
     } catch (e) {
@@ -132,13 +146,18 @@ export function MessagesModal({ companyId }: Props) {
     if (!open) return;
     setBroadcastText('');
 
+    if (modalDriverId) {
+      setSelectedId(modalDriverId);
+      setTab('direct');
+    }
+
     void refreshDriverList();
 
     const iv = setInterval(() => void refreshDriverList(), 8000);
 
     return () => clearInterval(iv);
 
-  }, [open, refreshDriverList]);
+  }, [open, modalDriverId, refreshDriverList]);
 
 
 
@@ -196,9 +215,11 @@ export function MessagesModal({ companyId }: Props) {
 
   useEffect(() => {
 
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!loading && messages.length > 0) {
+      scrollChatToBottom(open ? 'smooth' : 'auto');
+    }
 
-  }, [messages]);
+  }, [loading, messages, open, scrollChatToBottom]);
 
 
 
@@ -408,7 +429,7 @@ export function MessagesModal({ companyId }: Props) {
 
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-56">
+      <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 max-h-56">
 
         {!selectedId ? (
 
