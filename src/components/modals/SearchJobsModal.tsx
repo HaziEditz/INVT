@@ -5,6 +5,7 @@ import { Badge } from '@/components/shared/Badge';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
 import { searchLiveJobs } from '@/lib/searchLiveJobs';
+import { jobTabForStatus } from '@/lib/jobStatusAuthority';
 import {
   EMPTY_LIVE_JOB_FILTERS,
   LIVE_STATUS_FILTER_OPTIONS,
@@ -16,6 +17,7 @@ import { CJ_SERVICES } from '@/lib/createJobForm';
 import { serviceTypeDisplay } from '@/lib/closedJobs';
 import { useCompanyDriverRoster } from '@/hooks/useCompanyDriverRoster';
 import { useCompanyZones } from '@/hooks/useCompanyZones';
+import { JobCard } from '@/components/jobs/JobCard';
 
 interface SearchJobsModalProps {
   companyId: string | null;
@@ -30,7 +32,6 @@ const FILTER_INPUT =
 export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
   const open = useUiStore((s) => s.openModal === 'searchJobs');
   const closeModal = useUiStore((s) => s.closeModal);
-  const openModalWith = useUiStore((s) => s.openModalWith);
   const jobs = useJobStore((s) => s.jobs);
   const liveJobFilters = useJobStore((s) => s.liveJobFilters);
   const setLiveJobFilters = useJobStore((s) => s.setLiveJobFilters);
@@ -71,7 +72,11 @@ export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
     [jobs, draft, zones],
   );
 
-  const results = useMemo(() => searchLiveJobs(jobs, debounced), [jobs, debounced]);
+  const filteredJobs = useMemo(() => filterLiveJobs(jobs, draft, zones), [jobs, draft, zones]);
+  const results = useMemo(
+    () => (debounced.trim() ? searchLiveJobs(filteredJobs, debounced) : filteredJobs.map((job) => ({ job }))),
+    [filteredJobs, debounced],
+  );
 
   const patchDraft = (partial: Partial<LiveJobFilters>) => {
     setDraft((prev) => ({ ...prev, ...partial }));
@@ -203,35 +208,17 @@ export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
         </div>
 
         <div className="space-y-2 max-h-[40vh] overflow-y-auto min-h-[100px]">
-          {!debounced.trim() ? (
-            <p className="text-bw-muted text-sm text-center py-8">
-              Use dropdowns above and Apply, or type to quick-find a job
-            </p>
-          ) : results.length === 0 ? (
+          {results.length === 0 ? (
             <p className="text-bw-muted text-sm text-center py-8">No matching live jobs</p>
           ) : (
-            results.map(({ job, tabLabel }) => (
-              <div
-                key={job.id}
-                className="bw-card p-3 hover:border-bw-primary cursor-pointer border-l-4 border-l-[var(--bw-accent)]"
-                onClick={() => openModalWith('jobDetail', { jobId: job.id })}
-              >
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="font-mono font-bold text-[var(--bw-accent)]">#{job.id}</span>
-                  <Badge>{tabLabel}</Badge>
+            results.map(({ job }) => (
+              <div key={job.id} className="rounded border border-bw-border p-1 bw-surface">
+                <div className="flex items-center gap-2 px-1 py-0.5">
+                  <span className="font-mono font-bold text-[var(--bw-accent)] text-xs">#{job.id}</span>
+                  <Badge>{jobTabForStatus(job).toUpperCase()}</Badge>
                   <span className="text-[10px] text-bw-muted uppercase">{job.status}</span>
                 </div>
-                <div className="text-xs text-bw-text">
-                  {job.passengerName || '—'}
-                  {job.passengerPhone ? ` · ${job.passengerPhone}` : ''}
-                </div>
-                <div className="text-xs text-bw-muted truncate mt-0.5">{job.pickAddress || '—'}</div>
-                {(job.driverName || job.vehicleNo) && (
-                  <div className="text-[10px] text-bw-muted mt-1">
-                    {job.driverName || job.driverId || '—'}
-                    {job.vehicleNo ? ` · ${job.vehicleNo}` : ''}
-                  </div>
-                )}
+                <JobCard job={job} tab={jobTabForStatus(job)} />
               </div>
             ))
           )}
