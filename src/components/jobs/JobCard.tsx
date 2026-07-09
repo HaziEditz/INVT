@@ -56,6 +56,7 @@ import { useLiveJobMeter } from '@/hooks/useLiveJobMeter';
 interface JobCardProps {
   job: Job;
   tab: JobTab;
+  compact?: boolean;
 }
 
 const TIMER_PILL: Record<JobTimerBadge['variant'], string> = {
@@ -165,7 +166,7 @@ function LiveMeterDisplay({
   );
 }
 
-export function JobCard({ job, tab }: JobCardProps) {
+export function JobCard({ job, tab, compact = false }: JobCardProps) {
   const allDrivers = useDriverStore((s) => s.drivers);
   const onlineDrivers = useMemo(
     () => allDrivers.filter((d) => d.status === 'Available' && d.driverId),
@@ -374,8 +375,9 @@ export function JobCard({ job, tab }: JobCardProps) {
     }
   };
 
-  const iconBtn =
-    'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center shrink-0';
+  const iconBtn = compact
+    ? 'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-5 w-5 inline-flex items-center justify-center shrink-0'
+    : 'p-0.5 rounded border border-transparent hover:border-[var(--bw-border)] bw-hover-surface transition h-6 w-6 inline-flex items-center justify-center shrink-0';
 
   const editButton = (tooltip = 'Edit job') => (
     <Tooltip
@@ -481,7 +483,9 @@ export function JobCard({ job, tab }: JobCardProps) {
   return (
     <div
       className={cn(
-        'rounded px-1.5 py-1 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
+        compact
+          ? 'rounded px-1 py-0.5 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150'
+          : 'rounded px-1.5 py-1 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
         toned && 'bw-job-card-toned',
         highlighted && 'ring-1 ring-[var(--bw-accent)]/60',
         cardLook.flash && 'bw-dispatch-flash',
@@ -499,20 +503,23 @@ export function JobCard({ job, tab }: JobCardProps) {
       }}
     >
       {/* Line 1 — ID, status, type, pickup, timer, contact */}
-      <div className="flex items-center gap-1 min-h-[16px] leading-none mb-0.5">
-        <span className={cn('font-mono text-[9px] font-bold shrink-0', toneText)} style={themeStyle}>
+      <div className={cn('flex items-center gap-1 leading-none', compact ? 'min-h-[14px] mb-0' : 'min-h-[16px] mb-0.5')}>
+        <span
+          className={cn(compact ? 'font-mono text-[8px] font-bold shrink-0' : 'font-mono text-[9px] font-bold shrink-0', toneText)}
+          style={themeStyle}
+        >
           #{job.id}
         </span>
         <span className="inline-flex items-center gap-0.5 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.dotColor }} />
-          <span className="text-[9px] font-bold" style={themeStyle}>
+          <span className={compact ? 'text-[8px] font-bold' : 'text-[9px] font-bold'} style={themeStyle}>
             {status.abbrev}
           </span>
         </span>
         <TypeTag label={pickupType} />
         {pickup && (
           <span
-            className={cn('inline-flex items-center gap-0.5 text-[9px] shrink-0', toneText)}
+            className={cn(compact ? 'inline-flex items-center gap-0.5 text-[8px] shrink-0' : 'inline-flex items-center gap-0.5 text-[9px] shrink-0', toneText)}
             style={themeStyle}
           >
             <MapPin size={9} className="shrink-0 opacity-70" />
@@ -527,7 +534,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         {timerBadge && <TimerPill badge={timerBadge} themed={onThemedBg} />}
         {liveMeter && <LiveMeterDisplay meter={liveMeter} themed={onThemedBg} />}
         {job.urgent && (
-          <span className="text-[8px] font-bold text-red-600 shrink-0">URG</span>
+          <span className={compact ? 'text-[7px] font-bold text-red-600 shrink-0' : 'text-[8px] font-bold text-red-600 shrink-0'}>URG</span>
         )}
         {editLockLabel && editBlockedByOther && (
           <span
@@ -540,7 +547,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         )}
         <span
           className={cn(
-            'ml-auto text-[9px] truncate max-w-[42%] text-right font-medium',
+            compact ? 'ml-auto text-[8px] truncate max-w-[45%] text-right font-medium' : 'ml-auto text-[9px] truncate max-w-[42%] text-right font-medium',
             toneText,
           )}
           style={themeStyle}
@@ -551,7 +558,7 @@ export function JobCard({ job, tab }: JobCardProps) {
       </div>
 
       {/* Line 2 — route + payment */}
-      <div className="flex items-center gap-1 min-h-[14px] mb-0.5 leading-tight">
+      <div className={cn('flex items-center gap-1 leading-tight', compact ? 'min-h-[12px] mb-0' : 'min-h-[14px] mb-0.5')}>
         <div
           className="flex items-center gap-0.5 min-w-0 flex-1"
           onMouseEnter={showRoutePreview}
@@ -559,7 +566,7 @@ export function JobCard({ job, tab }: JobCardProps) {
         >
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
           <span
-            className={cn('truncate text-[10px] font-medium', onThemedBg ? '' : 'text-[var(--bw-text)]')}
+            className={cn(compact ? 'truncate text-[9px] font-medium' : 'truncate text-[10px] font-medium', onThemedBg ? '' : 'text-[var(--bw-text)]')}
             style={themeStyle}
           >
             {job.pickAddress || 'No pickup'}
@@ -567,7 +574,7 @@ export function JobCard({ job, tab }: JobCardProps) {
           <ArrowRight size={9} className="shrink-0 opacity-50" />
           <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
           <span
-            className={cn('truncate text-[10px]', onThemedBg ? '' : 'text-[var(--bw-muted)]')}
+            className={cn(compact ? 'truncate text-[9px]' : 'truncate text-[10px]', onThemedBg ? '' : 'text-[var(--bw-muted)]')}
             style={themeMutedStyle}
           >
             {job.dropAddress || 'No dropoff'}
@@ -578,19 +585,16 @@ export function JobCard({ job, tab }: JobCardProps) {
         </Badge>
       </div>
 
-      <JobBookingMetaRow job={job} metaText={metaText} themeMutedStyle={themeMutedStyle} />
+      {!compact && <JobBookingMetaRow job={job} metaText={metaText} themeMutedStyle={themeMutedStyle} />}
 
       {/* Line 3 + action row — meta or return warning, plus controls */}
-      <div className="flex items-center gap-1 min-h-[18px] leading-none">
+      <div className={cn('flex items-center gap-1 leading-none', compact ? 'min-h-[16px]' : 'min-h-[18px]')}>
         {tab === 'ua' && returnAlert ? (
           <span className="text-[9px] text-red-700 font-medium truncate flex-1 min-w-0">
             {returnAlert.text}
           </span>
         ) : (
-          <span
-            className={cn('text-[9px] truncate flex-1 min-w-0', metaText)}
-            style={themeMutedStyle}
-          >
+          <span className={cn(compact ? 'text-[8px] truncate flex-1 min-w-0' : 'text-[9px] truncate flex-1 min-w-0', metaText)} style={themeMutedStyle}>
             {createdMeta && <span>{createdMeta}</span>}
             {createdMeta && source && <span className="opacity-50"> · </span>}
             {source && <span>{source}</span>}
@@ -607,7 +611,10 @@ export function JobCard({ job, tab }: JobCardProps) {
           {showAssignControls && (
             <>
               <select
-                className="bw-card-static rounded text-[9px] px-1 py-0 h-6 bw-text max-w-[88px] border"
+                className={cn(
+                  'bw-card-static rounded bw-text border',
+                  compact ? 'text-[8px] px-1 py-0 h-5 max-w-[80px]' : 'text-[9px] px-1 py-0 h-6 max-w-[88px]',
+                )}
                 value={assignSelection}
                 disabled={assignBlockedBySchedule}
                 title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
@@ -630,7 +637,7 @@ export function JobCard({ job, tab }: JobCardProps) {
               </select>
               <Button
                 variant="primary"
-                className="!h-6 !px-1.5 !py-0 !text-[9px] shrink-0"
+                className={cn('shrink-0', compact ? '!h-5 !px-1 !py-0 !text-[8px]' : '!h-6 !px-1.5 !py-0 !text-[9px]')}
                 disabled={!assignSelection || assignBlockedBySchedule}
                 title={assignBlockedBySchedule ? preDispatchAssignBlockMessage(job) : undefined}
                 onClick={(e) => {
@@ -784,7 +791,7 @@ export function JobCard({ job, tab }: JobCardProps) {
             <>
               <Button
                 variant="primary"
-                className="!h-6 !px-1.5 !py-0 !text-[9px]"
+                className={compact ? '!h-5 !px-1 !py-0 !text-[8px]' : '!h-6 !px-1.5 !py-0 !text-[9px]'}
                 onClick={(e) => {
                   e.stopPropagation();
                   void run(() => setPending(job), 'Pending');
@@ -809,7 +816,7 @@ export function JobCard({ job, tab }: JobCardProps) {
 
           <Button
             variant="ghost"
-            className="!h-6 !px-1 !py-0 !text-[9px] shrink-0"
+            className={compact ? '!h-5 !px-1 !py-0 !text-[8px] shrink-0' : '!h-6 !px-1 !py-0 !text-[9px] shrink-0'}
             onClick={(e) => {
               e.stopPropagation();
               openModalWith('jobDetail', { jobId: job.id });

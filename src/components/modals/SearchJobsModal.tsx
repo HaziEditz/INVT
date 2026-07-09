@@ -97,8 +97,9 @@ export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
       open={open}
       onClose={closeModal}
       title="Filter Jobs"
-      wide
+      extraWide
       light
+      bodyClassName="p-3"
       footer={
         <div className="flex gap-2 justify-end w-full">
           <Button variant="ghost" onClick={clearAll}>
@@ -113,7 +114,7 @@ export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
         </div>
       }
     >
-      <div className="space-y-4" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="space-y-3 h-[80vh] flex flex-col" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex flex-wrap gap-2 items-end p-3 rounded-lg border border-bw-border bg-bw-surface/60">
           <label className="text-xs text-bw-text flex flex-col gap-1">
             Driver
@@ -207,20 +208,23 @@ export function SearchJobsModal({ companyId }: SearchJobsModalProps) {
           />
         </div>
 
-        <div className="space-y-2 max-h-[40vh] overflow-y-auto min-h-[100px]">
+        <div className="space-y-1.5 flex-1 min-h-[52vh] overflow-y-auto pr-1">
           {results.length === 0 ? (
             <p className="text-bw-muted text-sm text-center py-8">No matching live jobs</p>
           ) : (
-            results.map(({ job }) => (
-              <div key={job.id} className="rounded border border-bw-border p-1 bw-surface">
-                <div className="flex items-center gap-2 px-1 py-0.5">
-                  <span className="font-mono font-bold text-[var(--bw-accent)] text-xs">#{job.id}</span>
-                  <Badge>{jobTabForStatus(job).toUpperCase()}</Badge>
-                  <span className="text-[10px] text-bw-muted uppercase">{job.status}</span>
+            results.map(({ job }) => {
+              const resultTab = jobTabForStatus(job);
+              return (
+                <div key={job.id} className="rounded border border-bw-border p-1 bw-surface">
+                  <div className="flex items-center gap-2 px-1 py-0.5">
+                    <span className="font-mono font-bold text-[var(--bw-accent)] text-xs">#{job.id}</span>
+                    <Badge>{resultTab.toUpperCase()}</Badge>
+                    <span className="text-[10px] text-bw-muted uppercase">{job.status}</span>
+                  </div>
+                  <JobCard job={job} tab={resultTab} compact />
                 </div>
-                <JobCard job={job} tab={jobTabForStatus(job)} />
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
