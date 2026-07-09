@@ -197,6 +197,8 @@ export function useRealtimeNotifications(companyId: string | null) {
 
   const addToast = useUiStore((s) => s.addToast);
 
+  const openModalWith = useUiStore((s) => s.openModalWith);
+
   const setEmergency = useUiStore((s) => s.setEmergency);
   const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
 
@@ -416,6 +418,8 @@ export function useRealtimeNotifications(companyId: string | null) {
 
           message: body || 'New driver message',
           skipNotificationCount: true,
+          durationMs: 10000,
+          onClick: () => openModalWith('messages'),
 
         });
         void refreshMessageUnread();
@@ -472,7 +476,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     };
 
-  }, [companyId, addToast, setEmergency, setMessageUnreadCount]);
+  }, [companyId, addToast, setEmergency, setMessageUnreadCount, openModalWith]);
 
 }
 

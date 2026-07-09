@@ -49,7 +49,7 @@ export function MessagesModal({ companyId }: Props) {
   const addToast = useUiStore((s) => s.addToast);
   const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
 
-  const [tab, setTab] = useState<'direct' | 'broadcast' | 'group' | 'd2d' | 'inbox'>('direct');
+  const [tab, setTab] = useState<'direct' | 'broadcast' | 'group' | 'd2d' | 'inbox' | 'voice'>('direct');
 
   const [drivers, setDrivers] = useState<DriverChatListItem[]>([]);
 
@@ -320,6 +320,8 @@ export function MessagesModal({ companyId }: Props) {
 
     { id: 'd2d' as const, label: 'Driver' },
 
+    { id: 'voice' as const, label: 'Voice' },
+
   ];
 
 
@@ -500,7 +502,7 @@ export function MessagesModal({ companyId }: Props) {
 
   return (
 
-    <Modal open={open} onClose={closeModal} title="Messages" wide footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}>
+    <Modal open={open} onClose={closeModal} title="Messages" wide light footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}>
 
       <div className="flex gap-1 mb-3 border-b border-bw-border pb-2 flex-wrap">
 
@@ -583,6 +585,25 @@ export function MessagesModal({ companyId }: Props) {
       {tab === 'group' && <p className="text-sm text-bw-muted">Group / zone-filtered messaging — Phase 2.</p>}
 
       {tab === 'd2d' && <p className="text-sm text-bw-muted">Driver-to-driver relay — Phase 2.</p>}
+
+      {tab === 'voice' && (
+        /*
+         * FUTURE FEATURE — VOIP voice calling between dispatcher and driver.
+         * Planned approach: WebRTC peer connection with Firebase RTDB used for
+         * signalling (offer/answer/ICE candidates under `voiceCall/{cid}/{driverId}`),
+         * TURN/STUN for NAT traversal, and a call state machine (ringing → active →
+         * ended). Driver app would surface an incoming-call screen + accept/decline.
+         * Not implemented in this phase — placeholder note only.
+         */
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-bw-text">Voice calling — coming soon</p>
+          <p className="text-sm text-bw-muted">
+            Direct VOIP calling between dispatcher and driver is a planned future feature. It will use
+            WebRTC with Firebase for call signalling, letting dispatch place and receive in-app calls
+            without leaving the console. Not available yet.
+          </p>
+        </div>
+      )}
 
     </Modal>
 

@@ -84,6 +84,7 @@ body {
 
 /* Force light panel inside modals (Suspend/Kick, etc.) — readable on any dispatch theme */
 .bw-modal-light {
+  --bw-bg: #f0f2f5;
   --bw-surface: #ffffff;
   --bw-card: #ffffff;
   --bw-card-hover: #f7fafc;
@@ -93,6 +94,13 @@ body {
   --bw-accent: #4f6ef7;
   background-color: #ffffff;
   color: #1a202c;
+}
+.bw-modal-light textarea,
+.bw-modal-light input[type='text'] {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #1a202c;
+  border-color: #e2e8f0;
 }
 .bw-modal-light .bw-datetime-input,
 .bw-modal-light input[type='datetime-local'],

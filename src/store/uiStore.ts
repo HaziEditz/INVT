@@ -30,6 +30,10 @@ export interface ToastItem {
   category?: NotificationCategory;
   /** When true, toast does not increase bell notification count. */
   skipNotificationCount?: boolean;
+  /** Auto-dismiss duration in ms (defaults to 3000). */
+  durationMs?: number;
+  /** Optional click handler; when set the toast becomes clickable. */
+  onClick?: () => void;
 }
 
 export type NotificationCategory =
@@ -198,7 +202,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
     }));
     setTimeout(() => {
       get().removeToast(id);
-    }, 3000);
+    }, t.durationMs ?? 3000);
   },
   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   dismissNotification: (id) =>
