@@ -92,6 +92,8 @@ export interface Job {
   wheelchairs?: number;
   vehiclesRequired?: number;
   vehicleType?: string;
+  zoneId?: string;
+  zoneName?: string;
   queuedForDriverId?: string;
   updateSeq?: number;
   createdAt?: number;
@@ -281,6 +283,12 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     })(),
     tariffName: String(rec.TarriffName ?? rec.TariffName ?? rec.TarriffType ?? rec.tariffName ?? '').trim() || undefined,
     vehicleType: String(rec.VehicleType ?? rec.vehicleType ?? '').trim() || undefined,
+    zoneId: (() => {
+      const raw = rec.ZoneId ?? rec.zoneId ?? rec.zoneid;
+      if (raw == null || raw === '' || String(raw) === '0') return undefined;
+      return String(raw);
+    })(),
+    zoneName: String(rec.ZoneName ?? rec.zoneName ?? rec.zonename ?? '').trim() || undefined,
     passengerEmail: String(rec.useremail ?? rec.Email ?? rec.email ?? '').trim() || undefined,
     isFixedPrice: (() => {
       const tid = String(rec.TarriffId ?? rec.TariffId ?? rec.tariffId ?? '');

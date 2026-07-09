@@ -1,7 +1,9 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
-import { useJobStore, filterJobsForTab } from '@/store/jobStore';
+import { useJobStore, filterJobsForTab, countJobsForTab } from '@/store/jobStore';
 import type { JobTab } from '@/types/job';
 import { jobTabForStatus } from '@/lib/jobStatusAuthority';
+import { hasActiveLiveJobFilters } from '@/lib/liveJobFilters';
+import { useCompanyZones } from '@/hooks/useCompanyZones';
 import { JobCard } from './JobCard';
 import { cn } from '@/lib/utils';
 
@@ -14,16 +16,22 @@ const TABS: { id: JobTab; label: string }[] = [
   { id: 'dy', label: 'DY' },
 ];
 
-export function JobTabs() {
+export function JobTabs({ companyId }: { companyId: string | null }) {
   const activeTab = useJobStore((s) => s.activeTab);
   const setActiveTab = useJobStore((s) => s.setActiveTab);
   const jobs = useJobStore((s) => s.jobs);
+  const liveJobFilters = useJobStore((s) => s.liveJobFilters);
+  const zones = useCompanyZones(companyId);
+  const filtersActive = hasActiveLiveJobFilters(liveJobFilters);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
-  const tabJobs = useMemo(() => filterJobsForTab(jobs, activeTab), [jobs, activeTab]);
+  const tabJobs = useMemo(
+    () => filterJobsForTab(jobs, activeTab, liveJobFilters, zones),
+    [jobs, activeTab, liveJobFilters, zones],
+  );
 
-  const countForTab = (tab: JobTab) => jobs.filter((j) => jobTabForStatus(j) === tab).length;
+  const countForTab = (tab: JobTab) => countJobsForTab(jobs, tab, liveJobFilters, zones);
 
   useEffect(() => {
     const queueTabJobs = jobs.filter((j) => jobTabForStatus(j) === 'queue');
@@ -66,7 +74,8 @@ export function JobTabs() {
     <div className="flex flex-col h-full bw-surface">
       <div className="relative flex border-b bw-border bw-surface shrink-0">
         {TABS.map((t) => {
-          const count = countForTab(t.id);
+          const { shown, total } = countForTab(t.id);
+          const countLabel = filtersActive && shown !== total ? `${shown}/${total}` : String(shown);
           const active = activeTab === t.id;
           return (
             <button
@@ -85,7 +94,7 @@ export function JobTabs() {
                   active ? 'bw-accent-solid' : 'bw-card-static bw-muted border'
                 )}
               >
-                {count}
+                {countLabel}
               </span>
             </button>
           );
@@ -97,7 +106,9 @@ export function JobTabs() {
       </div>
       <div className="flex-1 overflow-y-auto p-1.5">
         {tabJobs.length === 0 ? (
-          <div className="text-center bw-muted text-sm py-12">No jobs in this tab</div>
+          <div className="text-center bw-muted text-sm py-12">
+            {filtersActive ? 'No jobs match the active filters in this tab' : 'No jobs in this tab'}
+          </div>
         ) : (
           tabJobs.map((job) => <JobCard key={job.id} job={job} tab={activeTab} />)
         )}

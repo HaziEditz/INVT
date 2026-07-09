@@ -2,6 +2,8 @@ import { Plus, Moon, Sun, LogOut, Copy, Car, Palette } from 'lucide-react';
 import { Button } from '@/components/shared/Button';
 import { NotificationDropdown } from '@/components/layout/NotificationDropdown';
 import { useUiStore } from '@/store/uiStore';
+import { useJobStore } from '@/store/jobStore';
+import { hasActiveLiveJobFilters } from '@/lib/liveJobFilters';
 import { logoutSession } from '@/lib/jobFlow';
 import { dispatcherInitials } from '@/lib/utils';
 import { THEME_LABELS, type DispatchThemeId } from '@/lib/theme';
@@ -31,6 +33,7 @@ function ThemeIcon({ theme }: { theme: DispatchThemeId }) {
 export function Header({ companyId, companyName, dispatcherName, onNameChange }: HeaderProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const messageUnreadCount = useUiStore((s) => s.messageUnreadCount);
+  const liveFiltersActive = useJobStore((s) => hasActiveLiveJobFilters(s.liveJobFilters));
   const theme = useUiStore((s) => s.theme);
   const cycleTheme = useUiStore((s) => s.cycleTheme);
   const billingBanner = useUiStore((s) => s.billingBanner);
@@ -86,6 +89,9 @@ export function Header({ companyId, companyName, dispatcherName, onNameChange }:
             >
               <span className="inline-flex items-center gap-1">
                 {n.label}
+                {n.id === 'searchJobs' && liveFiltersActive ? (
+                  <span className="bg-[var(--bw-accent)] text-white text-[9px] rounded-full min-w-[8px] h-2 px-1 inline-flex items-center justify-center font-bold" title="Filters active" />
+                ) : null}
                 {n.id === 'messages' && messageUnreadCount > 0 ? (
                   <span className="bg-red-500 text-white text-[9px] rounded-full min-w-[16px] h-4 px-1 inline-flex items-center justify-center font-bold">
                     {messageUnreadCount > 99 ? '99+' : messageUnreadCount}

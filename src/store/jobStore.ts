@@ -4,6 +4,13 @@ import type { Job, JobTab } from '@/types/job';
 import { jobScheduledTime } from '@/types/job';
 import { ACTIVE_BOOKING_STATUSES, jobTabForStatus, normalizeJobStatus } from '@/lib/jobStatusAuthority';
 import { queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
+import {
+  EMPTY_LIVE_JOB_FILTERS,
+  filterLiveJobs,
+  hasActiveLiveJobFilters,
+  type LiveJobFilters,
+} from '@/lib/liveJobFilters';
+import type { CompanyZone } from '@/lib/companyZones';
 
 interface JobStore {
   jobs: Job[];
@@ -11,6 +18,7 @@ interface JobStore {
   selectedJobId: number | null;
   hoveredJobId: number | null;
   activeTab: JobTab;
+  liveJobFilters: LiveJobFilters;
   setJobs: (jobs: Job[]) => void;
   upsertJob: (job: Job) => void;
   /** Authoritative status refresh — merges BookingStatus/updateSeq into existing store row. */
@@ -21,27 +29,54 @@ interface JobStore {
   setSelectedJobId: (id: number | null) => void;
   setHoveredJobId: (id: number | null) => void;
   setActiveTab: (tab: JobTab) => void;
+  setLiveJobFilters: (partial: Partial<LiveJobFilters>) => void;
+  clearLiveJobFilters: () => void;
 }
 
 function uaPickupSortKey(job: Job): number {
   return jobScheduledTime(job)?.getTime() ?? job.createdAt ?? Number.MAX_SAFE_INTEGER;
 }
 
-export function filterJobsForTab(jobs: Job[], tab: JobTab): Job[] {
-  return jobs
-    .filter((j) => jobTabForStatus(j) === tab)
-    .sort((a, b) => {
-      if (tab === 'ua') {
-        const pa = uaPickupSortKey(a);
-        const pb = uaPickupSortKey(b);
-        if (pa !== pb) return pa - pb;
-        return a.id - b.id;
-      }
-      const ca = a.createdAt || 0;
-      const cb = b.createdAt || 0;
-      if (ca !== cb) return ca - cb;
+function sortJobsForTab(jobs: Job[], tab: JobTab): Job[] {
+  return [...jobs].sort((a, b) => {
+    if (tab === 'ua') {
+      const pa = uaPickupSortKey(a);
+      const pb = uaPickupSortKey(b);
+      if (pa !== pb) return pa - pb;
       return a.id - b.id;
-    });
+    }
+    const ca = a.createdAt || 0;
+    const cb = b.createdAt || 0;
+    if (ca !== cb) return ca - cb;
+    return a.id - b.id;
+  });
+}
+
+export function filterJobsForTab(
+  jobs: Job[],
+  tab: JobTab,
+  filters: LiveJobFilters = EMPTY_LIVE_JOB_FILTERS,
+  zones: CompanyZone[] = [],
+): Job[] {
+  const tabbed = jobs.filter((j) => jobTabForStatus(j) === tab);
+  const filtered = hasActiveLiveJobFilters(filters)
+    ? filterLiveJobs(tabbed, filters, zones)
+    : tabbed;
+  return sortJobsForTab(filtered, tab);
+}
+
+export function countJobsForTab(
+  jobs: Job[],
+  tab: JobTab,
+  filters: LiveJobFilters = EMPTY_LIVE_JOB_FILTERS,
+  zones: CompanyZone[] = [],
+): { shown: number; total: number } {
+  const tabbed = jobs.filter((j) => jobTabForStatus(j) === tab);
+  const total = tabbed.length;
+  const shown = hasActiveLiveJobFilters(filters)
+    ? filterLiveJobs(tabbed, filters, zones).length
+    : total;
+  return { shown, total };
 }
 
 function isLivePoolStatus(status: string): boolean {
@@ -66,6 +101,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
   selectedJobId: null,
   hoveredJobId: null,
   activeTab: 'ua',
+  liveJobFilters: { ...EMPTY_LIVE_JOB_FILTERS },
   setJobs: (jobs) => set({ jobs: [...jobs] }),
   upsertJob: (job) =>
     set((s) => {
@@ -142,4 +178,7 @@ export const useJobStore = create<JobStore>((set, get) => ({
   },
   setHoveredJobId: (id) => set({ hoveredJobId: id }),
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setLiveJobFilters: (partial) =>
+    set((s) => ({ liveJobFilters: { ...s.liveJobFilters, ...partial } })),
+  clearLiveJobFilters: () => set({ liveJobFilters: { ...EMPTY_LIVE_JOB_FILTERS } }),
 }));
