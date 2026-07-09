@@ -25,3 +25,7 @@ export function resolveSos(sosId: string) {
 export function falseAlarmSos(sosId: string) {
   return sosPost('/sos/false-alarm', { sosId });
 }
+
+export function respondToSos(sosId: string, driverId?: string, companyId?: string) {
+  return sosPost('/sos/respond', { sosId, driverId, companyId });
+}

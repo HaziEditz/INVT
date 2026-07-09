@@ -114,16 +114,8 @@ interface UiStore {
   mapVisible: boolean;
   mapFullscreen: boolean;
   mapPoppedOut: boolean;
-  emergency: {
-    sosId: string;
-    driverName: string;
-    driverPhone: string;
-    vehicle: string;
-    lat: number;
-    lng: number;
-    time: string;
-    status: 'active' | 'acknowledged';
-  } | null;
+  emergency: SosEmergency | null;
+  emergencyQueue: SosEmergency[];
   settings: CompanySettings | null;
   routePreview: { pick: { lat: number; lng: number }; drop?: { lat: number; lng: number } } | null;
   mapInstance: google.maps.Map | null;
@@ -148,7 +140,32 @@ interface UiStore {
   setMapFullscreen: (v: boolean) => void;
   setMapPoppedOut: (v: boolean) => void;
   setEmergency: (e: UiStore['emergency']) => void;
+  setEmergencyQueue: (q: UiStore['emergencyQueue']) => void;
   setSettings: (s: CompanySettings | null) => void;
+}
+
+export interface SosResponder {
+  driverId: string;
+  name: string;
+  vehicleNo: string;
+  respondedAt: number;
+  state: string;
+}
+
+export interface SosEmergency {
+  incidentId: string;
+  sosId: string;
+  driverName: string;
+  driverPhone: string;
+  vehicle: string;
+  lat: number;
+  lng: number;
+  locationAddress: string;
+  time: string;
+  status: 'active' | 'acknowledged';
+  dispatchMessage?: string;
+  responders: SosResponder[];
+  triggeredAt: number;
 }
 
 export const useUiStore = create<UiStore>((set, get) => ({
@@ -169,6 +186,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   mapFullscreen: false,
   mapPoppedOut: false,
   emergency: null,
+  emergencyQueue: [],
   settings: null,
   routePreview: null,
   mapInstance: null,
@@ -239,6 +257,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   setMapFullscreen: (v) => set({ mapFullscreen: v }),
   setMapPoppedOut: (v) => set({ mapPoppedOut: v }),
   setEmergency: (e) => set({ emergency: e }),
+  setEmergencyQueue: (q) => set({ emergencyQueue: q }),
   setSettings: (s) => set({ settings: s }),
   setRoutePreview: (r) => set({ routePreview: r }),
   setMapInstance: (map) => set({ mapInstance: map }),

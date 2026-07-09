@@ -1,13 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useUiStore } from '@/store/uiStore';
+import { getDb, onValue, ref } from '@/lib/firebase';
 
 interface Alarm {
   id: string;
   text: string;
   at: string;
   active: boolean;
+}
+
+interface SosHistoryEntry {
+  id: string;
+  driverName: string;
+  vehicle: string;
+  locationAddress: string;
+  status: string;
+  resolvedAt: number;
 }
 
 export function AlarmsModal() {
@@ -17,6 +27,32 @@ export function AlarmsModal() {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [text, setText] = useState('');
+  const [sosHistory, setSosHistory] = useState<SosHistoryEntry[]>([]);
+
+  useEffect(() => {
+    const companyId = localStorage.getItem('bw_company_id') || '';
+    if (!companyId) return;
+    const db = getDb();
+    const h = onValue(ref(db, `sosHistory/${companyId}`), (snap) => {
+      const val = snap.val();
+      if (!val || typeof val !== 'object') {
+        setSosHistory([]);
+        return;
+      }
+      const rows = Object.entries(val as Record<string, Record<string, unknown>>)
+        .map(([id, rec]) => ({
+          id,
+          driverName: String(rec.driverName ?? 'Driver'),
+          vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ''),
+          locationAddress: String(rec.locationAddress ?? ''),
+          status: String(rec.status ?? ''),
+          resolvedAt: Number(rec.resolvedAt ?? rec.updatedAt ?? 0) || 0,
+        }))
+        .sort((a, b) => b.resolvedAt - a.resolvedAt);
+      setSosHistory(rows);
+    });
+    return () => h();
+  }, []);
 
   const add = () => {
     if (!text || !date || !time) return;
@@ -41,6 +77,19 @@ export function AlarmsModal() {
         ))}
         {alarms.length === 0 && <li className="text-bw-muted text-sm text-center py-4">No alarms</li>}
       </ul>
+      <div className="mt-6">
+        <h3 className="text-sm font-semibold text-bw-text mb-2">SOS history</h3>
+        <ul className="space-y-2 max-h-52 overflow-y-auto">
+          {sosHistory.map((row) => (
+            <li key={row.id} className="bw-card p-2 text-xs">
+              <div className="font-medium">{row.driverName} {row.vehicle ? `· ${row.vehicle}` : ''}</div>
+              <div className="text-bw-muted">{row.locationAddress || 'Location unavailable'}</div>
+              <div className="text-bw-muted uppercase">{row.status} · {row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : '—'}</div>
+            </li>
+          ))}
+          {sosHistory.length === 0 && <li className="text-bw-muted text-sm text-center py-3">No SOS history</li>}
+        </ul>
+      </div>
     </Modal>
   );
 }

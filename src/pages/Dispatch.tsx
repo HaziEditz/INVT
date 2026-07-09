@@ -18,7 +18,6 @@ import { AlarmsModal } from '@/components/modals/AlarmsModal';
 import { SuspendedModal } from '@/components/modals/SuspendedModal';
 import { AccModal } from '@/components/modals/AccModal';
 import { ToastStack } from '@/components/shared/Toast';
-import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { Spinner } from '@/components/shared/Spinner';
 import { useFirebaseInit } from '@/hooks/useFirebase';
@@ -42,6 +41,7 @@ export function DispatchPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const popOutRef = useRef<Window | null>(null);
   const emergency = useUiStore((s) => s.emergency);
+  const emergencyQueue = useUiStore((s) => s.emergencyQueue);
   const setEmergency = useUiStore((s) => s.setEmergency);
   const settings = useUiStore((s) => s.settings);
   const setBillingBanner = useUiStore((s) => s.setBillingBanner);
@@ -159,6 +159,90 @@ export function DispatchPage() {
         dispatcherName={dispatcherName}
         onNameChange={setDispatcherName}
       />
+      {emergency && (
+        <div
+          className={[
+            'px-3 py-2 border-b border-red-800/70',
+            emergency.status === 'active'
+              ? 'bg-red-700 text-white animate-pulse'
+              : 'bg-red-900/80 text-red-100',
+          ].join(' ')}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-extrabold tracking-wide">SOS</span>
+            <span className="text-sm">
+              {emergency.driverName} · {emergency.vehicle || 'No vehicle'}
+            </span>
+            <span className="text-xs opacity-90">
+              {emergency.locationAddress || `${emergency.lat.toFixed(5)}, ${emergency.lng.toFixed(5)}`}
+            </span>
+            <span className="ml-auto text-[11px] opacity-90">{emergency.time}</span>
+          </div>
+          {!!emergency.dispatchMessage && (
+            <div className="text-xs mt-1 opacity-95">{emergency.dispatchMessage}</div>
+          )}
+          {emergency.responders.length > 0 && (
+            <div className="text-xs mt-1">
+              Responding:{' '}
+              {emergency.responders
+                .sort((a, b) => (a.respondedAt || 0) - (b.respondedAt || 0))
+                .map((r) => `${r.name}${r.vehicleNo ? ` (${r.vehicleNo})` : ''}`)
+                .join(', ')}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2 mt-2">
+            {emergency.status === 'active' ? (
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  try {
+                    await acknowledgeSos(emergency.sosId, dispatcherName);
+                    stopEmergencyAlarm();
+                  } catch (e) {
+                    console.error('[SOS] acknowledge failed', e);
+                  }
+                }}
+              >
+                Acknowledge
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="primary"
+                  onClick={async () => {
+                    try {
+                      await resolveSos(emergency.sosId);
+                      setEmergency(null);
+                    } catch (e) {
+                      console.error('[SOS] resolve failed', e);
+                    }
+                  }}
+                >
+                  Resolve
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    try {
+                      await falseAlarmSos(emergency.sosId);
+                      setEmergency(null);
+                    } catch (e) {
+                      console.error('[SOS] false alarm failed', e);
+                    }
+                  }}
+                >
+                  False alarm
+                </Button>
+              </>
+            )}
+          </div>
+          {emergencyQueue.length > 0 && (
+            <div className="mt-2 text-[11px] opacity-90">
+              Queued SOS: {emergencyQueue.map((q) => `${q.driverName}${q.vehicle ? ` (${q.vehicle})` : ''}`).join(' · ')}
+            </div>
+          )}
+        </div>
+      )}
 
       <ResizableDispatchLayout left={<JobTabs companyId={companyId} />} center={mapNode} right={rightPanel} />
 
@@ -194,96 +278,6 @@ export function DispatchPage() {
       <SuspendedModal companyId={companyId} />
       <AccModal />
       <ToastStack />
-
-      <Modal
-        open={!!emergency}
-        onClose={() => {}}
-        title="EMERGENCY SOS"
-        footer={
-          emergency ? (
-            <div className="flex flex-wrap gap-2 justify-end w-full">
-              {emergency.status === 'active' ? (
-                <Button
-                  variant="danger"
-                  onClick={async () => {
-                    try {
-                      await acknowledgeSos(emergency.sosId, dispatcherName);
-                      stopEmergencyAlarm();
-                    } catch (e) {
-                      console.error('[SOS] acknowledge failed', e);
-                    }
-                  }}
-                >
-                  Acknowledge (stop alarm)
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    variant="primary"
-                    onClick={async () => {
-                      try {
-                        await resolveSos(emergency.sosId);
-                        setEmergency(null);
-                      } catch (e) {
-                        console.error('[SOS] resolve failed', e);
-                      }
-                    }}
-                  >
-                    Resolved
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={async () => {
-                      try {
-                        await falseAlarmSos(emergency.sosId);
-                        setEmergency(null);
-                      } catch (e) {
-                        console.error('[SOS] false alarm failed', e);
-                      }
-                    }}
-                  >
-                    False alarm
-                  </Button>
-                </>
-              )}
-            </div>
-          ) : null
-        }
-      >
-        {emergency && (
-          <div className="py-4 space-y-4">
-            <p className="text-2xl font-bold text-red-400 animate-pulse text-center">
-              {emergency.status === 'active' ? 'DRIVER EMERGENCY — ALARM ACTIVE' : 'SOS acknowledged'}
-            </p>
-            <div className="grid gap-2 text-[#e8eaf0]">
-              <p><span className="text-bw-muted">Driver:</span> <strong>{emergency.driverName}</strong></p>
-              <p>
-                <span className="text-bw-muted">Phone:</span>{' '}
-                {emergency.driverPhone ? (
-                  <a href={`tel:${emergency.driverPhone.replace(/\s/g, '')}`} className="text-red-300 font-bold underline text-lg">
-                    {emergency.driverPhone}
-                  </a>
-                ) : (
-                  <span className="text-bw-muted">Not on file</span>
-                )}
-              </p>
-              <p><span className="text-bw-muted">Vehicle:</span> {emergency.vehicle || '—'}</p>
-              <p><span className="text-bw-muted">Location:</span> {emergency.lat.toFixed(5)}, {emergency.lng.toFixed(5)}</p>
-              <p><span className="text-bw-muted">Time:</span> {emergency.time}</p>
-            </div>
-            {emergency.driverPhone ? (
-              <div className="flex justify-center pt-2">
-                <a
-                  href={`tel:${emergency.driverPhone.replace(/\s/g, '')}`}
-                  className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-lg"
-                >
-                  Call driver now
-                </a>
-              </div>
-            ) : null}
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

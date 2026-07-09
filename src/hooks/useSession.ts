@@ -201,6 +201,7 @@ export function useRealtimeNotifications(companyId: string | null) {
   const openMessagesForDriver = useUiStore((s) => s.openMessagesForDriver);
 
   const setEmergency = useUiStore((s) => s.setEmergency);
+  const setEmergencyQueue = useUiStore((s) => s.setEmergencyQueue);
   const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
 
 
@@ -275,6 +276,7 @@ export function useRealtimeNotifications(companyId: string | null) {
           if (!val || typeof val !== 'object') {
 
             setEmergency(null);
+            setEmergencyQueue([]);
 
             if (hadActiveAlarm) {
 
@@ -291,26 +293,51 @@ export function useRealtimeNotifications(companyId: string | null) {
 
 
           type EmergRec = Record<string, unknown>;
+          const emergencies = Object.entries(val as Record<string, EmergRec>)
+            .map(([key, rec]) => {
+              const statusRaw = String(rec.status ?? 'active').toLowerCase();
+              if (statusRaw === 'resolved' || statusRaw === 'false_alarm') return null;
+              const status: 'active' | 'acknowledged' = statusRaw === 'acknowledged' ? 'acknowledged' : 'active';
+              const respondersObj = (rec.responders && typeof rec.responders === 'object')
+                ? (rec.responders as Record<string, Record<string, unknown>>)
+                : {};
+              const responders = Object.entries(respondersObj).map(([driverId, r]) => ({
+                driverId,
+                name: String(r?.name ?? `Driver ${driverId}`),
+                vehicleNo: String(r?.vehicleNo ?? ''),
+                respondedAt: Number(r?.respondedAt ?? 0) || 0,
+                state: String(r?.state ?? ''),
+              }));
+              const loc = (rec.location && typeof rec.location === 'object')
+                ? (rec.location as Record<string, unknown>)
+                : {};
+              const triggeredAt = Number(rec.triggeredAt ?? rec.updatedAt ?? 0) || 0;
+              return {
+                incidentId: String(rec.incidentId ?? `sos-${companyId}-${key}-${triggeredAt || Date.now()}`),
+                sosId: String(rec.sosId ?? rec.driverId ?? key),
+                driverName: String(rec.driverName ?? 'Driver'),
+                driverPhone: String(rec.driverPhone ?? rec.phone ?? ''),
+                vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ''),
+                lat: Number(rec.lat ?? loc.lat ?? 0),
+                lng: Number(rec.lng ?? loc.lng ?? 0),
+                locationAddress: String(rec.locationAddress ?? loc.address ?? ''),
+                time: String(rec.time ?? new Date().toISOString()),
+                status,
+                dispatchMessage: String(rec.dispatchMessage ?? ''),
+                responders,
+                triggeredAt,
+              };
+            })
+            .filter(Boolean)
+            .sort((a, b) => {
+              if (b.status !== a.status) return a.status === 'active' ? -1 : 1;
+              return (b.triggeredAt || 0) - (a.triggeredAt || 0);
+            }) as NonNullable<ReturnType<typeof useUiStore.getState>['emergencyQueue']>;
 
-          let best: { key: string; rec: EmergRec; priority: number } | null = null;
-
-          for (const [key, rec] of Object.entries(val as Record<string, EmergRec>)) {
-
-            const status = String(rec.status ?? 'active').toLowerCase();
-
-            if (status === 'resolved' || status === 'false_alarm') continue;
-
-            const priority = status === 'active' ? 2 : status === 'acknowledged' ? 1 : 0;
-
-            if (!best || priority > best.priority) best = { key, rec, priority };
-
-          }
-
-
-
-          if (!best) {
+          if (emergencies.length === 0) {
 
             setEmergency(null);
+            setEmergencyQueue([]);
 
             if (hadActiveAlarm) {
 
@@ -328,51 +355,25 @@ export function useRealtimeNotifications(companyId: string | null) {
 
 
 
-          const { key, rec } = best;
-
-          const statusRaw = String(rec.status ?? 'active').toLowerCase();
-
-          const status: 'active' | 'acknowledged' =
-
-            statusRaw === 'acknowledged' ? 'acknowledged' : 'active';
+          const top = emergencies[0];
+          setEmergency(top);
+          setEmergencyQueue(emergencies.slice(1));
 
 
 
-          setEmergency({
-
-            sosId: String(rec.sosId ?? rec.driverId ?? key),
-
-            driverName: String(rec.driverName ?? 'Driver'),
-
-            driverPhone: String(rec.driverPhone ?? rec.phone ?? ''),
-
-            vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ''),
-
-            lat: Number(rec.lat ?? 0),
-
-            lng: Number(rec.lng ?? 0),
-
-            time: String(rec.time ?? new Date().toISOString()),
-
-            status,
-
-          });
-
-
-
-          if (status === 'active') {
+          if (top.status === 'active') {
 
             if (!hadActiveAlarm) startEmergencyAlarm();
 
             hadActiveAlarm = true;
 
-            if (toastShownFor !== key) {
+            if (toastShownFor !== top.incidentId) {
 
-              toastShownFor = key;
+              toastShownFor = top.incidentId;
 
               notifySosAlert(
-                String(rec.driverName ?? 'Driver'),
-                formatSosLocation(rec),
+                top.driverName,
+                top.locationAddress || formatSosLocation({ lat: top.lat, lng: top.lng }),
               );
 
             }
@@ -482,7 +483,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     };
 
-  }, [companyId, addToast, setEmergency, setMessageUnreadCount, openModalWith, openMessagesForDriver]);
+  }, [companyId, addToast, setEmergency, setEmergencyQueue, setMessageUnreadCount, openModalWith, openMessagesForDriver]);
 
 }
 

@@ -3365,6 +3365,32 @@ async function _clearSosEmergency(cid, driverId, tok) {
   await firebaseDbDelete(`Emergency/${cid}/${driverId}`, tok);
 }
 
+function _resolveSosAddressFallback(driverId) {
+  const did = String(driverId || '').trim();
+  if (!did) return '';
+  const job = jobStore.find((j) => {
+    const jDid = String(j.DriverId || j.AssignedDriverId || '').trim();
+    if (!jDid || jDid !== did) return false;
+    const st = String(j.status || '').toLowerCase();
+    return ['assigned', 'arrived', 'active', 'picking', 'busy', 'queued'].includes(st);
+  });
+  if (!job) return '';
+  const pick = String(job.PickAddress || '').trim();
+  const drop = String(job.DropAddress || '').trim();
+  return pick || drop || '';
+}
+
+async function _resolveSosAddress(lat, lng, fallbackAddress) {
+  const geo = await _reverseGeocode(lat, lng).catch(() => null);
+  if (geo && String(geo).trim()) return String(geo).trim();
+  return String(fallbackAddress || '').trim();
+}
+
+async function _appendSosHistory(cid, incidentId, payload, tok) {
+  if (!cid || !incidentId) return;
+  await firebaseDbSet(`sosHistory/${cid}/${incidentId}`, payload, tok);
+}
+
 async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
   const srcId = String(sourceDriverId);
   const others = ZONE_DRIVERS.filter(d =>
@@ -3372,7 +3398,7 @@ async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
     String(d.driverid) !== srcId &&
     String(d.vehiclestatus || '').toLowerCase() !== 'offline',
   );
-  const content = `Emergency: ${sosPayload.driverName || 'Driver'} (Vehicle ${sosPayload.vehiclenumber || ''})`;
+  const content = `🚨 SOS ALERT — Emergency: Driver ${sosPayload.driverName || 'Driver'} needs help — ${sosPayload.locationAddress || 'Location unavailable'}`;
   for (const d of others) {
     const did = _resolveChatNotifyDriverId(d.driverid, cid);
     if (!did) continue;
@@ -3381,10 +3407,12 @@ async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
         type: 'driver_sos',
         eventType: 'driver_sos',
         sosDriverId: srcId,
+        incidentId: sosPayload.incidentId || `sos-${cid}-${srcId}`,
         driverName: sosPayload.driverName,
         vehiclenumber: sosPayload.vehiclenumber,
         lat: sosPayload.lat,
         lng: sosPayload.lng,
+        locationAddress: sosPayload.locationAddress || '',
         content,
         timestamp: Date.now(),
         bookingid: `0,SOS,0,${cid},Dispatcher`,
@@ -15785,17 +15813,32 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _sosLng = parseFloat(_sosBody.lng ?? _sosDriver.lng ?? 0) || 0;
     const _sosNow = new Date();
     const _sosTime = _sosNow.toISOString().replace('T', ' ').substring(0, 19);
+    const _sosIncidentId = String(_sosBody.incidentId || `sos-${_sosCid}-${_sosDrvId}-${_sosNow.getTime()}`).trim();
+    const _sosFallbackAddress = String(_sosBody.locationAddress || _resolveSosAddressFallback(_sosDrvId)).trim();
+    const _sosResolvedAddress = await _resolveSosAddress(_sosLat, _sosLng, _sosFallbackAddress);
     const _sosPayload = {
+      incidentId: _sosIncidentId,
       sosId: _sosDrvId,
       driverId: _sosDrvId,
       driverName: String(_sosDriver.drivername || _sosBody.driverName || 'Driver').trim(),
       driverPhone: _driverPhoneFromRecord(_sosDriver, _sosBody.phone),
-      vehiclenumber: _vehicleLabelFromRecord(_sosDriver),
+      vehiclenumber: String(_sosBody.vehiclenumber || _vehicleLabelFromRecord(_sosDriver)).trim(),
       lat: _sosLat,
       lng: _sosLng,
+      locationAddress: _sosResolvedAddress,
+      locationSource: _sosResolvedAddress && _sosResolvedAddress === _sosFallbackAddress ? 'fallback' : 'reverse_geocode',
+      location: {
+        lat: _sosLat,
+        lng: _sosLng,
+        address: _sosResolvedAddress,
+      },
       time: _sosTime,
       status: 'active',
       triggeredAt: _sosNow.getTime(),
+      updatedAt: _sosNow.getTime(),
+      responders: {},
+      queueOrder: _sosNow.getTime(),
+      dispatchMessage: '',
       companyId: _sosCid,
     };
     try {
@@ -15815,7 +15858,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       return;
     }
     res.writeHead(200, _sosHdr);
-    res.end(JSON.stringify({ ok: true, sosId: _sosDrvId, companyId: _sosCid, status: 'active' }));
+    res.end(JSON.stringify({
+      ok: true,
+      incidentId: _sosIncidentId,
+      sosId: _sosDrvId,
+      companyId: _sosCid,
+      status: 'active',
+      locationAddress: _sosResolvedAddress,
+    }));
     return;
   }
 
@@ -15846,6 +15896,63 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     res.writeHead(200, _sosCHdr);
     res.end(JSON.stringify({ ok: true, sosId: _sosCDrvId, cleared: true }));
+    return;
+  }
+
+  // ── POST /api/sos/respond — nearby driver is going to help ─────────────────
+  if (urlPath === '/api/sos/respond' && req.method === 'POST') {
+    const _sosRRaw = await readBody(req);
+    let _sosRBody = {};
+    try { _sosRBody = JSON.parse(_sosRRaw); } catch (e) {}
+    const _sosRHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _sosRUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _sosRAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _sosRDriver = _lookupZoneDriverByUserKey(_sosRUserKey, _sosRBody.driverId, _sosRBody.companyId);
+    if (!_sosRDriver && _sosRAdminKey && process.env.BW_ADMIN_KEY && _sosRAdminKey === process.env.BW_ADMIN_KEY) {
+      _sosRDriver = _lookupZoneDriverByUserKey('', _sosRBody.driverId, _sosRBody.companyId);
+    }
+    if (!_sosRDriver) {
+      res.writeHead(401, _sosRHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown responder driver' }));
+      return;
+    }
+    const _sosRCid = String(_sosRDriver.companyId || _sosRBody.companyId || '').trim();
+    const _sosRSosId = String(_sosRBody.sosId || _sosRBody.targetDriverId || '').trim();
+    const _sosRDriverId = String(_sosRDriver.driverid || '').trim();
+    if (!_sosRCid || !_sosRSosId || !_sosRDriverId) {
+      res.writeHead(400, _sosRHdr);
+      res.end(JSON.stringify({ ok: false, error: 'companyId, sosId and responder driver are required' }));
+      return;
+    }
+    try {
+      const _sosRTok = await getFirebaseServerToken();
+      if (!_sosRTok) throw new Error('no firebase token');
+      const _sosRPath = `Emergency/${_sosRCid}/${_sosRSosId}`;
+      const _sosRec = await firebaseDbGet(_sosRPath, _sosRTok).catch(() => null);
+      if (!_sosRec || typeof _sosRec !== 'object') {
+        res.writeHead(404, _sosRHdr);
+        res.end(JSON.stringify({ ok: false, error: 'SOS record not found' }));
+        return;
+      }
+      const _responder = {
+        driverId: _sosRDriverId,
+        name: String(_sosRDriver.drivername || `Driver ${_sosRDriverId}`),
+        vehicleNo: _vehicleLabelFromRecord(_sosRDriver),
+        respondedAt: Date.now(),
+        state: 'going_to_help',
+      };
+      await firebaseDbPatch(_sosRPath, {
+        responders: Object.assign({}, _sosRec.responders || {}, { [_sosRDriverId]: _responder }),
+        updatedAt: Date.now(),
+      }, _sosRTok);
+    } catch (e) {
+      console.warn(`  [SOS respond] failed: ${e && e.message}`);
+      res.writeHead(500, _sosRHdr);
+      res.end(JSON.stringify({ ok: false, error: 'SOS responder update failed' }));
+      return;
+    }
+    res.writeHead(200, _sosRHdr);
+    res.end(JSON.stringify({ ok: true, sosId: _sosRSosId, responderId: _sosRDriverId }));
     return;
   }
 
@@ -15933,19 +16040,38 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     try {
       const _sosDTok = await getFirebaseServerToken();
       if (!_sosDTok) throw new Error('no firebase token');
+      const _sosDPath = `Emergency/${_sosDCid}/${_sosDId}`;
+      const existing = await firebaseDbGet(_sosDPath, _sosDTok).catch(() => null);
       if (_sosDAction === 'acknowledged') {
-        const existing = await firebaseDbGet(`Emergency/${_sosDCid}/${_sosDId}`, _sosDTok).catch(() => null);
         if (!existing) {
           res.writeHead(404, _sosDHdr);
           res.end(JSON.stringify({ ok: false, error: 'SOS record not found' }));
           return;
         }
-        await firebaseDbPatch(`Emergency/${_sosDCid}/${_sosDId}`, {
+        await firebaseDbPatch(_sosDPath, {
           status: 'acknowledged',
           acknowledgedAt: Date.now(),
           acknowledgedBy: String(_sosDBody.dispatcherName || 'Dispatcher'),
+          dispatchMessage: 'Dispatch is responding',
+          updatedAt: Date.now(),
         }, _sosDTok);
       } else {
+        const now = Date.now();
+        if (existing && typeof existing === 'object') {
+          const incidentId = String(existing.incidentId || `sos-${_sosDCid}-${_sosDId}-${now}`);
+          await _appendSosHistory(
+            _sosDCid,
+            incidentId,
+            Object.assign({}, existing, {
+              incidentId,
+              status: _sosDAction,
+              resolvedAt: now,
+              updatedAt: now,
+              resolvedBy: String(_sosDBody.dispatcherName || 'Dispatcher'),
+            }),
+            _sosDTok,
+          );
+        }
         await _clearSosEmergency(_sosDCid, _sosDId, _sosDTok);
       }
       console.log(`  [SOS] ${_sosDAction} Emergency/${_sosDCid}/${_sosDId} by dispatcher`);
