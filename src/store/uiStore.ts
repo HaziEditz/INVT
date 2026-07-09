@@ -101,6 +101,8 @@ interface UiStore {
   openModal: ModalId;
   modalJobId: number | null;
   modalDriverId: string | null;
+  /** Bumped when toast/header opens Messages for a specific driver thread. */
+  messagesFocusNonce: number;
   notificationCount: number;
   messageUnreadCount: number;
   notifications: NotificationItem[];
@@ -130,6 +132,7 @@ interface UiStore {
   setTheme: (t: DispatchThemeId) => void;
   cycleTheme: () => void;
   openModalWith: (m: ModalId, opts?: { jobId?: number; driverId?: string }) => void;
+  openMessagesForDriver: (driverId: string) => void;
   closeModal: () => void;
   addToast: (t: Omit<ToastItem, 'id'>) => void;
   removeToast: (id: string) => void;
@@ -153,6 +156,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   openModal: null,
   modalJobId: null,
   modalDriverId: null,
+  messagesFocusNonce: 0,
   notificationCount: 0,
   messageUnreadCount: 0,
   notifications: [],
@@ -179,6 +183,13 @@ export const useUiStore = create<UiStore>((set, get) => ({
   },
   openModalWith: (m, opts) =>
     set({ openModal: m, modalJobId: opts?.jobId ?? null, modalDriverId: opts?.driverId ?? null }),
+  openMessagesForDriver: (driverId) =>
+    set((s) => ({
+      openModal: 'messages',
+      modalJobId: null,
+      modalDriverId: driverId,
+      messagesFocusNonce: s.messagesFocusNonce + 1,
+    })),
   closeModal: () =>
     set({ openModal: null, modalJobId: null, modalDriverId: null, routePreview: null }),
   addToast: (t) => {

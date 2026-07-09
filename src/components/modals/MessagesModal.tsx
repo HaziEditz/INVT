@@ -44,6 +44,7 @@ export function MessagesModal({ companyId }: Props) {
 
   const open = useUiStore((s) => s.openModal === 'messages');
   const modalDriverId = useUiStore((s) => s.modalDriverId);
+  const messagesFocusNonce = useUiStore((s) => s.messagesFocusNonce);
 
   const closeModal = useUiStore((s) => s.closeModal);
 
@@ -71,10 +72,14 @@ export function MessagesModal({ companyId }: Props) {
   const selectedIdRef = useRef<string | null>(null);
 
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    requestAnimationFrame(() => {
+    const run = () => {
       const el = chatScrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
       chatEndRef.current?.scrollIntoView({ behavior, block: 'end' });
+    };
+    requestAnimationFrame(() => {
+      run();
+      requestAnimationFrame(run);
     });
   }, []);
 
@@ -141,23 +146,48 @@ export function MessagesModal({ companyId }: Props) {
 
 
 
+  const selectDriverThread = useCallback(
+    async (driverId: string, scrollBehavior: ScrollBehavior = 'smooth') => {
+      setSelectedId(driverId);
+      setTab('direct');
+      await loadConversation(driverId);
+      window.setTimeout(() => scrollChatToBottom(scrollBehavior), 100);
+      window.setTimeout(() => scrollChatToBottom('auto'), 350);
+    },
+    [loadConversation, scrollChatToBottom],
+  );
+
+
+
   useEffect(() => {
 
-    if (!open) return;
-    setBroadcastText('');
-
-    if (modalDriverId) {
-      setSelectedId(modalDriverId);
-      setTab('direct');
+    if (!open) {
+      setSelectedId(null);
+      setMessages([]);
+      return;
     }
 
+    setBroadcastText('');
     void refreshDriverList();
-
     const iv = setInterval(() => void refreshDriverList(), 8000);
-
     return () => clearInterval(iv);
 
-  }, [open, modalDriverId, refreshDriverList]);
+  }, [open, refreshDriverList]);
+
+
+
+  useEffect(() => {
+
+    if (!open || !modalDriverId || !messagesFocusNonce) return;
+
+    const driverId = modalDriverId;
+    const timer = window.setTimeout(() => {
+      void selectDriverThread(driverId, 'auto');
+    }, 120);
+
+    return () => clearTimeout(timer);
+
+  }, [open, modalDriverId, messagesFocusNonce, selectDriverThread]);
 
 
 
@@ -202,21 +232,10 @@ export function MessagesModal({ companyId }: Props) {
   }, [open, companyId, refreshDriverList, loadConversation]);
 
 
-
   useEffect(() => {
 
-    if (selectedId) void loadConversation(selectedId);
-
-    else setMessages([]);
-
-  }, [selectedId, loadConversation]);
-
-
-
-  useEffect(() => {
-
-    if (!loading && messages.length > 0) {
-      scrollChatToBottom(open ? 'smooth' : 'auto');
+    if (!loading && messages.length > 0 && open) {
+      scrollChatToBottom('smooth');
     }
 
   }, [loading, messages, open, scrollChatToBottom]);
@@ -378,11 +397,7 @@ export function MessagesModal({ companyId }: Props) {
                 }`}
 
                 onClick={() => {
-
-                  setSelectedId(id);
-
-                  if (tab === 'inbox') setTab('direct');
-
+                  void selectDriverThread(id);
                 }}
 
               >

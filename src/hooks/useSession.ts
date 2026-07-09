@@ -198,6 +198,7 @@ export function useRealtimeNotifications(companyId: string | null) {
   const addToast = useUiStore((s) => s.addToast);
 
   const openModalWith = useUiStore((s) => s.openModalWith);
+  const openMessagesForDriver = useUiStore((s) => s.openMessagesForDriver);
 
   const setEmergency = useUiStore((s) => s.setEmergency);
   const setMessageUnreadCount = useUiStore((s) => s.setMessageUnreadCount);
@@ -421,7 +422,10 @@ export function useRealtimeNotifications(companyId: string | null) {
           message: body || 'New driver message',
           skipNotificationCount: true,
           durationMs: 10000,
-          onClick: () => openModalWith('messages', { driverId: driverId || undefined }),
+          onClick: () => {
+            if (driverId) openMessagesForDriver(driverId);
+            else openModalWith('messages');
+          },
 
         });
         void refreshMessageUnread();
@@ -478,7 +482,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     };
 
-  }, [companyId, addToast, setEmergency, setMessageUnreadCount, openModalWith]);
+  }, [companyId, addToast, setEmergency, setMessageUnreadCount, openModalWith, openMessagesForDriver]);
 
 }
 
