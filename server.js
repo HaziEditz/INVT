@@ -3391,6 +3391,43 @@ async function _appendSosHistory(cid, incidentId, payload, tok) {
   await firebaseDbSet(`sosHistory/${cid}/${incidentId}`, payload, tok);
 }
 
+async function _fanoutSosIncidentClosed(cid, sosRecord, resolution, tok) {
+  if (!sosRecord || typeof sosRecord !== 'object') return 0;
+  const responders = (sosRecord.responders && typeof sosRecord.responders === 'object')
+    ? sosRecord.responders : {};
+  const sourceId = String(sosRecord.sosId || sosRecord.driverId || '').trim();
+  if (!sourceId) return 0;
+  const content = resolution === 'false_alarm'
+    ? 'Dispatch marked this SOS as a false alarm.'
+    : 'Dispatch has resolved this emergency.';
+  const payload = {
+    type: 'driver_sos',
+    eventType: 'sos_resolved',
+    resolution,
+    sosDriverId: sourceId,
+    incidentId: String(sosRecord.incidentId || `sos-${cid}-${sourceId}`),
+    driverName: String(sosRecord.driverName || 'Driver'),
+    content,
+    timestamp: Date.now(),
+  };
+  let count = 0;
+  for (const rid of Object.keys(responders)) {
+    const did = _resolveChatNotifyDriverId(rid, cid);
+    if (!did) continue;
+    count++;
+    try {
+      await firebaseDbSet(`notificationSos/${did}`, payload, tok);
+      await firebaseDbSet(`notification/${did}`, payload, tok);
+    } catch (e) {
+      console.warn(`  [SOS] incident-closed notify ${did} failed: ${e && e.message}`);
+    }
+  }
+  if (count) {
+    console.log(`  [SOS] incident-closed fanout company=${cid} source=${sourceId} responders=${count} resolution=${resolution}`);
+  }
+  return count;
+}
+
 async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
   const srcId = String(sourceDriverId);
   try {
@@ -16107,6 +16144,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const now = Date.now();
         if (existing && typeof existing === 'object') {
           const incidentId = String(existing.incidentId || `sos-${_sosDCid}-${_sosDId}-${now}`);
+          await _fanoutSosIncidentClosed(_sosDCid, existing, _sosDAction, _sosDTok);
           await _appendSosHistory(
             _sosDCid,
             incidentId,

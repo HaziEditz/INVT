@@ -46,11 +46,13 @@ export function SosIncidentCard({ incident, dispatcherName, isPrimary }: Props) 
       )}
       {incident.responders.length > 0 && (
         <div className="text-xs mt-1">
-          Responding:{' '}
           {incident.responders
             .sort((a, b) => (a.respondedAt || 0) - (b.respondedAt || 0))
-            .map((r) => `${r.name}${r.vehicleNo ? ` (${r.vehicleNo})` : ''}`)
-            .join(', ')}
+            .map((r) => {
+              const label = `${r.name}${r.vehicleNo ? ` (${r.vehicleNo})` : ''}`;
+              return `${label} is on the way to help`;
+            })
+            .join(' · ')}
         </div>
       )}
       <div className="flex flex-wrap gap-2 mt-2">
