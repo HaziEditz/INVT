@@ -50,6 +50,9 @@ export function SosIncidentCard({ incident, dispatcherName, isPrimary }: Props) 
             .sort((a, b) => (a.respondedAt || 0) - (b.respondedAt || 0))
             .map((r) => {
               const label = `${r.name}${r.vehicleNo ? ` (${r.vehicleNo})` : ''}`;
+              if (r.state === 'arrived_handled') {
+                return `${label} arrived / handled`;
+              }
               return `${label} is on the way to help`;
             })
             .join(' · ')}

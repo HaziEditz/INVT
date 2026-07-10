@@ -16004,6 +16004,125 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // ── POST /api/sos/respond/withdraw — responder backs out of going to help ──
+  if (urlPath === '/api/sos/respond/withdraw' && req.method === 'POST') {
+    const _sosWRaw = await readBody(req);
+    let _sosWBody = {};
+    try { _sosWBody = JSON.parse(_sosWRaw); } catch (e) {}
+    const _sosWHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _sosWUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _sosWAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _sosWDriver = _lookupZoneDriverByUserKey(_sosWUserKey, _sosWBody.driverId, _sosWBody.companyId);
+    if (!_sosWDriver && _sosWAdminKey && process.env.BW_ADMIN_KEY && _sosWAdminKey === process.env.BW_ADMIN_KEY) {
+      _sosWDriver = _lookupZoneDriverByUserKey('', _sosWBody.driverId, _sosWBody.companyId);
+    }
+    if (!_sosWDriver) {
+      res.writeHead(401, _sosWHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown responder driver' }));
+      return;
+    }
+    const _sosWCid = String(_sosWDriver.companyId || _sosWBody.companyId || '').trim();
+    const _sosWSosId = String(_sosWBody.sosId || _sosWBody.targetDriverId || '').trim();
+    const _sosWDriverId = String(_sosWDriver.driverid || '').trim();
+    if (!_sosWCid || !_sosWSosId || !_sosWDriverId) {
+      res.writeHead(400, _sosWHdr);
+      res.end(JSON.stringify({ ok: false, error: 'companyId, sosId and responder driver are required' }));
+      return;
+    }
+    try {
+      const _sosWTok = await getFirebaseServerToken();
+      if (!_sosWTok) throw new Error('no firebase token');
+      const _sosWPath = `Emergency/${_sosWCid}/${_sosWSosId}`;
+      const _sosWRec = await firebaseDbGet(_sosWPath, _sosWTok).catch(() => null);
+      if (!_sosWRec || typeof _sosWRec !== 'object') {
+        res.writeHead(404, _sosWHdr);
+        res.end(JSON.stringify({ ok: false, error: 'SOS record not found' }));
+        return;
+      }
+      const _sosWResponders = (_sosWRec.responders && typeof _sosWRec.responders === 'object')
+        ? _sosWRec.responders : {};
+      if (!_sosWResponders[_sosWDriverId]) {
+        res.writeHead(200, _sosWHdr);
+        res.end(JSON.stringify({ ok: true, sosId: _sosWSosId, responderId: _sosWDriverId, withdrawn: false }));
+        return;
+      }
+      await firebaseDbPatch(_sosWPath, {
+        [`responders/${_sosWDriverId}`]: null,
+        updatedAt: Date.now(),
+      }, _sosWTok);
+    } catch (e) {
+      console.warn(`  [SOS respond withdraw] failed: ${e && e.message}`);
+      res.writeHead(500, _sosWHdr);
+      res.end(JSON.stringify({ ok: false, error: 'SOS responder withdraw failed' }));
+      return;
+    }
+    res.writeHead(200, _sosWHdr);
+    res.end(JSON.stringify({ ok: true, sosId: _sosWSosId, responderId: _sosWDriverId, withdrawn: true }));
+    return;
+  }
+
+  // ── POST /api/sos/respond/arrived — responder marked arrived / handled ─────
+  if (urlPath === '/api/sos/respond/arrived' && req.method === 'POST') {
+    const _sosARaw = await readBody(req);
+    let _sosABody = {};
+    try { _sosABody = JSON.parse(_sosARaw); } catch (e) {}
+    const _sosAHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const _sosAUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _sosAAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _sosADriver = _lookupZoneDriverByUserKey(_sosAUserKey, _sosABody.driverId, _sosABody.companyId);
+    if (!_sosADriver && _sosAAdminKey && process.env.BW_ADMIN_KEY && _sosAAdminKey === process.env.BW_ADMIN_KEY) {
+      _sosADriver = _lookupZoneDriverByUserKey('', _sosABody.driverId, _sosABody.companyId);
+    }
+    if (!_sosADriver) {
+      res.writeHead(401, _sosAHdr);
+      res.end(JSON.stringify({ ok: false, error: 'unknown responder driver' }));
+      return;
+    }
+    const _sosACid = String(_sosADriver.companyId || _sosABody.companyId || '').trim();
+    const _sosASosId = String(_sosABody.sosId || _sosABody.targetDriverId || '').trim();
+    const _sosADriverId = String(_sosADriver.driverid || '').trim();
+    if (!_sosACid || !_sosASosId || !_sosADriverId) {
+      res.writeHead(400, _sosAHdr);
+      res.end(JSON.stringify({ ok: false, error: 'companyId, sosId and responder driver are required' }));
+      return;
+    }
+    try {
+      const _sosATok = await getFirebaseServerToken();
+      if (!_sosATok) throw new Error('no firebase token');
+      const _sosAPath = `Emergency/${_sosACid}/${_sosASosId}`;
+      const _sosARec = await firebaseDbGet(_sosAPath, _sosATok).catch(() => null);
+      if (!_sosARec || typeof _sosARec !== 'object') {
+        res.writeHead(404, _sosAHdr);
+        res.end(JSON.stringify({ ok: false, error: 'SOS record not found' }));
+        return;
+      }
+      const _sosAResponders = (_sosARec.responders && typeof _sosARec.responders === 'object')
+        ? _sosARec.responders : {};
+      const _sosAExisting = _sosAResponders[_sosADriverId] || {
+        driverId: _sosADriverId,
+        name: String(_sosADriver.drivername || `Driver ${_sosADriverId}`),
+        vehicleNo: _vehicleLabelFromRecord(_sosADriver),
+        respondedAt: Date.now(),
+      };
+      const _sosAUpdated = Object.assign({}, _sosAExisting, {
+        state: 'arrived_handled',
+        arrivedAt: Date.now(),
+      });
+      await firebaseDbPatch(_sosAPath, {
+        responders: Object.assign({}, _sosAResponders, { [_sosADriverId]: _sosAUpdated }),
+        updatedAt: Date.now(),
+      }, _sosATok);
+    } catch (e) {
+      console.warn(`  [SOS respond arrived] failed: ${e && e.message}`);
+      res.writeHead(500, _sosAHdr);
+      res.end(JSON.stringify({ ok: false, error: 'SOS responder arrived update failed' }));
+      return;
+    }
+    res.writeHead(200, _sosAHdr);
+    res.end(JSON.stringify({ ok: true, sosId: _sosASosId, responderId: _sosADriverId, state: 'arrived_handled' }));
+    return;
+  }
+
   // ── POST /api/driver/message — driver → dispatcher chat ───────────────────
   if (urlPath === '/api/driver/message' && req.method === 'POST') {
     const _msgRaw = await readBody(req);
