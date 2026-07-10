@@ -52,6 +52,12 @@
         ".write": true
       }
     },
+    "notificationSos": {
+      "$driverid": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "lastshifttime": {
       "$driverid": {
         ".validate": "$driverid!='null'",

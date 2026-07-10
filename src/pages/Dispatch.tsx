@@ -18,15 +18,13 @@ import { AlarmsModal } from '@/components/modals/AlarmsModal';
 import { SuspendedModal } from '@/components/modals/SuspendedModal';
 import { AccModal } from '@/components/modals/AccModal';
 import { ToastStack } from '@/components/shared/Toast';
-import { Button } from '@/components/shared/Button';
 import { Spinner } from '@/components/shared/Spinner';
+import { SosIncidentCard } from '@/components/dispatch/SosIncidentCard';
 import { useFirebaseInit } from '@/hooks/useFirebase';
 import { useJobs, useDispatchWindowAlerts } from '@/hooks/useJobs';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useSession, useCompanySettings, useRealtimeNotifications } from '@/hooks/useSession';
 import { sessionMe, accountStatus } from '@/lib/jobFlow';
-import { acknowledgeSos, resolveSos, falseAlarmSos } from '@/lib/sosApi';
-import { stopEmergencyAlarm } from '@/lib/notifySound';
 import { useUiStore } from '@/store/uiStore';
 import { useJobStore } from '@/store/jobStore';
 import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
@@ -42,7 +40,6 @@ export function DispatchPage() {
   const popOutRef = useRef<Window | null>(null);
   const emergency = useUiStore((s) => s.emergency);
   const emergencyQueue = useUiStore((s) => s.emergencyQueue);
-  const setEmergency = useUiStore((s) => s.setEmergency);
   const settings = useUiStore((s) => s.settings);
   const setBillingBanner = useUiStore((s) => s.setBillingBanner);
   const mapFullscreen = useUiStore((s) => s.mapFullscreen);
@@ -53,6 +50,11 @@ export function DispatchPage() {
   const jobs = useJobStore((s) => s.jobs);
 
   const activeCompanyId = ready && companyId ? companyId : null;
+
+  const allSosIncidents = useMemo(
+    () => (emergency ? [emergency, ...emergencyQueue] : []),
+    [emergency, emergencyQueue],
+  );
 
   useEffect(() => {
     sessionMe()
@@ -159,96 +161,16 @@ export function DispatchPage() {
         dispatcherName={dispatcherName}
         onNameChange={setDispatcherName}
       />
-      {emergency && (
-        <div
-          className={[
-            'px-3 py-2 border-b border-red-800/70',
-            emergency.status === 'active'
-              ? 'bg-red-700 text-white animate-pulse'
-              : 'bg-red-900/80 text-red-100',
-          ].join(' ')}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-extrabold tracking-wide">SOS</span>
-            <span className="text-sm">
-              {emergency.driverName} · {emergency.vehicle || 'No vehicle'}
-              {emergency.driverPhone ? (
-                <>
-                  {' · '}
-                  <a href={`tel:${emergency.driverPhone}`} className="underline font-semibold">
-                    {emergency.driverPhone}
-                  </a>
-                </>
-              ) : null}
-            </span>
-            <span className="text-xs opacity-90">
-              {emergency.locationAddress || `${emergency.lat.toFixed(5)}, ${emergency.lng.toFixed(5)}`}
-            </span>
-            <span className="ml-auto text-[11px] opacity-90">{emergency.time}</span>
-          </div>
-          {!!emergency.dispatchMessage && (
-            <div className="text-xs mt-1 opacity-95">{emergency.dispatchMessage}</div>
-          )}
-          {emergency.responders.length > 0 && (
-            <div className="text-xs mt-1">
-              Responding:{' '}
-              {emergency.responders
-                .sort((a, b) => (a.respondedAt || 0) - (b.respondedAt || 0))
-                .map((r) => `${r.name}${r.vehicleNo ? ` (${r.vehicleNo})` : ''}`)
-                .join(', ')}
-            </div>
-          )}
-          <div className="flex flex-wrap gap-2 mt-2">
-            {emergency.status === 'active' ? (
-              <Button
-                variant="danger"
-                onClick={async () => {
-                  try {
-                    await acknowledgeSos(emergency.sosId, dispatcherName);
-                    stopEmergencyAlarm();
-                  } catch (e) {
-                    console.error('[SOS] acknowledge failed', e);
-                  }
-                }}
-              >
-                Acknowledge
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="primary"
-                  onClick={async () => {
-                    try {
-                      await resolveSos(emergency.sosId);
-                      setEmergency(null);
-                    } catch (e) {
-                      console.error('[SOS] resolve failed', e);
-                    }
-                  }}
-                >
-                  Resolve
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    try {
-                      await falseAlarmSos(emergency.sosId);
-                      setEmergency(null);
-                    } catch (e) {
-                      console.error('[SOS] false alarm failed', e);
-                    }
-                  }}
-                >
-                  False alarm
-                </Button>
-              </>
-            )}
-          </div>
-          {emergencyQueue.length > 0 && (
-            <div className="mt-2 text-[11px] opacity-90">
-              Queued SOS: {emergencyQueue.map((q) => `${q.driverName}${q.vehicle ? ` (${q.vehicle})` : ''}`).join(' · ')}
-            </div>
-          )}
+      {allSosIncidents.length > 0 && (
+        <div className="border-b border-red-800/70">
+          {allSosIncidents.map((incident, idx) => (
+            <SosIncidentCard
+              key={incident.incidentId}
+              incident={incident}
+              dispatcherName={dispatcherName}
+              isPrimary={idx === 0}
+            />
+          ))}
         </div>
       )}
 

@@ -3393,35 +3393,46 @@ async function _appendSosHistory(cid, incidentId, payload, tok) {
 
 async function _fanoutSosNearbyDrivers(cid, sourceDriverId, sosPayload, tok) {
   const srcId = String(sourceDriverId);
+  try {
+    await _syncZoneDriversFromFirebase({ quiet: true, cids: [String(cid)] });
+  } catch (e) {
+    console.warn(`  [SOS] zone sync before fanout failed: ${e && e.message}`);
+  }
   const others = ZONE_DRIVERS.filter(d =>
     d && String(d.companyId || '') === String(cid) &&
     String(d.driverid) !== srcId &&
     String(d.vehiclestatus || '').toLowerCase() !== 'offline',
   );
   const content = `🚨 SOS ALERT — Emergency: Driver ${sosPayload.driverName || 'Driver'} needs help — ${sosPayload.locationAddress || 'Location unavailable'}`;
+  const notifyPayload = {
+    type: 'driver_sos',
+    eventType: 'driver_sos',
+    sosDriverId: srcId,
+    incidentId: sosPayload.incidentId || `sos-${cid}-${srcId}`,
+    driverName: sosPayload.driverName,
+    vehiclenumber: sosPayload.vehiclenumber,
+    lat: sosPayload.lat,
+    lng: sosPayload.lng,
+    locationAddress: sosPayload.locationAddress || '',
+    content,
+    timestamp: Date.now(),
+    bookingid: `0,SOS,0,${cid},Dispatcher`,
+  };
+  const targets = [];
   for (const d of others) {
     const did = _resolveChatNotifyDriverId(d.driverid, cid);
     if (!did) continue;
+    targets.push(did);
     try {
-      await firebaseDbSet(`notificationSos/${did}`, {
-        type: 'driver_sos',
-        eventType: 'driver_sos',
-        sosDriverId: srcId,
-        incidentId: sosPayload.incidentId || `sos-${cid}-${srcId}`,
-        driverName: sosPayload.driverName,
-        vehiclenumber: sosPayload.vehiclenumber,
-        lat: sosPayload.lat,
-        lng: sosPayload.lng,
-        locationAddress: sosPayload.locationAddress || '',
-        content,
-        timestamp: Date.now(),
-        bookingid: `0,SOS,0,${cid},Dispatcher`,
-      }, tok);
+      await firebaseDbSet(`notificationSos/${did}`, notifyPayload, tok);
+      // Fallback path: notification/ is readable under current Firebase rules when notificationSos is not deployed.
+      await firebaseDbSet(`notification/${did}`, notifyPayload, tok);
     } catch (e) {
-      console.warn(`  [SOS] notificationSos/${did} failed: ${e && e.message}`);
+      console.warn(`  [SOS] fanout to ${did} failed: ${e && e.message}`);
     }
   }
-  return others.length;
+  console.log(`  [SOS] fanout company=${cid} source=${srcId} targets=[${targets.join(', ')}] count=${targets.length}`);
+  return targets.length;
 }
 
 function _attachedDriverIdFromJob(job, withdrawHint) {

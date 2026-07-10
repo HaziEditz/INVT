@@ -219,7 +219,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
     let hadActiveAlarm = false;
 
-    let toastShownFor: string | null = null;
+    const toastShownFor = new Set<string>();
 
     let unsubEmergency = () => {};
 
@@ -347,7 +347,7 @@ export function useRealtimeNotifications(companyId: string | null) {
 
             }
 
-            toastShownFor = null;
+            toastShownFor.clear();
 
             return;
 
@@ -359,31 +359,23 @@ export function useRealtimeNotifications(companyId: string | null) {
           setEmergency(top);
           setEmergencyQueue(emergencies.slice(1));
 
+          const hasActiveEmergency = emergencies.some((e) => e.status === 'active');
 
-
-          if (top.status === 'active') {
-
+          if (hasActiveEmergency) {
             if (!hadActiveAlarm) startEmergencyAlarm();
-
             hadActiveAlarm = true;
 
-            if (toastShownFor !== top.incidentId) {
-
-              toastShownFor = top.incidentId;
-
+            for (const e of emergencies) {
+              if (e.status !== 'active' || toastShownFor.has(e.incidentId)) continue;
+              toastShownFor.add(e.incidentId);
               notifySosAlert(
-                top.driverName,
-                top.locationAddress || formatSosLocation({ lat: top.lat, lng: top.lng }),
+                e.driverName,
+                e.locationAddress || formatSosLocation({ lat: e.lat, lng: e.lng }),
               );
-
             }
-
           } else {
-
             if (hadActiveAlarm) stopEmergencyAlarm();
-
             hadActiveAlarm = false;
-
           }
 
         },

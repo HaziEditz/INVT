@@ -20,6 +20,13 @@
         ".write": "auth != null"
       }
     },
+    "notificationSos": {
+      "$driverid": {
+        ".validate": "$driverid!='null'",
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
     "online": {
       ".read": "auth != null",
       ".write": "auth != null",
