@@ -162,6 +162,16 @@
         ".write": "auth != null"
       }
     },
+    "sosHistory": {
+      "$companyId": {
+        ".read": "auth != null && root.child('adminAccess').child($companyId).child(auth.uid).exists()",
+        ".write": false,
+        "$incidentId": {
+          ".read": "auth != null && root.child('adminAccess').child($companyId).child(auth.uid).exists()",
+          ".write": false
+        }
+      }
+    },
     "bookings": {
       "$companyId": {
         "$bookingId": {

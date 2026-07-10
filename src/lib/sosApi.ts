@@ -29,3 +29,26 @@ export function falseAlarmSos(sosId: string) {
 export function respondToSos(sosId: string, driverId?: string, companyId?: string) {
   return sosPost('/sos/respond', { sosId, driverId, companyId });
 }
+
+export interface SosHistoryRow {
+  id: string;
+  driverName: string;
+  driverPhone: string;
+  vehicle: string;
+  locationAddress: string;
+  status: string;
+  resolvedAt: number;
+}
+
+export async function fetchSosHistory(): Promise<SosHistoryRow[]> {
+  const res = await fetch(`${API}/sos/history`, { credentials: 'include' });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    history?: SosHistoryRow[];
+    error?: string;
+  };
+  if (!res.ok || data.ok === false) {
+    throw new Error(String(data.error || `SOS history fetch failed (${res.status})`));
+  }
+  return Array.isArray(data.history) ? data.history : [];
+}

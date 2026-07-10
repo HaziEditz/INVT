@@ -172,6 +172,14 @@ export function DispatchPage() {
             <span className="font-extrabold tracking-wide">SOS</span>
             <span className="text-sm">
               {emergency.driverName} · {emergency.vehicle || 'No vehicle'}
+              {emergency.driverPhone ? (
+                <>
+                  {' · '}
+                  <a href={`tel:${emergency.driverPhone}`} className="underline font-semibold">
+                    {emergency.driverPhone}
+                  </a>
+                </>
+              ) : null}
             </span>
             <span className="text-xs opacity-90">
               {emergency.locationAddress || `${emergency.lat.toFixed(5)}, ${emergency.lng.toFixed(5)}`}
@@ -274,7 +282,7 @@ export function DispatchPage() {
       <MessagesModal companyId={activeCompanyId} />
       <ClosedJobsModal companyId={companyId} />
       <SearchJobsModal companyId={companyId} />
-      <AlarmsModal />
+      <AlarmsModal companyId={companyId} />
       <SuspendedModal companyId={companyId} />
       <AccModal />
       <ToastStack />

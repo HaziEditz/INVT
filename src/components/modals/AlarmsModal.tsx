@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useUiStore } from '@/store/uiStore';
-import { getDb, onValue, ref } from '@/lib/firebase';
+import { fetchSosHistory, type SosHistoryRow } from '@/lib/sosApi';
 
 interface Alarm {
   id: string;
@@ -11,48 +11,43 @@ interface Alarm {
   active: boolean;
 }
 
-interface SosHistoryEntry {
-  id: string;
-  driverName: string;
-  vehicle: string;
-  locationAddress: string;
-  status: string;
-  resolvedAt: number;
+interface Props {
+  companyId: string;
 }
 
-export function AlarmsModal() {
+export function AlarmsModal({ companyId }: Props) {
   const open = useUiStore((s) => s.openModal === 'alarms');
   const closeModal = useUiStore((s) => s.closeModal);
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [text, setText] = useState('');
-  const [sosHistory, setSosHistory] = useState<SosHistoryEntry[]>([]);
+  const [sosHistory, setSosHistory] = useState<SosHistoryRow[]>([]);
+  const [sosHistoryLoading, setSosHistoryLoading] = useState(false);
+  const [sosHistoryError, setSosHistoryError] = useState('');
 
   useEffect(() => {
-    const companyId = localStorage.getItem('bw_company_id') || '';
-    if (!companyId) return;
-    const db = getDb();
-    const h = onValue(ref(db, `sosHistory/${companyId}`), (snap) => {
-      const val = snap.val();
-      if (!val || typeof val !== 'object') {
-        setSosHistory([]);
-        return;
-      }
-      const rows = Object.entries(val as Record<string, Record<string, unknown>>)
-        .map(([id, rec]) => ({
-          id,
-          driverName: String(rec.driverName ?? 'Driver'),
-          vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ''),
-          locationAddress: String(rec.locationAddress ?? ''),
-          status: String(rec.status ?? ''),
-          resolvedAt: Number(rec.resolvedAt ?? rec.updatedAt ?? 0) || 0,
-        }))
-        .sort((a, b) => b.resolvedAt - a.resolvedAt);
-      setSosHistory(rows);
-    });
-    return () => h();
-  }, []);
+    if (!open || !companyId) return;
+    let cancelled = false;
+    setSosHistoryLoading(true);
+    setSosHistoryError('');
+    fetchSosHistory()
+      .then((rows) => {
+        if (!cancelled) setSosHistory(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setSosHistory([]);
+          setSosHistoryError(e instanceof Error ? e.message : 'Could not load SOS history');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSosHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, companyId]);
 
   const add = () => {
     if (!text || !date || !time) return;
@@ -80,14 +75,29 @@ export function AlarmsModal() {
       <div className="mt-6">
         <h3 className="text-sm font-semibold text-bw-text mb-2">SOS history</h3>
         <ul className="space-y-2 max-h-52 overflow-y-auto">
-          {sosHistory.map((row) => (
+          {sosHistoryLoading && <li className="text-bw-muted text-sm text-center py-3">Loading SOS history…</li>}
+          {!sosHistoryLoading && sosHistoryError && (
+            <li className="text-red-400 text-sm text-center py-3">{sosHistoryError}</li>
+          )}
+          {!sosHistoryLoading && !sosHistoryError && sosHistory.map((row) => (
             <li key={row.id} className="bw-card p-2 text-xs">
-              <div className="font-medium">{row.driverName} {row.vehicle ? `· ${row.vehicle}` : ''}</div>
+              <div className="font-medium">
+                {row.driverName}
+                {row.vehicle ? ` · ${row.vehicle}` : ''}
+                {row.driverPhone ? (
+                  <>
+                    {' · '}
+                    <a href={`tel:${row.driverPhone}`} className="underline">{row.driverPhone}</a>
+                  </>
+                ) : null}
+              </div>
               <div className="text-bw-muted">{row.locationAddress || 'Location unavailable'}</div>
               <div className="text-bw-muted uppercase">{row.status} · {row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : '—'}</div>
             </li>
           ))}
-          {sosHistory.length === 0 && <li className="text-bw-muted text-sm text-center py-3">No SOS history</li>}
+          {!sosHistoryLoading && !sosHistoryError && sosHistory.length === 0 && (
+            <li className="text-bw-muted text-sm text-center py-3">No SOS history</li>
+          )}
         </ul>
       </div>
     </Modal>

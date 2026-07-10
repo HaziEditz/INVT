@@ -16017,6 +16017,43 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     return;
   }
 
+  // GET /api/sos/history — resolved/false-alarm incidents (server token; sosHistory not client-readable).
+  if (urlPath === '/api/sos/history' && req.method === 'GET') {
+    const _sosHistCid = getSessionCompanyId(req);
+    if (!_sosHistCid) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'No valid dispatch session' }));
+      return;
+    }
+    try {
+      const _sosHistTok = await getFirebaseServerToken();
+      if (!_sosHistTok) throw new Error('no Firebase server token');
+      const raw = await firebaseDbGet(`sosHistory/${_sosHistCid}`, _sosHistTok).catch(() => null);
+      const rows = [];
+      if (raw && typeof raw === 'object') {
+        for (const [id, rec] of Object.entries(raw)) {
+          if (!rec || typeof rec !== 'object') continue;
+          rows.push({
+            id,
+            driverName: String(rec.driverName ?? 'Driver'),
+            driverPhone: String(rec.driverPhone ?? rec.phone ?? ''),
+            vehicle: String(rec.vehiclenumber ?? rec.vehicle ?? ''),
+            locationAddress: String(rec.locationAddress ?? ''),
+            status: String(rec.status ?? ''),
+            resolvedAt: Number(rec.resolvedAt ?? rec.updatedAt ?? 0) || 0,
+          });
+        }
+      }
+      rows.sort((a, b) => b.resolvedAt - a.resolvedAt);
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, history: rows }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || 'SOS history fetch failed' }));
+    }
+    return;
+  }
+
   // ── POST /api/sos/acknowledge | /api/sos/resolve | /api/sos/false-alarm ──
   if ((urlPath === '/api/sos/acknowledge' || urlPath === '/api/sos/resolve' || urlPath === '/api/sos/false-alarm') && req.method === 'POST') {
     const _sosDHdr = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
