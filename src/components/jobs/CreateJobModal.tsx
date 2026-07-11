@@ -26,7 +26,11 @@ import {
   driverOptionFromJob,
   isAssignedDriverSelection,
   jobToForm,
+  isLaterDraftComplete,
+  laterDraftInlineError,
+  mergeLaterDraftIntoForm,
   statusFromDriverId,
+  validateLaterPickupForm,
   CJ_SERVICES,
   CJ_VEHICLE_TYPES,
   defaultCreateJobForm,
@@ -126,10 +130,6 @@ function serviceLabel(s: string) {
 }
 
 type LaterScheduleDraft = { date: string; hour: string; min: string };
-
-function isLaterDraftComplete(d: LaterScheduleDraft): boolean {
-  return !!d.date.trim() && !!d.hour.trim() && !!d.min.trim();
-}
 
 function formatLaterPickupSummary(d: LaterScheduleDraft): string {
   if (!isLaterDraftComplete(d)) return '';
@@ -258,7 +258,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [pickDirty, setPickDirty] = useState(false);
   const [dropDirty, setDropDirty] = useState(false);
   const [pickAddressError, setPickAddressError] = useState('');
-  const [laterDraft, setLaterDraft] = useState<LaterScheduleDraft>({ date: '', hour: '12', min: '00' });
+  const [laterDraft, setLaterDraft] = useState<LaterScheduleDraft>({ date: '', hour: '', min: '' });
   const [laterScheduleConfirmed, setLaterScheduleConfirmed] = useState(false);
   const [baseDispatchHint, setBaseDispatchHint] = useState('');
   const [baseDispatchLoading, setBaseDispatchLoading] = useState(false);
@@ -277,21 +277,28 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   }, []);
 
   const confirmLaterSchedule = useCallback(() => {
-    if (!isLaterDraftComplete(laterDraft)) {
-      addToast({
-        type: 'error',
-        title: 'Incomplete schedule',
-        message: 'Choose both date and time before confirming.',
-      });
-      return;
-    }
+    if (!isLaterDraftComplete(laterDraft)) return;
+    const inlineErr = laterDraftInlineError(laterDraft);
+    if (inlineErr) return;
     patch({
-      laterDate: laterDraft.date,
-      laterHour: laterDraft.hour,
-      laterMin: laterDraft.min,
+      laterDate: laterDraft.date.trim(),
+      laterHour: laterDraft.hour.padStart(2, '0'),
+      laterMin: laterDraft.min.padStart(2, '0'),
     });
     setLaterScheduleConfirmed(true);
-  }, [laterDraft, patch, addToast]);
+  }, [laterDraft, patch]);
+
+  const laterInlineError = useMemo(
+    () => (form.timing === 'later' ? laterDraftInlineError(laterDraft) : null),
+    [form.timing, laterDraft],
+  );
+
+  const laterDraftReadyForConfirm =
+    form.timing === 'later' && isLaterDraftComplete(laterDraft) && !laterInlineError;
+
+  const laterBookBlocked =
+    form.timing === 'later' &&
+    (!laterScheduleConfirmed || !isLaterDraftComplete(laterDraft) || !!laterInlineError);
 
   const confirmedLaterSummary = useMemo(() => {
     if (!laterScheduleConfirmed || form.timing !== 'later') return '';
@@ -321,7 +328,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   }, [form.driverId, drivers, assignDropdownDrivers]);
 
   const dispatchAtLabel = useMemo(() => {
-    if (form.timing !== 'later') return null;
+    if (form.timing !== 'later' || !laterScheduleConfirmed) return null;
     try {
       const pickup = new Date(`${form.laterDate}T${form.laterHour}:${form.laterMin}:00`);
       if (Number.isNaN(pickup.getTime())) return null;
@@ -361,8 +368,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setPickDirty(false);
     setDropDirty(false);
     setPickAddressError('');
-    const now = nzNowParts();
-    setLaterDraft({ date: now.date, hour: now.h, min: now.m });
+    setLaterDraft({ date: '', hour: '', min: '' });
     setLaterScheduleConfirmed(false);
     setBaseDispatchHint('');
     setBaseDispatchLoading(false);
@@ -743,10 +749,14 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     return true;
   };
 
-  const bookOne = async (dateOverride?: string) => {
+  const bookOne = async (submitForm: CreateJobFormState, dateOverride?: string) => {
     const f = dateOverride
-      ? { ...form, timing: 'later' as const, laterDate: dateOverride }
-      : form;
+      ? { ...submitForm, timing: 'later' as const, laterDate: dateOverride }
+      : submitForm;
+    if (f.timing === 'later') {
+      const err = validateLaterPickupForm(f);
+      if (err) throw new Error(err);
+    }
     const params = buildInsertParams(f, dispatcherName);
     return withBookingTimeout(insertDispatchBooking(companyId, params), 90000, 'Booking API');
   };
@@ -754,13 +764,28 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const handleSubmit = async () => {
     if (submittingRef.current || loading) return;
     if (!validatePickup()) return;
-    if (form.timing === 'later' && !laterScheduleConfirmed) {
-      addToast({
-        type: 'error',
-        title: 'Confirm pickup time',
-        message: 'Tap Confirm schedule after choosing date and time.',
-      });
-      return;
+
+    if (form.timing === 'later') {
+      if (!laterScheduleConfirmed || !isLaterDraftComplete(laterDraft) || laterDraftInlineError(laterDraft)) {
+        return;
+      }
+    }
+
+    const submitForm =
+      form.timing === 'later' ? mergeLaterDraftIntoForm(form, laterDraft) : form;
+
+    if (submitForm.timing === 'later') {
+      const laterErr = validateLaterPickupForm(submitForm);
+      if (laterErr) {
+        let block = true;
+        if (isEdit && editingJob) {
+          const prevForm = jobToForm(editingJob);
+          const prevDt = buildBookingDateTime(prevForm).bookingDateTime;
+          const nextDt = buildBookingDateTime(submitForm).bookingDateTime;
+          block = submitForm.timing !== prevForm.timing || nextDt !== prevDt;
+        }
+        if (block) return;
+      }
     }
 
     submittingRef.current = true;
@@ -770,8 +795,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       if (isEdit && editingJob) {
         const liveJob =
           useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? editingJob;
-        const metadataChanges = buildJobEditChangesDelta(liveJob, form, dispatcherName);
-        const assignmentChanged = driverAssignmentChanged(liveJob, form);
+        const metadataChanges = buildJobEditChangesDelta(liveJob, submitForm, dispatcherName);
+        const assignmentChanged = driverAssignmentChanged(liveJob, submitForm);
 
         if (Object.keys(metadataChanges).length === 0 && !assignmentChanged) {
           addToast({ type: 'info', title: 'No changes to save' });
@@ -788,7 +813,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         if (assignmentChanged) {
           const workingJob =
             useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? liveJob;
-          await applyFormDriverAssignment(workingJob, form, availableDrivers).catch((e) => {
+          await applyFormDriverAssignment(workingJob, submitForm, availableDrivers).catch((e) => {
             addToast({
               type: 'error',
               title: 'Driver assignment failed',
@@ -842,8 +867,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         patch({ cardPaid: true });
       }
 
-      const dates = form.repeatExpanded ? repeatBookingDates(form) : [];
-      if (form.repeatExpanded && dates.length === 0) {
+      const dates = submitForm.repeatExpanded ? repeatBookingDates(submitForm) : [];
+      if (submitForm.repeatExpanded && dates.length === 0) {
         addToast({ type: 'error', title: 'Repeat booking', message: 'Select days and an until date.' });
         return;
       }
@@ -853,7 +878,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       let lastStatus = 'Pending';
       setSubmitPhase('creating');
       for (const d of targets) {
-        const res = await bookOne(d);
+        const res = await bookOne(submitForm, d);
         if (!res?.bookingId) {
           throw new Error('Server did not return a booking ID');
         }
@@ -865,15 +890,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         throw new Error('Booking was not created — no job ID returned');
       }
 
-      const driverSelected = isAssignedDriverSelection(form.driverId);
+      const driverSelected = isAssignedDriverSelection(submitForm.driverId);
       const serverOffered = lastStatus === 'Offered';
       const needsClientOffer = driverSelected && !serverOffered;
 
       const createdJob = {
-        ...jobFromForm(form, companyId, lastId, lastStatus),
+        ...jobFromForm(submitForm, companyId, lastId, lastStatus),
         dispatcherName,
-        driverId: driverSelected ? form.driverId : undefined,
-        vehicleId: driverSelected ? form.vehicleId : undefined,
+        driverId: driverSelected ? submitForm.driverId : undefined,
+        vehicleId: driverSelected ? submitForm.vehicleId : undefined,
       };
       clearRemovedJob(lastId);
       let hydrated = await hydrateJobFromServer(companyId, lastId);
@@ -900,7 +925,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         const workingJob =
           useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
         try {
-          await applyFormDriverAssignment(workingJob, form, availableDrivers, { fanout: true });
+          await applyFormDriverAssignment(workingJob, submitForm, availableDrivers, { fanout: true });
         } catch (e) {
           addToast({
             type: 'error',
@@ -1151,14 +1176,18 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
               type="button"
               className={`cj-toggle rounded-r border-l-0 ${form.timing === 'later' ? 'cj-toggle-active' : ''}`}
               onClick={() => {
-                const now = nzNowParts();
-                setLaterDraft({
-                  date: form.laterDate || now.date,
-                  hour: form.laterHour || now.h,
-                  min: form.laterMin || now.m,
-                });
                 setLaterScheduleConfirmed(false);
-                patch({ timing: 'later' });
+                if (!isEdit) {
+                  setLaterDraft({ date: '', hour: '', min: '' });
+                  patch({ timing: 'later', laterDate: '', laterHour: '', laterMin: '' });
+                } else {
+                  setLaterDraft({
+                    date: form.laterDate || '',
+                    hour: form.laterHour || '',
+                    min: form.laterMin || '',
+                  });
+                  patch({ timing: 'later' });
+                }
               }}
             >
               LATER
@@ -1178,13 +1207,16 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                 />
                 <select
                   className="cj-input cj-later-time-part"
-                  value={laterDraft.hour.padStart(2, '0')}
+                  value={laterDraft.hour}
                   aria-label="Pickup hour (24h)"
                   onChange={(e) => {
                     setLaterDraft((d) => ({ ...d, hour: e.target.value }));
                     setLaterScheduleConfirmed(false);
                   }}
                 >
+                  <option value="" disabled>
+                    HH
+                  </option>
                   {LATER_HOURS.map((h) => (
                     <option key={h} value={h}>
                       {h}
@@ -1194,52 +1226,59 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                 <span className="cj-later-time-sep">:</span>
                 <select
                   className="cj-input cj-later-time-part"
-                  value={laterDraft.min.padStart(2, '0')}
+                  value={laterDraft.min}
                   aria-label="Pickup minute"
                   onChange={(e) => {
                     setLaterDraft((d) => ({ ...d, min: e.target.value }));
                     setLaterScheduleConfirmed(false);
                   }}
                 >
+                  <option value="" disabled>
+                    MM
+                  </option>
                   {LATER_MINS.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  className="cj-confirm-schedule"
-                  disabled={!isLaterDraftComplete(laterDraft)}
-                  onClick={confirmLaterSchedule}
-                >
-                  Confirm
-                </button>
               </div>
+              {laterInlineError ? (
+                <p className="cj-schedule-inline-error" role="alert">
+                  {laterInlineError}
+                </p>
+              ) : null}
+              {laterDraftReadyForConfirm && !laterScheduleConfirmed ? (
+                <button type="button" className="cj-confirm-schedule" onClick={confirmLaterSchedule}>
+                  Confirm pickup time
+                </button>
+              ) : null}
               {laterScheduleConfirmed && confirmedLaterSummary ? (
                 <div className="cj-schedule-confirmed">Pickup confirmed: {confirmedLaterSummary}</div>
-              ) : (
-                <div className="cj-schedule-pending">Choose date and time, then tap Confirm.</div>
-              )}
-              <div className="cj-later-dispatch-block">
-                <select
-                  className="cj-input cj-dispatch-select"
-                  value={form.dispatchBeforeMin}
-                  onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
-                  title="Dispatch minutes before pickup"
-                >
-                  {DISPATCH_MINS.map((m) => (
-                    <option key={m} value={m}>
-                      {m === 0 ? 'Dispatch: ASAP' : `Dispatch ${m} min before pickup`}
-                    </option>
-                  ))}
-                </select>
-                {baseDispatchLoading ? (
-                  <p className="cj-dispatch-hint">Estimating base → pickup…</p>
-                ) : baseDispatchHint ? (
-                  <p className="cj-dispatch-hint">{baseDispatchHint}</p>
-                ) : null}
-              </div>
+              ) : !isLaterDraftComplete(laterDraft) ? (
+                <div className="cj-schedule-pending">Pick a date and time to continue.</div>
+              ) : null}
+              {laterScheduleConfirmed ? (
+                <div className="cj-later-dispatch-block">
+                  <select
+                    className="cj-input cj-dispatch-select"
+                    value={form.dispatchBeforeMin}
+                    onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
+                    title="Dispatch minutes before pickup"
+                  >
+                    {DISPATCH_MINS.map((m) => (
+                      <option key={m} value={m}>
+                        {m === 0 ? 'Dispatch: ASAP' : `Dispatch ${m} min before pickup`}
+                      </option>
+                    ))}
+                  </select>
+                  {baseDispatchLoading ? (
+                    <p className="cj-dispatch-hint">Estimating base → pickup…</p>
+                  ) : baseDispatchHint ? (
+                    <p className="cj-dispatch-hint">{baseDispatchHint}</p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
           {form.timing === 'later' && dispatchAtLabel && (
@@ -1560,7 +1599,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
           type="button"
           className="cj-btn-book"
           onClick={handleSubmit}
-          disabled={loading || (!isEdit && (!pickFromAutocomplete || !form.pick.lat))}
+          disabled={
+            loading || (!isEdit && (!pickFromAutocomplete || !form.pick.lat)) || laterBookBlocked
+          }
+          title={laterBookBlocked ? 'Confirm pickup time before booking' : undefined}
           aria-busy={loading}
         >
           {loading && <Loader2 size={14} className="animate-spin" />}

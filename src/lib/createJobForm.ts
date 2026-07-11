@@ -588,13 +588,74 @@ export function jobToForm(job: Job): CreateJobFormState {
   };
 }
 
-function isFutureBooking(dt: string): boolean {
-  try {
-    const d = new Date(dt.replace(' ', 'T'));
-    return !Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 60000;
-  } catch {
-    return false;
+const LATER_PICKUP_MIN_LEAD_MS = 60_000;
+
+/** Parse a Later pickup instant from form fields (local browser/NZ wall time). */
+export function laterPickupInstant(form: CreateJobFormState): Date | null {
+  if (form.timing !== 'later') return null;
+  if (!form.laterDate.trim() || !form.laterHour.trim() || !form.laterMin.trim()) return null;
+  const { bookingDateTime } = buildBookingDateTime(form);
+  const d = new Date(bookingDateTime.replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export type LaterScheduleDraft = { date: string; hour: string; min: string };
+
+export function isLaterDraftComplete(draft: LaterScheduleDraft): boolean {
+  return !!draft.date.trim() && !!draft.hour.trim() && !!draft.min.trim();
+}
+
+/** Inline picker feedback — null when incomplete or valid. */
+export function laterDraftInlineError(
+  draft: LaterScheduleDraft,
+  nowMs = Date.now(),
+): string | null {
+  if (!isLaterDraftComplete(draft)) return null;
+  const probe: CreateJobFormState = {
+    ...defaultCreateJobForm(),
+    timing: 'later',
+    laterDate: draft.date.trim(),
+    laterHour: draft.hour.padStart(2, '0'),
+    laterMin: draft.min.padStart(2, '0'),
+  };
+  const pickup = laterPickupInstant(probe);
+  if (!pickup) return 'Invalid pickup date or time.';
+  const today = nzNowParts().date;
+  if (draft.date.trim() < today) return 'This date is in the past.';
+  if (pickup.getTime() <= nowMs + LATER_PICKUP_MIN_LEAD_MS) return 'This time is in the past.';
+  return null;
+}
+
+/** Client-side guard — returns user-facing error text or null when valid. */
+export function validateLaterPickupForm(
+  form: CreateJobFormState,
+  nowMs = Date.now(),
+): string | null {
+  if (form.timing !== 'later') return null;
+  if (!form.laterDate.trim() || !form.laterHour.trim() || !form.laterMin.trim()) {
+    return 'Choose a pickup date and time.';
   }
+  const inline = laterDraftInlineError(
+    { date: form.laterDate, hour: form.laterHour, min: form.laterMin },
+    nowMs,
+  );
+  if (inline) return inline;
+  return null;
+}
+
+/** Merge Later draft fields into a form snapshot for submit/API calls. */
+export function mergeLaterDraftIntoForm(
+  form: CreateJobFormState,
+  draft: { date: string; hour: string; min: string },
+): CreateJobFormState {
+  if (form.timing !== 'later') return form;
+  if (!draft.date.trim() || !draft.hour.trim() || !draft.min.trim()) return form;
+  return {
+    ...form,
+    laterDate: draft.date.trim(),
+    laterHour: draft.hour.padStart(2, '0'),
+    laterMin: draft.min.padStart(2, '0'),
+  };
 }
 
 export function buildUpdateParams(

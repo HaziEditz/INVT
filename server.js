@@ -16936,7 +16936,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           createdAt: Date.now(),
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
           // displayed countdown is correct regardless of server/client timezone.
-          ...(_scheduledMs1 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs1 } : {}),
+          ...(_scheduledMs1 && _scheduledMs1 > Date.now() ? { ScheduledFor: _scheduledMs1 } : {}),
           ...(hasAssignedDriver ? {
             manualOffer: true,
             originalStatus: 'manual',
@@ -16947,7 +16947,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         };
         // Server-side past-date guard — prevents bookings set in the past from being
         // silently treated as ASAP.  Allow 90 s grace for clock skew / submit delay.
-        if (_scheduledMs1 && dispatchBefore > 0 && _scheduledMs1 < Date.now() - 90000) {
+        if (_scheduledMs1 && _scheduledMs1 < Date.now() - 90000) {
           arrayD(res, [{ Result: 'Error: The pickup time is already in the past. Please choose a future date and time.', Error: true }]);
           return;
         }
@@ -17193,11 +17193,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           createdAt: Date.now(),
           // ScheduledFor (UTC ms) for pre-booked jobs — used by calcJobMins so the
           // displayed countdown is correct regardless of server/client timezone.
-          ...(_scheduledMs2 && dispatchBefore > 0 ? { ScheduledFor: _scheduledMs2 } : {}),
+          ...(_scheduledMs2 && _scheduledMs2 > Date.now() ? { ScheduledFor: _scheduledMs2 } : {}),
         };
         // Server-side past-date guard — prevents bookings set in the past from being
         // silently treated as ASAP.  Allow 90 s grace for clock skew / submit delay.
-        if (_scheduledMs2 && dispatchBefore > 0 && _scheduledMs2 < Date.now() - 90000) {
+        if (_scheduledMs2 && _scheduledMs2 < Date.now() - 90000) {
           arrayD(res, [{ Result: 'Error: The pickup time is already in the past. Please choose a future date and time.', Error: true }]);
           return;
         }

@@ -479,6 +479,14 @@ body {
   margin: 0;
 }
 
+.cj-schedule-inline-error {
+  font-size: 10px;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.3;
+  margin: 0;
+}
+
 .cj-later-timing {
   display: flex;
   flex-direction: column;
