@@ -30,6 +30,7 @@ import {
   CJ_SERVICES,
   CJ_VEHICLE_TYPES,
   defaultCreateJobForm,
+  nzNowParts,
   repeatBookingDates,
   type CreateJobFormState,
   type PaymentType,
@@ -37,7 +38,7 @@ import {
   type StopPoint,
 } from '@/lib/createJobForm';
 import { filterDriversForRequirements } from '@/lib/jobVehicleEligibility';
-import { fetchDrivingRoute, formatCityDistance, formatFormFareEstimate } from '@/lib/directions';
+import { fetchDrivingRoute, formatBaseDispatchHint, formatCityDistance, formatFormFareEstimate, estimateRoadKmAndMin } from '@/lib/directions';
 import { estimateFare, haversineKm } from '@/lib/fareEstimate';
 import type { Job } from '@/types/job';
 import {
@@ -120,6 +121,32 @@ function newStop(): StopPoint {
 
 function serviceLabel(s: string) {
   return s.toUpperCase();
+}
+
+type LaterScheduleDraft = { date: string; hour: string; min: string };
+
+function isLaterDraftComplete(d: LaterScheduleDraft): boolean {
+  return !!d.date.trim() && !!d.hour.trim() && !!d.min.trim();
+}
+
+function formatLaterPickupSummary(d: LaterScheduleDraft): string {
+  if (!isLaterDraftComplete(d)) return '';
+  const h = d.hour.padStart(2, '0');
+  const m = d.min.padStart(2, '0');
+  try {
+    const pickup = new Date(`${d.date}T${h}:${m}:00`);
+    if (Number.isNaN(pickup.getTime())) return `${d.date} ${h}:${m}`;
+    return pickup.toLocaleString('en-NZ', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  } catch {
+    return `${d.date} ${h}:${m}`;
+  }
 }
 
 function jobFromForm(
@@ -231,6 +258,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [pickDirty, setPickDirty] = useState(false);
   const [dropDirty, setDropDirty] = useState(false);
   const [pickAddressError, setPickAddressError] = useState('');
+  const [laterDraft, setLaterDraft] = useState<LaterScheduleDraft>({ date: '', hour: '12', min: '00' });
+  const [laterScheduleConfirmed, setLaterScheduleConfirmed] = useState(false);
+  const [baseDispatchHint, setBaseDispatchHint] = useState('');
+  const [baseDispatchLoading, setBaseDispatchLoading] = useState(false);
 
   const [pos, setPos] = useState(loadPos);
   const dragging = useRef(false);
@@ -244,6 +275,32 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const patch = useCallback((p: Partial<CreateJobFormState>) => {
     setForm((f) => ({ ...f, ...p }));
   }, []);
+
+  const confirmLaterSchedule = useCallback(() => {
+    if (!isLaterDraftComplete(laterDraft)) {
+      addToast({
+        type: 'error',
+        title: 'Incomplete schedule',
+        message: 'Choose both date and time before confirming.',
+      });
+      return;
+    }
+    patch({
+      laterDate: laterDraft.date,
+      laterHour: laterDraft.hour,
+      laterMin: laterDraft.min,
+    });
+    setLaterScheduleConfirmed(true);
+  }, [laterDraft, patch, addToast]);
+
+  const confirmedLaterSummary = useMemo(() => {
+    if (!laterScheduleConfirmed || form.timing !== 'later') return '';
+    return formatLaterPickupSummary({
+      date: form.laterDate,
+      hour: form.laterHour,
+      min: form.laterMin,
+    });
+  }, [laterScheduleConfirmed, form.timing, form.laterDate, form.laterHour, form.laterMin]);
 
   const assignDropdownDrivers = useMemo(() => {
     const base = driversForAssignDropdown(availableDrivers, drivers, editingJob);
@@ -304,6 +361,11 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setPickDirty(false);
     setDropDirty(false);
     setPickAddressError('');
+    const now = nzNowParts();
+    setLaterDraft({ date: now.date, hour: now.h, min: now.m });
+    setLaterScheduleConfirmed(false);
+    setBaseDispatchHint('');
+    setBaseDispatchLoading(false);
   }, [settings?.defaultDispatchWindow]);
 
   const releaseHeldEditLock = useCallback(
@@ -380,6 +442,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       loadedFormKeyRef.current = formKey;
       const loaded = jobToForm(storeJob);
       setForm(loaded);
+      setLaterDraft({ date: loaded.laterDate, hour: loaded.laterHour, min: loaded.laterMin });
+      setLaterScheduleConfirmed(loaded.timing === 'later');
       setPickFromAutocomplete(!!loaded.pick.lat);
       setDropFromAutocomplete(!!loaded.drop.lat);
       setPickDirty(false);
@@ -481,6 +545,42 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setCityDistLoading(false);
     };
   }, [open, form.pick.lat, form.pick.lng, settings?.city]);
+
+  useEffect(() => {
+    if (!open || form.timing !== 'later' || !form.pick.lat || !settings?.city) {
+      setBaseDispatchHint('');
+      setBaseDispatchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBaseDispatchLoading(true);
+    const t = setTimeout(() => {
+      fetchDrivingRoute(settings.city!, form.pick)
+        .then((r) => {
+          if (cancelled) return;
+          if (r) {
+            setBaseDispatchHint(formatBaseDispatchHint(r.distanceKm, r.durationMin));
+            return;
+          }
+          const straightKm = haversineKm(
+            settings.city!.lat,
+            settings.city!.lng,
+            form.pick.lat,
+            form.pick.lng,
+          );
+          const est = estimateRoadKmAndMin(straightKm);
+          setBaseDispatchHint(formatBaseDispatchHint(est.km, est.min));
+        })
+        .finally(() => {
+          if (!cancelled) setBaseDispatchLoading(false);
+        });
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      setBaseDispatchLoading(false);
+    };
+  }, [open, form.timing, form.pick.lat, form.pick.lng, settings?.city]);
 
   useEffect(() => {
     if (!open || !form.pick.lat) {
@@ -654,6 +754,14 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const handleSubmit = async () => {
     if (submittingRef.current || loading) return;
     if (!validatePickup()) return;
+    if (form.timing === 'later' && !laterScheduleConfirmed) {
+      addToast({
+        type: 'error',
+        title: 'Confirm pickup time',
+        message: 'Tap Confirm schedule after choosing date and time.',
+      });
+      return;
+    }
 
     submittingRef.current = true;
     setLoading(true);
@@ -1032,37 +1140,72 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             <button
               type="button"
               className={`cj-toggle rounded-l ${form.timing === 'now' ? 'cj-toggle-active' : ''}`}
-              onClick={() => patch({ timing: 'now' })}
+              onClick={() => {
+                setLaterScheduleConfirmed(false);
+                patch({ timing: 'now' });
+              }}
             >
               NOW
             </button>
             <button
               type="button"
               className={`cj-toggle rounded-r border-l-0 ${form.timing === 'later' ? 'cj-toggle-active' : ''}`}
-              onClick={() => patch({ timing: 'later' })}
+              onClick={() => {
+                const now = nzNowParts();
+                setLaterDraft({
+                  date: form.laterDate || now.date,
+                  hour: form.laterHour || now.h,
+                  min: form.laterMin || now.m,
+                });
+                setLaterScheduleConfirmed(false);
+                patch({ timing: 'later' });
+              }}
             >
               LATER
             </button>
           </div>
           {form.timing === 'later' && (
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-end gap-2">
                 <input
                   type="date"
                   className="cj-input flex-1 min-w-[130px]"
-                  value={form.laterDate}
-                  onChange={(e) => patch({ laterDate: e.target.value })}
+                  value={laterDraft.date}
+                  onChange={(e) => {
+                    setLaterDraft((d) => ({ ...d, date: e.target.value }));
+                    setLaterScheduleConfirmed(false);
+                  }}
                 />
                 <input
                   type="time"
                   className="cj-input flex-1 min-w-[100px]"
-                  value={`${form.laterHour.padStart(2, '0')}:${form.laterMin.padStart(2, '0')}`}
+                  value={`${laterDraft.hour.padStart(2, '0')}:${laterDraft.min.padStart(2, '0')}`}
                   onChange={(e) => {
                     const [h, m] = e.target.value.split(':');
-                    patch({ laterHour: h || '12', laterMin: m || '00' });
+                    setLaterDraft((d) => ({
+                      ...d,
+                      hour: h || '12',
+                      min: m || '00',
+                    }));
+                    setLaterScheduleConfirmed(false);
                   }}
                 />
+                <button
+                  type="button"
+                  className="cj-confirm-schedule shrink-0"
+                  disabled={!isLaterDraftComplete(laterDraft)}
+                  onClick={confirmLaterSchedule}
+                >
+                  Confirm schedule
+                </button>
               </div>
+              {laterScheduleConfirmed && confirmedLaterSummary ? (
+                <div className="cj-schedule-confirmed">Pickup confirmed: {confirmedLaterSummary}</div>
+              ) : (
+                <div className="cj-schedule-pending">
+                  Choose date and time, then tap Confirm schedule.
+                </div>
+              )}
               <select
                 className="cj-input w-full"
                 value={form.dispatchBeforeMin}
@@ -1075,6 +1218,12 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   </option>
                 ))}
               </select>
+              {baseDispatchLoading && (
+                <div className="text-[10px] text-[#8892a4]">Estimating base → pickup…</div>
+              )}
+              {!baseDispatchLoading && baseDispatchHint && (
+                <div className="text-[10px] text-[#8892a4]">{baseDispatchHint}</div>
+              )}
             </div>
           )}
           {form.timing === 'later' && dispatchAtLabel && (

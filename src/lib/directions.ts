@@ -93,6 +93,18 @@ export function formatCityDistance(km: number, min: number): string {
   return `~${km.toFixed(1)} km from city, ~${Math.round(min)} min drive`;
 }
 
+/** Helper for dispatch-window planning — distance/time from company base to pickup. */
+export function formatBaseDispatchHint(km: number, min: number): string {
+  return `Base → pickup: ~${km.toFixed(1)} km · ~${Math.round(min)} min drive`;
+}
+
+/** Rough road distance/time from straight-line km (same heuristic as Create Job route summary). */
+export function estimateRoadKmAndMin(straightKm: number): { km: number; min: number } {
+  const km = straightKm * 1.25;
+  const min = Math.max(1, Math.round((km / 35) * 60));
+  return { km, min };
+}
+
 /** Quadratic bezier arc between two points (fallback when Directions API unavailable). */
 export function bezierRoutePath(start: LatLng, end: LatLng, segments = 40): LatLng[] {
   const midLat = (start.lat + end.lat) / 2;
