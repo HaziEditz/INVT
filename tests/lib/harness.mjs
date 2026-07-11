@@ -702,6 +702,14 @@ export async function prepareCleanDispatch(h) {
     await h.cancelAllOffered();
     await new Promise((resolve) => setTimeout(resolve, 400));
   }
+  const scrub = await post(
+    '/dev/loadtest/scrub-dispatch-state',
+    { companyId: h.companyId, bookingIds: [...h.createdJobIds] },
+    h.adminHeaders,
+  );
+  if (scrub.status !== 200 || !scrub.body?.ok) {
+    throw new Error(`scrub-dispatch-state: ${scrub.status} ${JSON.stringify(scrub.body).slice(0, 200)}`);
+  }
   for (const did of h.driverIds) {
     await h.configureDriver(did, {
       passforlink: `regtest-key-${did}`,

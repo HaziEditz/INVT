@@ -7081,6 +7081,18 @@ async function _firebasePendingAgreesWithJobStore(cid, bookingId, jsSt, tok) {
   }
 }
 
+async function _firebasePendingIsTerminal(cid, bookingId, tok) {
+  if (!tok || !cid || !bookingId) return false;
+  try {
+    const pj = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok);
+    if (!pj || typeof pj !== 'object') return false;
+    const pjSt = _firebaseStatusFromRecord(pj);
+    return _TERMINAL_JOB_STATUSES.has(pjSt);
+  } catch (_e) {
+    return false;
+  }
+}
+
 /** jobStore should win over terminal allbookings (id reuse, or pendingjobs confirms live status). */
 async function _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, tok) {
   if (!job || !cid || !bookingId) return false;
@@ -7089,6 +7101,13 @@ async function _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, to
   if (jsSt === 'Offered' && !_isGenuineInFlightOffer(job)) return false;
   if (_liveJobIsIdReuseOverClosed(job)) return true;
   if (await _firebasePendingAgreesWithJobStore(cid, bookingId, jsSt, tok)) return true;
+  // Live No One must not be purged by stale terminal allbookings/closedJobStore when
+  // pendingjobs does not also confirm terminal (regression #78 / ID-recycle edge case).
+  if (jsSt === 'No One') {
+    if (await _firebasePendingIsTerminal(cid, bookingId, tok)) return false;
+    const drv = String(job.DriverId ?? '').trim();
+    if (drv === '-1' || job.manualOffer === true) return true;
+  }
   const closed = _findClosedJobEntry(bookingId);
   if (!closed) return true;
   return false;
@@ -9427,9 +9446,84 @@ async function _bootPurgeStaleJobStoreIncidents() {
   console.log(`[boot-purge-stale-jobstore] purged=${report.purged} failed=${report.failed} ${JSON.stringify(report.results)}`);
 }
 
+/**
+ * Regression harness: drop in-memory closedJobStore history for a test tenant and,
+ * optionally, terminal Firebase rows for specific booking ids (no full-tree scan).
+ */
+async function _scrubTestCompanyDispatchState(companyId, opts) {
+  opts = opts || {};
+  const cid = String(companyId || '').trim();
+  const bookingIds = Array.isArray(opts.bookingIds)
+    ? opts.bookingIds.map((id) => parseInt(id, 10)).filter((id) => id > 0)
+    : [];
+  const report = {
+    companyId: cid,
+    closedRemoved: 0,
+    allbookingsTerminalRemoved: 0,
+    pendingjobsTerminalRemoved: 0,
+    skippedLive: 0,
+  };
+  if (!cid) return report;
+
+  for (let i = closedJobStore.length - 1; i >= 0; i--) {
+    const row = closedJobStore[i];
+    if (!row) continue;
+    if (String(row.companyId || row.CompanyId || '') !== cid) continue;
+    closedJobStore.splice(i, 1);
+    report.closedRemoved++;
+  }
+  if (report.closedRemoved) saveClosedJobStore();
+
+  if (!bookingIds.length || !process.env.BW_FIREBASE_SECRET) return report;
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) return report;
+
+  function _liveJobStoreRow(bid) {
+    return jobStore.find(j => j && j.Id === bid && String(j.companyId || '') === cid) || null;
+  }
+
+  async function _scrubFirebaseBooking(bid) {
+    if (_liveJobStoreRow(bid)) {
+      report.skippedLive++;
+      return;
+    }
+    for (const basePath of ['allbookings', 'pendingjobs']) {
+      let rec = null;
+      try {
+        rec = await firebaseDbGet(`${basePath}/${cid}/${bid}`, tok);
+      } catch {
+        continue;
+      }
+      if (!rec || typeof rec !== 'object') continue;
+      const st = _firebaseStatusFromRecord(rec);
+      if (!_TERMINAL_JOB_STATUSES.has(st)) continue;
+      await firebaseDbDelete(`${basePath}/${cid}/${bid}`, tok).catch(() => undefined);
+      if (basePath === 'allbookings') report.allbookingsTerminalRemoved++;
+      else report.pendingjobsTerminalRemoved++;
+    }
+  }
+
+  for (const bid of bookingIds) {
+    await _scrubFirebaseBooking(bid);
+  }
+
+  if (opts.source) {
+    console.log(
+      `[${opts.source}] scrub cid=${cid} closed=${report.closedRemoved} ids=${bookingIds.length} ` +
+      `abTerminal=${report.allbookingsTerminalRemoved} pjTerminal=${report.pendingjobsTerminalRemoved} ` +
+      `skippedLive=${report.skippedLive}`,
+    );
+  }
+  return report;
+}
+
 async function reconcileClosedJobsFromFirebase(opts) {
   opts = opts || {};
   const verbose = opts.verbose !== false;
+  if (process.env.NODE_ENV === 'test') {
+    if (verbose) console.log('[§FIX-S/reconciler] skipped in NODE_ENV=test');
+    return { skipped: true, reason: 'test_mode' };
+  }
   if (_FIXS_RUNNING) {
     if (verbose) console.log('[§FIX-S/reconciler] previous run still in flight — skipping');
     return { skipped: true, reason: 'in_flight' };
@@ -13736,6 +13830,30 @@ const server = http.createServer(async (req, res) => {
       });
       res.writeHead(report.ok ? 200 : 400, JSON_HEADERS);
       res.end(JSON.stringify(report));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+  if (urlPath === '/dev/loadtest/scrub-dispatch-state' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const report = await _scrubTestCompanyDispatchState(
+        String(parsed.companyId || parsed.cid || 'bwtest').trim(),
+        {
+          source: 'loadtest/scrub-dispatch-state',
+          bookingIds: Array.isArray(parsed.bookingIds) ? parsed.bookingIds : [],
+        },
+      );
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify(Object.assign({ ok: true }, report)));
     } catch (e) {
       res.writeHead(500, JSON_HEADERS);
       res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
