@@ -76,6 +76,18 @@ export interface CreateJobFormState {
 }
 
 export const CJ_VEHICLE_TYPES = ['Any', 'Car', 'Van', 'WAV', 'Minibus'] as const;
+
+/** Map stored VehicleType (server stores "Any" as "Not Specified") back to dropdown value. */
+export function vehicleTypeToFormValue(
+  stored: string | undefined | null,
+): (typeof CJ_VEHICLE_TYPES)[number] {
+  const v = (stored || '').trim();
+  if (!v || v.toLowerCase() === 'not specified' || v.toLowerCase() === 'any') return 'Any';
+  if ((CJ_VEHICLE_TYPES as readonly string[]).includes(v)) {
+    return v as (typeof CJ_VEHICLE_TYPES)[number];
+  }
+  return 'Any';
+}
 export const CJ_SERVICES = ['taxi', 'food', 'freight', 'tm', 'acc', 'rental'] as const;
 
 export function defaultCreateJobForm(): CreateJobFormState {
@@ -574,7 +586,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
     urgent: !!job.urgent,
     corner: !!job.corner,
-    vehicleType: job.vehicleType || 'Any',
+    vehicleType: vehicleTypeToFormValue(job.vehicleType),
     tariffId: job.tariffId || '0',
     tariffName: job.tariffName || 'Automatic',
     driverId,

@@ -874,66 +874,92 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       }
 
       const targets = dates.length ? dates : [undefined];
-      let lastId = 0;
-      let lastStatus = 'Pending';
+      const created: Array<{ bookingId: number; bookingStatus: string }> = [];
       setSubmitPhase('creating');
       for (const d of targets) {
         const res = await bookOne(submitForm, d);
         if (!res?.bookingId) {
           throw new Error('Server did not return a booking ID');
         }
-        lastId = res.bookingId;
-        lastStatus = res.bookingStatus;
+        created.push({ bookingId: res.bookingId, bookingStatus: res.bookingStatus });
       }
 
-      if (!lastId) {
+      if (!created.length) {
         throw new Error('Booking was not created — no job ID returned');
       }
 
       const driverSelected = isAssignedDriverSelection(submitForm.driverId);
-      const serverOffered = lastStatus === 'Offered';
-      const needsClientOffer = driverSelected && !serverOffered;
 
-      const createdJob = {
-        ...jobFromForm(submitForm, companyId, lastId, lastStatus),
-        dispatcherName,
-        driverId: driverSelected ? submitForm.driverId : undefined,
-        vehicleId: driverSelected ? submitForm.vehicleId : undefined,
-      };
-      clearRemovedJob(lastId);
-      let hydrated = await hydrateJobFromServer(companyId, lastId);
-      if (!hydrated) {
-        await new Promise((r) => setTimeout(r, 350));
-        hydrated = await hydrateJobFromServer(companyId, lastId);
+      for (const { bookingId, bookingStatus } of created) {
+        const createdJob = {
+          ...jobFromForm(submitForm, companyId, bookingId, bookingStatus),
+          dispatcherName,
+          driverId: driverSelected ? submitForm.driverId : undefined,
+          vehicleId: driverSelected ? submitForm.vehicleId : undefined,
+        };
+        clearRemovedJob(bookingId);
+        let hydrated = await hydrateJobFromServer(companyId, bookingId);
+        if (!hydrated) {
+          await new Promise((r) => setTimeout(r, 350));
+          hydrated = await hydrateJobFromServer(companyId, bookingId);
+        }
+        upsertJob(hydrated ?? createdJob);
       }
-      upsertJob(hydrated ?? createdJob);
       setActiveTab('ua');
 
-      if (targets.length > 1) {
+      const offerFailures: number[] = [];
+      if (driverSelected) {
+        for (const { bookingId, bookingStatus } of created) {
+          if (bookingStatus === 'Offered') continue;
+          const createdJob = {
+            ...jobFromForm(submitForm, companyId, bookingId, bookingStatus),
+            dispatcherName,
+            driverId: submitForm.driverId,
+            vehicleId: submitForm.vehicleId,
+          };
+          const workingJob =
+            useJobStore.getState().jobs.find((j) => j.id === bookingId) ?? createdJob;
+          try {
+            await applyFormDriverAssignment(workingJob, submitForm, availableDrivers, {
+              fanout: true,
+            });
+          } catch (e) {
+            offerFailures.push(bookingId);
+            console.error(`[Book] driver offer failed for #${bookingId}:`, e);
+          }
+        }
+      }
+
+      if (created.length > 1) {
+        const idsLabel = created.map((c) => `#${c.bookingId}`).join(', ');
+        let message = idsLabel;
+        if (driverSelected) {
+          const offersSent = created.length - offerFailures.length;
+          if (offerFailures.length) {
+            message = `${offersSent} of ${created.length} offers sent · failed: ${offerFailures.map((id) => `#${id}`).join(', ')}`;
+          } else {
+            message = `${created.length} offers sent · ${idsLabel}`;
+          }
+        }
         addToast({
-          type: 'success',
-          title: `${targets.length} jobs created`,
-          message: `#${lastId}${serverOffered && driverSelected ? ' · offer sent' : ''}`,
+          type: offerFailures.length ? 'error' : 'success',
+          title: `${created.length} jobs created`,
+          message,
           category: 'job_created',
         });
       } else {
-        notifyJobCreated(lastId);
-      }
-      onClose();
-
-      if (needsClientOffer) {
-        const workingJob =
-          useJobStore.getState().jobs.find((j) => j.id === lastId) ?? createdJob;
-        try {
-          await applyFormDriverAssignment(workingJob, submitForm, availableDrivers, { fanout: true });
-        } catch (e) {
+        const only = created[0];
+        if (driverSelected && only.bookingStatus !== 'Offered' && offerFailures.includes(only.bookingId)) {
           addToast({
             type: 'error',
             title: 'Driver offer failed',
-            message: e instanceof Error ? e.message : `Job #${lastId} was created but offer did not send`,
+            message: `Job #${only.bookingId} was created but offer did not send`,
           });
+        } else {
+          notifyJobCreated(only.bookingId);
         }
       }
+      onClose();
     } catch (e) {
       console.error('[Book] ERROR:', e);
       addToast({

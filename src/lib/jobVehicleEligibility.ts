@@ -186,7 +186,12 @@ export function filterDriversForRequirements(
 
   const job = {
 
-    vehicleType: req.vehicleType === 'Any' ? undefined : req.vehicleType,
+    vehicleType:
+      !req.vehicleType ||
+      req.vehicleType === 'Any' ||
+      req.vehicleType.toLowerCase() === 'not specified'
+        ? undefined
+        : req.vehicleType,
 
     passengers: req.passengers ?? 1,
 
