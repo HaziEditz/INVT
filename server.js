@@ -3615,6 +3615,8 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     scheduledFor:   String(job.BookingDateTime || job.Pickingtime || ''),
     tarriffType:    String(job.TarriffType || job.TarriffName || ''),
     TarriffType:    String(job.TarriffType || job.TarriffName || ''),
+    TarriffId:      String(job.TarriffId ?? job.TariffId ?? job.tariffId ?? ''),
+    TariffId:       String(job.TarriffId ?? job.TariffId ?? job.tariffId ?? ''),
     customRate:     String(job.CustomeRate || ''),
     CustomeRate:    String(job.CustomeRate || ''),
     originalStatus: _origStatus,
@@ -16955,6 +16957,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const _cRate = String(param('CustomeRate') || '').trim();
           if (_tId === '-1') {
             newJob.TarriffType = 'Fixed';
+            newJob.TarriffId = '-1';
             if (_cRate) { newJob.CustomeRate = _cRate; newJob.RideCost = _cRate; newJob.EstimatedFare = _cRate; }
           } else if (_tName && _tName !== 'Automatic') {
             newJob.TarriffType = _tName;
@@ -17004,6 +17007,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             WebBooking:       false,
             Pickingtime:      String(newJob.BookingDateTime || ''),
             TarriffType:      String(newJob.TarriffType || ''),
+            TarriffId:        String(newJob.TarriffId ?? newJob.TariffId ?? ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
             ...(hasAssignedDriver && _resolvedAtCreate ? {
@@ -17203,6 +17207,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           const _cRate2 = String(param('CustomeRate') || '').trim();
           if (_tId2 === '-1') {
             newJob.TarriffType = 'Fixed';
+            newJob.TarriffId = '-1';
             if (_cRate2) { newJob.CustomeRate = _cRate2; newJob.RideCost = _cRate2; newJob.EstimatedFare = _cRate2; }
           } else if (_tName2 && _tName2 !== 'Automatic') {
             newJob.TarriffType = _tName2;
@@ -17245,6 +17250,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             // to suppress the meter on fixed-price jobs and display scheduled pickup.
             Pickingtime:      String(newJob.BookingDateTime || ''),
             TarriffType:      String(newJob.TarriffType || ''),
+            TarriffId:        String(newJob.TarriffId ?? newJob.TariffId ?? ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
             ...(parseInt(String(newJob.DispatchTimebefore || '0'), 10) > 0 && newJob.ScheduledFor ? {

@@ -74,6 +74,8 @@ declare global {
 const POS_KEY = 'bw_create_job_pos';
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DISPATCH_MINS = [0, 5, 10, 15, 20, 30, 45, 60, 75, 90, 120];
+const LATER_HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const LATER_MINS = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 const PAYMENT_OPTIONS: { value: PaymentType; label: string }[] = [
   { value: 'cash', label: 'Cash' },
   { value: 'card', label: 'Card (Stripe)' },
@@ -135,17 +137,15 @@ function formatLaterPickupSummary(d: LaterScheduleDraft): string {
   const m = d.min.padStart(2, '0');
   try {
     const pickup = new Date(`${d.date}T${h}:${m}:00`);
-    if (Number.isNaN(pickup.getTime())) return `${d.date} ${h}:${m}`;
-    return pickup.toLocaleString('en-NZ', {
+    if (Number.isNaN(pickup.getTime())) return `${d.date} · ${h}:${m}`;
+    const dateLabel = pickup.toLocaleDateString('en-NZ', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
     });
+    return `${dateLabel} · ${h}:${m}`;
   } catch {
-    return `${d.date} ${h}:${m}`;
+    return `${d.date} · ${h}:${m}`;
   }
 }
 
@@ -1165,65 +1165,81 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
             </button>
           </div>
           {form.timing === 'later' && (
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-end gap-2">
+            <div className="cj-later-timing">
+              <div className="cj-later-datetime-row">
                 <input
                   type="date"
-                  className="cj-input flex-1 min-w-[130px]"
+                  className="cj-input cj-later-date"
                   value={laterDraft.date}
                   onChange={(e) => {
                     setLaterDraft((d) => ({ ...d, date: e.target.value }));
                     setLaterScheduleConfirmed(false);
                   }}
                 />
-                <input
-                  type="time"
-                  className="cj-input flex-1 min-w-[100px]"
-                  value={`${laterDraft.hour.padStart(2, '0')}:${laterDraft.min.padStart(2, '0')}`}
+                <select
+                  className="cj-input cj-later-time-part"
+                  value={laterDraft.hour.padStart(2, '0')}
+                  aria-label="Pickup hour (24h)"
                   onChange={(e) => {
-                    const [h, m] = e.target.value.split(':');
-                    setLaterDraft((d) => ({
-                      ...d,
-                      hour: h || '12',
-                      min: m || '00',
-                    }));
+                    setLaterDraft((d) => ({ ...d, hour: e.target.value }));
                     setLaterScheduleConfirmed(false);
                   }}
-                />
+                >
+                  {LATER_HOURS.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+                <span className="cj-later-time-sep">:</span>
+                <select
+                  className="cj-input cj-later-time-part"
+                  value={laterDraft.min.padStart(2, '0')}
+                  aria-label="Pickup minute"
+                  onChange={(e) => {
+                    setLaterDraft((d) => ({ ...d, min: e.target.value }));
+                    setLaterScheduleConfirmed(false);
+                  }}
+                >
+                  {LATER_MINS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
-                  className="cj-confirm-schedule shrink-0"
+                  className="cj-confirm-schedule"
                   disabled={!isLaterDraftComplete(laterDraft)}
                   onClick={confirmLaterSchedule}
                 >
-                  Confirm schedule
+                  Confirm
                 </button>
               </div>
               {laterScheduleConfirmed && confirmedLaterSummary ? (
                 <div className="cj-schedule-confirmed">Pickup confirmed: {confirmedLaterSummary}</div>
               ) : (
-                <div className="cj-schedule-pending">
-                  Choose date and time, then tap Confirm schedule.
-                </div>
+                <div className="cj-schedule-pending">Choose date and time, then tap Confirm.</div>
               )}
-              <select
-                className="cj-input w-full"
-                value={form.dispatchBeforeMin}
-                onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
-                title="Dispatch minutes before pickup"
-              >
-                {DISPATCH_MINS.map((m) => (
-                  <option key={m} value={m}>
-                    {m === 0 ? 'Dispatch: ASAP' : `Dispatch ${m} min before pickup`}
-                  </option>
-                ))}
-              </select>
-              {baseDispatchLoading && (
-                <div className="text-[10px] text-[#8892a4]">Estimating base → pickup…</div>
-              )}
-              {!baseDispatchLoading && baseDispatchHint && (
-                <div className="text-[10px] text-[#8892a4]">{baseDispatchHint}</div>
-              )}
+              <div className="cj-later-dispatch-block">
+                <select
+                  className="cj-input cj-dispatch-select"
+                  value={form.dispatchBeforeMin}
+                  onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
+                  title="Dispatch minutes before pickup"
+                >
+                  {DISPATCH_MINS.map((m) => (
+                    <option key={m} value={m}>
+                      {m === 0 ? 'Dispatch: ASAP' : `Dispatch ${m} min before pickup`}
+                    </option>
+                  ))}
+                </select>
+                {baseDispatchLoading ? (
+                  <p className="cj-dispatch-hint">Estimating base → pickup…</p>
+                ) : baseDispatchHint ? (
+                  <p className="cj-dispatch-hint">{baseDispatchHint}</p>
+                ) : null}
+              </div>
             </div>
           )}
           {form.timing === 'later' && dispatchAtLabel && (
