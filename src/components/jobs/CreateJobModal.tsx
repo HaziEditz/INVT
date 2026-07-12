@@ -26,6 +26,7 @@ import {
   driverOptionFromJob,
   isAssignedDriverSelection,
   jobToForm,
+  resolveTariffFormSelection,
   isLaterDraftComplete,
   laterDraftInlineError,
   mergeLaterDraftIntoForm,
@@ -175,6 +176,9 @@ function jobFromForm(
     bookingDateTime,
     dispatchBeforeMinutes: dispatchBefore,
     urgent: form.urgent,
+    vehicleType: form.vehicleType,
+    tariffId: form.fixedFareEnabled ? '-1' : form.tariffId,
+    tariffName: form.fixedFareEnabled ? 'Fixed' : form.tariffName,
     updateSeq: 0,
     createdAt: Date.now(),
     dispatcherName: '',
@@ -443,13 +447,15 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       storeJob.bookingDateTime,
       storeJob.driverId,
       storeJob.vehicleType,
+      storeJob.tariffId ?? '',
+      storeJob.tariffName ?? '',
       storeJob.dispatchBeforeMinutes ?? 0,
       storeJob.scheduledFor ?? '',
       storeJob.notifyDispatchAt ?? '',
     ].join('|');
     if (loadedFormKeyRef.current !== formKey) {
       loadedFormKeyRef.current = formKey;
-      const loaded = jobToForm(storeJob);
+      const loaded = resolveTariffFormSelection(jobToForm(storeJob), dropdownTariffs);
       setForm(loaded);
       setLaterDraft({ date: loaded.laterDate, hour: loaded.laterHour, min: loaded.laterMin });
       setLaterScheduleConfirmed(loaded.timing === 'later');
@@ -459,7 +465,19 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       setDropDirty(false);
       setPickAddressError('');
     }
-  }, [open, editingJob?.id, editingJob?.updateSeq, editingJob?.status, editingJob?.driverId, editingJob, setRoutePreview, addToast, dispatcherName, releaseHeldEditLock]);
+  }, [open, editingJob?.id, editingJob?.updateSeq, editingJob?.status, editingJob?.driverId, editingJob, dropdownTariffs, setRoutePreview, addToast, dispatcherName, releaseHeldEditLock]);
+
+  useEffect(() => {
+    if (!open || !isEdit || dropdownTariffs.length === 0) return;
+    setForm((f) => {
+      const resolved = resolveTariffFormSelection(
+        { tariffId: f.tariffId, tariffName: f.tariffName },
+        dropdownTariffs,
+      );
+      if (resolved.tariffId === f.tariffId && resolved.tariffName === f.tariffName) return f;
+      return { ...f, ...resolved };
+    });
+  }, [open, isEdit, dropdownTariffs]);
 
   useEffect(() => {
     if (open && !editingJob) {

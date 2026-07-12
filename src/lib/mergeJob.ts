@@ -33,11 +33,18 @@ export function mergeJobUpdate(
   incoming: Partial<Job>,
   opts?: { forceStatus?: JobStatus },
 ): Job {
+  const existingSeq = existing.updateSeq ?? 0;
+  const incomingSeq = incoming.updateSeq ?? existingSeq;
+  const staleVehicleTypeMirror =
+    incomingSeq < existingSeq &&
+    isOpenVehicleType(incoming.vehicleType) &&
+    isConcreteVehicleType(existing.vehicleType);
+
   const merged: Job = { ...existing, ...incoming };
   for (const key of PRESERVE_IF_EMPTY) {
     const nextVal = incoming[key];
     const prevVal = existing[key];
-    if (key === 'vehicleType' && isOpenVehicleType(nextVal) && isConcreteVehicleType(prevVal)) {
+    if (key === 'vehicleType' && staleVehicleTypeMirror) {
       (merged as Record<string, unknown>)[key] = prevVal;
       continue;
     }
@@ -45,9 +52,7 @@ export function mergeJobUpdate(
       (merged as Record<string, unknown>)[key] = prevVal;
     }
   }
-  const existingSeq = existing.updateSeq ?? 0;
-  const incomingSeq = incoming.updateSeq ?? existingSeq;
-  if (isOpenVehicleType(incoming.vehicleType) && isConcreteVehicleType(existing.vehicleType)) {
+  if (staleVehicleTypeMirror) {
     merged.vehicleType = existing.vehicleType;
   }
   if (incoming.createdAt == null && existing.createdAt != null) {

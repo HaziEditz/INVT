@@ -102,6 +102,43 @@ export function vehicleTypeToStoredValue(formValue: string | undefined | null): 
   if (!v || v.toLowerCase() === 'any') return 'Not Specified';
   return v;
 }
+
+/** Read tariff id/name from a Job, including legacy PascalCase server fields. */
+export function tariffFieldsFromJob(job: Job): { tariffId: string; tariffName: string } {
+  const rec = job as Job & Record<string, unknown>;
+  const rawId = job.tariffId ?? rec.TarriffId ?? rec.TariffId;
+  const rawName =
+    job.tariffName ??
+    rec.TarriffName ??
+    rec.TariffName ??
+    rec.TarriffType ??
+    rec.tarriffType;
+  const tariffId = rawId != null && String(rawId).trim() !== '' ? String(rawId) : '0';
+  let tariffName = String(rawName ?? '').trim();
+  if (tariffId === '-1') {
+    tariffName = tariffName || 'Fixed';
+  } else if (tariffId === '0') {
+    tariffName = tariffName || 'Automatic';
+  } else if (!tariffName) {
+    tariffName = 'Automatic';
+  }
+  return { tariffId, tariffName };
+}
+
+/** Match a name-only legacy tariff row to a dispatcher-settings catalog id. */
+export function resolveTariffFormSelection(
+  fields: { tariffId: string; tariffName: string },
+  catalog: Array<{ Id: string | number; TariffName: string }>,
+): { tariffId: string; tariffName: string } {
+  if (fields.tariffId !== '0' && fields.tariffId !== '') return fields;
+  const name = fields.tariffName.trim();
+  if (!name || name.toLowerCase() === 'automatic' || name.toLowerCase() === 'fixed') return fields;
+  const match = catalog.find(
+    (t) => String(t.TariffName).trim().toLowerCase() === name.toLowerCase(),
+  );
+  if (!match) return fields;
+  return { tariffId: String(match.Id), tariffName: String(match.TariffName) };
+}
 export const CJ_SERVICES = ['taxi', 'food', 'freight', 'tm', 'acc', 'rental'] as const;
 
 export function defaultCreateJobForm(): CreateJobFormState {
@@ -557,6 +594,7 @@ export function jobToForm(job: Job): CreateJobFormState {
   const vehicleType =
     job.vehicleType ??
     (job as Job & { VehicleType?: string }).VehicleType;
+  const tariff = tariffFieldsFromJob(job);
   const bookingDt =
     job.bookingDateTime ||
     (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace('T', ' ').slice(0, 16) : '');
@@ -605,15 +643,15 @@ export function jobToForm(job: Job): CreateJobFormState {
     urgent: !!job.urgent,
     corner: !!job.corner,
     vehicleType: vehicleTypeToFormValue(vehicleType),
-    tariffId: job.tariffId || '0',
-    tariffName: job.tariffName || 'Automatic',
+    tariffId: tariff.tariffId,
+    tariffName: tariff.tariffName,
     driverId,
     vehicleId: job.vehicleId || '0',
     paymentType,
     claimNumber: job.acc?.claimNumber || '',
     poNumber: job.acc?.poNumber || '',
     accClientId: job.acc?.clientId || '',
-    fixedFareEnabled: !!job.estimatedFare && job.tariffId === '-1',
+    fixedFareEnabled: !!job.estimatedFare && tariff.tariffId === '-1',
     fixedFareAmount: job.estimatedFare || '',
   };
 }

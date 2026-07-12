@@ -67,6 +67,32 @@ async function editVehicleTypeAfterLegacySeqDrift(h, jobId, label, targetVehicle
   assert.equal(String(after.firebase?.allbookings?.VehicleType || ''), targetVehicleType, `${label}: allbookings VehicleType`);
 }
 
+async function editVehicleTypeToAny(h, jobId, label) {
+  await h.bookingUpdate(jobId, { VehicleType: 'Van' }, await h.readUpdateSeq(jobId));
+  const seq = await h.readUpdateSeq(jobId);
+  const save = await h.bookingUpdate(jobId, { VehicleType: 'Not Specified' }, seq);
+  assert.equal(save.body.ok, true, `${label}: ${JSON.stringify(save.body)}`);
+  const after = await h.poll(
+    jobId,
+    (t) => String(t.jobStore?.lifecycle?.VehicleType || '').toLowerCase() === 'not specified',
+    { timeoutMs: 25000 },
+  );
+  assert.equal(
+    String(after.jobStore?.lifecycle?.VehicleType || '').toLowerCase(),
+    'not specified',
+    `${label}: jobStore VehicleType cleared to Any`,
+  );
+}
+
+test('Phase 3 edit: Pending job can save vehicle type back to Any', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const jobId = await h.createAsapJob('edit-any-pending');
+  await editVehicleTypeToAny(h, jobId, 'UA-Pending-Any');
+  await h.cancelUnassigned(jobId);
+});
+
 test('Phase 3 edit-lock: U-A (Pending) edit does not corrupt status', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
