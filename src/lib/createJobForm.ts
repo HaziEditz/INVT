@@ -554,6 +554,9 @@ export function jobToForm(job: Job): CreateJobFormState {
   const form = defaultCreateJobForm();
   const pick = parseLatLng(job.pickLatLng);
   const drop = parseLatLng(job.dropLatLng);
+  const vehicleType =
+    job.vehicleType ??
+    (job as Job & { VehicleType?: string }).VehicleType;
   const bookingDt =
     job.bookingDateTime ||
     (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace('T', ' ').slice(0, 16) : '');
@@ -601,7 +604,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
     urgent: !!job.urgent,
     corner: !!job.corner,
-    vehicleType: vehicleTypeToFormValue(job.vehicleType),
+    vehicleType: vehicleTypeToFormValue(vehicleType),
     tariffId: job.tariffId || '0',
     tariffName: job.tariffName || 'Automatic',
     driverId,

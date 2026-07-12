@@ -348,6 +348,14 @@ type BookingUpdateResult = {
   status: number;
 };
 
+type ToastedError = Error & { toastShown?: boolean };
+
+function toastedError(message: string): ToastedError {
+  const err = new Error(message) as ToastedError;
+  err.toastShown = true;
+  return err;
+}
+
 async function postBookingUpdate(body: Record<string, unknown>): Promise<BookingUpdateResult> {
   const r = await fetch(`${API}/booking/update`, {
     method: 'POST',
@@ -421,7 +429,8 @@ async function persistJobUpdate(
       if (result.currentSeq != null) ifSeq = result.currentSeq;
       const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
       if (fresh) {
-        ifSeq = Math.max(ifSeq, fresh.updateSeq ?? 0);
+        // Server currentSeq is authoritative for retry. Firebase can carry a
+        // higher legacy mirror seq and must not re-inflate the precondition.
         useJobStore.getState().upsertJob({ ...fresh, updateSeq: ifSeq });
       }
       continue;
@@ -441,7 +450,7 @@ async function persistJobUpdate(
       title: 'Job update failed',
       message,
     });
-    throw new Error(message);
+    throw toastedError(message);
   }
 
   if (result.idempotent && isExplicitUnassignChanges(effectiveChanges)) {
@@ -449,7 +458,7 @@ async function persistJobUpdate(
     if (fresh) useJobStore.getState().upsertJob(fresh);
     const message = 'Unassign was not applied on the server — job may still be assigned';
     useUiStore.getState().addToast({ type: 'error', title: 'Unassign failed', message });
-    throw new Error(message);
+    throw toastedError(message);
   }
 
   const authoritativeSeq = result.seq ?? ifSeq + 1;

@@ -18,6 +18,15 @@ const PRESERVE_IF_EMPTY: (keyof Job)[] = [
   'vehicleType',
 ];
 
+function isOpenVehicleType(value: unknown): boolean {
+  const s = String(value ?? '').trim().toLowerCase();
+  return !s || s === 'not specified' || s === 'any';
+}
+
+function isConcreteVehicleType(value: unknown): boolean {
+  return !isOpenVehicleType(value);
+}
+
 /** Merge an incoming job patch into an existing record without wiping known-good fields. */
 export function mergeJobUpdate(
   existing: Job,
@@ -28,19 +37,17 @@ export function mergeJobUpdate(
   for (const key of PRESERVE_IF_EMPTY) {
     const nextVal = incoming[key];
     const prevVal = existing[key];
+    if (key === 'vehicleType' && isOpenVehicleType(nextVal) && isConcreteVehicleType(prevVal)) {
+      (merged as Record<string, unknown>)[key] = prevVal;
+      continue;
+    }
     if (typeof nextVal === 'string' && !nextVal.trim() && typeof prevVal === 'string' && prevVal.trim()) {
       (merged as Record<string, unknown>)[key] = prevVal;
     }
   }
   const existingSeq = existing.updateSeq ?? 0;
   const incomingSeq = incoming.updateSeq ?? existingSeq;
-  const incVt = String(incoming.vehicleType ?? '').trim();
-  const prevVt = String(existing.vehicleType ?? '').trim();
-  const incVtOpen =
-    !incVt || incVt.toLowerCase() === 'not specified' || incVt.toLowerCase() === 'any';
-  const prevVtConcrete =
-    !!prevVt && prevVt.toLowerCase() !== 'not specified' && prevVt.toLowerCase() !== 'any';
-  if (incomingSeq >= existingSeq && incVtOpen && prevVtConcrete) {
+  if (isOpenVehicleType(incoming.vehicleType) && isConcreteVehicleType(existing.vehicleType)) {
     merged.vehicleType = existing.vehicleType;
   }
   if (incoming.createdAt == null && existing.createdAt != null) {

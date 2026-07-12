@@ -6222,6 +6222,7 @@ function _jobLifecycleSnapshot(job) {
     DriverId: job.DriverId,
     VehicleId: job.VehicleId,
     VehicleNo: job.VehicleNo || job.CallSign || '',
+    VehicleType: job.VehicleType || job.vehicleType || '',
     AssignedDriverId: job.AssignedDriverId || null,
     releasedAt: job.releasedAt || null,
     offeredAt: job.offeredAt || null,
@@ -7927,10 +7928,23 @@ async function updateBooking(opts) {
   const _prevVid    = String(job.VehicleNo || job.CallSign || job.VehicleId || job.AssignedVehicleId || '').trim();
 
   // Race-safety check.
-  const _curSeq = parseInt(job.updateSeq) || 0;
+  let _curSeq = parseInt(job.updateSeq) || 0;
+  let _legacySeqBackfilled = false;
   if (ifSeq !== null && ifSeq !== _curSeq) {
-    console.log(`  [${source}] §FIX-UB stale: job #${bookingId} ifSeq=${ifSeq} but currentSeq=${_curSeq}`);
-    return { ok: false, stale: true, currentSeq: _curSeq, error: 'sequence mismatch' };
+    const _legacyMissingSeq =
+      job.updateSeq === undefined ||
+      job.updateSeq === null ||
+      String(job.updateSeq).trim() === '' ||
+      _curSeq === 0;
+    if (_legacyMissingSeq && ifSeq > _curSeq) {
+      job.updateSeq = ifSeq;
+      _curSeq = ifSeq;
+      _legacySeqBackfilled = true;
+      console.log(`  [${source}] §FIX-UB legacy seq backfill: job #${bookingId} currentSeq=0 → ${_curSeq}`);
+    } else {
+      console.log(`  [${source}] §FIX-UB stale: job #${bookingId} ifSeq=${ifSeq} but currentSeq=${_curSeq}`);
+      return { ok: false, stale: true, currentSeq: _curSeq, error: 'sequence mismatch' };
+    }
   }
 
   // Diff.
@@ -7973,6 +7987,7 @@ async function updateBooking(opts) {
       };
     }
     console.log(`  [${source}] §FIX-UB idempotent: job #${bookingId} no field changes (seq=${_curSeq})`);
+    if (_legacySeqBackfilled) saveJobStore();
     return { ok: true, idempotent: true, eventTypes: [], diff: {}, seq: _curSeq, driverNotified: false };
   }
 
@@ -8756,14 +8771,32 @@ function fmtDT(dt) {
   return nz.substring(0, 16).replace('T', ' ') + ':00.';
 }
 
+function _jobPersistedSeq(job) {
+  const raw = job && (job.updateSeq ?? job._seq ?? job.version);
+  const n = parseInt(raw, 10);
+  return !isNaN(n) && n >= 0 ? n : 0;
+}
+
 // Live job store — loaded from disk on startup, saved on every mutation
 let _savedJobStore = [];
 try {
   if (fs.existsSync(JOB_STORE_FILE)) {
     const _rawJobs = JSON.parse(fs.readFileSync(JOB_STORE_FILE, 'utf8')) || [];
     _savedJobStore = _rawJobs.filter(j => j.companyId);
+    let _seqBackfilled = 0;
+    _savedJobStore.forEach(j => {
+      const seq = _jobPersistedSeq(j);
+      if (String(j.updateSeq ?? '') !== String(seq)) {
+        j.updateSeq = seq;
+        _seqBackfilled++;
+      }
+    });
     const _droppedJobs = _rawJobs.length - _savedJobStore.length;
     if (_droppedJobs > 0) console.log(`[persist] dropped ${_droppedJobs} untagged jobs (no companyId — pre-isolation data)`);
+    if (_seqBackfilled > 0) {
+      try { fs.writeFileSync(JOB_STORE_FILE, JSON.stringify(_savedJobStore, null, 2)); } catch(e) {}
+      console.log(`[persist] backfilled updateSeq on ${_seqBackfilled} job(s)`);
+    }
     console.log(`[persist] loaded ${_savedJobStore.length} jobs from disk`);
   }
 } catch(e) { console.log('[persist] jobstore load error:', e.message); }
@@ -13761,7 +13794,7 @@ const server = http.createServer(async (req, res) => {
       const patch = parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : parsed;
       const allowed = [
         'BookingStatus', 'DriverId', 'VehicleId', 'VehicleNo', 'offeredAt', 'returnReason',
-        'queuedAt', 'originalStatus', 'releasedAt', 'companyId',
+        'queuedAt', 'originalStatus', 'releasedAt', 'companyId', 'updateSeq', 'VehicleType',
       ];
       for (const k of allowed) {
         if (patch[k] !== undefined) job[k] = patch[k];

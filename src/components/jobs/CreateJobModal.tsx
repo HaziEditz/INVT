@@ -965,11 +965,17 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       onClose();
     } catch (e) {
       console.error('[Book] ERROR:', e);
-      addToast({
-        type: 'error',
-        title: isEdit ? 'Save failed' : 'Booking failed',
-        message: e instanceof Error ? e.message : 'Unknown error',
-      });
+      const toastAlreadyShown =
+        isEdit &&
+        e instanceof Error &&
+        (e as Error & { toastShown?: boolean }).toastShown;
+      if (!toastAlreadyShown) {
+        addToast({
+          type: 'error',
+          title: isEdit ? 'Save failed' : 'Booking failed',
+          message: e instanceof Error ? e.message : 'Unknown error',
+        });
+      }
     } finally {
       submittingRef.current = false;
       setLoading(false);
