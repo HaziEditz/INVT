@@ -455,9 +455,15 @@ function isUnassignedForDispatch(job: Job): boolean {
 
 /** Pre-booked / scheduled — not an immediate ASAP pickup. */
 export function isPreBookedJob(job: Job, now = new Date()): boolean {
-  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  const dispatchBefore = job.dispatchBeforeMinutes ?? 0;
+  const status = normalizeJobStatus(job.status);
+  if (dispatchBefore > 0) return true;
   if (job.notifyDispatchAt) return true;
-  if (normalizeJobStatus(job.status) === 'Scheduled') return true;
+  if (status === 'Scheduled') return true;
+  // Later→Now clears dispatch window — treat as ASAP even when pickup predates createdAt.
+  if (dispatchBefore === 0 && !job.notifyDispatchAt && !job.scheduledFor && status !== 'Scheduled') {
+    return false;
+  }
   const pickup = jobScheduledTime(job);
   if (!pickup) return false;
   if (pickup.getTime() > now.getTime()) return true;

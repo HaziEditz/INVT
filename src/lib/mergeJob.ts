@@ -15,6 +15,7 @@ const PRESERVE_IF_EMPTY: (keyof Job)[] = [
   'tariffName',
   'tariffId',
   'jobEditing',
+  'vehicleType',
 ];
 
 /** Merge an incoming job patch into an existing record without wiping known-good fields. */
@@ -31,6 +32,17 @@ export function mergeJobUpdate(
       (merged as Record<string, unknown>)[key] = prevVal;
     }
   }
+  const existingSeq = existing.updateSeq ?? 0;
+  const incomingSeq = incoming.updateSeq ?? existingSeq;
+  const incVt = String(incoming.vehicleType ?? '').trim();
+  const prevVt = String(existing.vehicleType ?? '').trim();
+  const incVtOpen =
+    !incVt || incVt.toLowerCase() === 'not specified' || incVt.toLowerCase() === 'any';
+  const prevVtConcrete =
+    !!prevVt && prevVt.toLowerCase() !== 'not specified' && prevVt.toLowerCase() !== 'any';
+  if (incomingSeq >= existingSeq && incVtOpen && prevVtConcrete) {
+    merged.vehicleType = existing.vehicleType;
+  }
   if (incoming.createdAt == null && existing.createdAt != null) {
     merged.createdAt = existing.createdAt;
   }
@@ -42,8 +54,6 @@ export function mergeJobUpdate(
         ? incoming.editHistory
         : existing.editHistory;
   }
-  const existingSeq = existing.updateSeq ?? 0;
-  const incomingSeq = incoming.updateSeq ?? existingSeq;
   if (opts?.forceStatus) {
     merged.status = opts.forceStatus;
   } else if (incoming.status != null) {
@@ -68,8 +78,8 @@ export function mergeJobUpdate(
   }
   if (incomingSeq >= existingSeq && incoming.dispatchBeforeMinutes === 0) {
     merged.dispatchBeforeMinutes = 0;
-    if (incoming.scheduledFor === undefined) merged.scheduledFor = undefined;
-    if (!incoming.notifyDispatchAt) merged.notifyDispatchAt = undefined;
+    merged.scheduledFor = incoming.scheduledFor === undefined ? undefined : incoming.scheduledFor;
+    merged.notifyDispatchAt = incoming.notifyDispatchAt ? incoming.notifyDispatchAt : undefined;
     if (
       incoming.status != null &&
       normalizeJobStatus(String(incoming.status)) === 'Pending' &&

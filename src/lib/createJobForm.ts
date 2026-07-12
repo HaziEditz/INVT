@@ -77,6 +77,13 @@ export interface CreateJobFormState {
 
 export const CJ_VEHICLE_TYPES = ['Any', 'Car', 'Van', 'WAV', 'Minibus'] as const;
 
+/** Canonical key for edit deltas — "Any" and "Not Specified" are equivalent. */
+export function normVehicleTypeForEdit(value: unknown): string {
+  const s = String(value ?? '').trim().toLowerCase();
+  if (!s || s === 'not specified' || s === 'any') return 'not specified';
+  return s;
+}
+
 /** Map stored VehicleType (server stores "Any" as "Not Specified") back to dropdown value. */
 export function vehicleTypeToFormValue(
   stored: string | undefined | null,
@@ -87,6 +94,13 @@ export function vehicleTypeToFormValue(
     return v as (typeof CJ_VEHICLE_TYPES)[number];
   }
   return 'Any';
+}
+
+/** Form dropdown value → server VehicleType field. */
+export function vehicleTypeToStoredValue(formValue: string | undefined | null): string {
+  const v = (formValue || '').trim();
+  if (!v || v.toLowerCase() === 'any') return 'Not Specified';
+  return v;
 }
 export const CJ_SERVICES = ['taxi', 'food', 'freight', 'tm', 'acc', 'rental'] as const;
 
@@ -245,7 +259,7 @@ export function buildInsertParams(form: CreateJobFormState, dispatcherName: stri
     { name: 'DropLatLng', Value: dropLatLng },
     { name: 'PickLocation', Value: form.pick.address || form.pickInput },
     { name: 'DropLocation', Value: form.drop.address || form.dropInput },
-    { name: 'VehicleType', Value: form.vehicleType === 'Any' ? 'Not Specified' : form.vehicleType },
+    { name: 'VehicleType', Value: vehicleTypeToStoredValue(form.vehicleType) },
     { name: 'PassengersNo', Value: '1' },
     { name: 'BagsNo', Value: '0' },
     { name: 'WheelChairsNo', Value: '0' },
@@ -477,7 +491,7 @@ export function buildJobChangesFromForm(
     DispatchTimebefore: dispatchBefore,
     Dispatchbefore: String(dispatchBefore),
     Urgent: form.urgent ? 'Yes' : 'No',
-    VehicleType: form.vehicleType === 'Any' ? 'Not Specified' : form.vehicleType,
+    VehicleType: vehicleTypeToStoredValue(form.vehicleType),
     PaymentMethod: paymentMethod,
     PaymentType: paymentMethod,
     TarriffId: tariffId,
@@ -502,6 +516,7 @@ export function buildJobChangesFromForm(
 
 function normEditChangeValue(key: string, value: unknown): string {
   if (value == null) return '';
+  if (key === 'VehicleType') return normVehicleTypeForEdit(value);
   const s = String(value).trim();
   if (key === 'BookingDateTime' || key === 'Pickingtime') {
     return s.replace('T', ' ').replace(/:\d{2}$/, '').slice(0, 16);

@@ -7359,6 +7359,17 @@ async function _signalDispatchConsoleRefresh(cid, payload) {
   }
 }
 
+function _normVehicleTypeForDiff(v) {
+  const s = (v === null || v === undefined) ? '' : String(v).trim().toLowerCase();
+  if (!s || s === 'not specified' || s === 'any') return '';
+  return s;
+}
+
+function _jobFieldForDiff(job, key) {
+  if (key === 'VehicleType') return job.VehicleType ?? job.vehicleType;
+  return job[key];
+}
+
 // Diff incoming changes against the live job. Returns {field: {from, to}} for
 // fields that actually changed. Numeric values are string-normalized so
 // "10" vs 10 doesn't count as a change.
@@ -7368,10 +7379,16 @@ function _diffJobChanges(job, changes) {
   const _norm = v => (v === null || v === undefined) ? '' : String(v).trim();
   for (const _k of Object.keys(changes)) {
     const _to   = changes[_k];
-    const _from = job[_k];
+    const _from = _jobFieldForDiff(job, _k);
     // Arrays/objects: shallow JSON compare.
     if ((typeof _to === 'object' && _to !== null) || (typeof _from === 'object' && _from !== null)) {
       if (JSON.stringify(_to || null) !== JSON.stringify(_from || null)) {
+        _diff[_k] = { from: _from, to: _to };
+      }
+      continue;
+    }
+    if (_k === 'VehicleType') {
+      if (_normVehicleTypeForDiff(_to) !== _normVehicleTypeForDiff(_from)) {
         _diff[_k] = { from: _from, to: _to };
       }
       continue;

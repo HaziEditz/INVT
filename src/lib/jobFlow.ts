@@ -536,9 +536,14 @@ function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq:
     merged = {
       ...merged,
       dispatchBeforeMinutes: 0,
-      scheduledFor: fresh.scheduledFor,
-      notifyDispatchAt: fresh.notifyDispatchAt,
+      scheduledFor: optimistic.scheduledFor,
+      notifyDispatchAt: optimistic.notifyDispatchAt,
+      bookingDateTime: optimistic.bookingDateTime || merged.bookingDateTime,
     };
+  }
+  if ((merged.dispatchBeforeMinutes ?? 0) === 0 && !merged.notifyDispatchAt) {
+    merged.scheduledFor = undefined;
+    merged.notifyDispatchAt = undefined;
   }
   if (
     normalizeJobStatus(fresh.status) === 'Pending' &&

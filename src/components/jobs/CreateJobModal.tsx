@@ -443,6 +443,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       storeJob.bookingDateTime,
       storeJob.driverId,
       storeJob.vehicleType,
+      storeJob.dispatchBeforeMinutes ?? 0,
+      storeJob.scheduledFor ?? '',
+      storeJob.notifyDispatchAt ?? '',
     ].join('|');
     if (loadedFormKeyRef.current !== formKey) {
       loadedFormKeyRef.current = formKey;
