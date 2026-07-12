@@ -1378,8 +1378,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   }}
                 >
                   {!isEdit && <option value="0">Driver: Auto</option>}
-                  <option value="-2">Pending</option>
-                  <option value="-1">No One</option>
+                  <option value="-2">
+                    {isEdit ? 'Driver: Pending (U-A pool)' : 'Pending'}
+                  </option>
+                  <option value="-1">{isEdit ? 'Driver: No One' : 'No One'}</option>
                   {assignedEditDriver &&
                     !availableDrivers.some((d) => d.driverId === assignedEditDriver.driverId) && (
                       <>

@@ -637,16 +637,46 @@ export function preDispatchAssignBlockMessage(job: Job): string {
   return `This job is pre-booked for ${timeLabel}. To send it now, change it to 'Now' first.`;
 }
 
+function parseJobTimestampField(raw: unknown): Date | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'number') {
+    const d = new Date(raw);
+    return !Number.isNaN(d.getTime()) && raw > 0 ? d : null;
+  }
+  const ms = Date.parse(String(raw).replace(/\.$/, '').trim());
+  return Number.isNaN(ms) || ms <= 0 ? null : new Date(ms);
+}
+
+/** Legacy created/booked stamps that may exist on older Firebase rows without createdAt. */
+function jobLegacyCreatedTime(job: Job): Date | null {
+  const rec = job as Job & Record<string, unknown>;
+  for (const key of [
+    'createdAt',
+    'CreatedAt',
+    'bookedAt',
+    'BookedAt',
+    'bookingCreatedAt',
+    'InsertTime',
+    'insertTime',
+  ] as const) {
+    const d = parseJobTimestampField(rec[key]);
+    if (d) return d;
+  }
+  return null;
+}
+
 /** When the job record was created in the system. */
 export function jobCreatedAtTime(job: Job): Date | null {
   return jobWaitStartTime(job);
 }
 
 /** Stable anchor for U-A wait timer — never recall/re-offer timestamps. */
-export function jobWaitStartTime(job: Job): Date | null {
-  if (job.createdAt) {
-    const d = new Date(job.createdAt);
-    if (!Number.isNaN(d.getTime())) return d;
+export function jobWaitStartTime(job: Job, now = new Date()): Date | null {
+  const legacy = jobLegacyCreatedTime(job);
+  if (legacy) return legacy;
+  // Legacy ASAP rows may only have bookingDateTime — better than a blank card meta line.
+  if (!isPreBookedJob(job, now)) {
+    return jobScheduledTime(job);
   }
   return null;
 }

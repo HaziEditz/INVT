@@ -247,7 +247,9 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
   const status = jobStatusAbbrev(effectiveJobStatus(job));
   const pickupType = jobPickupTypeLabel(job);
   const pickup = jobPickupTime(job);
-  const created = jobCreatedAtTime(job);
+  const created =
+    jobCreatedAtTime(job) ??
+    (isPreBookedJob(job, now) ? jobPickupTime(job) : null);
   const timerBadge = jobTimerBadge(job, tab, now);
   const goTime =
     tab === 'ua' && isPreBookedJob(job, now) && isPreDispatchWindow(job, now)
