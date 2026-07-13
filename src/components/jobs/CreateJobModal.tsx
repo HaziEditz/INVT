@@ -26,7 +26,10 @@ import {
   driverOptionFromJob,
   isAssignedDriverSelection,
   jobToForm,
+  mergeTariffCatalogSources,
+  buildEditTariffDropdown,
   resolveTariffFormSelection,
+  tariffFieldsFromJob,
   isLaterDraftComplete,
   laterDraftInlineError,
   mergeLaterDraftIntoForm,
@@ -246,12 +249,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const [stripePk, setStripePk] = useState('');
 
   const dropdownTariffs = useMemo(() => {
-    const fromFirebase = filterForbiddenTariffDropdown(
-      fbTariffs.map((t) => ({ Id: t.id, TariffName: t.name })),
+    const merged = mergeTariffCatalogSources(
+      filterForbiddenTariffDropdown(fbTariffs.map((t) => ({ Id: t.id, TariffName: t.name }))),
+      filterForbiddenTariffDropdown(tariffs),
     );
-    if (fromFirebase.length) return fromFirebase;
-    return filterForbiddenTariffDropdown(tariffs);
-  }, [fbTariffs, tariffs]);
+    if (!isEdit || !editingJob) return merged;
+    return buildEditTariffDropdown(merged, tariffFieldsFromJob(editingJob));
+  }, [fbTariffs, tariffs, isEdit, editingJob]);
 
   const [accountHits, setAccountHits] = useState<CustomerSearchResult['accounts']>([]);
   const [accHits, setAccHits] = useState<CustomerSearchResult['acc']>([]);

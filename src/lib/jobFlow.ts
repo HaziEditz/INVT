@@ -14,7 +14,7 @@ import {
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import { getDb, ref, remove, update, get } from '@/lib/firebase';
 import { purgeCancelledJobFromListeners, purgeDispatchTerminalJob } from '@/hooks/useJobs';
-import { mergeJobUpdate } from '@/lib/mergeJob';
+import { isExplicitLaterToNow, isLaterJobState, mergeJobUpdate } from '@/lib/mergeJob';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
@@ -541,18 +541,19 @@ function mergeJobUpdateFromServer(optimistic: Job, fresh: Job, authoritativeSeq:
     return { ...optimistic, updateSeq: seq };
   }
   let merged = mergeJobUpdate(optimistic, { ...fresh, updateSeq: seq });
-  if ((fresh.dispatchBeforeMinutes ?? 0) === 0 && (optimistic.dispatchBeforeMinutes ?? 0) > 0) {
+  if (
+    isLaterJobState(optimistic) &&
+    !isLaterJobState(merged) &&
+    !isLaterJobState(fresh) &&
+    !isExplicitLaterToNow(optimistic, fresh)
+  ) {
     merged = {
       ...merged,
-      dispatchBeforeMinutes: 0,
-      scheduledFor: optimistic.scheduledFor,
-      notifyDispatchAt: optimistic.notifyDispatchAt,
+      scheduledFor: optimistic.scheduledFor ?? merged.scheduledFor,
+      notifyDispatchAt: optimistic.notifyDispatchAt ?? merged.notifyDispatchAt,
+      dispatchBeforeMinutes: optimistic.dispatchBeforeMinutes ?? merged.dispatchBeforeMinutes,
       bookingDateTime: optimistic.bookingDateTime || merged.bookingDateTime,
     };
-  }
-  if ((merged.dispatchBeforeMinutes ?? 0) === 0 && !merged.notifyDispatchAt) {
-    merged.scheduledFor = undefined;
-    merged.notifyDispatchAt = undefined;
   }
   if (
     normalizeJobStatus(fresh.status) === 'Pending' &&

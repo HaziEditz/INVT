@@ -27,6 +27,51 @@ function isConcreteVehicleType(value: unknown): boolean {
   return !isOpenVehicleType(value);
 }
 
+/** Pre-booked / Later timing — dispatch window, scheduled pickup, or Scheduled status. */
+export function isLaterJobState(
+  job: Pick<Job, 'dispatchBeforeMinutes' | 'scheduledFor' | 'notifyDispatchAt' | 'status'>,
+): boolean {
+  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  if (job.notifyDispatchAt) return true;
+  if (job.scheduledFor != null && job.scheduledFor > 0) return true;
+  if (normalizeJobStatus(String(job.status ?? '')) === 'Scheduled') return true;
+  return false;
+}
+
+/** True only when the incoming patch intentionally converts Later → Now (ASAP). */
+export function isExplicitLaterToNow(existing: Job, incoming: Partial<Job>): boolean {
+  if (!isLaterJobState(existing)) return false;
+  if (isLaterJobState(incoming as Job)) return false;
+
+  const prevDb = existing.dispatchBeforeMinutes ?? 0;
+  const nextDb = incoming.dispatchBeforeMinutes ?? prevDb;
+  if (prevDb > 0 && nextDb === 0) return true;
+
+  const prevSched = existing.scheduledFor ?? 0;
+  if (prevSched > 0 && incoming.scheduledFor === 0) return true;
+
+  if (
+    prevSched > 0 &&
+    incoming.notifyDispatchAt === '' &&
+    nextDb === 0 &&
+    (incoming.scheduledFor == null || incoming.scheduledFor === 0)
+  ) {
+    return true;
+  }
+
+  if (
+    normalizeJobStatus(existing.status) === 'Scheduled' &&
+    incoming.status != null &&
+    normalizeJobStatus(String(incoming.status)) === 'Pending' &&
+    nextDb === 0 &&
+    !(incoming.scheduledFor != null && incoming.scheduledFor > 0)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 /** Merge an incoming job patch into an existing record without wiping known-good fields. */
 export function mergeJobUpdate(
   existing: Job,
@@ -88,16 +133,37 @@ export function mergeJobUpdate(
   if (incoming.updateSeq == null || incomingSeq < existingSeq) {
     merged.updateSeq = existingSeq;
   }
-  if (incomingSeq >= existingSeq && incoming.dispatchBeforeMinutes === 0) {
-    merged.dispatchBeforeMinutes = 0;
-    merged.scheduledFor = incoming.scheduledFor === undefined ? undefined : incoming.scheduledFor;
-    merged.notifyDispatchAt = incoming.notifyDispatchAt ? incoming.notifyDispatchAt : undefined;
-    if (
-      incoming.status != null &&
-      normalizeJobStatus(String(incoming.status)) === 'Pending' &&
-      normalizeJobStatus(existing.status) === 'Scheduled'
-    ) {
-      merged.status = incoming.status;
+  if (incomingSeq >= existingSeq) {
+    const prevLater = isLaterJobState(existing);
+    const laterToNow = isExplicitLaterToNow(existing, incoming);
+
+    if (laterToNow) {
+      merged.dispatchBeforeMinutes = 0;
+      merged.scheduledFor =
+        incoming.scheduledFor != null && incoming.scheduledFor > 0
+          ? incoming.scheduledFor
+          : undefined;
+      merged.notifyDispatchAt = incoming.notifyDispatchAt?.trim()
+        ? incoming.notifyDispatchAt
+        : undefined;
+      if (
+        incoming.status != null &&
+        normalizeJobStatus(String(incoming.status)) === 'Pending' &&
+        normalizeJobStatus(existing.status) === 'Scheduled'
+      ) {
+        merged.status = incoming.status;
+      }
+    } else if (prevLater) {
+      // Partial Firebase/metadata patches must not strip Later pickup fields.
+      if ((existing.scheduledFor ?? 0) > 0 && !(incoming.scheduledFor != null && incoming.scheduledFor > 0)) {
+        merged.scheduledFor = existing.scheduledFor;
+      }
+      if (existing.notifyDispatchAt && !incoming.notifyDispatchAt) {
+        merged.notifyDispatchAt = existing.notifyDispatchAt;
+      }
+      if ((existing.dispatchBeforeMinutes ?? 0) > 0 && (incoming.dispatchBeforeMinutes ?? 0) === 0) {
+        merged.dispatchBeforeMinutes = existing.dispatchBeforeMinutes;
+      }
     }
   }
   if (

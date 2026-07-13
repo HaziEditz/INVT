@@ -125,19 +125,87 @@ export function tariffFieldsFromJob(job: Job): { tariffId: string; tariffName: s
   return { tariffId, tariffName };
 }
 
-/** Match a name-only legacy tariff row to a dispatcher-settings catalog id. */
+export type TariffCatalogRow = { Id: string | number; TariffName: string };
+
+/** Merge Firebase + dispatcher-settings tariff rows (dedupe by id, then name). */
+export function mergeTariffCatalogSources(
+  ...sources: Array<Array<TariffCatalogRow>>
+): TariffCatalogRow[] {
+  const byId = new Map<string, TariffCatalogRow>();
+  for (const list of sources) {
+    for (const row of list) {
+      const id = String(row.Id ?? '').trim();
+      const name = String(row.TariffName ?? '').trim();
+      if (!id && !name) continue;
+      const key = id || `name:${name.toLowerCase()}`;
+      const prev = byId.get(key);
+      byId.set(key, {
+        Id: id || prev?.Id || key,
+        TariffName: name || prev?.TariffName || '',
+      });
+    }
+  }
+  return Array.from(byId.values()).filter((t) => String(t.TariffName).trim());
+}
+
+/** Match stored tariff to catalog by id or name. */
 export function resolveTariffFormSelection(
   fields: { tariffId: string; tariffName: string },
-  catalog: Array<{ Id: string | number; TariffName: string }>,
+  catalog: TariffCatalogRow[],
 ): { tariffId: string; tariffName: string } {
-  if (fields.tariffId !== '0' && fields.tariffId !== '') return fields;
-  const name = fields.tariffName.trim();
+  const id = String(fields.tariffId ?? '').trim();
+  const name = String(fields.tariffName ?? '').trim();
+  if (id && id !== '0') {
+    const byId = catalog.find((t) => String(t.Id) === id);
+    if (byId) return { tariffId: String(byId.Id), tariffName: String(byId.TariffName) };
+    if (name) {
+      const byName = catalog.find(
+        (t) => String(t.TariffName).trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (byName) return { tariffId: String(byName.Id), tariffName: String(byName.TariffName) };
+    }
+    return fields;
+  }
   if (!name || name.toLowerCase() === 'automatic' || name.toLowerCase() === 'fixed') return fields;
   const match = catalog.find(
     (t) => String(t.TariffName).trim().toLowerCase() === name.toLowerCase(),
   );
   if (!match) return fields;
   return { tariffId: String(match.Id), tariffName: String(match.TariffName) };
+}
+
+/** Ensure the job's saved tariff appears in the edit dropdown even when catalog ids differ. */
+export function buildEditTariffDropdown(
+  catalog: TariffCatalogRow[],
+  fields: { tariffId: string; tariffName: string },
+): TariffCatalogRow[] {
+  const resolved = resolveTariffFormSelection(fields, catalog);
+  const id = String(resolved.tariffId).trim();
+  const name = String(resolved.tariffName).trim();
+  if (!id || id === '0' || id === '-1' || !name || name.toLowerCase() === 'automatic') {
+    return catalog;
+  }
+  if (catalog.some((t) => String(t.Id) === id)) return catalog;
+  return [...catalog, { Id: id, TariffName: name }];
+}
+
+/** Pickup datetime for edit form — prefer future scheduledFor over stale ASAP bookingDateTime. */
+export function jobBookingDateTimeForForm(job: Job): string {
+  const bookingRaw = job.bookingDateTime?.trim() || '';
+  const scheduledMs = job.scheduledFor;
+  if (scheduledMs != null && scheduledMs > 0) {
+    const fromSched = new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
+    if (!bookingRaw) return fromSched;
+    const bookingMs = Date.parse(bookingRaw.replace(' ', 'T'));
+    if (Number.isNaN(bookingMs) || Math.abs(bookingMs - scheduledMs) > 60_000) {
+      return fromSched;
+    }
+  }
+  if (bookingRaw) return bookingRaw;
+  if (scheduledMs != null && scheduledMs > 0) {
+    return new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
+  }
+  return '';
 }
 export const CJ_SERVICES = ['taxi', 'food', 'freight', 'tm', 'acc', 'rental'] as const;
 
@@ -595,9 +663,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     job.vehicleType ??
     (job as Job & { VehicleType?: string }).VehicleType;
   const tariff = tariffFieldsFromJob(job);
-  const bookingDt =
-    job.bookingDateTime ||
-    (job.scheduledFor ? new Date(job.scheduledFor).toISOString().replace('T', ' ').slice(0, 16) : '');
+  const bookingDt = jobBookingDateTimeForForm(job);
   const parsed = parseBookingDateTime(bookingDt);
   const isLater =
     (job.dispatchBeforeMinutes ?? 0) > 0 ||

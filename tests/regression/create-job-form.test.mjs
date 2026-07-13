@@ -13,6 +13,66 @@ function isConcreteVehicleType(value) {
   return !isOpenVehicleType(value);
 }
 
+function isLaterJobState(job) {
+  if ((job.dispatchBeforeMinutes ?? 0) > 0) return true;
+  if (job.notifyDispatchAt) return true;
+  if (job.scheduledFor != null && job.scheduledFor > 0) return true;
+  if (String(job.status || '') === 'Scheduled') return true;
+  return false;
+}
+
+function isExplicitLaterToNow(existing, incoming) {
+  if (!isLaterJobState(existing)) return false;
+  if (isLaterJobState(incoming)) return false;
+  const prevDb = existing.dispatchBeforeMinutes ?? 0;
+  const nextDb = incoming.dispatchBeforeMinutes ?? prevDb;
+  if (prevDb > 0 && nextDb === 0) return true;
+  const prevSched = existing.scheduledFor ?? 0;
+  if (prevSched > 0 && incoming.scheduledFor === 0) return true;
+  if (
+    prevSched > 0 &&
+    incoming.notifyDispatchAt === '' &&
+    nextDb === 0 &&
+    (incoming.scheduledFor == null || incoming.scheduledFor === 0)
+  ) {
+    return true;
+  }
+  if (
+    existing.status === 'Scheduled' &&
+    incoming.status != null &&
+    incoming.status === 'Pending' &&
+    nextDb === 0 &&
+    !(incoming.scheduledFor != null && incoming.scheduledFor > 0)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function mergeLaterTiming(existing, incoming, existingSeq, incomingSeq) {
+  const merged = { ...existing, ...incoming };
+  if (incomingSeq < existingSeq) return merged;
+  const prevLater = isLaterJobState(existing);
+  const laterToNow = isExplicitLaterToNow(existing, incoming);
+  if (laterToNow) {
+    merged.dispatchBeforeMinutes = 0;
+    merged.scheduledFor =
+      incoming.scheduledFor != null && incoming.scheduledFor > 0 ? incoming.scheduledFor : undefined;
+    merged.notifyDispatchAt = incoming.notifyDispatchAt?.trim() ? incoming.notifyDispatchAt : undefined;
+  } else if (prevLater) {
+    if ((existing.scheduledFor ?? 0) > 0 && !(incoming.scheduledFor != null && incoming.scheduledFor > 0)) {
+      merged.scheduledFor = existing.scheduledFor;
+    }
+    if (existing.notifyDispatchAt && !incoming.notifyDispatchAt) {
+      merged.notifyDispatchAt = existing.notifyDispatchAt;
+    }
+    if ((existing.dispatchBeforeMinutes ?? 0) > 0 && (incoming.dispatchBeforeMinutes ?? 0) === 0) {
+      merged.dispatchBeforeMinutes = existing.dispatchBeforeMinutes;
+    }
+  }
+  return merged;
+}
+
 function mergeVehicleType(existing, incoming, existingSeq, incomingSeq) {
   const staleMirror =
     incomingSeq < existingSeq &&
@@ -34,15 +94,66 @@ function tariffFieldsFromJob(job) {
   return { tariffId, tariffName };
 }
 
+function mergeTariffCatalogSources(...sources) {
+  const byId = new Map();
+  for (const list of sources) {
+    for (const row of list) {
+      const id = String(row.Id ?? '').trim();
+      const name = String(row.TariffName ?? '').trim();
+      if (!id && !name) continue;
+      const key = id || `name:${name.toLowerCase()}`;
+      const prev = byId.get(key);
+      byId.set(key, { Id: id || prev?.Id || key, TariffName: name || prev?.TariffName || '' });
+    }
+  }
+  return Array.from(byId.values()).filter((t) => String(t.TariffName).trim());
+}
+
 function resolveTariffFormSelection(fields, catalog) {
-  if (fields.tariffId !== '0' && fields.tariffId !== '') return fields;
-  const name = fields.tariffName.trim();
+  const id = String(fields.tariffId ?? '').trim();
+  const name = String(fields.tariffName ?? '').trim();
+  if (id && id !== '0') {
+    const byId = catalog.find((t) => String(t.Id) === id);
+    if (byId) return { tariffId: String(byId.Id), tariffName: String(byId.TariffName) };
+    if (name) {
+      const byName = catalog.find(
+        (t) => String(t.TariffName).trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (byName) return { tariffId: String(byName.Id), tariffName: String(byName.TariffName) };
+    }
+    return fields;
+  }
   if (!name || name.toLowerCase() === 'automatic' || name.toLowerCase() === 'fixed') return fields;
   const match = catalog.find(
     (t) => String(t.TariffName).trim().toLowerCase() === name.toLowerCase(),
   );
   if (!match) return fields;
   return { tariffId: String(match.Id), tariffName: String(match.TariffName) };
+}
+
+function buildEditTariffDropdown(catalog, fields) {
+  const resolved = resolveTariffFormSelection(fields, catalog);
+  const id = String(resolved.tariffId).trim();
+  const name = String(resolved.tariffName).trim();
+  if (!id || id === '0' || id === '-1' || !name || name.toLowerCase() === 'automatic') return catalog;
+  if (catalog.some((t) => String(t.Id) === id)) return catalog;
+  return [...catalog, { Id: id, TariffName: name }];
+}
+
+function jobBookingDateTimeForForm(job) {
+  const bookingRaw = String(job.bookingDateTime ?? '').trim();
+  const scheduledMs = job.scheduledFor;
+  if (scheduledMs != null && scheduledMs > 0) {
+    const fromSched = new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
+    if (!bookingRaw) return fromSched;
+    const bookingMs = Date.parse(bookingRaw.replace(' ', 'T'));
+    if (Number.isNaN(bookingMs) || Math.abs(bookingMs - scheduledMs) > 60_000) return fromSched;
+  }
+  if (bookingRaw) return bookingRaw;
+  if (scheduledMs != null && scheduledMs > 0) {
+    return new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
+  }
+  return '';
 }
 
 test('merge vehicle type: intentional Any at same/higher seq wins over concrete', () => {
@@ -63,6 +174,62 @@ test('merge vehicle type: stale open mirror at lower seq preserves concrete', ()
   );
 });
 
+test('merge Later timing: partial metadata patch preserves scheduledFor', () => {
+  const future = Date.now() + 3_600_000;
+  const merged = mergeLaterTiming(
+    {
+      scheduledFor: future,
+      dispatchBeforeMinutes: 0,
+      status: 'Scheduled',
+      vehicleType: 'Car',
+      updateSeq: 4,
+    },
+    {
+      vehicleType: 'Van',
+      dispatchBeforeMinutes: 0,
+      scheduledFor: undefined,
+      updateSeq: 5,
+    },
+    4,
+    5,
+  );
+  assert.equal(merged.scheduledFor, future);
+  assert.equal(merged.vehicleType, 'Van');
+});
+
+test('merge Later timing: explicit Later→Now clears scheduled pickup', () => {
+  const future = Date.now() + 3_600_000;
+  const merged = mergeLaterTiming(
+    {
+      scheduledFor: future,
+      dispatchBeforeMinutes: 30,
+      notifyDispatchAt: new Date(future - 1_800_000).toISOString(),
+      status: 'Scheduled',
+      updateSeq: 4,
+    },
+    {
+      dispatchBeforeMinutes: 0,
+      scheduledFor: undefined,
+      notifyDispatchAt: '',
+      status: 'Pending',
+      updateSeq: 5,
+    },
+    4,
+    5,
+  );
+  assert.equal(merged.scheduledFor, undefined);
+  assert.equal(merged.dispatchBeforeMinutes, 0);
+});
+
+test('jobBookingDateTimeForForm prefers scheduledFor over stale ASAP bookingDateTime', () => {
+  const future = Date.now() + 86_400_000;
+  const dt = jobBookingDateTimeForForm({
+    bookingDateTime: '2026-07-13 09:15',
+    scheduledFor: future,
+  });
+  assert.ok(dt.includes(new Date(future).toISOString().slice(0, 10)));
+});
+
 test('tariffFieldsFromJob reads legacy PascalCase id/name fields', () => {
   assert.deepEqual(
     tariffFieldsFromJob({ TariffId: '7', TarriffType: 'Night Rate' }),
@@ -74,13 +241,36 @@ test('tariffFieldsFromJob reads legacy PascalCase id/name fields', () => {
   );
 });
 
-test('resolveTariffFormSelection maps name-only legacy rows to catalog id', () => {
+test('mergeTariffCatalogSources unions Firebase and dispatcher-settings rows', () => {
+  const merged = mergeTariffCatalogSources(
+    [{ Id: '1', TariffName: 'Day' }],
+    [{ Id: '2', TariffName: 'Night' }],
+  );
+  assert.equal(merged.length, 2);
+});
+
+test('resolveTariffFormSelection matches by id or name', () => {
   const catalog = [
-    { Id: 3, TariffName: 'Night Rate' },
-    { Id: 8, TariffName: 'Airport' },
+    { Id: '3', TariffName: 'Night Rate' },
+    { Id: '8', TariffName: 'Airport' },
   ];
+  assert.deepEqual(
+    resolveTariffFormSelection({ tariffId: '8', tariffName: 'Airport' }, catalog),
+    { tariffId: '8', tariffName: 'Airport' },
+  );
   assert.deepEqual(
     resolveTariffFormSelection({ tariffId: '0', tariffName: 'Night Rate' }, catalog),
     { tariffId: '3', tariffName: 'Night Rate' },
   );
+  assert.deepEqual(
+    resolveTariffFormSelection({ tariffId: '99', tariffName: 'Night Rate' }, catalog),
+    { tariffId: '3', tariffName: 'Night Rate' },
+  );
+});
+
+test('buildEditTariffDropdown adds synthetic row when saved id missing from catalog', () => {
+  const catalog = [{ Id: '1', TariffName: 'Day' }];
+  const out = buildEditTariffDropdown(catalog, { tariffId: '2', tariffName: 'Tarrif 1' });
+  assert.equal(out.length, 2);
+  assert.ok(out.some((t) => String(t.Id) === '2' && t.TariffName === 'Tarrif 1'));
 });
