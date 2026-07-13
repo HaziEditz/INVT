@@ -1,7 +1,15 @@
 import type { DataParam } from '@/lib/dispatchApi';
 import type { Driver } from '@/types/driver';
 import type { Job } from '@/types/job';
-import { isPreBookedJob, parseLatLng } from '@/types/job';
+import {
+  FUTURE_PICKUP_LEAD_MS,
+  hasFuturePickupContradiction,
+  isPreBookedJob,
+  isFuturePickupTime,
+  isMissingLaterMetadata,
+  jobScheduledTime,
+  parseLatLng,
+} from '@/types/job';
 import { effectiveJobStatus, normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 export type PaymentType = '' | 'cash' | 'card' | 'eftpos' | 'account' | 'tm' | 'acc';
@@ -665,10 +673,17 @@ export function jobToForm(job: Job): CreateJobFormState {
   const tariff = tariffFieldsFromJob(job);
   const bookingDt = jobBookingDateTimeForForm(job);
   const parsed = parseBookingDateTime(bookingDt);
+  const inferredLaterFromFuturePickup =
+    isMissingLaterMetadata(job) && isFuturePickupTime(job);
   const isLater =
     (job.dispatchBeforeMinutes ?? 0) > 0 ||
     effectiveJobStatus(job) === 'Scheduled' ||
-    isPreBookedJob(job);
+    isPreBookedJob(job) ||
+    inferredLaterFromFuturePickup;
+  let dispatchBeforeMin = job.dispatchBeforeMinutes ?? form.dispatchBeforeMin;
+  if (isLater && (dispatchBeforeMin ?? 0) <= 0) {
+    dispatchBeforeMin = form.dispatchBeforeMin || 10;
+  }
 
   const driverId = formDriverIdFromJob(job);
 
@@ -705,7 +720,7 @@ export function jobToForm(job: Job): CreateJobFormState {
     laterDate: parsed.date,
     laterHour: parsed.hour,
     laterMin: parsed.min,
-    dispatchBeforeMin: job.dispatchBeforeMinutes ?? form.dispatchBeforeMin,
+    dispatchBeforeMin,
     urgent: !!job.urgent,
     corner: !!job.corner,
     vehicleType: vehicleTypeToFormValue(vehicleType),
@@ -774,7 +789,25 @@ export function validateLaterPickupForm(
     nowMs,
   );
   if (inline) return inline;
+  const pickup = laterPickupInstant(form);
+  if (pickup && pickup.getTime() > nowMs + FUTURE_PICKUP_LEAD_MS && (form.dispatchBeforeMin ?? 0) <= 0) {
+    return 'Choose a dispatch window before pickup — future pickups cannot use Dispatch: ASAP.';
+  }
   return null;
+}
+
+/** Dispatch dropdown options — hide 0 min when pickup is materially in the future. */
+export function laterDispatchMinOptions(
+  form: CreateJobFormState,
+  allOptions: readonly number[],
+  nowMs = Date.now(),
+): number[] {
+  if (form.timing !== 'later') return [...allOptions];
+  const pickup = laterPickupInstant(form);
+  if (pickup && pickup.getTime() > nowMs + FUTURE_PICKUP_LEAD_MS) {
+    return allOptions.filter((m) => m > 0);
+  }
+  return [...allOptions];
 }
 
 /** Merge Later draft fields into a form snapshot for submit/API calls. */

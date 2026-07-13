@@ -35,6 +35,7 @@ import {
   mergeLaterDraftIntoForm,
   statusFromDriverId,
   validateLaterPickupForm,
+  laterDispatchMinOptions as getLaterDispatchMinOptions,
   CJ_SERVICES,
   CJ_VEHICLE_TYPES,
   defaultCreateJobForm,
@@ -296,9 +297,23 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     setLaterScheduleConfirmed(true);
   }, [laterDraft, patch]);
 
-  const laterInlineError = useMemo(
-    () => (form.timing === 'later' ? laterDraftInlineError(laterDraft) : null),
-    [form.timing, laterDraft],
+  const laterInlineError = useMemo(() => {
+    if (form.timing !== 'later') return null;
+    const draftErr = laterDraftInlineError(laterDraft);
+    if (draftErr) return draftErr;
+    if (laterScheduleConfirmed) {
+      return validateLaterPickupForm(mergeLaterDraftIntoForm(form, laterDraft));
+    }
+    return null;
+  }, [form, laterDraft, laterScheduleConfirmed]);
+
+  const laterDispatchMinOptions = useMemo(
+    () =>
+      getLaterDispatchMinOptions(
+        laterScheduleConfirmed ? mergeLaterDraftIntoForm(form, laterDraft) : form,
+        DISPATCH_MINS,
+      ),
+    [form, laterDraft, laterScheduleConfirmed],
   );
 
   const laterDraftReadyForConfirm =
@@ -316,6 +331,13 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       min: form.laterMin,
     });
   }, [laterScheduleConfirmed, form.timing, form.laterDate, form.laterHour, form.laterMin]);
+
+  useEffect(() => {
+    if (form.timing !== 'later' || !laterScheduleConfirmed) return;
+    if (!laterDispatchMinOptions.includes(form.dispatchBeforeMin)) {
+      patch({ dispatchBeforeMin: laterDispatchMinOptions[0] ?? settings?.defaultDispatchWindow ?? 10 });
+    }
+  }, [form.timing, form.dispatchBeforeMin, laterScheduleConfirmed, laterDispatchMinOptions, patch, settings?.defaultDispatchWindow]);
 
   const assignDropdownDrivers = useMemo(() => {
     const base = driversForAssignDropdown(availableDrivers, drivers, editingJob);
@@ -1325,7 +1347,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                     onChange={(e) => patch({ dispatchBeforeMin: parseInt(e.target.value, 10) })}
                     title="Dispatch minutes before pickup"
                   >
-                    {DISPATCH_MINS.map((m) => (
+                    {laterDispatchMinOptions.map((m) => (
                       <option key={m} value={m}>
                         {m === 0 ? 'Dispatch: ASAP' : `Dispatch ${m} min before pickup`}
                       </option>

@@ -7715,6 +7715,89 @@ function _editChangesTouchTiming(changes) {
   ].some(k => Object.prototype.hasOwnProperty.call(changes, k));
 }
 
+function _isFuturePickupContradictionJob(job, nowMs = Date.now()) {
+  if (!job) return false;
+  const st = String(job.BookingStatus || 'Pending');
+  if (!['Pending', 'No One'].includes(st)) return false;
+  const prevDb = parseInt(job.DispatchTimebefore || '0', 10) || 0;
+  if (prevDb > 0) return false;
+  if (job.ScheduledFor || job.ScheduledForMs) return false;
+  if (job.NotifyDispatchAt) return false;
+  const pickRef = job.Pickingtime || job.BookingDateTime;
+  const pickupMs = pickRef ? (_parseLocalDT(pickRef, job.companyId) || NaN) : NaN;
+  return !!(pickupMs && !isNaN(pickupMs) && pickupMs > nowMs + 60_000);
+}
+
+function _scanFuturePickupContradictionJobs(companyId) {
+  const cid = companyId ? String(companyId).trim() : '';
+  return jobStore.filter(j => {
+    if (!j || !j.Id) return false;
+    if (cid && String(j.companyId || '').trim() !== cid) return false;
+    return _isFuturePickupContradictionJob(j);
+  });
+}
+
+async function repairFuturePickupContradictionJob(job, opts = {}) {
+  opts = opts || {};
+  const bookingId = parseInt(job && job.Id) || 0;
+  if (!bookingId) return { ok: false, error: 'bookingId required' };
+  if (!_isFuturePickupContradictionJob(job)) {
+    return { ok: true, action: 'noop', bookingId, reason: 'not a future-pickup contradiction' };
+  }
+  const DEFAULT_DB = 10;
+  const ub = await updateBooking({
+    bookingId,
+    changes: {
+      DispatchTimebefore: DEFAULT_DB,
+      Dispatchbefore: String(DEFAULT_DB),
+    },
+    by: 'admin',
+    source: opts.source || 'repairFuturePickupContradiction',
+    ifSeq: job.updateSeq != null ? parseInt(job.updateSeq) : null,
+  });
+  const repaired = jobStore.find(j => j && j.Id === bookingId) || job;
+  return {
+    ok: !!ub.ok,
+    action: 'repairFuturePickup',
+    bookingId,
+    booking: _publicBooking(repaired),
+    ...ub,
+  };
+}
+
+async function repairFuturePickupContradictionsBatch(opts = {}) {
+  const companyId = opts.companyId ? String(opts.companyId).trim() : '';
+  const bookingIds = Array.isArray(opts.bookingIds)
+    ? opts.bookingIds.map(id => parseInt(id)).filter(Boolean)
+    : [];
+  const dryRun = !!opts.dryRun;
+  const targets = bookingIds.length
+    ? bookingIds.map(id => jobStore.find(j => j && j.Id === id)).filter(Boolean)
+    : _scanFuturePickupContradictionJobs(companyId);
+  const report = [];
+  for (const job of targets) {
+    if (!_isFuturePickupContradictionJob(job)) {
+      report.push({ bookingId: job.Id, ok: true, action: 'skip', reason: 'not contradictory' });
+      continue;
+    }
+    if (dryRun) {
+      report.push({
+        bookingId: job.Id,
+        ok: true,
+        action: 'dry_run',
+        status: job.BookingStatus,
+        pickup: job.Pickingtime || job.BookingDateTime,
+      });
+      continue;
+    }
+    const r = await repairFuturePickupContradictionJob(job, {
+      source: opts.source || 'repairFuturePickupContradictionsBatch',
+    });
+    report.push(r);
+  }
+  return { ok: true, dryRun, count: report.length, report };
+}
+
 function _previewJobAfterDiff(job, diff) {
   const preview = Object.assign({}, job);
   if (!diff) return preview;
@@ -7838,14 +7921,31 @@ function _applyTimingEditPrelude(job, changes) {
 
   const cid = job.companyId;
   const prevDb = parseInt(job.DispatchTimebefore || '0', 10) || 0;
-  const nextDb = changes.DispatchTimebefore !== undefined
+  let nextDb = changes.DispatchTimebefore !== undefined
     ? (parseInt(changes.DispatchTimebefore, 10) || 0)
     : prevDb;
-  const nowToLater = prevDb === 0 && nextDb > 0;
-  const laterToNow = prevDb > 0 && nextDb === 0;
   const pickRef = changes.Pickingtime || changes.BookingDateTime || job.Pickingtime || job.BookingDateTime;
   const pickupMs = pickRef ? (_parseLocalDT(pickRef, cid) || NaN) : NaN;
+  const st = String(job.BookingStatus || 'Pending');
 
+  // Safety net: future pickup with no dispatch window on pool jobs → auto-promote to Later/Scheduled.
+  const _FUTURE_PICKUP_LEAD_MS = 60_000;
+  const _DEFAULT_DISPATCH_BEFORE = 10;
+  if (
+    pickupMs && !isNaN(pickupMs) &&
+    pickupMs > Date.now() + _FUTURE_PICKUP_LEAD_MS &&
+    nextDb === 0 &&
+    prevDb === 0 &&
+    ['Pending', 'No One'].includes(st)
+  ) {
+    changes.DispatchTimebefore = _DEFAULT_DISPATCH_BEFORE;
+    changes.Dispatchbefore = String(_DEFAULT_DISPATCH_BEFORE);
+    nextDb = _DEFAULT_DISPATCH_BEFORE;
+    console.log(`  [updateBooking] auto-promote future pickup: job #${job.Id} dispatch window → ${_DEFAULT_DISPATCH_BEFORE} min`);
+  }
+
+  const nowToLater = prevDb === 0 && nextDb > 0;
+  const laterToNow = prevDb > 0 && nextDb === 0;
   if (pickupMs && !isNaN(pickupMs) && (nowToLater || nextDb > 0 || String(job.BookingStatus || '') === 'Scheduled')) {
     changes.ScheduledFor = pickupMs;
     changes.ScheduledForMs = pickupMs;
@@ -9265,6 +9365,10 @@ async function repairBookingFirebaseSync(opts) {
       source: `${source}/${action}`,
     });
     return { ok: !!ub.ok, action, booking: _publicBooking(jobStore.find(j => j && j.Id === bookingId) || job), ...ub };
+  }
+
+  if (action === 'future_pickup' || action === 'repair_future_pickup') {
+    return repairFuturePickupContradictionJob(job, { source });
   }
 
   // Repair orphan: jobStore attached (Queued/Assigned/…) but should be U-A pool.
@@ -12716,6 +12820,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // POST /admin/repairFuturePickupJobs — repair Pending jobs with future pickup but no Later metadata
+    // body: { companyId?, bookingIds?: number[], dryRun?: boolean }
+    if (urlPath === '/admin/repairFuturePickupJobs' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const parsed = body ? JSON.parse(body) : {};
+        const report = await repairFuturePickupContradictionsBatch({
+          companyId: parsed.companyId || parsed.cid,
+          bookingIds: parsed.bookingIds,
+          dryRun: parsed.dryRun === true,
+          source: '/admin/repairFuturePickupJobs',
+        });
+        jsonReply(res, report);
+      } catch (e) {
+        jsonReply(res, { ok: false, error: (e && e.message) || String(e) });
+      }
+      return;
+    }
+
     // POST /admin/purgeJobStoreBatch — force-purge live jobStore when Firebase is terminal
     // body: { bookingIds: [123, 456], companyId?: '860869', action?: 'trust_firebase' }
     if (urlPath === '/admin/purgeJobStoreBatch' && req.method === 'POST') {
@@ -13795,6 +13918,8 @@ const server = http.createServer(async (req, res) => {
       const allowed = [
         'BookingStatus', 'DriverId', 'VehicleId', 'VehicleNo', 'offeredAt', 'returnReason',
         'queuedAt', 'originalStatus', 'releasedAt', 'companyId', 'updateSeq', 'VehicleType',
+        'BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore',
+        'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt', 'Status',
       ];
       for (const k of allowed) {
         if (patch[k] !== undefined) job[k] = patch[k];

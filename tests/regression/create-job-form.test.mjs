@@ -334,3 +334,26 @@ test('edit form reload preserves pick/drop coords when resolving tariff (crash g
   assert.equal(afterSave.vehicleType, 'Van');
   assert.equal(afterSave.tariffId, '2');
 });
+
+test('laterDispatchMinOptions hides 0 min when pickup is future', () => {
+  const future = new Date(Date.now() + 86_400_000);
+  const all = [0, 5, 10, 15];
+  function laterDispatchMinOptions(form, options, nowMs = Date.now()) {
+    if (form.timing !== 'later') return [...options];
+    const pickup = new Date(`${form.laterDate}T${form.laterHour}:${form.laterMin}:00`);
+    if (!Number.isNaN(pickup.getTime()) && pickup.getTime() > nowMs + 60_000) {
+      return options.filter((m) => m > 0);
+    }
+    return [...options];
+  }
+  const out = laterDispatchMinOptions(
+    {
+      timing: 'later',
+      laterDate: future.toISOString().slice(0, 10),
+      laterHour: '16',
+      laterMin: '37',
+    },
+    all,
+  );
+  assert.deepEqual(out, [5, 10, 15]);
+});

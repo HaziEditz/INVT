@@ -453,6 +453,33 @@ function isUnassignedForDispatch(job: Job): boolean {
   return st === 'Pending' || st === 'No One' || st === 'Scheduled';
 }
 
+/** Lead time before pickup counts as "future" for Later vs ASAP classification. */
+export const FUTURE_PICKUP_LEAD_MS = 60_000;
+
+/** True when pickup is materially in the future (not "now"). */
+export function isFuturePickupTime(job: Job, now = new Date()): boolean {
+  const pickup = jobScheduledTime(job);
+  return !!(pickup && pickup.getTime() > now.getTime() + FUTURE_PICKUP_LEAD_MS);
+}
+
+/** Job lacks dispatch window / scheduledFor / Scheduled status Later metadata. */
+export function isMissingLaterMetadata(job: Job): boolean {
+  const status = normalizeJobStatus(job.status);
+  return (
+    (job.dispatchBeforeMinutes ?? 0) === 0 &&
+    !job.notifyDispatchAt &&
+    !(job.scheduledFor != null && job.scheduledFor > 0) &&
+    status !== 'Scheduled'
+  );
+}
+
+/** Pending pool job with future pickup but no Later metadata — invalid contradictory state. */
+export function hasFuturePickupContradiction(job: Job, now = new Date()): boolean {
+  const st = normalizeJobStatus(job.status);
+  if (st !== 'Pending' && st !== 'No One') return false;
+  return isMissingLaterMetadata(job) && isFuturePickupTime(job, now);
+}
+
 /** Pre-booked / scheduled — not an immediate ASAP pickup. */
 export function isPreBookedJob(job: Job, now = new Date()): boolean {
   const dispatchBefore = job.dispatchBeforeMinutes ?? 0;
@@ -460,14 +487,17 @@ export function isPreBookedJob(job: Job, now = new Date()): boolean {
   if (dispatchBefore > 0) return true;
   if (job.notifyDispatchAt) return true;
   if (status === 'Scheduled') return true;
-  // Later→Now clears dispatch window — treat as ASAP even when pickup predates createdAt.
+
+  const pickup = jobScheduledTime(job);
+  if (pickup && pickup.getTime() > now.getTime() + FUTURE_PICKUP_LEAD_MS) return true;
+
+  // Later→Now clears dispatch window — treat as ASAP when pickup is not future.
   if (dispatchBefore === 0 && !job.notifyDispatchAt && !job.scheduledFor && status !== 'Scheduled') {
     return false;
   }
-  const pickup = jobScheduledTime(job);
   if (!pickup) return false;
   if (pickup.getTime() > now.getTime()) return true;
-  if (job.createdAt && pickup.getTime() - job.createdAt > 60_000) return true;
+  if (job.createdAt && pickup.getTime() - job.createdAt > FUTURE_PICKUP_LEAD_MS) return true;
   return false;
 }
 
