@@ -25,6 +25,8 @@ import {
 import { formatTimelineWhen } from '@/lib/closedJobTimeline';
 import {
   formatJobDateTimeShort,
+  formatJobEditHistoryActor,
+  formatJobEditHistorySummary,
   formatJobEditHistoryWhen,
   jobBookingTime,
   jobCreatedAtTime,
@@ -267,9 +269,11 @@ function ClosedJobDetailBody({
                   <li key={`${entry.at}-${i}`} className="text-[10px] leading-tight">
                     <div className="text-bw-muted truncate">
                       {formatJobEditHistoryWhen(entry)}
-                      {entry.byName ? ` · ${entry.byName}` : entry.by ? ` · ${entry.by}` : ''}
+                      {` · ${formatJobEditHistoryActor(entry)}`}
                     </div>
-                    <div className="truncate" title={entry.summary}>{entry.summary}</div>
+                    <div className="truncate" title={formatJobEditHistorySummary(entry, created)}>
+                      {formatJobEditHistorySummary(entry, created)}
+                    </div>
                   </li>
                 ))}
                 {history.length > 6 ? (

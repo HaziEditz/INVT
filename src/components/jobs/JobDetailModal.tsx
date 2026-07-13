@@ -8,6 +8,8 @@ import { generateJobPdf } from '@/lib/pdf';
 import { serviceBorderColor, sourceLabel } from '@/lib/utils';
 import {
   formatJobDateTimeShort,
+  formatJobEditHistoryActor,
+  formatJobEditHistorySummary,
   formatJobEditHistoryWhen,
   jobBookingTime,
   jobCreatedAtTime,
@@ -35,6 +37,7 @@ export function JobDetailModal() {
   const pickup = jobBookingTime(job);
   const overdue = jobOverdueLabel(job);
   const history = [...(job.editHistory ?? [])].reverse();
+  const jobCreatedAt = jobCreatedAtTime(job);
 
   return (
     <Modal
@@ -103,9 +106,9 @@ export function JobDetailModal() {
                 <li key={`${entry.at}-${i}`} className="border-b border-bw-border/50 pb-2 last:border-0">
                   <div className="text-bw-muted text-[10px]">
                     {formatJobEditHistoryWhen(entry)}
-                    {entry.byName ? ` · ${entry.byName}` : entry.by ? ` · ${entry.by}` : ''}
+                    {` · ${formatJobEditHistoryActor(entry)}`}
                   </div>
-                  <div>{entry.summary}</div>
+                  <div>{formatJobEditHistorySummary(entry, jobCreatedAt)}</div>
                 </li>
               ))}
             </ul>

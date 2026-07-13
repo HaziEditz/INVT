@@ -52,6 +52,8 @@ import { estimateFare, haversineKm } from '@/lib/fareEstimate';
 import type { Job } from '@/types/job';
 import {
   formatJobDateTimeShort,
+  formatJobEditHistoryActor,
+  formatJobEditHistorySummary,
   formatJobEditHistoryWhen,
   jobCreatedAtTime,
   jobBookingTime,
@@ -382,6 +384,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
       lastEditedAt: editingJob.lastEditedAt,
       lastEditedBy: editingJob.lastEditedBy,
       history: [...(editingJob.editHistory ?? [])].reverse().slice(0, 10),
+      jobCreatedAt: created,
     };
   }, [editingJob]);
 
@@ -1225,7 +1228,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   {editAuditMeta.history.map((entry, i) => (
                     <li key={`${entry.at}-${i}`}>
                       <span className="text-[#888]">{formatJobEditHistoryWhen(entry)}</span>
-                      {entry.byName ? ` · ${entry.byName}` : ''} — {entry.summary}
+                      {` · ${formatJobEditHistoryActor(entry)}`} —{' '}
+                      {formatJobEditHistorySummary(entry, editAuditMeta.jobCreatedAt)}
                     </li>
                   ))}
                 </ul>

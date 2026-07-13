@@ -138,6 +138,8 @@ export interface JobEditHistoryEntry {
   atMs?: number;
   by: string;
   byName?: string;
+  /** Snapshot of job creation time when this entry records a timing change. */
+  jobCreatedAtMs?: number;
   summary: string;
   changes?: Record<string, { from?: unknown; to?: unknown }>;
 }
@@ -892,7 +894,11 @@ function parseJobEditHistory(raw: unknown): JobEditHistoryEntry[] | undefined {
         at: at || new Date(Number(e.atMs) || Date.now()).toISOString(),
         atMs: e.atMs != null ? Number(e.atMs) : undefined,
         by: String(e.by ?? 'dispatcher'),
-        byName: String(e.byName ?? e.by ?? '').trim() || undefined,
+        byName: String(e.byName ?? '').trim() || undefined,
+        jobCreatedAtMs:
+          e.jobCreatedAtMs != null && Number(e.jobCreatedAtMs) > 0
+            ? Number(e.jobCreatedAtMs)
+            : undefined,
         summary: summary || 'Details updated',
         changes:
           e.changes && typeof e.changes === 'object'
@@ -912,6 +918,58 @@ export function formatJobEditHistoryWhen(entry: JobEditHistoryEntry): string {
   } catch {
     return entry.at;
   }
+}
+
+const EDIT_HISTORY_TIMING_KEYS = [
+  'BookingDateTime',
+  'Pickingtime',
+  'DispatchTimebefore',
+  'Dispatchbefore',
+  'ScheduledFor',
+  'ScheduledForMs',
+  'NotifyDispatchAt',
+] as const;
+
+function editHistorySourceLabel(by: string): string {
+  const b = by.toLowerCase();
+  if (b === 'dispatcher') return 'Dispatcher';
+  if (b === 'passenger') return 'Passenger App';
+  if (b === 'website') return 'Website';
+  return by.trim() || 'Unknown';
+}
+
+/** Source channel + actor for edit history rows (e.g. "Dispatcher · Jane"). */
+export function formatJobEditHistoryActor(entry: JobEditHistoryEntry): string {
+  const source = editHistorySourceLabel(entry.by);
+  const actor = (entry.byName || '').trim();
+  if (!actor) return source;
+  if (actor.toLowerCase() === entry.by.toLowerCase()) return source;
+  return `${source} · ${actor}`;
+}
+
+export function editHistoryEntryTouchesTiming(entry: JobEditHistoryEntry): boolean {
+  if (!entry.changes) return false;
+  return EDIT_HISTORY_TIMING_KEYS.some((k) => Object.prototype.hasOwnProperty.call(entry.changes, k));
+}
+
+/** Summary with creation-time reference on timing edits (enriches legacy rows when possible). */
+export function formatJobEditHistorySummary(
+  entry: JobEditHistoryEntry,
+  jobCreatedAt?: Date | null,
+): string {
+  if (entry.summary.includes('job created')) return entry.summary;
+  if (!editHistoryEntryTouchesTiming(entry)) return entry.summary;
+  const ms = entry.jobCreatedAtMs ?? jobCreatedAt?.getTime();
+  if (!ms || Number.isNaN(ms)) return entry.summary;
+  return `${entry.summary} · job created ${formatJobDateTimeShort(new Date(ms))}`;
+}
+
+function formatFixedFareAmount(raw: string): string | null {
+  const cleaned = raw.trim().replace(/^\$/, '');
+  if (!cleaned || cleaned === '0') return null;
+  const n = parseFloat(cleaned);
+  if (Number.isNaN(n) || n <= 0) return null;
+  return n % 1 === 0 ? n.toFixed(0) : n.toFixed(2);
 }
 
 /** Pickup label for UA card chips — ASAP or LATER (times shown in the card body). */
@@ -1024,10 +1082,13 @@ export function jobFareDisplay(job: Job): { label: string; amount: string } | nu
 }
 
 export function jobTariffLabel(job: Job): string | null {
+  if (job.isFixedPrice) {
+    const fixedAmount = formatFixedFareAmount(job.estimatedFare || job.totalFare || '');
+    return fixedAmount ? `Fixed $${fixedAmount}` : 'Fixed';
+  }
   const name = (job.tariffName || '').trim();
   if (name && name.toLowerCase() !== 'automatic') return name;
   if (job.tariffId && job.tariffId !== '0' && job.tariffId !== '-1') return `Tariff #${job.tariffId}`;
-  if (job.isFixedPrice) return 'Fixed';
   return job.tariffId === '0' ? 'Automatic' : null;
 }
 

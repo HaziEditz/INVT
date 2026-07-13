@@ -7655,7 +7655,40 @@ function _jobEditFieldLabel(key) {
   return labels[key] || key;
 }
 
-function _summarizeJobEditDiff(diff) {
+function _formatJobCreatedAtRef(job) {
+  const ms = _jobCreatedAtMs(job);
+  if (!ms) return '';
+  return new Date(ms).toLocaleString('en-NZ', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Pacific/Auckland',
+  });
+}
+
+function _diffTouchesTiming(diff) {
+  if (!diff || typeof diff !== 'object') return false;
+  return [
+    'BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore',
+    'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt',
+  ].some(k => Object.prototype.hasOwnProperty.call(diff, k));
+}
+
+function _resolveJobEditActorName(job, by, diff, opts) {
+  opts = opts || {};
+  const channel = String(by || 'dispatcher').toLowerCase();
+  if (channel === 'dispatcher') {
+    return String(opts.dispatcherName || opts.actorName || job.DispatcherName || '').trim();
+  }
+  const nameChange = diff && diff.Name;
+  const fromChanges =
+    nameChange && nameChange.to != null ? String(nameChange.to).trim() : '';
+  return String(opts.actorName || fromChanges || job.Name || job.PassengerName || '').trim();
+}
+
+function _summarizeJobEditDiff(diff, job) {
   if (!diff || typeof diff !== 'object') return 'Details updated';
   const parts = [];
   const db = diff.DispatchTimebefore || diff.Dispatchbefore;
@@ -7684,18 +7717,27 @@ function _summarizeJobEditDiff(diff) {
     const toVal = row.to == null || row.to === '' ? '(cleared)' : String(row.to).slice(0, 80);
     parts.push(`${label} → ${toVal}`);
   }
-  return parts.length ? parts.join('; ') : 'Details updated';
+  let summary = parts.length ? parts.join('; ') : 'Details updated';
+  if (job && _diffTouchesTiming(diff)) {
+    const created = _formatJobCreatedAtRef(job);
+    if (created) summary += ` · job created ${created}`;
+  }
+  return summary;
 }
 
 function _appendJobEditHistory(job, diff, by, opts) {
   opts = opts || {};
   if (!job || !diff || !Object.keys(diff).length) return;
+  const actorName = _resolveJobEditActorName(job, by, diff, opts);
+  const touchesTiming = _diffTouchesTiming(diff);
+  const createdMs = touchesTiming ? (_jobCreatedAtMs(job) || 0) : 0;
   const entry = {
     at: new Date().toISOString(),
     atMs: Date.now(),
     by: String(by || 'dispatcher'),
-    byName: String(opts.dispatcherName || job.DispatcherName || by || 'dispatcher').trim(),
-    summary: _summarizeJobEditDiff(diff),
+    byName: actorName || undefined,
+    jobCreatedAtMs: createdMs > 0 ? createdMs : undefined,
+    summary: _summarizeJobEditDiff(diff, job),
     changes: Object.fromEntries(
       Object.entries(diff).map(([k, v]) => [k, { from: v && v.from, to: v && v.to }])
     ),
@@ -8017,6 +8059,7 @@ async function updateBooking(opts) {
   }
 
   const _dispatcherName = String(changes.DispatcherName || job.DispatcherName || '').trim();
+  const _actorName = String(opts.actorName || '').trim();
   for (const _ik of _IMMUTABLE_ON_EDIT) delete changes[_ik];
   _applyTimingEditPrelude(job, changes);
   const _withdrawHint = _normJobDriverId(changes._withdrawDriverId);
@@ -8137,7 +8180,7 @@ async function updateBooking(opts) {
       delete job.queuedAt;
     }
   }
-  _appendJobEditHistory(job, _diff, by, { dispatcherName: _dispatcherName });
+  _appendJobEditHistory(job, _diff, by, { dispatcherName: _dispatcherName, actorName: _actorName });
 
   job.updateSeq      = _newSeq;
   job.lastUpdatedAt  = new Date().toISOString();
@@ -14924,6 +14967,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       bookingId: _ubBooking, changes: _ubChanges,
       by: _ubBy, ifSeq: _ubIfSeq, source: 'api/booking/update/' + _ubBy,
       sessionId: String(_ub.sessionId || _ub.clientSessionId || '').trim(),
+      actorName: String(_ub.actorName || _ub.byName || '').trim(),
     });
     console.log(`POST /api/booking/update -> ${JSON.stringify({ ok: _ubResult.ok, idempotent: _ubResult.idempotent, stale: _ubResult.stale, types: _ubResult.eventTypes })}`);
     let _status = 200;
