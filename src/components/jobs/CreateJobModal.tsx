@@ -459,7 +459,9 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     ].join('|');
     if (loadedFormKeyRef.current !== formKey) {
       loadedFormKeyRef.current = formKey;
-      const loaded = resolveTariffFormSelection(jobToForm(storeJob), dropdownTariffs);
+      const baseForm = jobToForm(storeJob);
+      const tariff = resolveTariffFormSelection(baseForm, dropdownTariffs);
+      const loaded = { ...baseForm, ...tariff };
       setForm(loaded);
       setLaterDraft({ date: loaded.laterDate, hour: loaded.laterHour, min: loaded.laterMin });
       setLaterScheduleConfirmed(loaded.timing === 'later');

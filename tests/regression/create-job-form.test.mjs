@@ -274,3 +274,63 @@ test('buildEditTariffDropdown adds synthetic row when saved id missing from cata
   assert.equal(out.length, 2);
   assert.ok(out.some((t) => String(t.Id) === '2' && t.TariffName === 'Tarrif 1'));
 });
+
+function jobToFormMinimal(job) {
+  const [pickLat, pickLng] = String(job.pickLatLng || '0,0').split(',').map(Number);
+  const [dropLat, dropLng] = String(job.dropLatLng || '0,0').split(',').map(Number);
+  const tariff = tariffFieldsFromJob(job);
+  return {
+    pick: { address: job.pickAddress || '', lat: pickLat || 0, lng: pickLng || 0 },
+    drop: { address: job.dropAddress || '', lat: dropLat || 0, lng: dropLng || 0 },
+    timing: 'now',
+    laterDate: '',
+    laterHour: '',
+    laterMin: '',
+    tariffId: tariff.tariffId,
+    tariffName: tariff.tariffName,
+    vehicleType: job.vehicleType || job.VehicleType || 'Not Specified',
+    notes: job.notes || '',
+  };
+}
+
+/** Mirrors CreateJobModal edit reload — tariff merge must not replace the full form. */
+function loadEditFormForModal(job, catalog) {
+  const baseForm = jobToFormMinimal(job);
+  const tariff = resolveTariffFormSelection(baseForm, catalog);
+  return { ...baseForm, ...tariff };
+}
+
+test('edit form reload preserves pick/drop coords when resolving tariff (crash guard)', () => {
+  const catalog = [{ Id: '2', TariffName: 'Regression Tariff B' }];
+  const job = {
+    pickAddress: '1 Dee St, Invercargill',
+    pickLatLng: '-46.4131,168.3538',
+    dropAddress: 'Invercargill Airport',
+    dropLatLng: '-46.3167,168.3167',
+    vehicleType: 'Car',
+    TarriffId: '1',
+    TarriffName: 'Day',
+    notes: 'Original notes',
+    updateSeq: 1,
+  };
+  const loaded = loadEditFormForModal(job, catalog);
+  assert.ok(loaded.pick, 'pick must exist after edit reload');
+  assert.ok(loaded.pick.lat, 'pick.lat must be readable (production crash guard)');
+  assert.ok(loaded.drop?.lat, 'drop.lat must survive');
+  assert.equal(loaded.notes, 'Original notes');
+  assert.equal(loaded.vehicleType, 'Car');
+  // Simulate post-save seq bump + tariff change reload
+  const afterSave = loadEditFormForModal(
+    {
+      ...job,
+      updateSeq: 2,
+      vehicleType: 'Van',
+      TarriffId: '2',
+      TarriffName: 'Regression Tariff B',
+    },
+    catalog,
+  );
+  assert.ok(afterSave.pick?.lat, 'pick.lat must survive post-save reload');
+  assert.equal(afterSave.vehicleType, 'Van');
+  assert.equal(afterSave.tariffId, '2');
+});

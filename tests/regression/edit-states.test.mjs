@@ -171,6 +171,49 @@ test('Phase 3 edit-lock: Active (on board) edit does not corrupt status', async 
   await h.cancelAssigned(jobId);
 });
 
+test('Phase 3 edit: fresh create then vehicle+tariff+notes save round-trips without status drift', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const jobId = await h.createAsapJob('edit-save-crash-guard');
+
+  const lockOn = await h.editLock(jobId, true, { actorName: 'Regression-edit-save-guard' });
+  assert.equal(lockOn.body.ok, true);
+
+  const seq = await h.readUpdateSeq(jobId);
+  const save = await h.bookingUpdate(
+    jobId,
+    {
+      VehicleType: 'Van',
+      TarriffId: '2',
+      TarriffName: 'Regression Tariff B',
+      Notes: `REGTEST edit-save-guard ${Date.now()}`,
+    },
+    seq,
+  );
+  assert.equal(save.body.ok, true, JSON.stringify(save.body));
+
+  const lockOff = await h.editLock(jobId, false, {
+    actorName: 'Regression-edit-save-guard',
+    forceRelease: true,
+  });
+  assert.equal(lockOff.body.ok, true);
+
+  const after = await h.poll(
+    jobId,
+    (t) =>
+      String(t.jobStore?.lifecycle?.VehicleType || '') === 'Van' &&
+      String(t.firebase?.allbookings?.TarriffId || t.firebase?.allbookings?.TariffId || '') === '2',
+    { timeoutMs: 25000 },
+  );
+  assert.equal(String(after.jobStore?.lifecycle?.BookingStatus || ''), 'Pending');
+  assert.equal(String(after.jobStore?.lifecycle?.VehicleType || ''), 'Van');
+  assertEditLockClear(after, 'edit-save-guard');
+  assertStatusSync(after, 'Pending', 'edit-save-guard');
+
+  await h.cancelUnassigned(jobId);
+});
+
 test.after(async () => {
   const h = await getHarness();
   await h.cleanupAll();
