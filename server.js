@@ -2731,6 +2731,20 @@ function _assertEditLockAllowsMutation(job, by, sessionId) {
   };
 }
 
+function _pendingJobsHasBookingFields(node) {
+  if (!node || typeof node !== 'object') return false;
+  return !!(
+    node.PickAddress ||
+    node.pickAddress ||
+    node.BookingId ||
+    node.Status ||
+    node.BookingStatus ||
+    node.TarriffId ||
+    node.TariffId ||
+    node.VehicleType
+  );
+}
+
 async function _syncJobEditLockFirebase(cid, bookingId, locked, entry) {
   if (!cid || !bookingId) return;
   const patch = locked && entry
@@ -2760,8 +2774,14 @@ async function _syncJobEditLockFirebase(cid, bookingId, locked, entry) {
       await firebaseDbPatch(`allbookings/${cid}/${bookingId}`, patch, tok)
         .catch(e => { throw e; });
       if (locked) {
-        await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, tok)
-          .catch(() => {});
+        // Patch onto an existing pendingjobs node only. Firebase PATCH on a
+        // missing path creates a lock-only stub that would wipe client fields
+        // on merge — never recreate sparse pendingjobs for edit-lock.
+        const pj = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok).catch(() => null);
+        if (_pendingJobsHasBookingFields(pj)) {
+          await firebaseDbPatch(`pendingjobs/${cid}/${bookingId}`, patch, tok)
+            .catch(() => {});
+        }
       }
       return;
     } catch (e) {
@@ -2815,16 +2835,29 @@ async function _applyJobEditLock(bookingId, companyId, locked, opts) {
     job.editLockActor = actor;
     job.editLockSessionId = sessionId;
     saveJobStore();
+    // Patch lock flags onto the existing pendingjobs node — do NOT delete+recreate.
+    // Delete left a sparse lock-only node that cleared TarriffId/VehicleType/etc. in the
+    // dispatch client via merge (undefined overwrote known-good fields).
+    await _syncJobEditLockFirebase(cid, id, true, entry);
     const st = String(job.BookingStatus || '');
     if (st === 'Pending' || st === 'No One') {
+      // If pendingjobs is missing or already a lock-only stub, rewrite the full
+      // booking then re-apply lock flags — never leave/create a sparse stub.
+      // Note: _writePendingJobFirebase also rewrites allbookings (without lock
+      // flags), so we must re-sync lock onto both paths afterward.
       try {
         const tok = await getFirebaseServerToken();
-        if (tok && cid) await firebaseDbDelete(`pendingjobs/${cid}/${id}`, tok);
+        if (tok) {
+          const pj = await firebaseDbGet(`pendingjobs/${cid}/${id}`, tok).catch(() => null);
+          if (!_pendingJobsHasBookingFields(pj)) {
+            await _writePendingJobFirebase(cid, id, job, st);
+            await _syncJobEditLockFirebase(cid, id, true, entry);
+          }
+        }
       } catch (e) {
-        console.warn(`  [edit-lock] pendingjobs delete failed #${id}: ${e && e.message}`);
+        console.warn(`  [edit-lock] pendingjobs heal on lock failed #${id}: ${e && e.message}`);
       }
     }
-    await _syncJobEditLockFirebase(cid, id, true, entry);
     console.log(`  [edit-lock] locked job #${id} (cid=${cid}, source=${source}, actor=${actor || '?'})`);
     return { ok: true, locked: true, bookingId: id, lock: _publicEditLock(entry) };
   }

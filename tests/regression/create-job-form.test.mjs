@@ -348,6 +348,48 @@ test('edit form reload preserves pick/drop coords when resolving tariff (crash g
   assert.equal(afterSave.tariffId, '2');
 });
 
+test('mergeJobUpdate: undefined incoming must not wipe tariff or vehicle type', () => {
+  // Mirrors src/lib/mergeJob.ts PRESERVE_IF_EMPTY undefined hardening.
+  const PRESERVE = ['tariffId', 'tariffName', 'vehicleType', 'pickAddress', 'dispatcherName'];
+  function mergeJobUpdate(existing, incoming) {
+    const merged = { ...existing, ...incoming };
+    for (const key of PRESERVE) {
+      const nextVal = incoming[key];
+      const prevVal = existing[key];
+      if (nextVal === undefined && prevVal !== undefined && prevVal !== null && prevVal !== '') {
+        merged[key] = prevVal;
+        continue;
+      }
+      if (typeof nextVal === 'string' && !nextVal.trim() && typeof prevVal === 'string' && prevVal.trim()) {
+        merged[key] = prevVal;
+      }
+    }
+    return merged;
+  }
+  const existing = {
+    tariffId: '2',
+    tariffName: 'Regression Tariff',
+    vehicleType: 'Van',
+    pickAddress: '1 Dee St',
+    dispatcherName: 'Jane',
+  };
+  const sparseLockFanout = {
+    tariffId: undefined,
+    tariffName: undefined,
+    vehicleType: undefined,
+    pickAddress: undefined,
+    dispatcherName: undefined,
+    jobEditing: true,
+  };
+  const merged = mergeJobUpdate(existing, sparseLockFanout);
+  assert.equal(merged.tariffId, '2');
+  assert.equal(merged.tariffName, 'Regression Tariff');
+  assert.equal(merged.vehicleType, 'Van');
+  assert.equal(merged.pickAddress, '1 Dee St');
+  assert.equal(merged.dispatcherName, 'Jane');
+  assert.equal(merged.jobEditing, true);
+});
+
 test('laterDispatchMinOptions hides 0 min when pickup is future', () => {
   const future = new Date(Date.now() + 86_400_000);
   const all = [0, 5, 10, 15];

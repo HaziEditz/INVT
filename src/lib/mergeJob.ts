@@ -93,6 +93,12 @@ export function mergeJobUpdate(
       (merged as Record<string, unknown>)[key] = prevVal;
       continue;
     }
+    // Sparse Firebase partials (e.g. edit-lock flags only) parse missing fields as
+    // undefined and would otherwise wipe known-good values via object spread.
+    if (nextVal === undefined && prevVal !== undefined && prevVal !== null && prevVal !== '') {
+      (merged as Record<string, unknown>)[key] = prevVal;
+      continue;
+    }
     if (typeof nextVal === 'string' && !nextVal.trim() && typeof prevVal === 'string' && prevVal.trim()) {
       (merged as Record<string, unknown>)[key] = prevVal;
     }
