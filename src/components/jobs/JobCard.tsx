@@ -218,6 +218,11 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
   const hoveredJobId = useJobStore((s) => s.hoveredJobId);
   const setHoveredJobId = useJobStore((s) => s.setHoveredJobId);
   const jobs = useJobStore((s) => s.jobs);
+  // Session desk actor for edit-lock / cancel only — never use for card source display.
+  const sessionDispatcherName = useMemo(
+    () => localStorage.getItem('bw_dispatcher_name') || 'Dispatcher',
+    [],
+  );
   const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
   const [assignSelection, setAssignSelection] = useState('');
   const [now, setNow] = useState(() => new Date());
@@ -267,7 +272,7 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
       });
       return;
     }
-    const result = await tryAcquireJobEditLock(job.id, dispatcherName);
+    const result = await tryAcquireJobEditLock(job.id, sessionDispatcherName);
     if (!result.ok) {
       addToast({
         type: 'warning',
@@ -362,7 +367,7 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
     const jobId = cancelTargetJobId;
     setCancelTargetJobId(null);
     try {
-      await cancelJob(jobId, target.companyId, dispatcherName);
+      await cancelJob(jobId, target.companyId, sessionDispatcherName);
       notifyJobCancelled(jobId, target);
     } catch (e) {
       addToast({
