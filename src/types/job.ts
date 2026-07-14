@@ -938,12 +938,24 @@ function editHistorySourceLabel(by: string): string {
   return by.trim() || 'Unknown';
 }
 
+/** True when byName is a redundant channel synonym, not a real person/client name. */
+function isRedundantEditHistoryActor(by: string, actor: string): boolean {
+  const a = actor.toLowerCase().trim();
+  const b = by.toLowerCase().trim();
+  if (!a) return true;
+  // Never collapse desk actor names — product default "Dispatcher" is intentional and
+  // lowercases to the same string as channel "dispatcher".
+  if (b === 'dispatcher') return false;
+  if (b === 'passenger' && (a === 'passenger' || a === 'passenger app' || a === 'app')) return true;
+  if (b === 'website' && (a === 'website' || a === 'web')) return true;
+  return false;
+}
+
 /** Source channel + actor for edit history rows (e.g. "Dispatcher · Jane"). */
 export function formatJobEditHistoryActor(entry: JobEditHistoryEntry): string {
   const source = editHistorySourceLabel(entry.by);
   const actor = (entry.byName || '').trim();
-  if (!actor) return source;
-  if (actor.toLowerCase() === entry.by.toLowerCase()) return source;
+  if (!actor || isRedundantEditHistoryActor(entry.by, actor)) return source;
   return `${source} · ${actor}`;
 }
 

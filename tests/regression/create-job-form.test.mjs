@@ -90,7 +90,7 @@ function tariffFieldsFromJob(job) {
   let tariffName = String(rawName ?? '').trim();
   if (tariffId === '-1') tariffName = tariffName || 'Fixed';
   else if (tariffId === '0') tariffName = tariffName || 'Automatic';
-  else if (!tariffName) tariffName = 'Automatic';
+  // Named ids keep empty name — do not coerce to Automatic (blocks synthetic dropdown row).
   return { tariffId, tariffName };
 }
 
@@ -135,9 +135,13 @@ function buildEditTariffDropdown(catalog, fields) {
   const resolved = resolveTariffFormSelection(fields, catalog);
   const id = String(resolved.tariffId).trim();
   const name = String(resolved.tariffName).trim();
-  if (!id || id === '0' || id === '-1' || !name || name.toLowerCase() === 'automatic') return catalog;
+  if (!id || id === '0' || id === '-1') return catalog;
   if (catalog.some((t) => String(t.Id) === id)) return catalog;
-  return [...catalog, { Id: id, TariffName: name }];
+  const displayName =
+    name && name.toLowerCase() !== 'automatic' && name.toLowerCase() !== 'fixed'
+      ? name
+      : `Tariff #${id}`;
+  return [...catalog, { Id: id, TariffName: displayName }];
 }
 
 function jobBookingDateTimeForForm(job) {
@@ -273,6 +277,15 @@ test('buildEditTariffDropdown adds synthetic row when saved id missing from cata
   const out = buildEditTariffDropdown(catalog, { tariffId: '2', tariffName: 'Tarrif 1' });
   assert.equal(out.length, 2);
   assert.ok(out.some((t) => String(t.Id) === '2' && t.TariffName === 'Tarrif 1'));
+});
+
+test('buildEditTariffDropdown synthesizes row for named id with empty/Automatic name', () => {
+  const catalog = [{ Id: '1', TariffName: 'Day' }];
+  const emptyName = buildEditTariffDropdown(catalog, { tariffId: '2', tariffName: '' });
+  assert.ok(emptyName.some((t) => String(t.Id) === '2' && t.TariffName === 'Tariff #2'));
+  const autoName = buildEditTariffDropdown(catalog, { tariffId: '9', tariffName: 'Automatic' });
+  assert.ok(autoName.some((t) => String(t.Id) === '9' && t.TariffName === 'Tariff #9'));
+  assert.deepEqual(tariffFieldsFromJob({ TarriffId: '5' }), { tariffId: '5', tariffName: '' });
 });
 
 function jobToFormMinimal(job) {

@@ -407,14 +407,27 @@ async function persistJobUpdate(
 
   const effectiveChanges = applyClientTimingEditPrelude(baseJob, changes);
 
+  const actorName =
+    String(
+      effectiveChanges.DispatcherName ??
+        effectiveChanges.dispatcherName ??
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('bw_dispatcher_name') : '') ??
+        '',
+    ).trim() || undefined;
+
   const attempt = async (seq: number): Promise<BookingUpdateResult> =>
     postBookingUpdate({
       bookingId: jobId,
       companyId,
-      changes: effectiveChanges,
+      changes: {
+        ...effectiveChanges,
+        // Always stamp current desk actor — delta may omit DispatcherName when unchanged.
+        ...(actorName ? { DispatcherName: actorName } : {}),
+      },
       by: 'dispatcher',
       ifSeq: seq,
       sessionId: getEditLockSessionId(),
+      ...(actorName ? { actorName } : {}),
     });
 
   // Use pre-optimistic baseJob seq — store may already carry optimisticSeq+1.
@@ -508,9 +521,20 @@ async function persistJobUpdate(
   const fresh = await fetchFreshJobFromFirebase(companyId, jobId);
   if (fresh) {
     const afterFresh = mergeJobUpdateFromServer(merged, fresh, authoritativeSeq);
+    const noopFresh =
+      afterFresh.status === merged.status &&
+      afterFresh.driverId === merged.driverId &&
+      afterFresh.vehicleId === merged.vehicleId &&
+      afterFresh.tariffId === merged.tariffId &&
+      afterFresh.tariffName === merged.tariffName &&
+      afterFresh.bookingDateTime === merged.bookingDateTime &&
+      afterFresh.dispatchBeforeMinutes === merged.dispatchBeforeMinutes &&
+      afterFresh.dispatcherName === merged.dispatcherName &&
+      (afterFresh.updateSeq ?? 0) === (merged.updateSeq ?? 0);
     console.log('[queue-edit-pin]', {
       phase: 'persistJobUpdate-after-fresh',
       jobId,
+      noopFresh,
       fresh: { status: fresh.status, driverId: fresh.driverId, vehicleId: fresh.vehicleId, updateSeq: fresh.updateSeq },
       afterFresh: {
         status: afterFresh.status,
@@ -520,7 +544,9 @@ async function persistJobUpdate(
       },
       at: Date.now(),
     });
-    useJobStore.getState().upsertJob(afterFresh);
+    if (!noopFresh) {
+      useJobStore.getState().upsertJob(afterFresh);
+    }
   } else {
     console.log('[queue-edit-pin]', {
       phase: 'persistJobUpdate-no-fresh',

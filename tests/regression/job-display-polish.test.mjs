@@ -37,7 +37,12 @@ function formatJobEditHistoryActor(entry) {
   const source = editHistorySourceLabel(entry.by);
   const actor = String(entry.byName || '').trim();
   if (!actor) return source;
-  if (actor.toLowerCase() === String(entry.by || '').toLowerCase()) return source;
+  const a = actor.toLowerCase();
+  const b = String(entry.by || '').toLowerCase();
+  // Never collapse desk actor names (default "Dispatcher" lowercases to channel "dispatcher").
+  if (b === 'dispatcher') return `${source} · ${actor}`;
+  if (b === 'passenger' && (a === 'passenger' || a === 'passenger app' || a === 'app')) return source;
+  if (b === 'website' && (a === 'website' || a === 'web')) return source;
   return `${source} · ${actor}`;
 }
 
@@ -103,6 +108,11 @@ test('formatJobEditHistoryActor: source channel plus actor name', () => {
     'Passenger App · Sam Lee',
   );
   assert.equal(formatJobEditHistoryActor({ by: 'website', summary: '' }), 'Website');
+  // Product default person label "Dispatcher" must NOT collapse against channel "dispatcher".
+  assert.equal(
+    formatJobEditHistoryActor({ by: 'dispatcher', byName: 'Dispatcher', summary: '' }),
+    'Dispatcher · Dispatcher',
+  );
 });
 
 test('formatJobEditHistorySummary: timing entry references original creation time', () => {

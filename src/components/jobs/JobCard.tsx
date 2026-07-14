@@ -29,9 +29,9 @@ import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
 import {
   cn,
-  dispatcherInitials,
   paymentLabel,
   paymentBadgeColor,
+  sourceBadgeLabel,
   sourceLabel,
 } from '@/lib/utils';
 import { useDriverStore } from '@/store/driverStore';
@@ -218,10 +218,6 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
   const hoveredJobId = useJobStore((s) => s.hoveredJobId);
   const setHoveredJobId = useJobStore((s) => s.setHoveredJobId);
   const jobs = useJobStore((s) => s.jobs);
-  const dispatcherName = useMemo(
-    () => localStorage.getItem('bw_dispatcher_name') || 'Dispatcher',
-    [],
-  );
   const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
   const [assignSelection, setAssignSelection] = useState('');
   const [now, setNow] = useState(() => new Date());
@@ -480,14 +476,15 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
       ? timerBadge.text
       : null;
   const source = sourceLabel(job.source);
-  const initials = dispatcherInitials(job.dispatcherName?.trim() || dispatcherName);
+  // Prefer job-stored dispatcher name only — never session fallback (wrong on APP/WEB/HAIL cards).
+  const sourceWithActor = sourceBadgeLabel(job.source, job.dispatcherName);
 
   return (
     <div
       className={cn(
         compact
-          ? 'rounded px-1 py-0.5 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150'
-          : 'rounded px-1.5 py-1 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-all duration-150',
+          ? 'rounded px-1 py-0.5 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-[background-color,border-color] duration-150'
+          : 'rounded px-1.5 py-1 mb-0.5 border border-[var(--bw-border)] border-l-[3px] transition-[background-color,border-color] duration-150',
         toned && 'bw-job-card-toned',
         highlighted && 'ring-1 ring-[var(--bw-accent)]/60',
         cardLook.flash && 'bw-dispatch-flash',
@@ -598,14 +595,8 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
         ) : (
           <span className={cn(compact ? 'text-[8px] truncate flex-1 min-w-0' : 'text-[9px] truncate flex-1 min-w-0', metaText)} style={themeMutedStyle}>
             {createdMeta && <span>{createdMeta}</span>}
-            {createdMeta && source && <span className="opacity-50"> · </span>}
-            {source && <span>{source}</span>}
-            {initials && (
-              <>
-                <span className="opacity-50"> · </span>
-                <span>{initials}</span>
-              </>
-            )}
+            {createdMeta && (sourceWithActor || source) && <span className="opacity-50"> · </span>}
+            {(sourceWithActor || source) && <span>{sourceWithActor || source}</span>}
           </span>
         )}
 

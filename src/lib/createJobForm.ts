@@ -126,9 +126,9 @@ export function tariffFieldsFromJob(job: Job): { tariffId: string; tariffName: s
   if (tariffId === '-1') {
     tariffName = tariffName || 'Fixed';
   } else if (tariffId === '0') {
+    // Only coerce empty → Automatic for Auto. Named ids must keep empty name so
+    // buildEditTariffDropdown can still synthesize a selectable row for the id.
     tariffName = tariffName || 'Automatic';
-  } else if (!tariffName) {
-    tariffName = 'Automatic';
   }
   return { tariffId, tariffName };
 }
@@ -190,11 +190,14 @@ export function buildEditTariffDropdown(
   const resolved = resolveTariffFormSelection(fields, catalog);
   const id = String(resolved.tariffId).trim();
   const name = String(resolved.tariffName).trim();
-  if (!id || id === '0' || id === '-1' || !name || name.toLowerCase() === 'automatic') {
-    return catalog;
-  }
+  if (!id || id === '0' || id === '-1') return catalog;
   if (catalog.some((t) => String(t.Id) === id)) return catalog;
-  return [...catalog, { Id: id, TariffName: name }];
+  // Named catalog tariff whose id is missing from the live catalog — keep selectable.
+  const displayName =
+    name && name.toLowerCase() !== 'automatic' && name.toLowerCase() !== 'fixed'
+      ? name
+      : `Tariff #${id}`;
+  return [...catalog, { Id: id, TariffName: displayName }];
 }
 
 /** Pickup datetime for edit form — prefer future scheduledFor over stale ASAP bookingDateTime. */
