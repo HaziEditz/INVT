@@ -24,6 +24,8 @@ import {
   driverAssignmentChanged,
   driversForAssignDropdown,
   driverOptionFromJob,
+  DRIVER_PENDING,
+  formShowsLiveDriverOptions,
   isAssignedDriverSelection,
   jobToForm,
   mergeTariffCatalogSources,
@@ -321,9 +323,19 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   const laterDraftReadyForConfirm =
     form.timing === 'later' && isLaterDraftComplete(laterDraft) && !laterInlineError;
 
+  // Create: block until schedule is confirmed and valid.
+  // Edit: do not disable Save solely for draft inline errors (driver-only Pending/No One
+  // must still save) — handleSubmit toasts and soft-allows unchanged timing.
   const laterBookBlocked =
     form.timing === 'later' &&
-    (!laterScheduleConfirmed || !isLaterDraftComplete(laterDraft) || !!laterInlineError);
+    (!laterScheduleConfirmed ||
+      !isLaterDraftComplete(laterDraft) ||
+      (!isEdit && !!laterInlineError));
+
+  const showLiveDriverOptions = useMemo(
+    () => formShowsLiveDriverOptions(form, editingJob),
+    [form.timing, editingJob, editingJob?.notifyDispatchAt, editingJob?.dispatchBeforeMinutes, editingJob?.bookingDateTime, editingJob?.scheduledFor, editingJob?.status],
+  );
 
   const confirmedLaterSummary = useMemo(() => {
     if (!laterScheduleConfirmed || form.timing !== 'later') return '';
@@ -342,13 +354,29 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
   }, [form.timing, form.dispatchBeforeMin, laterScheduleConfirmed, laterDispatchMinOptions, patch, settings?.defaultDispatchWindow]);
 
   const assignDropdownDrivers = useMemo(() => {
+    if (!showLiveDriverOptions) return [] as typeof availableDrivers;
     const base = driversForAssignDropdown(availableDrivers, drivers, editingJob);
     return filterDriversForRequirements(base, {
       vehicleType: form.vehicleType,
       passengers: editingJob?.passengers ?? 1,
       serviceType: form.serviceType,
     });
-  }, [availableDrivers, drivers, editingJob, form.vehicleType, form.serviceType, editingJob?.passengers]);
+  }, [
+    showLiveDriverOptions,
+    availableDrivers,
+    drivers,
+    editingJob,
+    form.vehicleType,
+    form.serviceType,
+    editingJob?.passengers,
+  ]);
+
+  // Pre-window Later must not keep a real driver selection (options are hidden).
+  useEffect(() => {
+    if (!open || showLiveDriverOptions) return;
+    if (!isAssignedDriverSelection(form.driverId)) return;
+    patch({ driverId: DRIVER_PENDING, vehicleId: '0', queueNumber: 0 });
+  }, [open, showLiveDriverOptions, form.driverId, patch]);
 
   const selectedDriver = useMemo(() => {
     if (!isAssignedDriverSelection(form.driverId)) return null;
@@ -818,8 +846,29 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     if (!validatePickup()) return;
 
     if (form.timing === 'later') {
-      if (!laterScheduleConfirmed || !isLaterDraftComplete(laterDraft) || laterDraftInlineError(laterDraft)) {
-        return;
+      const draftErr = laterDraftInlineError(laterDraft);
+      if (!laterScheduleConfirmed || !isLaterDraftComplete(laterDraft) || draftErr) {
+        const message =
+          draftErr ||
+          (!laterScheduleConfirmed
+            ? 'Confirm pickup time before saving.'
+            : 'Choose a pickup date and time.');
+        // Edit + unchanged schedule: allow Pending/No One (and other non-timing) saves
+        // even when the draft inline check is noisy (e.g. near-due clocks).
+        if (isEdit && editingJob && laterScheduleConfirmed && isLaterDraftComplete(laterDraft)) {
+          const prevForm = jobToForm(editingJob);
+          const prevDt = buildBookingDateTime(prevForm).bookingDateTime;
+          const nextDt = buildBookingDateTime(mergeLaterDraftIntoForm(form, laterDraft)).bookingDateTime;
+          if (prevForm.timing === 'later' && prevDt === nextDt) {
+            /* proceed */
+          } else {
+            addToast({ type: 'error', title: 'Cannot save', message });
+            return;
+          }
+        } else {
+          addToast({ type: 'error', title: 'Cannot save', message });
+          return;
+        }
       }
     }
 
@@ -836,8 +885,20 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
           const nextDt = buildBookingDateTime(submitForm).bookingDateTime;
           block = submitForm.timing !== prevForm.timing || nextDt !== prevDt;
         }
-        if (block) return;
+        if (block) {
+          addToast({ type: 'error', title: 'Cannot save', message: laterErr });
+          return;
+        }
       }
+    }
+
+    if (isEdit && !showLiveDriverOptions && isAssignedDriverSelection(submitForm.driverId)) {
+      addToast({
+        type: 'error',
+        title: 'Cannot assign yet',
+        message: 'This Later job is still before its dispatch window. Choose Pending or No One, or switch to Now to assign a driver.',
+      });
+      return;
     }
 
     submittingRef.current = true;
@@ -1432,7 +1493,8 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                     {isEdit ? 'Driver: Pending (U-A pool)' : 'Pending'}
                   </option>
                   <option value="-1">{isEdit ? 'Driver: No One' : 'No One'}</option>
-                  {assignedEditDriver &&
+                  {showLiveDriverOptions &&
+                    assignedEditDriver &&
                     !availableDrivers.some((d) => d.driverId === assignedEditDriver.driverId) && (
                       <>
                         <option disabled value="__assigned__">
@@ -1443,17 +1505,23 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                         </option>
                       </>
                     )}
-                  {availableDrivers.length > 0 && (
+                  {showLiveDriverOptions && assignDropdownDrivers.length > 0 && (
                     <option disabled value="__online__">
                       — online —
                     </option>
                   )}
-                  {availableDrivers.map((d) => (
-                    <option key={d.driverId} value={d.driverId}>
-                      {d.vehicleNo} {d.driverName}
-                    </option>
-                  ))}
+                  {showLiveDriverOptions &&
+                    assignDropdownDrivers.map((d) => (
+                      <option key={d.driverId} value={d.driverId}>
+                        {d.vehicleNo} {d.driverName}
+                      </option>
+                    ))}
                 </select>
+                {!showLiveDriverOptions && form.timing === 'later' && (
+                  <div className="mt-1 text-[10px] text-[#8892a4]">
+                    Drivers appear once the dispatch window opens (or switch to Now).
+                  </div>
+                )}
                 {selectedDriver && (
                   <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                     <span className="text-[10px] text-[#8892a4]">Selected driver:</span>

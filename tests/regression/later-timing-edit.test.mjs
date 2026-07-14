@@ -138,3 +138,40 @@ test('Phase 3 tariff: fresh create then tariff update round-trips through Fireba
 
   await h.cancelUnassigned(jobId);
 });
+
+test('Phase 3 Later: Pending/No One persist before dispatch window opens', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  // Far-future pickup + short window → still pre-dispatch at save time.
+  const { bookingId } = await h.createScheduledJob({
+    minutesAhead: 240,
+    dispatchBefore: 15,
+    notesSuffix: 'later-pool-prewindow',
+  });
+
+  const before = await h.jobTrace(bookingId);
+  assert.equal(String(before.jobStore?.lifecycle?.BookingStatus || ''), 'Scheduled');
+
+  const noOne = await h.setNoOne(bookingId);
+  assert.equal(noOne.response.body.ok, true, JSON.stringify(noOne.response.body));
+
+  const afterNoOne = await h.poll(
+    bookingId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'No One',
+    { timeoutMs: 20000 },
+  );
+  assert.equal(String(afterNoOne.jobStore?.lifecycle?.BookingStatus || ''), 'No One');
+  assert.equal(String(afterNoOne.firebase?.allbookings?.DriverId ?? ''), '-1');
+
+  const pending = await h.setPending(bookingId);
+  assert.equal(pending.response.body.ok, true, JSON.stringify(pending.response.body));
+
+  const afterPending = await h.poll(
+    bookingId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Pending',
+    { timeoutMs: 20000 },
+  );
+  assert.equal(String(afterPending.jobStore?.lifecycle?.BookingStatus || ''), 'Pending');
+
+  await h.cancelUnassigned(bookingId);
+});

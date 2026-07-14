@@ -412,3 +412,71 @@ test('laterDispatchMinOptions hides 0 min when pickup is future', () => {
   );
   assert.deepEqual(out, [5, 10, 15]);
 });
+
+test('formDriverIdFromJob: Scheduled maps to Pending (edit has no Auto option)', () => {
+  const DRIVER_AUTO = '0';
+  const DRIVER_PENDING = '-2';
+  const DRIVER_NOONE = '-1';
+  function formDriverIdFromJob(job) {
+    const st = String(job.status || 'Pending');
+    if (st === 'No One') return DRIVER_NOONE;
+    const drv = String(job.driverId ?? '').trim();
+    if (drv && drv !== '0' && drv !== '-1' && drv !== '-2') return drv;
+    if (st === 'Pending' || st === 'Scheduled') return DRIVER_PENDING;
+    return DRIVER_AUTO;
+  }
+  assert.equal(formDriverIdFromJob({ status: 'Scheduled', driverId: '0' }), '-2');
+  assert.equal(formDriverIdFromJob({ status: 'Pending', driverId: '0' }), '-2');
+  assert.equal(formDriverIdFromJob({ status: 'No One', driverId: '-1' }), '-1');
+});
+
+test('formShowsLiveDriverOptions: hidden for pre-window Later, shown for Now or open window', () => {
+  function isPreDispatchWindow(job, now = new Date()) {
+    if (!job.notifyDispatchAt) return false;
+    return now.getTime() < Date.parse(job.notifyDispatchAt);
+  }
+  function formShowsLiveDriverOptions(form, editingJob, now = new Date()) {
+    if (form.timing === 'now') return true;
+    if (!editingJob) return false;
+    return !isPreDispatchWindow(editingJob, now);
+  }
+  const now = new Date();
+  const futureNotify = new Date(now.getTime() + 3_600_000).toISOString();
+  const pastNotify = new Date(now.getTime() - 60_000).toISOString();
+  assert.equal(formShowsLiveDriverOptions({ timing: 'now' }, null, now), true);
+  assert.equal(formShowsLiveDriverOptions({ timing: 'later' }, null, now), false);
+  assert.equal(
+    formShowsLiveDriverOptions(
+      { timing: 'later' },
+      { notifyDispatchAt: futureNotify, status: 'Scheduled' },
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    formShowsLiveDriverOptions(
+      { timing: 'later' },
+      { notifyDispatchAt: pastNotify, status: 'Pending' },
+      now,
+    ),
+    true,
+  );
+});
+
+test('driverAssignmentChanged: Auto and Pending are equivalent pool selections', () => {
+  const DRIVER_AUTO = '0';
+  const DRIVER_PENDING = '-2';
+  function isPool(id) {
+    return id === DRIVER_AUTO || id === DRIVER_PENDING;
+  }
+  function driverAssignmentChanged(orig, formDriverId) {
+    if (formDriverId !== orig) {
+      if (isPool(formDriverId) && isPool(orig)) return false;
+      return true;
+    }
+    return false;
+  }
+  assert.equal(driverAssignmentChanged('-2', '0'), false);
+  assert.equal(driverAssignmentChanged('-2', '-1'), true);
+  assert.equal(driverAssignmentChanged('-1', '-2'), true);
+});

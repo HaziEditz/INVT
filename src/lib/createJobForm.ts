@@ -7,6 +7,7 @@ import {
   isPreBookedJob,
   isFuturePickupTime,
   isMissingLaterMetadata,
+  isPreDispatchWindow,
   jobScheduledTime,
   parseLatLng,
 } from '@/types/job';
@@ -439,7 +440,8 @@ export function formDriverIdFromJob(job: Job): string {
   if (st === 'No One') return DRIVER_NOONE;
   const drv = String(job.driverId ?? '').trim();
   if (drv && isAssignedDriverSelection(drv)) return drv;
-  if (st === 'Pending') return DRIVER_PENDING;
+  // Scheduled uses the same U-A pool UI as Pending — edit mode has no Auto ('0') option.
+  if (st === 'Pending' || st === 'Scheduled') return DRIVER_PENDING;
   if (
     (st === 'Offered' ||
       st === 'Assigned' ||
@@ -453,6 +455,26 @@ export function formDriverIdFromJob(job: Job): string {
     return drv;
   }
   return DRIVER_AUTO;
+}
+
+/** Auto and Pending both mean unassigned U-A pool for change detection. */
+export function isPoolDriverSelection(driverId: string): boolean {
+  return driverId === DRIVER_AUTO || driverId === DRIVER_PENDING;
+}
+
+/**
+ * Online driver names belong only on live/dispatchable jobs:
+ * Now/ASAP, or Later after the dispatch window has opened.
+ * Pre-window Later (create or edit) offers only Pending/Auto and No One.
+ */
+export function formShowsLiveDriverOptions(
+  form: Pick<CreateJobFormState, 'timing'>,
+  editingJob: Job | null,
+  now = new Date(),
+): boolean {
+  if (form.timing === 'now') return true;
+  if (!editingJob) return false;
+  return !isPreDispatchWindow(editingJob, now);
 }
 
 /** Resolve assigned driver for edit dropdown — includes busy/non-available drivers. */
@@ -516,7 +538,11 @@ export function buildAssignmentChanges(form: CreateJobFormState): Record<string,
 
 export function driverAssignmentChanged(job: Job, form: CreateJobFormState): boolean {
   const orig = formDriverIdFromJob(job);
-  if (form.driverId !== orig) return true;
+  if (form.driverId !== orig) {
+    // Auto ('0') and Pending ('-2') are the same pool destination — not a real change.
+    if (isPoolDriverSelection(form.driverId) && isPoolDriverSelection(orig)) return false;
+    return true;
+  }
   if (isAssignedDriverSelection(form.driverId)) {
     return String(form.vehicleId || '0') !== String(job.vehicleId || '0');
   }
