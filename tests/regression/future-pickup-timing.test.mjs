@@ -59,8 +59,19 @@ function jobPickupTypeLabel(job) {
   return 'LATER';
 }
 
+/** Auckland-local "YYYY-MM-DD HH:mm:ss" offset from now (avoids calendar-drift failures). */
+function aucklandBookingDateTime(offsetMs = 86_400_000) {
+  return new Date(Date.now() + offsetMs)
+    .toLocaleString('sv-SE', { timeZone: 'Pacific/Auckland' })
+    .replace('T', ' ')
+    .slice(0, 19);
+}
+
 function parseBookingDateTime(dt) {
-  if (!dt.trim()) return { date: '2026-07-14', hour: '16', min: '37' };
+  if (!dt.trim()) {
+    const fallback = aucklandBookingDateTime();
+    return { date: fallback.slice(0, 10), hour: '16', min: '37' };
+  }
   const normalized = dt.includes('T') ? dt : dt.trim().replace(' ', 'T');
   const d = new Date(normalized);
   const sv = d.toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
@@ -118,7 +129,7 @@ test('isPreBookedJob: explicit Later→Now with past pickup stays ASAP', () => {
 });
 
 test('jobToForm: contradictory future pickup infers timing later with default dispatch window', () => {
-  const bookingDateTime = '2026-07-14 16:37:00';
+  const bookingDateTime = aucklandBookingDateTime(86_400_000);
   const form = jobToFormTiming({
     status: 'Pending',
     bookingDateTime,
@@ -126,7 +137,7 @@ test('jobToForm: contradictory future pickup infers timing later with default di
   });
   assert.equal(form.timing, 'later');
   assert.equal(form.dispatchBeforeMin, 10);
-  assert.equal(form.laterDate, '2026-07-14');
+  assert.equal(form.laterDate, bookingDateTime.slice(0, 10));
 });
 
 test('validateLaterPickupForm: future pickup rejects dispatch=0', () => {
@@ -224,7 +235,9 @@ test('Phase 3 timing: known contradiction shape #8692607136 reloads as LATER aft
   requireFirebaseSecret();
   const h = await getHarness();
   const jobId = await h.createAsapJob('future-pickup-known-shape');
-  const bookingDateTime = '2026-07-14 16:37:00';
+  // Same contradiction shape as prod #8692607136 (future pickup + dispatch=0),
+  // with a relative pickup so the suite does not rot past a fixed calendar date.
+  const bookingDateTime = aucklandBookingDateTime(26 * 3600_000);
   const futureMs = Date.parse(bookingDateTime.replace(' ', 'T'));
 
   await h.mutateJobStore(jobId, {
