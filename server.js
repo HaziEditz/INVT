@@ -3588,6 +3588,18 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
   const vid = _resolved.vehicleId || _validated.vehicleId;
   if (!did) return;
 
+  const _zdOffer = ZONE_DRIVERS.find(d => d && (
+    String(d.driverid) === String(did) ||
+    _driverIdsMatch(d.driverid, did) ||
+    String(d.VehicleId) === String(vid)
+  ));
+  if (_isDriverNetworkOfferStale(_zdOffer)) {
+    console.warn(
+      `  [${sourceTag}] _writeManualDriverOffer SKIP job #${job.Id} → driver ${did} — ${NETWORK_OFFER_RETURN_REASON}`,
+    );
+    return;
+  }
+
   // Stamp jobStore before any async Firebase I/O so _healStuckOfferedJobs cannot
   // treat a live Offered row as instantly stale (missing offeredAt).
   const _storeRow = live || job;
@@ -3816,6 +3828,33 @@ async function assignBooking(opts) {
       ok: false,
       error_code: 'driver_ineligible',
       error: 'Driver does not meet job vehicle, seat, or service requirements',
+      booking: _publicBooking(job),
+    };
+  }
+
+  // P3: pre-known-stale presence — refuse offer fanout (no normal offer wait).
+  if (_isDriverNetworkOfferStale(_zdAssign)) {
+    const _ageSec = Math.round((Date.now() - _normalizeLastSeenMs(_zdAssign.lastSeen)) / 1000);
+    console.warn(`  [${source}] assign blocked — driver ${_targetDrv} network-stale (lastSeen ${_ageSec}s ago)`);
+    if (_curStatus === 'Pending' || _curStatus === 'No One' || _curStatus === 'Scheduled' || _curStatus === 'Unreached') {
+      job.returnReason = NETWORK_OFFER_RETURN_REASON;
+      job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
+      saveJobStore();
+      if (_cidEarly) {
+        await _dispatchRefreshForJob(job, {
+          cid: _cidEarly,
+          previousStatus: _curStatus,
+          status: job.BookingStatus,
+          action: 'network_unreachable',
+          driverId: '0',
+          returnReason: NETWORK_OFFER_RETURN_REASON,
+        }).catch(() => {});
+      }
+    }
+    return {
+      ok: false,
+      error_code: 'driver_unreachable',
+      error: NETWORK_OFFER_RETURN_REASON,
       booking: _publicBooking(job),
     };
   }
@@ -11272,11 +11311,23 @@ function canUnlockWithAvailable(driverId) {
 
 // Shared by zone-driver sync + ghost-presence sweeper (must be defined before sync runs).
 const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeats can gap during GPS/background
+/** Pre-offer gate: already-stale lastSeen → bounce with Network issue (not a live wait). */
+const NETWORK_OFFER_STALE_MS = 3 * 1000;
+const NETWORK_OFFER_RETURN_REASON = 'Network issue — driver unreachable';
 
 function _normalizeLastSeenMs(raw) {
   const n = Number(raw || 0);
   if (!n || !Number.isFinite(n)) return 0;
   return n < 1e12 ? n * 1000 : n;
+}
+
+/** True when zone-driver lastSeen is known and older than NETWORK_OFFER_STALE_MS. Missing lastSeen = not stale. */
+function _isDriverNetworkOfferStale(zd, now) {
+  if (!zd) return false;
+  const at = now || Date.now();
+  const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
+  if (!lastSeen) return false;
+  return (at - lastSeen) > NETWORK_OFFER_STALE_MS;
 }
 
 // ─── Driver Zone Memory ────────────────────────────────────────────────────────
@@ -13988,6 +14039,7 @@ const server = http.createServer(async (req, res) => {
         if (parsed.passforlink != null) zd.passforlink = String(parsed.passforlink);
         if (parsed.drivername != null) zd.drivername = String(parsed.drivername);
         if (parsed.companyId != null) zd.companyId = String(parsed.companyId);
+        if (parsed.lastSeen != null) zd.lastSeen = _normalizeLastSeenMs(parsed.lastSeen) || Number(parsed.lastSeen) || 0;
         if (parsed.phone != null || parsed.PhoneNo != null) {
           zd.PhoneNo = String(parsed.phone ?? parsed.PhoneNo);
           zd.phone = zd.PhoneNo;
@@ -23388,6 +23440,7 @@ function _upsertZoneDriverFromFirebase(record) {
     if (record.seats) existing.seats = record.seats;
     if (record.allowedServices) existing.allowedServices = record.allowedServices;
     if (record.services) existing.services = record.services;
+    if (record.lastSeen != null) existing.lastSeen = record.lastSeen;
     if (!existing.companyId && record.companyId) existing.companyId = record.companyId;
     existing._fbSyncedAt = Date.now();
     return 'updated';
@@ -24008,6 +24061,7 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     zonequeue,
     lat,
     lng,
+    lastSeen: _lastSeen || undefined,
     companyId: cid,
   };
 }
@@ -24604,10 +24658,30 @@ async function _serverAutoDispatchTick() {
       tickReport.companies[cid] = companyReport;
       continue;
     }
-    let best = drivers[0];
+    // P3: skip pre-known-stale drivers (lastSeen > 3s) — do not place a normal offer wait.
+    const driversReachable = drivers.filter(d => !_isDriverNetworkOfferStale(d, now));
+    if (!driversReachable.length) {
+      job.returnReason = NETWORK_OFFER_RETURN_REASON;
+      job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
+      saveJobStore();
+      companyReport.skipReason = `all ${drivers.length} candidate(s) network-stale (lastSeen > ${NETWORK_OFFER_STALE_MS}ms)`;
+      companyReport.action = 'network_unreachable';
+      console.log(`[server-auto-dispatch] job #${job.Id} bounce UA — ${companyReport.skipReason}`);
+      await _dispatchRefreshForJob(job, {
+        cid,
+        previousStatus: job.BookingStatus,
+        status: job.BookingStatus,
+        action: 'network_unreachable',
+        driverId: '0',
+        returnReason: NETWORK_OFFER_RETURN_REASON,
+      }).catch(() => {});
+      tickReport.companies[cid] = companyReport;
+      continue;
+    }
+    let best = driversReachable[0];
     if (pick) {
       let bestDist = Infinity;
-      for (const d of drivers) {
+      for (const d of driversReachable) {
         const dist = _haversineKm(pick, { lat: parseFloat(d.lat), lng: parseFloat(d.lng) });
         if (dist < bestDist) { bestDist = dist; best = d; }
       }
