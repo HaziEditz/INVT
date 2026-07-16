@@ -45,7 +45,12 @@ import {
   setPending,
 } from '@/lib/jobFlow';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
-import { driverConnectivityJobBanner } from '@/lib/driverConnectivity';
+import {
+  buildStaleAssignedReassignContext,
+  driverConnectivityJobBanner,
+  reassignBlockedMessage,
+  type StaleReassignContext,
+} from '@/lib/driverConnectivity';
 import { filterDriversForJob } from '@/lib/jobVehicleEligibility';
 import {
   notifyJobCancelled,
@@ -213,7 +218,8 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
     tab === 'queue' ? queueAssignDrivers : tab === 'assign' ? assignTabDrivers : assignDrivers;
   const showPendingAssignOption = tab !== 'queue' && tab !== 'assign';
   const showAssignControls =
-    tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active';
+    (tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active') &&
+    !reassignBlockedMessage(effectiveJobStatus(job));
   const addToast = useUiStore((s) => s.addToast);
   const openModalWith = useUiStore((s) => s.openModalWith);
   const hoveredJobId = useJobStore((s) => s.hoveredJobId);
@@ -226,6 +232,10 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
   );
   const [cancelTargetJobId, setCancelTargetJobId] = useState<number | null>(null);
   const [assignSelection, setAssignSelection] = useState('');
+  const [staleReassignPending, setStaleReassignPending] = useState<{
+    selection: string;
+    ctx: StaleReassignContext;
+  } | null>(null);
   const [now, setNow] = useState(() => new Date());
   const cancelTarget = useMemo(
     () => (cancelTargetJobId != null ? jobs.find((j) => j.id === cancelTargetJobId) ?? null : null),
@@ -435,7 +445,42 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
       });
       return;
     }
+
+    const blocked = reassignBlockedMessage(effectiveJobStatus(job));
+    if (
+      blocked &&
+      assignSelection !== '__pending__' &&
+      assignSelection !== '__noone__'
+    ) {
+      addToast({ type: 'error', title: 'Cannot reassign', message: blocked });
+      return;
+    }
+
     const selection = assignSelection;
+    if (
+      selection !== '__pending__' &&
+      selection !== '__noone__' &&
+      isAssignedDriverSelection(job.driverId) &&
+      job.driverId !== selection
+    ) {
+      const ctx = buildStaleAssignedReassignContext({
+        jobStatus: effectiveJobStatus(job),
+        currentDriverId: job.driverId,
+        newDriverId: selection,
+        currentDriver: assignedDriver,
+        pickLatLng: job.pickLatLng,
+        now: now.getTime(),
+      });
+      if (ctx?.needsConfirm) {
+        setStaleReassignPending({ selection, ctx });
+        return;
+      }
+    }
+
+    await executeAssign(selection);
+  };
+
+  const executeAssign = async (selection: string) => {
     try {
       const result = await applyJobAssignment(job, selection, assignDropdownDrivers);
       const hadDriver = !!(job.driverId && isAssignedDriverSelection(job.driverId));
@@ -455,6 +500,7 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
                 : 'Driver assigned',
       });
       setAssignSelection('');
+      setStaleReassignPending(null);
     } catch (e) {
       addToast({
         type: 'error',
@@ -892,6 +938,63 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
                 }}
               >
                 Cancel Job
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {staleReassignPending && (
+        <div
+          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setStaleReassignPending(null)}
+        >
+          <div
+            className="rounded-xl border border-amber-500/40 bg-[#12151f] shadow-2xl max-w-md w-full p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} className="text-amber-400" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-[#e8eaf0]">
+                  Reassign while driver may be offline?
+                </h3>
+                <p className="text-sm text-[#e8eaf0] mt-2 font-semibold">
+                  {staleReassignPending.ctx.driverName}
+                </p>
+                <p className="text-sm text-amber-300/90 mt-1">
+                  {staleReassignPending.ctx.lastSeenLabel}
+                </p>
+                <p className="text-sm text-[#8892a4] mt-2 leading-relaxed">
+                  {staleReassignPending.ctx.locationLine}
+                </p>
+                <p className="text-sm text-[#8892a4] mt-2 leading-relaxed">
+                  {staleReassignPending.ctx.warning}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="muted"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setStaleReassignPending(null);
+                }}
+              >
+                Keep current driver
+              </Button>
+              <Button
+                variant="gold"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const sel = staleReassignPending.selection;
+                  setStaleReassignPending(null);
+                  void executeAssign(sel);
+                }}
+              >
+                Reassign anyway
               </Button>
             </div>
           </div>

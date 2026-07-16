@@ -15,6 +15,11 @@ import {
   type CustomerSearchResult,
 } from '@/lib/dispatchApi';
 import { updateJob, applyFormDriverAssignment, hydrateJobFromServer } from '@/lib/jobFlow';
+import { effectiveJobStatus } from '@/lib/jobStatusAuthority';
+import {
+  buildStaleAssignedReassignContext,
+  reassignBlockedMessage,
+} from '@/lib/driverConnectivity';
 import { setJobEditLock, releaseJobEditLock, releaseJobEditLockKeepalive } from '@/lib/jobEditLock';
 import { getEditLockSessionId } from '@/lib/editLockSession';
 import {
@@ -926,6 +931,39 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
         if (assignmentChanged) {
           const workingJob =
             useJobStore.getState().jobs.find((j) => j.id === editingJob.id) ?? liveJob;
+          const blocked = reassignBlockedMessage(effectiveJobStatus(workingJob));
+          if (blocked && isAssignedDriverSelection(submitForm.driverId)) {
+            addToast({ type: 'error', title: 'Cannot reassign', message: blocked });
+            throw new Error(blocked);
+          }
+          if (isAssignedDriverSelection(submitForm.driverId)) {
+            const currentDrv =
+              drivers.find((d) => d.driverId === workingJob.driverId) ??
+              availableDrivers.find((d) => d.driverId === workingJob.driverId);
+            const staleCtx = buildStaleAssignedReassignContext({
+              jobStatus: effectiveJobStatus(workingJob),
+              currentDriverId: workingJob.driverId,
+              newDriverId: submitForm.driverId,
+              currentDriver: currentDrv,
+              pickLatLng: workingJob.pickLatLng,
+            });
+            if (staleCtx?.needsConfirm) {
+              const ok = window.confirm(
+                [
+                  `Reassign while ${staleCtx.driverName} may be offline?`,
+                  staleCtx.lastSeenLabel,
+                  staleCtx.locationLine,
+                  staleCtx.warning,
+                  '',
+                  'OK = Reassign anyway. Cancel = keep current driver.',
+                ].join('\n'),
+              );
+              if (!ok) {
+                addToast({ type: 'info', title: 'Reassign cancelled' });
+                return;
+              }
+            }
+          }
           await applyFormDriverAssignment(workingJob, submitForm, availableDrivers).catch((e) => {
             addToast({
               type: 'error',

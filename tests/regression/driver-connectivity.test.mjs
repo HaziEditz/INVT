@@ -45,6 +45,70 @@ function driverConnectivityJobBanner(driver, now = Date.now()) {
     : `Driver last seen ${ageLabel} ago`;
 }
 
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function parseLatLng(raw) {
+  if (!raw) return null;
+  const p = String(raw).split(',');
+  if (p.length < 2) return null;
+  const lat = parseFloat(p[0]);
+  const lng = parseFloat(p[1]);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return { lat, lng };
+}
+
+const STALE_REASSIGN_ETA_KMH = 30;
+const REASSIGN_BLOCKED_STATUSES = new Set(['Picking', 'Arrived', 'Active', 'OnTrip', 'Busy']);
+
+function buildStaleAssignedReassignContext(opts) {
+  const now = opts.now ?? Date.now();
+  const st = String(opts.jobStatus || '').trim();
+  if (st !== 'Assigned') return null;
+  const curId = String(opts.currentDriverId || '').trim();
+  const nextId = String(opts.newDriverId || '').trim();
+  if (!curId || !nextId || curId === '0' || curId === '-1' || curId === nextId) return null;
+  if (!opts.currentDriver || !isDriverConnectivityStale(opts.currentDriver.lastSeen, now)) {
+    return null;
+  }
+  const age = lastSeenAgeMs(opts.currentDriver.lastSeen, now);
+  const lastSeenLabel =
+    age != null ? `Last seen ${formatLastSeenAge(age)} ago` : 'Last seen unknown';
+  let locationLine = 'Location unknown when last seen.';
+  const pickup = parseLatLng(opts.pickLatLng);
+  const lat = opts.currentDriver.lat;
+  const lng = opts.currentDriver.lng;
+  if (pickup && lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
+    const km = haversineKm(lat, lng, pickup.lat, pickup.lng);
+    const etaMin = Math.max(1, Math.round((km / STALE_REASSIGN_ETA_KMH) * 60));
+    locationLine =
+      km < 0.15
+        ? `Last GPS was at the pickup (~${Math.round(km * 1000)} m) when they went quiet.`
+        : `~${km < 10 ? km.toFixed(1) : Math.round(km)} km from pickup when last seen (~${etaMin} min ETA at ${STALE_REASSIGN_ETA_KMH} km/h).`;
+  }
+  return {
+    needsConfirm: true,
+    driverName: opts.currentDriver.driverName?.trim() || `Driver ${curId}`,
+    lastSeenLabel,
+    locationLine,
+    warning:
+      'They may still be driving to this pickup. Reassigning can send two cars to the same passenger.',
+  };
+}
+
+function reassignBlockedMessage(jobStatus) {
+  const st = String(jobStatus || '').trim();
+  if (!REASSIGN_BLOCKED_STATUSES.has(st)) return null;
+  return `Cannot reassign while job is ${st} - passenger may already be with the driver.`;
+}
+
 test('normalizeLastSeenMs accepts sec and ms', () => {
   assert.equal(normalizeLastSeenMs(1_700_000_000), 1_700_000_000_000);
   assert.equal(normalizeLastSeenMs(1_700_000_000_000), 1_700_000_000_000);
@@ -74,4 +138,54 @@ test('formatLastSeenAge', () => {
   assert.equal(formatLastSeenAge(5_000), '5s');
   assert.equal(formatLastSeenAge(125_000), '2m');
   assert.equal(lastSeenAgeMs(BASE_MS - 100_000, BASE_MS), 100_000);
+});
+
+test('stale Assigned reassign needs confirm with GPS context', () => {
+  const now = BASE_MS;
+  const ctx = buildStaleAssignedReassignContext({
+    jobStatus: 'Assigned',
+    currentDriverId: 'D1',
+    newDriverId: 'D2',
+    currentDriver: {
+      driverName: 'Alex',
+      lastSeen: now - 90_000,
+      lat: -46.413,
+      lng: 168.349,
+      status: 'Assigned',
+    },
+    // ~same block as driver coords → near pickup
+    pickLatLng: '-46.4132,168.3491',
+    now,
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.needsConfirm, true);
+  assert.match(ctx.lastSeenLabel, /1m/);
+  assert.match(ctx.locationLine, /pickup/i);
+
+  assert.equal(
+    buildStaleAssignedReassignContext({
+      jobStatus: 'Assigned',
+      currentDriverId: 'D1',
+      newDriverId: 'D2',
+      currentDriver: { driverName: 'Alex', lastSeen: now - 10_000, status: 'Assigned' },
+      now,
+    }),
+    null,
+  );
+
+  assert.equal(
+    buildStaleAssignedReassignContext({
+      jobStatus: 'Active',
+      currentDriverId: 'D1',
+      newDriverId: 'D2',
+      currentDriver: { driverName: 'Alex', lastSeen: now - 90_000, status: 'Active' },
+      now,
+    }),
+    null,
+  );
+});
+
+test('reassign blocked mid-trip', () => {
+  assert.match(reassignBlockedMessage('Active') || '', /Active/);
+  assert.equal(reassignBlockedMessage('Assigned'), null);
 });
