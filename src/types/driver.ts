@@ -397,8 +397,8 @@ export function driverFromFirebase(
       return Number.isNaN(n) || n < 1 ? 4 : n;
     })(),
     status,
-    lat: rec.lat != null ? Number(rec.lat) : undefined,
-    lng: rec.lng != null ? Number(rec.lng) : undefined,
+    lat: rec.lat != null ? Number(rec.lat) : current.lat != null ? Number(current.lat) : undefined,
+    lng: rec.lng != null ? Number(rec.lng) : current.lng != null ? Number(current.lng) : undefined,
     zoneName: String(rec.zonename ?? rec.zoneName ?? current.zonename ?? ''),
     zoneQueue: current.zonequeue != null ? Number(current.zonequeue) : undefined,
     jobCount,
@@ -411,7 +411,14 @@ export function driverFromFirebase(
     services: Array.isArray(rec.allowedServices)
       ? (rec.allowedServices as string[])
       : ['Taxi'],
-    lastSeen: rec.lastSeen ? Number(rec.lastSeen) : Date.now(),
+    // Prefer real lastSeen (parent or current). Do not invent Date.now() — that hides staleness.
+    lastSeen: (() => {
+      const raw = rec.lastSeen ?? current.lastSeen;
+      if (raw == null || raw === '' || Number(raw) === 0) return undefined;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) return undefined;
+      return n < 1e12 ? n * 1000 : n;
+    })(),
     ...liveMeter,
   };
 }

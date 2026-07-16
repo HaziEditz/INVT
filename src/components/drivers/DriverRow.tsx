@@ -1,6 +1,12 @@
+import { useEffect, useState } from 'react';
 import { statusColor, type Driver } from '@/types/driver';
 import { useUiStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
+import {
+  formatLastSeenAge,
+  isDriverConnectivityStale,
+  lastSeenAgeMs,
+} from '@/lib/driverConnectivity';
 
 interface DriverRowProps {
   driver: Driver;
@@ -11,14 +17,23 @@ export function DriverRow({ driver, index }: DriverRowProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
   const color = statusColor(driver.status);
   const isAvailable = driver.status === 'Available';
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const stale = isDriverConnectivityStale(driver.lastSeen, now);
+  const age = lastSeenAgeMs(driver.lastSeen, now);
+  const staleLabel = stale && age != null ? `Last seen ${formatLastSeenAge(age)} ago` : null;
 
   return (
     <tr
       className={cn(
         'border-b border-[color-mix(in_srgb,var(--bw-border)_50%,transparent)] hover:bg-[var(--bw-card-hover)] cursor-pointer text-[9px] leading-tight border-l-[3px] bw-text',
-        index % 2 === 0 ? 'bg-[var(--bw-row-stripe)]' : 'bg-transparent'
+        index % 2 === 0 ? 'bg-[var(--bw-row-stripe)]' : 'bg-transparent',
+        stale && 'bg-amber-500/5',
       )}
-      style={{ borderLeftColor: color }}
+      style={{ borderLeftColor: stale ? '#d97706' : color }}
       onClick={() => openModalWith('driverDetail', { driverId: driver.driverId })}
     >
       <td className="py-1 px-0.5 truncate" title={driver.zoneName || undefined}>{driver.zoneName || '—'}</td>
@@ -29,16 +44,30 @@ export function DriverRow({ driver, index }: DriverRowProps) {
       <td className="py-1 px-0.5 truncate" title={(driver.services || ['Taxi']).join(', ')}>
         {(driver.services || ['Taxi']).map((s) => s.slice(0, 1)).join('')}
       </td>
-      <td className="py-1 px-0.5 font-semibold truncate" style={{ color }} title={driver.status}>
+      <td
+        className="py-1 px-0.5 font-semibold truncate"
+        style={{ color: stale ? '#d97706' : color }}
+        title={staleLabel ? `${driver.status} · ${staleLabel}` : driver.status}
+      >
         <span className="inline-flex items-center gap-1">
-          {isAvailable && (
+          {isAvailable && !stale && (
             <span className="relative flex h-2 w-2">
               <span className="bw-status-pulse absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: color }} />
               <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: color }} />
             </span>
           )}
-          {!isAvailable && <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: color }} />}
+          {(!isAvailable || stale) && (
+            <span
+              className="inline-block w-1.5 h-1.5 rounded-full"
+              style={{ background: stale ? '#d97706' : color }}
+            />
+          )}
           {driver.status}
+          {staleLabel && age != null && (
+            <span className="font-medium text-amber-700 dark:text-amber-300 truncate max-w-[72px]">
+              {formatLastSeenAge(age)}
+            </span>
+          )}
         </span>
       </td>
       <td className="py-1 px-0.5 text-center">{driver.jobCount ?? 0}</td>

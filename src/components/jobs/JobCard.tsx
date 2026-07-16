@@ -45,6 +45,7 @@ import {
   setPending,
 } from '@/lib/jobFlow';
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
+import { driverConnectivityJobBanner } from '@/lib/driverConnectivity';
 import { filterDriversForJob } from '@/lib/jobVehicleEligibility';
 import {
   notifyJobCancelled,
@@ -293,6 +294,14 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
         (!!job.vehicleNo && d.vehicleNo === job.vehicleNo),
     );
   }, [allDrivers, job.driverId, job.vehicleId, job.vehicleNo]);
+
+  const connectivityBanner = useMemo(
+    () =>
+      tab === 'assign' || tab === 'active' || tab === 'queue'
+        ? driverConnectivityJobBanner(assignedDriver, now.getTime())
+        : null,
+    [tab, assignedDriver, now],
+  );
 
   const tariffs = useTariffs(job.companyId);
   const tariff = useMemo(() => {
@@ -560,6 +569,20 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
           {rightContact}
         </span>
       </div>
+
+      {connectivityBanner && (
+        <div
+          className={cn(
+            'flex items-center gap-1 rounded px-1 py-0.5 mb-0.5',
+            'bg-amber-500/15 text-amber-800 dark:text-amber-300',
+            compact ? 'text-[8px]' : 'text-[9px]',
+          )}
+          title={connectivityBanner}
+        >
+          <AlertTriangle size={10} className="shrink-0 opacity-80" />
+          <span className="truncate font-semibold">{connectivityBanner}</span>
+        </div>
+      )}
 
       {/* Line 2 — route + payment */}
       <div className={cn('flex items-center gap-1 leading-tight', compact ? 'min-h-[12px] mb-0' : 'min-h-[14px] mb-0.5')}>

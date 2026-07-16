@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useDriverStore } from '@/store/driverStore';
@@ -11,6 +11,12 @@ import {
   queueSuspendAfterTrip,
 } from '@/lib/pendingSuspendAfterTrip';
 import { statusColor, type DriverStatus } from '@/types/driver';
+import {
+  driverConnectivityJobBanner,
+  formatLastSeenAge,
+  isDriverConnectivityStale,
+  lastSeenAgeMs,
+} from '@/lib/driverConnectivity';
 
 export function DriverDetailModal() {
   const open = useUiStore((s) => s.openModal === 'driverDetail');
@@ -27,6 +33,12 @@ export function DriverDetailModal() {
   const [suspendWarning, setSuspendWarning] = useState<string | null>(null);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [open]);
 
   if (!driver) {
     return (
@@ -132,6 +144,33 @@ export function DriverDetailModal() {
               <span className="text-xs text-amber-400">Suspend after trip</span>
             )}
           </div>
+          {(() => {
+            const banner = driverConnectivityJobBanner(driver, now);
+            const stale = isDriverConnectivityStale(driver.lastSeen, now);
+            const age = lastSeenAgeMs(driver.lastSeen, now);
+            if (banner) {
+              return (
+                <div className="text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/15 rounded px-2 py-1">
+                  {banner}
+                </div>
+              );
+            }
+            if (stale && age != null) {
+              return (
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  Last seen {formatLastSeenAge(age)} ago
+                </div>
+              );
+            }
+            if (age != null && age <= 30_000) {
+              return (
+                <div className="text-xs text-bw-muted">
+                  Last seen {formatLastSeenAge(age)} ago
+                </div>
+              );
+            }
+            return null;
+          })()}
           {driver.bookingId && (
             <div className="bw-card p-2 text-xs">
               <div>Current job #{driver.bookingId}</div>

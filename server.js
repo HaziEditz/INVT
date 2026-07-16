@@ -4492,6 +4492,32 @@ async function _writeDriverQueueFirebase(cid, driverId, bookingId, job, original
 /** On-trip statuses — driver is actively working a job (Queued alone is NOT a trip). */
 const _ACTIVE_TRIP_JOB_STATUSES = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip']);
 
+/** Presence retain while on a live trip — includes Busy; no time-cap cleanup. */
+const _ON_JOB_PRESENCE_RETAIN_STATUSES = new Set([
+  'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip', 'Busy',
+]);
+
+/**
+ * Presence cleanup must not delete online/{cid}/{vid} while this driver still owns a live trip.
+ * Idle drivers keep the normal STALE_PRESENCE_MS ghost cleanup.
+ */
+function _driverHasOnJobRetainPresence(driverId, vid, cid) {
+  const _drv = String(driverId || '').trim();
+  const _vid = String(vid || '').trim();
+  if (!_drv && !_vid) return false;
+  return jobStore.some(j => {
+    if (!j) return false;
+    if (cid && j.companyId && String(j.companyId) !== String(cid)) return false;
+    const st = String(j.BookingStatus || '');
+    if (!_ON_JOB_PRESENCE_RETAIN_STATUSES.has(st)) return false;
+    const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
+    const jVid = String(j.VehicleNo || j.VehicleId || j.CallSign || '').trim();
+    if (_drv && (jDrv === _drv || _driverIdsMatch(jDrv, _drv))) return true;
+    if (_vid && (jVid === _vid || jDrv === _vid)) return true;
+    return false;
+  });
+}
+
 /** Zone vehiclestatus values that mean on-trip (not mere pool Busy/Assigned without a trip). */
 const _ON_TRIP_PRESENCE_STATUSES = new Set(['Picking', 'Arrived', 'Active', 'OnTrip']);
 
@@ -23909,8 +23935,16 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
 
   const _lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
   if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
-    if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
-    return null;
+    const _staleDrv = String(
+      cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '',
+    ).trim();
+    // On-job drivers: keep presence visible until the trip ends (no time cap).
+    if (_driverHasOnJobRetainPresence(_staleDrv, vehicleId, cid)) {
+      // Fall through and still upsert into ZONE_DRIVERS with frozen lastSeen.
+    } else {
+      if (stats.toDelete) stats.toDelete.push({ cid, vid: vehicleId, reason: `lastSeen ${Math.round((Date.now()-_lastSeen)/1000)}s ago` });
+      return null;
+    }
   }
 
   let _driverId    = cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '';
@@ -24153,10 +24187,21 @@ setInterval(async () => {
 
       // 3) Ghost: heartbeat exists but is older than threshold. Driver app
       // crashed/quit without clean sign-out, OR a stray write resurrected
-      // a deleted node. Either way the driver is not actually online.
+      // a deleted node. Either way the driver is not actually online —
+      // unless they still own an Assigned/Picking/Arrived/Active trip, in
+      // which case retain presence until the job ends (dead-zone safety).
       const lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
       if (lastSeen && (Date.now() - lastSeen) > STALE_PRESENCE_MS) {
-        _toKill.push({ cid, vid, reason: `lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago` });
+        const _staleDrv = String(
+          cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '',
+        ).trim();
+        if (_driverHasOnJobRetainPresence(_staleDrv, vid, cid)) {
+          console.log(
+            `[ghost-presence-sweeper] retain online/${cid}/${vid} — on-job driver (lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago)`,
+          );
+        } else {
+          _toKill.push({ cid, vid, reason: `lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago` });
+        }
       }
       // Nodes with no lastSeen at all but with identity present are LEFT
       // ALONE — they are likely a brand-new driver app that hasn't sent its
