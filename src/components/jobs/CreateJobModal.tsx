@@ -18,6 +18,7 @@ import { updateJob, applyFormDriverAssignment, hydrateJobFromServer } from '@/li
 import { effectiveJobStatus } from '@/lib/jobStatusAuthority';
 import {
   buildStaleAssignedReassignContext,
+  driverAssignmentOptionLabel,
   reassignBlockedMessage,
 } from '@/lib/driverConnectivity';
 import { setJobEditLock, releaseJobEditLock, releaseJobEditLockKeepalive } from '@/lib/jobEditLock';
@@ -1539,7 +1540,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                           — assigned —
                         </option>
                         <option value={assignedEditDriver.driverId}>
-                          {assignedEditDriver.vehicleNo} {assignedEditDriver.driverName}
+                          {driverAssignmentOptionLabel(assignedEditDriver)}
                         </option>
                       </>
                     )}
@@ -1551,7 +1552,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   {showLiveDriverOptions &&
                     assignDropdownDrivers.map((d) => (
                       <option key={d.driverId} value={d.driverId}>
-                        {d.vehicleNo} {d.driverName}
+                        {driverAssignmentOptionLabel(d)}
                       </option>
                     ))}
                 </select>
@@ -1564,7 +1565,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                     <span className="text-[10px] text-[#8892a4]">Selected driver:</span>
                     <span className="text-[10px] font-semibold text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10">
-                      {selectedDriver.vehicleNo} {selectedDriver.driverName}
+                      {driverAssignmentOptionLabel(selectedDriver)}
                     </span>
                   </div>
                 )}

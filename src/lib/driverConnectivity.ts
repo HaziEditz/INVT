@@ -73,6 +73,23 @@ export function formatLastSeenAge(ageMs: number): string {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
+/** Compact assignment-dropdown label showing the dispatcher's connectivity signal. */
+export function driverAssignmentOptionLabel(
+  driver: Pick<Driver, 'vehicleNo' | 'driverName' | 'lastSeen'>,
+  now = Date.now(),
+): string {
+  const identity = [driver.vehicleNo?.trim(), driver.driverName?.trim()]
+    .filter(Boolean)
+    .join(' ')
+    .trim() || 'Unknown driver';
+  const age = lastSeenAgeMs(driver.lastSeen, now);
+  if (age == null) return `${identity} — connection unknown`;
+  if (age > DRIVER_CONNECTIVITY_STALE_MS) {
+    return `${identity} — last seen ${formatLastSeenAge(age)} ago`;
+  }
+  return `${identity} — online`;
+}
+
 export function isOnJobDriverStatus(status: string | undefined | null): boolean {
   return !!status && ON_JOB_STATUSES.has(status);
 }

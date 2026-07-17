@@ -33,6 +33,19 @@ function formatLastSeenAge(ageMs) {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
+function driverAssignmentOptionLabel(driver, now = Date.now()) {
+  const identity = [driver.vehicleNo?.trim(), driver.driverName?.trim()]
+    .filter(Boolean)
+    .join(' ')
+    .trim() || 'Unknown driver';
+  const age = lastSeenAgeMs(driver.lastSeen, now);
+  if (age == null) return `${identity} — connection unknown`;
+  if (age > DRIVER_CONNECTIVITY_STALE_MS) {
+    return `${identity} — last seen ${formatLastSeenAge(age)} ago`;
+  }
+  return `${identity} — online`;
+}
+
 function driverConnectivityJobBanner(driver, now = Date.now()) {
   if (!driver) return null;
   if (!isDriverConnectivityStale(driver.lastSeen, now)) return null;
@@ -138,6 +151,22 @@ test('formatLastSeenAge', () => {
   assert.equal(formatLastSeenAge(5_000), '5s');
   assert.equal(formatLastSeenAge(125_000), '2m');
   assert.equal(lastSeenAgeMs(BASE_MS - 100_000, BASE_MS), 100_000);
+});
+
+test('C5 assignment labels show fresh, stale, and unknown connectivity', () => {
+  const driver = { vehicleNo: 'T12', driverName: 'Alex' };
+  assert.equal(
+    driverAssignmentOptionLabel({ ...driver, lastSeen: BASE_MS - 5_000 }, BASE_MS),
+    'T12 Alex — online',
+  );
+  assert.equal(
+    driverAssignmentOptionLabel({ ...driver, lastSeen: BASE_MS - 125_000 }, BASE_MS),
+    'T12 Alex — last seen 2m ago',
+  );
+  assert.equal(
+    driverAssignmentOptionLabel(driver, BASE_MS),
+    'T12 Alex — connection unknown',
+  );
 });
 
 test('stale Assigned reassign needs confirm with GPS context', () => {

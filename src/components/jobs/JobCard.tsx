@@ -47,6 +47,7 @@ import {
 import { isAssignedDriverSelection } from '@/lib/createJobForm';
 import {
   buildStaleAssignedReassignContext,
+  driverAssignmentOptionLabel,
   driverConnectivityJobBanner,
   reassignBlockedMessage,
   type StaleReassignContext,
@@ -698,7 +699,7 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
                 {assignDropdownDrivers.length > 0 && <option disabled>— drivers —</option>}
                 {assignDropdownDrivers.map((d) => (
                   <option key={d.driverId} value={d.driverId}>
-                    {d.vehicleNo} {d.driverName}
+                    {driverAssignmentOptionLabel(d, now.getTime())}
                   </option>
                 ))}
               </select>
