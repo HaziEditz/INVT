@@ -3787,7 +3787,8 @@ async function assignBooking(opts) {
 
   // Idempotency fast-path: if this booking is already offered/assigned to the same
   // driver, succeed even when zone pool snapshot is temporarily stale/missing.
-  if ((_curStatus === 'Offered' || _curStatus === 'Assigned') && _curDrv === _targetDrv) {
+  if ((_curStatus === 'Offered' || _curStatus === 'Assigned') &&
+      (_curDrv === _targetDrv || _driverIdsMatch(_curDrv, _targetDrv))) {
     if (opts.fanout === true) {
       try {
         await _writeManualDriverOffer(job, _targetDrv, _curVid || _targetVid, by, source);
@@ -3809,6 +3810,21 @@ async function assignBooking(opts) {
       ok: true, idempotent: true, status: _curStatus, driverId: _targetDrv,
       vehicleId: _curVid || _targetVid, version: parseInt(job.updateSeq) || 0,
       booking: _publicBooking(job)
+    };
+  }
+
+  // Driver accept must not withdraw/steal another driver's exclusive offer.
+  if (by === 'driver' && _curStatus === 'Offered' && _normJobDriverId(_curDrv) &&
+      !_driverIdsMatch(_curDrv, _targetDrv)) {
+    return {
+      ok: false,
+      error_code: 'offer_not_yours',
+      stale: true,
+      error: 'This offer is no longer available to you',
+      currentStatus: _curStatus,
+      offeredTo: _curDrv,
+      version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job),
     };
   }
 
@@ -3863,7 +3879,8 @@ async function assignBooking(opts) {
   if (_vc) return _vc;
 
   // Idempotency — already offered/assigned to the same driver.
-  if ((_curStatus === 'Offered' || _curStatus === 'Assigned') && _curDrv === _targetDrv) {
+  if ((_curStatus === 'Offered' || _curStatus === 'Assigned') &&
+      (_curDrv === _targetDrv || _driverIdsMatch(_curDrv, _targetDrv))) {
     const _zdIdem = _zoneDriverRowForEligibility(_targetDrv, _cidEarly, _curVid || _targetVid);
     if (_zdIdem && !_driverEligibleForJob(_zdIdem, job)) {
       return {
@@ -5349,6 +5366,55 @@ function _acceptPoolStatuses() {
   return new Set(['Pending', 'Offered', 'No One']);
 }
 
+/**
+ * Safety net for POST /api/job/accept (and driver-initiated assign).
+ * Exclusive Offered bookings may only be accepted by the driver holding the offer.
+ * Optional ifVersion / offerSeq rejects stale client snapshots after redispatch.
+ */
+function _assertDriverMayAcceptOffer(job, driverId, opts) {
+  opts = opts || {};
+  if (!job) return { ok: false, error_code: 'not_found', error: 'job not found' };
+  const did = String(driverId || '').trim();
+  if (!did) return { ok: false, error_code: 'bad_request', error: 'driverId required' };
+
+  const ifVersion =
+    opts.ifVersion ?? opts.expectedUpdateSeq ?? opts.offerSeq ?? opts.offerVersion;
+  // Only treat explicit client version fields as optimistic locks — not raw updateSeq
+  // on the job body (that would always self-match).
+  const vc = _checkIfVersion(job, ifVersion);
+  if (vc) return vc;
+
+  const st = String(job.BookingStatus || '').trim();
+  if (st !== 'Offered') return null;
+
+  const jobDrv = String(job.DriverId || job.AssignedDriverId || '').trim();
+  const exclusive = !!_normJobDriverId(jobDrv);
+  if (!exclusive) {
+    return {
+      ok: false,
+      error_code: 'offer_invalid',
+      stale: true,
+      error: 'Offer has no assigned driver',
+      currentStatus: st,
+      version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job),
+    };
+  }
+  if (!_driverIdsMatch(jobDrv, did)) {
+    return {
+      ok: false,
+      error_code: 'offer_not_yours',
+      stale: true,
+      error: 'This offer is no longer available to you',
+      currentStatus: st,
+      offeredTo: jobDrv,
+      version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job),
+    };
+  }
+  return null;
+}
+
 function _snapshotJobForAcceptRollback(job) {
   if (!job) return null;
   return {
@@ -5607,6 +5673,9 @@ async function acceptPendingJobByDriver(opts) {
     return { ok: false, error_code: 'invalid_transition', error: `cannot accept job in status ${_cur}`, currentStatus: _cur };
   }
 
+  const _own = _assertDriverMayAcceptOffer(job, driverId, opts);
+  if (_own) return _own;
+
   const drv = _zoneDriverRowForEligibility(driverId, String(job.companyId || opts.companyId || ''), opts.vehicleId);
   if (drv && !_driverEligibleForJob(drv, job)) {
     return {
@@ -5663,6 +5732,8 @@ async function acceptPendingJobByDriver(opts) {
 
       const _live = jobStore.find(j => j && j.Id === bookingId);
       if (!_live) return { ok: false, error_code: 'not_found', error: 'job not found' };
+      const _liveOwn = _assertDriverMayAcceptOffer(_live, driverId, opts);
+      if (_liveOwn) return _liveOwn;
       const _liveSt = _live.BookingStatus || '';
       if (_liveSt === 'Queued' && String(_live.DriverId) === String(driverId)) {
         try {
@@ -5766,10 +5837,20 @@ async function acceptPendingJobByDriver(opts) {
     }
 
     const assignRes = await assignBooking({
-      bookingId, driverId, vehicleId, by: 'driver', manualOffer: false, source
+      bookingId,
+      driverId,
+      vehicleId,
+      by: 'driver',
+      manualOffer: false,
+      source,
     });
     if (!assignRes.ok) return assignRes;
-    const acceptRes = await acceptBooking({ bookingId, driverId, by: 'driver', source });
+    const acceptRes = await acceptBooking({
+      bookingId,
+      driverId,
+      by: 'driver',
+      source,
+    });
     if (!acceptRes.ok) return acceptRes;
     if (_cid && driverId) {
       try {
@@ -15522,7 +15603,18 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error: 'jobId and driverId required' }));
       return;
     }
-    const _result = await acceptPendingJobByDriver({ bookingId: _aJob, driverId: _aDrv, source: '/api/job/accept' });
+    const _offerSeqRaw =
+      _a.ifVersion ?? _a.expectedUpdateSeq ?? _a.offerSeq ?? _a.offerVersion ?? _a.version;
+    const _offerSeq =
+      _offerSeqRaw === undefined || _offerSeqRaw === null || _offerSeqRaw === ''
+        ? undefined
+        : parseInt(_offerSeqRaw, 10);
+    const _result = await acceptPendingJobByDriver({
+      bookingId: _aJob,
+      driverId: _aDrv,
+      source: '/api/job/accept',
+      ifVersion: Number.isFinite(_offerSeq) ? _offerSeq : undefined,
+    });
     const _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_result));
