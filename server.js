@@ -5132,28 +5132,60 @@ async function _reconcileJobStoreBeforeDispatch(opts) {
 }
 
 const STALE_OFFER_HEAL_MS = 2 * 60 * 1000;
+/** C2: driver went quiet while holding an offer — release before generic 2m heal. */
+const MID_OFFER_NETWORK_STALE_MS = 10 * 1000;
+/** Do not immediately send the same booking back to the driver who just went quiet. */
+const NETWORK_REDISPATCH_SAME_DRIVER_COOLDOWN_MS = 30 * 1000;
 const STALE_OFFER_QUARANTINE_MS = 10 * 60 * 1000;
-const HEAL_STUCK_OFFERED_JOB_TIMEOUT_MS = 5_000;
+const HEAL_STUCK_OFFERED_JOB_TIMEOUT_MS = process.env.NODE_ENV === 'test' ? 15_000 : 5_000;
 const JOB_TRACE_RESPONSE_TIMEOUT_MS = 10_000;
 /** Only these jobStore statuses may be auto-purged when Firebase is terminal. Live trips (Active/…) need admin trust_firebase. */
 const _RECONCILE_TRUST_FB_TERMINAL_FROM = new Set(['Offered', 'Pending', 'No One', 'Scheduled', 'Queued']);
 
-async function _releaseStaleOfferedJobToPool(job, sourceTag) {
+async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
+  opts = opts || {};
   if (!job || job.BookingStatus !== 'Offered') return false;
   const cid = String(job.companyId || '').trim();
   const bookingId = job.Id;
   const prevDriver = job.DriverId;
   const prevVehicle = job.VehicleId || job.VehicleNo;
 
-  clearOfferOnFirebase(cid, prevVehicle, prevDriver, bookingId, sourceTag || 'stale-offer-heal');
+  // Pull the offer from the original phone before exposing the booking to another
+  // driver. C4 also reconciles on reconnect, but server cleanup is the primary path.
+  await clearOfferOnFirebase(
+    cid,
+    prevVehicle,
+    prevDriver,
+    bookingId,
+    sourceTag || 'stale-offer-heal',
+    'stale',
+    {
+      awaitCompletion: opts.networkBounce
+        ? process.env.NODE_ENV !== 'test'
+        : true,
+    },
+  ).catch((e) => {
+    console.warn(
+      `[${sourceTag || 'stale-offer-heal'}] offer clear failed #${bookingId}: ${e && e.message}`,
+    );
+  });
 
   const prevSt = job.BookingStatus;
+  _stampLastOfferDriver(job, prevDriver);
   job.BookingStatus = 'Pending';
   job.offeredAt = null;
   job.DriverId = 0;
   job.VehicleId = 0;
-  job.returnReason = 'Offer expired (stale offered job)';
+  job.returnReason = opts.reason || 'Offer expired (stale offered job)';
+  job.ReturnReason = job.returnReason;
   job.releasedAt = Date.now();
+  if (opts.networkBounce) {
+    job.manualOffer = false;
+    job._skipReleaseCooldownOnce = true;
+    job._networkFailedDriverId = String(prevDriver || '').trim();
+    job._networkFailedDriverUntil =
+      Date.now() + NETWORK_REDISPATCH_SAME_DRIVER_COOLDOWN_MS;
+  }
   _bumpJobUpdateSeq(job, 'system');
   saveJobStore();
 
@@ -5176,8 +5208,9 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag) {
       cid,
       previousStatus: prevSt,
       status: 'Pending',
-      action: 'timeout',
+      action: opts.networkBounce ? 'network_unreachable' : 'timeout',
       driverId: '0',
+      declinedDriverId: String(prevDriver || ''),
       returnReason: job.returnReason,
     });
   }
@@ -5224,6 +5257,14 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
     return 1;
   }
 
+  if (_isDriverMidOfferNetworkStale(job, now)) {
+    const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
+      reason: NETWORK_OFFER_RETURN_REASON,
+      networkBounce: true,
+    });
+    return released ? 1 : 0;
+  }
+
   const age = job.offeredAt ? (now - job.offeredAt) : STALE_OFFER_HEAL_MS + 1;
   if (age > STALE_OFFER_HEAL_MS) {
     await _releaseStaleOfferedJobToPool(job, `${sourceTag}/stale`);
@@ -5256,11 +5297,52 @@ async function _healStuckOfferedJobs(sourceTag) {
   return healed;
 }
 
+function _pendingPassesReleaseCooldown(job, now) {
+  if (!job || !job.releasedAt) return true;
+  if (job._skipReleaseCooldownOnce) return true;
+  return (now - job.releasedAt) >= AUTO_DISPATCH_RELEASE_COOLDOWN_MS;
+}
+
+function _consumeSkipReleaseCooldownOnce(job) {
+  if (!job || !job._skipReleaseCooldownOnce) return;
+  job._skipReleaseCooldownOnce = false;
+  saveJobStore();
+}
+
 function _isGenuineInFlightOffer(job) {
   if (!job || job.BookingStatus !== 'Offered') return false;
   const offeredAt = Number(job.offeredAt) || 0;
   const age = offeredAt > 0 ? (Date.now() - offeredAt) : STALE_OFFER_HEAL_MS + 1;
   return age <= STALE_OFFER_HEAL_MS;
+}
+
+function _zoneDriverRowForOfferedJob(job) {
+  if (!job || job.BookingStatus !== 'Offered') return null;
+  const did = String(job.DriverId || '').trim();
+  if (!did || did === '0' || did === '-1') return null;
+  return _findZoneDriverRow(did, {
+    companyId: job.companyId,
+    vehicleIdHint: job.VehicleId || job.VehicleNo,
+  });
+}
+
+function _isDriverMidOfferNetworkStale(job, now) {
+  if (!job || job.BookingStatus !== 'Offered') return false;
+  const zd = _zoneDriverRowForOfferedJob(job);
+  if (!zd) return false;
+  const at = now || Date.now();
+  const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
+  if (!lastSeen) return false;
+  return (at - lastSeen) > MID_OFFER_NETWORK_STALE_MS;
+}
+
+function _isDriverBlockedFromNetworkRedispatch(job, driverId, now) {
+  const did = String(driverId || '').trim();
+  if (!did || !job) return false;
+  const failed = String(job._networkFailedDriverId || '').trim();
+  if (!failed || failed !== did) return false;
+  const until = Number(job._networkFailedDriverUntil) || 0;
+  return until > (now || Date.now());
 }
 
 function _acceptPoolStatuses() {
@@ -6650,7 +6732,7 @@ function _analyzeAutoDispatchForJob(job, cid) {
   if (_isJobEditLocked(job)) {
     reasons.push('dispatcher editing (soft-locked)');
   }
-  if (job.releasedAt && (now - job.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) {
+  if (job.releasedAt && !_pendingPassesReleaseCooldown(job, now)) {
     reasons.push(`releasedAt cooldown (${Math.round((now - job.releasedAt) / 1000)}s ago, need ${Math.round(AUTO_DISPATCH_RELEASE_COOLDOWN_MS / 1000)}s)`);
   }
   if (!_isValidJobRecord(job, { requireSource: true, companyId })) {
@@ -20661,7 +20743,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // If this job was just released (auto-dispatch timeout / dispatcher UnAssign /
           // QuickSetNoOne), skip it briefly so the auto-loop can't immediately re-offer
           // the same job to the same driver who just failed to respond.
-          if (j.releasedAt && (Date.now() - j.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) {
+          if (!_pendingPassesReleaseCooldown(j, Date.now())) {
             return false;
           }
           const dispBefore = parseInt(j.DispatchTimebefore || '0') || 0;
@@ -22773,8 +22855,10 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason, opts)
       if (opts.awaitCompletion) throw eOuter;
     }
   };
-  if (opts.awaitCompletion) return runner();
-  runner();
+  const p = runner();
+  if (opts.awaitCompletion) return p;
+  p.catch(() => {});
+  return Promise.resolve();
 }
 
 // Independent stale-offer watchdog — runs every 90 s regardless of whether
@@ -24652,7 +24736,7 @@ async function _serverAutoDispatchTick() {
       if (String(j.companyId) !== String(cid)) return false;
       if (j.BookingStatus !== 'Pending') return false;
       if (j.manualOffer === true) return false;
-      if (j.releasedAt && (now - j.releasedAt) < AUTO_DISPATCH_RELEASE_COOLDOWN_MS) return false;
+      if (!_pendingPassesReleaseCooldown(j, now)) return false;
       return _isDispatchableJob(j, cid);
     });
     companyReport.pendingEligible = pending.length;
@@ -24688,7 +24772,11 @@ async function _serverAutoDispatchTick() {
       continue;
     }
     // P3: skip pre-known-stale drivers (lastSeen > 3s) — do not place a normal offer wait.
-    const driversReachable = drivers.filter(d => !_isDriverNetworkOfferStale(d, now));
+    const driversReachable = drivers.filter((d) => {
+      if (_isDriverNetworkOfferStale(d, now)) return false;
+      if (_isDriverBlockedFromNetworkRedispatch(job, d.driverid, now)) return false;
+      return true;
+    });
     if (!driversReachable.length) {
       job.returnReason = NETWORK_OFFER_RETURN_REASON;
       job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
@@ -24728,6 +24816,7 @@ async function _serverAutoDispatchTick() {
       continue;
     }
     const _autoPrev = fresh.BookingStatus;
+    _consumeSkipReleaseCooldownOnce(fresh);
     _stampPreOfferPoolStatus(fresh, _autoPrev);
     const _bestIdentity = resolveDriverIdentity(best.driverid, { companyId: cid });
     const _bestDrv = _bestIdentity.ok
