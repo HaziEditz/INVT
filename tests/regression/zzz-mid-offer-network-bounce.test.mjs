@@ -109,7 +109,7 @@ test('C2: mid-offer driver quiet <=10s keeps offer on same driver', async () => 
 
   await h.configureDriver(driverId, {
     vehiclestatus: 'Available',
-    lastSeen: Date.now() - 9_000,
+    lastSeen: Date.now() - 5_000,
   });
 
   await nudgeAutoDispatch(h, 2);
