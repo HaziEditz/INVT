@@ -10,9 +10,10 @@ import {
   hasPendingSuspendAfterTrip,
   queueSuspendAfterTrip,
 } from '@/lib/pendingSuspendAfterTrip';
-import { statusColor, type DriverStatus } from '@/types/driver';
+import { type DriverStatus } from '@/types/driver';
 import {
   driverConnectivityJobBanner,
+  driverPresenceColorHex,
   formatLastSeenAge,
   isDriverConnectivityStale,
   lastSeenAgeMs,
@@ -136,7 +137,7 @@ export function DriverDetailModal() {
           <div className="flex items-center gap-2">
             <span
               className="w-3 h-3 rounded-full"
-              style={{ background: statusColor(driver.status as DriverStatus) }}
+              style={{ background: driverPresenceColorHex(driver.status as DriverStatus, driver.lastSeen, now) }}
             />
             <span className="font-bold">{driver.status}</span>
             <span className="text-bw-muted">· Jobs today: {driver.jobCount ?? 0}</span>

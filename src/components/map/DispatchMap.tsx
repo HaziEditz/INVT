@@ -16,7 +16,7 @@ import { DEFAULT_MAP_CENTER, normalizeMapCenter } from '@/lib/mapCenter';
 import { useDriverStore } from '@/store/driverStore';
 import { useJobStore } from '@/store/jobStore';
 import { useUiStore } from '@/store/uiStore';
-import { statusColor } from '@/types/driver';
+import { driverPresenceColorHex } from '@/lib/driverConnectivity';
 import { parseLatLng } from '@/types/job';
 import type { Job } from '@/types/job';
 import { Spinner } from '@/components/shared/Spinner';
@@ -569,7 +569,7 @@ export function DispatchMap({
         icon: {
           path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
           scale: 5,
-          fillColor: statusColor(d.status),
+          fillColor: driverPresenceColorHex(d.status, d.lastSeen),
           fillOpacity: 1,
           strokeWeight: 1,
           strokeColor: '#fff',

@@ -96,10 +96,16 @@ function resolveDriverPresenceStatus(
   const top = String(topRaw || 'Away').trim() as DriverStatus;
   const cur = String(currentRaw || '').trim() as DriverStatus;
 
-  // Stale top-level Available with a live current/ subnode (offer-timeout recovery).
+  // Offer-clear used to write Away only on current/ while parent stayed Available.
+  // Prefer parent Available when current is Away (no intentional dual Away write).
+  if (top === 'Available' && cur === 'Away') {
+    return 'Available';
+  }
+
+  // Stale top-level Available with a live trip state on current/.
   if (
     top === 'Available' &&
-    (cur === 'Away' || cur === 'Picking' || cur === 'Arrived' || cur === 'Active' || cur === 'Assigned')
+    (cur === 'Picking' || cur === 'Arrived' || cur === 'Active' || cur === 'Assigned')
   ) {
     return cur;
   }
@@ -455,23 +461,25 @@ const ZONE_QUEUE_INACTIVE = new Set<DriverStatus>([
   'Clearing',
 ]);
 
-/** Zone queue vehicle colour — green Available, amber Away, red busy/on-trip. */
-export function zoneQueueVehicleColorClass(status: string): string {
+/**
+ * Zone queue vehicle colour — aligned with statusColor() buckets.
+ * Pass connectivityStale to match DriverRow amber overlay (30s lastSeen).
+ */
+export function zoneQueueVehicleColorClass(
+  status: string,
+  opts?: { connectivityStale?: boolean },
+): string {
+  if (opts?.connectivityStale) return 'text-amber-600 dark:text-amber-400';
   const s = String(status || '').trim();
   if (s === 'Available') return 'text-emerald-400';
   if (s === 'Away') return 'text-amber-400';
-  if (
-    s === 'Active' ||
-    s === 'OnTrip' ||
-    s === 'Busy' ||
-    s === 'Picking' ||
-    s === 'Arrived' ||
-    s === 'Assigned' ||
-    s === 'Offered'
-  ) {
-    return 'text-red-400';
-  }
-  return 'text-red-400';
+  if (s === 'Offered') return 'text-yellow-400';
+  if (s === 'Assigned' || s === 'Picking') return 'text-blue-400';
+  if (s === 'Arrived') return 'text-violet-400';
+  if (s === 'Active' || s === 'OnTrip') return 'text-amber-500';
+  if (s === 'Busy') return 'text-orange-400';
+  if (s === 'Suspended') return 'text-red-400';
+  return 'text-slate-400';
 }
 
 export function isZoneQueueInactive(status: string): boolean {

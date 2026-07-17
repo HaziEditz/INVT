@@ -22706,12 +22706,41 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason, opts)
           } else if (ocBid && ocBid !== bookingIdStr) {
             console.log(`[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid}/current now holds jobId=${ocBid} (fresh offer) — skip clear of stale ${bookingIdStr}`);
           } else {
-            await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}/current.json?auth=${auth}`, 'PATCH', {
+            // Clear offer pointers on current/ + parent together. Do NOT force Away on
+            // current/ only — that left top=Available + current=Away and split Zone Queue
+            // vs driver-board colours. Restore Available when clearing an Offered slot.
+            let parentSt = '';
+            try {
+              const parentResp = await fbRequest(
+                `${FB_DB_URL}/online/${cid}/${vid}.json?auth=${auth}`,
+                'GET',
+                null,
+              );
+              if (parentResp && parentResp.status === 200 && parentResp.body && typeof parentResp.body === 'object') {
+                parentSt = String(parentResp.body.vehiclestatus || parentResp.body.VehicleStatus || '').trim();
+              }
+            } catch (_pe) { /* best-effort */ }
+            const curSt = String((oc && (oc.vehiclestatus || oc.VehicleStatus)) || '').trim();
+            const restoreAvailable =
+              curSt === 'Offered' ||
+              parentSt === 'Offered' ||
+              (parentSt === 'Available' && (curSt === 'Away' || !curSt));
+            const currentPatch = {
               currentJobId: null, jobId: null, joboffer: 0,
               jobpickup: '', jobdropoff: '', JobphoneNo: '', jobname: '',
-              vehiclestatus: 'Away'
-            });
-            console.log(`[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid}/current cleared (job#${bookingId})`);
+            };
+            const parentPatch = { joboffer: 0 };
+            if (restoreAvailable) {
+              currentPatch.vehiclestatus = 'Available';
+              parentPatch.vehiclestatus = 'Available';
+              parentPatch.VehicleStatus = 'Available';
+            }
+            await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}/current.json?auth=${auth}`, 'PATCH', currentPatch);
+            await fbRequest(`${FB_DB_URL}/online/${cid}/${vid}.json?auth=${auth}`, 'PATCH', parentPatch);
+            console.log(
+              `[§FIX-OfferClear/${sourceTag}] online/${cid}/${vid} (+current) cleared offer #${bookingId}` +
+              (restoreAvailable ? ' → Available' : ''),
+            );
           }
         }
       } catch (e1) { console.warn(`[§FIX-OfferClear/${sourceTag}] online/current guarded-PATCH failed:`, e1 && e1.message); }

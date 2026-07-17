@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { statusColor, type Driver } from '@/types/driver';
+import { type Driver } from '@/types/driver';
 import { useUiStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 import {
+  DRIVER_CONNECTIVITY_STALE_HEX,
+  driverPresenceColorHex,
   formatLastSeenAge,
   isDriverConnectivityStale,
   lastSeenAgeMs,
@@ -15,14 +17,14 @@ interface DriverRowProps {
 
 export function DriverRow({ driver, index }: DriverRowProps) {
   const openModalWith = useUiStore((s) => s.openModalWith);
-  const color = statusColor(driver.status);
-  const isAvailable = driver.status === 'Available';
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
   const stale = isDriverConnectivityStale(driver.lastSeen, now);
+  const color = driverPresenceColorHex(driver.status, driver.lastSeen, now);
+  const isAvailable = driver.status === 'Available';
   const age = lastSeenAgeMs(driver.lastSeen, now);
   const staleLabel = stale && age != null ? `Last seen ${formatLastSeenAge(age)} ago` : null;
 
@@ -33,7 +35,7 @@ export function DriverRow({ driver, index }: DriverRowProps) {
         index % 2 === 0 ? 'bg-[var(--bw-row-stripe)]' : 'bg-transparent',
         stale && 'bg-amber-500/5',
       )}
-      style={{ borderLeftColor: stale ? '#d97706' : color }}
+      style={{ borderLeftColor: color }}
       onClick={() => openModalWith('driverDetail', { driverId: driver.driverId })}
     >
       <td className="py-1 px-0.5 truncate" title={driver.zoneName || undefined}>{driver.zoneName || '—'}</td>
@@ -46,7 +48,7 @@ export function DriverRow({ driver, index }: DriverRowProps) {
       </td>
       <td
         className="py-1 px-0.5 font-semibold truncate"
-        style={{ color: stale ? '#d97706' : color }}
+        style={{ color }}
         title={staleLabel ? `${driver.status} · ${staleLabel}` : driver.status}
       >
         <span className="inline-flex items-center gap-1">
@@ -59,12 +61,15 @@ export function DriverRow({ driver, index }: DriverRowProps) {
           {(!isAvailable || stale) && (
             <span
               className="inline-block w-1.5 h-1.5 rounded-full"
-              style={{ background: stale ? '#d97706' : color }}
+              style={{ background: color }}
             />
           )}
           {driver.status}
           {staleLabel && age != null && (
-            <span className="font-medium text-amber-700 dark:text-amber-300 truncate max-w-[72px]">
+            <span
+              className="font-medium truncate max-w-[72px]"
+              style={{ color: DRIVER_CONNECTIVITY_STALE_HEX }}
+            >
               {formatLastSeenAge(age)}
             </span>
           )}

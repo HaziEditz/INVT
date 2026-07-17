@@ -1,9 +1,15 @@
-import type { Driver, DriverStatus } from '@/types/driver';
+import { statusColor, type Driver, type DriverStatus } from '@/types/driver';
 import { haversineKm } from '@/lib/fareEstimate';
 import { parseLatLng } from '@/types/job';
 
 /** Connectivity badge / job-card stale threshold (confirmed product setting). */
 export const DRIVER_CONNECTIVITY_STALE_MS = 30_000;
+
+/** Amber used when lastSeen is stale — shared by DriverRow, Zone Queue, detail. */
+export const DRIVER_CONNECTIVITY_STALE_HEX = '#d97706';
+
+/** Tailwind class for connectivity-stale drivers (Zone Queue + legends). */
+export const DRIVER_CONNECTIVITY_STALE_CLASS = 'text-amber-600 dark:text-amber-400';
 
 /** Rough urban speed for ETA from last GPS → pickup (km/h). */
 const STALE_REASSIGN_ETA_KMH = 30;
@@ -42,6 +48,19 @@ export function lastSeenAgeMs(lastSeen: unknown, now = Date.now()): number | nul
 export function isDriverConnectivityStale(lastSeen: unknown, now = Date.now()): boolean {
   const age = lastSeenAgeMs(lastSeen, now);
   return age != null && age > DRIVER_CONNECTIVITY_STALE_MS;
+}
+
+/**
+ * Hex colour for driver status chips / borders.
+ * Connectivity-stale overrides status colour so Zone Queue and Driver board match.
+ */
+export function driverPresenceColorHex(
+  status: DriverStatus | string,
+  lastSeen: unknown,
+  now = Date.now(),
+): string {
+  if (isDriverConnectivityStale(lastSeen, now)) return DRIVER_CONNECTIVITY_STALE_HEX;
+  return statusColor(String(status || '').trim() as DriverStatus);
 }
 
 export function formatLastSeenAge(ageMs: number): string {

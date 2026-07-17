@@ -189,3 +189,48 @@ test('reassign blocked mid-trip', () => {
   assert.match(reassignBlockedMessage('Active') || '', /Active/);
   assert.equal(reassignBlockedMessage('Assigned'), null);
 });
+
+/** Mirrors resolveDriverPresenceStatus Available+Away heal (C1). */
+function resolveDriverPresenceStatus(topRaw, currentRaw) {
+  const top = String(topRaw || 'Away').trim();
+  const cur = String(currentRaw || '').trim();
+  if (top === 'Available' && cur === 'Away') return 'Available';
+  if (
+    top === 'Available' &&
+    (cur === 'Picking' || cur === 'Arrived' || cur === 'Active' || cur === 'Assigned')
+  ) {
+    return cur;
+  }
+  return top;
+}
+
+/** Mirrors zoneQueueVehicleColorClass (C1). */
+function zoneQueueVehicleColorClass(status, opts) {
+  if (opts?.connectivityStale) return 'text-amber-600 dark:text-amber-400';
+  const s = String(status || '').trim();
+  if (s === 'Available') return 'text-emerald-400';
+  if (s === 'Away') return 'text-amber-400';
+  if (s === 'Offered') return 'text-yellow-400';
+  if (s === 'Assigned' || s === 'Picking') return 'text-blue-400';
+  if (s === 'Arrived') return 'text-violet-400';
+  if (s === 'Active' || s === 'OnTrip') return 'text-amber-500';
+  if (s === 'Busy') return 'text-orange-400';
+  if (s === 'Suspended') return 'text-red-400';
+  return 'text-slate-400';
+}
+
+test('C1 presence: top Available + current Away resolves Available (not Away)', () => {
+  assert.equal(resolveDriverPresenceStatus('Available', 'Away'), 'Available');
+  assert.equal(resolveDriverPresenceStatus('Available', 'Assigned'), 'Assigned');
+  assert.equal(resolveDriverPresenceStatus('Away', 'Away'), 'Away');
+});
+
+test('C1 zone queue colours: Offered yellow not red; stale amber', () => {
+  assert.equal(zoneQueueVehicleColorClass('Available'), 'text-emerald-400');
+  assert.equal(zoneQueueVehicleColorClass('Offered'), 'text-yellow-400');
+  assert.equal(zoneQueueVehicleColorClass('Busy'), 'text-orange-400');
+  assert.equal(
+    zoneQueueVehicleColorClass('Available', { connectivityStale: true }),
+    'text-amber-600 dark:text-amber-400',
+  );
+});

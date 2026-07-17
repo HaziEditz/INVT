@@ -1,6 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDriverQueue, type ZoneQueueDriver } from '@/hooks/useDrivers';
 import { zoneQueueVehicleColorClass } from '@/types/driver';
+import {
+  DRIVER_CONNECTIVITY_STALE_CLASS,
+  formatLastSeenAge,
+  isDriverConnectivityStale,
+  lastSeenAgeMs,
+} from '@/lib/driverConnectivity';
 import { cn } from '@/lib/utils';
 
 interface ZoneQueuePanelProps {
@@ -19,6 +25,11 @@ function sortZoneDrivers(drivers: ZoneQueueDriver[]): ZoneQueueDriver[] {
 export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
   const { queueByZone, configuredZones } = useDriverQueue(companyId);
   const [vehicleQuery, setVehicleQuery] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const zoneNames = configuredZones.length
     ? configuredZones.map((z) => z.name)
@@ -86,15 +97,21 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
                     drivers.map((d) => {
                       const match = q && d.vehicleNo.toLowerCase().includes(q);
                       const label = d.driverName ? `${d.vehicleNo} ${d.driverName}` : d.vehicleNo;
+                      const stale = isDriverConnectivityStale(d.lastSeen, now);
+                      const age = lastSeenAgeMs(d.lastSeen, now);
+                      const title =
+                        stale && age != null
+                          ? `${d.status} · Last seen ${formatLastSeenAge(age)} ago`
+                          : d.status;
                       return (
                         <span
                           key={`${d.driverId}-${d.vehicleNo}`}
                           className={cn(
                             'font-mono text-[11px] font-semibold tabular-nums',
-                            zoneQueueVehicleColorClass(d.status),
+                            zoneQueueVehicleColorClass(d.status, { connectivityStale: stale }),
                             match && 'underline decoration-2 underline-offset-2',
                           )}
-                          title={d.status}
+                          title={title}
                         >
                           {label}
                         </span>
@@ -113,10 +130,16 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
           <span className="text-emerald-400 font-mono font-bold">■</span> Available
         </span>
         <span>
-          <span className="text-red-400 font-mono font-bold">■</span> Busy
+          <span className="text-yellow-400 font-mono font-bold">■</span> Offered
+        </span>
+        <span>
+          <span className="text-orange-400 font-mono font-bold">■</span> Busy / on trip
         </span>
         <span>
           <span className="text-amber-400 font-mono font-bold">■</span> Away
+        </span>
+        <span>
+          <span className={cn(DRIVER_CONNECTIVITY_STALE_CLASS, 'font-mono font-bold')}>■</span> Connection stale
         </span>
       </div>
     </div>
