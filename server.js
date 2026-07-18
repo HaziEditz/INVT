@@ -3828,7 +3828,7 @@ async function assignBooking(opts) {
     };
   }
 
-  const _zdAssign = _validatedAssign.row ||
+  let _zdAssign = _validatedAssign.row ||
     _zoneDriverRowForEligibility(_targetDrv, _cidEarly, vehicleId || _targetVid || _resolved.vehicleId);
   if (!_zdAssign) {
     return {
@@ -3846,6 +3846,23 @@ async function assignBooking(opts) {
       error: 'Driver does not meet job vehicle, seat, or service requirements',
       booking: _publicBooking(job),
     };
+  }
+
+  // Manual assign parity with auto-dispatch: refresh ZONE_DRIVERS from Firebase so a
+  // soft-reconnect presence write is visible before the pre-offer stale gate.
+  // Skip in regression harness (configure-driver lastSeen must stick; same as auto-dispatch tick).
+  if (process.env.NODE_ENV !== 'test' && _cidEarly) {
+    try {
+      await _syncZoneDriversFromFirebase({ quiet: true, cids: [String(_cidEarly)] });
+      const _zdFresh = _zoneDriverRowForEligibility(
+        _targetDrv,
+        _cidEarly,
+        vehicleId || _targetVid || _resolved.vehicleId,
+      );
+      if (_zdFresh) _zdAssign = _zdFresh;
+    } catch (e) {
+      console.warn(`  [${source}] zone sync before assign stale-check failed: ${e && e.message}`);
+    }
   }
 
   // P3: pre-known-stale presence — refuse offer fanout (no normal offer wait).
@@ -5976,7 +5993,10 @@ async function _mirrorDriverOnlineStatus(cid, driverId, vehicleId, bookingStatus
     d && String(d.companyId || '') === String(cid) &&
     (String(d.driverid || '') === did || String(d.VehicleId || '') === vid)
   );
-  if (zd) zd.vehiclestatus = pres;
+  if (zd) {
+    zd.vehiclestatus = pres;
+    _stampZoneDriverLastSeen(zd);
+  }
   if (zd && did && cid) {
     const count = _computeDriverJobCount(did, cid);
     if (count > 0) zd.jobCount = count;
@@ -11474,8 +11494,9 @@ function canUnlockWithAvailable(driverId) {
 
 // Shared by zone-driver sync + ghost-presence sweeper (must be defined before sync runs).
 const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeats can gap during GPS/background
-/** Pre-offer gate: already-stale lastSeen → bounce with Network issue (not a live wait). */
-const NETWORK_OFFER_STALE_MS = 3 * 1000;
+/** Pre-offer / assign gate: already-stale lastSeen → bounce with Network issue (not a live wait).
+ *  Aligned with mid-offer (10s) and above typical GPS cadence (~5s), well under the 30s UI badge. */
+const NETWORK_OFFER_STALE_MS = 10 * 1000;
 const NETWORK_OFFER_RETURN_REASON = 'Network issue — driver unreachable';
 
 function _normalizeLastSeenMs(raw) {
@@ -11505,6 +11526,12 @@ function _isDriverNetworkOfferStale(zd, now) {
   const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
   if (!lastSeen) return false;
   return (at - lastSeen) > NETWORK_OFFER_STALE_MS;
+}
+
+/** DataProcessor trip-status traffic is a liveness signal for ZONE_DRIVERS.
+ *  Do not stamp on Available heartbeats — that would defeat mid-offer quiet detection. */
+function _stampZoneDriverLastSeen(zd) {
+  if (zd) zd.lastSeen = Date.now();
 }
 
 // ─── Driver Zone Memory ────────────────────────────────────────────────────────
@@ -19689,6 +19716,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zonequeue:     0,
               lat:           lat || '',
               lng:           lng || '',
+              lastSeen:      Date.now(),
               companyId:     sessionCompanyId || '',
             });
             console.log(`  [DriverStatusChanged/DP] driver ${driverId} re-added to ZONE_DRIVERS as Away (post-restart recovery)`);
@@ -19702,6 +19730,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zdSync.vehiclestatus = newStatus;
               if (lat) zdSync.lat = lat;
               if (lng) zdSync.lng = lng;
+              _stampZoneDriverLastSeen(zdSync);
               if (sessionCompanyId) applyZoneQueueSyncForDriver(sessionCompanyId, driverId, vehiclenumber, 'DriverStatusChanged/DP-busy');
             } else {
               // Driver not in ZONE_DRIVERS — server was restarted during their trip.
@@ -19720,6 +19749,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 zonequeue:     0,
                 lat:           lat || '',
                 lng:           lng || '',
+                lastSeen:      Date.now(),
                 companyId:     sessionCompanyId || '',
               });
               console.log(`  [DriverStatusChanged/DP] driver ${driverId} re-added to ZONE_DRIVERS as ${newStatus} (post-restart recovery)`);
@@ -20150,6 +20180,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 zonequeue:     _dscQueueNo,
                 lat:           lat || '',
                 lng:           lng || '',
+                lastSeen:      Date.now(),
                 queueWaitSince: Date.now(),
                 companyId:     sessionCompanyId || '',
               });
@@ -21884,6 +21915,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zonequeue:     0,
               lat:           lat || '',
               lng:           lng || '',
+              lastSeen:      Date.now(),
               companyId:     sessionCompanyId || '',
             });
             console.log(`  [DriverStatusChanged/DS] driver ${driverId} re-added to ZONE_DRIVERS as Away (post-restart recovery)`);
@@ -21896,6 +21928,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               zdSyncDS.vehiclestatus = newStatus;
               if (lat) zdSyncDS.lat = lat;
               if (lng) zdSyncDS.lng = lng;
+              _stampZoneDriverLastSeen(zdSyncDS);
               if (sessionCompanyId) applyZoneQueueSyncForDriver(sessionCompanyId, driverId, vehiclenumber, 'DriverStatusChanged/DS-busy');
             } else {
               // Driver not in ZONE_DRIVERS — server restarted during their trip.
@@ -21913,6 +21946,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 zonequeue:     0,
                 lat:           lat || '',
                 lng:           lng || '',
+                lastSeen:      Date.now(),
                 companyId:     sessionCompanyId || '',
               });
               console.log(`  [DriverStatusChanged/DS] driver ${driverId} re-added to ZONE_DRIVERS as ${newStatus} (post-restart recovery)`);
@@ -22283,6 +22317,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 zonequeue:     _dssQueueNo,
                 lat:           lat || '',
                 lng:           lng || '',
+                lastSeen:      Date.now(),
                 queueWaitSince: Date.now(),
                 companyId:     sessionCompanyId || '',
               });
@@ -24881,7 +24916,7 @@ async function _serverAutoDispatchTick() {
       tickReport.companies[cid] = companyReport;
       continue;
     }
-    // P3: skip pre-known-stale drivers (lastSeen > 3s) — do not place a normal offer wait.
+    // P3: skip pre-known-stale drivers (lastSeen > NETWORK_OFFER_STALE_MS) — do not place a normal offer wait.
     const driversReachable = drivers.filter((d) => {
       if (_isDriverNetworkOfferStale(d, now)) return false;
       if (_isDriverBlockedFromNetworkRedispatch(job, d.driverid, now)) return false;
@@ -24954,6 +24989,7 @@ async function _serverAutoDispatchTick() {
     });
     companyReport.action = 'offered';
     companyReport.targetDriverId = best.driverid;
+    _stampZoneDriverLastSeen(best);
     console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
     tickReport.companies[cid] = companyReport;
   }

@@ -13,10 +13,10 @@ test('P3 network offer: assign to pre-stale driver bounces with Network issue re
   const driverId = String(h.driverIds[0]);
 
   await h.ensureDriverReady(driverId);
-  // lastSeen 10s ago → past NETWORK_OFFER_STALE_MS (3s). Must set AFTER ensureDriverReady.
+  // lastSeen 15s ago → past NETWORK_OFFER_STALE_MS (10s). Must set AFTER ensureDriverReady.
   await h.configureDriver(driverId, {
     vehiclestatus: 'Available',
-    lastSeen: Date.now() - 10_000,
+    lastSeen: Date.now() - 15_000,
   });
 
   const jobId = await h.createAsapJob('network-offer-stale');
@@ -63,6 +63,15 @@ test('P3 network offer: fresh lastSeen still allows assign', async () => {
     (t) => ['Offered', 'Assigned'].includes(String(t.jobStore?.lifecycle?.BookingStatus || '')),
     { timeoutMs: 20000 },
   );
+  // Do not leave an in-flight Offered job for later suites (blocks company auto-dispatch).
+  await h.cancelAssigned(jobId).catch(() => undefined);
+  await h.mutateJobStore(jobId, {
+    BookingStatus: 'Cancelled',
+    DriverId: 0,
+    VehicleId: 0,
+    offeredAt: null,
+    manualOffer: false,
+  }).catch(() => undefined);
 });
 
 test.after(async () => {
