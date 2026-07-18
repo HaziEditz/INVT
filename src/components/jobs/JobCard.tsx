@@ -217,6 +217,12 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
       ),
     [onlineDrivers, job],
   );
+  // Clock must be declared before any useMemo that reads `now` (TDZ crash otherwise).
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
   const assignDropdownDrivers = useMemo(() => {
     const base =
       tab === 'queue' ? queueAssignDrivers : tab === 'assign' ? assignTabDrivers : assignDrivers;
@@ -242,16 +248,10 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
     selection: string;
     ctx: StaleReassignContext;
   } | null>(null);
-  const [now, setNow] = useState(() => new Date());
   const cancelTarget = useMemo(
     () => (cancelTargetJobId != null ? jobs.find((j) => j.id === cancelTargetJobId) ?? null : null),
     [cancelTargetJobId, jobs],
   );
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
 
   const cardLook = useMemo(() => getJobCardAppearance(job, tab, now), [job, tab, now]);
   const highlighted = hoveredJobId === job.id;
