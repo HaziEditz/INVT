@@ -417,13 +417,19 @@ export function driverFromFirebase(
     services: Array.isArray(rec.allowedServices)
       ? (rec.allowedServices as string[])
       : ['Taxi'],
-    // Prefer real lastSeen (parent or current). Do not invent Date.now() — that hides staleness.
+    // Freshest real lastSeen wins: parent can lag behind /current after a
+    // reconnect, and a stale parent value must not mask a live heartbeat.
+    // Do not invent Date.now() — that hides staleness.
     lastSeen: (() => {
-      const raw = rec.lastSeen ?? current.lastSeen;
-      if (raw == null || raw === '' || Number(raw) === 0) return undefined;
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n <= 0) return undefined;
-      return n < 1e12 ? n * 1000 : n;
+      let best = 0;
+      for (const raw of [rec.lastSeen, current.lastSeen]) {
+        if (raw == null || raw === '') continue;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        const ms = n < 1e12 ? n * 1000 : n;
+        if (ms > best) best = ms;
+      }
+      return best > 0 ? best : undefined;
     })(),
     ...liveMeter,
   };

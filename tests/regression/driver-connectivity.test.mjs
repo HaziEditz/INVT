@@ -122,10 +122,38 @@ function reassignBlockedMessage(jobStatus) {
   return `Cannot reassign while job is ${st} - passenger may already be with the driver.`;
 }
 
+/** Mirrors freshestLastSeenMs in src/lib/driverConnectivity.ts and _freshestLastSeenMs in server.js. */
+function freshestLastSeenMs(...raws) {
+  let best = 0;
+  for (const raw of raws) {
+    const ms = normalizeLastSeenMs(raw);
+    if (ms > best) best = ms;
+  }
+  return best > 0 ? best : undefined;
+}
+
 test('normalizeLastSeenMs accepts sec and ms', () => {
   assert.equal(normalizeLastSeenMs(1_700_000_000), 1_700_000_000_000);
   assert.equal(normalizeLastSeenMs(1_700_000_000_000), 1_700_000_000_000);
   assert.equal(normalizeLastSeenMs(0), 0);
+});
+
+test('freshest lastSeen: stale parent must not mask fresh /current', () => {
+  const now = BASE_MS;
+  const staleParent = now - 120_000;
+  const freshCurrent = now - 5_000;
+  assert.equal(freshestLastSeenMs(staleParent, freshCurrent), freshCurrent);
+  assert.equal(freshestLastSeenMs(freshCurrent, staleParent), freshCurrent);
+  // Mixed sec/ms units still pick the freshest after normalisation.
+  assert.equal(
+    freshestLastSeenMs(Math.floor(staleParent / 1000), freshCurrent),
+    freshCurrent,
+  );
+  assert.equal(freshestLastSeenMs(undefined, freshCurrent), freshCurrent);
+  assert.equal(freshestLastSeenMs(null, ''), undefined);
+  // The reconnect badge clears as soon as either node heartbeats fresh.
+  assert.equal(isDriverConnectivityStale(freshestLastSeenMs(staleParent, freshCurrent), now), false);
+  assert.equal(isDriverConnectivityStale(freshestLastSeenMs(staleParent, undefined), now), true);
 });
 
 test('connectivity stale at 30s threshold', () => {

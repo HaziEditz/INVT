@@ -39,6 +39,20 @@ export function normalizeLastSeenMs(raw: unknown): number {
   return n < 1e12 ? n * 1000 : n;
 }
 
+/**
+ * Freshest heartbeat across presence nodes (parent lastSeen vs /current lastSeen).
+ * The parent field can lag after reconnect while /current keeps updating on GPS
+ * sync — a stale parent value must never override a fresher /current one.
+ */
+export function freshestLastSeenMs(...raws: unknown[]): number | undefined {
+  let best = 0;
+  for (const raw of raws) {
+    const ms = normalizeLastSeenMs(raw);
+    if (ms > best) best = ms;
+  }
+  return best > 0 ? best : undefined;
+}
+
 export function lastSeenAgeMs(lastSeen: unknown, now = Date.now()): number | null {
   const ms = normalizeLastSeenMs(lastSeen);
   if (!ms) return null;

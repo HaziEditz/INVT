@@ -6696,7 +6696,7 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
         for (const [vid, node] of Object.entries(raw)) {
           if (!node || typeof node !== 'object') continue;
           const cur = (node.current && typeof node.current === 'object') ? node.current : {};
-          const lastSeenMs = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+          const lastSeenMs = _freshestLastSeenMs(node.lastSeen, cur.lastSeen);
           fbOnline.vehicles[vid] = {
             vehicleKey: vid,
             vehiclestatus: node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || null,
@@ -6705,7 +6705,7 @@ async function _buildAdminDriverStatusReport(companyId, opts) {
             vehiclenumber: cur.vehiclenumber || cur.vehicleNumber || node.vehiclenumber || vid,
             lat: cur.lat || node.lat || cur.Lat || node.Lat || null,
             lng: cur.lng || node.lng || cur.Lng || node.Lng || null,
-            lastSeen: node.lastSeen || cur.lastSeen || null,
+            lastSeen: lastSeenMs || null,
             lastSeenIso: lastSeenMs ? new Date(lastSeenMs).toISOString() : null,
             lastSeenAgeSec: lastSeenMs ? Math.round((Date.now() - lastSeenMs) / 1000) : null,
             zonequeue: cur.zonequeue || node.zonequeue || null,
@@ -11482,6 +11482,20 @@ function _normalizeLastSeenMs(raw) {
   const n = Number(raw || 0);
   if (!n || !Number.isFinite(n)) return 0;
   return n < 1e12 ? n * 1000 : n;
+}
+
+/**
+ * Freshest heartbeat across presence fields (parent lastSeen vs /current lastSeen).
+ * After a reconnect the parent field can lag while /current keeps updating on GPS
+ * sync — a stale parent value must never override the fresher /current one.
+ */
+function _freshestLastSeenMs(...raws) {
+  let best = 0;
+  for (const raw of raws) {
+    const ms = _normalizeLastSeenMs(raw);
+    if (ms > best) best = ms;
+  }
+  return best;
 }
 
 /** True when zone-driver lastSeen is known and older than NETWORK_OFFER_STALE_MS. Missing lastSeen = not stale. */
@@ -23645,7 +23659,11 @@ function _upsertZoneDriverFromFirebase(record) {
     if (record.seats) existing.seats = record.seats;
     if (record.allowedServices) existing.allowedServices = record.allowedServices;
     if (record.services) existing.services = record.services;
-    if (record.lastSeen != null) existing.lastSeen = record.lastSeen;
+    if (record.lastSeen != null) {
+      // Monotonic: a lagging sync snapshot must not roll a live heartbeat backwards.
+      const _mergedLastSeen = _freshestLastSeenMs(existing.lastSeen, record.lastSeen);
+      if (_mergedLastSeen) existing.lastSeen = _mergedLastSeen;
+    }
     if (!existing.companyId && record.companyId) existing.companyId = record.companyId;
     existing._fbSyncedAt = Date.now();
     return 'updated';
@@ -23675,7 +23693,7 @@ function _isIdentitylessAvailableGhost(node, cur, status) {
   const st = String(status || '').trim().toLowerCase();
   if (st === 'available') return true;
   const hasGps = !!(cur.lat || node.lat || cur.lng || node.lng || cur.Lat || node.Lat);
-  const lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+  const lastSeen = _freshestLastSeenMs(node.lastSeen, cur.lastSeen);
   if (!hasGps && !lastSeen) return true;
   return false;
 }
@@ -24191,7 +24209,7 @@ function _parseOnlineVehicleForZoneDriver(cid, vehicleId, node, idIndex, stats) 
     return null;
   }
 
-  const _lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+  const _lastSeen = _freshestLastSeenMs(node.lastSeen, cur.lastSeen);
   if (_lastSeen && (Date.now() - _lastSeen) > STALE_PRESENCE_MS) {
     const _staleDrv = String(
       cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '',
@@ -24449,7 +24467,7 @@ setInterval(async () => {
       // a deleted node. Either way the driver is not actually online —
       // unless they still own an Assigned/Picking/Arrived/Active trip, in
       // which case retain presence until the job ends (dead-zone safety).
-      const lastSeen = _normalizeLastSeenMs(node.lastSeen || cur.lastSeen);
+      const lastSeen = _freshestLastSeenMs(node.lastSeen, cur.lastSeen);
       if (lastSeen && (Date.now() - lastSeen) > STALE_PRESENCE_MS) {
         const _staleDrv = String(
           cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '',

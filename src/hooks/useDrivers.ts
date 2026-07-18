@@ -13,6 +13,7 @@ import {
   type Driver,
 } from '@/types/driver';
 import { findZoneAtCoords, subscribeCompanyZones, type CompanyZone } from '@/lib/companyZones';
+import { freshestLastSeenMs } from '@/lib/driverConnectivity';
 import { notifyDriverOnline } from '@/lib/dispatchNotifications';
 
 export type ZoneQueueDriver = {
@@ -21,7 +22,7 @@ export type ZoneQueueDriver = {
   driverId: string;
   status: string;
   queue: number;
-  /** Firebase lastSeen (ms or sec) — used for connectivity colour parity with DriverRow. */
+  /** Freshest Firebase lastSeen (ms) — used for connectivity colour parity with DriverRow. */
   lastSeen?: number;
 };
 
@@ -201,15 +202,14 @@ export function useDriverQueue(companyId: string | null) {
             rec.drivername ?? rec.driverName ?? current.drivername ?? current.driverName ?? '',
           ).trim();
           if (!live[zone]) live[zone] = [];
-          const lastSeenRaw = rec.lastSeen ?? current.lastSeen;
-          const lastSeenN = Number(lastSeenRaw);
           live[zone].push({
             vehicleNo,
             driverName,
             driverId: String(rec.driverid ?? rec.driverId ?? ''),
             status,
             queue: Number.isFinite(q) && q > 0 ? q : isZoneQueueRanked(status) ? 999 : 0,
-            lastSeen: Number.isFinite(lastSeenN) && lastSeenN > 0 ? lastSeenN : undefined,
+            // Freshest heartbeat wins — stale parent must not mask live /current.
+            lastSeen: freshestLastSeenMs(rec.lastSeen, current.lastSeen),
           });
         }
       }
