@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 import { useDriverQueue, type ZoneQueueDriver } from '@/hooks/useDrivers';
 import { zoneQueueVehicleColorClass } from '@/types/driver';
 import {
   DRIVER_CONNECTIVITY_STALE_CLASS,
+  DRIVER_CONNECTIVITY_STALE_HEX,
   formatLastSeenAge,
   isDriverConnectivityStale,
   lastSeenAgeMs,
+  outOfCoverageLabel,
 } from '@/lib/driverConnectivity';
 import { cn } from '@/lib/utils';
 
@@ -13,8 +16,11 @@ interface ZoneQueuePanelProps {
   companyId: string;
 }
 
-function sortZoneDrivers(drivers: ZoneQueueDriver[]): ZoneQueueDriver[] {
+function sortZoneDrivers(drivers: ZoneQueueDriver[], now: number): ZoneQueueDriver[] {
   return [...drivers].sort((a, b) => {
+    const aStale = isDriverConnectivityStale(a.lastSeen, now) ? 1 : 0;
+    const bStale = isDriverConnectivityStale(b.lastSeen, now) ? 1 : 0;
+    if (aStale !== bStale) return aStale - bStale;
     const aAvail = a.status === 'Available' ? 0 : 1;
     const bAvail = b.status === 'Available' ? 0 : 1;
     if (aAvail !== bAvail) return aAvail - bAvail;
@@ -40,12 +46,12 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
   const rows = useMemo(() => {
     return zoneNames.map((zone) => {
       const { ranked, inactive } = queueByZone[zone] ?? { ranked: [], inactive: [] };
-      const drivers = sortZoneDrivers([...ranked, ...inactive]);
+      const drivers = sortZoneDrivers([...ranked, ...inactive], now);
       const visible =
         !q || drivers.some((d) => d.vehicleNo.toLowerCase().includes(q));
       return { zone, drivers, visible };
     });
-  }, [zoneNames, queueByZone, q]);
+  }, [zoneNames, queueByZone, q, now]);
 
   const visibleRows = q ? rows.filter((r) => r.visible) : rows;
 
@@ -99,20 +105,30 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
                       const label = d.driverName ? `${d.vehicleNo} ${d.driverName}` : d.vehicleNo;
                       const stale = isDriverConnectivityStale(d.lastSeen, now);
                       const age = lastSeenAgeMs(d.lastSeen, now);
+                      const coverage = outOfCoverageLabel(d.lastSeen, now);
                       const title =
-                        stale && age != null
-                          ? `${d.status} · Last seen ${formatLastSeenAge(age)} ago`
+                        coverage != null
+                          ? `${d.status} · ${coverage}${age != null ? ` (last seen ${formatLastSeenAge(age)} ago)` : ''}`
                           : d.status;
                       return (
                         <span
                           key={`${d.driverId}-${d.vehicleNo}`}
                           className={cn(
-                            'font-mono text-[11px] font-semibold tabular-nums',
+                            'inline-flex items-center gap-0.5 font-mono text-[11px] font-semibold tabular-nums',
                             zoneQueueVehicleColorClass(d.status, { connectivityStale: stale }),
                             match && 'underline decoration-2 underline-offset-2',
                           )}
                           title={title}
+                          aria-label={title}
                         >
+                          {stale && (
+                            <WifiOff
+                              size={10}
+                              className="shrink-0"
+                              style={{ color: DRIVER_CONNECTIVITY_STALE_HEX }}
+                              aria-hidden
+                            />
+                          )}
                           {label}
                         </span>
                       );
@@ -138,8 +154,9 @@ export function ZoneQueuePanel({ companyId }: ZoneQueuePanelProps) {
         <span>
           <span className="text-amber-400 font-mono font-bold">■</span> Away
         </span>
-        <span>
-          <span className={cn(DRIVER_CONNECTIVITY_STALE_CLASS, 'font-mono font-bold')}>■</span> Connection stale
+        <span className="inline-flex items-center gap-0.5">
+          <WifiOff size={9} style={{ color: DRIVER_CONNECTIVITY_STALE_HEX }} aria-hidden />
+          <span className={cn(DRIVER_CONNECTIVITY_STALE_CLASS, 'font-semibold')}>Out of coverage</span>
         </span>
       </div>
     </div>

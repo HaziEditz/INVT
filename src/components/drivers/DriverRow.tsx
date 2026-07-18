@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 import { type Driver } from '@/types/driver';
 import { useUiStore } from '@/store/uiStore';
 import { cn } from '@/lib/utils';
 import {
   DRIVER_CONNECTIVITY_STALE_HEX,
   driverPresenceColorHex,
-  formatLastSeenAge,
   isDriverConnectivityStale,
-  lastSeenAgeMs,
+  outOfCoverageLabel,
 } from '@/lib/driverConnectivity';
 
 interface DriverRowProps {
@@ -25,8 +25,7 @@ export function DriverRow({ driver, index }: DriverRowProps) {
   const stale = isDriverConnectivityStale(driver.lastSeen, now);
   const color = driverPresenceColorHex(driver.status, driver.lastSeen, now);
   const isAvailable = driver.status === 'Available';
-  const age = lastSeenAgeMs(driver.lastSeen, now);
-  const staleLabel = stale && age != null ? `Last seen ${formatLastSeenAge(age)} ago` : null;
+  const coverageLabel = outOfCoverageLabel(driver.lastSeen, now);
 
   return (
     <tr
@@ -49,28 +48,31 @@ export function DriverRow({ driver, index }: DriverRowProps) {
       <td
         className="py-1 px-0.5 font-semibold truncate"
         style={{ color }}
-        title={staleLabel ? `${driver.status} · ${staleLabel}` : driver.status}
+        title={coverageLabel ? `${driver.status} · ${coverageLabel}` : driver.status}
       >
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 min-w-0">
           {isAvailable && !stale && (
-            <span className="relative flex h-2 w-2">
+            <span className="relative flex h-2 w-2 shrink-0">
               <span className="bw-status-pulse absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: color }} />
               <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: color }} />
             </span>
           )}
-          {(!isAvailable || stale) && (
+          {(!isAvailable || stale) && !coverageLabel && (
             <span
-              className="inline-block w-1.5 h-1.5 rounded-full"
+              className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
               style={{ background: color }}
             />
           )}
-          {driver.status}
-          {staleLabel && age != null && (
+          {coverageLabel && (
+            <WifiOff size={10} className="shrink-0" style={{ color: DRIVER_CONNECTIVITY_STALE_HEX }} aria-hidden />
+          )}
+          <span className="truncate">{driver.status}</span>
+          {coverageLabel && (
             <span
-              className="font-medium truncate max-w-[72px]"
+              className="font-medium truncate max-w-[110px]"
               style={{ color: DRIVER_CONNECTIVITY_STALE_HEX }}
             >
-              {formatLastSeenAge(age)}
+              {coverageLabel}
             </span>
           )}
         </span>

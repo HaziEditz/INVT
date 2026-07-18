@@ -87,6 +87,19 @@ export function formatLastSeenAge(ageMs: number): string {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
+export type DriverConnectivityTone = 'online' | 'stale' | 'unknown';
+
+/** Visual tone for selected-driver chips / dropdown affordances. */
+export function driverConnectivityTone(
+  lastSeen: unknown,
+  now = Date.now(),
+): DriverConnectivityTone {
+  const age = lastSeenAgeMs(lastSeen, now);
+  if (age == null) return 'unknown';
+  if (age > DRIVER_CONNECTIVITY_STALE_MS) return 'stale';
+  return 'online';
+}
+
 /** Compact assignment-dropdown label showing the dispatcher's connectivity signal. */
 export function driverAssignmentOptionLabel(
   driver: Pick<Driver, 'vehicleNo' | 'driverName' | 'lastSeen'>,
@@ -96,12 +109,45 @@ export function driverAssignmentOptionLabel(
     .filter(Boolean)
     .join(' ')
     .trim() || 'Unknown driver';
-  const age = lastSeenAgeMs(driver.lastSeen, now);
-  if (age == null) return `${identity} — connection unknown`;
-  if (age > DRIVER_CONNECTIVITY_STALE_MS) {
-    return `${identity} — last seen ${formatLastSeenAge(age)} ago`;
+  const tone = driverConnectivityTone(driver.lastSeen, now);
+  if (tone === 'unknown') return `${identity} — connection unknown`;
+  if (tone === 'stale') {
+    const age = lastSeenAgeMs(driver.lastSeen, now);
+    return `${identity} — last seen ${formatLastSeenAge(age ?? 0)} ago`;
   }
   return `${identity} — online`;
+}
+
+/** Fresh → unknown → stale, preserving relative order within each group. */
+export function sortDriversByConnectivity<T extends { lastSeen?: unknown }>(
+  drivers: T[],
+  now = Date.now(),
+): T[] {
+  const rank = (d: T) => {
+    const tone = driverConnectivityTone(d.lastSeen, now);
+    if (tone === 'online') return 0;
+    if (tone === 'unknown') return 1;
+    return 2;
+  };
+  return drivers
+    .map((d, i) => ({ d, i, r: rank(d) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.d);
+}
+
+export function countOutOfCoverageDrivers(
+  drivers: Array<{ lastSeen?: unknown }>,
+  now = Date.now(),
+): number {
+  return drivers.reduce((n, d) => n + (isDriverConnectivityStale(d.lastSeen, now) ? 1 : 0), 0);
+}
+
+/** Short driver-board / zone-queue copy when lastSeen is past the stale threshold. */
+export function outOfCoverageLabel(lastSeen: unknown, now = Date.now()): string | null {
+  if (!isDriverConnectivityStale(lastSeen, now)) return null;
+  const age = lastSeenAgeMs(lastSeen, now);
+  if (age == null) return 'Out of coverage';
+  return `Out of coverage · ${formatLastSeenAge(age)}`;
 }
 
 export function isOnJobDriverStatus(status: string | undefined | null): boolean {
@@ -122,6 +168,19 @@ export function driverConnectivityJobBanner(
     return `Driver last seen ${ageLabel} ago - still assigned`;
   }
   return `Driver last seen ${ageLabel} ago`;
+}
+
+/**
+ * When a job still has an assigned driverId but no matching live online node,
+ * do not claim "out of coverage" — presence may simply be unavailable.
+ */
+export function driverConnectivityMissingBanner(
+  hasAssignedDriver: boolean,
+  liveDriver: Pick<Driver, 'lastSeen' | 'status'> | null | undefined,
+): string | null {
+  if (!hasAssignedDriver) return null;
+  if (liveDriver) return null;
+  return 'Driver connection unavailable — still assigned';
 }
 
 export type StaleReassignContext = {

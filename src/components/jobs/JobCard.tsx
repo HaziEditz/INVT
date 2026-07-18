@@ -49,7 +49,9 @@ import {
   buildStaleAssignedReassignContext,
   driverAssignmentOptionLabel,
   driverConnectivityJobBanner,
+  driverConnectivityMissingBanner,
   reassignBlockedMessage,
+  sortDriversByConnectivity,
   type StaleReassignContext,
 } from '@/lib/driverConnectivity';
 import { filterDriversForJob } from '@/lib/jobVehicleEligibility';
@@ -215,8 +217,11 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
       ),
     [onlineDrivers, job],
   );
-  const assignDropdownDrivers =
-    tab === 'queue' ? queueAssignDrivers : tab === 'assign' ? assignTabDrivers : assignDrivers;
+  const assignDropdownDrivers = useMemo(() => {
+    const base =
+      tab === 'queue' ? queueAssignDrivers : tab === 'assign' ? assignTabDrivers : assignDrivers;
+    return sortDriversByConnectivity(base, now.getTime());
+  }, [tab, queueAssignDrivers, assignTabDrivers, assignDrivers, now]);
   const showPendingAssignOption = tab !== 'queue' && tab !== 'assign';
   const showAssignControls =
     (tab === 'ua' || tab === 'assign' || tab === 'offer' || tab === 'queue' || tab === 'active') &&
@@ -306,13 +311,14 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
     );
   }, [allDrivers, job.driverId, job.vehicleId, job.vehicleNo]);
 
-  const connectivityBanner = useMemo(
-    () =>
-      tab === 'assign' || tab === 'active' || tab === 'queue'
-        ? driverConnectivityJobBanner(assignedDriver, now.getTime())
-        : null,
-    [tab, assignedDriver, now],
-  );
+  const connectivityBanner = useMemo(() => {
+    if (tab !== 'assign' && tab !== 'active' && tab !== 'queue') return null;
+    const hasAssigned = !!(job.driverId && isAssignedDriverSelection(job.driverId));
+    return (
+      driverConnectivityJobBanner(assignedDriver, now.getTime()) ??
+      driverConnectivityMissingBanner(hasAssigned, assignedDriver)
+    );
+  }, [tab, assignedDriver, now, job.driverId]);
 
   const tariffs = useTariffs(job.companyId);
   const tariff = useMemo(() => {

@@ -197,6 +197,75 @@ test('C5 assignment labels show fresh, stale, and unknown connectivity', () => {
   );
 });
 
+/** Mirrors sortDriversByConnectivity / countOutOfCoverageDrivers / missing banner. */
+function sortDriversByConnectivity(drivers, now = Date.now()) {
+  const rank = (d) => {
+    const age = lastSeenAgeMs(d.lastSeen, now);
+    if (age == null) return 1;
+    if (age > DRIVER_CONNECTIVITY_STALE_MS) return 2;
+    return 0;
+  };
+  return drivers
+    .map((d, i) => ({ d, i, r: rank(d) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.d);
+}
+
+function countOutOfCoverageDrivers(drivers, now = Date.now()) {
+  return drivers.reduce((n, d) => n + (isDriverConnectivityStale(d.lastSeen, now) ? 1 : 0), 0);
+}
+
+function driverConnectivityMissingBanner(hasAssignedDriver, liveDriver) {
+  if (!hasAssignedDriver) return null;
+  if (liveDriver) return null;
+  return 'Driver connection unavailable — still assigned';
+}
+
+function outOfCoverageLabel(lastSeen, now = Date.now()) {
+  if (!isDriverConnectivityStale(lastSeen, now)) return null;
+  const age = lastSeenAgeMs(lastSeen, now);
+  if (age == null) return 'Out of coverage';
+  return `Out of coverage · ${formatLastSeenAge(age)}`;
+}
+
+test('dispatch labels: sort stale last and count out-of-coverage', () => {
+  const now = BASE_MS;
+  const sorted = sortDriversByConnectivity(
+    [
+      { id: 'stale', lastSeen: now - 90_000 },
+      { id: 'fresh', lastSeen: now - 5_000 },
+      { id: 'unknown' },
+      { id: 'fresh2', lastSeen: now - 2_000 },
+    ],
+    now,
+  );
+  assert.deepEqual(
+    sorted.map((d) => d.id),
+    ['fresh', 'fresh2', 'unknown', 'stale'],
+  );
+  assert.equal(
+    countOutOfCoverageDrivers(
+      [{ lastSeen: now - 5_000 }, { lastSeen: now - 90_000 }, {}],
+      now,
+    ),
+    1,
+  );
+  assert.equal(outOfCoverageLabel(now - 90_000, now), 'Out of coverage · 1m');
+  assert.equal(outOfCoverageLabel(now - 5_000, now), null);
+});
+
+test('Active/Assigned missing live driver shows unavailable banner', () => {
+  assert.equal(
+    driverConnectivityMissingBanner(true, null),
+    'Driver connection unavailable — still assigned',
+  );
+  assert.equal(
+    driverConnectivityMissingBanner(true, { lastSeen: BASE_MS, status: 'Assigned' }),
+    null,
+  );
+  assert.equal(driverConnectivityMissingBanner(false, null), null);
+});
+
 test('stale Assigned reassign needs confirm with GPS context', () => {
   const now = BASE_MS;
   const ctx = buildStaleAssignedReassignContext({

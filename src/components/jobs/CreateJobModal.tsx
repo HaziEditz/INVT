@@ -19,7 +19,9 @@ import { effectiveJobStatus } from '@/lib/jobStatusAuthority';
 import {
   buildStaleAssignedReassignContext,
   driverAssignmentOptionLabel,
+  driverConnectivityTone,
   reassignBlockedMessage,
+  sortDriversByConnectivity,
 } from '@/lib/driverConnectivity';
 import { setJobEditLock, releaseJobEditLock, releaseJobEditLockKeepalive } from '@/lib/jobEditLock';
 import { getEditLockSessionId } from '@/lib/editLockSession';
@@ -359,14 +361,22 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     }
   }, [form.timing, form.dispatchBeforeMin, laterScheduleConfirmed, laterDispatchMinOptions, patch, settings?.defaultDispatchWindow]);
 
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [open]);
+
   const assignDropdownDrivers = useMemo(() => {
     if (!showLiveDriverOptions) return [] as typeof availableDrivers;
     const base = driversForAssignDropdown(availableDrivers, drivers, editingJob);
-    return filterDriversForRequirements(base, {
+    const filtered = filterDriversForRequirements(base, {
       vehicleType: form.vehicleType,
       passengers: editingJob?.passengers ?? 1,
       serviceType: form.serviceType,
     });
+    return sortDriversByConnectivity(filtered, now);
   }, [
     showLiveDriverOptions,
     availableDrivers,
@@ -375,6 +385,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
     form.vehicleType,
     form.serviceType,
     editingJob?.passengers,
+    now,
   ]);
 
   // Pre-window Later must not keep a real driver selection (options are hidden).
@@ -1540,7 +1551,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                           — assigned —
                         </option>
                         <option value={assignedEditDriver.driverId}>
-                          {driverAssignmentOptionLabel(assignedEditDriver)}
+                          {driverAssignmentOptionLabel(assignedEditDriver, now)}
                         </option>
                       </>
                     )}
@@ -1552,7 +1563,7 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                   {showLiveDriverOptions &&
                     assignDropdownDrivers.map((d) => (
                       <option key={d.driverId} value={d.driverId}>
-                        {driverAssignmentOptionLabel(d)}
+                        {driverAssignmentOptionLabel(d, now)}
                       </option>
                     ))}
                 </select>
@@ -1564,9 +1575,20 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
                 {selectedDriver && (
                   <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                     <span className="text-[10px] text-[#8892a4]">Selected driver:</span>
-                    <span className="text-[10px] font-semibold text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10">
-                      {driverAssignmentOptionLabel(selectedDriver)}
-                    </span>
+                    {(() => {
+                      const tone = driverConnectivityTone(selectedDriver.lastSeen, now);
+                      const chipClass =
+                        tone === 'stale'
+                          ? 'text-amber-700 dark:text-amber-300 border-amber-500/40 bg-amber-500/15'
+                          : tone === 'unknown'
+                            ? 'text-[#8892a4] border-[#8892a4]/40 bg-[#8892a4]/10'
+                            : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+                      return (
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${chipClass}`}>
+                          {driverAssignmentOptionLabel(selectedDriver, now)}
+                        </span>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
