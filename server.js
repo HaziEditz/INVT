@@ -6276,7 +6276,9 @@ async function driverDeclineJob(opts) {
   _logJobPoolState(job, timedOut ? 'after-timeout' : 'after-decline');
 
   const _hasOther = driverHasRemainingAssignments(driverId, bookingId, _cid);
-  if (!_hasOther && timedOut) {
+  // Away only for a true exclusive-offer miss. After a mid-offer network bounce the
+  // job is already Pending — a late timedOut decline must not Away the driver.
+  if (!_hasOther && timedOut && _prevSt === 'Offered') {
     const zd = ZONE_DRIVERS.find(d => d && (String(d.driverid) === driverId || String(d.VehicleId) === driverId));
     if (zd) {
       zd.vehiclestatus = 'Away';
@@ -6311,7 +6313,14 @@ async function driverDeclineJob(opts) {
   }
 
   console.log(`  [${source}] job #${bookingId} → ${job.BookingStatus} (pool=${_restoredPool}, timedOut=${timedOut})`);
-  return { ok: true, status: job.BookingStatus, timedOut, driverSetAway: !_hasOther && timedOut, previousStatus: _prevSt, booking: _publicBooking(job) };
+  return {
+    ok: true,
+    status: job.BookingStatus,
+    timedOut,
+    driverSetAway: !_hasOther && timedOut && _prevSt === 'Offered',
+    previousStatus: _prevSt,
+    booking: _publicBooking(job),
+  };
 }
 
 // ─── §FIX-UB — Unified booking update lifecycle ───────────────────────────────
@@ -23394,7 +23403,11 @@ async function _refreshBusyPoolBroadcastForJob(job) {
   }
   const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
   const available = _collectAutoDispatchEligibleDriversForJob(cid, job);
-  if (available.length) return;
+  const nowReachable = Date.now();
+  // Network-stale Available drivers are not reachable for exclusive offers — treat
+  // like zero Available so busy Offer tab still gets pendingjobs fanout.
+  const reachableAvailable = available.filter((d) => !_isDriverNetworkOfferStale(d, nowReachable));
+  if (reachableAvailable.length) return;
   if (busyEligible.length) {
     await _writePendingJobFirebase(cid, job.Id, job, st === 'No One' ? 'No One' : 'Pending');
   } else {
@@ -24923,20 +24936,43 @@ async function _serverAutoDispatchTick() {
       return true;
     });
     if (!driversReachable.length) {
+      // Available exist but none are network-reachable — stamp Network issue, then
+      // fall through to busy-pool fanout (same as zero-Available) so busy Offer tab
+      // still sees the job instead of a bare continue.
       job.returnReason = NETWORK_OFFER_RETURN_REASON;
       job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
       saveJobStore();
-      companyReport.skipReason = `all ${drivers.length} candidate(s) network-stale (lastSeen > ${NETWORK_OFFER_STALE_MS}ms)`;
-      companyReport.action = 'network_unreachable';
-      console.log(`[server-auto-dispatch] job #${job.Id} bounce UA — ${companyReport.skipReason}`);
-      await _dispatchRefreshForJob(job, {
-        cid,
-        previousStatus: job.BookingStatus,
-        status: job.BookingStatus,
-        action: 'network_unreachable',
-        driverId: '0',
-        returnReason: NETWORK_OFFER_RETURN_REASON,
-      }).catch(() => {});
+      const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
+      if (busyEligible.length && _jobInDispatchWindow(job, now)) {
+        await _writePendingJobFirebase(cid, job.Id, job, 'Pending');
+        companyReport.action = 'busy_pool_broadcast';
+        companyReport.skipReason =
+          `all ${drivers.length} Available candidate(s) network-stale (lastSeen > ${NETWORK_OFFER_STALE_MS}ms); ` +
+          `pool broadcast for ${busyEligible.length} busy eligible driver(s)`;
+        console.log(
+          `[server-auto-dispatch] pool broadcast job #${job.Id} (cid=${cid}, ${busyEligible.length} busy eligible; Available all network-stale)`,
+        );
+        await _dispatchRefreshForJob(job, {
+          cid,
+          previousStatus: job.BookingStatus,
+          status: job.BookingStatus,
+          action: 'busy_pool_broadcast',
+          driverId: '0',
+          returnReason: NETWORK_OFFER_RETURN_REASON,
+        }).catch(() => {});
+      } else {
+        companyReport.skipReason = `all ${drivers.length} candidate(s) network-stale (lastSeen > ${NETWORK_OFFER_STALE_MS}ms)`;
+        companyReport.action = 'network_unreachable';
+        console.log(`[server-auto-dispatch] job #${job.Id} bounce UA — ${companyReport.skipReason}`);
+        await _dispatchRefreshForJob(job, {
+          cid,
+          previousStatus: job.BookingStatus,
+          status: job.BookingStatus,
+          action: 'network_unreachable',
+          driverId: '0',
+          returnReason: NETWORK_OFFER_RETURN_REASON,
+        }).catch(() => {});
+      }
       tickReport.companies[cid] = companyReport;
       continue;
     }
