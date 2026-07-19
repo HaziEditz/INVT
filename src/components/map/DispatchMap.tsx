@@ -556,6 +556,13 @@ export function DispatchMap({
     }
   }, [mapZones, mapReady, drawZonePolygons]);
 
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Rebuild markers when the driver set changes.
   useEffect(() => {
     if (!gMapRef.current || !mapReady) return;
     markersRef.current.forEach((m) => m.setMap(null));
@@ -569,7 +576,7 @@ export function DispatchMap({
         icon: {
           path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
           scale: 5,
-          fillColor: driverPresenceColorHex(d.status, d.lastSeen),
+          fillColor: driverPresenceColorHex(d.status, d.lastSeen, now),
           fillOpacity: 1,
           strokeWeight: 1,
           strokeColor: '#fff',
@@ -579,7 +586,26 @@ export function DispatchMap({
       m.addListener('click', () => openModalWith('driverDetail', { driverId: d.driverId }));
       markersRef.current.push(m);
     }
+    // Intentionally omit `now` — color aging is handled below without rebuilding markers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drivers, openModalWith, mapReady]);
+
+  // Age marker colors every second so map amber matches the driver board at 30s.
+  useEffect(() => {
+    if (!mapReady || !markersRef.current.length) return;
+    let i = 0;
+    for (const d of drivers) {
+      if (!d.lat || !d.lng) continue;
+      const m = markersRef.current[i++];
+      if (!m) continue;
+      const icon = m.getIcon();
+      if (!icon || typeof icon === 'string') continue;
+      m.setIcon({
+        ...icon,
+        fillColor: driverPresenceColorHex(d.status, d.lastSeen, now),
+      });
+    }
+  }, [now, drivers, mapReady]);
 
   useEffect(() => {
     console.log('[Route] routeJobId changed:', routeJobId, { hoveredJobId, selectedJobId });
