@@ -3378,6 +3378,96 @@ function _lookupZoneDriverByUserKey(userKey, driverIdHint, companyIdHint) {
   return candidates[0];
 }
 
+/** True when a live/closed job is (or was) owned by this driver for offline journal sync. */
+function _syncOfflineTripJobOwnedByDriver(job, driverId) {
+  if (!job || !driverId) return false;
+  const candidates = [
+    job.DriverId,
+    job.driverId,
+    job.AssignedDriverId,
+    job.lastOfferDriverId,
+    job.LastOfferDriverId,
+  ];
+  for (const c of candidates) {
+    const s = String(c ?? '').trim();
+    if (!s || s === '0' || s === '-1' || s === '-2') continue;
+    if (_driverIdsMatch(s, driverId)) return true;
+  }
+  return false;
+}
+
+/**
+ * Auth for POST /api/syncOfflineTrip.
+ * Preferred: X-User-Key (passforlink) → derive driverId + companyId from ZONE_DRIVERS.
+ * Tools/tests: X-Admin-Key (or body.adminKey) + body.driverId.
+ */
+function _authenticateSyncOfflineTrip(req, body) {
+  const userKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+  const adminKey = String(
+    req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || (body && body.adminKey) || '',
+  ).trim();
+  const bodyDrv = String((body && body.driverId) || '').trim();
+  const bodyCid = String((body && body.companyId) || '').trim();
+  const bodyVeh = String((body && body.vehicleId) || '').trim();
+
+  if (userKey) {
+    const zd = _lookupZoneDriverByUserKey(userKey, bodyDrv, bodyCid);
+    if (zd) {
+      const authDrv = String(zd.driverid || '').trim();
+      const authCid = String(zd.companyId || '').trim();
+      const authVeh = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+      if (bodyDrv && !_driverIdsMatch(bodyDrv, authDrv)) {
+        return {
+          ok: false,
+          status: 403,
+          error_code: 'forbidden',
+          error: 'driverId does not match X-User-Key session',
+        };
+      }
+      if (bodyCid && authCid && bodyCid !== 'test' && String(bodyCid) !== authCid) {
+        return {
+          ok: false,
+          status: 403,
+          error_code: 'forbidden',
+          error: 'companyId does not match driver session',
+        };
+      }
+      return {
+        ok: true,
+        driverId: authDrv,
+        companyId: authCid || bodyCid,
+        vehicleId: bodyVeh || authVeh,
+        via: 'user-key',
+      };
+    }
+  }
+
+  if (adminKey && adminKey === ADMIN_KEY) {
+    if (!bodyDrv) {
+      return {
+        ok: false,
+        status: 400,
+        error_code: 'bad_request',
+        error: 'driverId required with admin auth',
+      };
+    }
+    return {
+      ok: true,
+      driverId: bodyDrv,
+      companyId: bodyCid,
+      vehicleId: bodyVeh,
+      via: 'admin-key',
+    };
+  }
+
+  return {
+    ok: false,
+    status: 401,
+    error_code: 'auth_failed',
+    error: 'X-User-Key (driver session) or X-Admin-Key required',
+  };
+}
+
 function _driverPhoneFromRecord(zd, fallback) {
   return String(
     zd?.PhoneNo || zd?.phone || zd?.driverphone || zd?.DriverPhone || fallback || '',
@@ -14827,28 +14917,33 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   // Called by the driver app when it reconnects after completing a job offline.
   // Accepts a full event journal + trip summary, runs all status transitions in
   // order, saves fare/payment/time fields, and marks the job Completed.
-  // Auth: X-Admin-Key header OR body.adminKey field (driver app uses the latter).
+  // Auth: X-User-Key (driver session / passforlink) preferred; X-Admin-Key +
+  // body.driverId kept for tools/regression. Ownership: job must belong to the
+  // authenticated driver (live or closed late-merge).
   if (urlPath === '/api/syncOfflineTrip' && req.method === 'POST') {
     const _sotBody = await readBody(req);
     let _sotData = {};
     try { _sotData = JSON.parse(_sotBody); } catch(e) {}
-    const _sotKey    = (req.headers['x-admin-key'] || _sotData.adminKey || '').toString().trim();
+    const _sotAuth = _authenticateSyncOfflineTrip(req, _sotData);
+    if (!_sotAuth.ok) {
+      res.writeHead(_sotAuth.status || 401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: false,
+        error_code: _sotAuth.error_code || 'auth_failed',
+        error: _sotAuth.error || 'Unauthorised',
+      }));
+      return;
+    }
     const _sotJobId  = parseInt(_sotData.jobId) || 0;
-    const _sotCid    = (_sotData.companyId || '').toString().trim();
-    const _sotDrvId  = (_sotData.driverId  || '').toString().trim();
-    const _sotVehId  = (_sotData.vehicleId || '').toString().trim();
+    const _sotCid    = String(_sotAuth.companyId || _sotData.companyId || '').trim();
+    const _sotDrvId  = String(_sotAuth.driverId || '').trim();
+    const _sotVehId  = String(_sotAuth.vehicleId || _sotData.vehicleId || '').trim();
     const _sotEvents = Array.isArray(_sotData.events) ? _sotData.events : [];
     const _sotSummary= _sotData.tripSummary || {};
 
-    // Auth check
-    if (_sotKey !== ADMIN_KEY) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorised — invalid adminKey' }));
-      return;
-    }
     if (!_sotJobId || !_sotCid || !_sotDrvId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'jobId, companyId and driverId are required' }));
+      res.end(JSON.stringify({ ok: false, error_code: 'bad_request', error: 'jobId, companyId and driverId are required' }));
       return;
     }
 
@@ -14868,6 +14963,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         (String(j.companyId || j.CompanyId || '') === _sotCid || _sotCid === 'test'));
 
     if (_sotAlreadyClosed) {
+      if (!_syncOfflineTripJobOwnedByDriver(_sotAlreadyClosed, _sotDrvId)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: false,
+          error_code: 'forbidden',
+          error: 'offline sync refused — closed job not owned by this driver',
+        }));
+        return;
+      }
       // ─── §FIX-L — merge late syncOfflineTrip into already-closed record ─────
       // For hail trips, DriverStatusChanged → Available almost always wins the
       // race against /api/syncOfflineTrip (Available fires the instant the
@@ -14999,7 +15103,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     if (!_sotJob) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Job not found: ' + _sotJobId }));
+      res.end(JSON.stringify({ ok: false, error_code: 'not_found', error: 'Job not found: ' + _sotJobId }));
+      return;
+    }
+
+    if (!_syncOfflineTripJobOwnedByDriver(_sotJob, _sotDrvId)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: false,
+        error_code: 'forbidden',
+        error: 'offline sync refused — job not owned by this driver',
+      }));
       return;
     }
 
