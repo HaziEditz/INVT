@@ -8830,6 +8830,27 @@ function newCompanyJobId(companyId) {
 // Valid booking sources accepted by POST /api/job/create
 const BOOKING_SOURCES = new Set(['dispatch', 'hail', 'passenger', 'web', 'food', 'freight', 'driver']);
 
+/** Phase 5b — client-generated UUID for offline/retry-safe hail create-or-get. */
+function _normalizeClientTripId(raw) {
+  const id = String(raw || '').trim();
+  if (!id) return '';
+  // UUID or opaque client key: keep short enough to index safely, reject spaces/path junk.
+  if (id.length < 8 || id.length > 128) return '';
+  if (!/^[A-Za-z0-9._:-]+$/.test(id)) return '';
+  return id;
+}
+
+function _findJobByClientTripId(companyId, clientTripId) {
+  const cid = String(companyId || '').trim();
+  const ctid = _normalizeClientTripId(clientTripId);
+  if (!cid || !ctid) return null;
+  const match = (j) =>
+    j &&
+    String(j.companyId || j.CompanyId || '') === cid &&
+    String(j.clientTripId || '') === ctid;
+  return jobStore.find(match) || closedJobStore.find(match) || null;
+}
+
 // ─── Job validation (phantom/empty job guard) ────────────────────────────────
 function _normalizeBookingSource(raw) {
   const s = String(raw || '').toLowerCase().trim();
@@ -16157,7 +16178,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     // Guard: companyId must be purely numeric. A company name (e.g. "Auckland Cabs")
     // produces a letter-prefixed job ID ("abs2605...") which syncOfflineTrip rejects.
-    if (!/^\d+$/.test(_cjCid)) {
+    // Regression harness uses synthetic tenant "bwtest" (same allowance as /api/pre-booking).
+    if (!/^\d+$/.test(_cjCid) && !(process.env.NODE_ENV === 'test' && _cjCid === 'bwtest')) {
       console.error(`[/api/job/create] INVALID companyId — received: "${_cjCid}". ` +
         `Expected a numeric string like "620611". Fix the web booking site configuration.`);
       res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -16178,6 +16200,36 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ ok: false, error: 'pickup address or coordinates are required' }));
       return;
+    }
+
+    // Phase 5b — hail create-or-get via clientTripId (UUID). Server still allocates
+    // numeric job.Id; clientTripId is the idempotency key for flaky/offline retries.
+    const _cjClientTripId = _cjSource === 'hail'
+      ? _normalizeClientTripId(_cjData.clientTripId)
+      : '';
+    if (_cjSource === 'hail' && _cjData.clientTripId != null && String(_cjData.clientTripId).trim() && !_cjClientTripId) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: 'clientTripId must be 8–128 chars [A-Za-z0-9._:-]' }));
+      return;
+    }
+    if (_cjClientTripId) {
+      const _cjExisting = _findJobByClientTripId(_cjCid, _cjClientTripId);
+      if (_cjExisting) {
+        const _exId = _cjExisting.Id;
+        const _exResult = {
+          ok: true,
+          jobId: String(_exId),
+          bookingId: typeof _exId === 'number' ? _exId : (parseInt(_exId, 10) || _exId),
+          createdAt: _cjExisting.createdAt || Date.now(),
+          clientTripId: _cjClientTripId,
+          idempotent: true,
+          existing: true,
+        };
+        console.log('[job/create] idempotent hit:', JSON.stringify(_exResult));
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(_exResult));
+        return;
+      }
     }
 
     // Always allocate a brand-new booking ID — never match or reuse by pickup address.
@@ -16218,6 +16270,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       BookingStatus:      _cjInitialStatus,
       BookingSource:      _cjSource,
       source:             _cjSource,
+      ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
       Name:               ((_cjPax.name)   || '').toString().trim(),
       PhoneNo:            ((_cjPax.phone)  || '').toString().trim(),
       PickAddress:        ((_cjPick.address) || '').toString().trim(),
@@ -16376,7 +16429,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             bookingSource:   _cjSource,
             createdAt:       _cjCreated,
             DriverAcceptedAt: _cjNow,
-            updateSeq:       1
+            updateSeq:       1,
+            ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
           };
           await Promise.all([
             firebaseDbSet(`pendingjobs/${_hCid}/${_hBid}`, _fbBooking, _tokH)
@@ -16414,7 +16468,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       })();
     }
 
-    const _cjResult = { ok: true, jobId: _cjIdStr, bookingId: _cjIdNum, createdAt: _cjCreated };
+    const _cjResult = {
+      ok: true,
+      jobId: _cjIdStr,
+      bookingId: _cjIdNum,
+      createdAt: _cjCreated,
+      ...(_cjClientTripId ? { clientTripId: _cjClientTripId, idempotent: false } : {}),
+    };
     console.log('[job/create] result:', JSON.stringify(_cjResult));
     try { console.time(`booking-gap-${_cjIdStr}`); } catch(e) {}
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
