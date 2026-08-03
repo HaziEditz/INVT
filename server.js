@@ -11615,8 +11615,10 @@ function canUnlockWithAvailable(driverId) {
 // Shared by zone-driver sync + ghost-presence sweeper (must be defined before sync runs).
 const STALE_PRESENCE_MS = 15 * 60 * 1000; // 15 minutes — driver app heartbeats can gap during GPS/background
 /** Pre-offer / assign gate: already-stale lastSeen → bounce with Network issue (not a live wait).
- *  Aligned with mid-offer (10s) and above typical GPS cadence (~5s), well under the 30s UI badge. */
-const NETWORK_OFFER_STALE_MS = 10 * 1000;
+ *  Wider than mid-offer (10s): idle Available drivers only refresh lastSeen on the ~20s presence
+ *  heartbeat / ~15s GPS path. Mid-offer stays at 10s because the driver app fast-stamps (5s)
+ *  while an offer is pending. Still under the 30s UI connectivity badge. */
+const NETWORK_OFFER_STALE_MS = 25 * 1000;
 const NETWORK_OFFER_RETURN_REASON = 'Network issue — driver unreachable';
 
 function _normalizeLastSeenMs(raw) {

@@ -13,10 +13,10 @@ test('P3 network offer: assign to pre-stale driver bounces with Network issue re
   const driverId = String(h.driverIds[0]);
 
   await h.ensureDriverReady(driverId);
-  // lastSeen 15s ago → past NETWORK_OFFER_STALE_MS (10s). Must set AFTER ensureDriverReady.
+  // lastSeen 35s ago → past NETWORK_OFFER_STALE_MS (25s). Must set AFTER ensureDriverReady.
   await h.configureDriver(driverId, {
     vehiclestatus: 'Available',
-    lastSeen: Date.now() - 15_000,
+    lastSeen: Date.now() - 35_000,
   });
 
   const jobId = await h.createAsapJob('network-offer-stale');
@@ -96,7 +96,7 @@ test('P3 network offer: all Available network-stale still busy-pool broadcasts',
   });
   await h.configureDriver(staleAvailable, {
     vehiclestatus: 'Available',
-    lastSeen: Date.now() - 15_000,
+    lastSeen: Date.now() - 35_000,
     lat: -46.412,
     lng: 168.353,
   });
@@ -119,7 +119,7 @@ test('P3 network offer: all Available network-stale still busy-pool broadcasts',
     // Re-freeze stale lastSeen each attempt — DriverStatusChanged / other ticks can refresh it.
     await h.configureDriver(staleAvailable, {
       vehiclestatus: 'Available',
-      lastSeen: Date.now() - 15_000,
+      lastSeen: Date.now() - 35_000,
       lat: -46.412,
       lng: 168.353,
     });
