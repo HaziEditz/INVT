@@ -3959,6 +3959,14 @@ async function assignBooking(opts) {
   if (_isDriverNetworkOfferStale(_zdAssign)) {
     const _ageSec = Math.round((Date.now() - _normalizeLastSeenMs(_zdAssign.lastSeen)) / 1000);
     console.warn(`  [${source}] assign blocked — driver ${_targetDrv} network-stale (lastSeen ${_ageSec}s ago)`);
+    _liveTrace('assign blocked network-stale', {
+      sourceTag: source,
+      jobId: job && job.Id,
+      driverId: _targetDrv,
+      companyId: _cidEarly || (job && job.companyId),
+      zoneAgeMs: _ageSec * 1000,
+      reason: NETWORK_OFFER_RETURN_REASON,
+    });
     if (_curStatus === 'Pending' || _curStatus === 'No One' || _curStatus === 'Scheduled' || _curStatus === 'Unreached') {
       job.returnReason = NETWORK_OFFER_RETURN_REASON;
       job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
@@ -5266,6 +5274,63 @@ const JOB_TRACE_RESPONSE_TIMEOUT_MS = 10_000;
 /** Only these jobStore statuses may be auto-purged when Firebase is terminal. Live trips (Active/…) need admin trust_firebase. */
 const _RECONCILE_TRUST_FB_TERMINAL_FROM = new Set(['Offered', 'Pending', 'No One', 'Scheduled', 'Queued']);
 
+// ── Live mid-offer / heal trace (ring buffer + Firebase ops/liveTrace) ────────
+// Readable via GET /admin/liveLogs and Firebase ops/liveTrace even when Railway
+// CLI/admin key are unavailable from the agent environment.
+const LIVE_TRACE_RING_MAX = 500;
+const LIVE_TRACE_RING = [];
+const LIVE_TRACE_FB_PATH = 'ops/liveTrace';
+
+/**
+ * @param {string} event
+ * @param {Record<string, unknown>} [fields]
+ * @param {{ firebase?: boolean }} [opts] firebase defaults true for bounce/clear/release
+ */
+function _liveTrace(event, fields, opts) {
+  opts = opts || {};
+  const at = Date.now();
+  const entry = Object.assign({
+    at,
+    iso: new Date(at).toISOString(),
+    buildId: SERVER_BUILD_ID,
+    event: String(event || ''),
+  }, fields || {});
+  LIVE_TRACE_RING.push(entry);
+  if (LIVE_TRACE_RING.length > LIVE_TRACE_RING_MAX) {
+    LIVE_TRACE_RING.splice(0, LIVE_TRACE_RING.length - LIVE_TRACE_RING_MAX);
+  }
+  const compact = {
+    event: entry.event,
+    sourceTag: entry.sourceTag,
+    jobId: entry.jobId,
+    driverId: entry.driverId,
+    companyId: entry.companyId,
+    zoneAgeMs: entry.zoneAgeMs,
+    fbAgeMs: entry.fbAgeMs,
+    healed: entry.healed,
+    syncOk: entry.syncOk,
+    reason: entry.reason,
+  };
+  console.log(`[LIVE-TRACE] ${entry.event} ${JSON.stringify(compact)}`);
+
+  const ev = String(event || '');
+  const defaultFb = /BOUNCE|STALE CLEARED|network-stale|RELEASE|bounce UA|assign blocked/i.test(ev)
+    || (Number(entry.healed) > 0);
+  const writeFb = opts.firebase != null ? !!opts.firebase : defaultFb;
+  if (writeFb && process.env.NODE_ENV !== 'test' && process.env.BW_FIREBASE_SECRET) {
+    void (async () => {
+      try {
+        const tok = await getFirebaseServerToken();
+        if (!tok) return;
+        await firebaseDbPush(LIVE_TRACE_FB_PATH, entry, tok);
+      } catch (e) {
+        console.warn(`[LIVE-TRACE] Firebase push failed: ${(e && e.message) || e}`);
+      }
+    })();
+  }
+  return entry;
+}
+
 async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   opts = opts || {};
   if (!job || job.BookingStatus !== 'Offered') return false;
@@ -5312,6 +5377,15 @@ async function _releaseStaleOfferedJobToPool(job, sourceTag, opts) {
   }
   _bumpJobUpdateSeq(job, 'system');
   saveJobStore();
+  _liveTrace(opts.networkBounce ? 'OFFER RELEASE network-stale' : 'OFFER RELEASE stale', {
+    sourceTag: sourceTag || 'stale-offer-heal',
+    jobId: bookingId,
+    driverId: prevDriver,
+    companyId: cid,
+    vehicleId: prevVehicle,
+    reason: job.returnReason,
+    networkBounce: !!opts.networkBounce,
+  });
 
   if (cid && bookingId) {
     await _writePendingJobFirebase(cid, bookingId, job, 'Pending');
@@ -5393,6 +5467,15 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
         `zoneAgeMs=${probe && probe.zoneAgeMs} fbAgeMs=${probe && probe.fbAgeMs} ` +
         `(heal uses ZONE_DRIVERS.lastSeen; Firebase may still be fresh)`,
       );
+      _liveTrace('MID-OFFER NETWORK BOUNCE', {
+        sourceTag,
+        jobId: job.Id,
+        driverId: job.DriverId,
+        companyId: job.companyId,
+        zoneAgeMs: probe && probe.zoneAgeMs,
+        fbAgeMs: probe && probe.fbAgeMs,
+        mode: 'zone-only-harness',
+      });
       const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
         reason: NETWORK_OFFER_RETURN_REASON,
         networkBounce: true,
@@ -5416,6 +5499,17 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
         `job=#${job.Id} fbAgeMs=${fbAgeMs} zoneAgeMs=${zoneAgeMs} ` +
         `zoneBefore=${refreshed && refreshed.zoneLastSeenBefore} zoneAfter=${refreshed && refreshed.zoneLastSeen}`,
       );
+      _liveTrace('mid-offer STALE CLEARED', {
+        sourceTag,
+        jobId: job.Id,
+        driverId: job.DriverId,
+        companyId: job.companyId,
+        zoneAgeMs,
+        fbAgeMs,
+        zoneBefore: refreshed && refreshed.zoneLastSeenBefore,
+        zoneAfter: refreshed && refreshed.zoneLastSeen,
+        refresh: refreshed,
+      });
     } else {
       // Firebase missing/stale (or unreadable) AND zone still stale → bounce.
       const probe = await _midOfferPresenceProbe(job, now2, sourceTag).catch(() => null);
@@ -5424,6 +5518,16 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
         `zoneAgeMs=${probe && probe.zoneAgeMs} fbAgeMs=${probe && probe.fbAgeMs} ` +
         `refresh=${refreshed ? JSON.stringify(refreshed) : 'null'}`,
       );
+      _liveTrace('MID-OFFER NETWORK BOUNCE', {
+        sourceTag,
+        jobId: job.Id,
+        driverId: job.DriverId,
+        companyId: job.companyId,
+        zoneAgeMs: probe && probe.zoneAgeMs,
+        fbAgeMs: probe && probe.fbAgeMs,
+        refresh: refreshed,
+        mode: 'firebase-truth',
+      });
       const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
         reason: NETWORK_OFFER_RETURN_REASON,
         networkBounce: true,
@@ -5474,6 +5578,7 @@ async function _healStuckOfferedJobsAfterFirebaseSync(sourceTag) {
   const t0 = Date.now();
   let syncOk = false;
   const skipSync = String(process.env.BW_SKIP_ZONE_SYNC_BEFORE_HEAL || '') === '1';
+  _liveTrace('AfterFirebaseSync BEGIN', { sourceTag, skipSync }, { firebase: false });
   if (!skipSync) {
     try {
       console.log(`[${sourceTag}] AfterFirebaseSync BEGIN sync (NODE_ENV=${process.env.NODE_ENV || ''})`);
@@ -5484,11 +5589,22 @@ async function _healStuckOfferedJobsAfterFirebaseSync(sourceTag) {
         `added=${syncResult && syncResult.added} updated=${syncResult && syncResult.updated} ` +
         `err=${(syncResult && syncResult.error) || 'none'}`,
       );
+      _liveTrace('AfterFirebaseSync SYNC DONE', {
+        sourceTag,
+        ms: Date.now() - t0,
+        added: syncResult && syncResult.added,
+        updated: syncResult && syncResult.updated,
+        err: (syncResult && syncResult.error) || 'none',
+      }, { firebase: false });
     } catch (e) {
       console.warn(
         `[${sourceTag}] zone sync before heal failed (continuing with in-memory ZONE): ` +
         `${(e && e.message) || e}`,
       );
+      _liveTrace('AfterFirebaseSync SYNC FAIL', {
+        sourceTag,
+        reason: (e && e.message) || String(e),
+      });
     }
   } else {
     console.log(`[${sourceTag}] AfterFirebaseSync SKIP sync (BW_SKIP_ZONE_SYNC_BEFORE_HEAL=1)`);
@@ -5497,6 +5613,12 @@ async function _healStuckOfferedJobsAfterFirebaseSync(sourceTag) {
   console.log(
     `[${sourceTag}] AfterFirebaseSync HEAL DONE in ${Date.now() - t0}ms healed=${healed} syncOk=${syncOk}`,
   );
+  _liveTrace('AfterFirebaseSync HEAL DONE', {
+    sourceTag,
+    healed,
+    syncOk,
+    ms: Date.now() - t0,
+  }, { firebase: healed > 0 });
   return healed;
 }
 
@@ -13327,6 +13449,30 @@ const server = http.createServer(async (req, res) => {
         zoneDriversTotal: ZONE_DRIVERS.length,
         lastZoneSync: _ZONE_SYNC_LAST,
         lastAutoDispatchTick: _AUTO_DISPATCH_LAST,
+        liveTraceCount: LIVE_TRACE_RING.length,
+      });
+      return;
+    }
+
+    // GET /admin/liveLogs?sinceMs=&event=&limit= — mid-offer / heal live trace ring
+    if (urlPath === '/admin/liveLogs' && req.method === 'GET') {
+      const qs = new URL('http://x' + req.url).searchParams;
+      const sinceMs = parseInt(qs.get('sinceMs') || '0', 10) || 0;
+      const eventFilter = String(qs.get('event') || '').trim().toLowerCase();
+      const limit = Math.min(500, Math.max(1, parseInt(qs.get('limit') || '200', 10) || 200));
+      let rows = LIVE_TRACE_RING.filter((e) => !sinceMs || (e && e.at >= sinceMs));
+      if (eventFilter) {
+        rows = rows.filter((e) => String(e.event || '').toLowerCase().includes(eventFilter)
+          || String(e.sourceTag || '').toLowerCase().includes(eventFilter));
+      }
+      rows = rows.slice(-limit);
+      jsonReply(res, {
+        ok: true,
+        serverBuildId: SERVER_BUILD_ID,
+        count: rows.length,
+        ringSize: LIVE_TRACE_RING.length,
+        firebasePath: LIVE_TRACE_FB_PATH,
+        events: rows,
       });
       return;
     }
@@ -25297,11 +25443,21 @@ async function _serverAutoDispatchTick() {
       // AfterFirebaseSync, without a second full-zone Firebase pull every 6s.
       const _healT0 = Date.now();
       console.log(`[server-auto-dispatch] AfterFirebaseSync BEGIN (sync already done this tick)`);
+      _liveTrace('AfterFirebaseSync BEGIN', {
+        sourceTag: 'server-auto-dispatch',
+        note: 'sync already done this tick',
+      }, { firebase: false });
       const offerHealed = await _healStuckOfferedJobs('server-auto-dispatch');
       console.log(
         `[server-auto-dispatch] AfterFirebaseSync HEAL DONE in ${Date.now() - _healT0}ms ` +
         `healed=${offerHealed} syncOk=true`,
       );
+      _liveTrace('AfterFirebaseSync HEAL DONE', {
+        sourceTag: 'server-auto-dispatch',
+        healed: offerHealed,
+        syncOk: true,
+        ms: Date.now() - _healT0,
+      }, { firebase: offerHealed > 0 });
       if (offerHealed) {
         console.log(`[server-auto-dispatch] healed ${offerHealed} stuck Offered job(s) before tick`);
       }
