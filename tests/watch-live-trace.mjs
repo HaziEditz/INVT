@@ -28,6 +28,11 @@ const FB_DB = process.env.BW_FIREBASE_DB_URL
 
 const seen = new Set();
 let sinceMs = Date.now() - 60_000;
+const LIVE_CID = String(process.env.BW_LIVE_CID || '').trim();
+const LIVE_VID = String(process.env.BW_LIVE_VID || '').trim();
+const LIVE_JOB = String(process.env.BW_LIVE_JOB || '').trim();
+let lastPresenceSig = '';
+let lastJobSig = '';
 
 function append(line) {
   const row = `[${new Date().toISOString()}] ${line}`;
@@ -70,23 +75,29 @@ async function pollFirebase() {
     append('BW_FIREBASE_SECRET missing — cannot poll ops/liveTrace');
     return 'no-secret';
   }
-  // orderBy + startAt needs index; fall back to full shallow-ish recent pull with limitToLast
-  const url = `${FB_DB}/ops/liveTrace.json?auth=${encodeURIComponent(FB_SECRET)}&orderBy=%22at%22&startAt=${sinceMs}&limitToLast=100`;
-  let { status, body } = await fetchJson(url);
-  if (status !== 200) {
-    // Retry without orderBy (no index yet)
-    const url2 = `${FB_DB}/ops/liveTrace.json?auth=${encodeURIComponent(FB_SECRET)}&limitToLast=80`;
-    ({ status, body } = await fetchJson(url2));
+  // Prefer key-ordered recent tails (no custom index). Fall back to full node.
+  const urls = [
+    `${FB_DB}/ops/liveTrace.json?auth=${encodeURIComponent(FB_SECRET)}&orderBy=%22%24key%22&limitToLast=100`,
+    `${FB_DB}/ops/liveTrace.json?auth=${encodeURIComponent(FB_SECRET)}`,
+  ];
+  let status = 0;
+  let body = null;
+  for (const url of urls) {
+    ({ status, body } = await fetchJson(url));
+    if (status === 200) break;
   }
   if (status !== 200) {
     append(`FIREBASE ops/liveTrace HTTP ${status} ${JSON.stringify(body).slice(0, 240)}`);
     return;
   }
-  if (!body || typeof body !== 'object') return;
+  if (!body || typeof body !== 'object') {
+    // Node absent until first production bounce/clear after deploy — not an error.
+    return;
+  }
   const rows = Object.entries(body).map(([id, v]) => ({ id, ...(v || {}) }));
   rows.sort((a, b) => (a.at || 0) - (b.at || 0));
   for (const ev of rows) {
-    if ((ev.at || 0) < sinceMs - 5_000) continue;
+    if ((ev.at || 0) && (ev.at || 0) < sinceMs - 5_000) continue;
     const key = `fb:${ev.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -102,16 +113,64 @@ async function pollVersion() {
   return status;
 }
 
+async function pollPresenceAndJob() {
+  if (!FB_SECRET || !LIVE_CID) return;
+  if (LIVE_VID) {
+    const { status, body } = await fetchJson(
+      `${FB_DB}/online/${encodeURIComponent(LIVE_CID)}/${encodeURIComponent(LIVE_VID)}.json?auth=${encodeURIComponent(FB_SECRET)}`,
+    );
+    if (status === 200 && body && typeof body === 'object') {
+      const cur = body.current && typeof body.current === 'object' ? body.current : {};
+      const lastSeen = Number(body.lastSeen || cur.lastSeen || 0) || 0;
+      const lastSeenMs = lastSeen && lastSeen < 1e12 ? lastSeen * 1000 : lastSeen;
+      const ageMs = lastSeenMs ? Date.now() - lastSeenMs : null;
+      const sig = JSON.stringify({
+        lastSeen: lastSeenMs,
+        ageMs,
+        status: body.vehiclestatus || cur.vehiclestatus || null,
+        jobId: cur.jobId || cur.JobId || body.jobId || null,
+        driverid: body.driverid || cur.driverid || null,
+      });
+      if (sig !== lastPresenceSig) {
+        lastPresenceSig = sig;
+        append(`PRESENCE online/${LIVE_CID}/${LIVE_VID} ${sig}`);
+      }
+    } else if (status !== 200) {
+      append(`PRESENCE HTTP ${status}`);
+    }
+  }
+  if (LIVE_JOB) {
+    const { status, body } = await fetchJson(
+      `${FB_DB}/allbookings/${encodeURIComponent(LIVE_CID)}/${encodeURIComponent(LIVE_JOB)}.json?auth=${encodeURIComponent(FB_SECRET)}`,
+    );
+    if (status === 200 && body && typeof body === 'object') {
+      const sig = JSON.stringify({
+        BookingStatus: body.BookingStatus || body.Status || null,
+        DriverId: body.DriverId || body.driverId || null,
+        returnReason: body.returnReason || body.ReturnReason || null,
+        offeredAt: body.offeredAt || null,
+      });
+      if (sig !== lastJobSig) {
+        lastJobSig = sig;
+        append(`JOB allbookings/${LIVE_CID}/${LIVE_JOB} ${sig}`);
+      }
+    }
+  }
+}
+
 async function main() {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, '', 'utf8');
+  // Append across restarts; mark session boundary.
   append(`=== LIVE TRACE CAPTURE START prod=${PROD} ===`);
   append(`out=${OUT}`);
   append(`firebaseDb=${FB_DB}`);
   append(`adminKeyLen=${ADMIN_KEY.length} firebaseSecretLen=${FB_SECRET.length}`);
-  await pollVersion();
+  await pollVersion().catch((e) => append(`version probe error ${(e && e.message) || e}`));
   let adminAuthFail = false;
+  let ticks = 0;
+  append(`presenceWatch cid=${LIVE_CID || '(set BW_LIVE_CID)'} vid=${LIVE_VID || '(set BW_LIVE_VID)'} job=${LIVE_JOB || '(optional BW_LIVE_JOB)'}`);
   append('Ready — create the job and trigger the bounce on device now.');
+  append('Waiting for ops/liveTrace events (needs production deploy of LIVE-TRACE build 37bd216+).');
   for (;;) {
     try {
       if (!adminAuthFail) {
@@ -119,6 +178,9 @@ async function main() {
         if (r === 'auth-fail') adminAuthFail = true;
       }
       await pollFirebase();
+      await pollPresenceAndJob();
+      ticks += 1;
+      if (ticks % 15 === 0) append(`heartbeat still watching (ticks=${ticks} sinceMs=${sinceMs})`);
     } catch (e) {
       append(`POLL ERROR ${(e && e.message) || e}`);
     }
@@ -126,7 +188,15 @@ async function main() {
   }
 }
 
+process.on('uncaughtException', (e) => {
+  try { append(`uncaughtException ${(e && e.stack) || e}`); } catch { /* ignore */ }
+});
+process.on('unhandledRejection', (e) => {
+  try { append(`unhandledRejection ${(e && e.stack) || e}`); } catch { /* ignore */ }
+});
+
 main().catch((e) => {
   console.error(e);
+  try { append(`fatal ${(e && e.stack) || e}`); } catch { /* ignore */ }
   process.exit(1);
 });
