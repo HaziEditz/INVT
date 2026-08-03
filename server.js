@@ -5381,18 +5381,55 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
     return 1;
   }
 
+  // Mid-offer network check. ZONE_DRIVERS.lastSeen is a cache and can lag the
+  // phone's Firebase stamps. Production bounce requires Firebase lastSeen to be
+  // stale too (live re-read). Regression harness sets BW_SKIP_ZONE_SYNC_BEFORE_HEAL=1
+  // to exercise the ZONE-only path.
   if (_isDriverMidOfferNetworkStale(job, now)) {
-    const probe = await _midOfferPresenceProbe(job, now, sourceTag).catch(() => null);
-    console.warn(
-      `[${sourceTag}] MID-OFFER NETWORK BOUNCE job=#${job.Id} driver=${job.DriverId} ` +
-      `zoneAgeMs=${probe && probe.zoneAgeMs} fbAgeMs=${probe && probe.fbAgeMs} ` +
-      `(heal uses ZONE_DRIVERS.lastSeen; Firebase may still be fresh)`,
+    if (String(process.env.BW_SKIP_ZONE_SYNC_BEFORE_HEAL || '') === '1') {
+      const probe = await _midOfferPresenceProbe(job, now, sourceTag).catch(() => null);
+      console.warn(
+        `[${sourceTag}] MID-OFFER NETWORK BOUNCE job=#${job.Id} driver=${job.DriverId} ` +
+        `zoneAgeMs=${probe && probe.zoneAgeMs} fbAgeMs=${probe && probe.fbAgeMs} ` +
+        `(heal uses ZONE_DRIVERS.lastSeen; Firebase may still be fresh)`,
+      );
+      const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
+        reason: NETWORK_OFFER_RETURN_REASON,
+        networkBounce: true,
+      });
+      return released ? 1 : 0;
+    }
+
+    const refreshed = await _refreshOfferedDriverLastSeenFromFirebase(job).catch(() => null);
+    const now2 = Date.now();
+    const fbLastSeen = refreshed && refreshed.fbLastSeen ? Number(refreshed.fbLastSeen) : 0;
+    const fbAgeMs = fbLastSeen ? (now2 - fbLastSeen) : null;
+    const zoneLastSeen = _normalizeLastSeenMs(
+      (_zoneDriverRowForOfferedJob(job) || {}).lastSeen,
     );
-    const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
-      reason: NETWORK_OFFER_RETURN_REASON,
-      networkBounce: true,
-    });
-    return released ? 1 : 0;
+    const zoneAgeMs = zoneLastSeen ? (now2 - zoneLastSeen) : null;
+
+    // Firebase fresh → keep offer (ZONE lag is not a network failure).
+    if (fbLastSeen && fbAgeMs != null && fbAgeMs <= MID_OFFER_NETWORK_STALE_MS) {
+      console.log(
+        `[${sourceTag}] mid-offer STALE CLEARED by live Firebase refresh ` +
+        `job=#${job.Id} fbAgeMs=${fbAgeMs} zoneAgeMs=${zoneAgeMs} ` +
+        `zoneBefore=${refreshed && refreshed.zoneLastSeenBefore} zoneAfter=${refreshed && refreshed.zoneLastSeen}`,
+      );
+    } else {
+      // Firebase missing/stale (or unreadable) AND zone still stale → bounce.
+      const probe = await _midOfferPresenceProbe(job, now2, sourceTag).catch(() => null);
+      console.warn(
+        `[${sourceTag}] MID-OFFER NETWORK BOUNCE job=#${job.Id} driver=${job.DriverId} ` +
+        `zoneAgeMs=${probe && probe.zoneAgeMs} fbAgeMs=${probe && probe.fbAgeMs} ` +
+        `refresh=${refreshed ? JSON.stringify(refreshed) : 'null'}`,
+      );
+      const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
+        reason: NETWORK_OFFER_RETURN_REASON,
+        networkBounce: true,
+      });
+      return released ? 1 : 0;
+    }
   }
 
   const age = job.offeredAt ? (now - job.offeredAt) : STALE_OFFER_HEAL_MS + 1;
@@ -5430,20 +5467,59 @@ async function _healStuckOfferedJobs(sourceTag) {
 /**
  * Mid-offer heal must see fresh Firebase lastSeen — ZONE_DRIVERS can lag when the
  * phone is stamping online/{cid}/{vid} every 5s. Match _serverAutoDispatchTick:
- * sync first, then heal. Skip sync in NODE_ENV=test (harness drives ZONE directly).
+ * sync first, then heal.
+ * Skip sync only when BW_SKIP_ZONE_SYNC_BEFORE_HEAL=1 (regression harness).
  */
 async function _healStuckOfferedJobsAfterFirebaseSync(sourceTag) {
-  if (process.env.NODE_ENV !== 'test') {
+  const t0 = Date.now();
+  let syncOk = false;
+  const skipSync = String(process.env.BW_SKIP_ZONE_SYNC_BEFORE_HEAL || '') === '1';
+  if (!skipSync) {
     try {
-      await _syncZoneDriversFromFirebase({ quiet: true });
+      console.log(`[${sourceTag}] AfterFirebaseSync BEGIN sync (NODE_ENV=${process.env.NODE_ENV || ''})`);
+      const syncResult = await _syncZoneDriversFromFirebase({ quiet: true });
+      syncOk = true;
+      console.log(
+        `[${sourceTag}] AfterFirebaseSync SYNC DONE in ${Date.now() - t0}ms ` +
+        `added=${syncResult && syncResult.added} updated=${syncResult && syncResult.updated} ` +
+        `err=${(syncResult && syncResult.error) || 'none'}`,
+      );
     } catch (e) {
       console.warn(
         `[${sourceTag}] zone sync before heal failed (continuing with in-memory ZONE): ` +
         `${(e && e.message) || e}`,
       );
     }
+  } else {
+    console.log(`[${sourceTag}] AfterFirebaseSync SKIP sync (BW_SKIP_ZONE_SYNC_BEFORE_HEAL=1)`);
   }
-  return _healStuckOfferedJobs(sourceTag);
+  const healed = await _healStuckOfferedJobs(sourceTag);
+  console.log(
+    `[${sourceTag}] AfterFirebaseSync HEAL DONE in ${Date.now() - t0}ms healed=${healed} syncOk=${syncOk}`,
+  );
+  return healed;
+}
+
+/** Live Firebase lastSeen refresh for one offered job's ZONE row (production safety net). */
+async function _refreshOfferedDriverLastSeenFromFirebase(job) {
+  const zd = _zoneDriverRowForOfferedJob(job);
+  if (!zd) return null;
+  const cid = String(job.companyId || zd.companyId || '').trim();
+  const vid = String(zd.VehicleId || zd.vehiclenumber || job.VehicleId || job.VehicleNo || '').trim();
+  if (!cid || !vid || !process.env.BW_FIREBASE_SECRET) return null;
+  try {
+    const tok = await getFirebaseServerToken();
+    const node = await firebaseDbGet(`online/${cid}/${vid}`, tok);
+    const cur = (node && node.current && typeof node.current === 'object') ? node.current : {};
+    const fbLastSeen = _freshestLastSeenMs(node && node.lastSeen, cur.lastSeen);
+    if (!fbLastSeen) return { cid, vid, fbLastSeen: 0, zoneLastSeen: _normalizeLastSeenMs(zd.lastSeen) };
+    const before = _normalizeLastSeenMs(zd.lastSeen);
+    const merged = _freshestLastSeenMs(before, fbLastSeen);
+    zd.lastSeen = merged;
+    return { cid, vid, fbLastSeen, zoneLastSeenBefore: before, zoneLastSeen: merged };
+  } catch (e) {
+    return { error: (e && e.message) || String(e) };
+  }
 }
 
 function _pendingPassesReleaseCooldown(job, now) {
@@ -8875,7 +8951,10 @@ function _saveCompanyJobSeq() {
 function newCompanyJobId(companyId) {
   let _cidRaw = String(companyId || '').trim();
   // Synthetic load-test company uses string id "bwtest" for session/Firebase paths.
-  if (process.env.NODE_ENV === 'test' && _cidRaw === 'bwtest') {
+  if (
+    (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') &&
+    _cidRaw === 'bwtest'
+  ) {
     _cidRaw = '999000';
   }
   // Guard: companyId must be purely numeric (e.g. "620611").
@@ -9079,7 +9158,9 @@ function _isValidJobRecord(rec, opts) {
   if (!bid || bid <= 0) return false;
   const cid = String(rec.companyId || opts.companyId || '').trim();
   if (cid && !/^\d+$/.test(cid)) {
-    if (!(process.env.NODE_ENV === 'test' && cid === 'bwtest')) return false;
+    // Synthetic load-test tenant — allowed outside production so local prod-mode
+    // repros (NODE_ENV=development) can exercise Firebase sync paths.
+    if (!(cid === 'bwtest' && process.env.NODE_ENV !== 'production')) return false;
   }
   if (!_jobHasValidPickup(rec)) return false;
   if (opts.requireSource && !_jobHasValidSource(rec)) return false;
@@ -16347,7 +16428,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // Guard: companyId must be purely numeric. A company name (e.g. "Auckland Cabs")
     // produces a letter-prefixed job ID ("abs2605...") which syncOfflineTrip rejects.
     // Regression harness uses synthetic tenant "bwtest" (same allowance as /api/pre-booking).
-    if (!/^\d+$/.test(_cjCid) && !(process.env.NODE_ENV === 'test' && _cjCid === 'bwtest')) {
+    if (!/^\d+$/.test(_cjCid) && !(
+      (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') &&
+      _cjCid === 'bwtest'
+    )) {
       console.error(`[/api/job/create] INVALID companyId — received: "${_cjCid}". ` +
         `Expected a numeric string like "620611". Fix the web booking site configuration.`);
       res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -16678,7 +16762,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       res.end(JSON.stringify({ ok: false, error: 'companyId is required' }));
       return;
     }
-    if (!/^\d+$/.test(_pbCid) && !(process.env.NODE_ENV === 'test' && _pbCid === 'bwtest')) {
+    if (!/^\d+$/.test(_pbCid) && !(
+      _pbCid === 'bwtest' && process.env.NODE_ENV !== 'production'
+    )) {
       res.writeHead(400, _pbJsonHdr);
       res.end(JSON.stringify({ ok: false, error: `companyId must be numeric (received: "${_pbCid}")` }));
       return;
@@ -24961,20 +25047,28 @@ server.listen(PORT, HOST, () => {
   if (!_isTestBoot) {
     _seedZoneDriversFromFirebase();
     _syncBizAccountsFromFirebase();
-    setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
+    if (String(process.env.BW_DISABLE_JOBSTORE_HYDRATE || '') === '1') {
+      console.log('[boot] jobStore Firebase hydrate DISABLED (BW_DISABLE_JOBSTORE_HYDRATE=1)');
+    } else {
+      setTimeout(() => { hydrateJobStoreFromFirebase().catch(e => console.warn('[hydrate] boot failed:', e && e.message)); }, 8000);
+    }
     setTimeout(() => { hydrateZoneQueuesFromFirebase().catch(e => console.warn('[zoneQueues] boot hydrate failed:', e && e.message)); }, 9000);
     setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
     setInterval(() => {
       _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
         console.warn('[sync-drivers]', e && e.message));
     }, 45000);
-    setInterval(() => {
-      _serverAutoDispatchTick().catch(e => {
-        _AUTO_DISPATCH_LAST.error = e && e.message;
-        console.warn('[server-auto-dispatch]', e && e.message);
-      });
-    }, AUTO_DISPATCH_TICK_MS);
-    console.log(`[boot] server auto-dispatch tick every ${AUTO_DISPATCH_TICK_MS}ms (release cooldown ${AUTO_DISPATCH_RELEASE_COOLDOWN_MS}ms)`);
+    if (String(process.env.BW_DISABLE_SERVER_AUTO_DISPATCH || '') === '1') {
+      console.log('[boot] server auto-dispatch DISABLED (BW_DISABLE_SERVER_AUTO_DISPATCH=1)');
+    } else {
+      setInterval(() => {
+        _serverAutoDispatchTick().catch(e => {
+          _AUTO_DISPATCH_LAST.error = e && e.message;
+          console.warn('[server-auto-dispatch]', e && e.message);
+        });
+      }, AUTO_DISPATCH_TICK_MS);
+      console.log(`[boot] server auto-dispatch tick every ${AUTO_DISPATCH_TICK_MS}ms (release cooldown ${AUTO_DISPATCH_RELEASE_COOLDOWN_MS}ms)`);
+    }
   } else {
     console.log('[boot] test mode — skipping Firebase hydration and auto-dispatch timers');
   }
@@ -25199,7 +25293,15 @@ async function _serverAutoDispatchTick() {
   _healMisassignedDriverIdsInJobStore('server-auto-dispatch');
   if (process.env.BW_FIREBASE_SECRET) {
     try {
+      // Sync already ran above — heal with the same source tag + logging shape as
+      // AfterFirebaseSync, without a second full-zone Firebase pull every 6s.
+      const _healT0 = Date.now();
+      console.log(`[server-auto-dispatch] AfterFirebaseSync BEGIN (sync already done this tick)`);
       const offerHealed = await _healStuckOfferedJobs('server-auto-dispatch');
+      console.log(
+        `[server-auto-dispatch] AfterFirebaseSync HEAL DONE in ${Date.now() - _healT0}ms ` +
+        `healed=${offerHealed} syncOk=true`,
+      );
       if (offerHealed) {
         console.log(`[server-auto-dispatch] healed ${offerHealed} stuck Offered job(s) before tick`);
       }

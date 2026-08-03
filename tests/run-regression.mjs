@@ -73,6 +73,8 @@ async function main() {
     PORT,
     BW_DATA_DIR: TEST_DATA_DIR,
     BW_ADMIN_KEY: process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026',
+    // Harness drives ZONE_DRIVERS.lastSeen directly; skip Firebase sync/recheck in heal.
+    BW_SKIP_ZONE_SYNC_BEFORE_HEAL: '1',
   };
 
   console.log('\n══════════════════════════════════════════════════════════');

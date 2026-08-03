@@ -56,6 +56,8 @@ async function main() {
     PORT,
     BW_DATA_DIR: TEST_DATA_DIR,
     BW_ADMIN_KEY: process.env.BW_ADMIN_KEY || 'bookawaka-admin-2026',
+    // Demonstrate ZONE/Firebase split: skip sync + live Firebase recheck.
+    BW_SKIP_ZONE_SYNC_BEFORE_HEAL: '1',
   };
   const server = spawn(process.execPath, ['server.js'], {
     cwd: REPO_ROOT,
