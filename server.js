@@ -5382,6 +5382,12 @@ async function _healStuckOfferedJobOne(job, sourceTag, now, tok) {
   }
 
   if (_isDriverMidOfferNetworkStale(job, now)) {
+    const probe = await _midOfferPresenceProbe(job, now, sourceTag).catch(() => null);
+    console.warn(
+      `[${sourceTag}] MID-OFFER NETWORK BOUNCE job=#${job.Id} driver=${job.DriverId} ` +
+      `zoneAgeMs=${probe && probe.zoneAgeMs} fbAgeMs=${probe && probe.fbAgeMs} ` +
+      `(heal uses ZONE_DRIVERS.lastSeen; Firebase may still be fresh)`,
+    );
     const released = await _releaseStaleOfferedJobToPool(job, `${sourceTag}/network-stale`, {
       reason: NETWORK_OFFER_RETURN_REASON,
       networkBounce: true,
@@ -5421,6 +5427,25 @@ async function _healStuckOfferedJobs(sourceTag) {
   return healed;
 }
 
+/**
+ * Mid-offer heal must see fresh Firebase lastSeen — ZONE_DRIVERS can lag when the
+ * phone is stamping online/{cid}/{vid} every 5s. Match _serverAutoDispatchTick:
+ * sync first, then heal. Skip sync in NODE_ENV=test (harness drives ZONE directly).
+ */
+async function _healStuckOfferedJobsAfterFirebaseSync(sourceTag) {
+  if (process.env.NODE_ENV !== 'test') {
+    try {
+      await _syncZoneDriversFromFirebase({ quiet: true });
+    } catch (e) {
+      console.warn(
+        `[${sourceTag}] zone sync before heal failed (continuing with in-memory ZONE): ` +
+        `${(e && e.message) || e}`,
+      );
+    }
+  }
+  return _healStuckOfferedJobs(sourceTag);
+}
+
 function _pendingPassesReleaseCooldown(job, now) {
   if (!job || !job.releasedAt) return true;
   if (job._skipReleaseCooldownOnce) return true;
@@ -5458,6 +5483,56 @@ function _isDriverMidOfferNetworkStale(job, now) {
   const lastSeen = _normalizeLastSeenMs(zd.lastSeen);
   if (!lastSeen) return false;
   return (at - lastSeen) > MID_OFFER_NETWORK_STALE_MS;
+}
+
+/** Diagnostic snapshot: ZONE lastSeen vs Firebase lastSeen for an Offered job. */
+async function _midOfferPresenceProbe(job, now, sourceTag) {
+  const at = now || Date.now();
+  const zd = _zoneDriverRowForOfferedJob(job);
+  const zoneLastSeen = zd ? _normalizeLastSeenMs(zd.lastSeen) : 0;
+  const offeredAt = Number(job.offeredAt) || 0;
+  const vid = String((zd && (zd.VehicleId || zd.vehiclenumber)) || job.VehicleId || job.VehicleNo || '').trim();
+  const cid = String(job.companyId || '').trim();
+  let fbLastSeen = 0;
+  let fbError = null;
+  if (cid && vid && process.env.BW_FIREBASE_SECRET) {
+    try {
+      const tok = await getFirebaseServerToken();
+      const node = await firebaseDbGet(`online/${cid}/${vid}`, tok);
+      const cur = (node && node.current && typeof node.current === 'object') ? node.current : {};
+      fbLastSeen = _freshestLastSeenMs(node && node.lastSeen, cur.lastSeen);
+    } catch (e) {
+      fbError = (e && e.message) || String(e);
+    }
+  }
+  const zoneAgeMs = zoneLastSeen ? (at - zoneLastSeen) : null;
+  const fbAgeMs = fbLastSeen ? (at - fbLastSeen) : null;
+  const offerAgeMs = offeredAt ? (at - offeredAt) : null;
+  const midOfferStale = !!(zoneLastSeen && zoneAgeMs > MID_OFFER_NETWORK_STALE_MS);
+  const probe = {
+    at: new Date(at).toISOString(),
+    sourceTag: sourceTag || null,
+    jobId: job.Id,
+    driverId: String(job.DriverId || ''),
+    vehicleId: vid,
+    offerAgeMs,
+    zoneLastSeen,
+    zoneAgeMs,
+    fbLastSeen,
+    fbAgeMs,
+    midOfferStale,
+    gapZoneAheadOfFbMs: (zoneLastSeen && fbLastSeen) ? (zoneLastSeen - fbLastSeen) : null,
+    fbError,
+  };
+  console.log(
+    `[mid-offer-probe] job=#${probe.jobId} src=${probe.sourceTag || '-'} ` +
+    `offerAge=${offerAgeMs != null ? Math.round(offerAgeMs / 1000) + 's' : 'n/a'} ` +
+    `zoneAge=${zoneAgeMs != null ? Math.round(zoneAgeMs / 1000) + 's' : 'n/a'} ` +
+    `fbAge=${fbAgeMs != null ? Math.round(fbAgeMs / 1000) + 's' : 'n/a'} ` +
+    `stale=${midOfferStale}` +
+    (fbError ? ` fbErr=${fbError}` : ''),
+  );
+  return probe;
 }
 
 function _isDriverBlockedFromNetworkRedispatch(job, driverId, now) {
@@ -14322,6 +14397,97 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  // Reproduce mid-offer ZONE vs Firebase race:
+  // - stamp-firebase: write online/{cid}/{vid} lastSeen WITHOUT touching ZONE_DRIVERS
+  // - heal-no-sync: run mid-offer heal like AutoDispatchVehiclesallride (no Firebase sync)
+  // - probe: compare ZONE age vs Firebase age for Offered jobs
+  if (urlPath === '/dev/loadtest/mid-offer-probe' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const action = String(parsed.action || 'probe').trim();
+      const now = Date.now();
+      if (action === 'stamp-firebase') {
+        const did = String(parsed.driverId || '').trim();
+        const zd = _findZoneDriverRow(did, { companyId: parsed.companyId });
+        if (!zd) {
+          res.writeHead(404, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: `driver ${did} not in ZONE_DRIVERS` }));
+          return;
+        }
+        const cid = String(zd.companyId || parsed.companyId || '').trim();
+        const vid = String(zd.VehicleId || zd.vehiclenumber || '').trim();
+        const stampAt = Number(parsed.lastSeen) || Date.now();
+        const tok = await getFirebaseServerToken();
+        await firebaseDbPatch(`online/${cid}/${vid}`, {
+          lastSeen: stampAt,
+          vehiclestatus: zd.vehiclestatus || 'Available',
+          driverid: zd.driverid,
+        }, tok);
+        await firebaseDbPatch(`online/${cid}/${vid}/current`, {
+          lastSeen: stampAt,
+          vehiclestatus: zd.vehiclestatus || 'Available',
+          online: true,
+        }, tok);
+        console.log(
+          `[mid-offer-probe] stamp-firebase driver=${did} vid=${vid} lastSeen=${stampAt} ` +
+          `(ZONE left untouched; zoneAge would be ${Math.round((Date.now() - _normalizeLastSeenMs(zd.lastSeen)) / 1000)}s)`,
+        );
+        res.writeHead(200, JSON_HEADERS);
+        res.end(JSON.stringify({
+          ok: true,
+          action,
+          driverId: did,
+          vehicleId: vid,
+          firebaseLastSeen: stampAt,
+          zoneLastSeen: _normalizeLastSeenMs(zd.lastSeen),
+          zoneAgeMs: Date.now() - _normalizeLastSeenMs(zd.lastSeen),
+        }));
+        return;
+      }
+      if (action === 'heal-no-sync') {
+        // Same as AutoDispatchVehiclesallride stale-offer watchdog — NO _syncZoneDriversFromFirebase.
+        const healed = await _healStuckOfferedJobs(parsed.sourceTag || 'mid-offer-probe/heal-no-sync');
+        const probes = [];
+        for (const job of jobStore) {
+          if (!job || job.BookingStatus !== 'Offered') continue;
+          probes.push(await _midOfferPresenceProbe(job, Date.now(), 'post-heal-no-sync'));
+        }
+        res.writeHead(200, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, action, healed, probes, at: new Date().toISOString() }));
+        return;
+      }
+      if (action === 'sync-then-heal') {
+        await _syncZoneDriversFromFirebase({ quiet: true });
+        const healed = await _healStuckOfferedJobs(parsed.sourceTag || 'mid-offer-probe/sync-then-heal');
+        const probes = [];
+        for (const job of jobStore) {
+          if (!job || job.BookingStatus !== 'Offered') continue;
+          probes.push(await _midOfferPresenceProbe(job, Date.now(), 'post-sync-then-heal'));
+        }
+        res.writeHead(200, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, action, healed, probes, at: new Date().toISOString() }));
+        return;
+      }
+      // default: probe all Offered jobs
+      const probes = [];
+      for (const job of jobStore) {
+        if (!job || job.BookingStatus !== 'Offered') continue;
+        probes.push(await _midOfferPresenceProbe(job, now, parsed.sourceTag || 'probe'));
+      }
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, action: 'probe', probes, at: new Date(now).toISOString() }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
   if (urlPath === '/dev/loadtest/scheduled-release' && req.method === 'POST') {
     if (process.env.NODE_ENV === 'production') {
       res.writeHead(404, JSON_HEADERS);
@@ -21011,8 +21177,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         objectD(res, _assignedResp);
 
       } else if (action === 'AutoDispatchVehiclesallride') {
-        // Stale-offer watchdog: heal stuck Offered jobs (async, full Firebase sync).
-        _healStuckOfferedJobs('staleOfferWatchdog-AD').catch(e => {
+        // Stale-offer watchdog: sync ZONE from Firebase first (same as auto-dispatch tick),
+        // then heal — otherwise mid-offer 10s gate false-positives on a lagging ZONE stamp
+        // while the driver app is still writing fresh lastSeen every 5s.
+        _healStuckOfferedJobsAfterFirebaseSync('staleOfferWatchdog-AD').catch(e => {
           console.warn(`  [AutoDispatch] stale-offer heal failed: ${e && e.message}`);
         });
         // Legacy inline heal for misassigned/orphan paths that predate _healStuckOfferedJobs.
@@ -23192,9 +23360,10 @@ function clearOfferOnFirebase(cid, vid, did, bookingId, sourceTag, reason, opts)
 // If a job has been stuck in Offered for > 2 minutes, the 27-s browser timer
 // that was tracking it died (page refresh / tab close).  Reset to Pending so
 // the next auto-dispatch cycle or dispatcher action can re-offer it.
+// Sync ZONE from Firebase before heal (same race fix as AutoDispatch path).
 setInterval(async () => {
   try {
-    const healed = await _healStuckOfferedJobs('staleOfferWatchdog-90s');
+    const healed = await _healStuckOfferedJobsAfterFirebaseSync('staleOfferWatchdog-90s');
     if (healed) console.log(`[stale-offer watchdog] healed ${healed} stuck Offered job(s)`);
     const cids = [...new Set(jobStore.map(j => j && j.companyId).filter(Boolean))];
     for (const cid of cids) {
