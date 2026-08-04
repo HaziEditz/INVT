@@ -58,6 +58,71 @@ function hailTimelineKeys(step) {
   };
 }
 
+/** Mirrors src/lib/closedJobs.ts closedJobPaymentDisplay account branch. */
+function closedJobPaymentDisplay(job, raw) {
+  const payment = String(job.paymentType || '').trim();
+  const accountName = String(
+    job.accountName ||
+      raw?.Account_Name ||
+      raw?.AccountName ||
+      raw?.jobAccountName ||
+      raw?.accountName ||
+      '',
+  ).trim();
+  const label =
+    accountName && (/account/i.test(payment) || !payment)
+      ? `${payment || 'Account'} · ${accountName}`
+      : payment;
+  return label || '—';
+}
+
+/** Mirrors /api/driver/search-accounts + [searchmulti] business match rules. */
+function businessAccountMatchesQuery(b, rawQ) {
+  const q = String(rawQ || '').toLowerCase().trim();
+  if (!q) return true;
+  const name = String(b.name || '').toLowerCase();
+  const phone = String(b.phone || '');
+  const id = String(b.id || '');
+  const code = String(b.accountCode || b.AccountCode || '').toLowerCase();
+  const qNum = parseInt(q, 10);
+  return (
+    name.includes(q) ||
+    phone.includes(q) ||
+    id.toLowerCase().includes(q) ||
+    (code && code.includes(q)) ||
+    (qNum > 0 && (b.id === qNum || id === String(qNum)))
+  );
+}
+
+test('closedJobPaymentDisplay shows Account · business name', () => {
+  assert.equal(
+    closedJobPaymentDisplay(
+      { paymentType: 'Account', accountName: 'Invercargill taxis' },
+      {},
+    ),
+    'Account · Invercargill taxis',
+  );
+  assert.equal(
+    closedJobPaymentDisplay({ paymentType: 'Account' }, { Account_Name: 'Acme Co' }),
+    'Account · Acme Co',
+  );
+  assert.equal(closedJobPaymentDisplay({ paymentType: 'Cash' }, {}), 'Cash');
+});
+
+test('business account search matches id case-insensitively and by accountCode', () => {
+  const row = {
+    id: '-OUNEPJIYVKHAAC6CFTN',
+    name: 'Invercargill taxis',
+    accountCode: 'INV1',
+  };
+  assert.equal(businessAccountMatchesQuery(row, '-ounepjiyvkhaac6cftn'), true);
+  assert.equal(businessAccountMatchesQuery(row, 'INV1'), true);
+  assert.equal(businessAccountMatchesQuery(row, 'inv1'), true);
+  assert.equal(businessAccountMatchesQuery(row, 'taxis'), true);
+  assert.equal(businessAccountMatchesQuery({ id: 42, name: 'Num Co' }, '42'), true);
+  assert.equal(businessAccountMatchesQuery(row, 'nope'), false);
+});
+
 test('UA badge: Account job shows ACCOUNT not raw Firebase account id', () => {
   const label = jobPaymentBadgeLabel({
     accountId: '-OUNEPJIYVKHAAC6CFTN',

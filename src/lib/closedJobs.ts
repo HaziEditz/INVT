@@ -189,9 +189,21 @@ export function closedJobPaymentCollected(
 export function closedJobPaymentDisplay(job: Job, raw?: Record<string, unknown>): string {
   const st = normalizeJobStatus(job.status);
   const payment = (job.paymentType || '').trim();
-  if (st === 'Completed') return payment || '—';
+  const accountName = String(
+    job.accountName ||
+      raw?.Account_Name ||
+      raw?.AccountName ||
+      raw?.jobAccountName ||
+      raw?.accountName ||
+      '',
+  ).trim();
+  const label =
+    accountName && (/account/i.test(payment) || !payment)
+      ? `${payment || 'Account'} · ${accountName}`
+      : payment;
+  if (st === 'Completed') return label || '—';
   if (!closedJobPaymentCollected(job, raw)) return '—';
-  return payment || '—';
+  return label || '—';
 }
 
 export function closedJobDriverDisplay(job: Job): string {

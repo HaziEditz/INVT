@@ -277,8 +277,18 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         .join(' | ')
         .trim();
     })(),
-    accountId: rec.Account_id ? String(rec.Account_id) : undefined,
-    accountName: rec.Account_Name ? String(rec.Account_Name) : undefined,
+    accountId: (() => {
+      const id = String(
+        rec.Account_id ?? rec.AccountId ?? rec.jobAccountId ?? rec.accountId ?? '',
+      ).trim();
+      return id || undefined;
+    })(),
+    accountName: (() => {
+      const name = String(
+        rec.Account_Name ?? rec.AccountName ?? rec.jobAccountName ?? rec.accountName ?? '',
+      ).trim();
+      return name || undefined;
+    })(),
     tariffId: (() => {
       const id = rec.TarriffId ?? rec.TariffId ?? rec.tariffId;
       return id != null && String(id) !== '' ? String(id) : undefined;

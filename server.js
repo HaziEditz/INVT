@@ -16005,25 +16005,31 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     const _saCid = String(_saDriver.companyId || _sa.companyId || '').trim();
     const _saQ = String(_sa.query || _sa.q || _sa.search || '').toLowerCase().trim();
+    const _saQNum = parseInt(_saQ, 10);
     const _saHits = dedupeBusinessAccountHits(
       businessAccStore
-        .filter(b =>
-          b &&
-          String(b.companyId || '') === _saCid &&
-          b.active !== false &&
-          (!_saQ ||
-            String(b.name || '').toLowerCase().includes(_saQ) ||
-            String(b.phone || '').includes(_saQ) ||
-            String(b.id || '').includes(_saQ) ||
-            (b.accountCode && String(b.accountCode).toLowerCase().includes(_saQ))),
-        )
+        .filter(b => {
+          if (!b || String(b.companyId || '') !== _saCid || b.active === false) return false;
+          if (!_saQ) return true;
+          const name = String(b.name || '').toLowerCase();
+          const phone = String(b.phone || '');
+          const id = String(b.id || '');
+          const code = String(b.accountCode || b.AccountCode || '').toLowerCase();
+          return (
+            name.includes(_saQ) ||
+            phone.includes(_saQ) ||
+            id.toLowerCase().includes(_saQ) ||
+            (code && code.includes(_saQ)) ||
+            (_saQNum > 0 && (b.id === _saQNum || id === String(_saQNum)))
+          );
+        })
         .slice(0, 40)
         .map(b => ({
           Id: b.id,
           Name: b.name || '',
           PhoneNo: b.phone || '',
           Email: b.email || '',
-          AccountCode: b.accountCode || '',
+          AccountCode: b.accountCode || b.AccountCode || '',
           Type: 'Account',
         })),
     );
@@ -21563,8 +21569,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           });
         const baccResults = dedupeBusinessAccountHits(
           businessAccStore
-            .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q) || (b.accountCode && b.accountCode.toLowerCase().includes(q)) || (parseInt(q,10)>0 && b.id===parseInt(q,10))))
-            .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, AccountCode: b.accountCode||'', Type: 'Account' })),
+            .filter(b => {
+              if (!(b.companyId===sessionCompanyId && b.active!==false)) return false;
+              if (!q) return true;
+              const name = String(b.name || '').toLowerCase();
+              const phone = String(b.phone || '');
+              const id = String(b.id || '');
+              const code = String(b.accountCode || b.AccountCode || '').toLowerCase();
+              const qNum = parseInt(q, 10);
+              return (
+                name.includes(q) ||
+                phone.includes(q) ||
+                id.toLowerCase().includes(q) ||
+                (code && code.includes(q)) ||
+                (qNum > 0 && (b.id === qNum || id === String(qNum)))
+              );
+            })
+            .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, AccountCode: b.accountCode||b.AccountCode||'', Type: 'Account' })),
         );
         const pasResults = passengerStore
           .filter(p => p.companyId===sessionCompanyId && (!q || (p.Name||'').toLowerCase().includes(q) || (p.PhoneNo||'').includes(q) || (p.Email||'').toLowerCase().includes(q)))
@@ -25377,9 +25398,10 @@ async function _syncBizAccountsFromFirebase() {
       Object.entries(snap).forEach(([key, val]) => {
         if (!val || val.active === false) return;
         const _existing = businessAccStore.find(b => b.id === key && b.companyId === cid);
+        const _code = String(val.accountCode || val.AccountCode || '').trim();
         if (_existing) {
           // Refresh fields that may have been added after the account was first persisted
-          if (val.accountCode)  _existing.accountCode  = val.accountCode;
+          if (_code)            _existing.accountCode  = _code;
           if (val.paymentTerms) _existing.paymentTerms = val.paymentTerms;
           if (val.name)         _existing.name         = val.name;
           return;
@@ -25394,7 +25416,7 @@ async function _syncBizAccountsFromFirebase() {
           email:        val.email        || '',
           address:      val.address      || '',
           notes:        val.notes        || '',
-          accountCode:  val.accountCode  || '',
+          accountCode:  _code,
           paymentTerms: val.paymentTerms || '',
           active:       val.active !== false,
           created_at:   val.createdAt    || new Date().toISOString(),
