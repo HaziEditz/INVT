@@ -79,16 +79,16 @@ export function parseGpsRoute(raw: Record<string, unknown>): GpsRoutePoint[] {
 }
 
 export function parseClosedFareBreakdown(raw: Record<string, unknown>): ClosedFareBreakdown | null {
-  const fb = raw.fareBreakdown;
+  const fb = raw.fareBreakdown ?? raw.FareBreakdown;
   if (fb && typeof fb === 'object') {
     const o = fb as Record<string, unknown>;
     const parsed: ClosedFareBreakdown = {
-      flagFall: num(o.flagFall),
-      distanceKm: num(o.distanceKm),
-      waitingMinutes: num(o.waitingMinutes),
-      waitingCharge: num(o.waitingCharge),
-      distanceCharge: num(o.distanceCharge),
-      total: num(o.total),
+      flagFall: num(o.flagFall ?? o.FlagFall),
+      distanceKm: num(o.distanceKm ?? o.DistanceKm),
+      waitingMinutes: num(o.waitingMinutes ?? o.WaitingMinutes),
+      waitingCharge: num(o.waitingCharge ?? o.WaitingCharge ?? o.waitingCost),
+      distanceCharge: num(o.distanceCharge ?? o.DistanceCharge ?? o.RideCost),
+      total: num(o.total ?? o.Total ?? o.totalFare ?? o.TotalFare),
     };
     if (Object.values(parsed).some((v) => v != null)) return parsed;
   }
@@ -98,6 +98,7 @@ export function parseClosedFareBreakdown(raw: Record<string, unknown>): ClosedFa
     distanceKm: num(raw.distanceKm ?? raw.JobDistance ?? raw.distance),
     waitingMinutes: num(raw.waitingMinutes ?? raw.waitingMin ?? raw.WaitingTime),
     waitingCharge: num(raw.waitingCharge ?? raw.waitingCost ?? raw.WaitingCost),
+    distanceCharge: num(raw.distanceCharge ?? raw.DistanceCharge ?? raw.RideCost),
     total: num(raw.totalFare ?? raw.TotalFare ?? raw.meterFare ?? raw.fare),
   };
   if (Object.values(fallback).some((v) => v != null)) return fallback;

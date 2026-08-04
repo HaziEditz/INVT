@@ -34,9 +34,12 @@ function pushEvent(
 export function buildClosedJobTimeline(job: Job, raw: Record<string, unknown>): ClosedTimelineEvent[] {
   const events: ClosedTimelineEvent[] = [];
   const step =
-    raw.stepTimes && typeof raw.stepTimes === 'object'
+    (raw.stepTimes && typeof raw.stepTimes === 'object'
       ? (raw.stepTimes as Record<string, unknown>)
-      : {};
+      : null) ||
+    (raw.StepTimes && typeof raw.StepTimes === 'object'
+      ? (raw.StepTimes as Record<string, unknown>)
+      : {});
 
   pushEvent(events, 'created', 'Created at', raw.createdAt ?? raw.CreatedAt ?? job.createdAt);
   pushEvent(events, 'offered', 'Dispatched / Offered at', raw.offeredAt ?? job.offeredAt);
@@ -46,13 +49,25 @@ export function buildClosedJobTimeline(job: Job, raw: Record<string, unknown>): 
     'Driver accepted at',
     raw.DriverAcceptedAt ?? raw.driverAcceptedAt ?? step.acceptedAt,
   );
-  pushEvent(events, 'onTheWay', 'On the way at', raw.OnTheWayAt ?? raw.onTheWayAt);
+  pushEvent(events, 'onTheWay', 'On the way at', raw.OnTheWayAt ?? raw.onTheWayAt ?? step.onWayAt);
   pushEvent(events, 'arrived', 'Arrived at', raw.ArrivedAt ?? raw.arrivedAt ?? step.arrivedAt);
+  // Hail trips stamp hailStartedAt / onboardAt (no dispatch Arrived stage).
+  pushEvent(
+    events,
+    'hailStarted',
+    'Hail started at',
+    step.hailStartedAt ?? raw.hailStartedAt ?? raw.HailStartedAt,
+  );
   pushEvent(
     events,
     'onboard',
     'On board at',
-    raw.OnBoardAt ?? raw.onBoardAt ?? raw.ActiveAt ?? raw.activeAt ?? step.onboardAt,
+    raw.OnBoardAt ??
+      raw.onBoardAt ??
+      raw.ActiveAt ??
+      raw.activeAt ??
+      step.onboardAt ??
+      step.hailStartedAt,
   );
 
   const st = normalizeJobStatus(job.status);
@@ -75,6 +90,7 @@ export function buildClosedJobTimeline(job: Job, raw: Record<string, unknown>): 
         raw.JobCompleteTime ??
         raw.newcompelete ??
         step.completeAt ??
+        step.hailEndedAt ??
         job.completedAt,
     );
   }

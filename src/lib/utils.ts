@@ -53,6 +53,19 @@ export function paymentLabel(type: string): string {
   return t.split(/[\s/]/)[0].slice(0, 12);
 }
 
+/** UA/job-card payment badge — never show raw Firebase Account_id. */
+export function jobPaymentBadgeLabel(job: {
+  paymentType?: string;
+  accountId?: string;
+}): string {
+  const hasAccount = Boolean(String(job.accountId || '').trim());
+  const pt = String(job.paymentType || '').trim();
+  if (hasAccount || /account/i.test(pt)) {
+    return paymentLabel(pt || 'Account');
+  }
+  return paymentLabel(pt);
+}
+
 export function paymentBadgeColor(type: string): string {
   const t = (type || '').toLowerCase();
   if (t.includes('cash')) return '#22c55e';

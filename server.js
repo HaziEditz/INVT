@@ -4263,7 +4263,7 @@ async function completeBooking(opts) {
   // arbitrary writes; unknown fields are ignored (logged once).
   const _completeFields = [
     'tariffId', 'tariffName', 'tariffChangedAt',
-    'waitingCost', 'waitingTimeMinutes',
+    'waitingCost', 'waitingTimeMinutes', 'waitingMinutes', 'waitingCharge',
     'extras', 'extrasTotal',                       // service-type chips
     'voucherCode', 'voucherDiscount', 'tmVoucher', // TM voucher payload
     'accClientId', 'accApprovalNo', 'accClaimNo',  // ACC workflow fields
@@ -4274,7 +4274,12 @@ async function completeBooking(opts) {
     'finalDropAddress',                            // when driver deviates from booking
     'driverComments', 'meterReading',
     'fixedPrice', 'fixedPriceReason',
-    'gst', 'tipAmount', 'tollFee', 'parkingFee'
+    'gst', 'tipAmount', 'tollFee', 'parkingFee',
+    // Closed Job detail — meter / timeline / vehicle (driver complete payload)
+    'fareBreakdown', 'FareBreakdown', 'stepTimes',
+    'VehicleType', 'vehicleType',
+    'flagFall', 'distanceCharge', 'tariffChanges',
+    'gpsRoute', 'routePolyline', 'route_polyline',
   ];
   if (opts.payload && typeof opts.payload === 'object') {
     for (const _k of _completeFields) {
@@ -4282,6 +4287,14 @@ async function completeBooking(opts) {
         job[_k] = opts.payload[_k];
       }
     }
+  }
+  // Normalize PascalCase mirrors for Closed Job readers / Firebase fanout.
+  if (job.fareBreakdown && !job.FareBreakdown) job.FareBreakdown = job.fareBreakdown;
+  if (job.FareBreakdown && !job.fareBreakdown) job.fareBreakdown = job.FareBreakdown;
+  const _completeVehicleType = String(job.VehicleType || job.vehicleType || '').trim();
+  if (_completeVehicleType) {
+    job.VehicleType = _completeVehicleType;
+    job.vehicleType = _completeVehicleType;
   }
 
   _archiveClosedJob(job);
@@ -4301,9 +4314,28 @@ async function completeBooking(opts) {
     lastUpdatedAt: job.lastUpdatedAt,
     lastUpdatedBy: job.lastUpdatedBy,
     fare:          job.TotalFare || '',
+    TotalFare:     job.TotalFare || '',
     distance:      job.distance  || '',
     completedAt:   _nowIso,
     JobCompleteTime: _nowIso,
+    ...(job.fareBreakdown || job.FareBreakdown
+      ? {
+          fareBreakdown: job.fareBreakdown || job.FareBreakdown,
+          FareBreakdown: job.FareBreakdown || job.fareBreakdown,
+        }
+      : {}),
+    ...(job.stepTimes ? { stepTimes: job.stepTimes } : {}),
+    ...(_completeVehicleType
+      ? { VehicleType: _completeVehicleType, vehicleType: _completeVehicleType }
+      : {}),
+    ...(job.flagFall != null ? { flagFall: job.flagFall } : {}),
+    ...(job.distanceCharge != null ? { distanceCharge: job.distanceCharge } : {}),
+    ...(job.waitingCharge != null || job.waitingCost != null
+      ? { waitingCharge: job.waitingCharge ?? job.waitingCost, waitingCost: job.waitingCost ?? job.waitingCharge }
+      : {}),
+    ...(job.tariffChanges ? { tariffChanges: job.tariffChanges } : {}),
+    ...(job.tariffId ? { tariffId: job.tariffId } : {}),
+    ...(job.tariffName ? { tariffName: job.tariffName } : {}),
   }, _terminalFirebaseStatusFields('Completed'));
   let _ds = { driverFreed: false, driverState: 'unchanged', queueNo: null };
   const _perfStart = Date.now();
@@ -16690,6 +16722,17 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     const _cjVehicleId = ((_cjData.vehicleId) || '').toString().trim();
     const _cjPreAssigned = _cjSource === 'hail' && _cjDriverId && _cjVehicleId;
     const _cjInitialStatus = _cjPreAssigned ? 'Active' : 'Pending';
+    // Hail: prefer client-supplied vehicle type, else ZONE_DRIVERS.vehicletype.
+    let _cjVehicleType = String(_cjData.vehicleType || _cjData.VehicleType || '').trim();
+    if (!_cjVehicleType && _cjPreAssigned) {
+      try {
+        const _zdVt = ZONE_DRIVERS.find(d =>
+          (String(d.driverid).trim() === String(_cjDriverId).trim() ||
+           String(d.VehicleId).trim() === String(_cjVehicleId).trim()) &&
+          d.companyId && String(d.companyId) === String(_cjCid));
+        if (_zdVt) _cjVehicleType = String(_zdVt.vehicletype || '').trim();
+      } catch (_e) { /* ignore */ }
+    }
 
     const _cjJob = {
       Id:                 _cjIdNum,
@@ -16726,6 +16769,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       AccountId:          '',
       VehicleNo:          _cjPreAssigned ? _cjVehicleId : null,
       CallSign:           _cjPreAssigned ? _cjVehicleId : null,
+      ...(_cjVehicleType ? { VehicleType: _cjVehicleType, vehicleType: _cjVehicleType } : {}),
       webstatus:          '0',
       createdAt:          _cjCreated,
       createdVia:         '/api/job/create',
@@ -16857,6 +16901,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             createdAt:       _cjCreated,
             DriverAcceptedAt: _cjNow,
             updateSeq:       1,
+            ...(_cjVehicleType ? { VehicleType: _cjVehicleType, vehicleType: _cjVehicleType } : {}),
             ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
           };
           await Promise.all([

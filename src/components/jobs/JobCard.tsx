@@ -29,7 +29,7 @@ import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
 import {
   cn,
-  paymentLabel,
+  jobPaymentBadgeLabel,
   paymentBadgeColor,
   sourceBadgeLabel,
   sourceLabel,
@@ -660,8 +660,11 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
             {job.dropAddress || 'No dropoff'}
           </span>
         </div>
-        <Badge color={paymentBadgeColor(job.paymentType)} className="!text-[8px] !px-1 !py-0 shrink-0 ml-1">
-          {job.accountId ? `#${job.accountId}` : paymentLabel(job.paymentType)}
+        <Badge
+          color={paymentBadgeColor(job.paymentType || (job.accountId ? 'account' : ''))}
+          className="!text-[8px] !px-1 !py-0 shrink-0 ml-1"
+        >
+          {jobPaymentBadgeLabel(job)}
         </Badge>
       </div>
 
