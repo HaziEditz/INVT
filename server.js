@@ -6995,10 +6995,16 @@ function _autoDispatchDriverChecks(d, companyId) {
   const lngRaw = d && d.lng != null ? String(d.lng).trim() : '';
   const latNum = latRaw ? parseFloat(latRaw) : NaN;
   const lngNum = lngRaw ? parseFloat(lngRaw) : NaN;
+  // Ghost Active/Assigned trips (e.g. offline complete not yet flushed) must not
+  // receive a new auto-offer — accept would queue instead of normal offer flow.
+  const hasActiveTrip = !!(
+    d && _driverHasActiveTripJob(d.driverid, cid)
+  );
   const checks = {
     companyIdMatch: !!(d && String(d.companyId || '') === cid),
     statusAvailable: !!(d && String(d.vehiclestatus || '') === 'Available'),
     notAwayLocked: !!(d && !isAwayLockedForAutoDispatch(d.driverid, d.vehiclestatus)),
+    noActiveTripJob: !hasActiveTrip,
     hasGpsLat: !!(latRaw && Number.isFinite(latNum) && latNum !== 0),
     hasGpsLng: !!(lngRaw && Number.isFinite(lngNum) && lngNum !== 0),
   };
@@ -7010,6 +7016,7 @@ function _autoDispatchDriverChecks(d, companyId) {
       companyIdMatch: `companyId === ${cid}`,
       statusAvailable: 'vehiclestatus === Available',
       notAwayLocked: 'not away-locked for dispatch (grace elapsed, Away ack, or lock expired)',
+      noActiveTripJob: 'no Active/Assigned/Arrived jobStore trip for this driver',
       hasGpsLat: 'lat present and non-zero in ZONE_DRIVERS',
       hasGpsLng: 'lng present and non-zero in ZONE_DRIVERS',
     },
