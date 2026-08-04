@@ -25,6 +25,7 @@ import {
 } from '@/lib/driverConnectivity';
 import { setJobEditLock, releaseJobEditLock, releaseJobEditLockKeepalive } from '@/lib/jobEditLock';
 import { getEditLockSessionId } from '@/lib/editLockSession';
+import { dedupeBusinessAccountHits } from '@/lib/accountSearchDedupe';
 import {
   buildInsertParams,
   buildJobEditChangesDelta,
@@ -597,17 +598,18 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   useEffect(() => {
     const q = form.accountSearch.trim();
-    if (!open || form.paymentType !== 'account' || q.length < 2) {
+    // Once an account is selected, stop searching so the list collapses.
+    if (!open || form.paymentType !== 'account' || form.accountId || q.length < 2) {
       setAccountHits([]);
       return;
     }
     const t = setTimeout(() => {
       searchCustomers(q)
-        .then((r) => setAccountHits(r.accounts))
+        .then((r) => setAccountHits(dedupeBusinessAccountHits(r.accounts)))
         .catch(() => setAccountHits([]));
     }, 300);
     return () => clearTimeout(t);
-  }, [open, form.paymentType, form.accountSearch]);
+  }, [open, form.paymentType, form.accountSearch, form.accountId]);
 
   useEffect(() => {
     const q = form.accSearchQuery.trim();
@@ -1648,38 +1650,62 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
           {form.paymentType === 'account' && (
             <PaymentPanel onClose={clearPayment}>
-              <input
-                className="cj-input mb-1"
-                placeholder="Search account (optional)"
-                value={form.accountSearch}
-                onChange={(e) => patch({ accountSearch: e.target.value })}
-              />
-              {accountHits.length > 0 && (
-                <div className="max-h-24 overflow-y-auto rounded border border-[#3d4260] mb-2 text-xs">
-                  {accountHits.map((a) => (
-                    <button
-                      key={String(a.Id)}
-                      type="button"
-                      className="w-full text-left px-2 py-1.5 hover:bg-[#1e2235] border-b border-[#3d4260] last:border-0"
-                      onClick={() =>
-                        patch({
-                          accountId: String(a.Id),
-                          accountName: a.Name,
-                          accountCredit: '',
-                          accountSearch: a.Name,
-                        })
-                      }
-                    >
-                      {a.Name}
-                    </button>
-                  ))}
+              {form.accountId && form.accountName ? (
+                <div className="flex items-start justify-between gap-2 rounded border border-[#3d4260] bg-[#1a1e2e] px-2.5 py-2 mb-1">
+                  <p className="text-xs text-[#e8eaf0]">
+                    Account: <span className="font-semibold">{form.accountName}</span> selected
+                    {form.accountCredit ? ` · Credit: ${form.accountCredit}` : ''}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-[11px] text-[#8b92b0] hover:text-[#e8eaf0] underline shrink-0"
+                    onClick={() => {
+                      setAccountHits([]);
+                      patch({
+                        accountId: '',
+                        accountName: '',
+                        accountCredit: '',
+                        accountSearch: '',
+                      });
+                    }}
+                  >
+                    Change
+                  </button>
                 </div>
-              )}
-              {form.accountName && (
-                <p className="text-xs text-[#e8eaf0]">
-                  {form.accountName}
-                  {form.accountCredit ? ` · Credit: ${form.accountCredit}` : ''}
-                </p>
+              ) : (
+                <>
+                  <input
+                    className="cj-input mb-1"
+                    placeholder="Search account (optional)"
+                    value={form.accountSearch}
+                    onChange={(e) => patch({ accountSearch: e.target.value, accountId: '', accountName: '' })}
+                  />
+                  {accountHits.length > 0 && (
+                    <div className="max-h-24 overflow-y-auto rounded border border-[#3d4260] mb-2 text-xs">
+                      {accountHits.map((a) => (
+                        <button
+                          key={String(a.Id)}
+                          type="button"
+                          className="w-full text-left px-2 py-1.5 hover:bg-[#1e2235] border-b border-[#3d4260] last:border-0"
+                          onClick={() => {
+                            setAccountHits([]);
+                            patch({
+                              accountId: String(a.Id),
+                              accountName: a.Name,
+                              accountCredit: '',
+                              accountSearch: a.Name,
+                            });
+                          }}
+                        >
+                          {a.Name}
+                          {a.AccountCode ? (
+                            <span className="text-[#8b92b0]"> · {a.AccountCode}</span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </PaymentPanel>
           )}

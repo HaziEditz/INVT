@@ -44,7 +44,14 @@ export interface CustomerSearchResult {
     acc_approval_id?: string | null;
     manager_id?: string;
   }>;
-  accounts: Array<{ Id: string | number; Name: string; PhoneNo?: string; Email?: string; Type?: string }>;
+  accounts: Array<{
+    Id: string | number;
+    Name: string;
+    PhoneNo?: string;
+    Email?: string;
+    AccountCode?: string;
+    Type?: string;
+  }>;
   passengers: Array<{ Id: string | number; Name: string; PhoneNo?: string; Email?: string }>;
 }
 

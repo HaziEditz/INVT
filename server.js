@@ -77,6 +77,7 @@ const {
   filterForbiddenTariffRows,
   collectTariffNamesFromMergedPayload,
 } = require('./lib/tariffGuard.cjs');
+const { dedupeBusinessAccountHits } = require('./lib/accountSearchDedupe.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -3646,7 +3647,13 @@ function _parseLatLngPair(raw) {
 }
 
 function _offerPaymentTypeFromJob(job) {
-  const pm = String(job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '').toLowerCase();
+  let pm = String(job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '').toLowerCase();
+  // Create path historically omitted PaymentMethod — infer Account from linked account / booking type.
+  if (!pm) {
+    const accountId = String(job.Account_id || job.AccountId || '').trim();
+    const bookingType = String(job.Bookingtype || job.BookingType || job.bookingType || '').toLowerCase();
+    if (accountId || bookingType.includes('account')) pm = 'account';
+  }
   if (pm.includes('card') || pm.includes('stripe')) return 'card';
   if (pm.includes('account')) return 'account';
   if (pm.includes('eftpos')) return 'eftpos';
@@ -3654,6 +3661,21 @@ function _offerPaymentTypeFromJob(job) {
   if (pm.includes('acc')) return 'acc';
   if (pm.includes('cash')) return 'cash';
   return pm || 'cash';
+}
+
+/** Resolve PaymentMethod/PaymentType + booking type for InsertBookingv4 create. */
+function _paymentAndBookingTypeFromCreateParams(param) {
+  let method = String(param('PaymentMethod') || param('PaymentType') || '').trim();
+  const accountId = String(param('Account_id') || '').trim();
+  const bookingType = String(param('Bookingtype') || param('BookingType') || '').trim() || 'Normal Ride';
+  if (!method && accountId) method = 'Account';
+  if (!method && /account/i.test(bookingType)) method = 'Account';
+  return {
+    PaymentMethod: method,
+    PaymentType: method,
+    Bookingtype: bookingType,
+    BookingType: bookingType,
+  };
 }
 
 // Full manual-offer fanout — mirrors legacy writeJobDetailsToFirebase + pendingjobs patch.
@@ -18147,7 +18169,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const entitiesDetails = param('EntitiesDetails') || '';
         const _dbRaw = param('DispatchBefore') !== undefined ? param('DispatchBefore') : param('Dispatchbefore');
         const dispatchBefore = _dbRaw !== undefined && _dbRaw !== null ? (parseInt(_dbRaw) || 0) : 10;
-        const bookingType = param('Bookingtype') || 'Normal Ride';
+        const _payBook1 = _paymentAndBookingTypeFromCreateParams(param);
+        const bookingType = _payBook1.Bookingtype;
         const quenumber = param('quenumber') || 0;
         const dispatcherName = param('DispatcherName') || 'Dispatcher';
         const u_id = param('u_id') || param('U_id') || null;
@@ -18183,6 +18206,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EntitiesDetails: entitiesDetails, U_id: u_id,
           BookingSource: param('Source') || 'Dispatch Console',
           BookingStatus: bookstatus,
+          Bookingtype: bookingType,
+          BookingType: bookingType,
+          PaymentMethod: _payBook1.PaymentMethod,
+          PaymentType: _payBook1.PaymentType,
           VehicleType: vehicleType,
           serviceType: serviceType,
           Urgent: param('Urgent') || 'No',
@@ -18274,6 +18301,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             TarriffName:      String(newJob.TarriffName ?? newJob.TariffName ?? ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
+            Account_id:       String(newJob.Account_id || ''),
+            PaymentMethod:    String(newJob.PaymentMethod || ''),
+            PaymentType:      String(newJob.PaymentType || ''),
+            Bookingtype:      String(newJob.Bookingtype || ''),
+            BookingType:      String(newJob.BookingType || ''),
             ...(hasAssignedDriver && _resolvedAtCreate ? {
               DriverId:       _createDrvId,
               AssignedDriver: _createDrvId,
@@ -18416,7 +18448,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         const entitiesDetails = param('EntitiesDetails') || '';
         const _dbRaw = param('DispatchBefore') !== undefined ? param('DispatchBefore') : param('Dispatchbefore');
         const dispatchBefore = _dbRaw !== undefined && _dbRaw !== null ? (parseInt(_dbRaw) || 0) : 10;
-        const bookingType = param('Bookingtype') || 'Normal Ride';
+        const _payBook2 = _paymentAndBookingTypeFromCreateParams(param);
+        const bookingType = _payBook2.Bookingtype;
         const dispatcherName = param('DispatcherName') || 'Dispatcher';
         const u_id = param('u_id') || param('U_id') || null;
         const serviceType2 = (['taxi','food','freight','tm'].includes((param('serviceType') || '').toLowerCase()))
@@ -18442,6 +18475,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           EntitiesDetails: entitiesDetails, U_id: u_id,
           BookingSource: param('Source') || 'Dispatch Console',
           BookingStatus: bookstatus,
+          Bookingtype: bookingType,
+          BookingType: bookingType,
+          PaymentMethod: _payBook2.PaymentMethod,
+          PaymentType: _payBook2.PaymentType,
           VehicleType: vehicleType,
           serviceType: serviceType2,
           Urgent: param('Urgent') || 'No',
@@ -18519,6 +18556,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             TarriffName:      String(newJob.TarriffName ?? newJob.TariffName ?? ''),
             CustomeRate:      String(newJob.CustomeRate || ''),
             Account_Name:     String(newJob.Account_Name || ''),
+            Account_id:       String(newJob.Account_id || ''),
+            PaymentMethod:    String(newJob.PaymentMethod || ''),
+            PaymentType:      String(newJob.PaymentType || ''),
+            Bookingtype:      String(newJob.Bookingtype || ''),
+            BookingType:      String(newJob.BookingType || ''),
             ...(parseInt(String(newJob.DispatchTimebefore || '0'), 10) > 0 && newJob.ScheduledFor ? {
               NotifyDispatchAt: new Date(
                 Number(newJob.ScheduledFor) - (parseInt(String(newJob.DispatchTimebefore || '0'), 10) || 15) * 60000
@@ -21345,9 +21387,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
               acc_approval_id: activeApp ? activeApp.id : null, manager_id: activeApp ? activeApp.manager_id : c.manager_id,
               trip_status: activeApp ? activeApp.trip_status : '' };
           });
-        const baccResults = businessAccStore
-          .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q) || (b.accountCode && b.accountCode.toLowerCase().includes(q)) || (parseInt(q,10)>0 && b.id===parseInt(q,10))))
-          .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, AccountCode: b.accountCode||'', Type: 'Account' }));
+        const baccResults = dedupeBusinessAccountHits(
+          businessAccStore
+            .filter(b => b.companyId===sessionCompanyId && b.active!==false && (!q || b.name.toLowerCase().includes(q) || (b.phone||'').includes(q) || String(b.id).includes(q) || (b.accountCode && b.accountCode.toLowerCase().includes(q)) || (parseInt(q,10)>0 && b.id===parseInt(q,10))))
+            .map(b => ({ Id: b.id, Name: b.name, PhoneNo: b.phone, Email: b.email, AccountCode: b.accountCode||'', Type: 'Account' })),
+        );
         const pasResults = passengerStore
           .filter(p => p.companyId===sessionCompanyId && (!q || (p.Name||'').toLowerCase().includes(q) || (p.PhoneNo||'').includes(q) || (p.Email||'').toLowerCase().includes(q)))
           .slice(0, 20).map(p => ({ Id: p.id, Name: p.Name, PhoneNo: p.PhoneNo, Email: p.Email }));

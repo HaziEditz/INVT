@@ -341,6 +341,10 @@ function paymentExtras(form: CreateJobFormState): string {
     if (form.eftposSurcharge) bits.push('EFTPOS surcharge applied');
   }
   if (form.paymentType === 'card') bits.push('Payment: Card (Stripe)');
+  if (form.paymentType === 'account') {
+    bits.push('Payment: Account');
+    if (form.accountName) bits.push(`Account: ${form.accountName}`);
+  }
   if (form.notes) bits.push(form.notes);
   if (form.tmCardNumber) bits.push(`TM Card: ${form.tmCardNumber}`);
   if (form.tmCardExpiry) bits.push(`TM Expiry: ${form.tmCardExpiry}`);
@@ -364,6 +368,9 @@ export function buildInsertParams(form: CreateJobFormState, dispatcherName: stri
 
   const receivePayment =
     form.paymentType === 'card' && form.cardPaid ? form.cardAmount : form.fixedFareEnabled ? form.fixedFareAmount : '';
+
+  // Align create with edit: persist payment so offer fanout does not default to cash.
+  const paymentMethod = paymentLabelFromType(form.paymentType);
 
   return [
     { name: 'Name', Value: form.name },
@@ -408,6 +415,8 @@ export function buildInsertParams(form: CreateJobFormState, dispatcherName: stri
     { name: 'Acc_manager_id', Value: form.accManagerId },
     { name: 'Acc_trip_status', Value: '' },
     { name: 'Bookingtype', Value: bookingType(form) },
+    { name: 'PaymentMethod', Value: paymentMethod },
+    { name: 'PaymentType', Value: paymentMethod },
     { name: 'quenumber', Value: String(form.queueNumber) },
     { name: 'Recieve_payment', Value: receivePayment },
     { name: 'PromoId', Value: '' },
@@ -575,7 +584,7 @@ function parseNotesFromEntitiesDetails(raw?: string): string {
     .trim();
 }
 
-function paymentLabelFromType(paymentType: PaymentType): string {
+export function paymentLabelFromType(paymentType: PaymentType): string {
   if (paymentType === 'cash') return 'Cash';
   if (paymentType === 'card') return 'Card';
   if (paymentType === 'eftpos') return 'EFTPOS';
