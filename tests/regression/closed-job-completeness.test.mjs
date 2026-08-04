@@ -270,3 +270,105 @@ test('complete fanout persists fareBreakdown + stepTimes + VehicleType', async (
   assert.ok(node.stepTimes && typeof node.stepTimes === 'object', 'missing stepTimes');
   assert.equal(String(node.VehicleType || node.vehicleType || ''), 'Van');
 });
+
+test('complete fanout persists Account_id / Account_Name / PaymentMethod', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = String(h.driverIds[0]);
+  await h.ensureDriverReady(driverId);
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Available',
+    lastSeen: Date.now(),
+    lat: -46.4121,
+    lng: 168.3531,
+  });
+
+  const create = await post(
+    '/api/job/create',
+    {
+      companyId: TEST_CID,
+      source: 'hail',
+      driverId,
+      vehicleId: driverId,
+      tariffId: 'regtest-tariff',
+      clientTripId: randomUUID(),
+      pickup: {
+        address: '4 Dee St, Invercargill',
+        lat: -46.4121,
+        lng: 168.3531,
+      },
+      dropoff: {
+        address: '5 Dee St, Invercargill',
+        lat: -46.413,
+        lng: 168.354,
+      },
+      passengers: 1,
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(create.status, 200, JSON.stringify(create.body));
+  const jobId = parseInt(String(create.body?.jobId ?? create.body?.bookingId), 10);
+  assert.ok(jobId > 0);
+
+  const accountId = 'acct-regtest-1';
+  const accountName = 'Regtest Business Account';
+  const complete = await post(
+    '/api/job/complete',
+    {
+      jobId,
+      bookingId: jobId,
+      driverId,
+      companyId: TEST_CID,
+      fare: 12,
+      paymentType: 'Account',
+      payload: {
+        fare: 12,
+        paymentType: 'Account',
+        PaymentMethod: 'Account',
+        PaymentType: 'Account',
+        Account_id: accountId,
+        Account_Name: accountName,
+      },
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(complete.status, 200, JSON.stringify(complete.body));
+  assert.equal(complete.body?.ok, true, JSON.stringify(complete.body));
+
+  const node = await pollFirebasePeek(
+    `allbookings/${TEST_CID}/${jobId}`,
+    (v) =>
+      v &&
+      String(v.Account_id || v.AccountId || '') === accountId &&
+      /Account/i.test(String(v.PaymentMethod || v.paymentMethod || v.PaymentType || '')),
+    { timeoutMs: 20_000 },
+  );
+  assert.equal(String(node.Account_id || node.AccountId || ''), accountId);
+  assert.equal(String(node.Account_Name || node.AccountName || ''), accountName);
+  assert.match(String(node.PaymentMethod || node.paymentMethod || ''), /Account/i);
+});
+
+test('driver search-accounts requires auth and returns accounts array', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = String(h.driverIds[0]);
+  await h.ensureDriverReady(driverId);
+
+  const unauthorized = await post(
+    '/api/driver/search-accounts',
+    { query: 'taxi' },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(unauthorized.status, 401);
+
+  const withAdmin = await post(
+    '/api/driver/search-accounts',
+    { query: 'a', driverId },
+    { 'Content-Type': 'application/json', ...h.adminHeaders },
+  );
+  assert.equal(withAdmin.status, 200, JSON.stringify(withAdmin.body));
+  assert.equal(withAdmin.body?.ok, true);
+  assert.ok(Array.isArray(withAdmin.body?.accounts));
+});

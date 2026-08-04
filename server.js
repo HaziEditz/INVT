@@ -4280,6 +4280,10 @@ async function completeBooking(opts) {
     'VehicleType', 'vehicleType',
     'flagFall', 'distanceCharge', 'tariffChanges',
     'gpsRoute', 'routePolyline', 'route_polyline',
+    // Account payment (dispatch-preselected or hail select-at-end)
+    'paymentType', 'PaymentType', 'PaymentMethod', 'paymentMethod',
+    'Account_id', 'Account_Name', 'AccountId', 'AccountName',
+    'jobAccountId', 'jobAccountName',
   ];
   if (opts.payload && typeof opts.payload === 'object') {
     for (const _k of _completeFields) {
@@ -4295,6 +4299,50 @@ async function completeBooking(opts) {
   if (_completeVehicleType) {
     job.VehicleType = _completeVehicleType;
     job.vehicleType = _completeVehicleType;
+  }
+  // Stamp PaymentMethod from paymentType when driver only sent paymentType.
+  const _payStamp = String(
+    job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '',
+  ).trim();
+  if (_payStamp) {
+    job.PaymentMethod = job.PaymentMethod || _payStamp;
+    job.paymentMethod = job.paymentMethod || _payStamp;
+    job.PaymentType = job.PaymentType || _payStamp;
+    job.paymentType = job.paymentType || _payStamp;
+  }
+  const _completeAccountId = String(
+    job.Account_id || job.AccountId || job.jobAccountId || '',
+  ).trim();
+  const _completeAccountName = String(
+    job.Account_Name || job.AccountName || job.jobAccountName || '',
+  ).trim();
+  if (_completeAccountId) {
+    job.Account_id = _completeAccountId;
+    job.AccountId = _completeAccountId;
+    job.jobAccountId = _completeAccountId;
+    if (!_completeAccountName) {
+      try {
+        const _ba = businessAccStore.find(
+          (b) =>
+            b &&
+            String(b.id) === String(_completeAccountId) &&
+            (!_cid || String(b.companyId || '') === String(_cid)),
+        );
+        if (_ba && _ba.name) {
+          job.Account_Name = _ba.name;
+          job.AccountName = _ba.name;
+          job.jobAccountName = _ba.name;
+        }
+      } catch (_e) { /* ignore */ }
+    }
+  }
+  if (_completeAccountName || job.Account_Name) {
+    const _an = String(job.Account_Name || _completeAccountName || '').trim();
+    if (_an) {
+      job.Account_Name = _an;
+      job.AccountName = _an;
+      job.jobAccountName = _an;
+    }
   }
 
   _archiveClosedJob(job);
@@ -4336,6 +4384,28 @@ async function completeBooking(opts) {
     ...(job.tariffChanges ? { tariffChanges: job.tariffChanges } : {}),
     ...(job.tariffId ? { tariffId: job.tariffId } : {}),
     ...(job.tariffName ? { tariffName: job.tariffName } : {}),
+    ...(job.PaymentMethod || job.paymentMethod || job.paymentType
+      ? {
+          PaymentMethod: job.PaymentMethod || job.paymentMethod || job.paymentType,
+          paymentMethod: job.paymentMethod || job.PaymentMethod || job.paymentType,
+          PaymentType: job.PaymentType || job.paymentType || job.PaymentMethod,
+          paymentType: job.paymentType || job.PaymentType || job.PaymentMethod,
+        }
+      : {}),
+    ...(job.Account_id || job.AccountId
+      ? {
+          Account_id: job.Account_id || job.AccountId,
+          AccountId: job.AccountId || job.Account_id,
+          jobAccountId: job.jobAccountId || job.Account_id || job.AccountId,
+        }
+      : {}),
+    ...(job.Account_Name || job.AccountName
+      ? {
+          Account_Name: job.Account_Name || job.AccountName,
+          AccountName: job.AccountName || job.Account_Name,
+          jobAccountName: job.jobAccountName || job.Account_Name || job.AccountName,
+        }
+      : {}),
   }, _terminalFirebaseStatusFields('Completed'));
   let _ds = { driverFreed: false, driverState: 'unchanged', queueNo: null };
   const _perfStart = Date.now();
@@ -15901,6 +15971,65 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     else if (!_ubResult.ok)    _status = 404;
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_ubResult));
+    return;
+  }
+
+  // ── POST /api/driver/search-accounts — business account search for hail Account payment
+  // Auth: X-User-Key (passforlink). Company scoped from ZONE_DRIVERS — never trust body cid alone.
+  if (urlPath === '/api/driver/search-accounts' && req.method === 'POST') {
+    const _saBody = await readBody(req);
+    let _sa = {};
+    try { _sa = JSON.parse(_saBody); } catch (e) {}
+    const _saUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _saAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    let _saDriver = null;
+    if (_saUserKey) {
+      _saDriver = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _saUserKey ||
+        String(d.userKey || '').trim() === _saUserKey ||
+        String(d.UserKey || '').trim() === _saUserKey
+      )) || null;
+    }
+    if (!_saDriver && _saAdminKey && process.env.BW_ADMIN_KEY && _saAdminKey === process.env.BW_ADMIN_KEY) {
+      const _saDrvQ = String(_sa.driverId || '').trim();
+      if (_saDrvQ) {
+        _saDriver = ZONE_DRIVERS.find(d => d &&
+          (String(d.driverid).trim() === _saDrvQ || String(d.VehicleId).trim() === _saDrvQ)
+        ) || null;
+      }
+    }
+    if (!_saDriver) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+      return;
+    }
+    const _saCid = String(_saDriver.companyId || _sa.companyId || '').trim();
+    const _saQ = String(_sa.query || _sa.q || _sa.search || '').toLowerCase().trim();
+    const _saHits = dedupeBusinessAccountHits(
+      businessAccStore
+        .filter(b =>
+          b &&
+          String(b.companyId || '') === _saCid &&
+          b.active !== false &&
+          (!_saQ ||
+            String(b.name || '').toLowerCase().includes(_saQ) ||
+            String(b.phone || '').includes(_saQ) ||
+            String(b.id || '').includes(_saQ) ||
+            (b.accountCode && String(b.accountCode).toLowerCase().includes(_saQ))),
+        )
+        .slice(0, 40)
+        .map(b => ({
+          Id: b.id,
+          Name: b.name || '',
+          PhoneNo: b.phone || '',
+          Email: b.email || '',
+          AccountCode: b.accountCode || '',
+          Type: 'Account',
+        })),
+    );
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({ ok: true, accounts: _saHits }));
+    console.log(`200: POST /api/driver/search-accounts cid=${_saCid} q="${_saQ}" → ${_saHits.length}`);
     return;
   }
 
