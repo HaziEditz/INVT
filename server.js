@@ -4419,6 +4419,11 @@ function _completeFanoutExtras(job) {
   };
 }
 
+// Cap Firebase cleanup / post-complete heal so /api/job/complete returns inside
+// the driver client's ~12s HTTP budget under Firebase lag. Cleanup continues
+// in the background when this budget is exceeded.
+const COMPLETE_SIDE_EFFECTS_BUDGET_MS = 7000;
+
 async function completeBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
@@ -4472,51 +4477,59 @@ async function completeBooking(opts) {
       console.log(`  [${source}] idempotent: purged stale live jobStore entry #${bookingId}`);
     }
     if (_cidIdem) {
-      try {
-        await executeJobCleanup({
-          profile: 'terminal',
-          bookingId,
-          companyId: _cidIdem,
-          source: `${source}/idempotent-repair`,
-          terminalKind: 'Completed',
-          driverId: _drvIdem,
-          vehicleId: _vehIdem,
-          versionFanout: {
-            awaited: true,
-            isTerminal: true,
-            errorLabel: 'idempotent allbookings fanout failed',
-            patch: Object.assign(
-              { updateSeq: parseInt(_closed.updateSeq) || 0 },
-              _terminalFirebaseStatusFields('Completed'),
-              {
-                completedAt: _closed.JobCompleteTime || new Date().toISOString(),
-                JobCompleteTime: _closed.JobCompleteTime || new Date().toISOString(),
-                fare: _closed.TotalFare || '',
-                TotalFare: _closed.TotalFare || '',
-                distance: _closed.distance || '',
-              },
-              _completeFanoutExtras(_closed),
-            ),
-          },
-          bwClearSeparateTry: true,
-          bwClearErrorLabel: 'idempotent Firebase cleanup failed',
-          removeDriverQueue: true,
-          restoreDriverState: _drvIdem
-            ? { driverId: _drvIdem, vehicleId: _vehIdem, awaited: true }
-            : null,
-          dispatchRefresh: {
-            job: _closed,
-            payload: {
-              cid: _cidIdem,
-              previousStatus: 'Active',
-              status: 'Completed',
-              action: 'complete',
-              driverId: _drvIdem,
+      // Fire-and-forget repair — client already has Completed; do not block idempotent 200.
+      const _idemCleanup = executeJobCleanup({
+        profile: 'terminal',
+        bookingId,
+        companyId: _cidIdem,
+        source: `${source}/idempotent-repair`,
+        terminalKind: 'Completed',
+        driverId: _drvIdem,
+        vehicleId: _vehIdem,
+        versionFanout: {
+          // Awaited inside budget — fire-and-forget races bwClear and can drop Account fields.
+          awaited: true,
+          isTerminal: true,
+          errorLabel: 'idempotent allbookings fanout failed',
+          patch: Object.assign(
+            { updateSeq: parseInt(_closed.updateSeq) || 0 },
+            _terminalFirebaseStatusFields('Completed'),
+            {
+              completedAt: _closed.JobCompleteTime || new Date().toISOString(),
+              JobCompleteTime: _closed.JobCompleteTime || new Date().toISOString(),
+              fare: _closed.TotalFare || '',
+              TotalFare: _closed.TotalFare || '',
+              distance: _closed.distance || '',
             },
+            _completeFanoutExtras(_closed),
+          ),
+        },
+        bwClearSeparateTry: true,
+        bwClearErrorLabel: 'idempotent Firebase cleanup failed',
+        removeDriverQueue: true,
+        restoreDriverState: _drvIdem
+          ? { driverId: _drvIdem, vehicleId: _vehIdem, awaited: true }
+          : null,
+        dispatchRefresh: {
+          job: _closed,
+          payload: {
+            cid: _cidIdem,
+            previousStatus: 'Active',
+            status: 'Completed',
+            action: 'complete',
+            driverId: _drvIdem,
           },
-        });
-      } catch (e) {
+        },
+      }).catch((e) => {
         console.warn(`  [${source}] idempotent Firebase repair failed: ${e && e.message}`);
+      });
+      // Best-effort short wait so healthy FB still finishes before return; never exceed budget.
+      try {
+        await _promiseWithTimeout(_idemCleanup, COMPLETE_SIDE_EFFECTS_BUDGET_MS, `idempotent complete cleanup #${bookingId}`);
+      } catch (_eBudget) {
+        console.warn(
+          `  [${source}] idempotent cleanup budget exceeded — returning Completed; repair continues in background`,
+        );
       }
     }
     console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Completed (payload enriched)`);
@@ -4614,67 +4627,114 @@ async function completeBooking(opts) {
   const _perfStart = Date.now();
   let _perfCleanupMs = 0;
   let _perfPostMs = 0;
-  if (_cid) {
-    const _tCleanup = Date.now();
-    _ds = await executeJobCleanup({
-      profile: 'terminal',
-      bookingId,
-      companyId: _cid,
-      source,
-      terminalKind: 'Completed',
-      job,
-      resolveCompletionIdentity: true,
-      driverId: _drvId,
-      vehicleId: _vehId,
-      versionFanout: {
-        awaited: true,
-        isTerminal: true,
-        errorLabel: 'complete allbookings fanout failed',
-        patch: _completeFanPatch,
-      },
-      bwClearSeparateTry: true,
-      bwClearErrorLabel: 'complete Firebase cleanup failed',
-      removeDriverQueue: true,
-      restoreDriverState: { driverId: _drvId, vehicleId: _vehId, awaited: true },
-      dispatchRefresh: {
+  let _perfBudgetExceeded = false;
+
+  // Persist is already done above. Cap Firebase/presence side-effects so the
+  // driver HTTP complete stays inside the client 12s budget under FB lag.
+  // Cleanup continues in the background if the budget is exceeded.
+  const _runCompleteSideEffects = async () => {
+    if (_cid) {
+      const _tCleanup = Date.now();
+      _ds = await executeJobCleanup({
+        profile: 'terminal',
+        bookingId,
+        companyId: _cid,
+        source,
+        terminalKind: 'Completed',
         job,
-        payload: {
-          cid: _cid,
-          previousStatus: _curStatus,
-          status: 'Completed',
-          action: 'complete',
-          driverId: _drvId,
+        resolveCompletionIdentity: true,
+        driverId: _drvId,
+        vehicleId: _vehId,
+        versionFanout: {
+          // Awaited inside COMPLETE_SIDE_EFFECTS_BUDGET_MS — non-awaited races
+          // bwClear and can leave sparse allbookings (missing Account/Payment).
+          awaited: true,
+          isTerminal: true,
+          errorLabel: 'complete allbookings fanout failed',
+          patch: _completeFanPatch,
         },
-      },
-    });
-    _perfCleanupMs = Date.now() - _tCleanup;
-  }
-  const _tPost = Date.now();
-  const _queuedAfterComplete = _findQueuedJobForDriver(_drvId, _cid);
-  if (_isLiveQueuedJobForDriver(_queuedAfterComplete, _drvId, _cid, bookingId)) {
-    const _holdCid = _cid || String(_queuedAfterComplete.companyId || opts.companyId || '').trim();
-    _setQueuePromotionHold(_holdCid, _drvId, _queuedAfterComplete.Id);
-    const _holdVid = _vehId || String(_queuedAfterComplete.VehicleNo || _queuedAfterComplete.VehicleId || '').trim();
-    await _holdDriverBusyForQueuePromotion(_holdCid, _drvId, _holdVid, _queuedAfterComplete.Id);
-    console.log(`  [${source}] driver ${_drvId} has queued #${_queuedAfterComplete.Id} — auto-dispatch hold + Busy mirror`);
-  } else {
-    if (_queuedAfterComplete) {
-      console.log(`  [${source}] skipped queue-promotion hold for driver ${_drvId} — queued #${_queuedAfterComplete.Id} not live`);
+        bwClearSeparateTry: true,
+        bwClearErrorLabel: 'complete Firebase cleanup failed',
+        removeDriverQueue: true,
+        restoreDriverState: { driverId: _drvId, vehicleId: _vehId, awaited: true },
+        dispatchRefresh: {
+          job,
+          payload: {
+            cid: _cid,
+            previousStatus: _curStatus,
+            status: 'Completed',
+            action: 'complete',
+            driverId: _drvId,
+          },
+        },
+      });
+      // Re-seal rich Completed extras AFTER bwClear. Defends against any late
+      // Active SET (hail create) that landed between the first fanout and bwClear's
+      // sparse terminal PATCH — otherwise fareBreakdown/Account never stick.
+      try {
+        await _fanVersionToFirebaseAwait(_cid, bookingId, _completeFanPatch, true);
+      } catch (_eSeal) {
+        console.warn(
+          `  [${source}] complete allbookings re-seal failed: ${_eSeal && _eSeal.message}`,
+        );
+      }
+      _perfCleanupMs = Date.now() - _tCleanup;
     }
-    if (_cid && _drvId) {
-      _clearQueuePromotionHold(_cid, _drvId);
-      await _syncDriverJobCount(_cid, _drvId, `${source}/post-complete`);
-      await _healStaleZoneOnTripPresence(_drvId, _cid, _vehId, `${source}/post-complete`, bookingId);
+    const _tPost = Date.now();
+    const _queuedAfterComplete = _findQueuedJobForDriver(_drvId, _cid);
+    if (_isLiveQueuedJobForDriver(_queuedAfterComplete, _drvId, _cid, bookingId)) {
+      const _holdCid = _cid || String(_queuedAfterComplete.companyId || opts.companyId || '').trim();
+      _setQueuePromotionHold(_holdCid, _drvId, _queuedAfterComplete.Id);
+      const _holdVid = _vehId || String(_queuedAfterComplete.VehicleNo || _queuedAfterComplete.VehicleId || '').trim();
+      await _holdDriverBusyForQueuePromotion(_holdCid, _drvId, _holdVid, _queuedAfterComplete.Id);
+      console.log(`  [${source}] driver ${_drvId} has queued #${_queuedAfterComplete.Id} — auto-dispatch hold + Busy mirror`);
+    } else {
+      if (_queuedAfterComplete) {
+        console.log(`  [${source}] skipped queue-promotion hold for driver ${_drvId} — queued #${_queuedAfterComplete.Id} not live`);
+      }
+      if (_cid && _drvId) {
+        _clearQueuePromotionHold(_cid, _drvId);
+        await _syncDriverJobCount(_cid, _drvId, `${source}/post-complete`);
+        await _healStaleZoneOnTripPresence(_drvId, _cid, _vehId, `${source}/post-complete`, bookingId);
+      }
+    }
+    _perfPostMs = Date.now() - _tPost;
+  };
+
+  const _sideFx = _runCompleteSideEffects().catch((e) => {
+    console.warn(`  [${source}] complete side-effects error: ${e && e.message}`);
+    return null;
+  });
+  try {
+    await _promiseWithTimeout(
+      _sideFx,
+      COMPLETE_SIDE_EFFECTS_BUDGET_MS,
+      `complete side-effects #${bookingId}`,
+    );
+  } catch (_eBudget) {
+    _perfBudgetExceeded = true;
+    console.warn(
+      `  [${source}] complete side-effects budget exceeded (${COMPLETE_SIDE_EFFECTS_BUDGET_MS}ms): ` +
+      `${_eBudget && _eBudget.message} — returning Completed; cleanup continues in background`,
+    );
+    // Best-effort response fields from in-memory trip state while FB finishes.
+    if (_drvId && _cid && !_driverHasActiveTripJob(_drvId, _cid, bookingId) && !_ds.driverFreed) {
+      _ds = {
+        driverFreed: true,
+        driverState: _ds.driverState === 'unchanged' ? 'Available' : _ds.driverState,
+        queueNo: _ds.queueNo,
+      };
     }
   }
-  _perfPostMs = Date.now() - _tPost;
+
   const _srcTag = String(job.BookingSource || job.bookingSource || job.source || '').toLowerCase();
   const _isHailComplete = _srcTag.includes('hail') ||
     /^hail\s*-/i.test(String(job.PickAddress || '')) ||
     String(opts.source || source || '').toLowerCase().includes('hail');
   console.log(
     `  [${source}] complete perf #${bookingId} hail=${_isHailComplete} ` +
-    `cleanupMs=${_perfCleanupMs} postMs=${_perfPostMs} totalMs=${Date.now() - _perfStart}`,
+    `cleanupMs=${_perfCleanupMs} postMs=${_perfPostMs} totalMs=${Date.now() - _perfStart}` +
+    (_perfBudgetExceeded ? ' budgetExceeded=1' : ''),
   );
   console.log(`  [${source}] §FIX-CMD complete job #${bookingId} (${_curStatus}→Completed) driver=${_drvId} fare=${job.TotalFare || '-'} seq=${job.updateSeq}`);
   return {
@@ -16839,19 +16899,27 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (_drc) _cDrv = String(_drc.driverid || '').trim();
     }
     const _payload = (_c.payload && typeof _c.payload === 'object') ? _c.payload : _c;
-    const _result = await completeBooking({
-      bookingId: _cJob,
-      companyId: _c.companyId || _payload.companyId,
-      fare: _c.fare ?? _payload.fare ?? _payload.totalFare,
-      distance: _c.distance ?? _payload.distance ?? _payload.distanceKm,
-      payload: _payload,
-      by: 'driver',
-      source: '/api/job/complete',
-    });
-    const _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
+    let _result;
+    let _status = 200;
+    try {
+      _result = await completeBooking({
+        bookingId: _cJob,
+        companyId: _c.companyId || _payload.companyId,
+        fare: _c.fare ?? _payload.fare ?? _payload.totalFare,
+        distance: _c.distance ?? _payload.distance ?? _payload.distanceKm,
+        payload: _payload,
+        by: 'driver',
+        source: '/api/job/complete',
+      });
+      _status = _result.ok ? 200 : (_result.error_code === 'not_found' ? 404 : 409);
+    } catch (e) {
+      console.warn(`[/api/job/complete] failed: ${e && e.message}`);
+      _result = { ok: false, error_code: 'server_error', error: e && e.message };
+      _status = 500;
+    }
     res.writeHead(_status, JSON_HEADERS);
     res.end(JSON.stringify(_result));
-    console.log(`${_status}: POST /api/job/complete #${_cJob} driver=${_cDrv} → ${JSON.stringify({ ok: _result.ok, status: _result.status })}`);
+    console.log(`${_status}: POST /api/job/complete #${_cJob} driver=${_cDrv} → ${JSON.stringify({ ok: _result.ok, status: _result.status, error_code: _result.error_code })}`);
     return;
   }
 
@@ -17309,14 +17377,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.warn(`  [/api/job/create] §FIX-HAIL/2 ZONE_DRIVERS update failed: ${_e && _e.message}`);
       }
 
-      // 2) Firebase fanout — fire-and-forget so we don't block the response.
-      (async () => {
-        try {
-          const _tokH = await getFirebaseServerToken();
-          if (!_tokH) {
-            console.warn(`  [/api/job/create] §FIX-HAIL/2 no Firebase token — fanout skipped for #${_hBid}`);
-            return;
-          }
+      // 2) Firebase fanout — MUST await allbookings/pendingjobs before HTTP 200.
+      // A fire-and-forget Active SET racing a quick complete PATCH+bwClear left
+      // sparse Completed rows (missing fareBreakdown/Account) in Closed Jobs.
+      try {
+        const _tokH = await getFirebaseServerToken();
+        if (!_tokH) {
+          console.warn(`  [/api/job/create] §FIX-HAIL/2 no Firebase token — fanout skipped for #${_hBid}`);
+        } else {
           const _fbBooking = {
             bookingId:       String(_hBid),
             status:          'Active',
@@ -17346,11 +17414,34 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             ...(_cjVehicleType ? { VehicleType: _cjVehicleType, vehicleType: _cjVehicleType } : {}),
             ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
           };
+          // Skip Active SET if complete/cancel already advanced the node (retry/race).
+          let _skipActiveAllbookings = false;
+          try {
+            const _abNode = await firebaseDbGet(`allbookings/${_hCid}/${_hBid}`, _tokH);
+            if (_abNode && typeof _abNode === 'object') {
+              const _abSt = String(_abNode.BookingStatus || _abNode.status || _abNode.Status || '').trim();
+              const _abSeq = parseInt(_abNode.updateSeq, 10) || 0;
+              if (
+                _abSt === 'Completed' ||
+                _abSt === 'Cancelled' ||
+                _abSt === 'No Show' ||
+                _abSeq > 1
+              ) {
+                _skipActiveAllbookings = true;
+                console.log(
+                  `  [/api/job/create] §FIX-HAIL/2 skip Active allbookings SET #${_hBid} — already ${_abSt || ('seq=' + _abSeq)}`,
+                );
+              }
+            }
+          } catch (_ePeek) { /* peek best-effort; still attempt SET */ }
+
           await Promise.all([
             firebaseDbSet(`pendingjobs/${_hCid}/${_hBid}`, _fbBooking, _tokH)
               .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 pendingjobs write failed: ${e && e.message}`)),
-            firebaseDbSet(`allbookings/${_hCid}/${_hBid}`, _fbBooking, _tokH)
-              .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 allbookings write failed: ${e && e.message}`)),
+            _skipActiveAllbookings
+              ? Promise.resolve()
+              : firebaseDbSet(`allbookings/${_hCid}/${_hBid}`, _fbBooking, _tokH)
+                .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 allbookings write failed: ${e && e.message}`)),
             firebaseDbPatch(`online/${_hCid}/${_hVid}/current`, {
               currentJobId: String(_hBid),
               jobId:        String(_hBid),
@@ -17372,14 +17463,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online root patch failed: ${e && e.message}`))
           ]);
           console.log(`  [/api/job/create] §FIX-HAIL/2 Firebase fanout complete for #${_hBid} (pendingjobs+allbookings+online/${_hVid}/current)`);
-          // Booking lifecycle event so any listeners see the Active create.
           _writeBookingEvent(_hCid, _hBid, 'StatusChanged',
             { from: null, to: 'Active', driverId: _hDrv, vehicleId: _hVid, action: 'created', source: 'hail' },
             'driver', 1).catch(() => {});
-        } catch (_e) {
-          console.warn(`  [/api/job/create] §FIX-HAIL/2 fanout failed: ${_e && _e.message}`);
         }
-      })();
+      } catch (_e) {
+        console.warn(`  [/api/job/create] §FIX-HAIL/2 fanout failed: ${_e && _e.message}`);
+      }
     }
 
     const _cjResult = {
