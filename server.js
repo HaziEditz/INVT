@@ -4180,6 +4180,13 @@ function _completePayloadFieldKeys() {
     // Address mirrors — Closed Jobs UI reads DropAddress / PickAddress
     'DropAddress', 'dropAddress', 'dropoff',
     'PickAddress', 'pickAddress', 'pickup',
+    // Created + timeline top-level mirrors (Closed Jobs detail)
+    'createdAt', 'CreatedAt',
+    'DriverAcceptedAt', 'driverAcceptedAt',
+    'OnTheWayAt', 'onTheWayAt',
+    'ArrivedAt', 'arrivedAt',
+    'OnBoardAt', 'onBoardAt', 'ActiveAt', 'activeAt',
+    'JobCompleteTime',
   ];
 }
 
@@ -4248,12 +4255,31 @@ function _applyCompletePayloadFields(job, payload, opts) {
   return job;
 }
 
+function _isoFromStepMs(ms) {
+  const n = typeof ms === 'number' ? ms : parseInt(ms, 10);
+  if (!n || !isFinite(n)) return '';
+  try { return new Date(n < 1e12 ? n * 1000 : n).toISOString(); } catch (_e) { return ''; }
+}
+
 function _completeFanoutExtras(job) {
   const _vt = String(job.VehicleType || job.vehicleType || '').trim();
   const _drop = String(
     job.DropAddress || job.dropAddress || job.finalDropAddress || job.dropoff || '',
   ).trim();
   const _pick = String(job.PickAddress || job.pickAddress || job.pickup || '').trim();
+  const _createdRaw = job.createdAt != null ? job.createdAt : job.CreatedAt;
+  const _createdMs = typeof _createdRaw === 'number'
+    ? _createdRaw
+    : (Date.parse(String(_createdRaw || '')) || 0);
+  const _step = (job.stepTimes && typeof job.stepTimes === 'object') ? job.stepTimes : {};
+  const _acceptedIso = String(job.DriverAcceptedAt || job.driverAcceptedAt || '').trim()
+    || _isoFromStepMs(_step.acceptedAt);
+  const _arrivedIso = String(job.ArrivedAt || job.arrivedAt || '').trim()
+    || _isoFromStepMs(_step.arrivedAt);
+  const _onboardIso = String(job.OnBoardAt || job.onBoardAt || job.ActiveAt || '').trim()
+    || _isoFromStepMs(_step.onboardAt || _step.hailStartedAt);
+  const _completeIso = String(job.JobCompleteTime || '').trim()
+    || _isoFromStepMs(_step.completeAt || _step.hailEndedAt);
   return {
     ...(job.fareBreakdown || job.FareBreakdown
       ? {
@@ -4297,6 +4323,13 @@ function _completeFanoutExtras(job) {
       ? { DropAddress: _drop, dropAddress: _drop, dropoff: _drop, finalDropAddress: job.finalDropAddress || _drop }
       : {}),
     ...(_pick ? { PickAddress: _pick, pickAddress: _pick, pickup: _pick } : {}),
+    ...(_createdMs > 0 ? { createdAt: _createdMs, CreatedAt: _createdMs } : {}),
+    ...(_acceptedIso ? { DriverAcceptedAt: _acceptedIso, driverAcceptedAt: _acceptedIso } : {}),
+    ...(_arrivedIso ? { ArrivedAt: _arrivedIso, arrivedAt: _arrivedIso } : {}),
+    ...(_onboardIso
+      ? { OnBoardAt: _onboardIso, onBoardAt: _onboardIso, ActiveAt: _onboardIso, activeAt: _onboardIso }
+      : {}),
+    ...(_completeIso ? { JobCompleteTime: _completeIso } : {}),
   };
 }
 
@@ -8035,6 +8068,27 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
       );
     } else {
       payload = _stripStaleTerminalAllbookingsFields(_mirrorFbJobFields(patch));
+    }
+    // Sparse Accept/Arrived/Active SETs used to wipe create-time Closed Job fields
+    // (createdAt, VehicleType, DropAddress). Preserve non-empty values from the
+    // prior allbookings node when the new patch omits them.
+    if (existing && typeof existing === 'object') {
+      const _preserveKeys = [
+        'createdAt', 'CreatedAt',
+        'VehicleType', 'vehicleType',
+        'DropAddress', 'dropAddress', 'dropoff',
+        'PickAddress', 'pickAddress', 'pickup',
+        'Name', 'PassengerName', 'PhoneNo',
+        'DriverAcceptedAt', 'ArrivedAt', 'OnBoardAt', 'ActiveAt',
+        'Account_id', 'Account_Name', 'AccountId', 'AccountName',
+      ];
+      for (const _pk of _preserveKeys) {
+        const _cur = payload[_pk];
+        const _prev = existing[_pk];
+        const _curEmpty = _cur == null || (typeof _cur === 'string' && !_cur.trim());
+        const _prevUseful = _prev != null && !(typeof _prev === 'string' && !_prev.trim());
+        if (_curEmpty && _prevUseful) payload[_pk] = _prev;
+      }
     }
     await firebaseDbSet(`allbookings/${cid}/${bookingId}`, payload, tok)
       .catch(_e => console.warn(`  [allbookings-live] SET allbookings/${cid}/${bookingId} failed: ${_e && _e.message}`));

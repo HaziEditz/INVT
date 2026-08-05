@@ -529,6 +529,98 @@ test('complete fanout maps finalDropAddress to DropAddress', async () => {
   assert.equal(String(node.DropAddress || node.dropAddress || ''), drop);
 });
 
+test('complete fanout restores createdAt + timeline mirrors from stepTimes', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = String(h.driverIds[0]);
+  await h.ensureDriverReady(driverId);
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Available',
+    lastSeen: Date.now(),
+    lat: -46.4121,
+    lng: 168.3531,
+  });
+
+  const create = await post(
+    '/api/job/create',
+    {
+      companyId: TEST_CID,
+      source: 'hail',
+      driverId,
+      vehicleId: driverId,
+      tariffId: 'regtest-tariff',
+      clientTripId: randomUUID(),
+      vehicleType: 'Taxi',
+      pickup: {
+        address: '10 Dee St, Invercargill',
+        lat: -46.4121,
+        lng: 168.3531,
+      },
+      dropoff: {
+        address: '11 Dee St, Invercargill',
+        lat: -46.413,
+        lng: 168.354,
+      },
+      passengers: 1,
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(create.status, 200, JSON.stringify(create.body));
+  const jobId = parseInt(String(create.body?.jobId ?? create.body?.bookingId), 10);
+  assert.ok(jobId > 0);
+
+  const acceptedAt = Date.now() - 120_000;
+  const arrivedAt = Date.now() - 60_000;
+  const onboardAt = Date.now() - 50_000;
+  const completeAt = Date.now();
+  const createdAt = Date.now() - 180_000;
+  const complete = await post(
+    '/api/job/complete',
+    {
+      jobId,
+      bookingId: jobId,
+      driverId,
+      companyId: TEST_CID,
+      fare: 9,
+      payload: {
+        fare: 9,
+        createdAt,
+        VehicleType: 'Taxi',
+        DropAddress: '11 Dee St, Invercargill',
+        stepTimes: { acceptedAt, arrivedAt, onboardAt, completeAt },
+        fareBreakdown: {
+          flagFall: 3.5,
+          distanceKm: 1,
+          waitingMinutes: 0.5,
+          waitingCharge: 0.4,
+          distanceCharge: 2,
+          total: 9,
+        },
+      },
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(complete.status, 200, JSON.stringify(complete.body));
+
+  const node = await pollFirebasePeek(
+    `allbookings/${TEST_CID}/${jobId}`,
+    (v) =>
+      v &&
+      v.stepTimes &&
+      (v.DriverAcceptedAt || v.driverAcceptedAt) &&
+      (v.fareBreakdown || v.FareBreakdown) &&
+      String(v.VehicleType || v.vehicleType || '') === 'Taxi',
+    { timeoutMs: 20_000 },
+  );
+  assert.ok(node.stepTimes && typeof node.stepTimes === 'object');
+  assert.ok(String(node.DriverAcceptedAt || node.driverAcceptedAt || ''));
+  assert.ok(String(node.OnBoardAt || node.onBoardAt || node.ActiveAt || ''));
+  assert.equal(String(node.VehicleType || node.vehicleType || ''), 'Taxi');
+  const fb = node.fareBreakdown || node.FareBreakdown;
+  assert.equal(Number(fb.total ?? fb.Total), 9);
+});
+
 test('idempotent complete still fans out fareBreakdown after sparse archive', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
