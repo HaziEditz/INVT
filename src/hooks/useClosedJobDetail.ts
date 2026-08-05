@@ -29,36 +29,16 @@ export function useClosedJobDetail(
     const seq = ++fetchSeq.current;
     setLoading(true);
     setError(null);
-    // Keep prior detail until the in-flight response applies (avoids empty flash).
 
     fetchClosedJobDetail(cid || 'unknown', id)
       .then((result) => {
-        if (seq !== fetchSeq.current) {
-          // TEMP: remove with closed-job-debug probe
-          console.log('[closed-job-debug]', {
-            phase: 'skip-stale-fetch',
-            jobId: id,
-            seq,
-            currentSeq: fetchSeq.current,
-            parsedFareBreakdown: result?.fareBreakdown ?? null,
-            parsedTimelineLen: result?.timeline?.length ?? 0,
-          });
-          return;
-        }
+        if (seq !== fetchSeq.current) return;
         if (!result) {
           setDetail(null);
           setError('Closed job not found.');
           return;
         }
         setDetail(result);
-        // TEMP: remove with closed-job-debug probe
-        console.log('[closed-job-debug]', {
-          phase: 'apply-to-react-state',
-          jobId: id,
-          seq,
-          parsedFareBreakdown: result.fareBreakdown,
-          parsedTimelineLen: result.timeline.length,
-        });
       })
       .catch((e) => {
         if (seq !== fetchSeq.current) return;

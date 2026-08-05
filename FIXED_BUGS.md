@@ -12,8 +12,32 @@ Run **`npm run test:regression`** (full suite, all tests) before every push. Do 
 | QUEUE-FANOUT | Late Offered Firebase write wins over Queued fanout | `server.js` queue fanout — commit `7ffff99` |
 | ASSIGN-DROPDOWN | Assign tab dropdown shows wrong drivers / missing No One | `JobCard.tsx` — commit `e02fc62` |
 | UNASSIGN-BOUNCE | Unassign bounces job back to Assign tab | `useJobs.ts` `refreshTrustsPoolRestore` — commit `e02fc62` |
+| MID-OFFER-BOUNCE | Mid-offer false **"Network issue — driver unreachable"** bounce despite live phone | INVT `f22bfe4` (Firebase-truth `lastSeen` before bounce); INVT-APP2 `a4e655b` / `b814496` (5s offer-pending heartbeat incl. Offer-tab broadcasts); guards: `tests/regression/zzz-mid-offer-network-bounce.test.mjs`, `tests/regression/network-offer-bounce.test.mjs`, INVT-APP2 `tests/presence-offer-heartbeat.test.mjs` |
+| LOGIN-SEQ-RACE | Fresh login advertises **Available** before GPS/`readyForJobs` → silent list offer then network bounce | INVT-APP2 `7100929` — `lib/shiftOfferSequencing.ts`; guard: `tests/shift-offer-sequencing.test.mjs` |
+| MISSED-OFFER-AWAY | Missed exclusive offer does not restore driver to **Away** | INVT `f61425b`; INVT-APP2 `1f421db` (timeout stays alive offline until server confirms `driverSetAway`) |
+| BUSY-POOL-STALE | When all **Available** candidates are network-stale, job never reaches busy Offer tab | INVT `f61425b` — `busy_pool_broadcast` / `pendingjobs` fanout; guard: `tests/regression/network-offer-bounce.test.mjs` (`busy_pool_broadcast`) |
+| CLOSED-JOB-FARE-EMPTY | Closed Job detail showed Flag fall/Distance/Waiting/Total as **—** (and empty Timeline) despite `/api/closed-job-detail` returning rich `fareBreakdown`/`stepTimes`. Truthy empty `{}` fare object fed `FareBreakdownCompact` (`money(undefined)` → `—`); `??` re-parse was blocked. Also: `completedJobs` empty nested objects could wipe `allbookings` meter fields on merge. | INVT `4d3e02f` (render/`fareHasDisplayValues`); `c389fbc` (`mergeClosedDetailRaw`); guards: `tests/regression/closed-job-detail-parse-merge.test.mjs`, `tests/regression/closed-job-detail-fetch-gate.test.mjs` |
 
 When fixing a recurring bug, add a row here and a dedicated regression test when possible.
+
+---
+
+## Offer / presence — confirmed fixes
+
+| ID | Bug / fix | Repo / commit |
+|----|-----------|---------------|
+| MID-OFFER-BOUNCE | Mid-offer network bounce: server treats **live Firebase `lastSeen` as truth** (ZONE lag alone must not bounce); phone stamps `lastSeen` every **5s** while any offer is pending (modal **or** Offer-tab broadcast), and preserves offer-pending across heartbeat restart | INVT `f22bfe4` (`_refreshOfferedDriverLastSeenFromFirebase`); INVT-APP2 `a4e655b`, `b814496` |
+| LOGIN-SEQ-RACE | Login sequencing: bootstrap as **Away**, advertise **Available** only after GPS + presence write + `readyForJobs`, then flush deferred popup | INVT-APP2 `7100929` |
+| MISSED-OFFER-AWAY | Missed exclusive offer → restore **Away** (server timeout path; phone keeps timeout alive while offline) | INVT `f61425b`; INVT-APP2 `1f421db` |
+| BUSY-POOL-STALE | Busy-driver offer queueing: if every Available candidate is network-stale, fan out to eligible **Busy** drivers via `pendingjobs` / busy Offer tab | INVT `f61425b` |
+
+---
+
+## Driver app — permanent features
+
+| ID | Feature | Repo / commit |
+|----|---------|---------------|
+| BUILD-LABEL | Visible build version + short git SHA on **login** and **Profile** (`vX.Y.Z · <sha>`), injected via `app.config.js` | INVT-APP2 `2bb2c7a` — `AppBuildLabel`, `lib/appBuildInfo.ts`; guard: `tests/app-build-info.test.mjs` |
 
 ---
 

@@ -137,34 +137,13 @@ function ClosedJobDetailBody({
 }) {
   const settings = useUiStore((s) => s.settings);
   const { job, raw, gpsRoute, tariffLog } = detail;
-  // Always derive what the JSX shows from `raw` at render time.
-  // Do NOT prefer detail.fareBreakdown via ?? — an empty `{}` is truthy and would
-  // block re-parse, producing Flag fall/Distance/Waiting/Total all '—' while a
-  // concurrent parse log still shows the correct numbers.
-  const fareFromState = detail.fareBreakdown;
-  const fareFromRaw = parseClosedFareBreakdown(raw);
-  const fareBreakdown = fareHasDisplayValues(fareFromState) ? fareFromState : fareFromRaw;
-  const timelineFromState = detail.timeline;
-  const timelineFromRaw = buildClosedJobTimeline(job, raw);
-  const timeline = timelineFromState.length > 0 ? timelineFromState : timelineFromRaw;
-
-  // TEMP: remove after Closed Job blank fare/timeline investigation.
-  console.log('[closed-job-debug]', {
-    phase: 'render-ClosedJobDetailBody',
-    jobId: job.id,
-    stateFare: fareFromState,
-    stateFareHasValues: fareHasDisplayValues(fareFromState),
-    rawFareKeys:
-      raw.fareBreakdown && typeof raw.fareBreakdown === 'object'
-        ? Object.keys(raw.fareBreakdown as object)
-        : raw.FareBreakdown && typeof raw.FareBreakdown === 'object'
-          ? Object.keys(raw.FareBreakdown as object)
-          : [],
-    fareFromRaw,
-    fbPassedToCompact: fareBreakdown,
-    stateTimelineLen: timelineFromState.length,
-    displayTimelineLen: timeline.length,
-  });
+  // Prefer state when it has real numbers; otherwise re-parse from raw.
+  // Empty `{}` is truthy — never use `detail.fareBreakdown ?? parse(...)` alone.
+  const fareBreakdown = fareHasDisplayValues(detail.fareBreakdown)
+    ? detail.fareBreakdown
+    : parseClosedFareBreakdown(raw);
+  const timeline =
+    detail.timeline.length > 0 ? detail.timeline : buildClosedJobTimeline(job, raw);
 
   const st = normalizeJobStatus(job.status);
   const created = jobCreatedAtTime(job);
