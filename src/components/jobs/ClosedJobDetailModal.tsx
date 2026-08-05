@@ -19,10 +19,11 @@ import {
 } from '@/lib/closedJobs';
 import {
   closedJobMapEndpoints,
+  parseClosedFareBreakdown,
   summarizeTariffLogEntry,
   type ClosedFareBreakdown,
 } from '@/lib/closedJobDetail';
-import { formatTimelineWhen } from '@/lib/closedJobTimeline';
+import { buildClosedJobTimeline, formatTimelineWhen } from '@/lib/closedJobTimeline';
 import {
   formatJobDateTimeShort,
   formatJobEditHistoryActor,
@@ -53,6 +54,14 @@ function money(n?: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/** True only when compact fare rows would show real numbers (not all '—'). */
+function fareHasDisplayValues(fb: ClosedFareBreakdown | null | undefined): boolean {
+  if (!fb || typeof fb !== 'object') return false;
+  return [fb.flagFall, fb.distanceKm, fb.waitingMinutes, fb.waitingCharge, fb.distanceCharge, fb.total].some(
+    (v) => typeof v === 'number' && !Number.isNaN(v),
+  );
+}
+
 function Field({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
     <div className={cn('min-w-0', className)}>
@@ -74,29 +83,31 @@ function Panel({ title, children, className }: { title: string; children: React.
 }
 
 function FareBreakdownCompact({ fb }: { fb: ClosedFareBreakdown | null }) {
-  if (!fb) {
+  // Important: `{}` is truthy. Without this check, Flag fall/Distance/Waiting/Total
+  // each render money(undefined) → '—' even when a correct parse exists elsewhere.
+  if (!fareHasDisplayValues(fb)) {
     return <p className="text-[11px] text-bw-muted">Not recorded</p>;
   }
   const rows: { label: string; value: string }[] = [
-    { label: 'Flag fall', value: money(fb.flagFall) },
+    { label: 'Flag fall', value: money(fb!.flagFall) },
     {
       label: 'Distance',
       value:
-        fb.distanceKm != null
-          ? `${fb.distanceKm.toFixed(2)} km${fb.distanceCharge != null ? ` · ${money(fb.distanceCharge)}` : ''}`
+        fb!.distanceKm != null
+          ? `${fb!.distanceKm.toFixed(2)} km${fb!.distanceCharge != null ? ` · ${money(fb!.distanceCharge)}` : ''}`
           : '—',
     },
     {
       label: 'Waiting',
       value:
-        fb.waitingMinutes != null
-          ? `${fb.waitingMinutes.toFixed(1)} min${fb.waitingCharge != null ? ` · ${money(fb.waitingCharge)}` : ''}`
+        fb!.waitingMinutes != null
+          ? `${fb!.waitingMinutes.toFixed(1)} min${fb!.waitingCharge != null ? ` · ${money(fb!.waitingCharge)}` : ''}`
           : '—',
     },
-    { label: 'Total', value: money(fb.total) },
+    { label: 'Total', value: money(fb!.total) },
   ];
   return (
-    <dl className="space-y-0.5">
+    <dl className="space-y-0.5 text-bw-text">
       {rows.map((row, i) => (
         <div
           key={row.label}
@@ -106,7 +117,7 @@ function FareBreakdownCompact({ fb }: { fb: ClosedFareBreakdown | null }) {
           )}
         >
           <dt className="text-bw-muted shrink-0">{row.label}</dt>
-          <dd className="text-right truncate">{row.value}</dd>
+          <dd className="text-right truncate text-bw-text">{row.value}</dd>
         </div>
       ))}
     </dl>
@@ -125,7 +136,36 @@ function ClosedJobDetailBody({
   closeModal: () => void;
 }) {
   const settings = useUiStore((s) => s.settings);
-  const { job, raw, timeline, fareBreakdown, gpsRoute, tariffLog } = detail;
+  const { job, raw, gpsRoute, tariffLog } = detail;
+  // Always derive what the JSX shows from `raw` at render time.
+  // Do NOT prefer detail.fareBreakdown via ?? — an empty `{}` is truthy and would
+  // block re-parse, producing Flag fall/Distance/Waiting/Total all '—' while a
+  // concurrent parse log still shows the correct numbers.
+  const fareFromState = detail.fareBreakdown;
+  const fareFromRaw = parseClosedFareBreakdown(raw);
+  const fareBreakdown = fareHasDisplayValues(fareFromState) ? fareFromState : fareFromRaw;
+  const timelineFromState = detail.timeline;
+  const timelineFromRaw = buildClosedJobTimeline(job, raw);
+  const timeline = timelineFromState.length > 0 ? timelineFromState : timelineFromRaw;
+
+  // TEMP: remove after Closed Job blank fare/timeline investigation.
+  console.log('[closed-job-debug]', {
+    phase: 'render-ClosedJobDetailBody',
+    jobId: job.id,
+    stateFare: fareFromState,
+    stateFareHasValues: fareHasDisplayValues(fareFromState),
+    rawFareKeys:
+      raw.fareBreakdown && typeof raw.fareBreakdown === 'object'
+        ? Object.keys(raw.fareBreakdown as object)
+        : raw.FareBreakdown && typeof raw.FareBreakdown === 'object'
+          ? Object.keys(raw.FareBreakdown as object)
+          : [],
+    fareFromRaw,
+    fbPassedToCompact: fareBreakdown,
+    stateTimelineLen: timelineFromState.length,
+    displayTimelineLen: timeline.length,
+  });
+
   const st = normalizeJobStatus(job.status);
   const created = jobCreatedAtTime(job);
   const pickup = jobBookingTime(job);
@@ -152,7 +192,7 @@ function ClosedJobDetailBody({
       title={`Closed Job #${job.id}`}
       extraWide
       elevated
-      bodyClassName="p-3 overflow-hidden"
+      bodyClassName="p-3 overflow-y-auto"
       footer={
         <>
           <Button variant="ghost" type="button" onClick={closeModal}>Close</Button>
@@ -166,7 +206,7 @@ function ClosedJobDetailBody({
         </>
       }
     >
-      <div className="flex flex-col gap-2 max-h-[calc(92vh-7.5rem)] text-[11px]">
+      <div className="flex flex-col gap-2 text-[11px] text-bw-text">
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           <Badge color={serviceBorderColor(job.serviceType)} className="!text-[9px] !py-0">
             {serviceTypeDisplay(job.serviceType)}
@@ -186,7 +226,7 @@ function ClosedJobDetailBody({
           ) : null}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 min-h-0 flex-1">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
           <Panel title="Trip">
             <div className="space-y-1.5">
               <Field label="Pickup" value={dash(job.pickAddress)} />
@@ -243,8 +283,8 @@ function ClosedJobDetailBody({
           </Panel>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 min-h-0 shrink-0">
-          <Panel title="Timeline" className="min-h-[120px] lg:min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+          <Panel title="Timeline" className="min-h-[120px]">
             {timeline.length === 0 ? (
               <p className="text-[11px] text-bw-muted">—</p>
             ) : (
@@ -252,11 +292,11 @@ function ClosedJobDetailBody({
                 {timeline.map((ev) => (
                   <li
                     key={ev.key}
-                    className="grid grid-cols-[minmax(72px,88px)_minmax(88px,1fr)] gap-x-1.5 text-[10px] leading-tight"
+                    className="grid grid-cols-[minmax(72px,88px)_minmax(88px,1fr)] gap-x-1.5 text-[10px] leading-tight text-bw-text"
                   >
                     <span className="text-bw-muted truncate">{ev.label}</span>
                     <span className="truncate" title={ev.detail ? `${formatTimelineWhen(ev.at)} — ${ev.detail}` : formatTimelineWhen(ev.at)}>
-                      <span className="font-medium">{formatTimelineWhen(ev.at)}</span>
+                      <span className="font-medium text-bw-text">{formatTimelineWhen(ev.at)}</span>
                       {ev.detail ? <span className="text-bw-muted"> · {ev.detail}</span> : null}
                     </span>
                   </li>
@@ -317,28 +357,23 @@ export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModa
   const { detail, loading, error } = useClosedJobDetail(companyId, jobId, open);
 
   const title = open ? `Closed Job #${jobId}` : 'Closed Job';
+  const detailMatchesOpenJob = !!detail && jobId != null && detail.job.id === jobId;
 
   if (!open) return null;
 
-  if (loading) {
+  if (detailMatchesOpenJob && detail) {
     return (
-      <Modal
-        open={open}
-        onClose={closeClosedJobDetail}
-        title={title}
-        extraWide
-        elevated
-        bodyClassName="p-3"
-      >
-        <div className="flex items-center justify-center py-10 gap-2 text-bw-muted text-xs">
-          <Spinner />
-          Loading closed job…
-        </div>
-      </Modal>
+      <ClosedJobDetailBody
+        key={jobId ?? 0}
+        companyId={companyId}
+        mapsKey={mapsKey}
+        detail={detail}
+        closeModal={closeClosedJobDetail}
+      />
     );
   }
 
-  if (error || !detail) {
+  if (error && !loading) {
     return (
       <Modal
         open={open}
@@ -346,7 +381,7 @@ export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModa
         title={title}
         extraWide
         elevated
-        bodyClassName="p-3"
+        bodyClassName="p-3 overflow-y-auto"
         footer={<Button variant="ghost" type="button" onClick={closeClosedJobDetail}>Close</Button>}
       >
         <p className="text-bw-muted text-xs">{error || 'Job not found.'}</p>
@@ -355,11 +390,18 @@ export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModa
   }
 
   return (
-    <ClosedJobDetailBody
-      companyId={companyId}
-      mapsKey={mapsKey}
-      detail={detail}
-      closeModal={closeClosedJobDetail}
-    />
+    <Modal
+      open={open}
+      onClose={closeClosedJobDetail}
+      title={title}
+      extraWide
+      elevated
+      bodyClassName="p-3 overflow-y-auto"
+    >
+      <div className="flex items-center justify-center py-10 gap-2 text-bw-muted text-xs">
+        <Spinner />
+        Loading closed job…
+      </div>
+    </Modal>
   );
 }
