@@ -4,6 +4,7 @@ import {
   isClosedJobRecord,
   mergeClosedJobRecords,
 } from '@/lib/closedJobs';
+import { coerceRecord, mergeClosedDetailRaw } from '@/lib/closedJobDetailMerge';
 import { buildClosedJobTimeline, type ClosedTimelineEvent } from '@/lib/closedJobTimeline';
 import { jobFromFirebase, parseLatLng, type Job } from '@/types/job';
 
@@ -28,17 +29,15 @@ export type ClosedJobDetail = {
   driverChangeNote: string | null;
 };
 
-function num(v: unknown): number | undefined {
-  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+/** Accept numbers, numeric strings, and currency strings like "$5.70". */
+export function num(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  const s = String(v ?? '')
+    .trim()
+    .replace(/[$,]/g, '');
+  if (!s) return undefined;
+  const n = parseFloat(s);
   return Number.isNaN(n) ? undefined : n;
-}
-
-function mergeRaw(
-  ab: Record<string, unknown> | null,
-  cj: Record<string, unknown> | null,
-): Record<string, unknown> | null {
-  if (!ab && !cj) return null;
-  return { ...(ab || {}), ...(cj || {}) };
 }
 
 export function parseGpsRoute(raw: Record<string, unknown>): GpsRoutePoint[] {
@@ -79,16 +78,15 @@ export function parseGpsRoute(raw: Record<string, unknown>): GpsRoutePoint[] {
 }
 
 export function parseClosedFareBreakdown(raw: Record<string, unknown>): ClosedFareBreakdown | null {
-  const fb = raw.fareBreakdown ?? raw.FareBreakdown;
-  if (fb && typeof fb === 'object') {
-    const o = fb as Record<string, unknown>;
+  const fb = coerceRecord(raw.fareBreakdown ?? raw.FareBreakdown);
+  if (fb) {
     const parsed: ClosedFareBreakdown = {
-      flagFall: num(o.flagFall ?? o.FlagFall),
-      distanceKm: num(o.distanceKm ?? o.DistanceKm),
-      waitingMinutes: num(o.waitingMinutes ?? o.WaitingMinutes),
-      waitingCharge: num(o.waitingCharge ?? o.WaitingCharge ?? o.waitingCost),
-      distanceCharge: num(o.distanceCharge ?? o.DistanceCharge ?? o.RideCost),
-      total: num(o.total ?? o.Total ?? o.totalFare ?? o.TotalFare),
+      flagFall: num(fb.flagFall ?? fb.FlagFall),
+      distanceKm: num(fb.distanceKm ?? fb.DistanceKm),
+      waitingMinutes: num(fb.waitingMinutes ?? fb.WaitingMinutes),
+      waitingCharge: num(fb.waitingCharge ?? fb.WaitingCharge ?? fb.waitingCost),
+      distanceCharge: num(fb.distanceCharge ?? fb.DistanceCharge ?? fb.RideCost),
+      total: num(fb.total ?? fb.Total ?? fb.totalFare ?? fb.TotalFare),
     };
     if (Object.values(parsed).some((v) => v != null)) return parsed;
   }
@@ -178,7 +176,8 @@ export async function fetchClosedJobDetail(
   const cjRec =
     data.completedJobs && typeof data.completedJobs === 'object' ? data.completedJobs : null;
 
-  const merged = mergeRaw(abRec, cjRec);
+  // Prefer richer nested meter/timeline fields — never let empty cj wipe ab.
+  const merged = mergeClosedDetailRaw(abRec, cjRec);
   if (!merged) return null;
 
   if (abRec && cjRec && isClosedJobRecord(abRec)) {
@@ -186,7 +185,7 @@ export async function fetchClosedJobDetail(
     if (base) {
       base.status = closedJobStatusFromRecord(abRec);
       const job = mergeClosedJobRecords(base, cjRec, companyId);
-      const raw = { ...abRec, ...cjRec };
+      const raw = merged;
       const terminalAt = closedJobTerminalAtMs(job, raw);
       if (terminalAt > 0) job.completedAt = terminalAt;
       const timeline = buildClosedJobTimeline(job, raw);

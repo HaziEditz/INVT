@@ -1,3 +1,4 @@
+import { coerceRecord } from '@/lib/closedJobDetailMerge';
 import { formatJobDateTimeShort, type Job } from '@/types/job';
 import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
@@ -14,6 +15,18 @@ function parseTimestamp(raw: unknown): Date | null {
     const ms = raw < 1e12 ? raw * 1000 : raw;
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // Firebase sometimes stores { seconds } / { _seconds } style stamps.
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const o = raw as Record<string, unknown>;
+    const sec = o.seconds ?? o._seconds ?? o.secs;
+    if (sec != null) {
+      const n = typeof sec === 'number' ? sec : parseFloat(String(sec));
+      if (Number.isFinite(n) && n > 0) {
+        const d = new Date(n < 1e12 ? n * 1000 : n);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+    }
   }
   const d = new Date(String(raw).includes('T') ? String(raw) : String(raw).replace(' ', 'T'));
   return Number.isNaN(d.getTime()) ? null : d;
@@ -34,12 +47,9 @@ function pushEvent(
 export function buildClosedJobTimeline(job: Job, raw: Record<string, unknown>): ClosedTimelineEvent[] {
   const events: ClosedTimelineEvent[] = [];
   const step =
-    (raw.stepTimes && typeof raw.stepTimes === 'object'
-      ? (raw.stepTimes as Record<string, unknown>)
-      : null) ||
-    (raw.StepTimes && typeof raw.StepTimes === 'object'
-      ? (raw.StepTimes as Record<string, unknown>)
-      : {});
+    coerceRecord(raw.stepTimes) ||
+    coerceRecord(raw.StepTimes) ||
+    {};
 
   pushEvent(events, 'created', 'Created at', raw.createdAt ?? raw.CreatedAt ?? job.createdAt);
   pushEvent(events, 'offered', 'Dispatched / Offered at', raw.offeredAt ?? job.offeredAt);
