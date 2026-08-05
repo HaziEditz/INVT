@@ -83,7 +83,7 @@ function defaultDateRange() {
 export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
   const open = useUiStore((s) => s.openModal === 'closedJobs');
   const closeModal = useUiStore((s) => s.closeModal);
-  const openModalWith = useUiStore((s) => s.openModalWith);
+  const openClosedJobDetail = useUiStore((s) => s.openClosedJobDetail);
   const closed = useClosedJobs(companyId, open);
 
   const initialRange = defaultDateRange();
@@ -143,7 +143,7 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
       extraWide
       footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}
     >
-      <div className="space-y-3">
+      <div className="space-y-3" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex flex-wrap gap-2 items-end p-3 rounded-lg border border-bw-border bg-bw-surface/60">
           <input
             type="search"
@@ -291,8 +291,13 @@ export function ClosedJobsModal({ companyId }: ClosedJobsModalProps) {
                         className={`${TD} border-r-0 whitespace-nowrap sticky right-0 z-10 bg-bw-card group-hover:bg-bw-surface shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.5)]`}
                       >
                         <Button
+                          type="button"
                           variant="primary"
-                          onClick={() => openModalWith('closedJobDetail', { jobId: j.id })}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openClosedJobDetail(j.id);
+                          }}
                         >
                           View
                         </Button>

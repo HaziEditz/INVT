@@ -101,6 +101,11 @@ interface UiStore {
   openModal: ModalId;
   modalJobId: number | null;
   modalDriverId: string | null;
+  /**
+   * Stacked on top of Closed Jobs (does not replace openModal).
+   * Keeps the list subscribed and avoids a modal-swap race that can skip the detail fetch.
+   */
+  closedJobDetailId: number | null;
   /** Bumped when toast/header opens Messages for a specific driver thread. */
   messagesFocusNonce: number;
   notificationCount: number;
@@ -124,6 +129,8 @@ interface UiStore {
   setTheme: (t: DispatchThemeId) => void;
   cycleTheme: () => void;
   openModalWith: (m: ModalId, opts?: { jobId?: number; driverId?: string }) => void;
+  openClosedJobDetail: (jobId: number) => void;
+  closeClosedJobDetail: () => void;
   openMessagesForDriver: (driverId: string) => void;
   closeModal: () => void;
   addToast: (t: Omit<ToastItem, 'id'>) => void;
@@ -173,6 +180,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   openModal: null,
   modalJobId: null,
   modalDriverId: null,
+  closedJobDetailId: null,
   messagesFocusNonce: 0,
   notificationCount: 0,
   messageUnreadCount: 0,
@@ -199,17 +207,46 @@ export const useUiStore = create<UiStore>((set, get) => ({
     persistTheme(t);
     set({ theme: t });
   },
-  openModalWith: (m, opts) =>
-    set({ openModal: m, modalJobId: opts?.jobId ?? null, modalDriverId: opts?.driverId ?? null }),
+  openModalWith: (m, opts) => {
+    if (m === 'closedJobDetail') {
+      const id = Number(opts?.jobId);
+      if (Number.isFinite(id) && id > 0) {
+        set({ closedJobDetailId: id });
+        return;
+      }
+      set({ closedJobDetailId: null });
+      return;
+    }
+    set({
+      openModal: m,
+      modalJobId: opts?.jobId ?? null,
+      modalDriverId: opts?.driverId ?? null,
+      // Opening a different primary modal dismisses stacked closed-job detail.
+      closedJobDetailId: null,
+    });
+  },
+  openClosedJobDetail: (jobId) => {
+    const id = Number(jobId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    set({ closedJobDetailId: id });
+  },
+  closeClosedJobDetail: () => set({ closedJobDetailId: null }),
   openMessagesForDriver: (driverId) =>
     set((s) => ({
       openModal: 'messages',
       modalJobId: null,
       modalDriverId: driverId,
+      closedJobDetailId: null,
       messagesFocusNonce: s.messagesFocusNonce + 1,
     })),
   closeModal: () =>
-    set({ openModal: null, modalJobId: null, modalDriverId: null, routePreview: null }),
+    set({
+      openModal: null,
+      modalJobId: null,
+      modalDriverId: null,
+      closedJobDetailId: null,
+      routePreview: null,
+    }),
   addToast: (t) => {
     const id = `${Date.now()}-${Math.random()}`;
     const category = inferCategory(t);

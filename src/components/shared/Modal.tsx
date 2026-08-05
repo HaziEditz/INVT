@@ -9,6 +9,8 @@ interface ModalProps {
   extraWide?: boolean;
   /** Always use white background + dark text (readable on dark dispatch themes). */
   light?: boolean;
+  /** Stack above other open modals (e.g. closed-job detail over Closed Jobs). */
+  elevated?: boolean;
   bodyClassName?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -21,6 +23,7 @@ export function Modal({
   wide,
   extraWide,
   light,
+  elevated,
   bodyClassName,
   children,
   footer,
@@ -28,8 +31,13 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60"
-      onMouseDown={(e) => {
+      className={cn(
+        'fixed inset-0 flex items-center justify-center p-4 bg-black/60',
+        elevated ? 'z-[1100]' : 'z-[1000]',
+      )}
+      onClick={(e) => {
+        // Prefer click over mousedown so opening a stacked modal from a button
+        // inside another modal cannot immediately dismiss via a leftover pointer event.
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -40,6 +48,7 @@ export function Modal({
           extraWide ? 'w-full max-w-[min(96vw,1400px)]' : wide ? 'w-full max-w-5xl' : 'w-full max-w-2xl'
         )}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         {title && (
           <div className="flex items-center justify-between px-4 py-3 border-b border-bw-border bg-bw-surface">

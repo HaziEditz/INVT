@@ -199,7 +199,6 @@ export function DispatchPage() {
 
       <CreateJobModal mapsKey={mapsKey} companyId={companyId} dispatcherName={dispatcherName} />
       <JobDetailModal />
-      <ClosedJobDetailModal companyId={companyId} mapsKey={mapsKey} />
       <DriverDetailModal />
       <MessagesModal companyId={activeCompanyId} />
       <ClosedJobsModal companyId={companyId} />
@@ -207,6 +206,8 @@ export function DispatchPage() {
       <AlarmsModal companyId={companyId} />
       <SuspendedModal companyId={companyId} />
       <AccModal />
+      {/* Stacked above Closed Jobs — must mount after the list modal. */}
+      <ClosedJobDetailModal companyId={companyId} mapsKey={mapsKey} />
       <ToastStack />
     </div>
   );

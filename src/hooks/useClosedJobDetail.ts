@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { fetchClosedJobDetail, type ClosedJobDetail } from '@/lib/closedJobDetail';
+import {
+  resolveClosedJobDetailCompanyId,
+  shouldFetchClosedJobDetail,
+} from '@/lib/closedJobDetailFetchGate';
 
 export function useClosedJobDetail(
   companyId: string | null,
@@ -11,18 +15,21 @@ export function useClosedJobDetail(
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || !companyId || !jobId) {
+    if (!shouldFetchClosedJobDetail({ enabled, jobId })) {
       setDetail(null);
       setError(null);
       setLoading(false);
       return;
     }
 
+    const id = Number(jobId);
+    const cid = resolveClosedJobDetailCompanyId(companyId);
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setDetail(null);
 
-    fetchClosedJobDetail(companyId, jobId)
+    fetchClosedJobDetail(cid || 'unknown', id)
       .then((result) => {
         if (cancelled) return;
         if (!result) {

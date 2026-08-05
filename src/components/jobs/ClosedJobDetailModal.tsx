@@ -151,11 +151,16 @@ function ClosedJobDetailBody({
       onClose={closeModal}
       title={`Closed Job #${job.id}`}
       extraWide
+      elevated
       bodyClassName="p-3 overflow-hidden"
       footer={
         <>
-          <Button variant="ghost" onClick={closeModal}>Close</Button>
-          <Button variant="gold" onClick={() => generateJobPdf(job, settings?.companyName || 'BookaWaka')}>
+          <Button variant="ghost" type="button" onClick={closeModal}>Close</Button>
+          <Button
+            variant="gold"
+            type="button"
+            onClick={() => generateJobPdf(job, settings?.companyName || 'BookaWaka')}
+          >
             <FileDown size={14} /> PDF
           </Button>
         </>
@@ -305,19 +310,26 @@ function ClosedJobDetailBody({
 }
 
 export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModalProps) {
-  const open = useUiStore((s) => s.openModal === 'closedJobDetail');
-  const jobId = useUiStore((s) => s.modalJobId);
-  const closeModal = useUiStore((s) => s.closeModal);
+  const jobId = useUiStore((s) => s.closedJobDetailId);
+  const closeClosedJobDetail = useUiStore((s) => s.closeClosedJobDetail);
+  const open = jobId != null && jobId > 0;
 
-  const { detail, loading, error } = useClosedJobDetail(companyId, jobId, open && !!jobId);
+  const { detail, loading, error } = useClosedJobDetail(companyId, jobId, open);
 
-  const title = jobId ? `Closed Job #${jobId}` : 'Closed Job';
+  const title = open ? `Closed Job #${jobId}` : 'Closed Job';
 
   if (!open) return null;
 
   if (loading) {
     return (
-      <Modal open={open} onClose={closeModal} title={title} extraWide bodyClassName="p-3">
+      <Modal
+        open={open}
+        onClose={closeClosedJobDetail}
+        title={title}
+        extraWide
+        elevated
+        bodyClassName="p-3"
+      >
         <div className="flex items-center justify-center py-10 gap-2 text-bw-muted text-xs">
           <Spinner />
           Loading closed job…
@@ -330,11 +342,12 @@ export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModa
     return (
       <Modal
         open={open}
-        onClose={closeModal}
+        onClose={closeClosedJobDetail}
         title={title}
         extraWide
+        elevated
         bodyClassName="p-3"
-        footer={<Button variant="ghost" onClick={closeModal}>Close</Button>}
+        footer={<Button variant="ghost" type="button" onClick={closeClosedJobDetail}>Close</Button>}
       >
         <p className="text-bw-muted text-xs">{error || 'Job not found.'}</p>
       </Modal>
@@ -346,7 +359,7 @@ export function ClosedJobDetailModal({ companyId, mapsKey }: ClosedJobDetailModa
       companyId={companyId}
       mapsKey={mapsKey}
       detail={detail}
-      closeModal={closeModal}
+      closeModal={closeClosedJobDetail}
     />
   );
 }
