@@ -178,7 +178,20 @@ export async function fetchClosedJobDetail(
 
   // Prefer richer nested meter/timeline fields — never let empty cj wipe ab.
   const merged = mergeClosedDetailRaw(abRec, cjRec);
-  if (!merged) return null;
+  if (!merged) {
+    // TEMP: remove after Closed Job fare/timeline blank-UI investigation.
+    console.log('[closed-job-debug]', {
+      jobId,
+      rawResponse: { allbookings: abRec, completedJobs: cjRec },
+      mergedRaw: null,
+      parsedFareBreakdown: null,
+      parsedTimeline: null,
+      note: 'merge produced null',
+    });
+    return null;
+  }
+
+  let detail: ClosedJobDetail | null = null;
 
   if (abRec && cjRec && isClosedJobRecord(abRec)) {
     const base = jobFromFirebase(String(jobId), abRec, companyId);
@@ -189,7 +202,7 @@ export async function fetchClosedJobDetail(
       const terminalAt = closedJobTerminalAtMs(job, raw);
       if (terminalAt > 0) job.completedAt = terminalAt;
       const timeline = buildClosedJobTimeline(job, raw);
-      return {
+      detail = {
         job,
         raw,
         timeline,
@@ -201,9 +214,35 @@ export async function fetchClosedJobDetail(
     }
   }
 
-  if (!isClosedJobRecord(merged) && !cjRec) return null;
+  if (!detail) {
+    if (!isClosedJobRecord(merged) && !cjRec) {
+      // TEMP: remove after Closed Job fare/timeline blank-UI investigation.
+      console.log('[closed-job-debug]', {
+        jobId,
+        rawResponse: { allbookings: abRec, completedJobs: cjRec },
+        mergedRaw: merged,
+        parsedFareBreakdown: null,
+        parsedTimeline: null,
+        note: 'not a closed job record',
+      });
+      return null;
+    }
+    detail = buildDetail(companyId, jobId, merged);
+  }
 
-  return buildDetail(companyId, jobId, merged);
+  // TEMP: remove after Closed Job fare/timeline blank-UI investigation.
+  console.log('[closed-job-debug]', {
+    jobId,
+    rawResponse: { allbookings: abRec, completedJobs: cjRec },
+    mergedRaw: {
+      fareBreakdown: detail.raw.fareBreakdown ?? detail.raw.FareBreakdown ?? null,
+      stepTimes: detail.raw.stepTimes ?? detail.raw.StepTimes ?? null,
+    },
+    parsedFareBreakdown: detail.fareBreakdown,
+    parsedTimeline: detail.timeline,
+  });
+
+  return detail;
 }
 
 export function closedJobMapEndpoints(job: Job, raw: Record<string, unknown>, route: GpsRoutePoint[]) {
