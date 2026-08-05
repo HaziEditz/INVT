@@ -14,6 +14,8 @@ test('complete payload applies final tariff aliases over create-time TarriffType
   assert.match(src, /Final meter tariff must overwrite create-time TarriffType/);
   assert.match(src, /job\.TarriffType = _tariffFinal/);
   assert.match(src, /'TarriffType'/);
+  // Fixed-fare jobs skip the overwrite (see complete-fixed-tariff-preserve.test.mjs).
+  assert.match(src, /_preWasFixed/);
 });
 
 test('jobFromFirebase prefers camelCase tariffName for Closed Job label', () => {

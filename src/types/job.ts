@@ -1128,7 +1128,9 @@ export function jobTariffLabel(job: Job): string | null {
 
 export function jobVehicleTypeLabel(job: Job): string | null {
   const v = (job.vehicleType || '').trim();
-  if (!v || v.toLowerCase() === 'not specified' || v.toLowerCase() === 'any') return null;
+  if (!v) return null;
+  // Create Job stores "Any" as "Not Specified" — show the product label "Any".
+  if (v.toLowerCase() === 'not specified' || v.toLowerCase() === 'any') return 'Any';
   return v;
 }
 

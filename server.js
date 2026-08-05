@@ -4220,6 +4220,22 @@ function _completePayloadFieldKeys() {
 function _applyCompletePayloadFields(job, payload, opts) {
   opts = opts || {};
   if (!job || !payload || typeof payload !== 'object') return job;
+  // Capture create-time fixed-fare identity before payload can overwrite with meter tariff.
+  const _preTariffId = String(job.TarriffId || job.TariffId || job.tariffId || '').trim();
+  const _preTariffType = String(
+    job.TarriffType || job.TarriffName || job.TariffName || job.tariffName || '',
+  )
+    .trim()
+    .toLowerCase();
+  const _preWasFixed =
+    _preTariffId === '-1' ||
+    _preTariffType === 'fixed' ||
+    !!job.isFixedPrice ||
+    !!job.FixedPrice;
+  const _payloadFixed =
+    String(payload.TarriffId || payload.TariffId || payload.tariffId || '').trim() === '-1' ||
+    payload.fixedPrice === true ||
+    payload.FixedPrice === true;
   for (const _k of _completePayloadFieldKeys()) {
     if (payload[_k] !== undefined && payload[_k] !== null) {
       // Prefer non-empty overwrites when enriching an already-Completed sparse archive
@@ -4278,19 +4294,31 @@ function _applyCompletePayloadFields(job, payload, opts) {
     job.AccountName = _accName;
     job.jobAccountName = _accName;
   }
-  // Final meter tariff must overwrite create-time TarriffType (Closed Job UI prefers these).
-  const _tariffFinal = String(job.tariffName || job.TarriffName || job.TariffName || '').trim();
-  if (_tariffFinal) {
-    job.tariffName = _tariffFinal;
-    job.TarriffName = _tariffFinal;
-    job.TariffName = _tariffFinal;
-    job.TarriffType = _tariffFinal;
-  }
-  const _tariffIdFinal = String(job.tariffId || job.TarriffId || job.TariffId || '').trim();
-  if (_tariffIdFinal) {
-    job.tariffId = _tariffIdFinal;
-    job.TarriffId = _tariffIdFinal;
-    job.TariffId = _tariffIdFinal;
+  if (_preWasFixed || _payloadFixed) {
+    // Keep Fixed / -1 — do not let the driver's active meter tariff overwrite.
+    job.tariffId = '-1';
+    job.TarriffId = '-1';
+    job.TariffId = '-1';
+    job.tariffName = 'Fixed';
+    job.TarriffName = 'Fixed';
+    job.TariffName = 'Fixed';
+    job.TarriffType = 'Fixed';
+    job.isFixedPrice = true;
+  } else {
+    // Final meter tariff must overwrite create-time TarriffType (Closed Job UI prefers these).
+    const _tariffFinal = String(job.tariffName || job.TarriffName || job.TariffName || '').trim();
+    if (_tariffFinal) {
+      job.tariffName = _tariffFinal;
+      job.TarriffName = _tariffFinal;
+      job.TariffName = _tariffFinal;
+      job.TarriffType = _tariffFinal;
+    }
+    const _tariffIdFinal = String(job.tariffId || job.TarriffId || job.TariffId || '').trim();
+    if (_tariffIdFinal) {
+      job.tariffId = _tariffIdFinal;
+      job.TarriffId = _tariffIdFinal;
+      job.TariffId = _tariffIdFinal;
+    }
   }
   return job;
 }

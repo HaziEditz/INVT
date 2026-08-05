@@ -32,6 +32,7 @@ import {
   jobBookingTime,
   jobCreatedAtTime,
   jobPickupTypeLabel,
+  jobTariffLabel,
   jobVehicleTypeLabel,
 } from '@/types/job';
 import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
@@ -231,7 +232,7 @@ function ClosedJobDetailBody({
               <Field label="Driver" value={closedJobDriverDisplay(job)} />
               <Field label="Vehicle" value={closedJobVehicleDisplay(job)} />
               <Field label="Vehicle type" value={dash(jobVehicleTypeLabel(job))} />
-              <Field label="Tariff" value={dash(job.tariffName || job.tariffId)} />
+              <Field label="Tariff" value={dash(jobTariffLabel(job))} />
               <Field
                 label="Payment"
                 value={`${closedJobPaymentDisplay(job, raw)} · ${closedJobFareDisplay(job)}`}
