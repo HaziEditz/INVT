@@ -9,6 +9,7 @@ import {
   jobBookingMeta,
   jobBookingMetaVisible,
   jobCreatedAtTime,
+  jobDropoffDisplay,
   jobEditLockLabel,
   jobGoTimeLabel,
   jobPickupTime,
@@ -657,7 +658,7 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
             className={cn(compact ? 'truncate text-[9px]' : 'truncate text-[10px]', onThemedBg ? '' : 'text-[var(--bw-muted)]')}
             style={themeMutedStyle}
           >
-            {job.dropAddress || 'No dropoff'}
+            {jobDropoffDisplay(job)}
           </span>
         </div>
         <Badge

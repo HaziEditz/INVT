@@ -113,6 +113,23 @@ function serveDistAsset(res, urlPath) {
   return true;
 }
 
+function readSpaAssetManifest() {
+  if (!fs.existsSync(DIST_INDEX)) return null;
+  let html = '';
+  try {
+    html = fs.readFileSync(DIST_INDEX, 'utf8');
+  } catch (_e) {
+    return null;
+  }
+  const jsMatch = html.match(/\/assets\/index-[^"'>\s]+\.js/);
+  const cssMatch = html.match(/\/assets\/index-[^"'>\s]+\.css/);
+  return {
+    assetJs: jsMatch ? jsMatch[0] : '',
+    assetCss: cssMatch ? cssMatch[0] : '',
+    buildId: SERVER_BUILD_ID,
+  };
+}
+
 function serveSpaIndex(res) {
   if (!fs.existsSync(DIST_INDEX)) {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
@@ -125,6 +142,8 @@ function serveSpaIndex(res) {
     'Content-Type': 'text/html',
     'Cache-Control': 'no-store, no-cache, must-revalidate',
     Pragma: 'no-cache',
+    Expires: '0',
+    'Surrogate-Control': 'no-store',
   });
   fs.createReadStream(DIST_INDEX).pipe(res);
 }
@@ -4164,6 +4183,7 @@ async function assignBooking(opts) {
 function _completePayloadFieldKeys() {
   return [
     'tariffId', 'tariffName', 'tariffChangedAt',
+    'TarriffId', 'TariffId', 'TarriffName', 'TariffName', 'TarriffType',
     'waitingCost', 'waitingTimeMinutes', 'waitingMinutes', 'waitingCharge',
     'extras', 'extrasTotal',
     'voucherCode', 'voucherDiscount', 'tmVoucher',
@@ -4258,6 +4278,20 @@ function _applyCompletePayloadFields(job, payload, opts) {
     job.AccountName = _accName;
     job.jobAccountName = _accName;
   }
+  // Final meter tariff must overwrite create-time TarriffType (Closed Job UI prefers these).
+  const _tariffFinal = String(job.tariffName || job.TarriffName || job.TariffName || '').trim();
+  if (_tariffFinal) {
+    job.tariffName = _tariffFinal;
+    job.TarriffName = _tariffFinal;
+    job.TariffName = _tariffFinal;
+    job.TarriffType = _tariffFinal;
+  }
+  const _tariffIdFinal = String(job.tariffId || job.TarriffId || job.TariffId || '').trim();
+  if (_tariffIdFinal) {
+    job.tariffId = _tariffIdFinal;
+    job.TarriffId = _tariffIdFinal;
+    job.TariffId = _tariffIdFinal;
+  }
   return job;
 }
 
@@ -4301,8 +4335,21 @@ function _completeFanoutExtras(job) {
       ? { waitingCharge: job.waitingCharge ?? job.waitingCost, waitingCost: job.waitingCost ?? job.waitingCharge }
       : {}),
     ...(job.tariffChanges ? { tariffChanges: job.tariffChanges } : {}),
-    ...(job.tariffId ? { tariffId: job.tariffId } : {}),
-    ...(job.tariffName ? { tariffName: job.tariffName } : {}),
+    ...(job.tariffId || job.TarriffId || job.TariffId
+      ? {
+          tariffId: job.tariffId || job.TarriffId || job.TariffId,
+          TarriffId: job.TarriffId || job.TariffId || job.tariffId,
+          TariffId: job.TariffId || job.TarriffId || job.tariffId,
+        }
+      : {}),
+    ...(job.tariffName || job.TarriffName || job.TariffName || job.TarriffType
+      ? {
+          tariffName: job.tariffName || job.TarriffName || job.TariffName || job.TarriffType,
+          TarriffName: job.TarriffName || job.tariffName || job.TariffName || job.TarriffType,
+          TariffName: job.TariffName || job.TarriffName || job.tariffName || job.TarriffType,
+          TarriffType: job.TarriffType || job.tariffName || job.TarriffName || job.TariffName,
+        }
+      : {}),
     ...(job.PaymentMethod || job.paymentMethod || job.paymentType
       ? {
           PaymentMethod: job.PaymentMethod || job.paymentMethod || job.paymentType,
@@ -10302,8 +10349,18 @@ function _fixsNormalizeClosedLog(c, cid, bid) {
   if (c.flagFall != null && out.FareBase == null) out.FareBase = c.flagFall;
   if (c.distanceCharge != null && out.RideCost == null) out.RideCost = c.distanceCharge;
   if (c.waitingCharge != null && out.WaitingCost == null) out.WaitingCost = c.waitingCharge;
-  if (c.tariffName && !out.TarriffType) out.TarriffType = c.tariffName;
-  if (c.tariffChanges && !out.tariffChanges) out.tariffChanges = c.tariffChanges;
+  if (c.tariffName) {
+    out.TarriffType = c.tariffName;
+    out.TarriffName = c.tariffName;
+    out.TariffName = c.tariffName;
+    out.tariffName = c.tariffName;
+  }
+  if (c.tariffId) {
+    out.TarriffId = c.tariffId;
+    out.TariffId = c.tariffId;
+    out.tariffId = c.tariffId;
+  }
+  if (c.tariffChanges) out.tariffChanges = c.tariffChanges;
   if (c.stepTimes && !out.stepTimes) out.stepTimes = c.stepTimes;
   if (c.gpsRoute && !out.gpsRoute) out.gpsRoute = c.gpsRoute;
   return out;
@@ -13152,11 +13209,37 @@ const server = http.createServer(async (req, res) => {
 
   // Public client config for React dispatch UI
   if (urlPath === '/api/config/client' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    });
     res.end(JSON.stringify({
       firebase: FIREBASE_CONFIG,
       mapsApiKey: GOOGLE_MAPS_API_KEY || '',
     }));
+    return;
+  }
+
+  // Public SPA asset hash — long-lived tabs compare against loaded module script.
+  if (urlPath === '/api/spa-version' && req.method === 'GET') {
+    const manifest = readSpaAssetManifest();
+    if (!manifest) {
+      res.writeHead(503, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+      });
+      res.end(JSON.stringify({ ok: false, error: 'Dispatch UI not built' }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+    });
+    res.end(JSON.stringify({ ok: true, ...manifest }));
     return;
   }
 
@@ -16137,13 +16220,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
   }
 
   // ── POST /api/driver/search-accounts — business account search for hail Account payment
-  // Auth: X-User-Key (passforlink). Company scoped from ZONE_DRIVERS — never trust body cid alone.
+  // Auth: X-User-Key (passforlink); or Firebase Bearer + driverId (same as /api/cancel);
+  // or X-Admin-Key + driverId. Company scoped from ZONE_DRIVERS — never trust body cid alone.
   if (urlPath === '/api/driver/search-accounts' && req.method === 'POST') {
     const _saBody = await readBody(req);
     let _sa = {};
     try { _sa = JSON.parse(_saBody); } catch (e) {}
     const _saUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
     const _saAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    const _saBearerTok = _extractBearerToken(req);
+    const _saBodyDrv = String(_sa.driverId || _sa.DriverId || '').trim();
     let _saDriver = null;
     if (_saUserKey) {
       _saDriver = ZONE_DRIVERS.find(d => d && (
@@ -16153,16 +16239,40 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       )) || null;
     }
     if (!_saDriver && _saAdminKey && process.env.BW_ADMIN_KEY && _saAdminKey === process.env.BW_ADMIN_KEY) {
-      const _saDrvQ = String(_sa.driverId || '').trim();
-      if (_saDrvQ) {
+      if (_saBodyDrv) {
         _saDriver = ZONE_DRIVERS.find(d => d &&
-          (String(d.driverid).trim() === _saDrvQ || String(d.VehicleId).trim() === _saDrvQ)
+          (String(d.driverid).trim() === _saBodyDrv || String(d.VehicleId).trim() === _saBodyDrv)
         ) || null;
       }
     }
+    // Fallback: Firebase Bearer + driverId — when company-global / missing passforlink
+    // does not match ZONE_DRIVERS rows (common for production driver sessions).
+    if (!_saDriver && _saBearerTok && _saBodyDrv) {
+      const _saFbAuth = await _verifyFirebaseIdToken(_saBearerTok);
+      if (_saFbAuth && _saFbAuth.uid) {
+        _saDriver = await _resolveZoneDriverForFirebaseBearer({
+          uid: _saFbAuth.uid,
+          email: _saFbAuth.email,
+          driverId: _saBodyDrv,
+          companyId: String(_sa.companyId || _sa.CompanyId || '').trim(),
+        });
+        if (_saDriver) {
+          console.log(
+            `[search-accounts/bearer] driver ${_saBodyDrv} authenticated uid=${_saFbAuth.uid} cid=${_saDriver.companyId || '-'}`,
+          );
+        }
+      }
+    }
     if (!_saDriver) {
+      console.log(
+        `401: POST /api/driver/search-accounts hasUserKey=${!!_saUserKey} hasBearer=${!!_saBearerTok} driverId=${_saBodyDrv || '-'}`,
+      );
       res.writeHead(401, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+      res.end(JSON.stringify({
+        ok: false,
+        error: 'unauthorized',
+        error_code: 'auth_failed',
+      }));
       return;
     }
     const _saCid = String(_saDriver.companyId || _sa.companyId || '').trim();

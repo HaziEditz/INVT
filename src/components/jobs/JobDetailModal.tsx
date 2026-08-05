@@ -13,6 +13,7 @@ import {
   formatJobEditHistoryWhen,
   jobBookingTime,
   jobCreatedAtTime,
+  jobDropoffDisplay,
   jobOverdueLabel,
   jobPickupTypeLabel,
 } from '@/types/job';
@@ -66,7 +67,7 @@ export function JobDetailModal() {
         <div className="grid md:grid-cols-2 gap-4">
           <div className="bw-card p-3 space-y-2">
             <div><span className="text-bw-muted text-xs">Pickup</span><p>{job.pickAddress}</p></div>
-            <div><span className="text-bw-muted text-xs">Dropoff</span><p>{job.dropAddress || '—'}</p></div>
+            <div><span className="text-bw-muted text-xs">Dropoff</span><p>{jobDropoffDisplay(job)}</p></div>
             <div><span className="text-bw-muted text-xs">Passenger</span><p>{job.passengerName} · {job.passengerPhone}</p></div>
           </div>
           <div className="bw-card p-3 space-y-2">

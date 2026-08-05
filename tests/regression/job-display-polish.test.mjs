@@ -6,6 +6,33 @@ import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
 import { getHarness } from '../lib/harness.mjs';
 
+/** Mirrors src/types/job.ts jobDropoffDisplay — hail destination unknown until End Trip. */
+function jobDropoffDisplay(job) {
+  const drop = String(job.dropAddress || '').trim();
+  const pick = String(job.pickAddress || '').trim();
+  if (job.source === 'hail' && (!drop || (pick && drop === pick))) return 'Pending';
+  return drop || 'No dropoff';
+}
+
+test('hail Active dropoff shows Pending when blank or mirrored pickup', () => {
+  assert.equal(
+    jobDropoffDisplay({ source: 'hail', pickAddress: '1 Main St', dropAddress: '' }),
+    'Pending',
+  );
+  assert.equal(
+    jobDropoffDisplay({ source: 'hail', pickAddress: '1 Main St', dropAddress: '1 Main St' }),
+    'Pending',
+  );
+  assert.equal(
+    jobDropoffDisplay({ source: 'hail', pickAddress: '1 Main St', dropAddress: '9 Side Rd' }),
+    '9 Side Rd',
+  );
+  assert.equal(
+    jobDropoffDisplay({ source: 'dispatch', pickAddress: '1 Main St', dropAddress: '' }),
+    'No dropoff',
+  );
+});
+
 function formatFixedFareAmount(raw) {
   const cleaned = String(raw || '').trim().replace(/^\$/, '');
   if (!cleaned || cleaned === '0') return null;

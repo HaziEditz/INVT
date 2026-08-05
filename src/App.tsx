@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { SpaUpdateBanner } from '@/components/shared/SpaUpdateBanner';
 import { LoginPage } from '@/pages/Login';
 import { DispatchPage } from '@/pages/Dispatch';
 import { MapPopoutPage } from '@/pages/MapPopout';
@@ -7,8 +8,9 @@ import { MapPopoutPage } from '@/pages/MapPopout';
 export default function App() {
   return (
     <BrowserRouter>
-      <ErrorBoundary label="Dispatch">
-        <Routes>
+    <ErrorBoundary label="Dispatch">
+      <SpaUpdateBanner />
+      <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route
             path="/dispatch/map"

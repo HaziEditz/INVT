@@ -293,7 +293,8 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
       const id = rec.TarriffId ?? rec.TariffId ?? rec.tariffId;
       return id != null && String(id) !== '' ? String(id) : undefined;
     })(),
-    tariffName: String(rec.TarriffName ?? rec.TariffName ?? rec.TarriffType ?? rec.tariffName ?? '').trim() || undefined,
+    // Prefer complete-time camelCase tariffName over create-time TarriffType.
+    tariffName: String(rec.tariffName ?? rec.TarriffName ?? rec.TariffName ?? rec.TarriffType ?? '').trim() || undefined,
     vehicleType: String(rec.VehicleType ?? rec.vehicleType ?? '').trim() || undefined,
     zoneId: (() => {
       const raw = rec.ZoneId ?? rec.zoneId ?? rec.zoneid;
@@ -661,6 +662,17 @@ export function jobCardBorderColor(job: Job): string {
   if (st === 'No One') return '#64748b';
   if (st === 'Pending') return '#4f6ef7';
   return '#4f6ef7';
+}
+
+/**
+ * Active-card / detail dropoff label. Hail dropoff is unknown until End Trip —
+ * show "Pending" when blank or still mirrored to pickup (legacy create path).
+ */
+export function jobDropoffDisplay(job: Job): string {
+  const drop = String(job.dropAddress || '').trim();
+  const pick = String(job.pickAddress || '').trim();
+  if (job.source === 'hail' && (!drop || (pick && drop === pick))) return 'Pending';
+  return drop || 'No dropoff';
 }
 
 /** True while a pre-booked job is still before its dispatch window opens. */
