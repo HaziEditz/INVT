@@ -462,14 +462,38 @@ test('authority: pinQueuedOptimisticJob keeps Queue tab and rejects U-A flash', 
 });
 
 test('authority: retainQueuedOptimisticAfterServerMerge blocks pool demotion flash', () => {
-  const optimistic = job({ status: 'Queued', driverId: '9001', vehicleId: '202', dropAddress: 'Edited' });
-  const demoted = job({ status: 'Pending', driverId: '0', dropAddress: 'Edited' });
-  const retained = retainQueuedOptimisticAfterServerMerge(optimistic, demoted);
+  const optimistic = job({
+    status: 'Queued',
+    driverId: '9001',
+    vehicleId: '202',
+    dropAddress: 'Edited',
+    updateSeq: 5,
+  });
+  // Stale Pending (older seq) must not flash off Queue.
+  const demotedStale = job({
+    status: 'Pending',
+    driverId: '0',
+    dropAddress: 'Edited',
+    updateSeq: 4,
+  });
+  const retained = retainQueuedOptimisticAfterServerMerge(optimistic, demotedStale);
   assert.equal(retained.status, 'Queued');
   assert.equal(retained.driverId, '9001');
   assert.equal(jobTabForStatus(retained), 'queue');
 
-  const activeFresh = job({ status: 'Active', driverId: '9001' });
+  // Authoritative recall / pool restore (newer seq + unassigned) must land on U-A.
+  const recalled = job({
+    status: 'Pending',
+    driverId: '0',
+    dropAddress: 'Edited',
+    updateSeq: 6,
+  });
+  const afterRecall = retainQueuedOptimisticAfterServerMerge(optimistic, recalled);
+  assert.equal(afterRecall.status, 'Pending');
+  assert.equal(String(afterRecall.driverId), '0');
+  assert.equal(jobTabForStatus(afterRecall), 'ua');
+
+  const activeFresh = job({ status: 'Active', driverId: '9001', updateSeq: 6 });
   assert.equal(
     retainQueuedOptimisticAfterServerMerge(optimistic, activeFresh).status,
     'Active',

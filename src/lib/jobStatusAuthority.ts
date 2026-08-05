@@ -310,6 +310,8 @@ export function pinQueuedOptimisticJob(baseJob: Job, applied: Job): Job | null {
 /**
  * After a server refresh, keep a genuine queued optimistic job on the Queue tab
  * when the snapshot is a stale pool/offer demotion.
+ * Do NOT retain after an authoritative recall/pool restore (Pending/No One +
+ * unassigned driver with equal/newer seq) — that must land on U-A.
  */
 export function retainQueuedOptimisticAfterServerMerge(
   optimistic: Job,
@@ -333,6 +335,23 @@ export function retainQueuedOptimisticAfterServerMerge(
     return merged;
   }
   const mergedSt = normalizeJobStatus(merged.status);
+  const optSeq = optimistic.updateSeq ?? 0;
+  const mergedSeq = merged.updateSeq ?? 0;
+  // Recall / pool restore: trust Pending|No One|Scheduled with cleared driver.
+  const authoritativePoolRestore =
+    (mergedSt === 'Pending' || mergedSt === 'No One' || mergedSt === 'Scheduled') &&
+    isUnassignedDriverId(merged.driverId) &&
+    mergedSeq >= optSeq;
+  if (authoritativePoolRestore) {
+    queueEditPinDebug('retainQueuedOptimisticAfterServerMerge', {
+      result: 'pass-through-pool-restore',
+      optimistic: jobPinSnapshot(optimistic),
+      merged: jobPinSnapshot(merged),
+      optSeq,
+      mergedSeq,
+    });
+    return merged;
+  }
   const demotedToPoolOrUa =
     mergedSt === 'Pending' ||
     mergedSt === 'No One' ||

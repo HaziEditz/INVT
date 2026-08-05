@@ -211,6 +211,13 @@ export function retainQueuedOptimisticAfterServerMerge(optimistic, merged) {
   }
   if (jobTabForStatus(merged) === 'queue') return merged;
   const mergedSt = normalizeJobStatus(merged.status);
+  const optSeq = optimistic.updateSeq ?? 0;
+  const mergedSeq = merged.updateSeq ?? 0;
+  const authoritativePoolRestore =
+    (mergedSt === 'Pending' || mergedSt === 'No One' || mergedSt === 'Scheduled') &&
+    isUnassignedDriverId(merged.driverId) &&
+    mergedSeq >= optSeq;
+  if (authoritativePoolRestore) return merged;
   const demotedToPoolOrUa =
     mergedSt === 'Pending' ||
     mergedSt === 'No One' ||

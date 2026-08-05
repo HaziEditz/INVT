@@ -699,7 +699,9 @@ function optimisticDispatchRefresh(
   let st = normalizeJobStatus(job.status);
 
   // Authoritative Queued + real driver — REPLACE store entry (no merge with stale Pending).
+  // Never re-pin Queued when the refresh is a pool restore (recall / timeout / decline).
   if (
+    !POOL_RESTORE_ACTIONS.has(refresh.action || '') &&
     (refresh.action === 'queue' || st === 'Queued' || targetStatus === 'Queued') &&
     isGenuineQueuedJob(job)
   ) {
@@ -865,14 +867,17 @@ async function refreshJobFromFirebaseCaches(
   job = hinted;
 
   // Firebase / refresh says Queued with a real driver — REPLACE, do not merge Pending.
+  // Stale allbookings Queued must not win over an authoritative recall/pool restore.
   const fbStatus =
     abVal && typeof abVal === 'object'
       ? jobStatusFromFirebaseRecord(abVal as Record<string, unknown>)
       : job
         ? normalizeJobStatus(job.status)
         : null;
+  const poolRestoreRefresh = POOL_RESTORE_ACTIONS.has(action || '');
   const queuedCandidate =
     job &&
+    !poolRestoreRefresh &&
     (action === 'queue' ||
       fbStatus === 'Queued' ||
       (refresh.status && normalizeJobStatus(refresh.status) === 'Queued'))

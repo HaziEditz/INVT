@@ -3122,7 +3122,12 @@ async function cancelBooking(opts) {
           writePendingJob: true,
           removeDriverQueue: _cancelStage === 'Queued',
           consoleRefresh: {
-            bookingId, action: 'recall', status: job.BookingStatus, driverId: _rDrv || _drvId,
+            bookingId,
+            action: 'recall',
+            status: job.BookingStatus,
+            // Pool restore — clear assignment so dispatch U-A does not re-pin Queued.
+            driverId: '0',
+            updateSeq: job.updateSeq,
           },
           restoreDriverState: _hasDriver ? {
             driverId: _rDrv,
@@ -22278,6 +22283,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                     status: _restoreSt,
                     action: 'recall',
                     driverId: '0',
+                    updateSeq: _rqJob.updateSeq,
                   },
                 },
                 restoreDriverState: _rqDrv ? {
