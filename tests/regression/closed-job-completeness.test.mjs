@@ -437,3 +437,202 @@ test('driver search-accounts requires auth and returns accounts array', async ()
   assert.equal(withAdmin.body?.ok, true);
   assert.ok(Array.isArray(withAdmin.body?.accounts));
 });
+
+test('OPTIONS preflight allows Authorization and X-User-Key for driver APIs', async () => {
+  const { httpRequest } = await import('../lib/http.mjs');
+  const res = await httpRequest('OPTIONS', '/api/driver/search-accounts', {
+    headers: {
+      Origin: 'http://localhost:8081',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'content-type,authorization,x-user-key',
+    },
+  });
+  assert.ok(res.status === 204 || res.status === 200, `status=${res.status}`);
+  const allow = String(
+    res.headers?.['access-control-allow-headers'] ||
+      res.headers?.['Access-Control-Allow-Headers'] ||
+      '',
+  ).toLowerCase();
+  assert.match(allow, /authorization/);
+  assert.match(allow, /x-user-key/);
+});
+
+test('complete fanout maps finalDropAddress to DropAddress', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = String(h.driverIds[0]);
+  await h.ensureDriverReady(driverId);
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Available',
+    lastSeen: Date.now(),
+    lat: -46.4121,
+    lng: 168.3531,
+  });
+
+  const create = await post(
+    '/api/job/create',
+    {
+      companyId: TEST_CID,
+      source: 'hail',
+      driverId,
+      vehicleId: driverId,
+      tariffId: 'regtest-tariff',
+      clientTripId: randomUUID(),
+      pickup: {
+        address: '6 Dee St, Invercargill',
+        lat: -46.4121,
+        lng: 168.3531,
+      },
+      dropoff: {
+        address: '',
+        lat: -46.413,
+        lng: 168.354,
+      },
+      passengers: 1,
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(create.status, 200, JSON.stringify(create.body));
+  const jobId = parseInt(String(create.body?.jobId ?? create.body?.bookingId), 10);
+  assert.ok(jobId > 0);
+
+  const drop = '99 Esk St, Invercargill';
+  const complete = await post(
+    '/api/job/complete',
+    {
+      jobId,
+      bookingId: jobId,
+      driverId,
+      companyId: TEST_CID,
+      fare: 8,
+      payload: {
+        fare: 8,
+        finalDropAddress: drop,
+        DropAddress: drop,
+        VehicleType: 'Van',
+        stepTimes: { hailStartedAt: Date.now() - 10_000, completeAt: Date.now() },
+        fareBreakdown: { flagFall: 3, total: 8 },
+      },
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(complete.status, 200, JSON.stringify(complete.body));
+
+  const node = await pollFirebasePeek(
+    `allbookings/${TEST_CID}/${jobId}`,
+    (v) =>
+      v &&
+      String(v.DropAddress || v.dropAddress || v.dropoff || '') === drop,
+    { timeoutMs: 20_000 },
+  );
+  assert.equal(String(node.DropAddress || node.dropAddress || ''), drop);
+});
+
+test('idempotent complete still fans out fareBreakdown after sparse archive', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = String(h.driverIds[0]);
+  await h.ensureDriverReady(driverId);
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Available',
+    lastSeen: Date.now(),
+    lat: -46.4121,
+    lng: 168.3531,
+  });
+
+  const create = await post(
+    '/api/job/create',
+    {
+      companyId: TEST_CID,
+      source: 'hail',
+      driverId,
+      vehicleId: driverId,
+      tariffId: 'regtest-tariff',
+      clientTripId: randomUUID(),
+      vehicleType: 'Van',
+      pickup: {
+        address: '7 Dee St, Invercargill',
+        lat: -46.4121,
+        lng: 168.3531,
+      },
+      dropoff: {
+        address: '8 Dee St, Invercargill',
+        lat: -46.413,
+        lng: 168.354,
+      },
+      passengers: 1,
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(create.status, 200, JSON.stringify(create.body));
+  const jobId = parseInt(String(create.body?.jobId ?? create.body?.bookingId), 10);
+  assert.ok(jobId > 0);
+
+  // First complete (sparse — no meter/timeline), then enriching re-complete.
+  const first = await post(
+    '/api/job/complete',
+    {
+      jobId,
+      bookingId: jobId,
+      driverId,
+      companyId: TEST_CID,
+      fare: 5,
+      payload: { fare: 5, paymentType: 'Cash' },
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+
+  const fareBreakdown = {
+    flagFall: 3.5,
+    distanceKm: 2,
+    waitingMinutes: 1,
+    waitingCharge: 0.5,
+    distanceCharge: 3,
+    total: 7,
+  };
+  const stepTimes = {
+    hailStartedAt: Date.now() - 30_000,
+    onboardAt: Date.now() - 30_000,
+    completeAt: Date.now(),
+  };
+  const second = await post(
+    '/api/job/complete',
+    {
+      jobId,
+      bookingId: jobId,
+      driverId,
+      companyId: TEST_CID,
+      fare: 7,
+      payload: {
+        fare: 7,
+        fareBreakdown,
+        FareBreakdown: fareBreakdown,
+        stepTimes,
+        VehicleType: 'Van',
+        finalDropAddress: '8 Dee St, Invercargill',
+        DropAddress: '8 Dee St, Invercargill',
+      },
+    },
+    { 'Content-Type': 'application/json' },
+  );
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  assert.equal(second.body?.ok, true);
+  assert.equal(second.body?.idempotent, true);
+
+  const node = await pollFirebasePeek(
+    `allbookings/${TEST_CID}/${jobId}`,
+    (v) =>
+      v &&
+      (v.fareBreakdown || v.FareBreakdown) &&
+      v.stepTimes &&
+      String(v.VehicleType || v.vehicleType || '') === 'Van',
+    { timeoutMs: 20_000 },
+  );
+  const fb = node.fareBreakdown || node.FareBreakdown;
+  assert.equal(Number(fb.total ?? fb.Total), 7);
+  assert.ok(node.stepTimes && typeof node.stepTimes === 'object');
+  assert.equal(String(node.VehicleType || node.vehicleType || ''), 'Van');
+});

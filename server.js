@@ -4154,6 +4154,152 @@ async function assignBooking(opts) {
 // §FIX-CMD/1.7 — Idempotent complete. Moves job to closedJobStore, restores
 // driver state via _maybeRestoreDriverState (respects remaining-assignments
 // rule), emits BookingCompleted event + 'completed' eventType to driver.
+/** Whitelisted complete-payload keys (driver fare/timeline/account extras). */
+function _completePayloadFieldKeys() {
+  return [
+    'tariffId', 'tariffName', 'tariffChangedAt',
+    'waitingCost', 'waitingTimeMinutes', 'waitingMinutes', 'waitingCharge',
+    'extras', 'extrasTotal',
+    'voucherCode', 'voucherDiscount', 'tmVoucher',
+    'accClientId', 'accApprovalNo', 'accClaimNo',
+    'paymentMethod', 'paymentSplit',
+    'stripeChargeId', 'stripePaymentIntentId',
+    'startTime', 'endTime', 'duration',
+    'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
+    'finalDropAddress',
+    'driverComments', 'meterReading',
+    'fixedPrice', 'fixedPriceReason',
+    'gst', 'tipAmount', 'tollFee', 'parkingFee',
+    'fareBreakdown', 'FareBreakdown', 'stepTimes',
+    'VehicleType', 'vehicleType',
+    'flagFall', 'distanceCharge', 'tariffChanges',
+    'gpsRoute', 'routePolyline', 'route_polyline',
+    'paymentType', 'PaymentType', 'PaymentMethod', 'paymentMethod',
+    'Account_id', 'Account_Name', 'AccountId', 'AccountName',
+    'jobAccountId', 'jobAccountName',
+    // Address mirrors — Closed Jobs UI reads DropAddress / PickAddress
+    'DropAddress', 'dropAddress', 'dropoff',
+    'PickAddress', 'pickAddress', 'pickup',
+  ];
+}
+
+/** Apply driver complete payload + normalize Closed Job mirrors onto a job row. */
+function _applyCompletePayloadFields(job, payload, opts) {
+  opts = opts || {};
+  if (!job || !payload || typeof payload !== 'object') return job;
+  for (const _k of _completePayloadFieldKeys()) {
+    if (payload[_k] !== undefined && payload[_k] !== null) {
+      // Prefer non-empty overwrites when enriching an already-Completed sparse archive
+      // (DSC path often archives before meter/timeline arrive).
+      const _cur = job[_k];
+      const _incoming = payload[_k];
+      const _curEmpty =
+        _cur == null ||
+        (typeof _cur === 'string' && !_cur.trim()) ||
+        (typeof _cur === 'number' && (!_cur || isNaN(_cur)));
+      if (opts.preferIncoming || _curEmpty || _cur === undefined) {
+        job[_k] = _incoming;
+      }
+    }
+  }
+  if (job.fareBreakdown && !job.FareBreakdown) job.FareBreakdown = job.fareBreakdown;
+  if (job.FareBreakdown && !job.fareBreakdown) job.fareBreakdown = job.FareBreakdown;
+  const _vt = String(job.VehicleType || job.vehicleType || '').trim();
+  if (_vt) {
+    job.VehicleType = _vt;
+    job.vehicleType = _vt;
+  }
+  const _finalDrop = String(
+    job.finalDropAddress || job.DropAddress || job.dropAddress || job.dropoff || '',
+  ).trim();
+  if (_finalDrop) {
+    job.finalDropAddress = job.finalDropAddress || _finalDrop;
+    job.DropAddress = job.DropAddress || _finalDrop;
+    job.dropAddress = job.dropAddress || _finalDrop;
+    job.dropoff = job.dropoff || _finalDrop;
+  }
+  const _pick = String(job.PickAddress || job.pickAddress || job.pickup || '').trim();
+  if (_pick) {
+    job.PickAddress = job.PickAddress || _pick;
+    job.pickAddress = job.pickAddress || _pick;
+    job.pickup = job.pickup || _pick;
+  }
+  const _payStamp = String(
+    job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '',
+  ).trim();
+  if (_payStamp) {
+    job.PaymentMethod = job.PaymentMethod || _payStamp;
+    job.paymentMethod = job.paymentMethod || _payStamp;
+    job.PaymentType = job.PaymentType || _payStamp;
+    job.paymentType = job.paymentType || _payStamp;
+  }
+  const _accId = String(job.Account_id || job.AccountId || job.jobAccountId || '').trim();
+  const _accName = String(job.Account_Name || job.AccountName || job.jobAccountName || '').trim();
+  if (_accId) {
+    job.Account_id = _accId;
+    job.AccountId = _accId;
+    job.jobAccountId = _accId;
+  }
+  if (_accName) {
+    job.Account_Name = _accName;
+    job.AccountName = _accName;
+    job.jobAccountName = _accName;
+  }
+  return job;
+}
+
+function _completeFanoutExtras(job) {
+  const _vt = String(job.VehicleType || job.vehicleType || '').trim();
+  const _drop = String(
+    job.DropAddress || job.dropAddress || job.finalDropAddress || job.dropoff || '',
+  ).trim();
+  const _pick = String(job.PickAddress || job.pickAddress || job.pickup || '').trim();
+  return {
+    ...(job.fareBreakdown || job.FareBreakdown
+      ? {
+          fareBreakdown: job.fareBreakdown || job.FareBreakdown,
+          FareBreakdown: job.FareBreakdown || job.fareBreakdown,
+        }
+      : {}),
+    ...(job.stepTimes ? { stepTimes: job.stepTimes } : {}),
+    ...(_vt ? { VehicleType: _vt, vehicleType: _vt } : {}),
+    ...(job.flagFall != null ? { flagFall: job.flagFall } : {}),
+    ...(job.distanceCharge != null ? { distanceCharge: job.distanceCharge } : {}),
+    ...(job.waitingCharge != null || job.waitingCost != null
+      ? { waitingCharge: job.waitingCharge ?? job.waitingCost, waitingCost: job.waitingCost ?? job.waitingCharge }
+      : {}),
+    ...(job.tariffChanges ? { tariffChanges: job.tariffChanges } : {}),
+    ...(job.tariffId ? { tariffId: job.tariffId } : {}),
+    ...(job.tariffName ? { tariffName: job.tariffName } : {}),
+    ...(job.PaymentMethod || job.paymentMethod || job.paymentType
+      ? {
+          PaymentMethod: job.PaymentMethod || job.paymentMethod || job.paymentType,
+          paymentMethod: job.paymentMethod || job.PaymentMethod || job.paymentType,
+          PaymentType: job.PaymentType || job.paymentType || job.PaymentMethod,
+          paymentType: job.paymentType || job.PaymentType || job.PaymentMethod,
+        }
+      : {}),
+    ...(job.Account_id || job.AccountId
+      ? {
+          Account_id: job.Account_id || job.AccountId,
+          AccountId: job.AccountId || job.Account_id,
+          jobAccountId: job.jobAccountId || job.Account_id || job.AccountId,
+        }
+      : {}),
+    ...(job.Account_Name || job.AccountName
+      ? {
+          Account_Name: job.Account_Name || job.AccountName,
+          AccountName: job.AccountName || job.Account_Name,
+          jobAccountName: job.jobAccountName || job.Account_Name || job.AccountName,
+        }
+      : {}),
+    ...(_drop
+      ? { DropAddress: _drop, dropAddress: _drop, dropoff: _drop, finalDropAddress: job.finalDropAddress || _drop }
+      : {}),
+    ...(_pick ? { PickAddress: _pick, pickAddress: _pick, pickup: _pick } : {}),
+  };
+}
+
 async function completeBooking(opts) {
   opts = opts || {};
   const bookingId = parseInt(opts.bookingId) || 0;
@@ -4164,9 +4310,42 @@ async function completeBooking(opts) {
   if (!bookingId) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
 
   // Idempotency — already in closedJobStore as Completed?
+  // DSC / presence Available can archive a sparse Completed row before the
+  // driver's /api/job/complete arrives with meter + timeline. Still apply the
+  // rich payload and re-fanout so Closed Jobs detail is not left blank.
   const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Completed');
   if (_closed) {
     const _cidIdem = String(_closed.companyId || opts.companyId || '');
+    if (fare !== undefined && fare !== null && fare !== '') {
+      _closed.TotalFare = fare;
+      _closed.FareSnapshot = fare;
+    }
+    if (distance !== undefined && distance !== null && distance !== '') {
+      _closed.distance = distance;
+      _closed.DistanceSnapshot = distance;
+    }
+    if (opts.payload && typeof opts.payload === 'object') {
+      _applyCompletePayloadFields(_closed, opts.payload, { preferIncoming: true });
+    }
+    // Resolve Account name from store when only id was sent.
+    const _idemCid = _cidIdem;
+    const _idemAccId = String(_closed.Account_id || _closed.AccountId || '').trim();
+    if (_idemAccId && !String(_closed.Account_Name || '').trim()) {
+      try {
+        const _ba = businessAccStore.find(
+          (b) =>
+            b &&
+            String(b.id) === String(_idemAccId) &&
+            (!_idemCid || String(b.companyId || '') === String(_idemCid)),
+        );
+        if (_ba && _ba.name) {
+          _closed.Account_Name = _ba.name;
+          _closed.AccountName = _ba.name;
+          _closed.jobAccountName = _ba.name;
+        }
+      } catch (_e) { /* ignore */ }
+    }
+    saveClosedJobStore();
     const _resolved = _resolveCompletionIdentity(_closed, _cidIdem);
     const _drvIdem = _resolved.drvId;
     const _vehIdem = _resolved.vehId;
@@ -4190,7 +4369,14 @@ async function completeBooking(opts) {
             patch: Object.assign(
               { updateSeq: parseInt(_closed.updateSeq) || 0 },
               _terminalFirebaseStatusFields('Completed'),
-              { completedAt: _closed.JobCompleteTime || new Date().toISOString() },
+              {
+                completedAt: _closed.JobCompleteTime || new Date().toISOString(),
+                JobCompleteTime: _closed.JobCompleteTime || new Date().toISOString(),
+                fare: _closed.TotalFare || '',
+                TotalFare: _closed.TotalFare || '',
+                distance: _closed.distance || '',
+              },
+              _completeFanoutExtras(_closed),
             ),
           },
           bwClearSeparateTry: true,
@@ -4214,7 +4400,7 @@ async function completeBooking(opts) {
         console.warn(`  [${source}] idempotent Firebase repair failed: ${e && e.message}`);
       }
     }
-    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Completed`);
+    console.log(`  [${source}] §FIX-CMD idempotent: job #${bookingId} already Completed (payload enriched)`);
     return { ok: true, idempotent: true, status: 'Completed',
              driverId: _closed.AssignedDriverId || String(_closed.DriverId || ''),
              vehicleId: _closed.AssignedVehicleId || '',
@@ -4260,89 +4446,27 @@ async function completeBooking(opts) {
   job.AssignedVehicleId = _vehId;
   // §FIX-CMD/1.7 — full complete payload pass-through. Driver app sends
   // ~30 fare/tariff/extras fields on trip completion. Whitelisted to prevent
-  // arbitrary writes; unknown fields are ignored (logged once).
-  const _completeFields = [
-    'tariffId', 'tariffName', 'tariffChangedAt',
-    'waitingCost', 'waitingTimeMinutes', 'waitingMinutes', 'waitingCharge',
-    'extras', 'extrasTotal',                       // service-type chips
-    'voucherCode', 'voucherDiscount', 'tmVoucher', // TM voucher payload
-    'accClientId', 'accApprovalNo', 'accClaimNo',  // ACC workflow fields
-    'paymentMethod', 'paymentSplit',               // split-payment rows
-    'stripeChargeId', 'stripePaymentIntentId',
-    'startTime', 'endTime', 'duration',
-    'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
-    'finalDropAddress',                            // when driver deviates from booking
-    'driverComments', 'meterReading',
-    'fixedPrice', 'fixedPriceReason',
-    'gst', 'tipAmount', 'tollFee', 'parkingFee',
-    // Closed Job detail — meter / timeline / vehicle (driver complete payload)
-    'fareBreakdown', 'FareBreakdown', 'stepTimes',
-    'VehicleType', 'vehicleType',
-    'flagFall', 'distanceCharge', 'tariffChanges',
-    'gpsRoute', 'routePolyline', 'route_polyline',
-    // Account payment (dispatch-preselected or hail select-at-end)
-    'paymentType', 'PaymentType', 'PaymentMethod', 'paymentMethod',
-    'Account_id', 'Account_Name', 'AccountId', 'AccountName',
-    'jobAccountId', 'jobAccountName',
-  ];
+  // arbitrary writes; unknown fields are ignored.
   if (opts.payload && typeof opts.payload === 'object') {
-    for (const _k of _completeFields) {
-      if (opts.payload[_k] !== undefined && opts.payload[_k] !== null) {
-        job[_k] = opts.payload[_k];
-      }
-    }
-  }
-  // Normalize PascalCase mirrors for Closed Job readers / Firebase fanout.
-  if (job.fareBreakdown && !job.FareBreakdown) job.FareBreakdown = job.fareBreakdown;
-  if (job.FareBreakdown && !job.fareBreakdown) job.fareBreakdown = job.FareBreakdown;
-  const _completeVehicleType = String(job.VehicleType || job.vehicleType || '').trim();
-  if (_completeVehicleType) {
-    job.VehicleType = _completeVehicleType;
-    job.vehicleType = _completeVehicleType;
-  }
-  // Stamp PaymentMethod from paymentType when driver only sent paymentType.
-  const _payStamp = String(
-    job.PaymentMethod || job.paymentMethod || job.PaymentType || job.paymentType || '',
-  ).trim();
-  if (_payStamp) {
-    job.PaymentMethod = job.PaymentMethod || _payStamp;
-    job.paymentMethod = job.paymentMethod || _payStamp;
-    job.PaymentType = job.PaymentType || _payStamp;
-    job.paymentType = job.paymentType || _payStamp;
+    _applyCompletePayloadFields(job, opts.payload, { preferIncoming: true });
   }
   const _completeAccountId = String(
     job.Account_id || job.AccountId || job.jobAccountId || '',
   ).trim();
-  const _completeAccountName = String(
-    job.Account_Name || job.AccountName || job.jobAccountName || '',
-  ).trim();
-  if (_completeAccountId) {
-    job.Account_id = _completeAccountId;
-    job.AccountId = _completeAccountId;
-    job.jobAccountId = _completeAccountId;
-    if (!_completeAccountName) {
-      try {
-        const _ba = businessAccStore.find(
-          (b) =>
-            b &&
-            String(b.id) === String(_completeAccountId) &&
-            (!_cid || String(b.companyId || '') === String(_cid)),
-        );
-        if (_ba && _ba.name) {
-          job.Account_Name = _ba.name;
-          job.AccountName = _ba.name;
-          job.jobAccountName = _ba.name;
-        }
-      } catch (_e) { /* ignore */ }
-    }
-  }
-  if (_completeAccountName || job.Account_Name) {
-    const _an = String(job.Account_Name || _completeAccountName || '').trim();
-    if (_an) {
-      job.Account_Name = _an;
-      job.AccountName = _an;
-      job.jobAccountName = _an;
-    }
+  if (_completeAccountId && !String(job.Account_Name || job.AccountName || '').trim()) {
+    try {
+      const _ba = businessAccStore.find(
+        (b) =>
+          b &&
+          String(b.id) === String(_completeAccountId) &&
+          (!_cid || String(b.companyId || '') === String(_cid)),
+      );
+      if (_ba && _ba.name) {
+        job.Account_Name = _ba.name;
+        job.AccountName = _ba.name;
+        job.jobAccountName = _ba.name;
+      }
+    } catch (_e) { /* ignore */ }
   }
 
   _archiveClosedJob(job);
@@ -4366,47 +4490,7 @@ async function completeBooking(opts) {
     distance:      job.distance  || '',
     completedAt:   _nowIso,
     JobCompleteTime: _nowIso,
-    ...(job.fareBreakdown || job.FareBreakdown
-      ? {
-          fareBreakdown: job.fareBreakdown || job.FareBreakdown,
-          FareBreakdown: job.FareBreakdown || job.fareBreakdown,
-        }
-      : {}),
-    ...(job.stepTimes ? { stepTimes: job.stepTimes } : {}),
-    ...(_completeVehicleType
-      ? { VehicleType: _completeVehicleType, vehicleType: _completeVehicleType }
-      : {}),
-    ...(job.flagFall != null ? { flagFall: job.flagFall } : {}),
-    ...(job.distanceCharge != null ? { distanceCharge: job.distanceCharge } : {}),
-    ...(job.waitingCharge != null || job.waitingCost != null
-      ? { waitingCharge: job.waitingCharge ?? job.waitingCost, waitingCost: job.waitingCost ?? job.waitingCharge }
-      : {}),
-    ...(job.tariffChanges ? { tariffChanges: job.tariffChanges } : {}),
-    ...(job.tariffId ? { tariffId: job.tariffId } : {}),
-    ...(job.tariffName ? { tariffName: job.tariffName } : {}),
-    ...(job.PaymentMethod || job.paymentMethod || job.paymentType
-      ? {
-          PaymentMethod: job.PaymentMethod || job.paymentMethod || job.paymentType,
-          paymentMethod: job.paymentMethod || job.PaymentMethod || job.paymentType,
-          PaymentType: job.PaymentType || job.paymentType || job.PaymentMethod,
-          paymentType: job.paymentType || job.PaymentType || job.PaymentMethod,
-        }
-      : {}),
-    ...(job.Account_id || job.AccountId
-      ? {
-          Account_id: job.Account_id || job.AccountId,
-          AccountId: job.AccountId || job.Account_id,
-          jobAccountId: job.jobAccountId || job.Account_id || job.AccountId,
-        }
-      : {}),
-    ...(job.Account_Name || job.AccountName
-      ? {
-          Account_Name: job.Account_Name || job.AccountName,
-          AccountName: job.AccountName || job.Account_Name,
-          jobAccountName: job.jobAccountName || job.Account_Name || job.AccountName,
-        }
-      : {}),
-  }, _terminalFirebaseStatusFields('Completed'));
+  }, _completeFanoutExtras(job), _terminalFirebaseStatusFields('Completed'));
   let _ds = { driverFreed: false, driverState: 'unchanged', queueNo: null };
   const _perfStart = Date.now();
   let _perfCleanupMs = 0;
@@ -10751,20 +10835,23 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
       [
         // Addresses + geo
         'PickAddress', 'DropAddress', 'PickLatLng', 'DropLatLng',
+        'finalDropAddress', 'dropAddress', 'dropoff', 'pickAddress', 'pickup',
         // Fare breakdown
         'TotalFare', 'FareBase', 'FareTime', 'FareDistance', 'FareExtras',
         'FareCurrency', 'DriverCost',
-        // Distance / tariff
+        'fareBreakdown', 'FareBreakdown', 'flagFall', 'distanceCharge', 'waitingCharge',
+        // Distance / tariff / vehicle
         'JobDistance', 'TarriffType', 'TarriffId',
+        'VehicleType', 'vehicleType',
         // Passenger
-        'ppname', 'AccountId',
+        'ppname', 'AccountId', 'Account_id', 'Account_Name', 'AccountName',
         // Payment
         'cashPayment', 'cardPayment', 'accountPayment',
         'Recieve_payment', 'PaymentStatus',
         // Payment method label (read by closed-job PDF/detail view as
         // j.Payment || j.paymentMethod || j.PaymentMethod). Driver app
         // writes these on completion; without them the Payment row is blank.
-        'Payment', 'paymentMethod', 'PaymentMethod', 'PaymentType',
+        'Payment', 'paymentMethod', 'PaymentMethod', 'PaymentType', 'paymentType',
         // TM
         'TmSubsidy', 'TmPassengerPays', 'TmPassengerName',
         'TmTripCategory', 'TmVoucherNo',
@@ -10772,11 +10859,16 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
         'CardLastFour', 'CardHolder', 'CardExpiry', 'CardBrand', 'StripePaymentIntentId',
         // Timeline
         'CompletedAt', 'completedAt_ISO', 'ActiveAt', 'JobCompleteTime',
-        'newcompelete', 'TotalTime',
+        'newcompelete', 'TotalTime', 'stepTimes', 'StepTimes',
       ].forEach(function(f) { if (f in fb1) p1[f] = fb1[f]; });
       var m1 = _applyMerge(p1);
       changed += m1.length;
       mergedNames = mergedNames.concat(m1);
+      // Normalize mirrors after merge so Closed Jobs readers see DropAddress etc.
+      if (job.finalDropAddress && !job.DropAddress) job.DropAddress = job.finalDropAddress;
+      if (job.fareBreakdown && !job.FareBreakdown) job.FareBreakdown = job.fareBreakdown;
+      if (job.stepTimes && !job.StepTimes) job.StepTimes = job.stepTimes;
+      if (job.VehicleType && !job.vehicleType) job.vehicleType = job.VehicleType;
     }
     // ── Path 2 — completedJobs/{cid}/{tripId}  (SA-MasterReport schema fallback)
     // Only fetch if Path 1 didn't fully populate the must-have history fields.
@@ -10786,15 +10878,22 @@ function _enrichClosedJobFromAllbookings(cid, job, attempt) {
         if (!fb2 || typeof fb2 !== 'object') return { changed: changed };
         // Map lowercase SA-MasterReport fields → PascalCase history fields.
         var p2 = {
-          PickAddress:     fb2.pickupAddress || fb2.pickup,
-          DropAddress:     fb2.dropAddress   || fb2.dropoff,
-          TotalFare:       fb2.fare,
+          PickAddress:     fb2.pickupAddress || fb2.pickup || fb2.PickAddress,
+          DropAddress:     fb2.dropAddress   || fb2.dropoff || fb2.DropAddress || fb2.finalDropAddress,
+          TotalFare:       fb2.fare || fb2.totalFare || fb2.TotalFare,
           JobDistance:     fb2.distanceKm,
           PaymentStatus:   fb2.paymentStatus,
           completedAt_ISO: fb2.completedAt_ISO ||
                            (fb2.completedAt ? new Date(fb2.completedAt).toISOString() : undefined),
           TmSubsidy:       fb2.tmSubsidy,
           TmPassengerPays: fb2.tmPassengerPays,
+          fareBreakdown:   fb2.fareBreakdown || fb2.FareBreakdown,
+          FareBreakdown:   fb2.FareBreakdown || fb2.fareBreakdown,
+          stepTimes:       fb2.stepTimes || fb2.StepTimes,
+          VehicleType:     fb2.VehicleType || fb2.vehicleType,
+          vehicleType:     fb2.vehicleType || fb2.VehicleType,
+          Account_id:      fb2.Account_id || fb2.AccountId || fb2.accountId,
+          Account_Name:    fb2.Account_Name || fb2.AccountName || fb2.accountName,
         };
         // Payment-method → cash/card/account boolean (legacy fields).
         var pm = (fb2.paymentType || fb2.paymentMethod || '').toLowerCase();
@@ -13158,7 +13257,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Key',
+      // Driver app sends Authorization + X-User-Key on authenticated POSTs
+      // (e.g. /api/driver/search-accounts). Omitting them fails CORS preflight
+      // on Expo web with a fetch TypeError ("Network request failed").
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Key, X-Admin-Key',
     });
     res.end();
     return;
@@ -16873,7 +16975,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       Id:                 _cjIdNum,
       companyId:          _cjCid,
       BookingStatus:      _cjInitialStatus,
-      BookingSource:      _cjSource,
+      // Canonical 'Hail' for UA/DSC checks; keep lowercase `source` for create logic.
+      BookingSource:      _cjSource === 'hail' ? 'Hail' : _cjSource,
       source:             _cjSource,
       ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
       Name:               ((_cjPax.name)   || '').toString().trim(),
@@ -17032,7 +17135,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             DropAddress:     _cjJob.DropAddress || '',
             dropLatLng:      _cjJob.DropLatLng  || '',
             paymentMethod:   (_cjData && _cjData.paymentMethod) || '',
-            bookingSource:   _cjSource,
+            bookingSource:   _cjSource === 'hail' ? 'Hail' : _cjSource,
+            BookingSource:   _cjSource === 'hail' ? 'Hail' : _cjSource,
             createdAt:       _cjCreated,
             DriverAcceptedAt: _cjNow,
             updateSeq:       1,
@@ -20745,7 +20849,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 // a Hail less than 3 s old, treat the Available as a phantom
                 // heartbeat and leave the job Active.  A real completion will
                 // arrive on the next Available after the 3 s window.
-                const _isHailDb = job.BookingSource === 'Hail' || job.booking_type === 'Hail';
+                // Hail create stores BookingSource:'hail' (lowercase); older paths used 'Hail'.
+                const _isHailDb = /hail/i.test(String(
+                  job.BookingSource || job.booking_type || job.bookingSource || job.source || '',
+                ));
                 const _activeAtMsDb = job.ActiveAt ? new Date(job.ActiveAt).getTime() : 0;
                 const _ageMsDb = _activeAtMsDb ? (Date.now() - _activeAtMsDb) : Infinity;
                 if (_isHailDb && _ageMsDb < 3000) {
@@ -22929,7 +23036,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 // a Hail less than 3 s old, treat the Available as a phantom
                 // heartbeat and leave the job Active.  A real completion will
                 // arrive on the next Available after the 3 s window.
-                const _isHailDb = job.BookingSource === 'Hail' || job.booking_type === 'Hail';
+                // Hail create stores BookingSource:'hail' (lowercase); older paths used 'Hail'.
+                const _isHailDb = /hail/i.test(String(
+                  job.BookingSource || job.booking_type || job.bookingSource || job.source || '',
+                ));
                 const _activeAtMsDb = job.ActiveAt ? new Date(job.ActiveAt).getTime() : 0;
                 const _ageMsDb = _activeAtMsDb ? (Date.now() - _activeAtMsDb) : Infinity;
                 if (_isHailDb && _ageMsDb < 3000) {
