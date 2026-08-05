@@ -119,7 +119,13 @@ function serveSpaIndex(res) {
     res.end('Dispatch UI not built — run: npm install && npm run build');
     return;
   }
-  res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache, must-revalidate' });
+  // no-store: hard refresh alone was not enough for some dispatchers to pick up
+  // new hashed asset URLs after deploy (incognito worked). Avoid bfcache/proxy reuse.
+  res.writeHead(200, {
+    'Content-Type': 'text/html',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+  });
   fs.createReadStream(DIST_INDEX).pipe(res);
 }
 
