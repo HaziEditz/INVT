@@ -99,3 +99,11 @@ Without this deploy, nearby drivers may not receive SOS alerts (`notificationSos
 | SOS-P4-RESOLVE-CLEAR | Resolve/false-alarm fans out `sos_resolved` and auto-clears responder alert | INVT `b7b4159`; INVT-APP2 `SosIncidentRelease.tsx` — `659cede` |
 | SOS-P4-STALE | Stale SOS notifications filtered on login/shift start (no replay of resolved incidents) | INVT-APP2 `lib/sosEmergency.ts`, `DriverContext.tsx` — `841dd76` |
 | SOS-P4-WORDING | Dispatch responder line: "on the way" vs "arrived / handled" | INVT `SosIncidentCard.tsx` — `b7b4159`, `1923a5e` |
+
+---
+
+## Total Mobility — known limitations (track)
+
+| ID | Limitation | Notes |
+|----|------------|-------|
+| TM-MULTI-COUNCIL | Phase 1 subsidy sync writes one `companySettings/{cid}/tmConfig` per company. If a company is approved for **multiple councils**, **last synced council wins** (council Config save or approve-access overwrite). | Not a bug for single-council companies. Revisit if multi-council operators need per-council driver splits (e.g. keyed by `sourceCouncilId` or card council). |

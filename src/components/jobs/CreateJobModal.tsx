@@ -586,7 +586,10 @@ export function CreateJobModal({ mapsKey, companyId, dispatcherName }: CreateJob
 
   useEffect(() => {
     if (!open || !settings?.tmConfig) return;
-    const council = String(settings.tmConfig.councilPercent ?? '');
+    // Prefer councilPercent; fall back to SA/driver field councilSubsidyPercent (synced from council).
+    const pctRaw =
+      settings.tmConfig.councilPercent ?? settings.tmConfig.councilSubsidyPercent;
+    const council = pctRaw != null && pctRaw !== '' ? String(pctRaw) : '';
     const passenger =
       settings.tmConfig.passengerPercent != null
         ? String(settings.tmConfig.passengerPercent)

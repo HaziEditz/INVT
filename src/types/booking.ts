@@ -17,8 +17,13 @@ export interface CompanySettings {
   tmConfig?: {
     councilPercent?: number;
     passengerPercent?: number;
+    /** Synced from SA council / driver app field names */
+    councilSubsidyPercent?: number;
+    councilCapAmount?: number;
+    hoistCostPerUnit?: number;
     capAmount?: number;
     hoistUnitCost?: number;
+    sourceCouncilId?: string;
   };
   defaultDispatchWindow?: number;
   logoUrl?: string;
