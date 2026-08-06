@@ -1055,10 +1055,10 @@ function fbAuthToken(idToken) {
   return process.env.BW_FIREBASE_SECRET || idToken;
 }
 
-async function firebaseDbSet(path, value, idToken) {
+async function firebaseDbSet(path, value, idToken, timeoutMs) {
   const r = await fbRequest(
     `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
-    'PUT', value
+    'PUT', value, null, timeoutMs
   );
   if (r.status !== 200) throw new Error(`Firebase DB write failed: ${JSON.stringify(r.body)}`);
   return r.body;
@@ -1106,19 +1106,19 @@ async function fbCompareAndSet(path, expectBookingId, value, idToken) {
   return { action: isEmpty ? 'empty-set' : 'set', refBid };
 }
 
-async function firebaseDbPatch(path, value, idToken) {
+async function firebaseDbPatch(path, value, idToken, timeoutMs) {
   const r = await fbRequest(
     `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
-    'PATCH', value
+    'PATCH', value, null, timeoutMs
   );
   if (r.status !== 200) throw new Error(`Firebase DB patch failed: ${JSON.stringify(r.body)}`);
   return r.body;
 }
 
-async function firebaseDbGet(path, idToken) {
+async function firebaseDbGet(path, idToken, timeoutMs) {
   const r = await fbRequest(
     `${FB_DB_URL}/${path}.json?auth=${fbAuthToken(idToken)}`,
-    'GET', null
+    'GET', null, null, timeoutMs
   );
   if (r.status !== 200) throw new Error(`Firebase DB read failed: ${JSON.stringify(r.body)}`);
   return r.body;
@@ -4423,6 +4423,12 @@ function _completeFanoutExtras(job) {
 // the driver client's ~12s HTTP budget under Firebase lag. Cleanup continues
 // in the background when this budget is exceeded.
 const COMPLETE_SIDE_EFFECTS_BUDGET_MS = 7000;
+
+// Cap hail-create Firebase fanout so /api/job/create stays well under the
+// harness/client ~30s HTTP budget. Prefer awaiting allbookings (race vs quick
+// complete); if Firebase lags past this, return 200 and finish in background.
+// Complete re-seal + skip-Active-if-terminal still defend the race.
+const HAIL_CREATE_FANOUT_BUDGET_MS = 8000;
 
 async function completeBooking(opts) {
   opts = opts || {};
@@ -9637,15 +9643,44 @@ function _jobExistsInClosedStore(bid, cid) {
   return closedJobStore.some(j => j && j.Id === bid && String(j.companyId || '') === scid);
 }
 
-/** True when Firebase allbookings/{cid}/{id} holds any record (ghost/stale reuse guard). */
+/**
+ * True when Firebase allbookings/{cid}/{id} holds any record (ghost/stale reuse guard).
+ * Returns true/false when known; null when the check itself timed out / failed
+ * (caller must not treat null as free — that reuses Cancelled IDs).
+ */
 async function _firebaseAllbookingsExists(cid, bookingId, tok) {
   const scid = String(cid || '').trim();
   const bid = parseInt(bookingId, 10) || 0;
   if (!scid || !bid) return false;
-  if (!tok) tok = await getFirebaseServerToken().catch(() => null);
-  if (!tok) throw new Error('Firebase token unavailable — cannot verify allbookings for ID allocation');
-  const ab = await firebaseDbGet(`allbookings/${scid}/${bid}`, tok);
-  return ab != null && typeof ab === 'object';
+  // Cap token + GET — fbRequest defaults to 30s and previously pinned hail create.
+  if (!tok) {
+    try {
+      tok = await _promiseWithTimeout(
+        getFirebaseServerToken(),
+        4000,
+        'getFirebaseServerToken for allocate exists check',
+      );
+    } catch (e) {
+      console.warn(
+        `[allocate] Firebase token skipped #${bid}: ${e && e.message} — unknown`,
+      );
+      return null;
+    }
+  }
+  if (!tok) {
+    console.warn(`[allocate] Firebase token unavailable #${bid} — unknown`);
+    return null;
+  }
+  try {
+    // Short probe — prefer more candidates under the allocate soft budget over one long GET.
+    const ab = await firebaseDbGet(`allbookings/${scid}/${bid}`, tok, 2500);
+    return ab != null && typeof ab === 'object';
+  } catch (e) {
+    console.warn(
+      `[allocate] allbookings exists check skipped #${bid}: ${e && e.message} — unknown`,
+    );
+    return null;
+  }
 }
 
 /**
@@ -9659,8 +9694,32 @@ async function allocateCompanyJobId(companyId, opts) {
   const scid = String(companyId || '').trim();
   const maxAttempts = opts.maxAttempts || 500;
   let tok = opts.token || null;
+  // Soft budget for Firebase existence probes. Never issue an ID without a
+  // confirmed-free GET — local-only fallback reuses Completed/Cancelled ghosts.
+  const fbBudgetMs = opts.fbBudgetMs != null ? opts.fbBudgetMs : 10000;
+  const fbDeadline = Date.now() + fbBudgetMs;
+
+  if (!tok) {
+    try {
+      tok = await _promiseWithTimeout(
+        getFirebaseServerToken(),
+        4000,
+        `${tag} getFirebaseServerToken`,
+      );
+    } catch (e) {
+      throw new Error(`[${tag}] Firebase token unavailable for ID allocation: ${e && e.message}`);
+    }
+  }
+  if (!tok) {
+    throw new Error(`[${tag}] Firebase token unavailable for ID allocation`);
+  }
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (Date.now() >= fbDeadline) {
+      throw new Error(
+        `[${tag}] FB exists-check budget ${fbBudgetMs}ms exceeded without a confirmed-free ID`,
+      );
+    }
     const candidate = newCompanyJobId(companyId);
     if (_jobExistsInClosedStore(candidate, scid)) {
       console.log(`[${tag}] ID ${candidate} in closedJobStore — allocating next`);
@@ -9670,17 +9729,24 @@ async function allocateCompanyJobId(companyId, opts) {
       console.log(`[${tag}] ID ${candidate} in jobStore — allocating next`);
       continue;
     }
-    try {
-      if (await _firebaseAllbookingsExists(scid, candidate, tok)) {
-        console.log(
-          `[${tag}] ID ${candidate} exists in Firebase allbookings/${scid}/${candidate} — allocating next`,
-        );
-        continue;
-      }
-    } catch (e) {
-      console.error(`[${tag}] Firebase allbookings check failed for #${candidate}: ${e && e.message}`);
-      throw e;
+    const exists = await _firebaseAllbookingsExists(scid, candidate, tok);
+    if (exists === true) {
+      // Dense ghost regions are common after long regression days (seq resets
+      // daily at 1 while allbookings still holds 2608061…N). Jump ahead so the
+      // soft budget is spent finding a free ID, not walking every ghost.
+      console.log(
+        `[${tag}] ID ${candidate} exists in Firebase allbookings/${scid}/${candidate} — jumping seq +40`,
+      );
+      for (let j = 0; j < 40; j++) newCompanyJobId(companyId);
+      continue;
     }
+    if (exists === null) {
+      // Never treat unknown as free — that reuses Completed/Cancelled ghosts.
+      console.warn(`[${tag}] ID ${candidate} FB exists unknown — jumping seq +10`);
+      for (let j = 0; j < 10; j++) newCompanyJobId(companyId);
+      continue;
+    }
+    // exists === false → confirmed free
     if (attempt > 0) {
       console.log(`[${tag}] allocated #${candidate} after ${attempt + 1} attempt(s)`);
     }
@@ -17204,7 +17270,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     // Triple-check closedJobStore, jobStore, and Firebase allbookings before issuing.
     let _cjIdNum;
     try {
-      _cjIdNum = await allocateCompanyJobId(_cjCid, { tag: '/api/job/create' });
+      // FB probes soft-budgeted inside allocate (fail-open). Do not hard-timeout
+      // the whole allocate into a 503 — worse than a local-only ID under lag.
+      _cjIdNum = await allocateCompanyJobId(_cjCid, {
+        tag: '/api/job/create',
+        fbBudgetMs: 10000,
+      });
     } catch (e) {
       console.error('[/api/job/create] ID allocation failed:', e && e.message);
       res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -17378,98 +17449,127 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         console.warn(`  [/api/job/create] §FIX-HAIL/2 ZONE_DRIVERS update failed: ${_e && _e.message}`);
       }
 
-      // 2) Firebase fanout — MUST await allbookings/pendingjobs before HTTP 200.
-      // A fire-and-forget Active SET racing a quick complete PATCH+bwClear left
-      // sparse Completed rows (missing fareBreakdown/Account) in Closed Jobs.
-      try {
+      // 2) Firebase fanout — prefer await allbookings/pendingjobs before HTTP 200
+      // (closes Active-SET vs complete race), but cap wait so create stays snappy
+      // for drivers and under the ~30s HTTP client budget when Firebase lags.
+      const _hailFanout = (async () => {
         const _tokH = await getFirebaseServerToken();
         if (!_tokH) {
           console.warn(`  [/api/job/create] §FIX-HAIL/2 no Firebase token — fanout skipped for #${_hBid}`);
-        } else {
-          const _fbBooking = {
-            bookingId:       String(_hBid),
-            status:          'Active',
-            BookingStatus:   'Active',
-            companyId:       _hCid,
-            driverId:        _hDrv,
-            vehicleId:       _hVid,
-            DriverId:        _hDrv,
-            VehicleNo:       _hVid,
-            CallSign:        _hVid,
-            name:            _cjJob.Name        || '',
-            PassengerName:   _cjJob.Name        || '',
-            phoneNo:         _cjJob.PhoneNo     || '',
-            PhoneNo:         _cjJob.PhoneNo     || '',
-            pickAddress:     _cjJob.PickAddress || '',
-            PickAddress:     _cjJob.PickAddress || '',
-            pickLatLng:      _cjJob.PickLatLng  || '',
-            dropAddress:     _cjJob.DropAddress || '',
-            DropAddress:     _cjJob.DropAddress || '',
-            dropLatLng:      _cjJob.DropLatLng  || '',
-            paymentMethod:   (_cjData && _cjData.paymentMethod) || '',
-            bookingSource:   _cjSource === 'hail' ? 'Hail' : _cjSource,
-            BookingSource:   _cjSource === 'hail' ? 'Hail' : _cjSource,
-            createdAt:       _cjCreated,
-            DriverAcceptedAt: _cjNow,
-            updateSeq:       1,
-            ...(_cjVehicleType ? { VehicleType: _cjVehicleType, vehicleType: _cjVehicleType } : {}),
-            ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
-          };
-          // Skip Active SET if complete/cancel already advanced the node (retry/race).
-          let _skipActiveAllbookings = false;
-          try {
-            const _abNode = await firebaseDbGet(`allbookings/${_hCid}/${_hBid}`, _tokH);
-            if (_abNode && typeof _abNode === 'object') {
-              const _abSt = String(_abNode.BookingStatus || _abNode.status || _abNode.Status || '').trim();
-              const _abSeq = parseInt(_abNode.updateSeq, 10) || 0;
-              if (
-                _abSt === 'Completed' ||
-                _abSt === 'Cancelled' ||
-                _abSt === 'No Show' ||
-                _abSeq > 1
-              ) {
+          return;
+        }
+        const _fbBooking = {
+          bookingId:       String(_hBid),
+          status:          'Active',
+          BookingStatus:   'Active',
+          companyId:       _hCid,
+          driverId:        _hDrv,
+          vehicleId:       _hVid,
+          DriverId:        _hDrv,
+          VehicleNo:       _hVid,
+          CallSign:        _hVid,
+          name:            _cjJob.Name        || '',
+          PassengerName:   _cjJob.Name        || '',
+          phoneNo:         _cjJob.PhoneNo     || '',
+          PhoneNo:         _cjJob.PhoneNo     || '',
+          pickAddress:     _cjJob.PickAddress || '',
+          PickAddress:     _cjJob.PickAddress || '',
+          pickLatLng:      _cjJob.PickLatLng  || '',
+          dropAddress:     _cjJob.DropAddress || '',
+          DropAddress:     _cjJob.DropAddress || '',
+          dropLatLng:      _cjJob.DropLatLng  || '',
+          paymentMethod:   (_cjData && _cjData.paymentMethod) || '',
+          bookingSource:   _cjSource === 'hail' ? 'Hail' : _cjSource,
+          BookingSource:   _cjSource === 'hail' ? 'Hail' : _cjSource,
+          createdAt:       _cjCreated,
+          DriverAcceptedAt: _cjNow,
+          updateSeq:       1,
+          ...(_cjVehicleType ? { VehicleType: _cjVehicleType, vehicleType: _cjVehicleType } : {}),
+          ...(_cjClientTripId ? { clientTripId: _cjClientTripId } : {}),
+        };
+        // Skip Active SET only when complete/noshow already won the create race.
+        // Do NOT skip stale Cancelled ghosts (ID reuse / exists-check unknown) —
+        // those must be overwritten so hail VehicleType/Account land on allbookings.
+        let _skipActiveAllbookings = false;
+        try {
+          const _abNode = await firebaseDbGet(`allbookings/${_hCid}/${_hBid}`, _tokH, 4000);
+          if (_abNode && typeof _abNode === 'object') {
+            const _abSt = String(_abNode.BookingStatus || _abNode.status || _abNode.Status || '').trim();
+            const _abSeq = parseInt(_abNode.updateSeq, 10) || 0;
+            if (_abSt === 'Completed' || _abSt === 'No Show') {
+              _skipActiveAllbookings = true;
+              console.log(
+                `  [/api/job/create] §FIX-HAIL/2 skip Active allbookings SET #${_hBid} — already ${_abSt}`,
+              );
+            } else if (_abSt === 'Cancelled') {
+              const _cancelledAt = Date.parse(
+                _abNode.cancelledAt || _abNode.CancelledAt || '',
+              ) || 0;
+              // Only skip a cancel that raced this create (last 60s); stale Cancelled → overwrite.
+              if (_cancelledAt && (Date.now() - _cancelledAt) < 60_000) {
                 _skipActiveAllbookings = true;
                 console.log(
-                  `  [/api/job/create] §FIX-HAIL/2 skip Active allbookings SET #${_hBid} — already ${_abSt || ('seq=' + _abSeq)}`,
+                  `  [/api/job/create] §FIX-HAIL/2 skip Active allbookings SET #${_hBid} — recent Cancelled`,
                 );
               }
+            } else if (_abSeq > 1 && (_abSt === 'Active' || _abSt === 'Assigned' || _abSt === 'Arrived' || _abSt === 'PickedUp')) {
+              _skipActiveAllbookings = true;
+              console.log(
+                `  [/api/job/create] §FIX-HAIL/2 skip Active allbookings SET #${_hBid} — already ${_abSt} seq=${_abSeq}`,
+              );
             }
-          } catch (_ePeek) { /* peek best-effort; still attempt SET */ }
+          }
+        } catch (_ePeek) { /* peek best-effort; still attempt SET */ }
 
-          await Promise.all([
-            firebaseDbSet(`pendingjobs/${_hCid}/${_hBid}`, _fbBooking, _tokH)
-              .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 pendingjobs write failed: ${e && e.message}`)),
-            _skipActiveAllbookings
-              ? Promise.resolve()
-              : firebaseDbSet(`allbookings/${_hCid}/${_hBid}`, _fbBooking, _tokH)
-                .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 allbookings write failed: ${e && e.message}`)),
-            firebaseDbPatch(`online/${_hCid}/${_hVid}/current`, {
-              currentJobId: String(_hBid),
-              jobId:        String(_hBid),
-              joboffer:     0,
-              jobpickup:    _cjJob.PickAddress || '',
-              jobdropoff:   _cjJob.DropAddress || '',
-              JobphoneNo:   _cjJob.PhoneNo     || '',
-              jobname:      _cjJob.Name        || '',
-              vehiclestatus: 'Busy'
-            }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online/current patch failed: ${e && e.message}`)),
-            firebaseDbPatch(`online/${_hCid}/${_hVid}`, {
-              jobpickup:    _cjJob.PickAddress || '',
-              jobdropoff:   _cjJob.DropAddress || '',
-              JobphoneNo:   _cjJob.PhoneNo     || '',
-              jobname:      _cjJob.Name        || '',
-              currentJobId: String(_hBid),
-              jobId:        String(_hBid),
-              bookingId:    String(_hBid),
-            }, _tokH).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online root patch failed: ${e && e.message}`))
-          ]);
-          console.log(`  [/api/job/create] §FIX-HAIL/2 Firebase fanout complete for #${_hBid} (pendingjobs+allbookings+online/${_hVid}/current)`);
-          _writeBookingEvent(_hCid, _hBid, 'StatusChanged',
-            { from: null, to: 'Active', driverId: _hDrv, vehicleId: _hVid, action: 'created', source: 'hail' },
-            'driver', 1).catch(() => {});
-        }
-      } catch (_e) {
+        // Per-write timeout under the outer fanout budget (fbRequest default is 30s).
+        const _hailFbMs = 6000;
+        await Promise.all([
+          firebaseDbSet(`pendingjobs/${_hCid}/${_hBid}`, _fbBooking, _tokH, _hailFbMs)
+            .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 pendingjobs write failed: ${e && e.message}`)),
+          _skipActiveAllbookings
+            ? Promise.resolve()
+            : firebaseDbSet(`allbookings/${_hCid}/${_hBid}`, _fbBooking, _tokH, _hailFbMs)
+              .catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 allbookings write failed: ${e && e.message}`)),
+          firebaseDbPatch(`online/${_hCid}/${_hVid}/current`, {
+            currentJobId: String(_hBid),
+            jobId:        String(_hBid),
+            joboffer:     0,
+            jobpickup:    _cjJob.PickAddress || '',
+            jobdropoff:   _cjJob.DropAddress || '',
+            JobphoneNo:   _cjJob.PhoneNo     || '',
+            jobname:      _cjJob.Name        || '',
+            vehiclestatus: 'Busy'
+          }, _tokH, _hailFbMs).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online/current patch failed: ${e && e.message}`)),
+          firebaseDbPatch(`online/${_hCid}/${_hVid}`, {
+            jobpickup:    _cjJob.PickAddress || '',
+            jobdropoff:   _cjJob.DropAddress || '',
+            JobphoneNo:   _cjJob.PhoneNo     || '',
+            jobname:      _cjJob.Name        || '',
+            currentJobId: String(_hBid),
+            jobId:        String(_hBid),
+            bookingId:    String(_hBid),
+          }, _tokH, _hailFbMs).catch(e => console.warn(`  [/api/job/create] §FIX-HAIL/2 online root patch failed: ${e && e.message}`))
+        ]);
+        console.log(`  [/api/job/create] §FIX-HAIL/2 Firebase fanout complete for #${_hBid} (pendingjobs+allbookings+online/${_hVid}/current)`);
+        _writeBookingEvent(_hCid, _hBid, 'StatusChanged',
+          { from: null, to: 'Active', driverId: _hDrv, vehicleId: _hVid, action: 'created', source: 'hail' },
+          'driver', 1).catch(() => {});
+      })().catch((_e) => {
         console.warn(`  [/api/job/create] §FIX-HAIL/2 fanout failed: ${_e && _e.message}`);
+        return null;
+      });
+
+      try {
+        await _promiseWithTimeout(
+          _hailFanout,
+          HAIL_CREATE_FANOUT_BUDGET_MS,
+          `hail create fanout #${_hBid}`,
+        );
+      } catch (_eBudget) {
+        console.warn(
+          `  [/api/job/create] §FIX-HAIL/2 fanout budget exceeded (${HAIL_CREATE_FANOUT_BUDGET_MS}ms) ` +
+          `for #${_hBid} — returning 200; fanout continues in background`,
+        );
       }
     }
 
