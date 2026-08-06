@@ -4192,7 +4192,8 @@ function _completePayloadFieldKeys() {
     'waitingCost', 'waitingTimeMinutes', 'waitingMinutes', 'waitingCharge',
     'extras', 'extrasTotal',
     'voucherCode', 'voucherDiscount', 'tmVoucher',
-    'accClientId', 'accApprovalNo', 'accClaimNo',
+    'accClientId', 'accApprovalNo', 'accClaimNo', 'accPoNo', 'eftposRef',
+    'AccClaimNo', 'AccPoNo', 'EftposRef',
     'paymentMethod', 'paymentSplit',
     'stripeChargeId', 'stripePaymentIntentId',
     'startTime', 'endTime', 'duration',
@@ -15854,6 +15855,8 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       var p = s.payment;
       if (_str(p.tmVoucherNo))  out.TmVoucherNo  = _str(p.tmVoucherNo);
       if (_str(p.accClaimNo))   out.AccClaimNo   = _str(p.accClaimNo);
+      if (_str(p.accPoNo))      out.AccPoNo      = _str(p.accPoNo);
+      if (_str(p.eftposRef))    out.EftposRef    = _str(p.eftposRef);
       if (_str(p.giftCardCode)) out.GiftCardCode = _str(p.giftCardCode);
       if (_str(p.stripeIntent)) out.StripeIntent = _str(p.stripeIntent);
       if (p.settledInCar === true  || p.settledInCar === 'true')  out.PaymentSettled = true;
