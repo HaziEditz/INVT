@@ -13,6 +13,7 @@ import {
   closedJobFareDisplay,
   closedJobPaymentDisplay,
   closedJobSourceDisplay,
+  closedJobTmSummary,
   closedJobTypeDisplay,
   closedJobVehicleDisplay,
   serviceTypeDisplay,
@@ -164,6 +165,7 @@ function ClosedJobDetailBody({
       : closedJobSourceDisplay(job);
 
   const passengerLine = [dash(job.passengerName), job.passengerPhone].filter((x) => x && x !== '—').join(' · ') || '—';
+  const tmSummary = closedJobTmSummary(job, raw as Record<string, unknown>);
 
   return (
     <Modal
@@ -248,6 +250,23 @@ function ClosedJobDetailBody({
 
           <Panel title="Fare breakdown">
             <FareBreakdownCompact fb={fareBreakdown} />
+            {tmSummary ? (
+              <div className="mt-2 pt-1.5 border-t border-bw-border/60 space-y-0.5">
+                <div className="text-[10px] text-bw-muted mb-0.5">Total Mobility</div>
+                {tmSummary.card ? (
+                  <Field label="TM card" value={tmSummary.card} />
+                ) : null}
+                {tmSummary.cardName ? (
+                  <Field label="Cardholder" value={tmSummary.cardName} />
+                ) : null}
+                <Field label="Council (total)" value={money(tmSummary.councilPays)} />
+                <Field label="Meter subsidy" value={money(tmSummary.meterSubsidy)} />
+                {tmSummary.hoist > 0 ? (
+                  <Field label="Hoist (council)" value={money(tmSummary.hoist)} />
+                ) : null}
+                <Field label="Passenger pays" value={money(tmSummary.passengerPays)} />
+              </div>
+            ) : null}
             {tariffLog.length > 0 ? (
               <div className="mt-2 pt-1.5 border-t border-bw-border/60">
                 <div className="text-[10px] text-bw-muted mb-0.5">Tariff changes</div>

@@ -185,6 +185,20 @@ export function closedJobPaymentCollected(
   return false;
 }
 
+/** True when closed record carries Total Mobility economics (even if remainder is Cash). */
+export function closedJobIsTotalMobility(job: Job, raw?: Record<string, unknown>): boolean {
+  const r = raw || {};
+  if (r.isTotalMobility === true || r.tmUsed === true) return true;
+  if ((job as { isTotalMobility?: boolean }).isTotalMobility === true) return true;
+  const pt = String(job.paymentType || r.paymentType || r.PaymentType || '')
+    .toLowerCase()
+    .replace(/[_\s-]/g, '');
+  if (pt === 'tm' || pt === 'totalmobility') return true;
+  if (r.tmCouncilPays != null || r.tmSubsidyFare != null || r.tmSubsidy != null) return true;
+  if (r.tmCardNumber || r.tmVoucherNo) return true;
+  return false;
+}
+
 /** Payment column: Completed always; Cancelled/No Show only when fare was collected. */
 export function closedJobPaymentDisplay(job: Job, raw?: Record<string, unknown>): string {
   const st = normalizeJobStatus(job.status);
@@ -197,13 +211,39 @@ export function closedJobPaymentDisplay(job: Job, raw?: Record<string, unknown>)
       raw?.accountName ||
       '',
   ).trim();
-  const label =
+  let label =
     accountName && (/account/i.test(payment) || !payment)
       ? `${payment || 'Account'} · ${accountName}`
       : payment;
+  if (closedJobIsTotalMobility(job, raw)) {
+    const remainder = label || String(raw?.tmRemainderPaymentType || '').trim() || '—';
+    label = /^(tm|total\s*mobility)$/i.test(remainder) ? 'TM' : `TM · ${remainder}`;
+  }
   if (st === 'Completed') return label || '—';
   if (!closedJobPaymentCollected(job, raw)) return '—';
   return label || '—';
+}
+
+export function closedJobTmSummary(
+  job: Job,
+  raw?: Record<string, unknown>,
+): {
+  councilPays: number;
+  passengerPays: number;
+  meterSubsidy: number;
+  hoist: number;
+  card: string;
+  cardName: string;
+} | null {
+  if (!closedJobIsTotalMobility(job, raw)) return null;
+  const r = raw || {};
+  const councilPays = Number(r.tmCouncilPays ?? r.tmSubsidy ?? r.councilPays ?? 0) || 0;
+  const passengerPays = Number(r.tmPassengerPays ?? r.passengerPays ?? 0) || 0;
+  const meterSubsidy = Number(r.tmSubsidyFare ?? Math.max(0, councilPays - Number(r.tmSubsidyHoist ?? r.hoistTotal ?? 0))) || 0;
+  const hoist = Number(r.tmSubsidyHoist ?? r.hoistTotal ?? 0) || 0;
+  const card = String(r.tmCardNumber || r.tmVoucherNo || '').trim();
+  const cardName = String(r.tmCardName || '').trim();
+  return { councilPays, passengerPays, meterSubsidy, hoist, card, cardName };
 }
 
 export function closedJobDriverDisplay(job: Job): string {

@@ -4219,6 +4219,13 @@ function _completePayloadFieldKeys() {
     'ArrivedAt', 'arrivedAt',
     'OnBoardAt', 'onBoardAt', 'ActiveAt', 'activeAt',
     'JobCompleteTime',
+    // Total Mobility economics (remainder paymentType may be Cash/Card/…)
+    'isTotalMobility', 'tmUsed', 'tmPaymentType', 'paymentCategory',
+    'tmCouncilPays', 'tmPassengerPays', 'tmSubsidy', 'councilPays', 'passengerPays',
+    'tmMeterFare', 'tmSubsidyFare', 'tmSubsidyHoist',
+    'hoistTotal', 'hoistCount', 'tmHoistCount', 'tmHoists',
+    'tmCardNumber', 'tmCardName', 'tmCardExpiry', 'tmVoucherNo', 'tmTotalFare',
+    'tmRemainderPaymentType', 'councilId', 'tmCouncilId',
   ];
 }
 
@@ -4417,6 +4424,33 @@ function _completeFanoutExtras(job) {
       ? { OnBoardAt: _onboardIso, onBoardAt: _onboardIso, ActiveAt: _onboardIso, activeAt: _onboardIso }
       : {}),
     ...(_completeIso ? { JobCompleteTime: _completeIso } : {}),
+    // Total Mobility — keep economics on allbookings even when paymentType is Cash/Card/…
+    ...(job.isTotalMobility || job.tmUsed || job.tmCouncilPays != null || job.tmSubsidyFare != null
+      ? {
+          isTotalMobility: true,
+          tmUsed: true,
+          tmPaymentType: job.tmPaymentType || 'total_mobility',
+          paymentCategory: job.paymentCategory || 'total_mobility',
+          tmCouncilPays: job.tmCouncilPays != null ? job.tmCouncilPays : job.tmSubsidy,
+          tmPassengerPays: job.tmPassengerPays != null ? job.tmPassengerPays : job.passengerPays,
+          tmSubsidy: job.tmSubsidy != null ? job.tmSubsidy : job.tmCouncilPays,
+          tmMeterFare: job.tmMeterFare,
+          tmSubsidyFare: job.tmSubsidyFare,
+          tmSubsidyHoist: job.tmSubsidyHoist != null ? job.tmSubsidyHoist : job.hoistTotal,
+          hoistTotal: job.hoistTotal,
+          hoistCount: job.hoistCount != null ? job.hoistCount : job.tmHoistCount,
+          tmHoistCount: job.tmHoistCount != null ? job.tmHoistCount : job.hoistCount,
+          tmHoists: job.tmHoists,
+          tmCardNumber: job.tmCardNumber || job.tmVoucherNo || '',
+          tmCardName: job.tmCardName || '',
+          tmCardExpiry: job.tmCardExpiry || '',
+          tmVoucherNo: job.tmVoucherNo || job.tmCardNumber || '',
+          tmTotalFare: job.tmTotalFare,
+          tmRemainderPaymentType: job.tmRemainderPaymentType || job.paymentType,
+          councilId: job.councilId || job.tmCouncilId || '',
+          tmCouncilId: job.tmCouncilId || job.councilId || '',
+        }
+      : {}),
   };
 }
 
@@ -4612,6 +4646,39 @@ async function completeBooking(opts) {
   jobStore.splice(idx, 1);
   saveJobStore();
   saveClosedJobStore();
+
+  // Seed TM claim status for council portal when complete carries TM economics.
+  try {
+    const _tmSeedCouncil = String(job.councilId || job.tmCouncilId || '').trim();
+    const _isTmComplete =
+      job.isTotalMobility === true ||
+      job.tmUsed === true ||
+      job.tmCouncilPays != null ||
+      job.tmSubsidyFare != null ||
+      !!String(job.tmCardNumber || job.tmVoucherNo || '').trim();
+    if (_cid && _tmSeedCouncil && _isTmComplete) {
+      getFirebaseServerToken()
+        .then((tok) => {
+          if (!tok) return null;
+          return firebaseDbSet(
+            `tmTripStatus/${_cid}/${bookingId}`,
+            {
+              status: 'pending',
+              councilId: _tmSeedCouncil,
+              companyId: _cid,
+              submittedAt: Date.now(),
+              source: 'dispatch_complete',
+              isTotalMobility: true,
+              tmCardNumber: job.tmCardNumber || job.tmVoucherNo || '',
+              tmCouncilPays: job.tmCouncilPays != null ? job.tmCouncilPays : job.tmSubsidy,
+              tmPassengerPays: job.tmPassengerPays != null ? job.tmPassengerPays : job.passengerPays,
+            },
+            tok,
+          );
+        })
+        .catch((e) => console.warn('[complete] tmTripStatus seed failed:', e && e.message));
+    }
+  } catch (_tmSeedErr) { /* non-fatal */ }
 
   if (_cid) {
     _writeBookingEvent(_cid, bookingId, 'StatusChanged',
