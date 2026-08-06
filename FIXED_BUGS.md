@@ -107,3 +107,4 @@ Without this deploy, nearby drivers may not receive SOS alerts (`notificationSos
 | ID | Limitation | Notes |
 |----|------------|-------|
 | TM-MULTI-COUNCIL | Phase 1 subsidy sync writes one `companySettings/{cid}/tmConfig` per company. If a company is approved for **multiple councils**, **last synced council wins** (council Config save or approve-access overwrite). | Not a bug for single-council companies. Revisit if multi-council operators need per-council driver splits (e.g. keyed by `sourceCouncilId` or card council). |
+| TM-HOIST-METER-PAUSE | NZTA TM guidance: fare meter should **not run** while a TM passenger is loaded/unloaded via hoist. Driver app has manual **PAUSE** (stops distance + waiting accrual) but **no automatic hoist-pause** tied to WAV/TM loading. | Track as separate small fix after Phase 2A money math. |
