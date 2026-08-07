@@ -7,7 +7,14 @@
  *
  * Usage (from INVT):
  *   node tests/watch-live-trace.mjs
- *   node tests/watch-live-trace.mjs --out ../INVT-APP2/prod-live-mid-offer-capture.txt
+ *   node tests/watch-live-trace.mjs --out tmp/captures/prod-live-mid-offer.txt
+ *   node tests/watch-live-trace.mjs --out … --max-mb 32
+ *
+ * Safeguards (prevents unbounded disk growth):
+ *   - Default max capture size 32 MiB (override with --max-mb or BW_CAPTURE_MAX_MB)
+ *   - Rotates to `<out>.1` when the cap is reached, then continues on a fresh file
+ *   - Hard-stops if size still exceeds 2× max after rotation (corrupt / race)
+ *   - Caps in-memory dedupe set growth
  */
 import './lib/loadEnv.mjs';
 import fs from 'node:fs';
@@ -16,9 +23,24 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, '..');
-const OUT = process.argv.includes('--out')
-  ? process.argv[process.argv.indexOf('--out') + 1]
-  : path.resolve(REPO, '../INVT-APP2/prod-live-mid-offer-capture.txt');
+
+function argValue(flag) {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+const OUT = argValue('--out')
+  ? path.resolve(process.cwd(), argValue('--out'))
+  : path.resolve(REPO, 'tmp/captures/prod-live-mid-offer-capture.txt');
+
+const MAX_MB = Math.max(
+  1,
+  Number(argValue('--max-mb') || process.env.BW_CAPTURE_MAX_MB || 32) || 32,
+);
+const MAX_BYTES = MAX_MB * 1024 * 1024;
+const HARD_MAX_BYTES = MAX_BYTES * 2;
+const SEEN_CAP = 20_000;
+
 const PROD = process.env.REGRESSION_BASE_URL || 'https://invt-production.up.railway.app';
 const ADMIN_KEY = process.env.BW_ADMIN_KEY || '';
 const FB_SECRET = process.env.BW_FIREBASE_SECRET || '';
@@ -33,11 +55,78 @@ const LIVE_VID = String(process.env.BW_LIVE_VID || '').trim();
 const LIVE_JOB = String(process.env.BW_LIVE_JOB || '').trim();
 let lastPresenceSig = '';
 let lastJobSig = '';
+let stopped = false;
+
+function fileSize(p) {
+  try {
+    return fs.statSync(p).size;
+  } catch {
+    return 0;
+  }
+}
+
+function remember(key) {
+  if (seen.has(key)) return false;
+  if (seen.size >= SEEN_CAP) {
+    // Drop oldest half of insertion-order keys (Set iterates insertion order).
+    const drop = Math.floor(SEEN_CAP / 2);
+    let n = 0;
+    for (const k of seen) {
+      seen.delete(k);
+      if (++n >= drop) break;
+    }
+  }
+  seen.add(key);
+  return true;
+}
+
+function rotateCapture(reason) {
+  const size = fileSize(OUT);
+  const bak = `${OUT}.1`;
+  try {
+    if (fs.existsSync(bak)) fs.unlinkSync(bak);
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (fs.existsSync(OUT)) fs.renameSync(OUT, bak);
+  } catch {
+    try {
+      fs.writeFileSync(OUT, '', 'utf8');
+    } catch {
+      /* ignore */
+    }
+  }
+  const note = `[${new Date().toISOString()}] === CAPTURE ROTATED sizeWas=${size} maxBytes=${MAX_BYTES} reason=${reason} prev=${bak} ===\n`;
+  console.warn(note.trim());
+  try {
+    fs.appendFileSync(OUT, note, 'utf8');
+  } catch (e) {
+    console.error('[watch-live-trace] rotate write failed', e);
+  }
+}
+
+function ensureWithinCap(nextBytes) {
+  let size = fileSize(OUT);
+  if (size + nextBytes >= MAX_BYTES) {
+    rotateCapture('max-bytes');
+    size = fileSize(OUT);
+  }
+  if (size + nextBytes >= HARD_MAX_BYTES) {
+    const msg = `[watch-live-trace] HARD STOP: capture would exceed ${HARD_MAX_BYTES} bytes (2× max). Refusing to write.`;
+    console.error(msg);
+    stopped = true;
+    throw new Error(msg);
+  }
+}
 
 function append(line) {
+  if (stopped) return;
   const row = `[${new Date().toISOString()}] ${line}`;
   console.log(row);
-  fs.appendFileSync(OUT, row + '\n', 'utf8');
+  const payload = `${row}\n`;
+  ensureWithinCap(Buffer.byteLength(payload, 'utf8'));
+  fs.appendFileSync(OUT, payload, 'utf8');
 }
 
 async function fetchJson(url, headers = {}) {
@@ -63,8 +152,7 @@ async function pollAdmin() {
   append(`ADMIN version build=${body.serverBuildId} ring=${body.ringSize} returned=${body.count}`);
   for (const ev of body.events || []) {
     const key = `admin:${ev.at}:${ev.event}:${ev.jobId || ''}:${ev.sourceTag || ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (!remember(key)) continue;
     append(`ADMIN-EVENT ${JSON.stringify(ev)}`);
     if (ev.at > sinceMs) sinceMs = ev.at;
   }
@@ -99,8 +187,7 @@ async function pollFirebase() {
   for (const ev of rows) {
     if ((ev.at || 0) && (ev.at || 0) < sinceMs - 5_000) continue;
     const key = `fb:${ev.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (!remember(key)) continue;
     append(`FB-EVENT ${JSON.stringify(ev)}`);
     if ((ev.at || 0) > sinceMs) sinceMs = ev.at;
   }
@@ -158,10 +245,24 @@ async function pollPresenceAndJob() {
   }
 }
 
+function shutdown(signal) {
+  if (stopped) return;
+  try {
+    append(`=== LIVE TRACE CAPTURE STOP (${signal}) ===`);
+  } catch {
+    /* ignore */
+  }
+  stopped = true;
+  process.exit(0);
+}
+
 async function main() {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  // Append across restarts; mark session boundary.
-  append(`=== LIVE TRACE CAPTURE START prod=${PROD} ===`);
+  // Soft-rotate if a leftover capture already exceeds the cap (e.g. after a crash).
+  if (fileSize(OUT) >= MAX_BYTES) {
+    rotateCapture('startup-oversize');
+  }
+  append(`=== LIVE TRACE CAPTURE START prod=${PROD} maxMb=${MAX_MB} ===`);
   append(`out=${OUT}`);
   append(`firebaseDb=${FB_DB}`);
   append(`adminKeyLen=${ADMIN_KEY.length} firebaseSecretLen=${FB_SECRET.length}`);
@@ -172,6 +273,7 @@ async function main() {
   append('Ready — create the job and trigger the bounce on device now.');
   append('Waiting for ops/liveTrace events (needs production deploy of LIVE-TRACE build 37bd216+).');
   for (;;) {
+    if (stopped) break;
     try {
       if (!adminAuthFail) {
         const r = await pollAdmin();
@@ -182,12 +284,16 @@ async function main() {
       ticks += 1;
       if (ticks % 15 === 0) append(`heartbeat still watching (ticks=${ticks} sinceMs=${sinceMs})`);
     } catch (e) {
+      if (stopped) break;
       append(`POLL ERROR ${(e && e.message) || e}`);
+      if (String((e && e.message) || e).includes('HARD STOP')) break;
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
 }
 
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('uncaughtException', (e) => {
   try { append(`uncaughtException ${(e && e.stack) || e}`); } catch { /* ignore */ }
 });

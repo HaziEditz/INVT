@@ -8,3 +8,10 @@ node_modules
 .upm/
 .config/
 attached_assets/Pasted--type-service-account*.txt
+
+# Live debug captures from tests/watch-live-trace.mjs (capped, still never commit)
+tmp/captures/
+prod-live-*-capture.txt
+prod-live-*-capture.txt.1
+*-mid-offer-capture.txt
+*-mid-offer-capture.txt.1
