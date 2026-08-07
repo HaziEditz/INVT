@@ -39,7 +39,7 @@ import {
 import { normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 interface ClosedJobDetailModalProps {
-  companyId: string;
+  companyId: string | null;
   mapsKey: string;
 }
 

@@ -201,13 +201,13 @@ export function DispatchPage() {
       <JobDetailModal />
       <DriverDetailModal />
       <MessagesModal companyId={activeCompanyId} />
-      <ClosedJobsModal companyId={companyId} />
+      <ClosedJobsModal companyId={activeCompanyId} />
       <SearchJobsModal companyId={companyId} />
       <AlarmsModal companyId={companyId} />
       <SuspendedModal companyId={companyId} />
       <AccModal />
       {/* Stacked above Closed Jobs — must mount after the list modal. */}
-      <ClosedJobDetailModal companyId={companyId} mapsKey={mapsKey} />
+      <ClosedJobDetailModal companyId={activeCompanyId} mapsKey={mapsKey} />
       <ToastStack />
     </div>
   );

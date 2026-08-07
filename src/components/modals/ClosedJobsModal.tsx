@@ -23,7 +23,7 @@ import { formatJobDateTimeShort, jobCreatedAtTime } from '@/types/job';
 import type { BookingSource, Job, ServiceType } from '@/types/job';
 
 interface ClosedJobsModalProps {
-  companyId: string;
+  companyId: string | null;
 }
 
 const STATUS_OPTIONS = ['all', 'Completed', 'Cancelled', 'No Show'] as const;

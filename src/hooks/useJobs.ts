@@ -1660,68 +1660,168 @@ export function useDispatchWindowAlerts(jobs: Job[]) {
   }, [jobs]);
 }
 
+function mergeClosedJobMaps(
+  companyId: string,
+  allbookingsById: Map<number, { job: Job; rec: Record<string, unknown> }>,
+  completedById: Map<number, Record<string, unknown>>,
+): Job[] {
+  const merged = new Map<number, Job>();
+
+  for (const [id, { job, rec }] of allbookingsById) {
+    const overlay = completedById.get(id);
+    merged.set(id, mergeClosedJobRecords(job, overlay, companyId));
+  }
+
+  for (const [id, rec] of completedById) {
+    if (merged.has(id)) continue;
+    const job = jobFromClosedFirebaseRecord(String(id), rec, companyId);
+    if (job) merged.set(id, job);
+  }
+
+  return Array.from(merged.values()).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+}
+
+function ingestClosedAllbookingsRoot(
+  companyId: string,
+  val: unknown,
+): Map<number, { job: Job; rec: Record<string, unknown> }> {
+  const next = new Map<number, { job: Job; rec: Record<string, unknown> }>();
+  if (!val || typeof val !== 'object') return next;
+  for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
+    if (!rec || typeof rec !== 'object') continue;
+    const job = jobFromClosedFirebaseRecord(key, rec, companyId);
+    if (!job) continue;
+    next.set(job.id, { job, rec });
+  }
+  return next;
+}
+
+function ingestClosedCompletedRoot(val: unknown): Map<number, Record<string, unknown>> {
+  const next = new Map<number, Record<string, unknown>>();
+  if (!val || typeof val !== 'object') return next;
+  for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
+    if (!rec || typeof rec !== 'object') continue;
+    if (!isClosedJobRecord(rec)) continue;
+    const id = parseInt(String(rec.bookingId ?? rec.BookingId ?? key), 10);
+    if (!id) continue;
+    next.set(id, rec);
+  }
+  return next;
+}
+
 export function useClosedJobs(companyId: string | null, enabled: boolean) {
   const [closed, setClosed] = useState<Job[]>([]);
 
   useEffect(() => {
-    if (!companyId || !enabled) return;
-    const db = getDb();
+    if (!companyId || !enabled) {
+      setClosed([]);
+      return;
+    }
 
+    let cancelled = false;
     let allbookingsById = new Map<number, { job: Job; rec: Record<string, unknown> }>();
     let completedById = new Map<number, Record<string, unknown>>();
+    const unsubs: Array<() => void> = [];
 
-    const mergeAndSet = () => {
-      const merged = new Map<number, Job>();
-
-      for (const [id, { job, rec }] of allbookingsById) {
-        const overlay = completedById.get(id);
-        merged.set(id, mergeClosedJobRecords(job, overlay, companyId));
-      }
-
-      for (const [id, rec] of completedById) {
-        if (merged.has(id)) continue;
-        const job = jobFromClosedFirebaseRecord(String(id), rec, companyId);
-        if (job) merged.set(id, job);
-      }
-
-      setClosed(
-        Array.from(merged.values()).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
-      );
+    const publish = (source: string) => {
+      if (cancelled) return;
+      const list = mergeClosedJobMaps(companyId, allbookingsById, completedById);
+      console.log('[closed-jobs]', source, {
+        companyId,
+        allbookingsRows: allbookingsById.size,
+        completedJobsRows: completedById.size,
+        merged: list.length,
+      });
+      setClosed(list);
     };
 
-    const unsubs = [
-      onValue(ref(db, `allbookings/${companyId}`), (snap) => {
-        const next = new Map<number, { job: Job; rec: Record<string, unknown> }>();
-        const val = snap.val();
-        if (val && typeof val === 'object') {
-          for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-            if (!rec || typeof rec !== 'object') continue;
-            const job = jobFromClosedFirebaseRecord(key, rec, companyId);
-            if (!job) continue;
-            next.set(job.id, { job, rec });
-          }
+    const loadFromServer = async (reason: string) => {
+      try {
+        const res = await fetch('/api/closed-jobs', { credentials: 'include' });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          companyId?: string;
+          allbookings?: unknown;
+          completedJobs?: unknown;
+          counts?: { allbookings?: number; completedJobs?: number };
+        };
+        if (cancelled) return;
+        if (!res.ok || !data.ok) {
+          console.warn('[closed-jobs] server fetch failed', reason, data.error || res.status);
+          return;
         }
-        allbookingsById = next;
-        mergeAndSet();
-      }),
-      onValue(ref(db, `completedJobs/${companyId}`), (snap) => {
-        const next = new Map<number, Record<string, unknown>>();
-        const val = snap.val();
-        if (val && typeof val === 'object') {
-          for (const [key, rec] of Object.entries(val as Record<string, Record<string, unknown>>)) {
-            if (!rec || typeof rec !== 'object') continue;
-            if (!isClosedJobRecord(rec)) continue;
-            const id = parseInt(String(rec.bookingId ?? rec.BookingId ?? key), 10);
-            if (!id) continue;
-            next.set(id, rec);
-          }
+        if (data.companyId && String(data.companyId) !== String(companyId)) {
+          console.warn('[closed-jobs] session company mismatch', {
+            hookCompanyId: companyId,
+            sessionCompanyId: data.companyId,
+          });
         }
-        completedById = next;
-        mergeAndSet();
-      }),
-    ];
+        allbookingsById = ingestClosedAllbookingsRoot(companyId, data.allbookings);
+        completedById = ingestClosedCompletedRoot(data.completedJobs);
+        console.log('[closed-jobs] server fetch ok', reason, data.counts || {});
+        publish(`server:${reason}`);
+      } catch (e) {
+        console.warn('[closed-jobs] server fetch error', reason, e);
+      }
+    };
+
+    void (async () => {
+      // Mirror live-board bootstrap so adminAccess exists before client RTDB attach.
+      try {
+        const user = getFirebaseAuth().currentUser;
+        if (user && !user.isAnonymous) {
+          await ensureAdminAccess(companyId, user.uid);
+        } else {
+          console.warn(
+            '[closed-jobs] no non-anonymous Firebase user — client allbookings read may be empty; using server fetch',
+            { uid: user?.uid ?? null, isAnonymous: !!user?.isAnonymous },
+          );
+        }
+      } catch (e) {
+        console.warn('[closed-jobs] ensureAdminAccess failed', e);
+      }
+      if (cancelled) return;
+
+      await loadFromServer('open');
+      if (cancelled) return;
+
+      try {
+        const db = getDb();
+        unsubs.push(
+          onValue(
+            ref(db, `allbookings/${companyId}`),
+            (snap) => {
+              allbookingsById = ingestClosedAllbookingsRoot(companyId, snap.val());
+              publish('rtdb:allbookings');
+            },
+            (err) => {
+              console.warn('[closed-jobs] allbookings RTDB listener error — falling back to server', err);
+              void loadFromServer('allbookings-denied');
+            },
+          ),
+        );
+        unsubs.push(
+          onValue(
+            ref(db, `completedJobs/${companyId}`),
+            (snap) => {
+              completedById = ingestClosedCompletedRoot(snap.val());
+              publish('rtdb:completedJobs');
+            },
+            (err) => {
+              // Expected for dispatcher accounts (driver-only RTDB rule).
+              console.warn('[closed-jobs] completedJobs RTDB listener error (often expected)', err);
+              void loadFromServer('completedJobs-denied');
+            },
+          ),
+        );
+      } catch (e) {
+        console.warn('[closed-jobs] RTDB attach failed — server list only', e);
+      }
+    })();
 
     return () => {
+      cancelled = true;
       for (const u of unsubs) u();
       allbookingsById = new Map();
       completedById = new Map();

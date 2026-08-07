@@ -13527,6 +13527,51 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GET /api/closed-jobs — company closed-job roots via server token.
+  // Client RTDB cannot reliably read these: completedJobs is driver-only, and
+  // allbookings requires adminAccess (live board still works via public pendingjobs).
+  if (urlPath === '/api/closed-jobs' && req.method === 'GET') {
+    const sessionCid = getSessionCompanyId(req);
+    if (!sessionCid) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'No valid dispatch session' }));
+      return;
+    }
+    try {
+      const tok = await getFirebaseServerToken();
+      if (!tok) throw new Error('no Firebase server token');
+      const cid = sessionCid;
+      const [allbookings, completedJobs] = await Promise.all([
+        firebaseDbGet(`allbookings/${cid}`, tok).catch((e) => {
+          console.warn('[closed-jobs] allbookings read failed:', e && e.message);
+          return null;
+        }),
+        firebaseDbGet(`completedJobs/${cid}`, tok).catch((e) => {
+          console.warn('[closed-jobs] completedJobs read failed:', e && e.message);
+          return null;
+        }),
+      ]);
+      const abCount =
+        allbookings && typeof allbookings === 'object' ? Object.keys(allbookings).length : 0;
+      const cjCount =
+        completedJobs && typeof completedJobs === 'object' ? Object.keys(completedJobs).length : 0;
+      res.writeHead(200, JSON_HEADERS);
+      res.end(
+        JSON.stringify({
+          ok: true,
+          companyId: cid,
+          allbookings: allbookings && typeof allbookings === 'object' ? allbookings : {},
+          completedJobs: completedJobs && typeof completedJobs === 'object' ? completedJobs : {},
+          counts: { allbookings: abCount, completedJobs: cjCount },
+        }),
+      );
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || 'closed jobs fetch failed' }));
+    }
+    return;
+  }
+
   // GET /api/closed-job-detail?jobId= — merged allbookings + completedJobs via server token.
   // Dispatch session cannot read completedJobs directly (driver-only RTDB rules).
   if (urlPath === '/api/closed-job-detail' && req.method === 'GET') {
