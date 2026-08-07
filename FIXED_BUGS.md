@@ -108,3 +108,11 @@ Without this deploy, nearby drivers may not receive SOS alerts (`notificationSos
 |----|------------|-------|
 | TM-MULTI-COUNCIL | Phase 1 subsidy sync writes one `companySettings/{cid}/tmConfig` per company. If a company is approved for **multiple councils**, **last synced council wins** (council Config save or approve-access overwrite). | Not a bug for single-council companies. Revisit if multi-council operators need per-council driver splits (e.g. keyed by `sourceCouncilId` or card council). |
 | TM-HOIST-METER-PAUSE | NZTA TM guidance: fare meter should **not run** while a TM passenger is loaded/unloaded via hoist. Driver app has manual **PAUSE** (stops distance + waiting accrual) but **no automatic hoist-pause** tied to WAV/TM loading. | Track as separate small fix after Phase 2A money math. |
+
+---
+
+## Dispatch — known cosmetic / deferred (track)
+
+| ID | Issue | Notes |
+|----|-------|-------|
+| DISPATCH-ACTIVE-REFRESH-LAG | After a successful trip complete (confirmed live for TM hail **`8692608081`**: `completedJobs` / `closedJobs` written, `pendingjobs` cleared, Firebase `allbookings` already **`BookingStatus: Completed`**), dispatch can still show the job as **Active** until a **manual refresh**. | **Not** data loss or a failed `/complete`. Local `jobStore` / dispatch UI lag vs Firebase truth. Seen across several triggers this session (including after the dedicated TM payment screen). **Low severity — deprioritized.** Revisit if it becomes more disruptive or a clear systemic fix appears during other work. |
