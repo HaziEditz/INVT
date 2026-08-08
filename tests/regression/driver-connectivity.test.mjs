@@ -75,6 +75,7 @@ function parseLatLng(raw) {
   const lat = parseFloat(p[0]);
   const lng = parseFloat(p[1]);
   if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
   return { lat, lng };
 }
 

@@ -153,6 +153,8 @@ export function parseLatLng(raw?: string): { lat: number; lng: number } | null {
   const lat = parseFloat(p[0]);
   const lng = parseFloat(p[1]);
   if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  // Stored hail/unknown sentinel — not a real point (Null Island).
+  if (lat === 0 && lng === 0) return null;
   return { lat, lng };
 }
 
