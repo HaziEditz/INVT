@@ -48,6 +48,7 @@ import {
   allbookingsRecordIsQueued,
   coerceAllbookingsLiveStatus,
   pendingSnapshotWouldRegressQueue,
+  pendingSnapshotWouldRegressAssigned,
   purgeStalePendingForQueuedBookings,
   queueAwaitingMergeOpts,
   reinjectQueueAwaitingJobs,
@@ -1207,8 +1208,8 @@ export function useJobs(companyId: string | null) {
       const liveAssigned =
         normalizeJobStatus(booking?.status) === 'Assigned' ||
         normalizeJobStatus(storeJob?.status) === 'Assigned';
-      // Assigned jobs must never be demoted by a stale pendingjobs partial (edit fanout writes pool shape).
-      if (liveAssigned && pendingSt !== 'Assigned') {
+      // Block pool/edit demotions only — allow Picking/Arrived/Active promotions.
+      if (pendingSnapshotWouldRegressAssigned(liveAssigned, pendingSt)) {
         pendingRef.current.delete(jobId);
         return;
       }

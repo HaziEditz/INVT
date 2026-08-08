@@ -31,6 +31,10 @@ function seqFromRecord(rec: Record<string, unknown> | null | undefined): number 
 /**
  * Stale terminal allbookings from a prior trip with the same booking Id must not
  * evict a live job that pendingjobs / store already show as active.
+ *
+ * Only a *newer* updateSeq proves booking-id reuse. Equal-seq Active/Assigned vs
+ * Completed is the normal complete race (pendingjobs lag) — terminal must win,
+ * or dispatch stays stuck on Active until manual refresh (DISPATCH-ACTIVE-REFRESH-LAG).
  */
 export function staleTerminalAllbookingsSuperseded(
   jobId: number,
@@ -58,7 +62,6 @@ export function staleTerminalAllbookingsSuperseded(
     if (!LIVE_DISPATCH_STATUSES.has(st)) continue;
     const jobSeq = job.updateSeq ?? 0;
     if (jobSeq > abSeq) return true;
-    if (jobSeq === abSeq && st !== abStatus) return true;
   }
   return false;
 }
@@ -90,11 +93,36 @@ export function pickLiveJobSupersedingStaleTerminal(
     const st = normalizeJobStatus(job.status);
     if (!LIVE_DISPATCH_STATUSES.has(st) || TERMINAL_BOOKING_STATUSES.has(st)) continue;
     const jobSeq = job.updateSeq ?? 0;
-    const supersedes = jobSeq > abSeq || (jobSeq === abSeq && st !== abStatus);
-    if (!supersedes) continue;
+    // Strictly newer seq only — equal-seq live vs terminal is a complete race, not reuse.
+    if (jobSeq <= abSeq) continue;
     if (!best || jobSeq > (best.updateSeq ?? 0)) best = job;
   }
   return best;
+}
+
+/**
+ * Forward lifecycle from Assigned (and same status). Stale pendingjobs pool/edit
+ * partials must not demote Assigned, but Picking/Arrived/Active must promote.
+ */
+export const ASSIGNED_FORWARD_PENDING_STATUSES = new Set<string>([
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+  'Busy',
+]);
+
+/** True when a pendingjobs snapshot would wrongly demote a live Assigned job. */
+export function pendingSnapshotWouldRegressAssigned(
+  liveAssigned: boolean,
+  pendingStatus: string,
+): boolean {
+  if (!liveAssigned) return false;
+  const pendingSt = normalizeJobStatus(pendingStatus);
+  if (ASSIGNED_FORWARD_PENDING_STATUSES.has(pendingSt)) return false;
+  if (TERMINAL_BOOKING_STATUSES.has(pendingSt)) return false;
+  return true;
 }
 
 /** Brief window to retain live-tab jobs during accept/assign Firebase races. */

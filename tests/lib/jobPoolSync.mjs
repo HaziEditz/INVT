@@ -414,10 +414,51 @@ export function staleTerminalAllbookingsSuperseded(jobId, abRec, pendingRef, boo
     const st = normalizeJobStatus(job.status);
     if (!LIVE_DISPATCH.has(st)) continue;
     const jobSeq = job.updateSeq ?? 0;
+    // Strictly newer seq only — equal-seq Active vs Completed is a complete race.
     if (jobSeq > abSeq) return true;
-    if (jobSeq === abSeq && st !== abStatus) return true;
   }
   return false;
+}
+
+export function pickLiveJobSupersedingStaleTerminal(jobId, abRec, pendingRef, bookingsRef, storeJobs = []) {
+  const abStatus = normalizeJobStatus(String(abRec.BookingStatus ?? abRec.Status ?? abRec.status ?? ''));
+  if (!TERMINAL.has(abStatus)) return null;
+
+  const abSeq = seqFromRecord(abRec);
+  const candidates = [];
+  const pending = pendingRef.get(jobId);
+  const booking = bookingsRef.get(jobId);
+  const store = storeJobs.find((j) => j.id === jobId);
+  if (pending) candidates.push(pending);
+  if (booking) candidates.push(booking);
+  if (store) candidates.push(store);
+
+  let best = null;
+  for (const job of candidates) {
+    const st = normalizeJobStatus(job.status);
+    if (!LIVE_DISPATCH.has(st) || TERMINAL.has(st)) continue;
+    const jobSeq = job.updateSeq ?? 0;
+    if (jobSeq <= abSeq) continue;
+    if (!best || jobSeq > (best.updateSeq ?? 0)) best = job;
+  }
+  return best;
+}
+
+export const ASSIGNED_FORWARD_PENDING_STATUSES = new Set([
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+  'Busy',
+]);
+
+export function pendingSnapshotWouldRegressAssigned(liveAssigned, pendingStatus) {
+  if (!liveAssigned) return false;
+  const pendingSt = normalizeJobStatus(pendingStatus);
+  if (ASSIGNED_FORWARD_PENDING_STATUSES.has(pendingSt)) return false;
+  if (TERMINAL.has(pendingSt)) return false;
+  return true;
 }
 
 export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now = Date.now()) {
