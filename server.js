@@ -6960,6 +6960,16 @@ async function promoteQueuedJobByDriver(opts) {
   const job = jobStore.find(j => j && j.Id === bookingId);
   if (!job) return { ok: false, error_code: 'not_found', error: 'job not found' };
   if (job.BookingStatus !== 'Queued') {
+    // Idempotent re-promote after driver popup already advanced the job.
+    if (String(job.BookingStatus) === 'Assigned' && _driverIdsMatch(String(job.DriverId || ''), driverId)) {
+      return {
+        ok: true,
+        status: 'Assigned',
+        idempotent: true,
+        version: parseInt(job.updateSeq) || 0,
+        booking: _publicBooking(job),
+      };
+    }
     return {
       ok: false, error_code: 'invalid_transition',
       alreadyStatus: job.BookingStatus, driverId: job.DriverId,
@@ -7026,13 +7036,9 @@ async function promoteQueuedJobByDriver(opts) {
     try {
       await _attachAssignedJobToDriverPresence(_cid, _promoteDrv, job, source);
     } catch (e) {
-      console.warn(`  [${source}] presence attach failed #${bookingId}: ${e && e.message}`);
-      return {
-        ok: false,
-        error_code: 'presence_attach_failed',
-        error: (e && e.message) || 'presence attach failed',
-        booking: _publicBooking(job),
-      };
+      // Job is already Assigned in jobStore — do not fail the client promote after
+      // a presence attach glitch (driver would think Accept failed while dispatch is Assigned).
+      console.warn(`  [${source}] presence attach failed #${bookingId} (Assigned kept): ${e && e.message}`);
     }
     await _syncDriverJobCount(_cid, driverId, source);
     _clearQueuePromotionHold(_cid, driverId);
