@@ -380,8 +380,10 @@ export type PendingQueueRegressCtx = {
 };
 
 /**
- * Drop stale pendingjobs rows when bookingsRef or allbookings already confirms Queued.
- * Also clears queue-await ids (handled before reinject).
+ * Drop stale pendingjobs rows when bookingsRef already confirms Queued, or when
+ * queue-await will reinject into bookingsRef. Do NOT drop a Queued pendingjobs
+ * mirror just because the store is already Queued — that mirror is often the
+ * only live cache until allbookings catches up (Queue tab would go blank).
  */
 export function purgeStalePendingForQueuedBookings(
   pendingRef: Map<number, Job>,
@@ -398,8 +400,13 @@ export function purgeStalePendingForQueuedBookings(
       pendingRef.delete(id);
       continue;
     }
+    const pending = pendingRef.get(id);
+    const pendingSt = pending ? normalizeJobStatus(pending.status) : '';
+    // Keep intentional Queued mirrors (post-accept fanout) until bookingsRef confirms.
+    if (pendingSt === 'Queued') continue;
     const store = storeJobs.find((j) => j.id === id);
     if (store && normalizeJobStatus(store.status) === 'Queued') {
+      // Store is Queued but pending is stale pool shape (Pending/etc) — drop it.
       pendingRef.delete(id);
     }
   }

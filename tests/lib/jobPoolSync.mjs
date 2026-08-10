@@ -236,6 +236,10 @@ export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, stor
       pendingRef.delete(id);
       continue;
     }
+    const pending = pendingRef.get(id);
+    const pendingSt = pending ? normalizeJobStatus(pending.status) : '';
+    // Keep Queued pendingjobs mirrors until bookingsRef confirms (Queue tab gap).
+    if (pendingSt === 'Queued') continue;
     const store = storeJobs.find((j) => j.id === id);
     if (store && normalizeJobStatus(store.status) === 'Queued') {
       pendingRef.delete(id);

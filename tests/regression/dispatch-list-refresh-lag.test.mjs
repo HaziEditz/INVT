@@ -81,6 +81,60 @@ test('dispatch UI lag: queue accept leaves Queue tab even when pendingjobs+allbo
   assert.equal(pending.has(bookingId), false);
 });
 
+/**
+ * Gap the refresh-path test above missed: Queued arrives only via pendingjobs mirror
+ * (empty bookingsRef, no queue-await yet). Purge must not drop that mirror or Queue
+ * tab goes blank until Assigned promote.
+ */
+test('dispatch UI lag: Queued pendingjobs mirror survives purge+merge with empty bookingsRef', () => {
+  const bookingId = 8692800199;
+  clearQueueAwaitingAllbookings(bookingId);
+  clearOptimisticLiveTransition(bookingId);
+  const pending = new Map();
+  const bookings = new Map();
+  const queuedMirror = {
+    id: bookingId,
+    status: 'Queued',
+    pickAddress: 'Queue Mirror St',
+    passengerName: 'Queue Pat',
+    driverId: '9001',
+    queuedAt: Date.now(),
+  };
+  pending.set(bookingId, queuedMirror);
+  const storeJobs = [queuedMirror];
+
+  const merged = mergeStoreWithFirebaseCaches(storeJobs, pending, bookings);
+  assert.equal(pending.has(bookingId), true, 'Queued pendingjobs mirror must not be purged when bookingsRef empty');
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].status, 'Queued');
+  assert.equal(jobTabForStatus(merged[0]), 'queue');
+  assert.equal(shouldPreserveAbsentStoreJob(queuedMirror, pending, bookings), true);
+});
+
+test('dispatch UI lag: stale Pending pendingjobs still purged when store already Queued', () => {
+  const bookingId = 8692800200;
+  clearQueueAwaitingAllbookings(bookingId);
+  const pending = new Map();
+  const bookings = new Map();
+  pending.set(bookingId, {
+    id: bookingId,
+    status: 'Pending',
+    pickAddress: 'Stale Pool',
+    driverId: '0',
+  });
+  const queuedStore = {
+    id: bookingId,
+    status: 'Queued',
+    pickAddress: 'Queue St',
+    driverId: '9001',
+  };
+  const merged = mergeStoreWithFirebaseCaches([queuedStore], pending, bookings);
+  assert.equal(pending.has(bookingId), false, 'stale Pending pendingjobs must still drop when store is Queued');
+  // Without bookings/await/optimistic, Queued store alone must not invent a Queue ghost forever —
+  // but with empty caches the row is absent unless preserve/await (refresh path covers reinject).
+  assert.ok(Array.isArray(merged));
+});
+
 test('dispatch UI lag: assign refresh moves Queue/Pending off UA without waiting for Arrived', () => {
   const bookingId = 8692800102;
   const pending = new Map();
