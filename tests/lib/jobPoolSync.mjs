@@ -467,15 +467,9 @@ export function shouldPreserveAbsentStoreJob(job, pendingRef, bookingsRef, now =
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
   if (isQueueAwaitingAllbookings(job.id)) return true;
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
-    return bookingsRef.has(job.id);
+    return true;
   }
   if (isWithinOptimisticWindow(job.id, now)) return true;
-  const st = normalizeJobStatus(job.status);
-  if (LIVE_LIFECYCLE_STATUSES.has(st)) return true;
-  if (hasRealPassengerDataFromJob(job)) return true;
-  if (!isUnassignedDriverId(job.driverId)) return true;
-  if (st === 'Queued') return true;
-  if (isStaleOrphanJobShell(job, now)) return false;
   return false;
 }
 

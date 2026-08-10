@@ -72,7 +72,7 @@ test('dispatch orphan filter: recordActivityMs picks newest timestamp field', ()
   assert.equal(ms, recent);
 });
 
-test('dispatch orphan filter: real booking preserved in store even when stale', () => {
+test('dispatch orphan filter: real booking NOT preserved indefinitely when absent from caches', () => {
   const pending = new Map();
   const bookings = new Map();
   const job = {
@@ -82,5 +82,11 @@ test('dispatch orphan filter: real booking preserved in store even when stale', 
     driverId: '0',
     createdAt: dayAgo,
   };
+  assert.equal(
+    shouldPreserveAbsentStoreJob(job, pending, bookings, now),
+    false,
+    'absent Pending shells must drop — Firebase caches own retention',
+  );
+  pending.set(job.id, job);
   assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings, now), true);
 });

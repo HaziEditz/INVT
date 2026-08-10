@@ -97,6 +97,56 @@ function applyQueueAuthoritativeReplace(
   };
 }
 
+/** Force lifecycle status from dispatchConsole refresh — ignore lagging Pending/Queued caches. */
+function applyLifecycleAuthoritativeReplace(
+  prior: Job | null,
+  job: Job,
+  targetStatus: JobStatus,
+  refreshDriverId?: string | null,
+): Job {
+  const refreshDrv =
+    refreshDriverId != null && String(refreshDriverId).trim() !== ''
+      ? String(refreshDriverId).trim()
+      : '';
+  const jobDrv = job.driverId != null ? String(job.driverId).trim() : '';
+  const priorDrv = prior?.driverId != null ? String(prior.driverId).trim() : '';
+  const driverId = !isUnassignedDriverId(refreshDrv)
+    ? refreshDrv
+    : !isUnassignedDriverId(jobDrv)
+      ? jobDrv
+      : !isUnassignedDriverId(priorDrv)
+        ? priorDrv
+        : jobDrv || priorDrv || undefined;
+  const base = prior ?? job;
+  return {
+    ...base,
+    ...job,
+    status: targetStatus,
+    driverId,
+    vehicleId: job.vehicleId ?? prior?.vehicleId,
+    ...(job.updateSeq != null
+      ? { updateSeq: Math.max(base.updateSeq ?? 0, job.updateSeq) }
+      : {}),
+  };
+}
+
+const AUTHORITATIVE_LIFECYCLE_REFRESH_ACTIONS = new Set(['assign', 'accept', 'active']);
+const AUTHORITATIVE_LIFECYCLE_STATUSES = new Set<JobStatus>([
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+]);
+
+function isAuthoritativeLifecycleRefresh(
+  refresh: DispatchRefreshPayload,
+  targetStatus: JobStatus | null,
+): boolean {
+  if (!targetStatus || !AUTHORITATIVE_LIFECYCLE_STATUSES.has(targetStatus)) return false;
+  return AUTHORITATIVE_LIFECYCLE_REFRESH_ACTIONS.has(refresh.action || '');
+}
+
 type TerminalRefreshDebug = {
   action?: string;
   status?: string;
@@ -612,6 +662,18 @@ function applyRefreshStatusHint(
     return applyQueueAuthoritativeReplace(base, { ...(base ?? { id: bookingId } as Job), ...patch }, refresh.driverId);
   }
 
+  // Assign/accept/active refresh: REPLACE so lagging Pending/Queued caches cannot keep UA.
+  if (isAuthoritativeLifecycleRefresh(refresh, targetStatus)) {
+    const base = job ?? prior;
+    if (!base && useJobStore.getState().isJobBlacklisted(bookingId)) return null;
+    return applyLifecycleAuthoritativeReplace(
+      base,
+      { ...(base ?? { id: bookingId } as Job), ...patch },
+      targetStatus,
+      refresh.driverId,
+    );
+  }
+
   const queueOpts = refresh.action === 'queue' ? ({ forceStatus: 'Queued' as JobStatus } as const) : undefined;
   if (job) {
     return mergeJobUpdate(job, patch, queueOpts);
@@ -716,6 +778,23 @@ function optimisticDispatchRefresh(
       if (refresh.updateSeq != null && refresh.updateSeq > 0) {
         clearCompletedJobSuppress(bookingId);
       }
+    }
+    replaceJob(job);
+    syncAll();
+    return;
+  }
+
+  // Authoritative Assign/Active refresh — leave UA/Queue immediately (do not wait for Arrived).
+  if (targetStatus && isAuthoritativeLifecycleRefresh(refresh, targetStatus)) {
+    clearQueueAwaitingAllbookings(bookingId);
+    clearOfferAwaitingAllbookings(bookingId);
+    pendingRef.delete(bookingId);
+    job = applyLifecycleAuthoritativeReplace(prior, job, targetStatus, refresh.driverId);
+    st = normalizeJobStatus(job.status);
+    bookingsRef.set(bookingId, job);
+    markOptimisticLiveTransition(bookingId);
+    if (refresh.updateSeq != null && refresh.updateSeq > 0) {
+      clearCompletedJobSuppress(bookingId);
     }
     replaceJob(job);
     syncAll();
@@ -911,6 +990,32 @@ async function refreshJobFromFirebaseCaches(
     return;
   }
 
+  // Authoritative Assign/Active — prefer refresh status over lagging allbookings Pending/Queued.
+  const refreshLifecycleStatus = refresh.status ? normalizeJobStatus(refresh.status) : null;
+  if (
+    job &&
+    refreshLifecycleStatus &&
+    isAuthoritativeLifecycleRefresh(refresh, refreshLifecycleStatus)
+  ) {
+    clearQueueAwaitingAllbookings(bookingId);
+    clearOfferAwaitingAllbookings(bookingId);
+    pendingRef.delete(bookingId);
+    const forced = applyLifecycleAuthoritativeReplace(
+      prior,
+      job,
+      refreshLifecycleStatus,
+      refresh.driverId,
+    );
+    if (fbSeq != null) {
+      forced.updateSeq = Math.max(forced.updateSeq ?? 0, fbSeq);
+    }
+    bookingsRef.set(forced.id, forced);
+    markOptimisticLiveTransition(bookingId);
+    hooks.replaceJob(forced);
+    hooks.syncAll();
+    return;
+  }
+
   if (job && fbSeq != null && (job.updateSeq ?? 0) < fbSeq && !trustPoolRestore) {
     job = mergeJobUpdate(job, { updateSeq: fbSeq } as Job);
   }
@@ -1056,6 +1161,7 @@ export function useJobs(companyId: string | null) {
       for (const j of mergeJobs([pendingRef.current, bookingsRef.current])) {
         if (
           ACTIVE_BOOKING_STATUSES.has(normalizeJobStatus(j.status)) &&
+          !isCompletedJobSuppressed(j.id) &&
           !useJobStore.getState().isJobBlacklisted(j.id)
         ) {
           clearRemovedJob(j.id);
@@ -1187,7 +1293,7 @@ export function useJobs(companyId: string | null) {
         bookingsRef.current.delete(job.id);
         markCompletedJobSuppress(job.id);
         removeJob(job.id);
-        clearRemovedJob(job.id);
+        // Keep blacklist through suppress window — do not clearRemovedJob here.
         syncAll();
         return;
       }
@@ -1307,7 +1413,9 @@ export function useJobs(companyId: string | null) {
               continue;
             }
             if (ACTIVE_BOOKING_STATUSES.has(effectiveStatus)) {
-              clearRemovedJob(jobId);
+              if (!isCompletedJobSuppressed(jobId)) {
+                clearRemovedJob(jobId);
+              }
             } else if (isBlacklisted(jobId)) {
               traceAllbookingsIngest(jobId, 'skipped blacklisted', {
                 effectiveStatus,
@@ -1499,7 +1607,8 @@ export function useJobs(companyId: string | null) {
           bookingsRef.current.delete(row.id);
           markCompletedJobSuppress(row.id, row.seq);
           removeJob(row.id);
-          clearRemovedJob(row.id);
+          // Keep blacklist through suppress window — clearing here lets lagging
+          // Active allbookings snapshots reappear on the Active tab.
         }
         reinjectQueueAwaitingJobs(
           bookingsRef.current,

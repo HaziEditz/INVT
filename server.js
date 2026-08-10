@@ -5508,6 +5508,11 @@ async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, op
 
   await firebaseDbSet(`allbookings/${cid}/${bookingId}`, abMirror, tok);
   await _writeDriverQueueFirebase(cid, driverId, bookingId, job, originalStatus, { strict: true });
+  // Keep a short-lived pendingjobs mirror so dispatch onChild* advances to Queue
+  // immediately (DELETE alone left the console stuck on UA until Arrived).
+  await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, abMirror, tok).catch((e) =>
+    console.warn(`  [queue-fanout] pendingjobs Queued mirror failed: ${e && e.message}`),
+  );
 
   let verified = await _verifyFirebaseBookingMatches(cid, bookingId, {
     status: 'Queued',
@@ -5516,10 +5521,7 @@ async function _fanoutQueuedJobToFirebaseAwait(cid, driverId, bookingId, job, op
   if (!verified.ok) {
     for (let attempt = 0; attempt < 5 && !verified.ok; attempt++) {
       await firebaseDbSet(`allbookings/${cid}/${bookingId}`, abMirror, tok);
-      await fbRequest(
-        `${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${encodeURIComponent(tok)}`,
-        'DELETE',
-      ).catch(() => {});
+      await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, abMirror, tok).catch(() => {});
       await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
       verified = await _verifyFirebaseBookingMatches(cid, bookingId, {
         status: 'Queued',
@@ -7076,10 +7078,11 @@ async function promoteQueuedJobByDriver(opts) {
     await _writeAllbookingsLiveAwait(_cid, bookingId, _promoteMirror, job, null);
     const _promTok = await getFirebaseServerToken();
     if (_promTok) {
-      await fbRequest(
-        `${FB_DB_URL}/pendingjobs/${_cid}/${bookingId}.json?auth=${encodeURIComponent(_promTok)}`,
-        'DELETE',
-      ).catch(() => {});
+      // Mirror Assigned into pendingjobs (Arrived already does this via stage fanout).
+      // Do not DELETE — that is what left dispatch stuck on UA until Arrived.
+      await firebaseDbSet(`pendingjobs/${_cid}/${bookingId}`, _promoteMirror, _promTok).catch((e) =>
+        console.warn(`  [${source}] pendingjobs Assigned mirror failed: ${e && e.message}`),
+      );
     }
     try {
       await _attachAssignedJobToDriverPresence(_cid, _promoteDrv, job, source);

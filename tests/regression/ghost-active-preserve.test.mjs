@@ -42,15 +42,20 @@ test('ghost Active card: terminal Completed status never preserved on live tabs'
   assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), false);
 });
 
-test('ghost Active card: Assigned job with real booking data stays preserved', () => {
+test('ghost Active card: Assigned without optimistic window is NOT preserved indefinitely', () => {
   clearOptimisticLiveTransition(200);
   const pending = new Map();
   const bookings = new Map();
   const job = { id: 200, status: 'Assigned', pickAddress: 'Race Ave', passengerName: 'Pat' };
 
-  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), true);
+  assert.equal(
+    shouldPreserveAbsentStoreJob(job, pending, bookings),
+    false,
+    'indefinite Assigned preserve is the Active-tab / UA lag root cause',
+  );
   markOptimisticLiveTransition(200);
   assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings), true);
+  clearOptimisticLiveTransition(200);
 });
 
 test('ghost Active card: completed suppress blocks stale Active re-inject', () => {
@@ -106,7 +111,8 @@ test('ghost Active card: stale empty U-A ghosts are not preserved when absent fr
   assert.equal(shouldPreserveAbsentStoreJob(stale, pending, bookings), false);
 });
 
-test('ghost Active card: stale U-A with real address is preserved when absent from caches', () => {
+test('ghost Active card: Pending with address is NOT preserved indefinitely when absent from caches', () => {
+  clearOptimisticLiveTransition(302);
   const pending = new Map();
   const bookings = new Map();
   const stale = {
@@ -115,10 +121,15 @@ test('ghost Active card: stale U-A with real address is preserved when absent fr
     pickAddress: 'Pool Rd',
     createdAt: Date.now() - 25 * 60 * 60 * 1000,
   };
-  assert.equal(shouldPreserveAbsentStoreJob(stale, pending, bookings), true);
+  assert.equal(
+    shouldPreserveAbsentStoreJob(stale, pending, bookings),
+    false,
+    'passenger-data alone must not keep UA shells forever',
+  );
 });
 
-test('ghost Active card: recent U-A pool jobs preserved when absent from caches', () => {
+test('ghost Active card: recent U-A only preserved inside optimistic window or Firebase cache', () => {
+  clearOptimisticLiveTransition(301);
   const pending = new Map();
   const bookings = new Map();
   const recent = {
@@ -127,7 +138,31 @@ test('ghost Active card: recent U-A pool jobs preserved when absent from caches'
     pickAddress: 'Pool Rd',
     createdAt: Date.now() - 60_000,
   };
+  assert.equal(shouldPreserveAbsentStoreJob(recent, pending, bookings), false);
+  pending.set(recent.id, recent);
   assert.equal(shouldPreserveAbsentStoreJob(recent, pending, bookings), true);
+});
+
+test('ghost Active card: after optimistic window expires Active drops from merge', () => {
+  const now = Date.now();
+  const jobId = 303;
+  markOptimisticLiveTransition(jobId, now);
+  const job = { id: jobId, status: 'Active', pickAddress: 'Linger St' };
+  const pending = new Map();
+  const bookings = new Map();
+  assert.equal(shouldPreserveAbsentStoreJob(job, pending, bookings, now + 1000), true);
+  assert.equal(
+    shouldPreserveAbsentStoreJob(job, pending, bookings, now + OPTIMISTIC_LIVE_RETAIN_MS + 1),
+    false,
+  );
+  const merged = mergeStoreWithFirebaseCaches(
+    [job],
+    pending,
+    bookings,
+    now + OPTIMISTIC_LIVE_RETAIN_MS + 1,
+  );
+  assert.equal(merged.length, 0);
+  clearOptimisticLiveTransition(jobId);
 });
 
 test('ghost Active card: integration complete removes job from live pool', async () => {

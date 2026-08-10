@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import type { Job, JobTab } from '@/types/job';
 import { jobScheduledTime } from '@/types/job';
 import { ACTIVE_BOOKING_STATUSES, jobTabForStatus, normalizeJobStatus } from '@/lib/jobStatusAuthority';
-import { queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
+import { isCompletedJobSuppressed, queueAwaitingMergeOpts } from '@/lib/jobPoolSync';
 import {
   EMPTY_LIVE_JOB_FILTERS,
   filterLiveJobs,
@@ -106,9 +106,13 @@ export const useJobStore = create<JobStore>((set, get) => ({
   upsertJob: (job) =>
     set((s) => {
       const live = isLivePoolStatus(job.status);
-      const removedJobIds = live
-        ? s.removedJobIds.filter((id) => id !== job.id)
-        : s.removedJobIds;
+      const removedJobIds =
+        live && !isCompletedJobSuppressed(job.id)
+          ? s.removedJobIds.filter((id) => id !== job.id)
+          : s.removedJobIds;
+      if (s.removedJobIds.includes(job.id) && (isCompletedJobSuppressed(job.id) || !live)) {
+        return s;
+      }
       if (!live && removedJobIds.includes(job.id)) return s;
       const queueOpts = queueAwaitingMergeOpts(job.id);
       const idx = s.jobs.findIndex((j) => j.id === job.id);
@@ -131,19 +135,23 @@ export const useJobStore = create<JobStore>((set, get) => ({
           });
         }
         next[idx] = merged;
-        return { jobs: next };
+        return { jobs: next, removedJobIds };
       }
       const inserted = queueOpts
         ? mergeJobUpdate(job as Job, { status: 'Queued' }, queueOpts)
         : job;
-      return { jobs: [...s.jobs, inserted] };
+      return { jobs: [...s.jobs, inserted], removedJobIds };
     }),
   replaceJob: (job) =>
     set((s) => {
       const live = isLivePoolStatus(job.status);
-      const removedJobIds = live
-        ? s.removedJobIds.filter((id) => id !== job.id)
-        : s.removedJobIds;
+      const removedJobIds =
+        live && !isCompletedJobSuppressed(job.id)
+          ? s.removedJobIds.filter((id) => id !== job.id)
+          : s.removedJobIds;
+      if (s.removedJobIds.includes(job.id) && (isCompletedJobSuppressed(job.id) || !live)) {
+        return s;
+      }
       if (!live && removedJobIds.includes(job.id)) return s;
       const idx = s.jobs.findIndex((j) => j.id === job.id);
       if (idx >= 0) {

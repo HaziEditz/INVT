@@ -528,7 +528,8 @@ export function isWithinOptimisticWindow(jobId: number, now = Date.now()): boole
 /**
  * Re-inject store jobs missing from pendingjobs/allbookings listener caches.
  * Live dispatch tabs (Active/Assign/Offer/Queue) are NOT kept indefinitely —
- * only during a short optimistic window after accept/assign transitions.
+ * only while still present in a Firebase cache, during queue/offer await, or
+ * inside the short optimistic window after accept/assign transitions.
  */
 export function shouldPreserveAbsentStoreJob(
   job: Job,
@@ -538,17 +539,14 @@ export function shouldPreserveAbsentStoreJob(
 ): boolean {
   if (isCompletedJobSuppressed(job.id, now)) return false;
   if (TERMINAL_BOOKING_STATUSES.has(normalizeJobStatus(job.status))) return false;
+  // Still mirrored in a live Firebase listener cache — keep.
   if (pendingRef.has(job.id) || bookingsRef.has(job.id)) return true;
+  // Authoritative queue/offer gap until allbookings confirms.
   if (isQueueAwaitingAllbookings(job.id)) return true;
   if (normalizeJobStatus(job.status) === 'Offered' && isOfferAwaitingAllbookings(job.id, now)) {
-    return bookingsRef.has(job.id);
+    return true;
   }
+  // Short race window only — do NOT indefinitely preserve Active/Assigned/Pending.
   if (isWithinOptimisticWindow(job.id, now)) return true;
-  const st = normalizeJobStatus(job.status);
-  if (LIVE_LIFECYCLE_STATUSES.has(st)) return true;
-  if (hasRealPassengerDataFromJob(job)) return true;
-  if (!isUnassignedDriverId(job.driverId)) return true;
-  if (isGenuineQueuedJob(job)) return true;
-  if (isStaleOrphanJobShell(job, now)) return false;
   return false;
 }
