@@ -13533,6 +13533,98 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── GET /api/driver/active-bookings — §FIX-DA-G6 reconnect rebuild ──────────
+  // EARLY route: production was hanging (0-byte timeout → edge 502) when this
+  // sat mid-handler; keep it sync/try-catch and ahead of heavy API branches.
+  // Auth: X-User-Key (passforlink) OR X-Admin-Key + ?driverId=. cid/vid from driver record.
+  if (urlPath === '/api/driver/active-bookings' && req.method === 'GET') {
+    const _g6Started = Date.now();
+    try {
+      console.log(`[active-bookings] hit hasUserKey=${!!String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim()} hasAdmin=${!!String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim()}`);
+      const _g6Q = url.parse(req.url, true).query || {};
+      const _g6DriverIdQ = String(_g6Q.driverId || _g6Q.driverid || '').trim();
+      const _g6UserKey   = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+      const _g6AdminKey  = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+      let _g6Driver = null;
+      if (_g6UserKey) {
+        _g6Driver = ZONE_DRIVERS.find(d => d && (
+          String(d.passforlink || '').trim() === _g6UserKey ||
+          String(d.userKey      || '').trim() === _g6UserKey ||
+          String(d.UserKey      || '').trim() === _g6UserKey
+        )) || null;
+      }
+      if (!_g6Driver && _g6AdminKey && process.env.BW_ADMIN_KEY && _g6AdminKey === process.env.BW_ADMIN_KEY && _g6DriverIdQ) {
+        _g6Driver = ZONE_DRIVERS.find(d => d &&
+          (String(d.driverid).trim() === _g6DriverIdQ || String(d.VehicleId).trim() === _g6DriverIdQ)
+        ) || null;
+      }
+      if (!_g6Driver) {
+        res.writeHead(401, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'unknown driver (provide X-User-Key, or X-Admin-Key + ?driverId=)' }));
+        return;
+      }
+      const _g6Cid  = String(_g6Driver.companyId || '').trim();
+      const _g6Drv  = String(_g6Driver.driverid  || '').trim();
+      const _g6Vid  = String(_g6Driver.VehicleId || '').trim();
+      if (!_g6Cid) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
+        return;
+      }
+      const _g6Active = new Set(['Offered', 'Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Queued']);
+      const _g6StatusMap = (s) => {
+        const _bs = String(s || '');
+        if (_bs === 'Offered')  return 'offered';
+        if (_bs === 'Queued')   return 'queued';
+        if (_bs === 'Assigned' || _bs === 'Picking' || _bs === 'Arrived' || _bs === 'OnTrip' || _bs === 'Active') return 'current';
+        return _bs.toLowerCase();
+      };
+      const _g6Rows = [];
+      for (const j of jobStore) {
+        if (!j || !_g6Active.has(j.BookingStatus)) continue;
+        if (String(j.companyId || '') !== _g6Cid) continue;
+        if (
+          String(j.DriverId || '').trim() !== _g6Drv &&
+          String(j.AssignedDriverId || '').trim() !== _g6Drv
+        ) continue;
+        _g6Rows.push({
+          bookingId:       j.Id,
+          status:          _g6StatusMap(j.BookingStatus),
+          bookingStatus:   j.BookingStatus || '',
+          version:         parseInt(j.updateSeq) || 0,
+          updatedAt:       j.lastUpdatedAt || j.JobCreatedTime || null,
+          jobBookingSrc:   j.jobBookingSrc || j.BookingSource || j.bookingSource || j.source || 'dispatch',
+          passengerName:   j.UserFName || j.Name || '',
+          passengerPhone:  j.PhoneNo || j.UserPhone || j.Phone || j.JobphoneNo || '',
+          pickupAddress:   j.PickAddress || j.PickupAddress || j.PickLocation || j.jobpickup || '',
+          dropAddress:     j.DropAddress  || j.DropLocation || j.jobdropoff || '',
+          fare:            j.EstimatedFare || j.RideCost || j.CustomeRate || null,
+          paymentType:     j.PaymentMethod || j.paymentMethod || '',
+          wheelchair:      !!(j.Wheelchair || j.wheelchair),
+          passengers:      parseInt(j.NoOfPassengers || j.Passengers || 1) || 1,
+          notes:           j.Notes || j.notes || ''
+        });
+      }
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({
+        ok: true,
+        driverId:  _g6Drv,
+        companyId: _g6Cid,
+        vehicleId: _g6Vid,
+        bookings:  _g6Rows,
+        fetchedAt: Date.now()
+      }));
+      console.log(`200: GET /api/driver/active-bookings driver=${_g6Drv} cid=${_g6Cid} → ${_g6Rows.length} booking(s) (${Date.now() - _g6Started}ms)`);
+    } catch (_g6Err) {
+      console.error(`[active-bookings] failed after ${Date.now() - _g6Started}ms:`, _g6Err && _g6Err.message ? _g6Err.message : _g6Err);
+      if (!res.headersSent) {
+        res.writeHead(500, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'active-bookings failed', error_code: 'internal' }));
+      }
+    }
+    return;
+  }
+
   // GET /api/company-zones?cid= — zone polygons for dispatch map (session cookie auth).
   // Reads zones/{cid} with the server Firebase token so the map works even when the
   // browser Firebase Auth session is missing/expired (zones RTDB rule requires auth).
@@ -16645,89 +16737,6 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     res.writeHead(200, JSON_HEADERS);
     res.end(JSON.stringify({ ok: true, accounts: _saHits }));
     console.log(`200: POST /api/driver/search-accounts cid=${_saCid} q="${_saQ}" → ${_saHits.length}`);
-    return;
-  }
-
-  // ── GET /api/driver/active-bookings — §FIX-DA-G6 reconnect rebuild ──────────
-  // Driver-app calls this on every Firebase .info/connected → true transition
-  // to reconcile its in-memory jobs[] against the dispatch source of truth.
-  // Auth: X-User-Key header (driver's passforlink) OR X-Admin-Key for
-  // server-to-server. cid+vid are derived from the driver record, never trusted
-  // from query params (prevents a leaked key from cidA probing cidB).
-  if (urlPath === '/api/driver/active-bookings' && req.method === 'GET') {
-    const _g6Q = url.parse(req.url, true).query || {};
-    const _g6DriverIdQ = String(_g6Q.driverId || _g6Q.driverid || '').trim();
-    const _g6UserKey   = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
-    const _g6AdminKey  = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
-    let _g6Driver = null;
-    if (_g6UserKey) {
-      // Look up by passforlink (the driver-app's UserKey). Match against any
-      // plausible field name the driver record may carry.
-      _g6Driver = ZONE_DRIVERS.find(d => d && (
-        String(d.passforlink || '').trim() === _g6UserKey ||
-        String(d.userKey      || '').trim() === _g6UserKey ||
-        String(d.UserKey      || '').trim() === _g6UserKey
-      )) || null;
-    }
-    if (!_g6Driver && _g6AdminKey && process.env.BW_ADMIN_KEY && _g6AdminKey === process.env.BW_ADMIN_KEY && _g6DriverIdQ) {
-      _g6Driver = ZONE_DRIVERS.find(d => d &&
-        (String(d.driverid).trim() === _g6DriverIdQ || String(d.VehicleId).trim() === _g6DriverIdQ)
-      ) || null;
-    }
-    if (!_g6Driver) {
-      res.writeHead(401, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: false, error: 'unknown driver (provide X-User-Key, or X-Admin-Key + ?driverId=)' }));
-      return;
-    }
-    const _g6Cid  = String(_g6Driver.companyId || '').trim();
-    const _g6Drv  = String(_g6Driver.driverid  || '').trim();
-    const _g6Vid  = String(_g6Driver.VehicleId || '').trim();
-    // Reject ambiguous-tenant matches — without a companyId we'd cross-leak.
-    if (!_g6Cid) {
-      res.writeHead(403, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: false, error: 'driver record missing companyId' }));
-      return;
-    }
-    const _g6Active = new Set(['Offered', 'Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Queued']);
-    const _g6StatusMap = (s) => {
-      const _bs = String(s || '');
-      if (_bs === 'Offered')  return 'offered';
-      if (_bs === 'Queued')   return 'queued';
-      if (_bs === 'Assigned' || _bs === 'Picking' || _bs === 'Arrived' || _bs === 'OnTrip' || _bs === 'Active') return 'current';
-      return _bs.toLowerCase();
-    };
-    const _g6Rows = jobStore.filter(j => j &&
-      _g6Active.has(j.BookingStatus) &&
-      String(j.companyId || '') === _g6Cid &&
-      (String(j.DriverId || '').trim() === _g6Drv ||
-       String(j.AssignedDriverId || '').trim() === _g6Drv)
-    ).map(j => ({
-      bookingId:       j.Id,
-      status:          _g6StatusMap(j.BookingStatus),
-      bookingStatus:   j.BookingStatus || '',
-      version:         parseInt(j.updateSeq) || 0,
-      updatedAt:       j.lastUpdatedAt || j.JobCreatedTime || null,
-      jobBookingSrc:   j.jobBookingSrc || j.BookingSource || j.bookingSource || j.source || 'dispatch',
-      passengerName:   j.UserFName || j.Name || '',
-      passengerPhone:  j.PhoneNo || j.UserPhone || j.Phone || j.JobphoneNo || '',
-      pickupAddress:   j.PickAddress || j.PickupAddress || j.PickLocation || j.jobpickup || '',
-      dropAddress:     j.DropAddress  || j.DropLocation || j.jobdropoff || '',
-      fare:            j.EstimatedFare || j.RideCost || j.CustomeRate || null,
-      paymentType:     j.PaymentMethod || j.paymentMethod || '',
-      wheelchair:      !!(j.Wheelchair || j.wheelchair),
-      passengers:      parseInt(j.NoOfPassengers || j.Passengers || 1) || 1,
-      notes:           j.Notes || j.notes || ''
-    }));
-    res.writeHead(200, JSON_HEADERS);
-    res.end(JSON.stringify({
-      ok: true,
-      driverId:  _g6Drv,
-      companyId: _g6Cid,
-      vehicleId: _g6Vid,
-      bookings:  _g6Rows,
-      fetchedAt: Date.now()
-    }));
-    console.log(`200: GET /api/driver/active-bookings driver=${_g6Drv} cid=${_g6Cid} → ${_g6Rows.length} booking(s)`);
     return;
   }
 
