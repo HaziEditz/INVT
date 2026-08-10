@@ -13541,8 +13541,10 @@ const server = http.createServer(async (req, res) => {
     const _g6Started = Date.now();
     try {
       console.log(`[active-bookings] hit hasUserKey=${!!String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim()} hasAdmin=${!!String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim()}`);
-      const _g6Q = url.parse(req.url, true).query || {};
-      const _g6DriverIdQ = String(_g6Q.driverId || _g6Q.driverid || '').trim();
+      // Do not use url.parse — `url` is not imported; uncaught ReferenceError left
+      // the response hanging (0 bytes → Railway/edge 502) and blocked trip-journal flush.
+      const _g6Qs = new URL('http://x' + (req.url || '/')).searchParams;
+      const _g6DriverIdQ = String(_g6Qs.get('driverId') || _g6Qs.get('driverid') || '').trim();
       const _g6UserKey   = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
       const _g6AdminKey  = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
       let _g6Driver = null;
