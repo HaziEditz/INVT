@@ -255,13 +255,12 @@ export function mergeJobStatus(existing, incoming, existingSeq, incomingSeq) {
     return ex;
   }
   if ((inc === 'No One' || inc === 'Pending') && incomingSeq >= existingSeq) return inc;
-  const QUEUED_PROMOTE = ['Offered', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];
-  if (ex === 'Queued' && (POOL.includes(inc) || QUEUED_PROMOTE.includes(inc))) {
-    if (inc === 'Offered' || QUEUED_PROMOTE.includes(inc)) {
-      if (incomingSeq <= existingSeq) return ex;
-      return inc;
-    }
-    return ex;
+  const QUEUED_PROMOTE = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];
+  if (ex === 'Queued' && POOL.includes(inc)) return ex;
+  if (ex === 'Queued' && QUEUED_PROMOTE.includes(inc)) return inc;
+  if (ex === 'Queued' && inc === 'Offered') {
+    if (incomingSeq <= existingSeq) return ex;
+    return inc;
   }
   if (statusRank(inc) < statusRank(ex)) return ex;
   if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;

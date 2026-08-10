@@ -52,6 +52,15 @@ export const ACTIVE_BOOKING_STATUSES = new Set<string>([
   'OnTrip',
 ]);
 
+/** Lifecycle statuses that must displace Queued in dispatch UI (promote / stage). */
+export const QUEUE_FORWARD_STATUSES = new Set<string>([
+  'Assigned',
+  'Picking',
+  'Arrived',
+  'Active',
+  'OnTrip',
+]);
+
 export const LIVE_OFFER_STATUSES = new Set<string>(['Offered', 'Assigned']);
 
 /** Progression rank — higher means further along the dispatch lifecycle. */
@@ -80,6 +89,10 @@ export function normalizeJobStatus(raw: string): JobStatus {
   if (s === 'queued' || s === 'QUEUED') return 'Queued';
   if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
   return s as JobStatus;
+}
+
+export function isQueueForwardLifecycleStatus(status: string): boolean {
+  return QUEUE_FORWARD_STATUSES.has(normalizeJobStatus(status));
 }
 
 /** Single UA status badge — Pending OR No One, never both. */
@@ -417,14 +430,14 @@ export function mergeJobStatus(
     return ex;
   }
   if ((inc === 'No One' || inc === 'Pending') && incomingSeq >= existingSeq) return inc;
-  // Queued is sticky — stale pool / offer snapshots must not outrank Queued.
-  const QUEUED_PROMOTE: JobStatus[] = ['Offered', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];
-  if (ex === 'Queued' && (POOL.includes(inc) || QUEUED_PROMOTE.includes(inc))) {
-    if (inc === 'Offered' || QUEUED_PROMOTE.includes(inc)) {
-      if (incomingSeq <= existingSeq) return ex;
-      return inc;
-    }
-    return ex;
+  // Queued is sticky vs pool demotion — but forward lifecycle must always win
+  // (promote/stage often reuse or barely bump updateSeq; seq must not pin Queue forever).
+  const QUEUED_PROMOTE: JobStatus[] = ['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'];
+  if (ex === 'Queued' && POOL.includes(inc)) return ex;
+  if (ex === 'Queued' && QUEUED_PROMOTE.includes(inc)) return inc;
+  if (ex === 'Queued' && inc === 'Offered') {
+    if (incomingSeq <= existingSeq) return ex;
+    return inc;
   }
   if (statusRank(inc) < statusRank(ex)) return ex;
   if (statusRank(inc) === statusRank(ex) && incomingSeq < existingSeq) return ex;

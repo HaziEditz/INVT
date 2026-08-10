@@ -1,6 +1,7 @@
 /** Keep in sync with src/lib/jobPoolSync.ts */
 
 const TERMINAL = new Set(['Completed', 'Cancelled', 'No Show']);
+const QUEUE_FORWARD = new Set(['Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip']);
 const LIVE_DISPATCH = new Set([
   'Offered', 'Queued', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip',
   'Pending', 'No One', 'Scheduled',
@@ -232,12 +233,21 @@ export function purgeStalePendingForQueuedBookings(pendingRef, bookingsRef, stor
       continue;
     }
     const booking = bookingsRef.get(id);
-    if (booking && normalizeJobStatus(booking.status) === 'Queued') {
+    const bookingSt = booking ? normalizeJobStatus(booking.status) : '';
+    if (booking && bookingSt === 'Queued') {
       pendingRef.delete(id);
       continue;
     }
     const pending = pendingRef.get(id);
     const pendingSt = pending ? normalizeJobStatus(pending.status) : '';
+    if (
+      pendingSt === 'Queued' &&
+      booking &&
+      (QUEUE_FORWARD.has(bookingSt) || TERMINAL.has(bookingSt))
+    ) {
+      pendingRef.delete(id);
+      continue;
+    }
     // Keep Queued pendingjobs mirrors until bookingsRef confirms (Queue tab gap).
     if (pendingSt === 'Queued') continue;
     const store = storeJobs.find((j) => j.id === id);
@@ -268,6 +278,10 @@ function coerceQueuedIfAwaiting(job) {
   if (!isQueueAwaitingAllbookings(job.id)) return job;
   const st = normalizeJobStatus(job.status);
   if (TERMINAL.has(st) || POOL_UA.has(st)) {
+    clearQueueAwaitingAllbookings(job.id);
+    return job;
+  }
+  if (QUEUE_FORWARD.has(st)) {
     clearQueueAwaitingAllbookings(job.id);
     return job;
   }
@@ -338,8 +352,18 @@ export function minimalJobFromDispatchRefresh(bookingId, companyId, refresh) {
 export function reinjectQueueAwaitingJobs(bookingsRef, storeJobs, pendingRef) {
   for (const j of storeJobs) {
     if (!isQueueAwaitingAllbookings(j.id)) continue;
+    const existingBooking = bookingsRef.get(j.id);
+    const bookingSt = existingBooking ? normalizeJobStatus(existingBooking.status) : '';
+    if (
+      existingBooking &&
+      (QUEUE_FORWARD.has(bookingSt) || TERMINAL.has(bookingSt))
+    ) {
+      clearQueueAwaitingAllbookings(j.id);
+      pendingRef?.delete(j.id);
+      continue;
+    }
     const st = normalizeJobStatus(j.status);
-    if (TERMINAL.has(st) || POOL_UA.has(st) || isCompletedJobSuppressed(j.id)) {
+    if (TERMINAL.has(st) || POOL_UA.has(st) || isCompletedJobSuppressed(j.id) || QUEUE_FORWARD.has(st)) {
       clearQueueAwaitingAllbookings(j.id);
       continue;
     }
@@ -501,6 +525,17 @@ export function mergeStoreWithFirebaseCaches(storeJobs, pendingRef, bookingsRef,
     if (!isQueueAwaitingAllbookings(id)) continue;
     const storeJob = storeJobs.find((j) => j.id === id);
     const base = storeJob ?? job;
+    const baseSt = normalizeJobStatus(base.status);
+    const jobSt = normalizeJobStatus(job.status);
+    if (
+      TERMINAL.has(baseSt) ||
+      TERMINAL.has(jobSt) ||
+      QUEUE_FORWARD.has(baseSt) ||
+      QUEUE_FORWARD.has(jobSt)
+    ) {
+      clearQueueAwaitingAllbookings(id);
+      continue;
+    }
     byId.set(id, { ...base, status: 'Queued' });
   }
   return Array.from(byId.values());
@@ -511,6 +546,7 @@ const STATUS_RANK = {
   Offered: 2,
   Queued: 3,
   Assigned: 4,
+  Arrived: 5,
   Active: 7,
 };
 
@@ -520,7 +556,15 @@ function statusRank(st) {
 
 function mergeJobRank(existing, incoming, opts) {
   if (opts?.forceStatus) return { ...existing, ...incoming, status: opts.forceStatus };
-  const inc = incoming.status ?? existing.status;
+  const ex = normalizeJobStatus(existing.status);
+  const inc = normalizeJobStatus(incoming.status ?? existing.status);
+  // Mirror production mergeJobStatus: Queued always yields to forward lifecycle.
+  if (ex === 'Queued' && QUEUE_FORWARD.has(inc)) {
+    return { ...existing, ...incoming, status: inc };
+  }
+  if (QUEUE_FORWARD.has(ex) && inc === 'Queued') {
+    return { ...existing, ...incoming, status: ex };
+  }
   if (statusRank(inc) < statusRank(existing.status)) return { ...existing, ...incoming, status: existing.status };
   return { ...existing, ...incoming };
 }

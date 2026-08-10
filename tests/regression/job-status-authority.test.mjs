@@ -292,11 +292,12 @@ test('authority: multi-job active + queued route independently', () => {
   // Stale pool snapshot must not demote Queued when seq is older.
   assert.equal(mergeJobStatus('Queued', 'Pending', 5, 4), 'Queued');
   assert.equal(mergeJobStatus('Queued', 'No One', 5, 4), 'Queued');
-  // Newer live promote can leave Queued.
+  // Forward lifecycle always leaves Queued (promote/stage often same or lower seq).
   assert.equal(mergeJobStatus('Queued', 'Assigned', 5, 6), 'Assigned');
-  // Older promote is sticky Queued.
-  assert.equal(mergeJobStatus('Queued', 'Assigned', 5, 5), 'Queued');
-  assert.equal(mergeJobStatus('Queued', 'Assigned', 5, 4), 'Queued');
+  assert.equal(mergeJobStatus('Queued', 'Assigned', 5, 5), 'Assigned');
+  assert.equal(mergeJobStatus('Queued', 'Assigned', 5, 4), 'Assigned');
+  assert.equal(mergeJobStatus('Queued', 'Arrived', 5, 5), 'Arrived');
+  assert.equal(mergeJobStatus('Queued', 'Active', 3, 1), 'Active');
 });
 
 test('authority: pending snapshot does not regress confirmed queue', () => {

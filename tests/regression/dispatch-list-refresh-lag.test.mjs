@@ -111,6 +111,86 @@ test('dispatch UI lag: Queued pendingjobs mirror survives purge+merge with empty
   assert.equal(shouldPreserveAbsentStoreJob(queuedMirror, pending, bookings), true);
 });
 
+test('dispatch UI lag: Queued mirror yields to Assigned bookings without needing Arrived', () => {
+  const bookingId = 8692800201;
+  clearQueueAwaitingAllbookings(bookingId);
+  clearOptimisticLiveTransition(bookingId);
+  const pending = new Map();
+  const bookings = new Map();
+  const queuedMirror = {
+    id: bookingId,
+    status: 'Queued',
+    pickAddress: 'Stuck Queue St',
+    passengerName: 'Stuck Pat',
+    driverId: '9001',
+    updateSeq: 5,
+  };
+  pending.set(bookingId, queuedMirror);
+  bookings.set(bookingId, {
+    id: bookingId,
+    status: 'Assigned',
+    pickAddress: 'Stuck Queue St',
+    passengerName: 'Stuck Pat',
+    driverId: '9001',
+    updateSeq: 5,
+  });
+  const merged = mergeStoreWithFirebaseCaches([queuedMirror], pending, bookings);
+  assert.equal(pending.has(bookingId), false, 'Queued pending mirror must drop once bookings is Assigned');
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].status, 'Assigned');
+  assert.equal(jobTabForStatus(merged[0]), 'assign');
+});
+
+test('dispatch UI lag: Queued store merges to Active even when updateSeq does not increase', () => {
+  const bookingId = 8692800202;
+  clearQueueAwaitingAllbookings(bookingId);
+  const pending = new Map();
+  const bookings = new Map();
+  bookings.set(bookingId, {
+    id: bookingId,
+    status: 'Active',
+    pickAddress: 'Trip St',
+    driverId: '9001',
+    updateSeq: 3,
+  });
+  const queuedStore = {
+    id: bookingId,
+    status: 'Queued',
+    pickAddress: 'Trip St',
+    driverId: '9001',
+    updateSeq: 5,
+  };
+  const merged = mergeStoreWithFirebaseCaches([queuedStore], pending, bookings);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].status, 'Active');
+  assert.equal(jobTabForStatus(merged[0]), 'active');
+});
+
+test('dispatch UI lag: queue-await must not overwrite Assigned bookings back to Queued', () => {
+  const bookingId = 8692800203;
+  markQueueAwaitingAllbookings(bookingId);
+  const pending = new Map();
+  const bookings = new Map();
+  bookings.set(bookingId, {
+    id: bookingId,
+    status: 'Assigned',
+    pickAddress: 'Promote St',
+    driverId: '9001',
+    updateSeq: 4,
+  });
+  const queuedStore = {
+    id: bookingId,
+    status: 'Queued',
+    pickAddress: 'Promote St',
+    driverId: '9001',
+    updateSeq: 3,
+  };
+  const merged = mergeStoreWithFirebaseCaches([queuedStore], pending, bookings);
+  assert.equal(merged[0].status, 'Assigned');
+  assert.equal(jobTabForStatus(merged[0]), 'assign');
+  clearQueueAwaitingAllbookings(bookingId);
+});
+
 test('dispatch UI lag: stale Pending pendingjobs still purged when store already Queued', () => {
   const bookingId = 8692800200;
   clearQueueAwaitingAllbookings(bookingId);

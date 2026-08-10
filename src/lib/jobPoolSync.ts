@@ -5,9 +5,11 @@ import {
   LIVE_DISPATCH_TABS,
   LIVE_LIFECYCLE_STATUSES,
   POOL_TAB_STATUSES,
+  QUEUE_FORWARD_STATUSES,
   allbookingsRecordIsQueued,
   coerceAllbookingsLiveStatus,
   isGenuineQueuedJob,
+  isQueueForwardLifecycleStatus,
   isUnassignedDriverId,
   normalizeJobStatus,
 } from '@/lib/jobStatusAuthority';
@@ -15,9 +17,11 @@ import {
 export {
   TERMINAL_BOOKING_STATUSES,
   LIVE_DISPATCH_TABS,
+  QUEUE_FORWARD_STATUSES,
   allbookingsRecordIsQueued,
   coerceAllbookingsLiveStatus,
   isGenuineQueuedJob,
+  isQueueForwardLifecycleStatus,
   isUnassignedDriverId,
 };
 
@@ -384,6 +388,8 @@ export type PendingQueueRegressCtx = {
  * queue-await will reinject into bookingsRef. Do NOT drop a Queued pendingjobs
  * mirror just because the store is already Queued — that mirror is often the
  * only live cache until allbookings catches up (Queue tab would go blank).
+ * DO drop the Queued mirror once bookings has advanced past Queued — otherwise
+ * Assign/Active never win the merge.
  */
 export function purgeStalePendingForQueuedBookings(
   pendingRef: Map<number, Job>,
@@ -396,13 +402,23 @@ export function purgeStalePendingForQueuedBookings(
       continue;
     }
     const booking = bookingsRef.get(id);
-    if (booking && normalizeJobStatus(booking.status) === 'Queued') {
+    const bookingSt = booking ? normalizeJobStatus(booking.status) : '';
+    if (booking && bookingSt === 'Queued') {
       pendingRef.delete(id);
       continue;
     }
     const pending = pendingRef.get(id);
     const pendingSt = pending ? normalizeJobStatus(pending.status) : '';
-    // Keep intentional Queued mirrors (post-accept fanout) until bookingsRef confirms.
+    // Bookings already past Queued — Queued pending mirror is stale.
+    if (
+      pendingSt === 'Queued' &&
+      booking &&
+      (QUEUE_FORWARD_STATUSES.has(bookingSt) || TERMINAL_BOOKING_STATUSES.has(bookingSt))
+    ) {
+      pendingRef.delete(id);
+      continue;
+    }
+    // Keep intentional Queued mirrors until bookingsRef confirms or advances.
     if (pendingSt === 'Queued') continue;
     const store = storeJobs.find((j) => j.id === id);
     if (store && normalizeJobStatus(store.status) === 'Queued') {
@@ -441,6 +457,11 @@ export function coerceQueuedIfAwaiting(job: Job): Job {
   if (!isQueueAwaitingAllbookings(job.id)) return job;
   const st = normalizeJobStatus(job.status);
   if (TERMINAL_BOOKING_STATUSES.has(st) || POOL_TAB_STATUSES.has(st)) {
+    clearQueueAwaitingAllbookings(job.id);
+    return job;
+  }
+  // Promote/stage already advanced — stop pinning Queue.
+  if (isQueueForwardLifecycleStatus(st)) {
     clearQueueAwaitingAllbookings(job.id);
     return job;
   }
@@ -483,11 +504,22 @@ export function reinjectQueueAwaitingJobs(
 ): void {
   for (const j of storeJobs) {
     if (!isQueueAwaitingAllbookings(j.id)) continue;
+    const existingBooking = bookingsRef.get(j.id);
+    const bookingSt = existingBooking ? normalizeJobStatus(existingBooking.status) : '';
+    if (
+      existingBooking &&
+      (isQueueForwardLifecycleStatus(bookingSt) || TERMINAL_BOOKING_STATUSES.has(bookingSt))
+    ) {
+      clearQueueAwaitingAllbookings(j.id);
+      pendingRef?.delete(j.id);
+      continue;
+    }
     const st = normalizeJobStatus(j.status);
     if (
       TERMINAL_BOOKING_STATUSES.has(st) ||
       POOL_TAB_STATUSES.has(st) ||
-      isCompletedJobSuppressed(j.id)
+      isCompletedJobSuppressed(j.id) ||
+      isQueueForwardLifecycleStatus(st)
     ) {
       clearQueueAwaitingAllbookings(j.id);
       continue;

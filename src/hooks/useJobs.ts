@@ -17,6 +17,7 @@ import {
   TERMINAL_BOOKING_STATUSES,
   isGenuineQueuedJob,
   isPoolUaStatus,
+  isQueueForwardLifecycleStatus,
   isUaJob,
   isUnassignedDriverId,
   jobStatusFromFirebaseRecord,
@@ -1177,8 +1178,18 @@ export function useJobs(companyId: string | null) {
         if (isQueueAwaitingAllbookings(id)) {
           const base = existing ?? job;
           const baseSt = normalizeJobStatus(base.status);
-          if (TERMINAL_BOOKING_STATUSES.has(baseSt) || isCompletedJobSuppressed(id)) {
+          const jobSt = normalizeJobStatus(job.status);
+          if (
+            TERMINAL_BOOKING_STATUSES.has(baseSt) ||
+            TERMINAL_BOOKING_STATUSES.has(jobSt) ||
+            isCompletedJobSuppressed(id) ||
+            isQueueForwardLifecycleStatus(baseSt) ||
+            isQueueForwardLifecycleStatus(jobSt)
+          ) {
             clearQueueAwaitingAllbookings(id);
+            if (existing) {
+              byId.set(id, mergeJobUpdate(existing, job));
+            }
             continue;
           }
           byId.set(
@@ -1306,9 +1317,18 @@ export function useJobs(companyId: string | null) {
         normalizeJobStatus(booking?.status) === 'Queued' ||
         normalizeJobStatus(storeJob?.status) === 'Queued';
       // Queued jobs must never be demoted by a stale pendingjobs partial (edit fanout writes pool shape).
+      // Forward lifecycle (Assigned→Active) and terminals must apply — blocking them left dispatch
+      // stuck on Queue for the whole trip after 348d19e kept the Queued mirror.
       if (liveQueued && pendingSt !== 'Queued') {
-        pendingRef.current.delete(jobId);
-        return;
+        if (
+          isQueueForwardLifecycleStatus(pendingSt) ||
+          TERMINAL_BOOKING_STATUSES.has(pendingSt)
+        ) {
+          clearQueueAwaitingAllbookings(jobId);
+        } else {
+          pendingRef.current.delete(jobId);
+          return;
+        }
       }
 
       const liveAssigned =
@@ -1435,6 +1455,10 @@ export function useJobs(companyId: string | null) {
                 effectiveStatus === 'Scheduled'
               ) {
                 clearQueueAwaitingAllbookings(jobId);
+              } else if (isQueueForwardLifecycleStatus(effectiveStatus)) {
+                // Promote/stage advanced past Queued — stop pinning Queue tab.
+                clearQueueAwaitingAllbookings(jobId);
+                pendingRef.current.delete(jobId);
               } else {
                 pendingRef.current.delete(jobId);
                 effectiveStatus = 'Queued';
