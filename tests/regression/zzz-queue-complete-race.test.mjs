@@ -21,6 +21,169 @@ test('queue promotion hold blocks auto-dispatch while Queued job exists', () => 
   assert.equal(r.reason, 'queued_job_pending');
 });
 
+/**
+ * Permanent coverage for the post-complete × queue-promote race that auto-resolved
+ * the queued job (Cancelled OR Completed) without Arrived/OnBoard/payment.
+ * Sequence: Active A + Queued B → complete A → promote B → stale Available (+ Busy→Available).
+ * B must stay Assigned/Picking — never Pending/Cancelled/Completed.
+ */
+test('complete-while-queued: stale Available must not auto-resolve promoted job', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+
+  const driverId = h.driverIds[2];
+  const otherDrivers = h.driverIds.filter((id) => id !== driverId);
+  for (const id of otherDrivers) {
+    await h.driverStatusChanged(id, 'Away', { zonename: 'Central' });
+  }
+
+  const busyRes = await h.driverStatusChanged(driverId, 'Busy', {
+    zonename: 'Central',
+    lat: -46.4121,
+    lng: 168.3531,
+    vehiclenumber: String(driverId),
+  });
+  assert.equal(busyRes.status, 200);
+
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Busy',
+    lat: -46.4121,
+    lng: 168.3531,
+    zonename: 'Central',
+  });
+
+  const activeList = await pollActiveForDriver(h, driverId);
+  assert.ok(activeList.length >= 1, 'expected Active Hail after Busy');
+  const activeJobId = activeList[0].id;
+
+  const queuedJobId = await createPoolJobRelaxed(h, 'stale-avail-queued');
+  await h.triggerAutoDispatch();
+  await h.poll(
+    queuedJobId,
+    (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
+      return st === 'Pending' || st === 'Offered' || st === 'No One';
+    },
+    { timeoutMs: 45000 },
+  );
+
+  const queueAccept = await h.acceptJob(queuedJobId, driverId);
+  assert.equal(queueAccept.status, 200, JSON.stringify(queueAccept.body));
+  assert.equal(queueAccept.body.queued, true, JSON.stringify(queueAccept.body));
+  await h.poll(
+    queuedJobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Queued',
+    { timeoutMs: 25000 },
+  );
+
+  // Driver-app complete path (sets completedAtMs — required for §FIX-STALE-AVAIL).
+  const completeRes = await post(
+    '/api/job/complete',
+    {
+      bookingId: activeJobId,
+      driverId: String(driverId),
+      companyId: TEST_CID,
+      fare: '28.00',
+      distance: '4.2',
+    },
+    h.adminHeaders,
+  );
+  assert.equal(completeRes.status, 200, JSON.stringify(completeRes.body));
+  assert.equal(completeRes.body?.ok, true, JSON.stringify(completeRes.body));
+
+  await h.poll(
+    activeJobId,
+    (t) => t.jobStore?.closedFound === true || !t.jobStore?.found,
+    { timeoutMs: 30000 },
+  );
+
+  const closedA = await h.jobTrace(activeJobId);
+  const lifeA = closedA.jobStore?.lifecycle || {};
+  const completedAtMs = Number(lifeA.completedAtMs || 0);
+  const jobCompleteTime = lifeA.JobCompleteTime || null;
+  assert.ok(
+    completedAtMs > 0,
+    `completed job A must stamp completedAtMs for §FIX-STALE-AVAIL; got ${JSON.stringify({
+      completedAtMs,
+      jobCompleteTime,
+      status: lifeA.BookingStatus,
+      closedFound: closedA.jobStore?.closedFound,
+    })}`,
+  );
+
+  // Simulate late client Available that historically raced ahead of / with promote.
+  await h.driverStatusChanged(driverId, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
+
+  let promoteRes;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    promoteRes = await post(
+      '/api/job/promote-queued',
+      { bookingId: queuedJobId, driverId: String(driverId), companyId: TEST_CID },
+      h.adminHeaders,
+    );
+    if (promoteRes.status === 200 && promoteRes.body?.ok) break;
+    const retryable = promoteRes.body?.error_code === 'presence_attach_failed';
+    if (!retryable || attempt === 3) break;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  assert.equal(promoteRes.status, 200, JSON.stringify(promoteRes.body));
+  assert.equal(promoteRes.body.ok, true, JSON.stringify(promoteRes.body));
+
+  await h.poll(
+    queuedJobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Assigned',
+    { timeoutMs: 30000 },
+  );
+
+  // Race vectors that previously auto-resolved B:
+  // 1) late Available → Pending/Cancelled
+  await h.driverStatusChanged(driverId, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
+  // 2) Busy→Active then Available → fake Completed
+  await h.driverStatusChanged(driverId, 'Busy', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
+  await h.driverStatusChanged(driverId, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
+  const after = await h.jobTrace(queuedJobId);
+  const st = String(after.jobStore?.lifecycle?.BookingStatus || '');
+  const closedB = after.jobStore?.closedFound === true;
+  assert.equal(
+    closedB,
+    false,
+    `queued job #${queuedJobId} must not be archived/closed after stale Available`,
+  );
+  assert.ok(
+    st === 'Assigned' || st === 'Picking',
+    `promoted job must stay Assigned/Picking after stale Available; got ${st}`,
+  );
+  assert.notEqual(st, 'Completed', 'must not fake-Complete without Arrived/OnBoard/payment');
+  assert.notEqual(st, 'Cancelled', 'must not Cancelled from post-complete Available');
+  assert.notEqual(st, 'Pending', 'must not recall to Pending from post-complete Available');
+
+  await h.recallQueuedJob(queuedJobId).catch(() => undefined);
+  await h.cancelAssigned(queuedJobId).catch(() => undefined);
+  for (const id of otherDrivers) {
+    await h.driverStatusChanged(id, 'Available', { zonename: 'Central' });
+  }
+  await h.driverStatusChanged(driverId, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
+});
+
 test('complete → queue promotion wins over competing auto-dispatch offer', async () => {
   requireFirebaseSecret();
   const h = await getHarness();

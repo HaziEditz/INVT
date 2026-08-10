@@ -2631,18 +2631,29 @@ async function _maybeRestoreDriverState(driverId, vehId, companyId, excludeBooki
     console.log(`  [${_src}] §FIX-CB driver ${driverId} → Away + awayLock (driver-fault, no remaining assignments)`);
     return { driverFreed: true, driverState: 'Away', queueNo: null };
   }
+  // Queued is not an "active trip" for accept/queue, but the driver is NOT free —
+  // writing Available here races queue promote into DSC auto-recall/cancel/complete.
+  if (_driverHasQueuedJobPending(driverId, companyId)) {
+    if (companyId) {
+      _syncDriverJobCount(companyId, driverId, `${_src}/queued-remaining`).catch(() => {});
+    }
+    console.log(`  [${_src}] §FIX-CB driver ${driverId} keeps state — has Queued job pending promotion`);
+    return { driverFreed: false, driverState: 'unchanged', queueNo: zd.zonequeue ?? null };
+  }
   const _q = calcRestoredQueue(driverId, zd.zonename || '');
   zd.zonequeue      = _q;
   zd.queueWaitSince = Date.now();
   zd.vehiclestatus  = 'Available';
-  zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = ''; zd.jobCount = 0;
+  zd.JobphoneNo = ''; zd.jobpickup = ''; zd.jobdropoff = '';
+  // Recompute from jobStore — do not hardcode 0 (stale Assigned ghosts / Queued must not leave a lying count).
+  zd.jobCount = companyId ? _computeDriverJobCount(driverId, companyId) : 0;
   clearAwayLock(driverId);
   clearDriverHomeState(driverId);
   if (companyId && vehId) {
     try {
       const _tok = await getFirebaseServerToken();
       if (_tok) {
-        const _patch = _onlineTripClearPatch('Available');
+        const _patch = Object.assign(_onlineTripClearPatch('Available'), { jobCount: zd.jobCount });
         await firebaseDbPatch(`online/${companyId}/${vehId}`, _patch, _tok)
           .catch(e => console.warn(`  [${_src}] online/${companyId}/${vehId} Available mirror failed: ${e && e.message}`));
         await firebaseDbPatch(`online/${companyId}/${vehId}/current`, _patch, _tok)
@@ -4481,6 +4492,11 @@ async function completeBooking(opts) {
   const _closed = closedJobStore.find(j => j && j.Id === bookingId && j.BookingStatus === 'Completed');
   if (_closed) {
     const _cidIdem = String(_closed.companyId || opts.companyId || '');
+    if (!_closed.completedAtMs) {
+      _closed.completedAtMs = _closed.JobCompleteTime
+        ? new Date(_closed.JobCompleteTime).getTime() || Date.now()
+        : Date.now();
+    }
     if (fare !== undefined && fare !== null && fare !== '') {
       _closed.TotalFare = fare;
       _closed.FareSnapshot = fare;
@@ -4607,6 +4623,9 @@ async function completeBooking(opts) {
   job.lastUpdatedBy  = by;
   job.BookingStatus  = 'Completed';
   job.JobCompleteTime = _nowIso;
+  // Required by §FIX-STALE-AVAIL — without this, post-complete Available can
+  // auto-recall/cancel/complete a newly promoted Queued→Assigned job.
+  job.completedAtMs  = Date.now();
   if (fare !== undefined && fare !== null && fare !== '') {
     job.TotalFare    = fare;
     job.FareSnapshot = fare;
@@ -5041,6 +5060,7 @@ function _computeDriverJobCount(driverId, cid) {
   const did = String(driverId || '').trim();
   if (!did || did === '0' || did === '-1') return 0;
   const tripSt = new Set(['Assigned', 'Picking', 'Arrived', 'OnTrip', 'Active', 'Busy']);
+  const zd = _zoneDriverRowForEligibility(did, cid, null);
   let count = 0;
   for (const j of jobStore) {
     if (!j) continue;
@@ -5048,8 +5068,17 @@ function _computeDriverJobCount(driverId, cid) {
     const jDrv = String(j.DriverId ?? j.driverId ?? '').trim();
     if (!jDrv || (!_driverIdsMatch(jDrv, did) && jDrv !== did)) continue;
     const st = j.BookingStatus || '';
-    if (st === 'Queued') count++;
-    else if (tripSt.has(st)) count++;
+    if (st === 'Queued') {
+      count++;
+      continue;
+    }
+    if (!tripSt.has(st)) continue;
+    // Stale Assigned ghosts (zone Available, no booking pointer) must not inflate the status-bar count.
+    if (st === 'Assigned') {
+      const block = _jobStoreRowBlocksAcceptQueue(j, zd);
+      if (!block.blocks) continue;
+    }
+    count++;
   }
   return count;
 }
@@ -5074,6 +5103,25 @@ async function _syncDriverJobCount(cid, driverId, sourceTag) {
   } catch (e) {
     console.warn(`  [${sourceTag || 'jobCount'}] sync failed driver ${did}: ${e && e.message}`);
   }
+}
+
+/** Latest Completed closed-job timestamp for a driver within withinMs (for §FIX-STALE-AVAIL). */
+function _recentDriverCompletedAtMs(driverId, withinMs, nowMs) {
+  const did = String(driverId || '').trim();
+  if (!did || did === '0') return 0;
+  const now = nowMs || Date.now();
+  const windowMs = withinMs || 120000;
+  let best = 0;
+  for (const cj of closedJobStore) {
+    if (!cj || String(cj.BookingStatus || '') !== 'Completed') continue;
+    const cjDrv = String(cj.DriverId || cj.driverId || cj.AssignedDriverId || '').trim();
+    if (!cjDrv || (cjDrv !== did && !_driverIdsMatch(cjDrv, did))) continue;
+    const ms = Number(cj.completedAtMs) ||
+      (cj.JobCompleteTime ? new Date(cj.JobCompleteTime).getTime() : 0) ||
+      0;
+    if (ms > 0 && (now - ms) < windowMs && ms > best) best = ms;
+  }
+  return best;
 }
 
 // Write driverQueue/{cid}/{driverId}/queued/{bookingId} for driver-app Queue tab.
@@ -7359,6 +7407,11 @@ function _jobLifecycleSnapshot(job) {
     lastUpdatedAt: job.lastUpdatedAt || null,
     lastUpdatedBy: job.lastUpdatedBy || null,
     returnReason: job.returnReason || null,
+    JobCompleteTime: job.JobCompleteTime || null,
+    completedAtMs: job.completedAtMs || null,
+    assignedAt: job.assignedAt || null,
+    ArrivedAt: job.ArrivedAt || null,
+    ActiveAt: job.ActiveAt || null,
     _hydratedFromFirebase: !!job._hydratedFromFirebase,
   };
 }
@@ -21293,14 +21346,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // This protects a dispatcher-assigned job when driver completes a Hail/street pickup.
           const _hasActiveBeforeAvailable = newStatus === 'Available' &&
             allDriverJobs.some(j => j.BookingStatus === 'Active');
-          // §FIX-STALE-AVAIL: pre-compute whether this driver recently completed another job (≤120 s).
-          // Used in the Available+Assigned recall branch to detect stale Available signals
-          // arriving after the driver accepted a new job (completing prior trip ≠ abandoning new one).
+          // §FIX-STALE-AVAIL: prior Completed within 120s (completedAtMs preferred; JobCompleteTime fallback).
+          // /api/job/complete historically omitted completedAtMs — JobCompleteTime must still protect
+          // queue-promote races from post-complete Available.
           const _staleAvailNow = Date.now();
-          const _priorCompletedMs = newStatus === 'Available' ? (closedJobStore.find(function(cj) {
-            return String(cj.DriverId || cj.driverId || '') === String(driverId) &&
-                   cj.completedAtMs > 0 && (_staleAvailNow - cj.completedAtMs) < 120000;
-          }) || {}).completedAtMs || 0 : 0;
+          const _priorCompletedMs = newStatus === 'Available'
+            ? _recentDriverCompletedAtMs(driverId, 120000, _staleAvailNow)
+            : 0;
           allDriverJobs.forEach(function(job) {
             const prev = job.BookingStatus;
             // Guard: if job has no driver (orphaned) skip the Assigned transition so
@@ -21344,11 +21396,25 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                         (job.BookingStatus === 'Pending' && !orphaned))) {
               // Pending + Busy: driver skipped the Accept step (e.g. Away→Busy after dispatch timeout)
               // but the job's DriverId still matches — activate it so dispatch shows Active.
-              job.BookingStatus = 'Active';
-              activatedOne = true;
-              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString();
-              _stampDriverName(job);
-              console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
+              // Do NOT Busy→Active a freshly promoted queue job while post-complete presence settles —
+              // that creates a phantom Active which Available then auto-Completes.
+              const _busyPriorCompleteMs = _recentDriverCompletedAtMs(driverId, 120000);
+              const _busyAssignedAge = job.assignedAt ? (Date.now() - job.assignedAt) : Infinity;
+              const _busyNoStages = !job.ArrivedAt && !job.OnBoardAt && !job.PickedUpAt;
+              if (
+                _busyPriorCompleteMs > 0 &&
+                _busyAssignedAge < 60000 &&
+                _busyNoStages &&
+                (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking')
+              ) {
+                console.log(`  [DriverStatusChanged] Job #${job.Id} Busy→Active SKIPPED — fresh queue promote after complete (assignedAge=${_busyAssignedAge}ms)`);
+              } else {
+                job.BookingStatus = 'Active';
+                activatedOne = true;
+                if (!job.ActiveAt) job.ActiveAt = new Date().toISOString();
+                _stampDriverName(job);
+                console.log(`  [DriverStatusChanged] Job #${job.Id} (was ${prev}) -> Active`);
+              }
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Picking';
               job.assignedAt = Date.now();
@@ -21372,6 +21438,14 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 const _ageMsDb = _activeAtMsDb ? (Date.now() - _activeAtMsDb) : Infinity;
                 if (_isHailDb && _ageMsDb < 3000) {
                   console.log(`  [DriverStatusChanged] Job #${job.Id} Available IGNORED — Hail debounce (age=${_ageMsDb}ms)`);
+                  return;
+                }
+                // Queue-promote race: post-complete Busy can DSC-upgrade Assigned→Active with
+                // no Arrived/OnBoard, then a late Available marks it Completed with a fake trip.
+                const _noTripStagesDp = !job.ArrivedAt && !job.OnBoardAt && !job.PickedUpAt;
+                const _freshActiveMsDp = _activeAtMsDb ? (_staleAvailNow - _activeAtMsDb) : Infinity;
+                if (_noTripStagesDp && _freshActiveMsDp < 60000 && _priorCompletedMs > 0) {
+                  console.log(`  [DriverStatusChanged] Job #${job.Id} Available IGNORED — phantom Active after recent complete (age=${_freshActiveMsDp}ms)`);
                   return;
                 }
                 // Trip genuinely finished — mark Completed, move to closedJobStore
@@ -23492,12 +23566,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           // Protect Assigned jobs when driver completes a simultaneous Active (Hail) job.
           const _hasActiveBeforeAvailableDS = newStatus === 'Available' &&
             allDriverJobs.some(j => j.BookingStatus === 'Active');
-          // §FIX-STALE-AVAIL: pre-compute whether this driver recently completed another job (≤120 s).
+          // §FIX-STALE-AVAIL: prior Completed within 120s (completedAtMs or JobCompleteTime).
           const _staleAvailNowDS = Date.now();
-          const _priorCompletedMsDS = newStatus === 'Available' ? (closedJobStore.find(function(cj) {
-            return String(cj.DriverId || cj.driverId || '') === String(driverId) &&
-                   cj.completedAtMs > 0 && (_staleAvailNowDS - cj.completedAtMs) < 120000;
-          }) || {}).completedAtMs || 0 : 0;
+          const _priorCompletedMsDS = newStatus === 'Available'
+            ? _recentDriverCompletedAtMs(driverId, 120000, _staleAvailNowDS)
+            : 0;
           // Helper: stamp driver name onto a job using param or ZONE_DRIVERS fallback
           function _stampDriverNameDS(j) {
             if (j.UserFName && String(j.UserFName).trim()) return;
@@ -23532,11 +23605,23 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             } else if (newStatus === 'Busy' && !activatedOneDS &&
                        (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking' || job.BookingStatus === 'Arrived' || job.BookingStatus === 'Offered' ||
                         (job.BookingStatus === 'Pending' && !orphanedDS))) {
-              job.BookingStatus = 'Active';
-              activatedOneDS = true;
-              if (!job.ActiveAt) job.ActiveAt = new Date().toISOString();
-              _stampDriverNameDS(job);
-              console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
+              const _busyPriorCompleteMsDS = _recentDriverCompletedAtMs(driverId, 120000);
+              const _busyAssignedAgeDS = job.assignedAt ? (Date.now() - job.assignedAt) : Infinity;
+              const _busyNoStagesDS = !job.ArrivedAt && !job.OnBoardAt && !job.PickedUpAt;
+              if (
+                _busyPriorCompleteMsDS > 0 &&
+                _busyAssignedAgeDS < 60000 &&
+                _busyNoStagesDS &&
+                (job.BookingStatus === 'Assigned' || job.BookingStatus === 'Picking')
+              ) {
+                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} Busy→Active SKIPPED — fresh queue promote after complete (assignedAge=${_busyAssignedAgeDS}ms)`);
+              } else {
+                job.BookingStatus = 'Active';
+                activatedOneDS = true;
+                if (!job.ActiveAt) job.ActiveAt = new Date().toISOString();
+                _stampDriverNameDS(job);
+                console.log(`  [DriverStatusChanged/DS] Job #${job.Id} (was ${prev}) -> Active`);
+              }
             } else if (newStatus === 'Picking' && (job.BookingStatus === 'Offered' || job.BookingStatus === 'Pending' || job.BookingStatus === 'Assigned')) {
               job.BookingStatus = 'Picking';
               job.assignedAt = Date.now();
@@ -23560,6 +23645,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 const _ageMsDb = _activeAtMsDb ? (Date.now() - _activeAtMsDb) : Infinity;
                 if (_isHailDb && _ageMsDb < 3000) {
                   console.log(`  [DriverStatusChanged] Job #${job.Id} Available IGNORED — Hail debounce (age=${_ageMsDb}ms)`);
+                  return;
+                }
+                const _noTripStagesDs = !job.ArrivedAt && !job.OnBoardAt && !job.PickedUpAt;
+                const _freshActiveMsDs = _activeAtMsDb ? (_staleAvailNowDS - _activeAtMsDb) : Infinity;
+                if (_noTripStagesDs && _freshActiveMsDs < 60000 && _priorCompletedMsDS > 0) {
+                  console.log(`  [DriverStatusChanged/DS] Job #${job.Id} Available IGNORED — phantom Active after recent complete (age=${_freshActiveMsDs}ms)`);
                   return;
                 }
                 // Trip genuinely finished — mark Completed, move to closedJobStore
