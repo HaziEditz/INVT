@@ -101,7 +101,7 @@ export function mergeClosedJobRecords(
   const st = closedJobStatusFromRecord(overlayRec);
   const terminalAt = closedJobTerminalAtMs(overlay, overlayRec) || closedJobTerminalAtMs(base);
 
-  return {
+  const merged: Job = {
     ...base,
     status: st === 'Completed' || st === 'Cancelled' || st === 'No Show' ? st : base.status,
     pickAddress: pickString(overlay.pickAddress, base.pickAddress) || base.pickAddress,
@@ -113,6 +113,8 @@ export function mergeClosedJobRecords(
     vehicleId: pickString(overlay.vehicleId, base.vehicleId),
     vehicleNo: pickString(overlay.vehicleNo, base.vehicleNo),
     paymentType: pickString(overlay.paymentType, base.paymentType) || base.paymentType,
+    accountId: pickString(overlay.accountId, base.accountId) || base.accountId,
+    accountName: pickString(overlay.accountName, base.accountName) || base.accountName,
     totalFare: pickString(overlay.totalFare, base.totalFare),
     estimatedFare: pickString(overlay.estimatedFare, base.estimatedFare) || base.estimatedFare,
     tariffName: pickString(overlay.tariffName, base.tariffName),
@@ -124,6 +126,18 @@ export function mergeClosedJobRecords(
     cancelledAt: pickString(overlay.cancelledAt, base.cancelledAt),
     completedAt: terminalAt > 0 ? terminalAt : base.completedAt,
   };
+
+  // List view calls closedJobPaymentDisplay(job) without raw completedJobs.
+  // Stamp TM from overlay so Payment column matches the detail modal.
+  if (
+    base.isTotalMobility === true ||
+    overlay.isTotalMobility === true ||
+    closedJobIsTotalMobility(merged, overlayRec)
+  ) {
+    merged.isTotalMobility = true;
+  }
+
+  return merged;
 }
 
 export function jobFromClosedFirebaseRecord(
@@ -137,6 +151,7 @@ export function jobFromClosedFirebaseRecord(
   job.status = closedJobStatusFromRecord(rec);
   const terminalAt = closedJobTerminalAtMs(job, rec);
   if (terminalAt > 0) job.completedAt = terminalAt;
+  if (closedJobIsTotalMobility(job, rec)) job.isTotalMobility = true;
   return job;
 }
 
@@ -189,8 +204,10 @@ export function closedJobPaymentCollected(
 export function closedJobIsTotalMobility(job: Job, raw?: Record<string, unknown>): boolean {
   const r = raw || {};
   if (r.isTotalMobility === true || r.tmUsed === true) return true;
-  if ((job as { isTotalMobility?: boolean }).isTotalMobility === true) return true;
-  const pt = String(job.paymentType || r.paymentType || r.PaymentType || '')
+  if (job.isTotalMobility === true) return true;
+  if (String(job.serviceType || '').toLowerCase() === 'tm') return true;
+  if (job.tm) return true;
+  const pt = String(job.paymentType || r.paymentType || r.PaymentType || r.PaymentMethod || '')
     .toLowerCase()
     .replace(/[_\s-]/g, '');
   if (pt === 'tm' || pt === 'totalmobility') return true;

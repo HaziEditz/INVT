@@ -81,6 +81,8 @@ export interface Job {
   notes?: string;
   accountId?: string;
   accountName?: string;
+  /** True when completedJobs / booking economics mark this as Total Mobility. */
+  isTotalMobility?: boolean;
   tm?: TmDetails;
   acc?: AccDetails;
   tariffId?: string;
@@ -290,6 +292,17 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         rec.Account_Name ?? rec.AccountName ?? rec.jobAccountName ?? rec.accountName ?? '',
       ).trim();
       return name || undefined;
+    })(),
+    isTotalMobility: (() => {
+      if (rec.isTotalMobility === true || rec.tmUsed === true) return true;
+      if (String(svc).toLowerCase() === 'tm') return true;
+      if (rec.tmCouncilPays != null || rec.tmSubsidyFare != null || rec.tmSubsidy != null) return true;
+      if (rec.tmCardNumber || rec.tmVoucherNo) return true;
+      const pt = String(rec.PaymentMethod ?? rec.paymentType ?? '')
+        .toLowerCase()
+        .replace(/[_\s-]/g, '');
+      if (pt === 'tm' || pt === 'totalmobility') return true;
+      return undefined;
     })(),
     tariffId: (() => {
       const id = rec.TarriffId ?? rec.TariffId ?? rec.tariffId;
