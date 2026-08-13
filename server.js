@@ -79,6 +79,9 @@ const {
 } = require('./lib/tariffGuard.cjs');
 const { dedupeBusinessAccountHits } = require('./lib/accountSearchDedupe.cjs');
 const { ensureTmCardsFromJob } = require('./lib/ensureTmCardFromTrip.cjs');
+const {
+  upsertCompletedJobFromDispatch,
+} = require('./lib/upsertCompletedJobFromDispatch.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -4469,6 +4472,51 @@ function _completeFanoutExtras(job) {
   };
 }
 
+/**
+ * Fire-and-forget upsert completedJobs/{cid}/{bid} (+ closedJobs when new)
+ * so SA/owner/council claim UIs never depend solely on the driver app write.
+ * Fill-if-empty: preferExisting so richer driver records are not clobbered.
+ */
+function _scheduleUpsertCompletedJobFromDispatch(job, source, opts) {
+  opts = opts || {};
+  try {
+    if (!job || typeof job !== 'object') return;
+    const cid = String(job.companyId || opts.companyId || '').trim();
+    const bid = parseInt(job.Id || job.bookingId || opts.bookingId, 10) || 0;
+    if (!cid || !bid) return;
+    getFirebaseServerToken()
+      .then((tok) => {
+        if (!tok) return null;
+        return upsertCompletedJobFromDispatch(
+          job,
+          {
+            get: (p) => firebaseDbGet(p, tok),
+            set: (p, v) => firebaseDbSet(p, v, tok),
+            push: (p, v) => firebaseDbPush(p, v, tok),
+          },
+          {
+            companyId: cid,
+            bookingId: bid,
+            source: source || 'dispatch_complete',
+            preferIncoming: !!opts.preferIncoming,
+            writeClosedJobs: opts.writeClosedJobs !== false,
+            forceClosedPush: !!opts.forceClosedPush,
+          },
+        );
+      })
+      .then((r) => {
+        if (!r || r.action === 'skipped') return;
+        console.log(
+          `  [${source}] completedJobs ${r.action}: ${r.completedPath}` +
+            (r.closedPath ? ` (+${r.closedPath})` : ''),
+        );
+      })
+      .catch((e) =>
+        console.warn(`  [${source}] completedJobs upsert failed:`, e && e.message),
+      );
+  } catch (_e) { /* non-fatal */ }
+}
+
 /** Fire-and-forget create-if-absent tmCards from a completed TM job (non-fatal). */
 function _scheduleEnsureTmCardsFromJob(job, source) {
   try {
@@ -4577,6 +4625,11 @@ async function completeBooking(opts) {
     // Idempotent enrich may be the first time full TM card fields arrive —
     // create-if-absent registry rows (same as fresh complete).
     _scheduleEnsureTmCardsFromJob(_closed, `${source}/idempotent`);
+    // Upsert completedJobs so SA/owner/council do not depend on driver write alone.
+    _scheduleUpsertCompletedJobFromDispatch(_closed, `${source}/idempotent`, {
+      preferIncoming: false,
+      writeClosedJobs: true,
+    });
     if (_purgeLiveJobFromStore(bookingId)) {
       console.log(`  [${source}] idempotent: purged stale live jobStore entry #${bookingId}`);
     }
@@ -4746,6 +4799,12 @@ async function completeBooking(opts) {
     }
     _scheduleEnsureTmCardsFromJob(job, source);
   } catch (_tmSeedErr) { /* non-fatal */ }
+
+  // Canonical claim/report root — do not rely solely on driver-app completedJobs write.
+  _scheduleUpsertCompletedJobFromDispatch(job, source, {
+    preferIncoming: false,
+    writeClosedJobs: true,
+  });
 
   if (_cid) {
     _writeBookingEvent(_cid, bookingId, 'StatusChanged',
@@ -21997,6 +22056,12 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           _patchRentalComplete(_fcJob);
           _scheduleTerminalFirebaseCleanup(_fcJob, sessionCompanyId,
             _fcJob.VehicleNo || _fcJob.CallSign || '', _fcDrvId || '', 'ForceCompleteJob');
+          // Force-complete must land on completedJobs so SA/owner/council stay consistent.
+          if (!_fcJob.companyId && sessionCompanyId) _fcJob.companyId = String(sessionCompanyId);
+          _scheduleUpsertCompletedJobFromDispatch(_fcJob, 'ForceCompleteJob', {
+            preferIncoming: false,
+            writeClosedJobs: true,
+          });
           console.log(`200: POST ${urlPath} [action=${action}] -> job #${_fcJobId} force-completed by dispatcher`);
           objectD(res, { dt1: [{ Result: 'Job force-completed', jobId: _fcJobId }], dt2: [], dt3: [], dt4: [], dt5: [] });
         }
