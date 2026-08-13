@@ -78,6 +78,7 @@ const {
   collectTariffNamesFromMergedPayload,
 } = require('./lib/tariffGuard.cjs');
 const { dedupeBusinessAccountHits } = require('./lib/accountSearchDedupe.cjs');
+const { ensureTmCardsFromJob } = require('./lib/ensureTmCardFromTrip.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -4234,7 +4235,7 @@ function _completePayloadFieldKeys() {
     'isTotalMobility', 'tmUsed', 'tmPaymentType', 'paymentCategory',
     'tmCouncilPays', 'tmPassengerPays', 'tmSubsidy', 'councilPays', 'passengerPays',
     'tmMeterFare', 'tmSubsidyFare', 'tmSubsidyHoist',
-    'hoistTotal', 'hoistCount', 'tmHoistCount', 'tmHoists',
+    'hoistTotal', 'hoistCount', 'tmHoistCount', 'tmHoists', 'hoistUsedConfirmed',
     'tmCardNumber', 'tmCardName', 'tmCardExpiry', 'tmVoucherNo', 'tmTotalFare',
     'tmRemainderPaymentType', 'councilId', 'tmCouncilId',
   ];
@@ -4452,6 +4453,9 @@ function _completeFanoutExtras(job) {
           hoistCount: job.hoistCount != null ? job.hoistCount : job.tmHoistCount,
           tmHoistCount: job.tmHoistCount != null ? job.tmHoistCount : job.hoistCount,
           tmHoists: job.tmHoists,
+          ...(job.hoistUsedConfirmed === true || job.hoistUsedConfirmed === 'true'
+            ? { hoistUsedConfirmed: true }
+            : {}),
           tmCardNumber: job.tmCardNumber || job.tmVoucherNo || '',
           tmCardName: job.tmCardName || '',
           tmCardExpiry: job.tmCardExpiry || '',
@@ -4463,6 +4467,46 @@ function _completeFanoutExtras(job) {
         }
       : {}),
   };
+}
+
+/** Fire-and-forget create-if-absent tmCards from a completed TM job (non-fatal). */
+function _scheduleEnsureTmCardsFromJob(job, source) {
+  try {
+    if (!job || typeof job !== 'object') return;
+    const councilId = String(job.councilId || job.tmCouncilId || '').trim();
+    const isTm =
+      job.isTotalMobility === true ||
+      job.tmUsed === true ||
+      job.tmCouncilPays != null ||
+      job.tmSubsidyFare != null ||
+      !!String(job.tmCardNumber || job.tmVoucherNo || '').trim();
+    if (!isTm || !councilId) return;
+    getFirebaseServerToken()
+      .then((tok) => {
+        if (!tok) return null;
+        return ensureTmCardsFromJob(
+          job,
+          {
+            get: (p) => firebaseDbGet(p, tok),
+            set: (p, v) => firebaseDbSet(p, v, tok),
+          },
+          { councilId, source: source || 'dispatch_complete' },
+        );
+      })
+      .then((results) => {
+        if (!Array.isArray(results) || !results.length) return;
+        const created = results.filter((r) => r.action === 'created').map((r) => r.cardNumber);
+        if (created.length) {
+          console.log(`  [${source}] tmCards created: ${created.join(',')}`);
+        }
+        for (const r of results) {
+          if (r.action === 'skipped' && r.reason && !/^bad_/.test(String(r.reason))) {
+            console.warn(`  [${source}] tmCards skip ${r.cardNumber || '?'}: ${r.reason}`);
+          }
+        }
+      })
+      .catch((e) => console.warn(`  [${source}] tmCards ensure failed:`, e && e.message));
+  } catch (_e) { /* non-fatal */ }
 }
 
 // Cap Firebase cleanup / post-complete heal so /api/job/complete returns inside
@@ -4530,6 +4574,9 @@ async function completeBooking(opts) {
     const _resolved = _resolveCompletionIdentity(_closed, _cidIdem);
     const _drvIdem = _resolved.drvId;
     const _vehIdem = _resolved.vehId;
+    // Idempotent enrich may be the first time full TM card fields arrive —
+    // create-if-absent registry rows (same as fresh complete).
+    _scheduleEnsureTmCardsFromJob(_closed, `${source}/idempotent`);
     if (_purgeLiveJobFromStore(bookingId)) {
       console.log(`  [${source}] idempotent: purged stale live jobStore entry #${bookingId}`);
     }
@@ -4697,6 +4744,7 @@ async function completeBooking(opts) {
         })
         .catch((e) => console.warn('[complete] tmTripStatus seed failed:', e && e.message));
     }
+    _scheduleEnsureTmCardsFromJob(job, source);
   } catch (_tmSeedErr) { /* non-fatal */ }
 
   if (_cid) {
@@ -16134,6 +16182,55 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     }
     return out;
   }
+
+  /** Merge TM card / economics fields from offline tripSummary (+ Completed events) onto job. */
+  function _sotMergeTmFieldsOntoJob(job, summary, events, opts) {
+    opts = opts || {};
+    const fillOnly = !!opts.fillOnly;
+    const applied = [];
+    if (!job || typeof job !== 'object') return applied;
+    const TM_KEYS = [
+      'isTotalMobility', 'tmUsed', 'tmPaymentType', 'paymentCategory',
+      'tmCouncilPays', 'tmPassengerPays', 'tmSubsidy', 'councilPays', 'passengerPays',
+      'tmMeterFare', 'tmSubsidyFare', 'tmSubsidyHoist',
+      'hoistTotal', 'hoistCount', 'tmHoistCount', 'tmHoists', 'hoistUsedConfirmed',
+      'tmCardNumber', 'tmCardName', 'tmCardExpiry', 'tmVoucherNo', 'tmTotalFare',
+      'tmRemainderPaymentType', 'councilId', 'tmCouncilId',
+    ];
+    function _has(v) {
+      if (v == null) return false;
+      if (typeof v === 'string') return v.trim() !== '';
+      if (typeof v === 'boolean') return true;
+      if (typeof v === 'number') return !isNaN(v);
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === 'object') return Object.keys(v).length > 0;
+      return true;
+    }
+    function _applyFrom(src) {
+      if (!src || typeof src !== 'object') return;
+      for (let i = 0; i < TM_KEYS.length; i++) {
+        const k = TM_KEYS[i];
+        if (!_has(src[k])) continue;
+        if (fillOnly && _has(job[k])) continue;
+        job[k] = src[k];
+        if (applied.indexOf(k) === -1) applied.push(k);
+      }
+    }
+    _applyFrom(summary);
+    if (summary && typeof summary.payment === 'object') _applyFrom(summary.payment);
+    if (Array.isArray(events)) {
+      for (let i = 0; i < events.length; i++) {
+        const ev = events[i];
+        if (!ev || typeof ev !== 'object') continue;
+        const st = String(ev.status || ev.BookingStatus || ev.type || '').toLowerCase();
+        if (st !== 'completed' && String(ev.action || '').toLowerCase() !== 'complete') continue;
+        _applyFrom(ev);
+        if (ev.payload && typeof ev.payload === 'object') _applyFrom(ev.payload);
+        if (ev.data && typeof ev.data === 'object') _applyFrom(ev.data);
+      }
+    }
+    return applied;
+  }
   // ─── end §FIX-R helper ────────────────────────────────────────────────────────
 
   // ── POST /api/syncOfflineTrip — driver app uploads offline trip data ────────
@@ -16265,6 +16362,13 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       if (_sotAuditKeysL.length) {
         console.log('  [§FIX-R/late] audit fields merged: ' + _sotAuditKeysL.join(','));
       }
+      var _sotTmAppliedL = _sotMergeTmFieldsOntoJob(_sotC, _sotSummary, _sotEvents, { fillOnly: true });
+      if (_sotTmAppliedL.length) {
+        console.log('  [§FIX-R/late] TM fields merged: ' + _sotTmAppliedL.join(','));
+        _sotTmAppliedL.forEach(function(f) {
+          if (_sotApplied.indexOf(f) === -1) _sotApplied.push(f);
+        });
+      }
       // §FIX-R — runtime fingerprint (fill-if-empty so we don't overwrite an
       // earlier stamp). Mirrors the live path so HQ's OTA-version question
       // is answerable for jobs that closed via DriverStatusChanged first.
@@ -16301,6 +16405,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       _sotC.OfflineSyncedAt = new Date().toISOString();
       saveClosedJobStore();
       console.log(`  [§FIX-L] late syncOfflineTrip merged into closed job #${_sotJobId} (${_sotApplied.length} field(s) [${_sotApplied.join(',')}])`);
+      _scheduleEnsureTmCardsFromJob(_sotC, 'syncOfflineTrip/late');
 
       // Mirror to allbookings so SA portal + dispatch history see the truth.
       if (_sotApplied.length) {
@@ -16417,6 +16522,10 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     if (_sotAuditKeys.length) {
       console.log('[§FIX-R] audit fields stamped on #' + _sotJobId + ': ' + _sotAuditKeys.join(','));
     }
+    var _sotTmApplied = _sotMergeTmFieldsOntoJob(_sotJob, _sotSummary, _sotEvents, { fillOnly: false });
+    if (_sotTmApplied.length) {
+      console.log('[§FIX-R] TM fields stamped on #' + _sotJobId + ': ' + _sotTmApplied.join(','));
+    }
     // §FIX-R / OTA-22bg — runtime fingerprint of the driver app that sent this
     // trip. Lets us answer "which OTA version was D002 on?" questions without
     // pinging the driver. Driver app posts these at the root of the payload:
@@ -16467,6 +16576,9 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       saveJobStore();
       saveClosedJobStore();
       if (_sotJob.BookingStatus === 'Completed') _patchRentalComplete(_sotJob);
+      if (_sotJob.BookingStatus === 'Completed') {
+        _scheduleEnsureTmCardsFromJob(_sotJob, 'syncOfflineTrip');
+      }
       // §FBcleanup — driver-app offline-sync completion/cancellation.
       _bwClearJobFromFirebase(_sotJob.companyId || sessionCompanyId, _sotJob.Id,
         _sotVehId || _sotJob.VehicleNo || _sotJob.CallSign || '',
