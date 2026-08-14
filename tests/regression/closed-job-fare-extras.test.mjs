@@ -236,3 +236,64 @@ test('TM transactionFee appears as its own Fare Breakdown line without changing 
   );
   assert.ok(Math.abs((fb.total ?? 0) - 8.49) < 0.01);
 });
+
+test('itemization is payment-method agnostic — Cash/Account/Card/ACC/TM all surface extras', () => {
+  // Source must not gate extras on paymentType === EFTPOS
+  assert.doesNotMatch(
+    detailSrc,
+    /paymentType\s*===\s*['"]EFTPOS['"][\s\S]{0,120}parseClosedFareExtraLines|parseClosedFareExtraLines[\s\S]{0,200}paymentType\s*===\s*['"]EFTPOS['"]/,
+  );
+  assert.match(detailSrc, /for \(const \{ key, label \} of EXTRA_FIELD_LABELS\)/);
+
+  const methods = ['Cash', 'Account', 'Card', 'ACC', 'EFTPOS'];
+  for (const paymentType of methods) {
+    const fb = parseClosedFareBreakdown({
+      paymentType,
+      fareBreakdown: { flagFall: 5, distanceCharge: 1, waitingCharge: 0, total: 6 },
+      totalFare: 11,
+      extras: {
+        airportFee: 3,
+        bikeCarry: 0,
+        eftposSurcharge: 0,
+        tolls: 2,
+        other: 0,
+      },
+    });
+    assert.ok(fb, paymentType);
+    assert.equal(fb.meterTotal, 6, paymentType);
+    assert.deepEqual(
+      fb.extras,
+      [
+        { key: 'airportFee', label: 'Airport fee', amount: 3 },
+        { key: 'tolls', label: 'Tolls', amount: 2 },
+      ],
+      paymentType,
+    );
+    assert.equal(fb.total, 11, paymentType);
+  }
+
+  // Live Cash + airportFee shape from closedJobs/860869/-OueUn1aqRn8sNa-ug-Q
+  const cashAirport = parseClosedFareBreakdown({
+    paymentType: 'Cash',
+    totalFare: 10.71,
+    extras: {
+      airportFee: 5,
+      bikeCarry: 0,
+      eftposSurcharge: 0,
+      other: 0,
+      tolls: 0,
+    },
+    fareBreakdown: {
+      distanceCharge: 0,
+      distanceKm: 0,
+      flagFall: 5,
+      total: 5.706666666666667,
+      waitingCharge: 0.7066666666666667,
+      waitingMinutes: 0.7066666666666667,
+    },
+  });
+  assert.deepEqual(cashAirport.extras, [
+    { key: 'airportFee', label: 'Airport fee', amount: 5 },
+  ]);
+  assert.ok(Math.abs((cashAirport.total ?? 0) - 10.71) < 0.02);
+});
