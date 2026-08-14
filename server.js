@@ -26295,74 +26295,79 @@ async function _seedZoneDriversFromFirebase() {
 // orphan-pattern keys (`0`, `D###`) with no identity. It also removes the
 // matching ZONE_DRIVERS entry so VehiclesStatus drops them on the next poll.
 //
+// Download cost: per-company `online/{cid}` reads only (same as zone sync) —
+// NEVER `online.json` root, which re-downloaded the entire multi-tenant tree
+// every 30s and dominated Firebase Downloads quota.
+//
 // Safe by design: only ever deletes presence/heartbeat data. Never touches
 // jobs, notifications, or driver identity records.
+
+function _ghostPresenceScanCompany(cid, vehicles, _toKill) {
+  if (!vehicles || typeof vehicles !== 'object') return;
+  const _OFFLINE_S = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
+  for (const [vid, node] of Object.entries(vehicles)) {
+    if (!node || typeof node !== 'object') continue;
+    const cur = (node.current && typeof node.current === 'object') ? node.current : {};
+    const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
+
+    if (status && _OFFLINE_S.has(status)) {
+      _toKill.push({ cid, vid, reason: `status=${status}` });
+      continue;
+    }
+
+    const _looksOrphanKey = (vid === '0' || /^D\d+$/i.test(vid));
+    const _hasIdentity = !!(cur.driverid || cur.driverId || cur.drivername || cur.driverName ||
+                            cur.vehiclenumber || cur.vehicleNumber ||
+                            node.driverid || node.drivername || node.vehiclenumber);
+    if (_looksOrphanKey && !_hasIdentity) {
+      _toKill.push({ cid, vid, reason: 'orphan-no-identity' });
+      continue;
+    }
+
+    if (_isIdentitylessAvailableGhost(node, cur, status)) {
+      _toKill.push({ cid, vid, reason: 'available-without-driver' });
+      continue;
+    }
+
+    const lastSeen = _freshestLastSeenMs(node.lastSeen, cur.lastSeen);
+    if (lastSeen && (Date.now() - lastSeen) > STALE_PRESENCE_MS) {
+      const _staleDrv = String(
+        cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '',
+      ).trim();
+      if (_driverHasOnJobRetainPresence(_staleDrv, vid, cid)) {
+        console.log(
+          `[ghost-presence-sweeper] retain online/${cid}/${vid} — on-job driver (lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago)`,
+        );
+      } else {
+        _toKill.push({ cid, vid, reason: `lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago` });
+      }
+    }
+  }
+}
 
 setInterval(async () => {
   let token;
   try { token = await getFirebaseServerToken(); } catch(e) { return; }
   if (!token) return;
-  let r;
+
+  const cidSet = new Set(_firmsCollectCompanyIds().map(String).filter(Boolean));
   try {
-    r = await fbRequest(`${FB_DB_URL}/online.json?auth=${encodeURIComponent(token)}`, 'GET', null);
-  } catch(e) { return; }
-  if (!r || r.status !== 200 || !r.body || typeof r.body !== 'object') return;
+    (ZONE_DRIVERS || []).forEach((d) => {
+      if (d && d.companyId) cidSet.add(String(d.companyId));
+    });
+  } catch (_) {}
+  const cids = Array.from(cidSet);
+  if (!cids.length) return;
 
-  const _OFFLINE_S = new Set(['Offline','offline','LoggedOut','loggedout','logoff','inactive']);
-  const _toKill = []; // {cid, vid, reason}
-
-  for (const [cid, vehicles] of Object.entries(r.body)) {
-    if (!vehicles || typeof vehicles !== 'object') continue;
-    for (const [vid, node] of Object.entries(vehicles)) {
-      if (!node || typeof node !== 'object') continue;
-      const cur = (node.current && typeof node.current === 'object') ? node.current : {};
-      const status = node.vehiclestatus || cur.vehiclestatus || cur.currentstatus || '';
-
-      // 1) Explicit offline corpse — driver app left the status on the node.
-      if (status && _OFFLINE_S.has(status)) {
-        _toKill.push({ cid, vid, reason: `status=${status}` });
-        continue;
-      }
-
-      // 2) Orphan key (`0` or `D###`) with no identity field anywhere.
-      const _looksOrphanKey = (vid === '0' || /^D\d+$/i.test(vid));
-      const _hasIdentity = !!(cur.driverid || cur.driverId || cur.drivername || cur.driverName ||
-                              cur.vehiclenumber || cur.vehicleNumber ||
-                              node.driverid || node.drivername || node.vehiclenumber);
-      if (_looksOrphanKey && !_hasIdentity) {
-        _toKill.push({ cid, vid, reason: 'orphan-no-identity' });
-        continue;
-      }
-
-      // 2b) Available (or identity-less stub) with no driver — stray post-sign-out write.
-      if (_isIdentitylessAvailableGhost(node, cur, status)) {
-        _toKill.push({ cid, vid, reason: 'available-without-driver' });
-        continue;
-      }
-
-      // 3) Ghost: heartbeat exists but is older than threshold. Driver app
-      // crashed/quit without clean sign-out, OR a stray write resurrected
-      // a deleted node. Either way the driver is not actually online —
-      // unless they still own an Assigned/Picking/Arrived/Active trip, in
-      // which case retain presence until the job ends (dead-zone safety).
-      const lastSeen = _freshestLastSeenMs(node.lastSeen, cur.lastSeen);
-      if (lastSeen && (Date.now() - lastSeen) > STALE_PRESENCE_MS) {
-        const _staleDrv = String(
-          cur.driverid || cur.driverId || cur.DriverId || node.driverid || node.driverId || node.DriverId || '',
-        ).trim();
-        if (_driverHasOnJobRetainPresence(_staleDrv, vid, cid)) {
-          console.log(
-            `[ghost-presence-sweeper] retain online/${cid}/${vid} — on-job driver (lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago)`,
-          );
-        } else {
-          _toKill.push({ cid, vid, reason: `lastSeen ${Math.round((Date.now()-lastSeen)/1000)}s ago` });
-        }
-      }
-      // Nodes with no lastSeen at all but with identity present are LEFT
-      // ALONE — they are likely a brand-new driver app that hasn't sent its
-      // first heartbeat yet. The next sweep will catch them if they truly
-      // never write a heartbeat.
+  const _toKill = [];
+  for (const cid of cids) {
+    let vehicles;
+    try {
+      vehicles = await firebaseDbGet(`online/${cid}`, token);
+    } catch (e) {
+      continue;
     }
+    _ghostPresenceScanCompany(cid, vehicles, _toKill);
   }
 
   if (!_toKill.length) return;
@@ -26385,7 +26390,7 @@ setInterval(async () => {
       }
     }
   }
-  console.log(`[ghost-presence-sweeper] swept ${_toKill.length} stale presence node(s)`);
+  console.log(`[ghost-presence-sweeper] swept ${_toKill.length} stale presence node(s) across ${cids.length} company(ies)`);
 }, 30 * 1000);
 
 async function _syncBizAccountsFromFirebase() {
