@@ -59,7 +59,8 @@ function money(n?: number): string {
 /** True only when compact fare rows would show real numbers (not all '—'). */
 function fareHasDisplayValues(fb: ClosedFareBreakdown | null | undefined): boolean {
   if (!fb || typeof fb !== 'object') return false;
-  return [fb.flagFall, fb.distanceKm, fb.waitingMinutes, fb.waitingCharge, fb.distanceCharge, fb.total].some(
+  if (Array.isArray(fb.extras) && fb.extras.some((e) => e && e.amount > 0)) return true;
+  return [fb.flagFall, fb.distanceKm, fb.waitingMinutes, fb.waitingCharge, fb.distanceCharge, fb.meterTotal, fb.total].some(
     (v) => typeof v === 'number' && !Number.isNaN(v),
   );
 }
@@ -90,7 +91,8 @@ function FareBreakdownCompact({ fb }: { fb: ClosedFareBreakdown | null }) {
   if (!fareHasDisplayValues(fb)) {
     return <p className="text-[11px] text-bw-muted">Not recorded</p>;
   }
-  const rows: { label: string; value: string }[] = [
+  const extras = Array.isArray(fb!.extras) ? fb!.extras.filter((e) => e && e.amount > 0) : [];
+  const rows: { label: string; value: string; strong?: boolean }[] = [
     { label: 'Flag fall', value: money(fb!.flagFall) },
     {
       label: 'Distance',
@@ -106,16 +108,22 @@ function FareBreakdownCompact({ fb }: { fb: ClosedFareBreakdown | null }) {
           ? `${fb!.waitingMinutes.toFixed(1)} min${fb!.waitingCharge != null ? ` · ${money(fb!.waitingCharge)}` : ''}`
           : '—',
     },
-    { label: 'Total', value: money(fb!.total) },
   ];
+  if (extras.length > 0 && fb!.meterTotal != null) {
+    rows.push({ label: 'Meter subtotal', value: money(fb!.meterTotal) });
+  }
+  for (const extra of extras) {
+    rows.push({ label: extra.label, value: money(extra.amount) });
+  }
+  rows.push({ label: 'Total', value: money(fb!.total), strong: true });
   return (
     <dl className="space-y-0.5 text-bw-text">
-      {rows.map((row, i) => (
+      {rows.map((row) => (
         <div
           key={row.label}
           className={cn(
             'flex justify-between gap-2 text-[11px]',
-            i === rows.length - 1 && 'font-semibold border-t border-bw-border pt-1 mt-1',
+            row.strong && 'font-semibold border-t border-bw-border pt-1 mt-1',
           )}
         >
           <dt className="text-bw-muted shrink-0">{row.label}</dt>

@@ -10,12 +10,23 @@ import { jobFromFirebase, parseLatLng, type Job } from '@/types/job';
 
 export type GpsRoutePoint = { lat: number; lng: number; at?: number };
 
+export type ClosedFareExtraLine = {
+  key: string;
+  label: string;
+  amount: number;
+};
+
 export type ClosedFareBreakdown = {
   flagFall?: number;
   distanceKm?: number;
   waitingMinutes?: number;
   waitingCharge?: number;
   distanceCharge?: number;
+  /** Meter-only total from fareBreakdown (excludes driver extras / TM transaction fee). */
+  meterTotal?: number;
+  /** Itemized driver extras + optional TM transaction fee. */
+  extras?: ClosedFareExtraLine[];
+  /** Grand total shown as Fare Breakdown Total (meter + extras). */
   total?: number;
 };
 
@@ -79,6 +90,7 @@ export function parseGpsRoute(raw: Record<string, unknown>): GpsRoutePoint[] {
 
 export function parseClosedFareBreakdown(raw: Record<string, unknown>): ClosedFareBreakdown | null {
   const fb = coerceRecord(raw.fareBreakdown ?? raw.FareBreakdown);
+  let meterParts: ClosedFareBreakdown | null = null;
   if (fb) {
     const parsed: ClosedFareBreakdown = {
       flagFall: num(fb.flagFall ?? fb.FlagFall),
@@ -88,19 +100,133 @@ export function parseClosedFareBreakdown(raw: Record<string, unknown>): ClosedFa
       distanceCharge: num(fb.distanceCharge ?? fb.DistanceCharge ?? fb.RideCost),
       total: num(fb.total ?? fb.Total ?? fb.totalFare ?? fb.TotalFare),
     };
-    if (Object.values(parsed).some((v) => v != null)) return parsed;
+    if (Object.values(parsed).some((v) => v != null)) meterParts = parsed;
   }
 
-  const fallback: ClosedFareBreakdown = {
-    flagFall: num(raw.flagFall ?? raw.FlagFall),
-    distanceKm: num(raw.distanceKm ?? raw.JobDistance ?? raw.distance),
-    waitingMinutes: num(raw.waitingMinutes ?? raw.waitingMin ?? raw.WaitingTime),
-    waitingCharge: num(raw.waitingCharge ?? raw.waitingCost ?? raw.WaitingCost),
-    distanceCharge: num(raw.distanceCharge ?? raw.DistanceCharge ?? raw.RideCost),
-    total: num(raw.totalFare ?? raw.TotalFare ?? raw.meterFare ?? raw.fare),
+  if (!meterParts) {
+    const fallback: ClosedFareBreakdown = {
+      flagFall: num(raw.flagFall ?? raw.FlagFall),
+      distanceKm: num(raw.distanceKm ?? raw.JobDistance ?? raw.distance),
+      waitingMinutes: num(raw.waitingMinutes ?? raw.waitingMin ?? raw.WaitingTime),
+      waitingCharge: num(raw.waitingCharge ?? raw.waitingCost ?? raw.WaitingCost),
+      distanceCharge: num(raw.distanceCharge ?? raw.DistanceCharge ?? raw.RideCost),
+    };
+    // Prefer top-level meter components; avoid treating grand totalFare as meter when
+    // extras exist (Payment total includes surcharge).
+    const hasMeterComponents =
+      fallback.flagFall != null ||
+      fallback.distanceCharge != null ||
+      fallback.waitingCharge != null ||
+      fallback.distanceKm != null;
+    if (hasMeterComponents) {
+      const meterSum = [fallback.flagFall, fallback.distanceCharge, fallback.waitingCharge]
+        .filter((v): v is number => typeof v === 'number')
+        .reduce((a, b) => a + b, 0);
+      fallback.total =
+        num(raw.meterFare) ??
+        (meterSum > 0 ? +meterSum.toFixed(2) : undefined);
+      meterParts = fallback;
+    } else {
+      const onlyTotal = num(raw.meterFare ?? raw.totalFare ?? raw.TotalFare ?? raw.fare);
+      if (onlyTotal != null) {
+        meterParts = { total: onlyTotal };
+      }
+    }
+  }
+
+  const extras = parseClosedFareExtraLines(raw);
+  if (!meterParts && extras.length === 0) return null;
+
+  const meterTotal =
+    meterParts?.meterTotal ??
+    meterParts?.total ??
+    ([meterParts?.flagFall, meterParts?.distanceCharge, meterParts?.waitingCharge]
+      .filter((v): v is number => typeof v === 'number')
+      .reduce((a, b) => a + b, 0) ||
+      undefined);
+
+  const extrasSum = extras.reduce((s, e) => s + e.amount, 0);
+  const storedGrand = num(raw.totalFare ?? raw.TotalFare ?? raw.fare);
+  const computedGrand =
+    meterTotal != null || extrasSum > 0
+      ? +((meterTotal ?? 0) + extrasSum).toFixed(2)
+      : undefined;
+  // Prefer stored grand when it matches meter+extras (or extras alone); else computed.
+  let grandTotal = computedGrand;
+  if (
+    storedGrand != null &&
+    extrasSum > 0 &&
+    meterTotal != null &&
+    Math.abs(storedGrand - (meterTotal + extrasSum)) < 0.02
+  ) {
+    grandTotal = +storedGrand.toFixed(2);
+  } else if (storedGrand != null && extrasSum === 0 && meterTotal == null) {
+    grandTotal = +storedGrand.toFixed(2);
+  } else if (storedGrand != null && extrasSum === 0 && meterTotal != null) {
+    grandTotal = +meterTotal.toFixed(2);
+  }
+
+  return {
+    ...(meterParts || {}),
+    meterTotal: meterTotal != null ? +Number(meterTotal).toFixed(2) : undefined,
+    extras: extras.length ? extras : undefined,
+    total: grandTotal ?? meterTotal,
   };
-  if (Object.values(fallback).some((v) => v != null)) return fallback;
-  return null;
+}
+
+const EXTRA_FIELD_LABELS: { key: string; label: string }[] = [
+  { key: 'eftposSurcharge', label: 'EFTPOS surcharge' },
+  { key: 'airportFee', label: 'Airport fee' },
+  { key: 'bikeCarry', label: 'Bike carry fee' },
+  { key: 'tolls', label: 'Tolls' },
+  { key: 'other', label: 'Other' },
+];
+
+function transactionFeeLabel(raw: Record<string, unknown>): string {
+  const method = String(
+    raw.tmRemainderPaymentType || raw.paymentType || raw.PaymentType || raw.paymentMethod || '',
+  ).trim();
+  if (method === 'EFTPOS') return 'EFTPOS fee';
+  if (method === 'Card') return 'Card fee';
+  if (method === 'Cash') return 'Cash fee';
+  if (method === 'Account') return 'Account fee';
+  if (method === 'ACC') return 'ACC fee';
+  return 'Transaction fee';
+}
+
+/** Driver PaymentModal extras + optional TM remainder transactionFee. */
+export function parseClosedFareExtraLines(raw: Record<string, unknown>): ClosedFareExtraLine[] {
+  const lines: ClosedFareExtraLine[] = [];
+  const extras = coerceRecord(raw.extras);
+  if (extras) {
+    for (const { key, label } of EXTRA_FIELD_LABELS) {
+      const amount = num(extras[key]);
+      if (amount == null || amount <= 0) continue;
+      let displayLabel = label;
+      if (key === 'other') {
+        const note = String(extras.otherNote ?? '').trim();
+        if (note) displayLabel = `Other (${note})`;
+      }
+      lines.push({ key, label: displayLabel, amount: +amount.toFixed(2) });
+    }
+  } else {
+    // Rare flat mirrors
+    for (const { key, label } of EXTRA_FIELD_LABELS) {
+      const amount = num(raw[key]);
+      if (amount == null || amount <= 0) continue;
+      lines.push({ key, label, amount: +amount.toFixed(2) });
+    }
+  }
+
+  const txFee = num(raw.transactionFee);
+  if (txFee != null && txFee > 0) {
+    lines.push({
+      key: 'transactionFee',
+      label: transactionFeeLabel(raw),
+      amount: +txFee.toFixed(2),
+    });
+  }
+  return lines;
 }
 
 export function parseTariffLog(raw: Record<string, unknown>): Record<string, unknown>[] {
