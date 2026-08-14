@@ -4742,6 +4742,26 @@ async function completeBooking(opts) {
   if (opts.payload && typeof opts.payload === 'object') {
     _applyCompletePayloadFields(job, opts.payload, { preferIncoming: true });
   }
+  // Offline / late sync: prefer confirm-time JobCompleteTime / stepTimes over upload clock.
+  (function _preserveConfirmCompleteTime() {
+    let tripMs = 0;
+    const st = job.stepTimes;
+    if (st && typeof st === 'object') {
+      const done = st.completeAt != null ? st.completeAt : st.hailEndedAt;
+      const n = Number(done);
+      if (Number.isFinite(n) && n > 0) tripMs = n < 1e12 ? n * 1000 : n;
+    }
+    if (!tripMs && job.JobCompleteTime) {
+      const parsed = Date.parse(String(job.JobCompleteTime));
+      if (!isNaN(parsed) && parsed > 0 && String(job.JobCompleteTime) !== _nowIso) {
+        tripMs = parsed;
+      }
+    }
+    if (tripMs > 0) {
+      job.completedAtMs = tripMs;
+      job.JobCompleteTime = new Date(tripMs).toISOString();
+    }
+  })();
   const _completeAccountId = String(
     job.Account_id || job.AccountId || job.jobAccountId || '',
   ).trim();
@@ -4785,7 +4805,7 @@ async function completeBooking(opts) {
               status: 'pending',
               councilId: _tmSeedCouncil,
               companyId: _cid,
-              submittedAt: Date.now(),
+              submittedAt: Number(job.completedAtMs) || Date.now(),
               source: 'dispatch_complete',
               isTotalMobility: true,
               tmCardNumber: job.tmCardNumber || job.tmVoucherNo || '',

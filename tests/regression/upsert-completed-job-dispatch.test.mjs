@@ -108,6 +108,60 @@ test('upsert creates when missing; merges when present', async () => {
   assert.deepEqual(store['completedJobs/860869/111'].gpsRoute, [{ lat: 9, lng: 9 }]);
 });
 
+test('upsert prefers JobCompleteTime / stepTimes over upload completedAtMs', () => {
+  const confirmAt = Date.parse('2026-08-14T01:00:00.000Z');
+  const uploadAt = Date.parse('2026-08-14T03:00:00.000Z');
+  const rec = mod.buildCompletedJobRecord({
+    Id: 8692608999,
+    companyId: '860869',
+    DriverId: 'D001',
+    PickAddress: 'A',
+    DropAddress: 'B',
+    TotalFare: 40,
+    PaymentType: 'Cash',
+    isTotalMobility: true,
+    tmSubsidyFare: 26,
+    tmPassengerPays: 14,
+    completedAtMs: uploadAt,
+    JobCompleteTime: new Date(confirmAt).toISOString(),
+    stepTimes: { completeAt: confirmAt },
+  });
+  assert.equal(rec.completedAt, confirmAt);
+  assert.equal(rec.completedAt_ISO, new Date(confirmAt).toISOString());
+});
+
+test('second upsert does not force another closedJobs push when completedJobs exists', async () => {
+  const store = {};
+  let pushes = 0;
+  const deps = {
+    get: async (p) => store[p] || null,
+    set: async (p, v) => {
+      store[p] = v;
+    },
+    push: async (p, v) => {
+      pushes += 1;
+      const name = `-push${pushes}`;
+      store[`${p}/${name}`] = v;
+      return { name };
+    },
+  };
+  const job = {
+    Id: 222,
+    companyId: '860869',
+    DriverId: 'D001',
+    PickAddress: 'A',
+    DropAddress: 'B',
+    TotalFare: 40,
+    PaymentType: 'Cash',
+    isTotalMobility: true,
+    JobCompleteTime: '2026-08-14T01:00:00.000Z',
+  };
+  await mod.upsertCompletedJobFromDispatch(job, deps, { source: 'dispatch_complete' });
+  assert.equal(pushes, 1);
+  await mod.upsertCompletedJobFromDispatch(job, deps, { source: 'dispatch_complete' });
+  assert.equal(pushes, 1, 'no second closedJobs push after completedJobs exists');
+});
+
 test('fillJobFromAllbookings + applyStatusEconomics covers status-only stub', () => {
   let job = {};
   job = mod.fillJobFromAllbookings(job, {
