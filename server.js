@@ -82,6 +82,7 @@ const { ensureTmCardsFromJob } = require('./lib/ensureTmCardFromTrip.cjs');
 const {
   upsertCompletedJobFromDispatch,
 } = require('./lib/upsertCompletedJobFromDispatch.cjs');
+const { withClientTripIdCreateLock } = require('./lib/clientTripIdCreateLock.cjs');
 
 // Stripe initialised lazily so missing key only errors on first charge attempt
 function getStripe() {
@@ -17647,18 +17648,70 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
 
     // Always allocate a brand-new booking ID — never match or reuse by pickup address.
     // Triple-check closedJobStore, jobStore, and Firebase allbookings before issuing.
+    // Hail + clientTripId: claim lock BEFORE allocate so overlapping retries cannot
+    // both miss lookup and both mint consecutive IDs (TOCTOU under weak signal).
     let _cjIdNum;
+    let _cjHailLockHeld = false;
+    const _allocateNewId = async () => {
+      try {
+        return await allocateCompanyJobId(_cjCid, {
+          tag: '/api/job/create',
+          fbBudgetMs: 10000,
+        });
+      } catch (e) {
+        console.error('[/api/job/create] ID allocation failed:', e && e.message);
+        const err = new Error('Unable to allocate a unique booking ID — try again shortly');
+        err.statusCode = 503;
+        throw err;
+      }
+    };
     try {
-      // FB probes soft-budgeted inside allocate (fail-open). Do not hard-timeout
-      // the whole allocate into a 503 — worse than a local-only ID under lag.
-      _cjIdNum = await allocateCompanyJobId(_cjCid, {
-        tag: '/api/job/create',
-        fbBudgetMs: 10000,
-      });
+      if (_cjClientTripId && _cjSource === 'hail') {
+        _cjHailLockHeld = true;
+        const _locked = await withClientTripIdCreateLock(
+          _cjCid,
+          _cjClientTripId,
+          () => _findJobByClientTripId(_cjCid, _cjClientTripId),
+          async () => {
+            const idNum = await _allocateNewId();
+            // Placeholder claim in-memory so waiters' findExisting hits before full row build.
+            const claim = {
+              Id: idNum,
+              companyId: _cjCid,
+              clientTripId: _cjClientTripId,
+              BookingStatus: 'Pending',
+              BookingSource: 'Hail',
+              createdAt: Date.now(),
+              createdVia: '/api/job/create#claim',
+            };
+            jobStore.push(claim);
+            return claim;
+          },
+        );
+        if (_locked.fromExisting) {
+          const _exId = _locked.value.Id;
+          const _exResult = {
+            ok: true,
+            jobId: String(_exId),
+            bookingId: typeof _exId === 'number' ? _exId : (parseInt(_exId, 10) || _exId),
+            createdAt: _locked.value.createdAt || Date.now(),
+            clientTripId: _cjClientTripId,
+            idempotent: true,
+            existing: true,
+          };
+          console.log('[job/create] idempotent hit (lock):', JSON.stringify(_exResult));
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify(_exResult));
+          return;
+        }
+        _cjIdNum = _locked.value.Id;
+      } else {
+        _cjIdNum = await _allocateNewId();
+      }
     } catch (e) {
-      console.error('[/api/job/create] ID allocation failed:', e && e.message);
-      res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ok: false, error: 'Unable to allocate a unique booking ID — try again shortly' }));
+      const code = e && e.statusCode === 503 ? 503 : 500;
+      res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || 'create failed' }));
       return;
     }
     const _cjIdStr = String(_cjIdNum);
@@ -17775,12 +17828,22 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         }
       })();
     } else {
-      if (_jobExistsInStore(_cjIdNum, _cjCid)) {
+      // Hail+clientTripId may already hold a claim stub from the create lock.
+      const _claimIdx = jobStore.findIndex(
+        (j) =>
+          j &&
+          j.Id === _cjIdNum &&
+          String(j.companyId || '') === String(_cjCid) &&
+          String(j.createdVia || '') === '/api/job/create#claim',
+      );
+      if (_claimIdx >= 0) {
+        jobStore[_claimIdx] = _cjJob;
+        saveJobStore();
+      } else if (_jobExistsInStore(_cjIdNum, _cjCid)) {
         res.writeHead(409, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ ok: false, error: 'job already exists', bookingId: _cjIdNum }));
         return;
-      }
-      if (!_tryPushJobToStore(_cjJob, '/api/job/create')) {
+      } else if (!_tryPushJobToStore(_cjJob, '/api/job/create')) {
         res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ ok: false, error: 'invalid job data' }));
         return;
@@ -21468,6 +21531,15 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (!hasLive && _recentHailDoneDP) {
               console.log(`  [DriverStatusChanged] Hail-create SKIPPED for driver ${driverId} — debounce (last hail #${_recentHailDoneDP.Id} completed ${Date.now() - _recentHailDoneDP.completedAtMs}ms ago)`);
             } else if (!hasLive) {
+              // Modern driver hail uses POST /api/job/create with clientTripId.
+              // Legacy Busy→auto-hail mints unkeyed Active ghosts on reconnect Busy
+              // and races journal retries (duplicate consecutive booking IDs).
+              // Opt-in only: BW_LEGACY_BUSY_AUTO_HAIL=1
+              if (String(process.env.BW_LEGACY_BUSY_AUTO_HAIL || '').trim() !== '1') {
+                console.log(
+                  `  [DriverStatusChanged] Hail-create SKIPPED for driver ${driverId} — legacy Busy→auto-hail disabled (use /api/job/create)`,
+                );
+              } else {
               const hailId = newCompanyJobId(sessionCompanyId || '000');
               const now = new Date().toISOString();
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
@@ -21537,6 +21609,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveZoneAssignment(driverId, 'Hail', 'hail');
                 console.log(`  [DriverStatusChanged] driver ${driverId} inserted into ZONE_DRIVERS at placeholder zone "Hail"`);
               }
+              } // end BW_LEGACY_BUSY_AUTO_HAIL
             }
           }
           // Re-query after potential hail insertion so Available can complete a just-created job
@@ -23708,6 +23781,11 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             if (!hasLive && _recentHailDoneDS) {
               console.log(`  [DriverStatusChanged/DS] Hail-create SKIPPED for driver ${driverId} — debounce (last hail #${_recentHailDoneDS.Id} completed ${Date.now() - _recentHailDoneDS.completedAtMs}ms ago)`);
             } else if (!hasLive) {
+              if (String(process.env.BW_LEGACY_BUSY_AUTO_HAIL || '').trim() !== '1') {
+                console.log(
+                  `  [DriverStatusChanged/DS] Hail-create SKIPPED for driver ${driverId} — legacy Busy→auto-hail disabled (use /api/job/create)`,
+                );
+              } else {
               const hailId = newCompanyJobId(sessionCompanyId || '000');
               const now = new Date().toISOString();
               const pickAddr = (lat && lng) ? `Hail - ${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}` : 'Hail / Street Pickup';
@@ -23770,6 +23848,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
                 saveZoneAssignment(driverId, 'Hail', 'hail');
                 console.log(`  [DriverStatusChanged/DS] driver ${driverId} inserted into ZONE_DRIVERS at placeholder zone "Hail"`);
               }
+              } // end BW_LEGACY_BUSY_AUTO_HAIL
             }
           }
           const allDriverJobs = jobStore.filter(matchesDriverDS);

@@ -93,7 +93,8 @@ test('upsert creates when missing; merges when present', async () => {
   const r1 = await mod.upsertCompletedJobFromDispatch(job, deps, { source: 'dispatch_complete' });
   assert.equal(r1.action, 'created');
   assert.equal(store['completedJobs/860869/111'].tmPassengerPays, 14);
-  assert.ok(store['closedJobs/860869/-push1']);
+  assert.ok(store['closedJobs/860869/job_111']);
+  assert.equal(store['completedJobs/860869/111'].closedJobsPushed, true);
 
   store['completedJobs/860869/111'].gpsRoute = [{ lat: 9, lng: 9 }];
   store['completedJobs/860869/111'].totalFare = 99;
@@ -130,19 +131,17 @@ test('upsert prefers JobCompleteTime / stepTimes over upload completedAtMs', () 
   assert.equal(rec.completedAt_ISO, new Date(confirmAt).toISOString());
 });
 
-test('second upsert does not force another closedJobs push when completedJobs exists', async () => {
+test('second upsert does not force another closedJobs write when completedJobs exists', async () => {
   const store = {};
-  let pushes = 0;
+  let sets = 0;
   const deps = {
     get: async (p) => store[p] || null,
     set: async (p, v) => {
+      sets += 1;
       store[p] = v;
     },
-    push: async (p, v) => {
-      pushes += 1;
-      const name = `-push${pushes}`;
-      store[`${p}/${name}`] = v;
-      return { name };
+    push: async () => {
+      throw new Error('push should not be used for closedJobs');
     },
   };
   const job = {
@@ -157,9 +156,17 @@ test('second upsert does not force another closedJobs push when completedJobs ex
     JobCompleteTime: '2026-08-14T01:00:00.000Z',
   };
   await mod.upsertCompletedJobFromDispatch(job, deps, { source: 'dispatch_complete' });
-  assert.equal(pushes, 1);
+  const setsAfterFirst = sets;
+  assert.ok(store['closedJobs/860869/job_222']);
   await mod.upsertCompletedJobFromDispatch(job, deps, { source: 'dispatch_complete' });
-  assert.equal(pushes, 1, 'no second closedJobs push after completedJobs exists');
+  assert.equal(
+    store['closedJobs/860869/job_222'].totalFare,
+    40,
+    'deterministic closedJobs key retains single row',
+  );
+  // Second upsert may refresh completedJobs but must not create a second closed path.
+  assert.equal(Object.keys(store).filter((k) => k.startsWith('closedJobs/')).length, 1);
+  assert.ok(sets >= setsAfterFirst);
 });
 
 test('fillJobFromAllbookings + applyStatusEconomics covers status-only stub', () => {
