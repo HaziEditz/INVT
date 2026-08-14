@@ -4242,6 +4242,8 @@ function _completePayloadFieldKeys() {
     'hoistTotal', 'hoistCount', 'tmHoistCount', 'tmHoists', 'hoistUsedConfirmed',
     'tmCardNumber', 'tmCardName', 'tmCardExpiry', 'tmVoucherNo', 'tmTotalFare',
     'tmRemainderPaymentType', 'councilId', 'tmCouncilId',
+    // Non-economic passenger collect fee (must not fold into subsidy/claims)
+    'transactionFee', 'passengerCollectedTotal',
   ];
 }
 
@@ -16276,6 +16278,7 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
       'hoistTotal', 'hoistCount', 'tmHoistCount', 'tmHoists', 'hoistUsedConfirmed',
       'tmCardNumber', 'tmCardName', 'tmCardExpiry', 'tmVoucherNo', 'tmTotalFare',
       'tmRemainderPaymentType', 'councilId', 'tmCouncilId',
+      'transactionFee', 'passengerCollectedTotal',
     ];
     function _has(v) {
       if (v == null) return false;

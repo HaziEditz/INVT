@@ -251,6 +251,8 @@ export function closedJobTmSummary(
   hoist: number;
   card: string;
   cardName: string;
+  transactionFee: number;
+  passengerCollectedTotal: number;
 } | null {
   if (!closedJobIsTotalMobility(job, raw)) return null;
   const r = raw || {};
@@ -258,9 +260,23 @@ export function closedJobTmSummary(
   const passengerPays = Number(r.tmPassengerPays ?? r.passengerPays ?? 0) || 0;
   const meterSubsidy = Number(r.tmSubsidyFare ?? Math.max(0, councilPays - Number(r.tmSubsidyHoist ?? r.hoistTotal ?? 0))) || 0;
   const hoist = Number(r.tmSubsidyHoist ?? r.hoistTotal ?? 0) || 0;
+  const transactionFee = Number(r.transactionFee ?? 0) || 0;
+  const passengerCollectedTotal =
+    Number(r.passengerCollectedTotal ?? 0) > 0
+      ? Number(r.passengerCollectedTotal)
+      : +(passengerPays + transactionFee).toFixed(2);
   const card = String(r.tmCardNumber || r.tmVoucherNo || '').trim();
   const cardName = String(r.tmCardName || '').trim();
-  return { councilPays, passengerPays, meterSubsidy, hoist, card, cardName };
+  return {
+    councilPays,
+    passengerPays,
+    meterSubsidy,
+    hoist,
+    card,
+    cardName,
+    transactionFee,
+    passengerCollectedTotal,
+  };
 }
 
 export function closedJobDriverDisplay(job: Job): string {

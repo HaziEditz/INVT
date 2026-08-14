@@ -265,6 +265,15 @@ function ClosedJobDetailBody({
                   <Field label="Hoist (council)" value={money(tmSummary.hoist)} />
                 ) : null}
                 <Field label="Passenger pays" value={money(tmSummary.passengerPays)} />
+                {tmSummary.transactionFee > 0 ? (
+                  <>
+                    <Field label="Transaction fee" value={money(tmSummary.transactionFee)} />
+                    <Field
+                      label="Collected from passenger"
+                      value={money(tmSummary.passengerCollectedTotal)}
+                    />
+                  </>
+                ) : null}
               </div>
             ) : null}
             {tariffLog.length > 0 ? (
