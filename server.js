@@ -10525,9 +10525,24 @@ function saveClosedJobStore() {
 // even if a future OTA re-introduces a silent-catch bug and Sentry is muted,
 // dispatch backfills itself within 15 minutes.
 const _FIXS_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
-const _FIXS_INTERVAL_MS = 15 * 60 * 1000;
+// 30 min is enough to heal silent-window gaps; 15 min was re-downloading
+// multi-MB per-tenant trees (esp. load-test spam) ~4×/hour with little gain.
+const _FIXS_INTERVAL_MS = 30 * 60 * 1000;
 let   _FIXS_RUNNING     = false;
 let   _FIXS_LAST_REPORT = null;
+
+/** Synthetic load-test / regression harness tenants (bwtest*). Keep data; skip scanners. */
+function _isSyntheticLoadTestCompanyId(cid) {
+  const c = String(cid || '').trim().toLowerCase();
+  if (!c) return false;
+  if (c === 'bwtest' || c === 'bwtesttariff') return true;
+  if (c.indexOf('bwtest') === 0) return true;
+  try {
+    const reg = (registrationStore || []).find(r => r && String(r.companyId) === String(cid));
+    if (reg && reg._isLoadTest) return true;
+  } catch (_) {}
+  return false;
+}
 
 function _fixsCollectCompanyIds() {
   const set = new Set();
@@ -10551,7 +10566,7 @@ function _fixsCollectCompanyIds() {
       if (j && (j.companyId || j.CompanyId)) set.add(String(j.companyId || j.CompanyId));
     });
   } catch (_) {}
-  return Array.from(set).filter(Boolean);
+  return Array.from(set).filter(Boolean).filter(cid => !_isSyntheticLoadTestCompanyId(cid));
 }
 
 function _isUnassignedDriverId(driverId) {
@@ -11255,7 +11270,7 @@ async function reconcileClosedJobsFromFirebase(opts) {
   }
 }
 
-// Boot run (45s delay so Firebase/network is warm) + periodic every 15 min.
+// Boot run (45s delay so Firebase/network is warm) + periodic every 30 min.
 setTimeout(() => {
   _bootPurgeStaleJobStoreIncidents().catch(e =>
     console.warn('[boot-purge-stale-jobstore] failed:', (e && e.message) || e));
@@ -24876,7 +24891,7 @@ setInterval(() => {
     .catch((e) => console.warn(`[stale-allbookings cleanup] failed: ${e && e.message}`));
 }, 60 * 60 * 1000);
 
-// ── pendingjobs Firebase normalizer — runs every 15 s ─────────────────────────
+// ── pendingjobs Firebase normalizer — runs every 60 s ─────────────────────────
 // Two responsibilities:
 //
 // Step 3 (stale-pending cleanup) — Delete Firebase pendingjobs records for jobs
@@ -24888,10 +24903,14 @@ setInterval(() => {
 //
 // Step 4 (schema patch) — For pendingjobs records missing any of the dispatcher-
 //   required fields (PickAddress, DropAddress, BookingSource, WebBooking), patch
-//   them in from the corresponding jobStore entry if found. Acts as a 30-second
-//   auto-heal safety net so future schema gaps close without manual intervention.
+//   them in from the corresponding jobStore entry if found. Acts as an auto-heal
+//   safety net so future schema gaps close without manual intervention.
+//
+// Cadence was 15s; 60s is enough for stale cleanup + schema heal and cuts REST
+// download ~4×. Load-test tenants (bwtest*) are skipped — harness spam only.
 //
 // Fire-and-forget on Firebase; errors are logged but never surface to callers.
+const _PENDINGJOBS_NORMALIZER_MS = 60 * 1000;
 setInterval(async () => {
   let token;
   try { token = await getFirebaseServerToken(); } catch(e) { return; }
@@ -24906,6 +24925,7 @@ setInterval(async () => {
   if (!_normCids.size) return;
 
   for (const cid of _normCids) {
+    if (_isSyntheticLoadTestCompanyId(cid)) continue;
     try {
       const _normResp = await fetch(
         `${FB_DB_URL}/pendingjobs/${cid}.json?auth=${encodeURIComponent(token)}`,
@@ -25042,7 +25062,7 @@ setInterval(async () => {
       console.warn(`[pendingjobs-normalizer] Error scanning cid=${cid}: ${e.message}`);
     }
   }
-}, 15 * 1000);
+}, _PENDINGJOBS_NORMALIZER_MS);
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
