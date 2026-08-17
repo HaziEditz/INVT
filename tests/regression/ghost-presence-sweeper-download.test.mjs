@@ -13,7 +13,7 @@ const src = readFileSync(join(root, 'server.js'), 'utf8');
 test('ghost-presence sweeper uses per-cid online reads', () => {
   assert.match(src, /function _ghostPresenceScanCompany/);
   assert.match(src, /firebaseDbGet\(`online\/\$\{cid\}`/);
-  assert.match(src, /_firmsCollectCompanyIds/);
+  assert.match(src, /_fixsCollectCompanyIds/);
   assert.match(src, /_ghostPresenceScanCompany\(cid, vehicles, _toKill\)/);
 });
 
