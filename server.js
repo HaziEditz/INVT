@@ -26373,7 +26373,7 @@ setInterval(async () => {
   try { token = await getFirebaseServerToken(); } catch(e) { return; }
   if (!token) return;
 
-  const cidSet = new Set(_firmsCollectCompanyIds().map(String).filter(Boolean));
+  const cidSet = new Set(_fundsCollectCompanyIds().map(String).filter(Boolean));
   try {
     (ZONE_DRIVERS || []).forEach((d) => {
       if (d && d.companyId) cidSet.add(String(d.companyId));
