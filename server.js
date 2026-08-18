@@ -25033,9 +25033,10 @@ setInterval(async () => {
                 continue;
               }
               // Step 3b: closed terminal + pending still looks live (Active-tab ghost).
-              // MUST NOT heal when the pending record is newer than the closed
-              // completion — that is ID reuse (website/console recycled seq) and
-              // healing would force-Complete a brand-new booking (job disappears).
+              // Fresh ID reuse: pending has a creation time newer than the closed
+              // completion — OR closedAt is unparseable (0) while pendingCreated is
+              // known. Live evidence 2026-08-18: heal logged closedAt=0 and still
+              // force-Completed a reused booking; require !_isFreshIdReuse to heal.
               const _isClosedTerminal = _allClosedMatches.some(j =>
                 _TERMINAL_JOB_STATUSES.has(String(j.BookingStatus || ''))
               );
@@ -25045,7 +25046,7 @@ setInterval(async () => {
                 !_TERMINAL_JOB_STATUSES.has(_pendStatus)
               );
               const _isFreshIdReuse =
-                !!_pendCreatedMs && !!_closedAtMs && _pendCreatedMs > _closedAtMs;
+                !!_pendCreatedMs && (!_closedAtMs || _pendCreatedMs > _closedAtMs);
               if (_isClosedTerminal && _pendLooksLive && !_isFreshIdReuse) {
                 const _closedJob = _allClosedMatches.reduce((best, j) => {
                   const t = Number(j.completedAtMs) ||
