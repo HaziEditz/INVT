@@ -160,6 +160,18 @@ export function parseLatLng(raw?: string): { lat: number; lng: number } | null {
   return { lat, lng };
 }
 
+/** Persist real coords only — never write Null Island "0,0". */
+export function formatStoredLatLng(
+  lat?: number | null,
+  lng?: number | null,
+): string {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return '';
+  if (la === 0 && ln === 0) return '';
+  return `${la},${ln}`;
+}
+
 export function jobUpdateSeqFromRecord(rec: Record<string, unknown>): number {
   const raw = rec._seq ?? rec.version ?? rec.updateSeq ?? 0;
   return parseInt(String(raw), 10) || 0;
@@ -484,6 +496,18 @@ function isUnassignedForDispatch(job: Job): boolean {
 /** Lead time before pickup counts as "future" for Later vs ASAP classification. */
 export const FUTURE_PICKUP_LEAD_MS = 60_000;
 
+/** ASAP Unassigned wait before red flash + alert (same visual language as DISPATCH NOW). */
+export const ASAP_OVERDUE_MS = 10 * 60_000;
+
+/** ASAP Pending/No One with no driver longer than ASAP_OVERDUE_MS. */
+export function isAsapOverdueUnassigned(job: Job, now = new Date()): boolean {
+  if (!isUnassignedForDispatch(job)) return false;
+  if (isPreBookedJob(job, now)) return false;
+  const created = jobCreatedAtTime(job);
+  if (!created) return false;
+  return now.getTime() - created.getTime() >= ASAP_OVERDUE_MS;
+}
+
 /** True when pickup is materially in the future (not "now"). */
 export function isFuturePickupTime(job: Job, now = new Date()): boolean {
   const pickup = jobScheduledTime(job);
@@ -586,6 +610,9 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
 
   if (tab === 'ua' && isUnassignedForDispatch(job)) {
     if (!isPreBookedJob(job, now)) {
+      // ASAP with no driver: plain pink until wait exceeds threshold, then
+      // same red flash + DISPATCH NOW style alert as the scheduled window-open alert.
+      const overdue = isAsapOverdueUnassigned(job, now);
       return {
         backgroundColor: CARD_PINK_BG,
         borderLeftColor: CARD_PINK_BORDER,
@@ -593,8 +620,8 @@ export function getJobCardAppearance(job: Job, tab: JobTab, now = new Date()): J
         foregroundColor: CARD_PINK_TEXT,
         foregroundMuted: CARD_PINK_TEXT,
         tone: 'pink',
-        flash: false,
-        label: null,
+        flash: overdue,
+        label: overdue ? 'NO DRIVER' : null,
       };
     }
 

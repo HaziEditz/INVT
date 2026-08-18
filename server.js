@@ -25177,7 +25177,12 @@ function _jobPassengerCount(job) {
 function _driverEligibleForJob(driver, job) {
   if (!driver || !job) return false;
   if (!_driverCanDoService(driver, job)) return false;
-  const reqCat = _normalizeJobVehicleRequirement(job.VehicleType || job.vehicleType || '');
+  const reqPax = _jobPassengerCount(job);
+  // 5+ passengers require a van (category or explicit Van/WAV) — not just seats.
+  let reqCat = _normalizeJobVehicleRequirement(job.VehicleType || job.vehicleType || '');
+  if (reqPax >= 5) {
+    reqCat = 'van';
+  }
   if (reqCat) {
     const drvCat = _normalizeDriverVehicleCategory(driver.vehicletype || '');
     if (!drvCat) return false;
@@ -25186,12 +25191,14 @@ function _driverEligibleForJob(driver, job) {
       const drvExact = String(driver.vehicletype || '').trim().toLowerCase();
       if (reqExact && drvExact && reqExact === drvExact) {
         // same explicit label despite category normalisation mismatch
+      } else if (reqPax >= 5) {
+        // Allow WAV / wheelchair labelled vans for 5+
+        if (!/van|wav|wheelchair|accessible/i.test(drvExact || drvCat || '')) return false;
       } else {
         return false;
       }
     }
   }
-  const reqPax = _jobPassengerCount(job);
   const cap = parseInt(driver.seatCapacity || driver.seats || driver.capacity || '4', 10) || 4;
   return cap >= reqPax;
 }
@@ -26524,6 +26531,22 @@ server.listen(PORT, HOST, () => {
     }
     setTimeout(() => { hydrateZoneQueuesFromFirebase().catch(e => console.warn('[zoneQueues] boot hydrate failed:', e && e.message)); }, 9000);
     setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
+    // Continuously ingest Firebase pendingjobs → jobStore so website/passenger
+    // bookings reach auto-dispatch without the legacy Angular console open.
+    if (String(process.env.BW_DISABLE_PENDINGJOBS_SYNC || '') !== '1') {
+      const PENDINGJOBS_SYNC_MS = 10000;
+      setTimeout(() => {
+        _syncPendingjobsIntoJobStore().catch((e) =>
+          console.warn('[pendingjobs-sync] first pass failed:', e && e.message),
+        );
+      }, 12000);
+      setInterval(() => {
+        _syncPendingjobsIntoJobStore().catch((e) =>
+          console.warn('[pendingjobs-sync]', e && e.message),
+        );
+      }, PENDINGJOBS_SYNC_MS);
+      console.log(`[boot] pendingjobs→jobStore sync every ${PENDINGJOBS_SYNC_MS}ms`);
+    }
     setInterval(() => {
       _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
         console.warn('[sync-drivers]', e && e.message));
@@ -26681,6 +26704,123 @@ async function hydrateJobStoreFromFirebase() {
   const purged = _purgeInvalidJobsFromStore('hydrate');
   console.log(`[hydrate] jobStore: +${added} updated=${updated} purged=${purged} total=${jobStore.length}`);
   return { ok: true, added, updated, purged };
+}
+
+/**
+ * Periodic pendingjobs → jobStore ingest (website / passenger / Waiting).
+ * Maps Waiting → Pending so auto-dispatch can offer without Angular console.
+ */
+async function _syncPendingjobsIntoJobStore() {
+  const tok = await getFirebaseServerToken().catch(() => null);
+  if (!tok) return { ok: false, reason: 'no-token' };
+  const auth = encodeURIComponent(tok);
+  const cids = _fixsCollectCompanyIds();
+  let added = 0;
+  let updated = 0;
+  let promoted = 0;
+  for (const cid of cids) {
+    let body;
+    try {
+      const r = await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}.json?auth=${auth}`, 'GET');
+      if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
+      body = r.body;
+    } catch (e) {
+      console.warn(`[pendingjobs-sync] pendingjobs/${cid} failed:`, e && e.message);
+      continue;
+    }
+    for (const [key, rec] of Object.entries(body)) {
+      if (!rec || typeof rec !== 'object') continue;
+      const bid = parseInt(rec.BookingId || rec.bookingId || key, 10) || 0;
+      if (!bid) continue;
+      if (_jobIsClosedInStore(bid)) continue;
+      let st = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
+      if (!st) continue;
+      // Terminal leftovers in pending pool — skip (normalizer cleans these)
+      if (_TERMINAL_JOB_STATUSES.has(st)) continue;
+      // Waiting (passenger ASAP) → Pending for auto-dispatch eligibility
+      const ingestStatus = st === 'Waiting' ? 'Pending' : st;
+      if (!_HYDRATE_ACTIVE.has(ingestStatus) && ingestStatus !== 'Pending') continue;
+
+      const existing = jobStore.find(
+        (j) => j && j.Id === bid && String(j.companyId || '') === String(cid),
+      );
+      if (existing) {
+        _mergeFbIntoJob(existing, rec);
+        if (existing.BookingStatus === 'Scheduled' && ingestStatus === 'Pending') {
+          // website scheduler already promoted FB — mirror into jobStore
+          const prev = existing.BookingStatus;
+          existing.BookingStatus = 'Pending';
+          if (typeof _bumpSeqAndEmitStatus === 'function') {
+            _bumpSeqAndEmitStatus(existing, prev, 'system', 'pendingjobs-sync', { action: 'promote' });
+          }
+          promoted++;
+        } else if (
+          (existing.BookingStatus === 'Waiting' || st === 'Waiting') &&
+          ingestStatus === 'Pending' &&
+          existing.BookingStatus !== 'Pending'
+        ) {
+          const prev = existing.BookingStatus;
+          existing.BookingStatus = 'Pending';
+          if (typeof _bumpSeqAndEmitStatus === 'function') {
+            _bumpSeqAndEmitStatus(existing, prev, 'system', 'pendingjobs-sync', { action: 'waiting_to_pending' });
+          }
+          promoted++;
+        }
+        // Ensure BookingSource so _isDispatchableJob passes
+        if (!existing.BookingSource && (rec.BookingSource || rec.WebBooking || rec.CreatedBy === 'WEB')) {
+          existing.BookingSource =
+            rec.BookingSource || (rec.WebBooking || rec.CreatedBy === 'WEB' ? 'Website' : 'Passenger');
+        }
+        if (rec.VehicleType && !existing.VehicleType) existing.VehicleType = rec.VehicleType;
+        if (rec.Passengers != null || rec.passengers != null) {
+          existing.Passengers = rec.Passengers || rec.PassengersNo || rec.passengers;
+        }
+        if (rec.Fare != null || rec.EstimatedFare != null) {
+          existing.EstimatedFare = rec.EstimatedFare || rec.Fare || existing.EstimatedFare;
+          if (rec.TarriffId === '-1' || rec.TariffId === '-1') {
+            existing.TarriffId = '-1';
+            existing.CustomeRate = rec.CustomeRate || rec.Fare || existing.EstimatedFare;
+          }
+        }
+        updated++;
+        continue;
+      }
+
+      const job = _fbRecToJob(bid, cid, { ...rec, BookingStatus: ingestStatus, Status: ingestStatus }, ingestStatus);
+      if (!job || _jobExistsInStore(bid, cid)) continue;
+      if (!job.BookingSource) {
+        job.BookingSource =
+          rec.BookingSource ||
+          (rec.WebBooking || rec.CreatedBy === 'WEB' ? 'Website' : rec.Source || 'Passenger');
+      }
+      if (rec.VehicleType) job.VehicleType = rec.VehicleType;
+      if (rec.Passengers != null || rec.passengers != null) {
+        job.Passengers = rec.Passengers || rec.PassengersNo || rec.passengers;
+      }
+      if (rec.TarriffId === '-1' || rec.TariffId === '-1') {
+        job.TarriffId = '-1';
+        job.CustomeRate = rec.CustomeRate || rec.Fare || rec.EstimatedFare;
+      }
+      if (rec.Fare != null) job.EstimatedFare = rec.Fare;
+      // Re-validate after source fill
+      if (!_isValidJobRecord(job, { requireSource: true, companyId: cid })) {
+        console.warn(`[pendingjobs-sync] skip #${bid} cid=${cid} — invalid after source fill`);
+        continue;
+      }
+      jobStore.push(job);
+      added++;
+      console.log(
+        `[pendingjobs-sync] ingested #${bid} cid=${cid} status=${ingestStatus} source=${job.BookingSource}`,
+      );
+    }
+  }
+  if (added || updated || promoted) saveJobStore();
+  if (added || promoted) {
+    console.log(
+      `[pendingjobs-sync] +${added} updated=${updated} promoted=${promoted} jobStore=${jobStore.length}`,
+    );
+  }
+  return { ok: true, added, updated, promoted };
 }
 
 // ─── Server-side auto-dispatch (runs without dispatcher console) ─────────────

@@ -7,6 +7,8 @@ import { useUiStore } from '@/store/uiStore';
 import {
   jobFromFirebase,
   isPreBookedJob,
+  isAsapOverdueUnassigned,
+  jobCreatedAtTime,
   jobDispatchTime,
   type Job,
   type JobStatus,
@@ -1773,23 +1775,41 @@ export function useJobs(companyId: string | null) {
 }
 
 const dispatchNowNotifiedRef = { current: new Set<number>() };
+const asapOverdueNotifiedRef = { current: new Set<number>() };
 
 /** Fire toast + alert sound when a pre-booked job enters its dispatch window. */
 export function useDispatchWindowAlerts(jobs: Job[]) {
   useEffect(() => {
     const now = new Date();
     for (const job of jobs) {
-      if (jobTabForStatus(job) !== 'ua' || !isPreBookedJob(job, now)) continue;
-      const dispatchAt = jobDispatchTime(job);
-      if (!dispatchAt || now.getTime() < dispatchAt.getTime()) continue;
-      if (dispatchNowNotifiedRef.current.has(job.id)) continue;
-      dispatchNowNotifiedRef.current.add(job.id);
-      useUiStore.getState().addToast({
-        type: 'warning',
-        title: 'DISPATCH NOW',
-        message: `#${job.id} ${job.pickAddress || 'Ready to assign'}`,
-        category: 'general',
-      });
+      if (jobTabForStatus(job) !== 'ua') continue;
+
+      // Scheduled window-open alert
+      if (isPreBookedJob(job, now)) {
+        const dispatchAt = jobDispatchTime(job);
+        if (!dispatchAt || now.getTime() < dispatchAt.getTime()) continue;
+        if (dispatchNowNotifiedRef.current.has(job.id)) continue;
+        dispatchNowNotifiedRef.current.add(job.id);
+        useUiStore.getState().addToast({
+          type: 'warning',
+          title: 'DISPATCH NOW',
+          message: `#${job.id} ${job.pickAddress || 'Ready to assign'}`,
+          category: 'general',
+        });
+        continue;
+      }
+
+      // ASAP waiting too long with no driver — same alert sound pattern
+      if (isAsapOverdueUnassigned(job, now)) {
+        if (asapOverdueNotifiedRef.current.has(job.id)) continue;
+        asapOverdueNotifiedRef.current.add(job.id);
+        useUiStore.getState().addToast({
+          type: 'warning',
+          title: 'NO DRIVER',
+          message: `#${job.id} waiting ${Math.round(((now.getTime() - (jobCreatedAtTime(job)?.getTime() || now.getTime())) / 60000))} min — ${job.pickAddress || 'ASAP'}`,
+          category: 'general',
+        });
+      }
     }
   }, [jobs]);
 }
