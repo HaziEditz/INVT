@@ -26533,19 +26533,29 @@ server.listen(PORT, HOST, () => {
     setInterval(() => { _releaseScheduledJobs().catch(() => {}); }, 60000);
     // Continuously ingest Firebase pendingjobs → jobStore so website/passenger
     // bookings reach auto-dispatch without the legacy Angular console open.
+    // CRITICAL: never overlap ticks — stacked syncs (many cids × 30s FB timeouts)
+    // saturates the event loop and yields Railway "Application failed to respond".
     if (String(process.env.BW_DISABLE_PENDINGJOBS_SYNC || '') !== '1') {
-      const PENDINGJOBS_SYNC_MS = 10000;
-      setTimeout(() => {
-        _syncPendingjobsIntoJobStore().catch((e) =>
-          console.warn('[pendingjobs-sync] first pass failed:', e && e.message),
-        );
-      }, 12000);
-      setInterval(() => {
-        _syncPendingjobsIntoJobStore().catch((e) =>
-          console.warn('[pendingjobs-sync]', e && e.message),
-        );
-      }, PENDINGJOBS_SYNC_MS);
-      console.log(`[boot] pendingjobs→jobStore sync every ${PENDINGJOBS_SYNC_MS}ms`);
+      const PENDINGJOBS_SYNC_MS = 15000;
+      let _pendingjobsSyncInFlight = false;
+      const _runPendingjobsSync = (label) => {
+        if (_pendingjobsSyncInFlight) {
+          console.warn(`[pendingjobs-sync] skip overlapping ${label}`);
+          return;
+        }
+        _pendingjobsSyncInFlight = true;
+        const t0 = Date.now();
+        _syncPendingjobsIntoJobStore()
+          .catch((e) => console.warn(`[pendingjobs-sync] ${label} failed:`, e && e.message))
+          .finally(() => {
+            _pendingjobsSyncInFlight = false;
+            const ms = Date.now() - t0;
+            if (ms > 8000) console.warn(`[pendingjobs-sync] ${label} took ${ms}ms`);
+          });
+      };
+      setTimeout(() => _runPendingjobsSync('first'), 12000);
+      setInterval(() => _runPendingjobsSync('tick'), PENDINGJOBS_SYNC_MS);
+      console.log(`[boot] pendingjobs→jobStore sync every ${PENDINGJOBS_SYNC_MS}ms (overlap-guarded)`);
     }
     setInterval(() => {
       _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
@@ -26714,14 +26724,27 @@ async function _syncPendingjobsIntoJobStore() {
   const tok = await getFirebaseServerToken().catch(() => null);
   if (!tok) return { ok: false, reason: 'no-token' };
   const auth = encodeURIComponent(tok);
-  const cids = _fixsCollectCompanyIds();
+  // Live tenants only — do NOT scan every historical cid from closedJobStore
+  // (that starved the event loop with dozens of pendingjobs/*.json GETs).
+  const cids = [];
+  try {
+    const seen = new Set();
+    for (const r of registrationStore || []) {
+      if (!r || !r.companyId) continue;
+      if (!['approved', 'active', 'trial', 'grace'].includes(r.status)) continue;
+      const cid = String(r.companyId);
+      if (!cid || seen.has(cid) || _isSyntheticLoadTestCompanyId(cid)) continue;
+      seen.add(cid);
+      cids.push(cid);
+    }
+  } catch (_) {}
   let added = 0;
   let updated = 0;
   let promoted = 0;
   for (const cid of cids) {
     let body;
     try {
-      const r = await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}.json?auth=${auth}`, 'GET');
+      const r = await fbRequest(`${FB_DB_URL}/pendingjobs/${cid}.json?auth=${auth}`, 'GET', null, null, 8_000);
       if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
       body = r.body;
     } catch (e) {
