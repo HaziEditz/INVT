@@ -13680,18 +13680,22 @@ const server = http.createServer(async (req, res) => {
 
   // ── GET /api/driver/active-bookings — §FIX-DA-G6 reconnect rebuild ──────────
   // EARLY route: production was hanging (0-byte timeout → edge 502) when this
-  // sat mid-handler; keep it sync/try-catch and ahead of heavy API branches.
-  // Auth: X-User-Key (passforlink) OR X-Admin-Key + ?driverId=. cid/vid from driver record.
+  // sat mid-handler; keep it try-catch and ahead of heavy API branches.
+  // Auth: X-User-Key (passforlink); or Firebase Bearer + ?driverId= (same as /api/cancel);
+  // or X-Admin-Key + ?driverId=. cid/vid from driver record.
   if (urlPath === '/api/driver/active-bookings' && req.method === 'GET') {
     const _g6Started = Date.now();
     try {
-      console.log(`[active-bookings] hit hasUserKey=${!!String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim()} hasAdmin=${!!String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim()}`);
+      const _g6UserKey   = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+      const _g6AdminKey  = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+      const _g6BearerTok = _extractBearerToken(req);
+      console.log(
+        `[active-bookings] hit hasUserKey=${!!_g6UserKey} hasAdmin=${!!_g6AdminKey} hasBearer=${!!_g6BearerTok}`,
+      );
       // Do not use url.parse — `url` is not imported; uncaught ReferenceError left
       // the response hanging (0 bytes → Railway/edge 502) and blocked trip-journal flush.
       const _g6Qs = new URL('http://x' + (req.url || '/')).searchParams;
       const _g6DriverIdQ = String(_g6Qs.get('driverId') || _g6Qs.get('driverid') || '').trim();
-      const _g6UserKey   = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
-      const _g6AdminKey  = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
       let _g6Driver = null;
       if (_g6UserKey) {
         _g6Driver = ZONE_DRIVERS.find(d => d && (
@@ -13699,15 +13703,49 @@ const server = http.createServer(async (req, res) => {
           String(d.userKey      || '').trim() === _g6UserKey ||
           String(d.UserKey      || '').trim() === _g6UserKey
         )) || null;
+        // If ?driverId= is present and does not match the key's driver, ignore the
+        // key match and fall through (company-global keys can map to the wrong row).
+        if (_g6Driver && _g6DriverIdQ) {
+          const _keyDrv = String(_g6Driver.driverid || '').trim();
+          const _keyVid = String(_g6Driver.VehicleId || '').trim();
+          if (_keyDrv !== _g6DriverIdQ && _keyVid !== _g6DriverIdQ) {
+            _g6Driver = null;
+          }
+        }
       }
       if (!_g6Driver && _g6AdminKey && process.env.BW_ADMIN_KEY && _g6AdminKey === process.env.BW_ADMIN_KEY && _g6DriverIdQ) {
         _g6Driver = ZONE_DRIVERS.find(d => d &&
           (String(d.driverid).trim() === _g6DriverIdQ || String(d.VehicleId).trim() === _g6DriverIdQ)
         ) || null;
       }
+      // Fallback: Firebase Bearer + ?driverId= — when company-global / missing passforlink
+      // does not match ZONE_DRIVERS (same pattern as /api/cancel + search-accounts).
+      if (!_g6Driver && _g6BearerTok && _g6DriverIdQ) {
+        const _g6FbAuth = await _verifyFirebaseIdToken(_g6BearerTok);
+        if (_g6FbAuth && _g6FbAuth.uid) {
+          _g6Driver = await _resolveZoneDriverForFirebaseBearer({
+            uid: _g6FbAuth.uid,
+            email: _g6FbAuth.email,
+            driverId: _g6DriverIdQ,
+            companyId: '',
+          });
+          if (_g6Driver) {
+            console.log(
+              `[active-bookings/bearer] driver ${_g6DriverIdQ} authenticated uid=${_g6FbAuth.uid} cid=${_g6Driver.companyId || '-'}`,
+            );
+          }
+        }
+      }
       if (!_g6Driver) {
+        console.log(
+          `401: GET /api/driver/active-bookings hasUserKey=${!!_g6UserKey} hasBearer=${!!_g6BearerTok} driverId=${_g6DriverIdQ || '-'}`,
+        );
         res.writeHead(401, JSON_HEADERS);
-        res.end(JSON.stringify({ ok: false, error: 'unknown driver (provide X-User-Key, or X-Admin-Key + ?driverId=)' }));
+        res.end(JSON.stringify({
+          ok: false,
+          error: 'unknown driver (provide X-User-Key, Firebase Bearer + ?driverId=, or X-Admin-Key + ?driverId=)',
+          error_code: 'auth_failed',
+        }));
         return;
       }
       const _g6Cid  = String(_g6Driver.companyId || '').trim();
