@@ -25033,8 +25033,9 @@ setInterval(async () => {
                 continue;
               }
               // Step 3b: closed terminal + pending still looks live (Active-tab ghost).
-              // Does not require parseable timestamps — the status mismatch alone is enough
-              // when jobStore has no live row (same guard as Step 3a).
+              // MUST NOT heal when the pending record is newer than the closed
+              // completion — that is ID reuse (website/console recycled seq) and
+              // healing would force-Complete a brand-new booking (job disappears).
               const _isClosedTerminal = _allClosedMatches.some(j =>
                 _TERMINAL_JOB_STATUSES.has(String(j.BookingStatus || ''))
               );
@@ -25043,7 +25044,9 @@ setInterval(async () => {
                 _LIVE_PENDING_STATUSES.has(_pendStatus) ||
                 !_TERMINAL_JOB_STATUSES.has(_pendStatus)
               );
-              if (_isClosedTerminal && _pendLooksLive) {
+              const _isFreshIdReuse =
+                !!_pendCreatedMs && !!_closedAtMs && _pendCreatedMs > _closedAtMs;
+              if (_isClosedTerminal && _pendLooksLive && !_isFreshIdReuse) {
                 const _closedJob = _allClosedMatches.reduce((best, j) => {
                   const t = Number(j.completedAtMs) ||
                     (j.JobCompleteTime ? Date.parse(j.JobCompleteTime) : 0) || 0;
