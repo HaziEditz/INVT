@@ -63,6 +63,7 @@ export function normalizeJobStatus(raw) {
   const s = String(raw || '').trim();
   if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
   if (s === 'pending' || s === 'PENDING') return 'Pending';
+  if (s === 'Waiting' || s === 'waiting' || s === 'WAITING') return 'Pending';
   if (s === 'queued' || s === 'QUEUED') return 'Queued';
   if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
   return s;

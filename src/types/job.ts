@@ -490,7 +490,8 @@ function isUnassignedForDispatch(job: Job): boolean {
   const hasRealDriver = drv !== '' && drv !== '0' && drv !== '-1' && drv !== '-2';
   if (hasRealDriver) return false;
   const st = normalizeJobStatus(job.status);
-  return st === 'Pending' || st === 'No One' || st === 'Scheduled';
+  // Waiting normalizes to Pending; keep explicit for any raw path that skips normalize.
+  return st === 'Pending' || st === 'No One' || st === 'Scheduled' || String(job.status || '') === 'Waiting';
 }
 
 /** Lead time before pickup counts as "future" for Later vs ASAP classification. */

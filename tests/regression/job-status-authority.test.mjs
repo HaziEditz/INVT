@@ -68,6 +68,9 @@ test('authority: normalizeJobStatus aliases', () => {
   assert.equal(normalizeJobStatus('NO ONE'), 'No One');
   assert.equal(normalizeJobStatus('pending'), 'Pending');
   assert.equal(normalizeJobStatus('PENDING'), 'Pending');
+  assert.equal(normalizeJobStatus('Waiting'), 'Pending');
+  assert.equal(normalizeJobStatus('waiting'), 'Pending');
+  assert.equal(normalizeJobStatus('WAITING'), 'Pending');
   assert.equal(normalizeJobStatus('queued'), 'Queued');
   assert.equal(normalizeJobStatus('QUEUED'), 'Queued');
   assert.equal(normalizeJobStatus('OnBoard'), 'Active');

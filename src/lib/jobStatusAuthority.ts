@@ -86,6 +86,9 @@ export function normalizeJobStatus(raw: string): JobStatus {
   const s = String(raw || '').trim();
   if (s === 'NoOne' || s === 'no_one' || s === 'NO ONE') return 'No One';
   if (s === 'pending' || s === 'PENDING') return 'Pending';
+  // Passenger-app ASAP pool uses Waiting until a driver is offered — treat as Pending
+  // so U-A pink/flash + overdue alert apply (same as website Pending).
+  if (s === 'Waiting' || s === 'waiting' || s === 'WAITING') return 'Pending';
   if (s === 'queued' || s === 'QUEUED') return 'Queued';
   if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
   return s as JobStatus;
