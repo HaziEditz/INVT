@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Comprehensive load + integration test for Taxi Time dispatch server.
+// Comprehensive load + integration test for BookaWaka dispatch server.
 // Tests every flow: create, dispatch, accept, active, close, cancel, update,
 // no-show, search, pre-queue (Queued), driver cancel, auto-dispatch, messaging.
 //
@@ -719,7 +719,7 @@ async function testClearAndVerify() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
   console.log('='.repeat(60));
-  console.log(`Taxi Time — Full Load & Integration Test`);
+  console.log(`BookaWaka — Full Load & Integration Test`);
   console.log(`Drivers: ${N_DRIVERS} | Jobs: ${N_JOBS} | Concurrency: ${CONCUR}`);
   console.log('='.repeat(60));
 

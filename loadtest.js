@@ -1,5 +1,5 @@
 /**
- * Taxi Time — Dispatch System Load Test
+ * BookaWaka — Dispatch System Load Test
  * ─────────────────────────────────────
  * Injects simulated drivers + jobs, hammers every major endpoint with
  * concurrent requests, then reports per-endpoint timing and throughput.
@@ -239,7 +239,7 @@ async function phase_clear() {
 // ── Main ───────────────────────────────────────────────────────────────────
 (async () => {
   console.log('\n╔══════════════════════════════════════════════════╗');
-  console.log('║       TAXI TIME — DISPATCH LOAD TEST             ║');
+  console.log('║       BOOKAWAKA — DISPATCH LOAD TEST           ║');
   console.log(`║  ${N_DRIVERS} drivers  ${N_JOBS} jobs  ${CONCURRENCY} concurrent  ${ROUNDS} rounds`.padEnd(51) + '║');
   console.log('╚══════════════════════════════════════════════════╝');
 
