@@ -93,6 +93,42 @@ test('Phase 3 eligibility: seat capacity blocks assign when passengers exceed ca
   assert.equal(res.body.error_code, 'driver_ineligible');
 });
 
+/**
+ * Bug A: empty/missing vehicletype must not silently reject Sedan (or other typed) jobs.
+ * Drivers whose online presence never stamped vehicletype were invisible to auto-dispatch.
+ */
+test('Phase 3 eligibility: empty vehicletype allows Sedan assign (not silent reject)', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+  const driverId = h.driverIds[0];
+
+  await ensureDriverInZone(h, driverId, { vehicletype: '', seatCapacity: 4 });
+
+  const jobId = await h.createJobViaInsert({ vehicleType: 'Sedan', passengers: 1, notesSuffix: 'empty-vtype' });
+  // Re-assert empty type after create (status heartbeat can re-seed defaults).
+  await ensureDriverInZone(h, driverId, { vehicletype: '', seatCapacity: 4 });
+
+  let assign;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    assign = await h.assignJob(jobId, driverId, driverId);
+    if (assign.body.ok) break;
+    if (assign.body.error_code === 'driver_ineligible') break;
+    if (assign.body.error_code !== 'driver_not_in_zone') break;
+    await ensureDriverInZone(h, driverId, { vehicletype: '', seatCapacity: 4 });
+  }
+  assert.equal(assign.body.ok, true, JSON.stringify(assign.body));
+  assert.notEqual(assign.body.error_code, 'driver_ineligible');
+
+  const trace = await h.poll(
+    jobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Offered',
+    { timeoutMs: 20000 },
+  );
+  assert.equal(String(trace.jobStore.lifecycle.DriverId), String(driverId));
+  await h.cancelAssigned(jobId);
+});
+
 test.after(async () => {
   const h = await getHarness();
   await h.cleanupAll();

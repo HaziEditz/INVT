@@ -25184,16 +25184,26 @@ function _driverEligibleForJob(driver, job) {
     reqCat = 'van';
   }
   if (reqCat) {
-    const drvCat = _normalizeDriverVehicleCategory(driver.vehicletype || '');
-    if (!drvCat) return false;
-    if (reqCat !== drvCat) {
+    const drvExact = String(driver.vehicletype || '').trim();
+    const drvCat = _normalizeDriverVehicleCategory(drvExact);
+    if (!drvCat) {
+      // Missing/empty vehicle type must NOT silently reject — otherwise any driver
+      // whose presence never stamped vehicletype is invisible to auto-dispatch
+      // (and manual assign) for Sedan/Van/WAV jobs. Treat as eligible for any category;
+      // seat capacity + service checks below still apply.
+      console.warn(
+        `[eligibility] driver ${driver.driverid || driver.VehicleId || '?'} ` +
+        `missing vehicletype — allowing for job #${job.Id || '?'} requiring ${reqCat} ` +
+        `(job VehicleType=${job.VehicleType || job.vehicleType || '-'})`,
+      );
+    } else if (reqCat !== drvCat) {
       const reqExact = String(job.VehicleType || job.vehicleType || '').trim().toLowerCase();
-      const drvExact = String(driver.vehicletype || '').trim().toLowerCase();
-      if (reqExact && drvExact && reqExact === drvExact) {
+      const drvExactLower = drvExact.toLowerCase();
+      if (reqExact && drvExactLower && reqExact === drvExactLower) {
         // same explicit label despite category normalisation mismatch
       } else if (reqPax >= 5) {
         // Allow WAV / wheelchair labelled vans for 5+
-        if (!/van|wav|wheelchair|accessible/i.test(drvExact || drvCat || '')) return false;
+        if (!/van|wav|wheelchair|accessible/i.test(drvExactLower || drvCat || '')) return false;
       } else {
         return false;
       }
