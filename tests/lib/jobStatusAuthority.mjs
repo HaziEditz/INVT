@@ -115,6 +115,17 @@ export function jobStatusFromFirebaseRecord(rec) {
   const dId = rec.DriverId ?? rec.driverId ?? rec.DId;
   if (dId === -1 || dId === '-1') return 'No One';
 
+  // Prefer terminal when fields disagree (e.g. Status:Waiting + status:Cancelled).
+  const raws = [rec.BookingStatus, rec.Status, rec.status];
+  const norms = [];
+  for (const raw of raws) {
+    if (raw == null || raw === '') continue;
+    norms.push(normalizeJobStatus(String(raw)));
+  }
+  for (const st of norms) {
+    if (st === 'Completed' || st === 'Cancelled' || st === 'No Show') return st;
+  }
+
   const booking = rec.BookingStatus != null ? normalizeJobStatus(String(rec.BookingStatus)) : null;
   const status =
     rec.Status != null || rec.status != null
@@ -122,9 +133,6 @@ export function jobStatusFromFirebaseRecord(rec) {
       : null;
 
   if (booking === 'No One' || status === 'No One') return 'No One';
-
-  if (booking === 'Completed' || booking === 'Cancelled' || booking === 'No Show') return booking;
-  if (status === 'Completed' || status === 'Cancelled' || status === 'No Show') return status;
 
   const LIVE_BOOKING = [
     'Offered',

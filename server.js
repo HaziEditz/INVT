@@ -2966,6 +2966,127 @@ function _isBlockedFromReIngest(bookingId) {
 }
 
 // Unified cancel/recall front door. See big comment block above for rules.
+async function _cancelOrphanFirebaseBooking(opts) {
+  opts = opts || {};
+  const bookingId = parseInt(opts.bookingId) || 0;
+  const cid = String(opts.companyId || '').trim();
+  const source = opts.source || 'cancelOrphanFirebase';
+  if (!bookingId || !cid) {
+    return { ok: false, error_code: 'bad_request', error: 'bookingId and companyId required' };
+  }
+  let tok;
+  try {
+    tok = await getFirebaseServerToken();
+  } catch (_) {
+    tok = null;
+  }
+  if (!tok) return { ok: false, error_code: 'no_firebase', error: 'no Firebase token' };
+
+  const auth = encodeURIComponent(tok);
+  let pj = null;
+  let ab = null;
+  try {
+    const [pjR, abR] = await Promise.all([
+      fbRequest(`${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${auth}`, 'GET', null, null, 8_000),
+      fbRequest(`${FB_DB_URL}/allbookings/${cid}/${bookingId}.json?auth=${auth}`, 'GET', null, null, 8_000),
+    ]);
+    pj = pjR && pjR.status === 200 ? pjR.body : null;
+    ab = abR && abR.status === 200 ? abR.body : null;
+  } catch (e) {
+    console.warn(`  [${source}] orphan cancel Firebase read failed #${bookingId}:`, e && e.message);
+    return { ok: false, error_code: 'firebase_read_failed', error: (e && e.message) || 'read failed' };
+  }
+
+  const pjSt = _firebaseStatusPreferTerminal(pj);
+  const abSt = _firebaseStatusPreferTerminal(ab);
+  const pjLive = !!(pj && typeof pj === 'object' && pjSt && !_TERMINAL_JOB_STATUSES.has(pjSt));
+  const abTerminal = !!(ab && typeof ab === 'object' && abSt && _TERMINAL_JOB_STATUSES.has(abSt));
+  const abLive = !!(ab && typeof ab === 'object' && abSt && !_TERMINAL_JOB_STATUSES.has(abSt));
+
+  // Nothing to clean — truly missing.
+  if (!pjLive && !abLive && !abTerminal && !pj) {
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
+  }
+
+  // Only heal orphans: pendingjobs still live, and/or allbookings already terminal
+  // with a capital-Status Waiting leftover. Do not invent cancels for random missing jobs.
+  if (!pjLive && !abTerminal && !abLive) {
+    return { ok: false, error_code: 'not_found', error: 'job not found' };
+  }
+
+  const nowIso = new Date().toISOString();
+  const reason = String(opts.reason || 'Dispatcher cancel (orphan Firebase cleanup)');
+  const cancelledBy = String(opts.cancelledBy || 'dispatcher');
+
+  console.warn(
+    `  [${source}] §FIX-CB orphan cancel #${bookingId} cid=${cid} ` +
+    `pjSt=${pjSt || 'none'} abSt=${abSt || 'none'} pjLive=${pjLive} abTerminal=${abTerminal}`,
+  );
+
+  await executeJobCleanup({
+    profile: 'terminal',
+    bookingId,
+    companyId: cid,
+    source: `${source}/orphan`,
+    terminalKind: 'Cancelled',
+    job: {
+      Id: bookingId,
+      companyId: cid,
+      BookingStatus: 'Cancelled',
+      CancelledBy: cancelledBy,
+      CancelReason: reason,
+      CancelledAt: nowIso,
+      PassengerName: (pj && (pj.PassengerName || pj.Name)) || (ab && (ab.PassengerName || ab.Name)) || '',
+      PhoneNo: (pj && pj.PhoneNo) || (ab && ab.PhoneNo) || '',
+      PickAddress:
+        (pj && (pj.PickupAddress || pj.PickAddress)) ||
+        (ab && (ab.PickupAddress || ab.PickAddress)) ||
+        '',
+    },
+    versionFanout: {
+      awaited: true,
+      isTerminal: true,
+      errorLabel: 'orphan cancel fanout',
+      patch: {
+        BookingStatus: 'Cancelled',
+        Status: 'Cancelled',
+        status: 'Cancelled',
+        cancelledAt: nowIso,
+        CancelledAt: nowIso,
+        cancelReason: reason,
+        CancelReason: reason,
+        cancelledBy,
+        CancelledBy: cancelledBy,
+      },
+    },
+  }).catch((e) =>
+    console.warn(`  [${source}] orphan cleanup failed #${bookingId}:`, e && e.message),
+  );
+
+  // Ensure pendingjobs node is gone even if cleanup raced.
+  try {
+    await fbRequest(
+      `${FB_DB_URL}/pendingjobs/${cid}/${bookingId}.json?auth=${auth}`,
+      'DELETE',
+      null,
+      null,
+      8_000,
+    );
+  } catch (_) {}
+
+  return {
+    ok: true,
+    orphanCleanup: true,
+    idempotent: abTerminal,
+    cancelStage: pjSt || abSt || 'unknown',
+    cancelledBy,
+    terminalKind: 'Cancelled',
+    driverFreed: false,
+    driverState: 'unchanged',
+    version: 0,
+  };
+}
+
 async function cancelBooking(opts) {
   opts = opts || {};
   const bookingId       = parseInt(opts.bookingId) || 0;
@@ -3012,6 +3133,18 @@ async function cancelBooking(opts) {
     }
   }
   if (idx === -1) {
+    // Passenger-app ghosts: Watchdog-Pax may stamp allbookings.status=Cancelled while
+    // pendingjobs stays Waiting, and jobStore never ingested (PickupAddress schema).
+    // Still clear Firebase so dispatch cancel works and the pool ghost disappears.
+    const orphan = await _cancelOrphanFirebaseBooking({
+      bookingId,
+      companyId,
+      cancelledBy: cancelledByDisplay,
+      reason,
+      source,
+      cancelSource,
+    });
+    if (orphan && orphan.ok) return orphan;
     console.warn(`  [${source}] §FIX-CB job #${bookingId} not found in jobStore`);
     return { ok: false, error_code: 'not_found', error: 'job not found' };
   }
@@ -9824,12 +9957,22 @@ function _normalizeBookingSource(raw) {
 }
 
 function _parseJobLatLng(jobOrRec) {
-  if (jobOrRec.pickupLat != null && jobOrRec.pickupLng != null) {
-    const lat = parseFloat(jobOrRec.pickupLat);
-    const lng = parseFloat(jobOrRec.pickupLng);
+  if (!jobOrRec || typeof jobOrRec !== 'object') return null;
+  // Passenger-app pendingjobs uses PickupLat/PickupLng (capital P); web uses PickLatLng.
+  const latRaw = jobOrRec.pickupLat ?? jobOrRec.PickupLat ?? jobOrRec.PickLat ?? jobOrRec.pickLat;
+  const lngRaw = jobOrRec.pickupLng ?? jobOrRec.PickupLng ?? jobOrRec.PickLng ?? jobOrRec.pickLng;
+  if (latRaw != null && lngRaw != null && latRaw !== '' && lngRaw !== '') {
+    const lat = parseFloat(latRaw);
+    const lng = parseFloat(lngRaw);
     if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
   }
-  const raw = jobOrRec.PickLatLng || jobOrRec.pickLatLng || jobOrRec.pickupLocation || '';
+  const nested = jobOrRec.pickupLocation || jobOrRec.PickupLocation;
+  if (nested && typeof nested === 'object' && nested.lat != null && nested.lng != null) {
+    const lat = parseFloat(nested.lat);
+    const lng = parseFloat(nested.lng);
+    if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+  }
+  const raw = jobOrRec.PickLatLng || jobOrRec.pickLatLng || '';
   const p = String(raw || '').split(',');
   if (p.length !== 2) return null;
   const lat = parseFloat(p[0]);
@@ -9837,8 +9980,30 @@ function _parseJobLatLng(jobOrRec) {
   return (isNaN(lat) || isNaN(lng)) ? null : { lat, lng };
 }
 
+/**
+ * Prefer a terminal Status/status/BookingStatus when fields disagree.
+ * Watchdog-Pax historically patched only lowercase `status: Cancelled` while leaving
+ * capital `Status: Waiting` — callers that read Status first then refuse to cancel.
+ */
+function _firebaseStatusPreferTerminal(fb) {
+  if (!fb || typeof fb !== 'object') return '';
+  const raws = [fb.BookingStatus, fb.Status, fb.status];
+  let fallback = '';
+  for (const raw of raws) {
+    if (raw == null || raw === '') continue;
+    const s = String(raw).trim();
+    if (!s) continue;
+    if (_TERMINAL_JOB_STATUSES.has(s)) return s;
+    if (!fallback) fallback = s;
+  }
+  return fallback;
+}
+
 function _jobHasValidPickup(jobOrRec) {
-  const addr = String(jobOrRec.PickAddress || jobOrRec.pickup || jobOrRec.pickupAddress || jobOrRec.PickLocation || '').trim();
+  const addr = String(
+    jobOrRec.PickAddress || jobOrRec.PickupAddress || jobOrRec.pickup ||
+    jobOrRec.pickupAddress || jobOrRec.PickLocation || '',
+  ).trim();
   if (addr.length >= 3 && !/^0\s*,\s*0/.test(addr) && addr !== '0,0') return true;
   const ll = _parseJobLatLng(jobOrRec);
   if (ll && (Math.abs(ll.lat) > 0.0001 || Math.abs(ll.lng) > 0.0001) &&
@@ -9884,7 +10049,9 @@ function _normalizeLocationFromCreateBody(data, kind) {
 }
 
 function _jobHasValidSource(jobOrRec) {
-  const src = _normalizeBookingSource(jobOrRec.BookingSource || jobOrRec.source || jobOrRec.bookingSource || '');
+  const src = _normalizeBookingSource(
+    jobOrRec.BookingSource || jobOrRec.Source || jobOrRec.source || jobOrRec.bookingSource || '',
+  );
   return !!src && BOOKING_SOURCES.has(src);
 }
 
@@ -15847,8 +16014,11 @@ const server = http.createServer(async (req, res) => {
       }
       if (merged.BookingStatus && !merged.Status) merged.Status = merged.BookingStatus;
       await firebaseDbSet(`allbookings/${cid}/${bookingId}`, merged, tok);
+      if (parsed.alsoPending === true || parsed.writePendingjobs === true) {
+        await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, merged, tok);
+      }
       res.writeHead(200, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: true, bookingId, companyId: cid, patch: merged }));
+      res.end(JSON.stringify({ ok: true, bookingId, companyId: cid, patch: merged, alsoPending: !!(parsed.alsoPending || parsed.writePendingjobs) }));
     } catch (e) {
       res.writeHead(500, JSON_HEADERS);
       res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
@@ -20312,7 +20482,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
           });
         }
         console.log(`200: POST ${urlPath} [action=${action}] -> cancel result: ${JSON.stringify(_r)}`);
-        successD(res, 'Operation Successfully Performed');
+        if (_r && _r.ok) {
+          successD(res, 'Operation Successfully Performed');
+        } else {
+          jsonReply(res, {
+            d: null,
+            ok: false,
+            error_code: (_r && _r.error_code) || 'cancel_failed',
+            error: (_r && _r.error) || 'Cancel failed',
+          });
+        }
 
       } else if (action === '[AssignJobStatusFromJobList]' || action === '[AssignJobStatusFromJobListv2]' || action === '[UnAssignJobStatusFromJobList]') {
         const bookingId = parseInt(param('BookingId')) || 0;
@@ -26621,34 +26800,70 @@ function _mergeFbIntoJob(job, fb) {
 }
 
 function _fbRecToJob(bid, cid, fb, fallbackStatus) {
-  const st = String(fb.BookingStatus || fb.Status || fb.status || fallbackStatus || '');
+  const stRaw = _firebaseStatusPreferTerminal(fb) || fallbackStatus || '';
+  const st = String(stRaw || '').trim();
   if (!st) return null;
+  // Never hydrate terminal leftovers as live dispatch jobs.
+  if (_TERMINAL_JOB_STATUSES.has(st)) return null;
+
+  const norm = typeof _normFbJob === 'function' ? _normFbJob(fb) : null;
+  const pickLL = (norm && norm.pickLatLng) || '';
+  const dropLL = (norm && norm.dropLatLng) || '';
+  const parsedPick = _parseJobLatLng(fb);
+  const ingestStatus = st === 'Waiting' ? 'Pending' : st;
+
   const rec = {
     Id: bid,
     companyId: cid,
-    BookingStatus: st,
-    PickAddress: fb.PickAddress || fb.pickup || fb.pickupAddress || '',
-    DropAddress: fb.DropAddress || fb.dropoff || fb.dropAddress || '',
-    PickLatLng: fb.PickLatLng || (fb.pickupLat != null ? `${fb.pickupLat},${fb.pickupLng}` : ''),
-    DropLatLng: fb.DropLatLng || (fb.dropLat != null ? `${fb.dropLat},${fb.dropLng}` : ''),
-    PhoneNo: fb.PhoneNo || fb.passengerPhone || '',
-    Name: fb.Name || fb.passengerName || fb.UserFName || '',
+    BookingStatus: ingestStatus,
+    PickAddress:
+      (norm && norm.pickAddress) ||
+      fb.PickAddress || fb.PickupAddress || fb.pickup || fb.pickupAddress || '',
+    DropAddress:
+      (norm && norm.dropAddress) ||
+      fb.DropAddress || fb.DropoffAddress || fb.dropoff || fb.dropAddress || '',
+    PickLatLng:
+      pickLL && pickLL !== '0,0'
+        ? pickLL
+        : (fb.PickLatLng ||
+          (parsedPick ? `${parsedPick.lat},${parsedPick.lng}` : '') ||
+          (fb.pickupLat != null ? `${fb.pickupLat},${fb.pickupLng}` : '')),
+    DropLatLng:
+      dropLL && dropLL !== '0,0'
+        ? dropLL
+        : (fb.DropLatLng ||
+          (fb.dropLat != null ? `${fb.dropLat},${fb.dropLng}` : '') ||
+          (fb.DropoffLat != null ? `${fb.DropoffLat},${fb.DropoffLng}` : '')),
+    PhoneNo: (norm && norm.phone) || fb.PhoneNo || fb.passengerPhone || fb.phone || '',
+    Name:
+      (norm && norm.name) ||
+      fb.Name || fb.PassengerName || fb.passengerName || fb.UserFName || '',
     DriverId: fb.DriverId || fb.driverId || fb.AssignedDriver || 0,
     VehicleNo: fb.VehicleNo || fb.vehicleId || fb.CallSign || '',
     VehicleId: fb.VehicleId || fb.vehicleId || 0,
-    EstimatedFare: fb.EstimatedFare || fb.Fare || fb.fare || '',
+    VehicleType: (norm && norm.vehicleType) || fb.VehicleType || fb.vehicleType || '',
+    EstimatedFare:
+      (norm && norm.estimatedFare) || fb.EstimatedFare || fb.Fare || fb.fare || '',
     TotalFare: fb.TotalFare || fb.fare || '',
-    serviceType: fb.serviceType || fb.ServiceType || 'taxi',
-    BookingSource: fb.BookingSource || fb.source || fb.bookingSource || '',
+    Passengers: (norm && norm.passengers) || fb.Passengers || fb.passengers || 1,
+    serviceType: (norm && norm.serviceType) || fb.serviceType || fb.ServiceType || 'taxi',
+    BookingSource:
+      fb.BookingSource || fb.Source || fb.source || fb.bookingSource || '',
+    PaymentMethod:
+      (norm && norm.paymentMethod) || fb.PaymentMethod || fb.paymentMethod || '',
+    createdAt: (norm && norm.createdAt) || fb.createdAt || fb.CreatedAt || '',
     updateSeq: parseInt(fb.updateSeq || fb.version || 0) || 0,
     _hydratedFromFirebase: true,
   };
-  if (st === 'Offered') {
+  if (ingestStatus === 'Offered') {
     const offeredMs = _offeredAtMsFromFbRecord(fb);
     if (offeredMs) rec.offeredAt = offeredMs;
   }
-  const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One'].includes(st);
-  if (!_isValidJobRecord(rec, { requireSource: needsSource, companyId: cid, fallbackKey: bid })) return null;
+  const needsSource = ['Pending', 'Offered', 'Scheduled', 'No One', 'Waiting'].includes(st) ||
+    ingestStatus === 'Pending';
+  if (!_isValidJobRecord(rec, { requireSource: needsSource, companyId: cid, fallbackKey: bid })) {
+    return null;
+  }
   return rec;
 }
 
@@ -26667,8 +26882,9 @@ async function _hydrateSingleJobFromFirebase(companyId, bookingId) {
     try {
       const r = await fbRequest(`${FB_DB_URL}/${p}.json?auth=${auth}`, 'GET');
       if (r.status !== 200 || !r.body || typeof r.body !== 'object') continue;
-      const st = String(r.body.BookingStatus || r.body.Status || r.body.status || '');
+      const st = _firebaseStatusPreferTerminal(r.body);
       if (!st || !_HYDRATE_ACTIVE.has(st)) continue;
+      if (_TERMINAL_JOB_STATUSES.has(st)) continue;
       if (_jobIsClosedInStore(bid)) continue;
       const existing = jobStore.find(j => j && j.Id === bid);
       if (existing) {
@@ -26762,18 +26978,18 @@ async function _syncPendingjobsIntoJobStore() {
       console.warn(`[pendingjobs-sync] pendingjobs/${cid} failed:`, e && e.message);
       continue;
     }
-    for (const [key, rec] of Object.entries(body)) {
-      if (!rec || typeof rec !== 'object') continue;
-      const bid = parseInt(rec.BookingId || rec.bookingId || key, 10) || 0;
-      if (!bid) continue;
-      if (_jobIsClosedInStore(bid)) continue;
-      let st = String(rec.BookingStatus || rec.Status || rec.status || '').trim();
-      if (!st) continue;
-      // Terminal leftovers in pending pool — skip (normalizer cleans these)
-      if (_TERMINAL_JOB_STATUSES.has(st)) continue;
-      // Waiting (passenger ASAP) → Pending for auto-dispatch eligibility
-      const ingestStatus = st === 'Waiting' ? 'Pending' : st;
-      if (!_HYDRATE_ACTIVE.has(ingestStatus) && ingestStatus !== 'Pending') continue;
+      for (const [key, rec] of Object.entries(body)) {
+        if (!rec || typeof rec !== 'object') continue;
+        const bid = parseInt(rec.BookingId || rec.bookingId || rec.Id || rec.jobId || key, 10) || 0;
+        if (!bid) continue;
+        if (_jobIsClosedInStore(bid)) continue;
+        let st = _firebaseStatusPreferTerminal(rec);
+        if (!st) continue;
+        // Terminal leftovers in pending pool — skip (normalizer cleans these)
+        if (_TERMINAL_JOB_STATUSES.has(st)) continue;
+        // Waiting (passenger ASAP) → Pending for auto-dispatch eligibility
+        const ingestStatus = st === 'Waiting' ? 'Pending' : st;
+        if (!_HYDRATE_ACTIVE.has(ingestStatus) && ingestStatus !== 'Pending') continue;
 
       const existing = jobStore.find(
         (j) => j && j.Id === bid && String(j.companyId || '') === String(cid),

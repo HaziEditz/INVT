@@ -372,6 +372,15 @@ test('authority: jobStatusFromFirebaseRecord resolution rules', () => {
   );
   assert.equal(jobStatusFromFirebaseRecord({ Status: 'Pending' }), 'Pending');
   assert.equal(jobStatusFromFirebaseRecord({}), 'Pending');
+  // Watchdog-Pax historically patched only lowercase status — capital Status stayed Waiting.
+  assert.equal(
+    jobStatusFromFirebaseRecord({
+      Status: 'Waiting',
+      status: 'Cancelled',
+      cancelReason: 'No driver available — auto-cancelled after 33 min',
+    }),
+    'Cancelled',
+  );
 });
 
 test('authority: effectiveJobStatus forces No One for driverId -1', () => {
