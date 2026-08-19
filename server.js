@@ -26556,6 +26556,7 @@ server.listen(PORT, HOST, () => {
       setTimeout(() => _runPendingjobsSync('first'), 12000);
       setInterval(() => _runPendingjobsSync('tick'), PENDINGJOBS_SYNC_MS);
       console.log(`[boot] pendingjobs→jobStore sync every ${PENDINGJOBS_SYNC_MS}ms (overlap-guarded)`);
+      // Redeploy marker: keep hang-fix (overlap guard + live-tenant scan + 8s GET) on production.
     }
     setInterval(() => {
       _syncZoneDriversFromFirebase({ quiet: true }).catch(e =>
