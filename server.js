@@ -5858,6 +5858,11 @@ function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts)
   } else if (onTripZone && _zoneDriverHasLiveBookingPointer(drv)) {
     diag.shouldQueue = true;
     diag.reason = 'on_trip_zone_status';
+  } else if (_driverIsBusyForQueue(drv)) {
+    // Option 1: Busy/Picking/Active/… never get exclusive Offered. Pool accept
+    // must Queue — otherwise free-path assign leaves Pending and accept fails.
+    diag.shouldQueue = true;
+    diag.reason = 'busy_zone_status';
   } else {
     diag.shouldQueue = false;
     diag.reason = 'available_assign';
@@ -5873,9 +5878,11 @@ function _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, opts)
 }
 
 /**
- * Queue-on-accept only when the driver is genuinely on another active trip.
- * Stale Queued rows, zone Busy/Assigned without a trip, and driverQueue ghosts
- * must not send a normal Available accept to Queue.
+ * Queue-on-accept when the driver has an active trip OR Option 1 busy-zone
+ * presence (Busy/Picking/Active/…) — those drivers never get exclusive Offered,
+ * so pool accept must go to Queued.
+ * Stale Queued rows and driverQueue ghosts alone must not force Queue; heal
+ * clears orphan on-trip zone statuses that lack a live booking pointer.
  */
 function _driverShouldQueueOnAccept(drv, driverId, companyId, bookingId) {
   return _evaluateAcceptQueueDecision(drv, driverId, companyId, bookingId, { log: true, record: true }).shouldQueue;
