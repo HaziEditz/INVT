@@ -284,24 +284,30 @@ test('complete → queue promotion wins over competing auto-dispatch offer', asy
     `competing any-vehicle job must not be Offered to queue driver; got status=${anySt} driver=${anyDrv}`,
   );
 
-  const queuedStill = await h.poll(
+  // Server auto-promotes on complete — must not stay Queued forever.
+  const autoPromoted = await h.poll(
     queuedJobId,
-    (t) => t.jobStore?.found === true && String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Queued',
-    { timeoutMs: 15000 },
+    (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
+      return st === 'Assigned' || st === 'Picking';
+    },
+    { timeoutMs: 30000 },
   );
-  assert.equal(String(queuedStill.jobStore.lifecycle.DriverId), String(hailDriver));
+  assert.ok(
+    ['Assigned', 'Picking'].includes(String(autoPromoted.jobStore?.lifecycle?.BookingStatus || '')),
+    `complete must auto-promote Queued→Assigned; got ${autoPromoted.jobStore?.lifecycle?.BookingStatus}`,
+  );
+  assert.equal(
+    String(autoPromoted.jobStore.lifecycle.DriverId),
+    String(hailDriver),
+  );
+  assert.ok(
+    completeRes.body?.promotedQueuedBookingId == null ||
+      String(completeRes.body.promotedQueuedBookingId) === String(queuedJobId),
+    `complete should report promotedQueuedBookingId=${queuedJobId}; got ${completeRes.body?.promotedQueuedBookingId}`,
+  );
 
-  await h.configureDriver(hailDriver, {
-    vehiclestatus: 'Available',
-    lat: -46.4121,
-    lng: 168.3531,
-    zonename: 'Central',
-  });
-  await h.driverStatusChanged(hailDriver, 'Available', {
-    zonename: 'Central',
-    vehiclenumber: String(hailDriver),
-  });
-
+  // Idempotent client promote must still succeed (driver-app backup path).
   let promoteRes;
   for (let attempt = 0; attempt < 4; attempt++) {
     promoteRes = await post(
@@ -349,6 +355,109 @@ test('complete → queue promotion wins over competing auto-dispatch offer', asy
     await h.driverStatusChanged(id, 'Available', { zonename: 'Central' });
   }
   await h.driverStatusChanged(hailDriver, 'Available', { zonename: 'Central', vehiclenumber: String(hailDriver) });
+});
+
+/**
+ * Bug B permanent coverage: Queued while Busy → complete active trip →
+ * server auto-promotes without a separate client /api/job/promote-queued call.
+ * Stuck Queued forever (manual recall only) must not regress.
+ */
+test('complete auto-promotes live Queued job without client promote call', async () => {
+  requireFirebaseSecret();
+  const h = await getHarness();
+  await prepareCleanDispatch(h);
+
+  const driverId = h.driverIds[2];
+  const otherDrivers = h.driverIds.filter((id) => id !== driverId);
+  for (const id of otherDrivers) {
+    await h.driverStatusChanged(id, 'Away', { zonename: 'Central' });
+  }
+
+  const busyRes = await h.driverStatusChanged(driverId, 'Busy', {
+    zonename: 'Central',
+    lat: -46.4121,
+    lng: 168.3531,
+    vehiclenumber: String(driverId),
+  });
+  assert.equal(busyRes.status, 200);
+
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Busy',
+    lat: -46.4121,
+    lng: 168.3531,
+    zonename: 'Central',
+  });
+
+  const activeList = await pollActiveForDriver(h, driverId);
+  assert.ok(activeList.length >= 1, 'expected Active Hail after Busy');
+  const activeJobId = activeList[0].id;
+
+  const queuedJobId = await createPoolJobRelaxed(h, 'auto-promote-on-complete');
+  await h.triggerAutoDispatch();
+  await h.poll(
+    queuedJobId,
+    (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
+      return st === 'Pending' || st === 'Offered' || st === 'No One';
+    },
+    { timeoutMs: 45000 },
+  );
+
+  const queueAccept = await h.acceptJob(queuedJobId, driverId);
+  assert.equal(queueAccept.status, 200, JSON.stringify(queueAccept.body));
+  assert.equal(queueAccept.body.queued, true, JSON.stringify(queueAccept.body));
+  await h.poll(
+    queuedJobId,
+    (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Queued',
+    { timeoutMs: 25000 },
+  );
+
+  const completeRes = await post(
+    '/api/job/complete',
+    {
+      bookingId: activeJobId,
+      driverId: String(driverId),
+      companyId: TEST_CID,
+      fare: '22.00',
+      distance: '3.1',
+    },
+    h.adminHeaders,
+  );
+  assert.equal(completeRes.status, 200, JSON.stringify(completeRes.body));
+  assert.equal(completeRes.body?.ok, true, JSON.stringify(completeRes.body));
+
+  // No client promote-queued call — server must promote on its own.
+  const promoted = await h.poll(
+    queuedJobId,
+    (t) => {
+      const st = String(t.jobStore?.lifecycle?.BookingStatus || '');
+      return st === 'Assigned' || st === 'Picking';
+    },
+    { timeoutMs: 45000 },
+  );
+  const st = String(promoted.jobStore?.lifecycle?.BookingStatus || '');
+  assert.ok(
+    st === 'Assigned' || st === 'Picking',
+    `queued job must auto-promote on complete; got ${st}`,
+  );
+  assert.notEqual(st, 'Queued', 'must not remain stuck Queued after complete');
+  assert.equal(
+    String(completeRes.body?.promotedQueuedBookingId || queuedJobId),
+    String(queuedJobId),
+    JSON.stringify({
+      promotedQueuedBookingId: completeRes.body?.promotedQueuedBookingId,
+      promotedQueuedStatus: completeRes.body?.promotedQueuedStatus,
+    }),
+  );
+
+  await h.cancelAssigned(queuedJobId).catch(() => undefined);
+  for (const id of otherDrivers) {
+    await h.driverStatusChanged(id, 'Available', { zonename: 'Central' });
+  }
+  await h.driverStatusChanged(driverId, 'Available', {
+    zonename: 'Central',
+    vehiclenumber: String(driverId),
+  });
 });
 
 test.afterEach(async () => {

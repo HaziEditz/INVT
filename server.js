@@ -4979,7 +4979,13 @@ async function completeBooking(opts) {
     completedAt:   _nowIso,
     JobCompleteTime: _nowIso,
   }, _completeFanoutExtras(job), _terminalFirebaseStatusFields('Completed'));
-  let _ds = { driverFreed: false, driverState: 'unchanged', queueNo: null };
+  let _ds = {
+    driverFreed: false,
+    driverState: 'unchanged',
+    queueNo: null,
+    promotedQueuedBookingId: null,
+    promotedQueuedStatus: null,
+  };
   const _perfStart = Date.now();
   let _perfCleanupMs = 0;
   let _perfPostMs = 0;
@@ -5040,10 +5046,38 @@ async function completeBooking(opts) {
     const _queuedAfterComplete = _findQueuedJobForDriver(_drvId, _cid);
     if (_isLiveQueuedJobForDriver(_queuedAfterComplete, _drvId, _cid, bookingId)) {
       const _holdCid = _cid || String(_queuedAfterComplete.companyId || opts.companyId || '').trim();
-      _setQueuePromotionHold(_holdCid, _drvId, _queuedAfterComplete.Id);
+      const _qBid = _queuedAfterComplete.Id;
+      _setQueuePromotionHold(_holdCid, _drvId, _qBid);
       const _holdVid = _vehId || String(_queuedAfterComplete.VehicleNo || _queuedAfterComplete.VehicleId || '').trim();
-      await _holdDriverBusyForQueuePromotion(_holdCid, _drvId, _holdVid, _queuedAfterComplete.Id);
-      console.log(`  [${source}] driver ${_drvId} has queued #${_queuedAfterComplete.Id} — auto-dispatch hold + Busy mirror`);
+      await _holdDriverBusyForQueuePromotion(_holdCid, _drvId, _holdVid, _qBid);
+      console.log(`  [${source}] driver ${_drvId} has queued #${_qBid} — auto-dispatch hold + Busy mirror`);
+      // Server auto-promote: do not leave Queued forever waiting on the driver app.
+      // Client retry remains a backup; stuck Queued previously required manual recall.
+      try {
+        const _promo = await promoteQueuedJobByDriver({
+          bookingId: _qBid,
+          driverId: _drvId,
+          companyId: _holdCid,
+          source: `${source}/auto-promote-queued`,
+        });
+        if (_promo && _promo.ok) {
+          _ds.promotedQueuedBookingId = _qBid;
+          _ds.promotedQueuedStatus = _promo.status || 'Assigned';
+          console.log(
+            `  [${source}] auto-promoted queued #${_qBid} → ${_promo.status || 'Assigned'}` +
+              (_promo.idempotent ? ' (idempotent)' : ''),
+          );
+        } else {
+          console.warn(
+            `  [${source}] auto-promote queued #${_qBid} failed: ` +
+              `${(_promo && (_promo.error_code || _promo.error)) || 'unknown'} — client retry may recover`,
+          );
+        }
+      } catch (_ePromo) {
+        console.warn(
+          `  [${source}] auto-promote queued #${_qBid} threw: ${_ePromo && _ePromo.message}`,
+        );
+      }
     } else {
       if (_queuedAfterComplete) {
         console.log(`  [${source}] skipped queue-promotion hold for driver ${_drvId} — queued #${_queuedAfterComplete.Id} not live`);
@@ -5098,6 +5132,8 @@ async function completeBooking(opts) {
     driverId: _drvId, vehicleId: _vehId,
     fare: job.TotalFare || null, distance: job.distance || null,
     driverFreed: _ds.driverFreed, driverState: _ds.driverState, queueNo: _ds.queueNo,
+    promotedQueuedBookingId: _ds.promotedQueuedBookingId || null,
+    promotedQueuedStatus: _ds.promotedQueuedStatus || null,
     version: job.updateSeq,
     booking: _publicBooking(job)
   };
