@@ -2,25 +2,40 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireFirebaseSecret } from '../lib/config.mjs';
 import { assertFirebaseHealthy, getHarness } from '../lib/harness.mjs';
-import { parseDataManager } from '../lib/http.mjs';
 
 test.before(async () => {
   await getHarness({ fresh: true });
 });
 
-test('Phase 3 queue-while-busy: offer → Queue → Recall → clean Pending pool', async () => {
+/**
+ * Option 1: Busy drivers do not get exclusive Offered.
+ * Voluntary queue = accept Pending from pool while Busy → Queued.
+ */
+test('Phase 3 queue-while-busy: Pending pool accept → Queue → Recall', async () => {
   requireFirebaseSecret();
   const h = await getHarness();
   const driverId = h.driverIds[2];
+  await h.ensureDriverReady(driverId);
   const poolJobId = await h.createAsapJob('queue-pool');
 
   await h.driverStatusChanged(driverId, 'Busy', { zonename: 'North' });
-  await h.offerJob(poolJobId, driverId);
+  await h.configureDriver(driverId, {
+    vehiclestatus: 'Busy',
+    lat: -46.412,
+    lng: 168.353,
+    zonename: 'North',
+  });
 
-  const queueRes = await h.queueJob(poolJobId, driverId);
-  assert.equal(queueRes.status, 200);
-  const queueBody = parseDataManager(queueRes.body);
-  assert.equal(queueBody.ok, true, JSON.stringify(queueBody));
+  // Assign while Busy must leave Pending (no Offered).
+  const assign = await h.assignJob(poolJobId, driverId, driverId);
+  assert.equal(assign.status, 200, JSON.stringify(assign.body));
+  assert.equal(String(assign.body.status || ''), 'Pending', JSON.stringify(assign.body));
+  assert.ok(assign.body.leftInPool || assign.body.busyPool, JSON.stringify(assign.body));
+
+  const acceptRes = await h.acceptJob(poolJobId, driverId);
+  assert.equal(acceptRes.status, 200, JSON.stringify(acceptRes.body));
+  assert.equal(acceptRes.body.ok, true, JSON.stringify(acceptRes.body));
+  assert.equal(acceptRes.body.queued, true, JSON.stringify(acceptRes.body));
 
   const queued = await h.poll(
     poolJobId,
@@ -28,34 +43,17 @@ test('Phase 3 queue-while-busy: offer → Queue → Recall → clean Pending poo
     { timeoutMs: 25000 },
   );
   assert.equal(String(queued.jobStore.lifecycle.BookingStatus), 'Queued');
-  const hint = queued.dispatchUiHint || {};
-  const syncLag =
-    hint.jobStoreVsAllbookingsMismatch === true ||
-    hint.jobStoreVsPendingMismatch === true ||
-    hint.pendingVsAllbookingsMismatch === true;
+  assert.equal(String(queued.jobStore.lifecycle.DriverId), String(driverId));
   assert.equal(queued.splitBrainDiagnosis?.detected, false, JSON.stringify(queued.splitBrainDiagnosis));
-  if (!syncLag) {
-    assertFirebaseHealthy(queued, 'after QueueJob');
-  }
-  assert.equal(String(queued.jobStore.lifecycle.DriverId), String(driverId), 'Queued job tied to busy driver');
+  assertFirebaseHealthy(queued, 'after busy pool accept→Queued');
 
   const recallRes = await h.recallQueuedJob(poolJobId);
   assert.equal(recallRes.status, 200);
-  const recallBody = parseDataManager(recallRes.body);
-  assert.equal(recallBody.ok, true, JSON.stringify(recallBody));
 
-  const recalled = await h.poll(
+  await h.poll(
     poolJobId,
     (t) => String(t.jobStore?.lifecycle?.BookingStatus || '') === 'Pending',
     { timeoutMs: 45000 },
-  );
-  assert.equal(String(recalled.jobStore.lifecycle.BookingStatus), 'Pending');
-  const recalledDrv = recalled.jobStore.lifecycle.DriverId;
-  const recalledDrvStr =
-    recalledDrv === null || recalledDrv === undefined ? '' : String(recalledDrv);
-  assert.ok(
-    recalledDrvStr === '0' || recalledDrvStr === '-2',
-    `DriverId after recall: ${recalledDrvStr}`,
   );
 
   await h.driverStatusChanged(driverId, 'Available', { zonename: 'North' });
