@@ -4080,7 +4080,50 @@ async function assignBooking(opts) {
   // driver, succeed even when zone pool snapshot is temporarily stale/missing.
   if ((_curStatus === 'Offered' || _curStatus === 'Assigned') &&
       (_curDrv === _targetDrv || _driverIdsMatch(_curDrv, _targetDrv))) {
-    if (opts.fanout === true) {
+    const _zdIdemEarly = _validatedAssign.row ||
+      _zoneDriverRowForEligibility(_targetDrv, _cidEarly, vehicleId || _targetVid || _resolved.vehicleId);
+    // Option 1: Busy holding an exclusive Offered → drop back to Pending pool.
+    if (
+      _curStatus === 'Offered' &&
+      _zdIdemEarly &&
+      (_driverIsBusyForQueue(_zdIdemEarly) ||
+        _driverHasActiveTripJob(_targetDrv, _cidEarly, bookingId))
+    ) {
+      job.BookingStatus = 'Pending';
+      job.DriverId = 0;
+      job.VehicleId = 0;
+      job.VehicleNo = '';
+      job.offeredAt = null;
+      job.manualOffer = false;
+      _bumpJobUpdateSeq(job, by || 'system');
+      saveJobStore();
+      if (_cidEarly) {
+        await _writePendingJobFirebase(_cidEarly, bookingId, job, 'Pending').catch(() => {});
+        await _refreshBusyPoolBroadcastForJob(job).catch(() => {});
+        await _dispatchRefreshForJob(job, {
+          cid: _cidEarly,
+          previousStatus: 'Offered',
+          status: 'Pending',
+          action: 'busy_leave_pool',
+          driverId: '0',
+        }).catch(() => {});
+      }
+      console.log(
+        `  [${source}] busy driver ${_targetDrv} — released Offered #${bookingId} back to Pending pool`,
+      );
+      return {
+        ok: true,
+        idempotent: true,
+        status: 'Pending',
+        leftInPool: true,
+        busyPool: true,
+        driverId: '0',
+        vehicleId: '0',
+        version: parseInt(job.updateSeq) || 0,
+        booking: _publicBooking(job),
+      };
+    }
+    if (opts.fanout === true && _curStatus === 'Offered') {
       try {
         await _writeManualDriverOffer(job, _targetDrv, _curVid || _targetVid, by, source);
       } catch (e) {
@@ -4188,6 +4231,76 @@ async function assignBooking(opts) {
       error_code: 'driver_unreachable',
       error: NETWORK_OFFER_RETURN_REASON,
       booking: _publicBooking(job),
+    };
+  }
+
+  // Option 1: Busy/Active (incl. hail) never get exclusive ticking Offered.
+  // Leave Pending/No One in the pool — Offers tab browse + accept → Queued.
+  // Auto-dispatch still offers when they become Available.
+  const _busyLeaveInPool =
+    _driverIsBusyForQueue(_zdAssign) ||
+    _driverHasActiveTripJob(_targetDrv, _cidEarly, bookingId);
+  if (
+    _busyLeaveInPool &&
+    (_curStatus === 'Pending' ||
+      _curStatus === 'No One' ||
+      _curStatus === 'Scheduled' ||
+      _curStatus === 'Unreached' ||
+      _curStatus === 'Offered')
+  ) {
+    const _poolStatus = _curStatus === 'No One' ? 'No One' : 'Pending';
+    const _prevBusy = _curStatus;
+    job.BookingStatus = _poolStatus;
+    job.DriverId = _poolStatus === 'No One' ? -1 : 0;
+    job.VehicleId = 0;
+    job.VehicleNo = '';
+    job.CallSign = '';
+    job.AssignedDriverId = 0;
+    job.AssignedVehicleId = '';
+    job.offeredAt = null;
+    job.manualOffer = false;
+    delete job.DriverAcceptedAt;
+    delete job.AssignedAt;
+    if (_prevBusy === 'Offered') {
+      job.returnReason = '';
+      job.ReturnReason = '';
+    }
+    _bumpJobUpdateSeq(job, by || 'system');
+    saveJobStore();
+    if (_cidEarly) {
+      try {
+        await _writePendingJobFirebase(_cidEarly, bookingId, job, _poolStatus);
+      } catch (e) {
+        console.warn(`  [${source}] busy-pool pendingjobs write failed: ${e && e.message}`);
+      }
+      try {
+        await _refreshBusyPoolBroadcastForJob(job);
+      } catch (e) {
+        console.warn(`  [${source}] busy-pool refresh failed: ${e && e.message}`);
+      }
+      await _dispatchRefreshForJob(job, {
+        cid: _cidEarly,
+        previousStatus: _prevBusy,
+        status: _poolStatus,
+        action: 'busy_leave_pool',
+        driverId: '0',
+      }).catch(() => {});
+    }
+    console.log(
+      `  [${source}] busy driver ${_targetDrv} — left job #${bookingId} in ${_poolStatus} pool ` +
+        `(no exclusive Offered; was ${_prevBusy})`,
+    );
+    return {
+      ok: true,
+      idempotent: false,
+      status: _poolStatus,
+      leftInPool: true,
+      busyPool: true,
+      driverId: '0',
+      vehicleId: '0',
+      version: parseInt(job.updateSeq) || 0,
+      booking: _publicBooking(job),
+      message: 'Driver is busy — job left in Pending pool for Offers tab',
     };
   }
 
@@ -21219,6 +21332,53 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
           }
+          // Option 1: Busy/Active drivers never receive exclusive Offered via console/DP.
+          // Leave Pending in pool for Offers-tab browse (same as assignBooking busy gate).
+          if (newStatus === 'Offered' && incomingDriverId && incomingDriverId !== '0') {
+            const _zdBusyOffer = _zoneDriverRowForEligibility(
+              incomingDriverId,
+              sessionCompanyId,
+              (param('vehicleid') || param('VehicleId') || job.VehicleId || '').toString(),
+            );
+            if (
+              _zdBusyOffer &&
+              (_driverIsBusyForQueue(_zdBusyOffer) ||
+                _driverHasActiveTripJob(incomingDriverId, sessionCompanyId, bookingId))
+            ) {
+              job.BookingStatus = 'Pending';
+              job.DriverId = 0;
+              job.VehicleId = 0;
+              job.offeredAt = null;
+              job.manualOffer = false;
+              _bumpJobUpdateSeq(job, 'system');
+              saveJobStore();
+              if (sessionCompanyId) {
+                void _writePendingJobFirebase(sessionCompanyId, bookingId, job, 'Pending');
+                void _refreshBusyPoolBroadcastForJob(job);
+                void _dispatchRefreshForJob(job, {
+                  cid: sessionCompanyId,
+                  previousStatus: currentStatus,
+                  status: 'Pending',
+                  action: 'busy_leave_pool',
+                  driverId: '0',
+                });
+              }
+              console.log(
+                `  [changeriddestatusforoffer/DP] busy driver ${incomingDriverId} — left job #${bookingId} Pending in pool`,
+              );
+              objectD(res, {
+                dt1: [],
+                dt2: [],
+                dt3: [],
+                dt4: [],
+                dt5: [],
+                leftInPool: true,
+                busyPool: true,
+                status: 'Pending',
+              });
+              return;
+            }
+          }
           // Per-driver double-offer guard: block if this driver already has ANY other job
           // currently in Offered state. The 1-second window was too narrow — a second
           // _sadTrigger fire 1-2 s later could slip through and offer a second job to the
@@ -23618,6 +23778,52 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
             console.log(`  [changeriddestatusforoffer/DS] BLOCKED duplicate offer: job #${bookingId} already Offered to driver ${job.DriverId}, ignoring request for driver ${incomingDriverId2}`);
             objectD(res, { dt1: [], dt2: [], dt3: [], dt4: [], dt5: [], blocked: true });
             return;
+          }
+          // Option 1: Busy/Active — leave Pending in pool (DS twin of DP gate).
+          if (newStatus === 'Offered' && incomingDriverId2 && incomingDriverId2 !== '0') {
+            const _zdBusyOffer2 = _zoneDriverRowForEligibility(
+              incomingDriverId2,
+              sessionCompanyId,
+              (param('vehicleid') || param('VehicleId') || job.VehicleId || '').toString(),
+            );
+            if (
+              _zdBusyOffer2 &&
+              (_driverIsBusyForQueue(_zdBusyOffer2) ||
+                _driverHasActiveTripJob(incomingDriverId2, sessionCompanyId, bookingId))
+            ) {
+              job.BookingStatus = 'Pending';
+              job.DriverId = 0;
+              job.VehicleId = 0;
+              job.offeredAt = null;
+              job.manualOffer = false;
+              _bumpJobUpdateSeq(job, 'system');
+              saveJobStore();
+              if (sessionCompanyId) {
+                void _writePendingJobFirebase(sessionCompanyId, bookingId, job, 'Pending');
+                void _refreshBusyPoolBroadcastForJob(job);
+                void _dispatchRefreshForJob(job, {
+                  cid: sessionCompanyId,
+                  previousStatus: currentStatus2,
+                  status: 'Pending',
+                  action: 'busy_leave_pool',
+                  driverId: '0',
+                });
+              }
+              console.log(
+                `  [changeriddestatusforoffer/DS] busy driver ${incomingDriverId2} — left job #${bookingId} Pending in pool`,
+              );
+              objectD(res, {
+                dt1: [],
+                dt2: [],
+                dt3: [],
+                dt4: [],
+                dt5: [],
+                leftInPool: true,
+                busyPool: true,
+                status: 'Pending',
+              });
+              return;
+            }
           }
           const isAccepted2 = currentStatus2 === 'Assigned' || currentStatus2 === 'Active' || currentStatus2 === 'Picking';
           const isDowngrade2 = newStatus === 'Unreached' || newStatus === 'Pending' || newStatus === 'Cancelled' || newStatus === 'Unassigned';
