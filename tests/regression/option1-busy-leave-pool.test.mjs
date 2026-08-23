@@ -20,12 +20,13 @@ test('Option 1: assign to Busy driver leaves Pending in pool (no Offered)', asyn
   requireFirebaseSecret();
   const h = await getHarness();
 
-  const busyDriver = h.driverIds[0];
+  const busyDriver = h.driverIds[2];
   const others = h.driverIds.filter((id) => id !== busyDriver);
   for (const id of others) {
     await h.driverStatusChanged(id, 'Away', { zonename: 'Central' });
   }
 
+  await h.ensureDriverReady(busyDriver);
   await h.driverStatusChanged(busyDriver, 'Busy', {
     zonename: 'Central',
     lat: -46.4121,
