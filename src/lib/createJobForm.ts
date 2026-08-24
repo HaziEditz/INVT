@@ -201,22 +201,78 @@ export function buildEditTariffDropdown(
   return [...catalog, { Id: id, TariffName: displayName }];
 }
 
+/** Strip SA/website trailing '.' from BookingDateTime ("…ss.") so parsers accept it. */
+export function stripBookingDateTimeNoise(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .replace(/\.$/, '');
+}
+
+/** Format epoch ms as NZ wall `YYYY-MM-DD HH:mm` — never UTC/toISOString. */
+export function formatNzDateTimeMinutes(ms: number): string {
+  return new Date(ms).toLocaleString('sv', { timeZone: 'Pacific/Auckland' }).slice(0, 16);
+}
+
+/**
+ * Parse a booking wall-clock string as Pacific/Auckland (not the host's local TZ).
+ * Tolerates trailing '.' and optional seconds.
+ */
+export function parseNzBookingDateTimeMs(raw: string): number {
+  const cleaned = stripBookingDateTimeNoise(raw);
+  const m = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return NaN;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const h = Number(m[4]);
+  const mi = Number(m[5]);
+  const s = Number(m[6] || '0');
+  // Iterate: guess UTC from wall components, then correct by Auckland offset at that instant.
+  let guess = Date.UTC(y, mo - 1, d, h, mi, s);
+  for (let i = 0; i < 3; i++) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Pacific/Auckland',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(guess));
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    const shownAsUtc = Date.UTC(
+      Number(get('year')),
+      Number(get('month')) - 1,
+      Number(get('day')),
+      Number(hour),
+      Number(get('minute')),
+      Number(get('second')),
+    );
+    const targetAsUtc = Date.UTC(y, mo - 1, d, h, mi, s);
+    const diff = targetAsUtc - shownAsUtc;
+    if (diff === 0) break;
+    guess += diff;
+  }
+  return guess;
+}
+
 /** Pickup datetime for edit form — prefer future scheduledFor over stale ASAP bookingDateTime. */
 export function jobBookingDateTimeForForm(job: Job): string {
-  const bookingRaw = job.bookingDateTime?.trim() || '';
+  const bookingRaw = stripBookingDateTimeNoise(job.bookingDateTime?.trim() || '');
   const scheduledMs = job.scheduledFor;
   if (scheduledMs != null && scheduledMs > 0) {
-    const fromSched = new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
+    // Always NZ wall clock — never raw UTC (that showed 00:20 for noon NZ).
+    const fromSched = formatNzDateTimeMinutes(scheduledMs);
     if (!bookingRaw) return fromSched;
-    const bookingMs = Date.parse(bookingRaw.replace(' ', 'T'));
+    const bookingMs = parseNzBookingDateTimeMs(bookingRaw);
     if (Number.isNaN(bookingMs) || Math.abs(bookingMs - scheduledMs) > 60_000) {
       return fromSched;
     }
+    return bookingRaw.length >= 16 ? bookingRaw.slice(0, 16) : fromSched;
   }
-  if (bookingRaw) return bookingRaw;
-  if (scheduledMs != null && scheduledMs > 0) {
-    return new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
-  }
+  if (bookingRaw) return bookingRaw.length >= 16 ? bookingRaw.slice(0, 16) : bookingRaw;
   return '';
 }
 export const CJ_SERVICES = ['taxi', 'food', 'freight', 'tm', 'acc', 'rental'] as const;
@@ -285,11 +341,17 @@ export function nzNowParts(): { date: string; h: string; m: string } {
 }
 
 export function parseBookingDateTime(dt: string): { date: string; hour: string; min: string } {
-  if (!dt.trim()) {
+  const cleaned = stripBookingDateTimeNoise(dt);
+  if (!cleaned) {
     const now = nzNowParts();
     return { date: now.date, hour: now.h, min: now.m };
   }
-  const normalized = dt.includes('T') ? dt : dt.trim().replace(' ', 'T');
+  const nzMs = parseNzBookingDateTimeMs(cleaned);
+  if (!Number.isNaN(nzMs)) {
+    const sv = formatNzDateTimeMinutes(nzMs);
+    return { date: sv.slice(0, 10), hour: sv.slice(11, 13), min: sv.slice(14, 16) };
+  }
+  const normalized = cleaned.includes('T') ? cleaned : cleaned.replace(' ', 'T');
   const d = new Date(normalized);
   if (!Number.isNaN(d.getTime())) {
     const sv = d.toLocaleString('sv', { timeZone: 'Pacific/Auckland' });
@@ -297,9 +359,9 @@ export function parseBookingDateTime(dt: string): { date: string; hour: string; 
   }
   const now = nzNowParts();
   return {
-    date: dt.slice(0, 10) || now.date,
-    hour: dt.slice(11, 13) || now.h,
-    min: dt.slice(14, 16) || now.m,
+    date: cleaned.slice(0, 10) || now.date,
+    hour: cleaned.slice(11, 13) || now.h,
+    min: cleaned.slice(14, 16) || now.m,
   };
 }
 

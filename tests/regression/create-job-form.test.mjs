@@ -144,19 +144,67 @@ function buildEditTariffDropdown(catalog, fields) {
   return [...catalog, { Id: id, TariffName: displayName }];
 }
 
+function stripBookingDateTimeNoise(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/\.$/, '');
+}
+
+function formatNzDateTimeMinutes(ms) {
+  return new Date(ms).toLocaleString('sv', { timeZone: 'Pacific/Auckland' }).slice(0, 16);
+}
+
+function parseNzBookingDateTimeMs(raw) {
+  const cleaned = stripBookingDateTimeNoise(raw);
+  const m = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return NaN;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const h = Number(m[4]);
+  const mi = Number(m[5]);
+  const s = Number(m[6] || '0');
+  let guess = Date.UTC(y, mo - 1, d, h, mi, s);
+  for (let i = 0; i < 3; i++) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Pacific/Auckland',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date(guess));
+    const get = (t) => parts.find((p) => p.type === t)?.value ?? '00';
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    const shownAsUtc = Date.UTC(
+      Number(get('year')),
+      Number(get('month')) - 1,
+      Number(get('day')),
+      Number(hour),
+      Number(get('minute')),
+      Number(get('second')),
+    );
+    const targetAsUtc = Date.UTC(y, mo - 1, d, h, mi, s);
+    const diff = targetAsUtc - shownAsUtc;
+    if (diff === 0) break;
+    guess += diff;
+  }
+  return guess;
+}
+
 function jobBookingDateTimeForForm(job) {
-  const bookingRaw = String(job.bookingDateTime ?? '').trim();
+  const bookingRaw = stripBookingDateTimeNoise(String(job.bookingDateTime ?? '').trim());
   const scheduledMs = job.scheduledFor;
   if (scheduledMs != null && scheduledMs > 0) {
-    const fromSched = new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
+    const fromSched = formatNzDateTimeMinutes(scheduledMs);
     if (!bookingRaw) return fromSched;
-    const bookingMs = Date.parse(bookingRaw.replace(' ', 'T'));
+    const bookingMs = parseNzBookingDateTimeMs(bookingRaw);
     if (Number.isNaN(bookingMs) || Math.abs(bookingMs - scheduledMs) > 60_000) return fromSched;
+    return bookingRaw.length >= 16 ? bookingRaw.slice(0, 16) : fromSched;
   }
-  if (bookingRaw) return bookingRaw;
-  if (scheduledMs != null && scheduledMs > 0) {
-    return new Date(scheduledMs).toISOString().replace('T', ' ').slice(0, 16);
-  }
+  if (bookingRaw) return bookingRaw.length >= 16 ? bookingRaw.slice(0, 16) : bookingRaw;
   return '';
 }
 
@@ -231,7 +279,24 @@ test('jobBookingDateTimeForForm prefers scheduledFor over stale ASAP bookingDate
     bookingDateTime: '2026-07-13 09:15',
     scheduledFor: future,
   });
-  assert.ok(dt.includes(new Date(future).toISOString().slice(0, 10)));
+  const nzDate = formatNzDateTimeMinutes(future).slice(0, 10);
+  assert.ok(dt.includes(nzDate), `expected NZ date ${nzDate} in ${dt}`);
+});
+
+test('jobBookingDateTimeForForm tolerates website trailing-dot BookingDateTime (noon NZ not 00:20 UTC)', () => {
+  // Live #86926082414 shape: noon NZ stored as "…12:20:00." with ScheduledFor = that instant.
+  const scheduledMs = 1787617200000; // 2026-08-25 12:20 Pacific/Auckland
+  const dt = jobBookingDateTimeForForm({
+    bookingDateTime: '2026-08-25 12:20:00.',
+    scheduledFor: scheduledMs,
+  });
+  assert.equal(dt, '2026-08-25 12:20');
+  assert.notEqual(dt, '2026-08-25 00:20');
+  // Missing / unparseable raw still formats scheduledFor in NZ, never UTC.
+  assert.equal(
+    jobBookingDateTimeForForm({ bookingDateTime: '', scheduledFor: scheduledMs }),
+    '2026-08-25 12:20',
+  );
 });
 
 test('tariffFieldsFromJob reads legacy PascalCase id/name fields', () => {
