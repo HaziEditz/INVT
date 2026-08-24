@@ -7846,6 +7846,9 @@ const _AUTO_DISPATCH_LAST = {
 // Server-side auto-dispatch loop (all sources: dispatcher, website, passenger app).
 // Per company, each tick offers at most ONE job to ONE driver; if any job is Offered,
 // the whole company is skipped until that offer resolves (accept / decline / timeout).
+// If the top Pending has 0 eligible Available drivers, skip to the next Pending
+// (still busy-pool-broadcast the skipped job when Option 1 applies) so one
+// unofferable VehicleType requirement cannot starve the company queue.
 const AUTO_DISPATCH_TICK_MS = 6000;
 // After timeout / UnAssign / decline fan-out, skip immediate re-offer to same driver.
 const AUTO_DISPATCH_RELEASE_COOLDOWN_MS = 5000;
@@ -27433,6 +27436,22 @@ async function _serverAutoDispatchTick() {
     }
   }
   const cids = _fixsCollectCompanyIds();
+  // Regression harness tenants (bwtest*) are omitted from _fixsCollectCompanyIds so
+  // Firebase scanners stay quiet. Still auto-dispatch their live Pending/Offered
+  // jobs in NODE_ENV=test so eligibility / starve / network-offer suites exercise
+  // the real tick path (waitForAutoOffer otherwise falls back to manual assign).
+  if (process.env.NODE_ENV === 'test') {
+    const seen = new Set(cids.map(String));
+    for (const j of jobStore) {
+      if (!j || !j.companyId) continue;
+      const st = String(j.BookingStatus || '');
+      if (st !== 'Pending' && st !== 'Offered' && st !== 'No One') continue;
+      const cid = String(j.companyId);
+      if (!_isSyntheticLoadTestCompanyId(cid) || seen.has(cid)) continue;
+      seen.add(cid);
+      cids.push(cid);
+    }
+  }
   const tickReport = { at: new Date(now).toISOString(), companies: {} };
   for (const cid of cids) {
     const companyReport = {
@@ -27470,129 +27489,158 @@ async function _serverAutoDispatchTick() {
       continue;
     }
     pending.sort((a, b) => (a.Pickingtime || a.BookingDateTime || '').localeCompare(b.Pickingtime || b.BookingDateTime || ''));
-    const job = pending[0];
-    companyReport.targetJobId = job.Id;
-    if (!_isDispatchableJob(job, cid)) {
-      companyReport.skipReason = `top pending #${job.Id} failed _isDispatchableJob`;
-      tickReport.companies[cid] = companyReport;
-      continue;
-    }
-    const pick = _parseLatLng(job.PickLatLng);
-    const drivers = _collectAutoDispatchEligibleDriversForJob(cid, job);
-    companyReport.availableDrivers = drivers.length;
-    if (!drivers.length) {
-      const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
-      if (busyEligible.length && _jobInDispatchWindow(job, now)) {
-        await _writePendingJobFirebase(cid, job.Id, job, 'Pending');
-        companyReport.action = 'busy_pool_broadcast';
-        companyReport.skipReason = `no Available drivers; pool broadcast for ${busyEligible.length} busy eligible driver(s)`;
-        console.log(`[server-auto-dispatch] pool broadcast job #${job.Id} (cid=${cid}, ${busyEligible.length} busy eligible)`);
-      } else {
-        companyReport.skipReason = busyEligible.length
-          ? 'no Available drivers; job outside dispatch window for pool broadcast'
-          : 'no Available or busy-eligible drivers with GPS in ZONE_DRIVERS';
+    companyReport.skippedUnofferable = [];
+    let offeredThisTick = false;
+
+    for (const job of pending) {
+      companyReport.targetJobId = job.Id;
+      if (!_isDispatchableJob(job, cid)) {
+        companyReport.skippedUnofferable.push({ id: job.Id, reason: 'failed _isDispatchableJob' });
+        continue;
       }
-      tickReport.companies[cid] = companyReport;
-      continue;
-    }
-    // P3: skip pre-known-stale drivers (lastSeen > NETWORK_OFFER_STALE_MS) — do not place a normal offer wait.
-    const driversReachable = drivers.filter((d) => {
-      if (_isDriverNetworkOfferStale(d, now)) return false;
-      if (_isDriverBlockedFromNetworkRedispatch(job, d.driverid, now)) return false;
-      return true;
-    });
-    if (!driversReachable.length) {
-      // Available exist but none are network-reachable — stamp Network issue, then
-      // fall through to busy-pool fanout (same as zero-Available) so busy Offer tab
-      // still sees the job instead of a bare continue.
-      job.returnReason = NETWORK_OFFER_RETURN_REASON;
-      job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
+      const pick = _parseLatLng(job.PickLatLng);
+      const drivers = _collectAutoDispatchEligibleDriversForJob(cid, job);
+      companyReport.availableDrivers = drivers.length;
+      if (!drivers.length) {
+        const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
+        if (busyEligible.length && _jobInDispatchWindow(job, now)) {
+          await _writePendingJobFirebase(cid, job.Id, job, 'Pending');
+          // Keep last busy-pool action for diagnostics; continue scanning for an offerable job.
+          companyReport.action = companyReport.action === 'offered' ? companyReport.action : 'busy_pool_broadcast';
+          console.log(`[server-auto-dispatch] pool broadcast job #${job.Id} (cid=${cid}, ${busyEligible.length} busy eligible); trying next Pending`);
+          companyReport.skippedUnofferable.push({
+            id: job.Id,
+            reason: `no Available; busy-pool ${busyEligible.length}`,
+          });
+        } else {
+          companyReport.skippedUnofferable.push({
+            id: job.Id,
+            reason: busyEligible.length
+              ? 'no Available; outside dispatch window for pool broadcast'
+              : 'no Available or busy-eligible drivers with GPS',
+          });
+        }
+        continue;
+      }
+      // P3: skip pre-known-stale drivers (lastSeen > NETWORK_OFFER_STALE_MS) — do not place a normal offer wait.
+      const driversReachable = drivers.filter((d) => {
+        if (_isDriverNetworkOfferStale(d, now)) return false;
+        if (_isDriverBlockedFromNetworkRedispatch(job, d.driverid, now)) return false;
+        return true;
+      });
+      if (!driversReachable.length) {
+        // Available exist but none are network-reachable — stamp Network issue, then
+        // busy-pool fanout, then try the next Pending so the company is not frozen.
+        job.returnReason = NETWORK_OFFER_RETURN_REASON;
+        job.ReturnReason = NETWORK_OFFER_RETURN_REASON;
+        saveJobStore();
+        const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
+        if (busyEligible.length && _jobInDispatchWindow(job, now)) {
+          await _writePendingJobFirebase(cid, job.Id, job, 'Pending');
+          if (companyReport.action !== 'offered') companyReport.action = 'busy_pool_broadcast';
+          console.log(
+            `[server-auto-dispatch] pool broadcast job #${job.Id} (cid=${cid}, ${busyEligible.length} busy eligible; Available all network-stale); trying next Pending`,
+          );
+          await _dispatchRefreshForJob(job, {
+            cid,
+            previousStatus: job.BookingStatus,
+            status: job.BookingStatus,
+            action: 'busy_pool_broadcast',
+            driverId: '0',
+            returnReason: NETWORK_OFFER_RETURN_REASON,
+          }).catch(() => {});
+          companyReport.skippedUnofferable.push({
+            id: job.Id,
+            reason: `Available all network-stale; busy-pool ${busyEligible.length}`,
+          });
+        } else {
+          if (companyReport.action !== 'offered') companyReport.action = 'network_unreachable';
+          console.log(`[server-auto-dispatch] job #${job.Id} bounce UA — all Available network-stale; trying next Pending`);
+          await _dispatchRefreshForJob(job, {
+            cid,
+            previousStatus: job.BookingStatus,
+            status: job.BookingStatus,
+            action: 'network_unreachable',
+            driverId: '0',
+            returnReason: NETWORK_OFFER_RETURN_REASON,
+          }).catch(() => {});
+          companyReport.skippedUnofferable.push({
+            id: job.Id,
+            reason: `all ${drivers.length} Available network-stale`,
+          });
+        }
+        continue;
+      }
+      let best = driversReachable[0];
+      if (pick) {
+        let bestDist = Infinity;
+        for (const d of driversReachable) {
+          const dist = _haversineKm(pick, { lat: parseFloat(d.lat), lng: parseFloat(d.lng) });
+          if (dist < bestDist) { bestDist = dist; best = d; }
+        }
+      }
+      const fresh = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
+      if (!fresh || !_isDispatchableJob(fresh, cid)) {
+        companyReport.skippedUnofferable.push({ id: job.Id, reason: 'job changed before offer' });
+        continue;
+      }
+      const _preOfferBlock = _driverBlockedFromAutoDispatch(best, cid);
+      if (_preOfferBlock.blocked) {
+        companyReport.skippedUnofferable.push({
+          id: job.Id,
+          reason: `driver ${best.driverid} blocked (${_preOfferBlock.reason})`,
+        });
+        continue;
+      }
+      const _autoPrev = fresh.BookingStatus;
+      _consumeSkipReleaseCooldownOnce(fresh);
+      _stampPreOfferPoolStatus(fresh, _autoPrev);
+      const _bestIdentity = resolveDriverIdentity(best.driverid, { companyId: cid });
+      const _bestDrv = _bestIdentity.ok
+        ? (_normalizeNotifyDriverId(_bestIdentity.driverId) || _bestIdentity.driverId)
+        : (_normalizeNotifyDriverId(best.driverid) || best.driverid);
+      const _bestVid = (_bestIdentity.ok && _bestIdentity.vehicleId)
+        ? _bestIdentity.vehicleId
+        : String(best.VehicleId || best.vehiclenumber || '').trim();
+      fresh.BookingStatus = 'Offered';
+      fresh.DriverId = _bestDrv;
+      fresh.VehicleId = _bestVid || _bestDrv;
+      fresh.VehicleNo = best.vehiclenumber || _bestVid || best.VehicleId;
+      fresh.offeredAt = now;
+      fresh.returnReason = '';
+      fresh.ReturnReason = '';
+      fresh.originalStatus = 'pending';
       saveJobStore();
-      const busyEligible = _collectBusyEligibleDriversForJob(cid, job);
-      if (busyEligible.length && _jobInDispatchWindow(job, now)) {
-        await _writePendingJobFirebase(cid, job.Id, job, 'Pending');
-        companyReport.action = 'busy_pool_broadcast';
-        companyReport.skipReason =
-          `all ${drivers.length} Available candidate(s) network-stale (lastSeen > ${NETWORK_OFFER_STALE_MS}ms); ` +
-          `pool broadcast for ${busyEligible.length} busy eligible driver(s)`;
-        console.log(
-          `[server-auto-dispatch] pool broadcast job #${job.Id} (cid=${cid}, ${busyEligible.length} busy eligible; Available all network-stale)`,
-        );
-        await _dispatchRefreshForJob(job, {
-          cid,
-          previousStatus: job.BookingStatus,
-          status: job.BookingStatus,
-          action: 'busy_pool_broadcast',
-          driverId: '0',
-          returnReason: NETWORK_OFFER_RETURN_REASON,
-        }).catch(() => {});
-      } else {
-        companyReport.skipReason = `all ${drivers.length} candidate(s) network-stale (lastSeen > ${NETWORK_OFFER_STALE_MS}ms)`;
-        companyReport.action = 'network_unreachable';
-        console.log(`[server-auto-dispatch] job #${job.Id} bounce UA — ${companyReport.skipReason}`);
-        await _dispatchRefreshForJob(job, {
-          cid,
-          previousStatus: job.BookingStatus,
-          status: job.BookingStatus,
-          action: 'network_unreachable',
-          driverId: '0',
-          returnReason: NETWORK_OFFER_RETURN_REASON,
-        }).catch(() => {});
-      }
-      tickReport.companies[cid] = companyReport;
-      continue;
+      await _writeDriverOfferNotification(cid, best, fresh);
+      await _dispatchRefreshForJob(fresh, {
+        cid,
+        previousStatus: _autoPrev,
+        status: 'Offered',
+        action: 'offer',
+        driverId: best.driverid,
+      });
+      companyReport.action = 'offered';
+      companyReport.targetJobId = fresh.Id;
+      companyReport.targetDriverId = best.driverid;
+      _stampZoneDriverLastSeen(best);
+      console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
+      offeredThisTick = true;
+      break;
     }
-    let best = driversReachable[0];
-    if (pick) {
-      let bestDist = Infinity;
-      for (const d of driversReachable) {
-        const dist = _haversineKm(pick, { lat: parseFloat(d.lat), lng: parseFloat(d.lng) });
-        if (dist < bestDist) { bestDist = dist; best = d; }
+
+    if (!offeredThisTick) {
+      if (!companyReport.skipReason) {
+        if (!pending.length) {
+          companyReport.skipReason = 'no eligible Pending jobs';
+        } else if (companyReport.skippedUnofferable.length) {
+          companyReport.skipReason =
+            `no offerable Pending (${companyReport.skippedUnofferable.length} skipped): ` +
+            companyReport.skippedUnofferable.map((s) => `#${s.id} ${s.reason}`).join('; ');
+        } else {
+          companyReport.skipReason = 'no offerable Pending jobs';
+        }
       }
     }
-    const fresh = jobStore.find(j => j && j.Id === job.Id && String(j.companyId || '') === String(cid));
-    if (!fresh || !_isDispatchableJob(fresh, cid)) {
-      companyReport.skipReason = 'job changed before offer';
-      tickReport.companies[cid] = companyReport;
-      continue;
-    }
-    const _preOfferBlock = _driverBlockedFromAutoDispatch(best, cid);
-    if (_preOfferBlock.blocked) {
-      companyReport.skipReason = `driver ${best.driverid} blocked (${_preOfferBlock.reason})`;
-      tickReport.companies[cid] = companyReport;
-      continue;
-    }
-    const _autoPrev = fresh.BookingStatus;
-    _consumeSkipReleaseCooldownOnce(fresh);
-    _stampPreOfferPoolStatus(fresh, _autoPrev);
-    const _bestIdentity = resolveDriverIdentity(best.driverid, { companyId: cid });
-    const _bestDrv = _bestIdentity.ok
-      ? (_normalizeNotifyDriverId(_bestIdentity.driverId) || _bestIdentity.driverId)
-      : (_normalizeNotifyDriverId(best.driverid) || best.driverid);
-    const _bestVid = (_bestIdentity.ok && _bestIdentity.vehicleId)
-      ? _bestIdentity.vehicleId
-      : String(best.VehicleId || best.vehiclenumber || '').trim();
-    fresh.BookingStatus = 'Offered';
-    fresh.DriverId = _bestDrv;
-    fresh.VehicleId = _bestVid || _bestDrv;
-    fresh.VehicleNo = best.vehiclenumber || _bestVid || best.VehicleId;
-    fresh.offeredAt = now;
-    fresh.returnReason = '';
-    fresh.ReturnReason = '';
-    fresh.originalStatus = 'pending';
-    saveJobStore();
-    await _writeDriverOfferNotification(cid, best, fresh);
-    await _dispatchRefreshForJob(fresh, {
-      cid,
-      previousStatus: _autoPrev,
-      status: 'Offered',
-      action: 'offer',
-      driverId: best.driverid,
-    });
-    companyReport.action = 'offered';
-    companyReport.targetDriverId = best.driverid;
-    _stampZoneDriverLastSeen(best);
-    console.log(`[server-auto-dispatch] offered job #${fresh.Id} → driver ${best.driverid} (cid=${cid})`);
     tickReport.companies[cid] = companyReport;
   }
   _AUTO_DISPATCH_LAST.at = tickReport.at;

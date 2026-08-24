@@ -16,6 +16,7 @@ import {
   jobPickupTypeLabel,
   jobReturnReasonAlert,
   jobTimerBadge,
+  jobVehicleTypeLabel,
   preDispatchAssignBlockMessage,
   resolveLastOfferDriverName,
   resolveLiveMeterDisplay,
@@ -584,6 +585,7 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
           </span>
         </span>
         <TypeTag label={pickupType} />
+        <TypeTag label={jobVehicleTypeLabel(job)} />
         {pickup && (
           <span
             className={cn(compact ? 'inline-flex items-center gap-0.5 text-[8px] shrink-0' : 'inline-flex items-center gap-0.5 text-[9px] shrink-0', toneText)}

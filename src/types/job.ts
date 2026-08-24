@@ -1169,11 +1169,15 @@ export function jobTariffLabel(job: Job): string | null {
   return job.tariffId === '0' ? 'Automatic' : null;
 }
 
-export function jobVehicleTypeLabel(job: Job): string | null {
+export function jobVehicleTypeLabel(job: Job): string {
   const v = (job.vehicleType || '').trim();
-  if (!v) return null;
   // Create Job stores "Any" as "Not Specified" — show the product label "Any".
-  if (v.toLowerCase() === 'not specified' || v.toLowerCase() === 'any') return 'Any';
+  // Missing / blank also means open eligibility — always show "Any" on the card.
+  if (!v || v.toLowerCase() === 'not specified' || v.toLowerCase() === 'any' || v.toLowerCase() === 'all') {
+    return 'Any';
+  }
+  // Website / passenger WAV labels → dispatcher-facing Wheelchair.
+  if (/wav|wheelchair|accessible/i.test(v)) return 'Wheelchair';
   return v;
 }
 
