@@ -2838,7 +2838,13 @@ async function _applyJobEditLock(bookingId, companyId, locked, opts) {
   opts = opts || {};
   const id = parseInt(bookingId, 10) || 0;
   if (!id) return { ok: false, error_code: 'bad_request', error: 'bookingId required' };
-  const idx = jobStore.findIndex(j => j && j.Id === id);
+  let idx = jobStore.findIndex(j => j && j.Id === id);
+  // Website Later/Scheduled jobs live in allbookings until release and may be
+  // missing from jobStore after boot — hydrate on demand so dispatchers can edit.
+  if (idx === -1 && companyId) {
+    const hydrated = await _hydrateSingleJobFromFirebase(companyId, id);
+    if (hydrated) idx = jobStore.findIndex(j => j && j.Id === id);
+  }
   if (idx === -1) {
     return { ok: false, error_code: 'not_found', error: 'job not found' };
   }
@@ -9673,7 +9679,7 @@ async function updateBooking(opts) {
   if (!bookingId) {
     return { ok: false, error: 'bookingId required' };
   }
-  const idx = jobStore.findIndex(j => j && j.Id === bookingId);
+  let idx = jobStore.findIndex(j => j && j.Id === bookingId);
   if (idx === -1) {
     if (_closedStoreBlocksMutation(bookingId)) {
       const _closed = closedJobStore.find(j =>
@@ -9682,7 +9688,15 @@ async function updateBooking(opts) {
       console.log(`  [${source}] §FIX-UB refused: job #${bookingId} already closed (${_closed?.BookingStatus || '?'})`);
       return { ok: false, closed: true, error: 'job already closed' };
     }
-    return { ok: false, error: 'job not found' };
+    // Website Scheduled (allbookings-only until release) — same hydrate as completeBooking.
+    const _hydrateCid = String(opts.companyId || opts.cid || '').trim();
+    if (_hydrateCid) {
+      const _hydrated = await _hydrateSingleJobFromFirebase(_hydrateCid, bookingId);
+      if (_hydrated) idx = jobStore.findIndex(j => j && j.Id === bookingId);
+    }
+    if (idx === -1) {
+      return { ok: false, error: 'job not found' };
+    }
   }
   const job = jobStore[idx];
 
@@ -16103,18 +16117,28 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ ok: false, error: 'bookingId required' }));
         return;
       }
-      const job = jobStore.find(j => j && j.Id === bookingId);
-      if (!job) {
+      const jobIdx = jobStore.findIndex(j => j && j.Id === bookingId);
+      if (jobIdx === -1) {
         res.writeHead(404, JSON_HEADERS);
         res.end(JSON.stringify({ ok: false, error: 'job not in jobStore' }));
         return;
       }
+      // Test-only: drop from jobStore while leaving Firebase (website Scheduled repro).
+      if (parsed.removeFromStore === true || parsed.remove === true) {
+        const removed = jobStore.splice(jobIdx, 1)[0];
+        saveJobStore();
+        res.writeHead(200, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, bookingId, removed: true, wasStatus: removed?.BookingStatus }));
+        return;
+      }
+      const job = jobStore[jobIdx];
       const patch = parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : parsed;
       const allowed = [
         'BookingStatus', 'DriverId', 'VehicleId', 'VehicleNo', 'offeredAt', 'returnReason',
         'queuedAt', 'originalStatus', 'releasedAt', 'companyId', 'updateSeq', 'VehicleType',
         'BookingDateTime', 'Pickingtime', 'DispatchTimebefore', 'Dispatchbefore',
         'ScheduledFor', 'ScheduledForMs', 'NotifyDispatchAt', 'Status',
+        'manualOffer', 'vehicleType', 'Passengers', 'PassengersNo', 'BookingSource',
       ];
       for (const k of allowed) {
         if (patch[k] !== undefined) job[k] = patch[k];
@@ -16176,8 +16200,18 @@ const server = http.createServer(async (req, res) => {
       if (parsed.alsoPending === true || parsed.writePendingjobs === true) {
         await firebaseDbSet(`pendingjobs/${cid}/${bookingId}`, merged, tok);
       }
+      if (parsed.clearPendingjobs === true || parsed.deletePendingjobs === true) {
+        await firebaseDbDelete(`pendingjobs/${cid}/${bookingId}`, tok).catch(() => undefined);
+      }
       res.writeHead(200, JSON_HEADERS);
-      res.end(JSON.stringify({ ok: true, bookingId, companyId: cid, patch: merged, alsoPending: !!(parsed.alsoPending || parsed.writePendingjobs) }));
+      res.end(JSON.stringify({
+        ok: true,
+        bookingId,
+        companyId: cid,
+        patch: merged,
+        alsoPending: !!(parsed.alsoPending || parsed.writePendingjobs),
+        clearedPending: !!(parsed.clearPendingjobs || parsed.deletePendingjobs),
+      }));
     } catch (e) {
       res.writeHead(500, JSON_HEADERS);
       res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
@@ -17209,11 +17243,16 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
         return;
       }
     }
+    const _ubCidForHydrate =
+      _ubBy === 'dispatcher'
+        ? (getSessionCompanyId(req) || '')
+        : String(_ub.companyId || _ub.companyid || '').trim();
     const _ubResult = await updateBooking({
       bookingId: _ubBooking, changes: _ubChanges,
       by: _ubBy, ifSeq: _ubIfSeq, source: 'api/booking/update/' + _ubBy,
       sessionId: String(_ub.sessionId || _ub.clientSessionId || '').trim(),
       actorName: String(_ub.actorName || _ub.byName || '').trim(),
+      companyId: _ubCidForHydrate,
     });
     console.log(`POST /api/booking/update -> ${JSON.stringify({ ok: _ubResult.ok, idempotent: _ubResult.idempotent, stale: _ubResult.stale, types: _ubResult.eventTypes })}`);
     let _status = 200;
@@ -27107,6 +27146,32 @@ function _fbRecToJob(bid, cid, fb, fallbackStatus) {
     updateSeq: parseInt(fb.updateSeq || fb.version || 0) || 0,
     _hydratedFromFirebase: true,
   };
+  // Later / Scheduled timing — required so hydrated website jobs remain editable
+  // and release correctly without waiting for a dispatcher re-entry.
+  const schedMs = Number(fb.ScheduledForMs ?? fb.ScheduledFor ?? 0);
+  if (Number.isFinite(schedMs) && schedMs > 0) {
+    rec.ScheduledFor = schedMs;
+    rec.ScheduledForMs = schedMs;
+  } else if (fb.ScheduledFor != null && fb.ScheduledFor !== '') {
+    rec.ScheduledFor = fb.ScheduledFor;
+  }
+  if (fb.NotifyDispatchAt) rec.NotifyDispatchAt = fb.NotifyDispatchAt;
+  if (fb.NotifyDispatchBeforeMinutes != null) {
+    rec.NotifyDispatchBeforeMinutes = fb.NotifyDispatchBeforeMinutes;
+  }
+  const dtb = fb.DispatchTimebefore ?? fb.Dispatchbefore ?? fb.dispatchTimeBefore;
+  if (dtb != null && dtb !== '') {
+    rec.DispatchTimebefore = dtb;
+    rec.Dispatchbefore = dtb;
+  }
+  if (fb.BookingDateTime || fb.Pickingtime) {
+    rec.BookingDateTime = fb.BookingDateTime || fb.Pickingtime;
+    rec.Pickingtime = fb.Pickingtime || fb.BookingDateTime;
+  }
+  if (fb.Info != null || fb.Notes != null || fb.notes != null) {
+    rec.Info = fb.Info || fb.Notes || fb.notes || '';
+    rec.Notes = rec.Info;
+  }
   if (ingestStatus === 'Offered') {
     const offeredMs = _offeredAtMsFromFbRecord(fb);
     if (offeredMs) rec.offeredAt = offeredMs;
