@@ -27087,6 +27087,32 @@ function _mergeFbIntoJob(job, fb) {
   }
   if (fb.TotalFare != null || fb.fare != null) job.TotalFare = fb.TotalFare ?? fb.fare;
   if (fb.distanceKm != null) job.distance = fb.distanceKm;
+  // Website / passenger edits write these on allbookings (+ pendingjobs when full).
+  // Without merging them, jobStore keeps create-time timing/notes (color-only flicker).
+  if (fb.BookingDateTime || fb.Pickingtime) {
+    job.BookingDateTime = fb.BookingDateTime || fb.Pickingtime;
+    job.Pickingtime = fb.Pickingtime || fb.BookingDateTime;
+  }
+  const schedMs = Number(fb.ScheduledForMs ?? fb.ScheduledFor ?? 0);
+  if (Number.isFinite(schedMs) && schedMs > 0) {
+    job.ScheduledFor = schedMs;
+    job.ScheduledForMs = schedMs;
+  } else if (fb.ScheduledFor != null && fb.ScheduledFor !== '' && fb.ScheduledFor !== 0) {
+    const parsed = Number(fb.ScheduledFor) || Date.parse(String(fb.ScheduledFor));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      job.ScheduledFor = parsed;
+      job.ScheduledForMs = parsed;
+    }
+  }
+  if (fb.NotifyDispatchAt) job.NotifyDispatchAt = fb.NotifyDispatchAt;
+  if (fb.NotifyDispatchBeforeMinutes != null) {
+    job.NotifyDispatchBeforeMinutes = fb.NotifyDispatchBeforeMinutes;
+  }
+  if (fb.Info != null || fb.Notes != null || fb.notes != null) {
+    const note = fb.Info != null ? fb.Info : (fb.Notes != null ? fb.Notes : fb.notes);
+    job.Info = note;
+    job.Notes = note;
+  }
   return job;
 }
 

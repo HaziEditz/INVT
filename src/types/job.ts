@@ -272,7 +272,7 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     originalStatus: rec.originalStatus ? String(rec.originalStatus) as JobStatus : undefined,
     urgent: rec.Urgent === 'Yes' || rec.urgent === true,
     notes: (() => {
-      const direct = String(rec.Notes ?? rec.notes ?? '').trim();
+      const direct = String(rec.Notes ?? rec.notes ?? rec.Info ?? rec.info ?? '').trim();
       if (direct) return direct;
       const entities = String(rec.EntitiesDetails ?? rec.entitiesDetails ?? '');
       if (!entities.trim()) return '';
