@@ -3951,9 +3951,38 @@ async function _writeManualDriverOffer(job, driverId, vehicleId, by, sourceTag, 
     PaymentMethod:  String(job.PaymentMethod || job.paymentMethod || ''),
     paymentMethod:  String(job.PaymentMethod || job.paymentMethod || ''),
     paymentStatus:  String(job.paymentStatus || job.PaymentStatus || ''),
-    isPrePaid:      !!(job.isPrePaid || job.isPrepaid || job.IsPrePaid || job.prepaid),
-    jobAccountId:   String(job.Account_id || job.AccountId || ''),
+    isPrePaid:      !!(
+      job.isPrePaid ||
+      job.isPrepaid ||
+      job.IsPrePaid ||
+      job.prepaid ||
+      String(job.paymentStatus || job.PaymentStatus || '').toLowerCase() === 'paid'
+    ),
+    jobAccountId:   String(job.Account_id || job.AccountId || job.accountNumber || ''),
     jobAccountName: String(job.Account_Name || job.AccountName || ''),
+    Account_id:     String(job.Account_id || job.AccountId || job.accountNumber || ''),
+    Account_Name:   String(job.Account_Name || job.AccountName || ''),
+    isTotalMobility: !!(
+      job.isTotalMobility ||
+      job.isTM ||
+      job.IsTM ||
+      job.tmUsed ||
+      String(job.PaymentMethod || job.paymentMethod || '').toLowerCase() === 'tm' ||
+      job.tmCardNumber ||
+      job.tmVoucherNo
+    ),
+    isTM: !!(
+      job.isTM ||
+      job.IsTM ||
+      job.isTotalMobility ||
+      job.tmUsed ||
+      String(job.PaymentMethod || job.paymentMethod || '').toLowerCase() === 'tm' ||
+      job.tmCardNumber ||
+      job.tmVoucherNo
+    ),
+    tmCardNumber:   String(job.tmCardNumber || job.tmVoucherNo || ''),
+    tmVoucherNo:    String(job.tmVoucherNo || job.tmCardNumber || ''),
+    giftCardCode:   String(job.giftCardCode || job.GiftCardCode || ''),
     pickupTime:     String(job.BookingDateTime || job.Pickingtime || ''),
     Pickingtime:    String(job.BookingDateTime || job.Pickingtime || ''),
     scheduledFor:   String(job.BookingDateTime || job.Pickingtime || ''),
@@ -8720,17 +8749,41 @@ async function _jobStoreShouldWinOverTerminalAllbookings(job, cid, bookingId, to
   if (!_POOL_JOBSTORE_STATUSES.has(jsSt)) return false;
   if (jsSt === 'Offered' && !_isGenuineInFlightOffer(job)) return false;
   if (_liveJobIsIdReuseOverClosed(job)) return true;
+  // Website/passenger cancel writes Cancelled to pendingjobs (+ allbookings) without
+  // immediately closing jobStore. Never heal that authentic terminal back to Pending
+  // just because closedJobStore is still empty (82585 half-cancel).
+  if (await _firebasePendingIsTerminal(cid, bookingId, tok)) return false;
+  if (await _firebaseAllbookingsIsAuthenticTerminal(cid, bookingId, tok)) return false;
   if (await _firebasePendingAgreesWithJobStore(cid, bookingId, jsSt, tok)) return true;
   // Live No One must not be purged by stale terminal allbookings/closedJobStore when
   // pendingjobs does not also confirm terminal (regression #78 / ID-recycle edge case).
   if (jsSt === 'No One') {
-    if (await _firebasePendingIsTerminal(cid, bookingId, tok)) return false;
     const drv = String(job.DriverId ?? '').trim();
     if (drv === '-1' || job.manualOffer === true) return true;
   }
   const closed = _findClosedJobEntry(bookingId);
   if (!closed) return true;
   return false;
+}
+
+/** True when allbookings is Cancelled/Completed and pendingjobs is missing or also terminal. */
+async function _firebaseAllbookingsIsAuthenticTerminal(cid, bookingId, tok) {
+  if (!tok || !cid || !bookingId) return false;
+  try {
+    const ab = await firebaseDbGet(`allbookings/${cid}/${bookingId}`, tok);
+    if (!ab || typeof ab !== 'object') return false;
+    const abSt = _firebaseStatusFromRecord(ab);
+    if (!_TERMINAL_JOB_STATUSES.has(abSt)) return false;
+    // Id-reuse: pendingjobs confirms a live pool status for a newer booking.
+    const pj = await firebaseDbGet(`pendingjobs/${cid}/${bookingId}`, tok);
+    if (pj && typeof pj === 'object') {
+      const pjSt = _firebaseStatusFromRecord(pj);
+      if (_POOL_JOBSTORE_STATUSES.has(pjSt) && !_TERMINAL_JOB_STATUSES.has(pjSt)) return false;
+    }
+    return true;
+  } catch (_e) {
+    return false;
+  }
 }
 
 /** True when a live jobStore row is a newer booking reusing an Id still terminal in closedJobStore. */
@@ -8766,6 +8819,24 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
   const liveWrite = opts.forceSet === true ||
     _POOL_JOBSTORE_STATUSES.has(liveSt) ||
     ['Queued', 'Assigned', 'Picking', 'Arrived', 'Active', 'OnTrip'].includes(liveSt);
+  // Never SET-replace an authentic Cancelled/Completed row with a live pool status
+  // unless this is proven ID reuse (or explicit allowReplaceTerminal).
+  if (
+    _TERMINAL_JOB_STATUSES.has(existingSt) &&
+    (existingSt === 'Cancelled' || existingSt === 'Completed' || existingSt === 'Closed') &&
+    _POOL_JOBSTORE_STATUSES.has(liveSt) &&
+    opts.allowReplaceTerminal !== true &&
+    !_liveJobIsIdReuseOverClosed(jobOrNull)
+  ) {
+    const pendingTerminal = await _firebasePendingIsTerminal(cid, bookingId, tok);
+    if (pendingTerminal || existingSt === 'Cancelled') {
+      console.log(
+        `  [allbookings-live] refuse replace authentic ${existingSt} → ${liveSt} #${bookingId}` +
+          (pendingTerminal ? ' (pendingjobs terminal)' : ''),
+      );
+      return;
+    }
+  }
   const mustReplace = liveWrite || !existing || _TERMINAL_JOB_STATUSES.has(existingSt);
 
   if (mustReplace) {
@@ -8791,6 +8862,14 @@ async function _writeAllbookingsLiveAwait(cid, bookingId, patch, jobOrNull, tok,
         'Name', 'PassengerName', 'PhoneNo',
         'DriverAcceptedAt', 'ArrivedAt', 'OnBoardAt', 'ActiveAt',
         'Account_id', 'Account_Name', 'AccountId', 'AccountName',
+        'jobAccountId', 'jobAccountName', 'accountNumber',
+        'PaymentMethod', 'paymentMethod', 'PaymentType', 'paymentType',
+        'paymentStatus', 'PaymentStatus',
+        'isTM', 'IsTM', 'isTotalMobility', 'tmUsed',
+        'tmCardNumber', 'TmCardNumber', 'tmVoucherNo', 'tmCardName', 'tmCardExpiry',
+        'giftCardCode', 'GiftCardCode',
+        'stripeSessionId', 'stripeChargeId', 'isPrePaid', 'isPrepaid',
+        'Fare', 'fare', 'TotalFare', 'CustomeRate', 'TarriffId', 'isFixedPrice',
       ];
       for (const _pk of _preserveKeys) {
         const _cur = payload[_pk];
@@ -27356,6 +27435,55 @@ function _mergeFbIntoJob(job, fb) {
     job.Info = note;
     job.Notes = note;
   }
+  // Website / passenger payment stamps — keep on jobStore so JobCard, offers,
+  // PaymentModal, and closedJobs see TM/Account/Gift/Card paid state.
+  const _pm = fb.PaymentMethod || fb.paymentMethod || fb.PaymentType || fb.paymentType;
+  if (_pm) {
+    if (!job.PaymentMethod) job.PaymentMethod = _pm;
+    if (!job.paymentMethod) job.paymentMethod = _pm;
+    if (!job.PaymentType) job.PaymentType = _pm;
+    if (!job.paymentType) job.paymentType = _pm;
+  }
+  const _ps = fb.paymentStatus || fb.PaymentStatus;
+  if (_ps) {
+    job.paymentStatus = _ps;
+    job.PaymentStatus = _ps;
+  }
+  const _accId = fb.Account_id || fb.AccountId || fb.jobAccountId || fb.accountNumber;
+  const _accName = fb.Account_Name || fb.AccountName || fb.jobAccountName || fb.accountName;
+  if (_accId) {
+    job.Account_id = job.Account_id || _accId;
+    job.AccountId = job.AccountId || _accId;
+    job.jobAccountId = job.jobAccountId || _accId;
+    job.accountNumber = job.accountNumber || _accId;
+  }
+  if (_accName) {
+    job.Account_Name = job.Account_Name || _accName;
+    job.AccountName = job.AccountName || _accName;
+    job.jobAccountName = job.jobAccountName || _accName;
+  }
+  const _tmCard = fb.tmCardNumber || fb.TmCardNumber || fb.tmVoucherNo;
+  if (_tmCard) {
+    job.tmCardNumber = job.tmCardNumber || _tmCard;
+    job.tmVoucherNo = job.tmVoucherNo || _tmCard;
+  }
+  if (fb.tmCardName || fb.TmCardName) job.tmCardName = job.tmCardName || fb.tmCardName || fb.TmCardName;
+  if (fb.tmCardExpiry || fb.TmCardExpiry) job.tmCardExpiry = job.tmCardExpiry || fb.tmCardExpiry || fb.TmCardExpiry;
+  if (fb.giftCardCode || fb.GiftCardCode) {
+    job.giftCardCode = job.giftCardCode || fb.giftCardCode || fb.GiftCardCode;
+    job.GiftCardCode = job.GiftCardCode || job.giftCardCode;
+  }
+  if (
+    fb.isTotalMobility === true ||
+    fb.isTM === true ||
+    fb.IsTM === true ||
+    fb.tmUsed === true ||
+    String(_pm || '').toLowerCase() === 'tm' ||
+    job.tmCardNumber
+  ) {
+    job.isTotalMobility = true;
+    job.isTM = true;
+  }
   return job;
 }
 
@@ -27411,6 +27539,63 @@ function _fbRecToJob(bid, cid, fb, fallbackStatus) {
       fb.BookingSource || fb.Source || fb.source || fb.bookingSource || '',
     PaymentMethod:
       (norm && norm.paymentMethod) || fb.PaymentMethod || fb.paymentMethod || '',
+    paymentMethod:
+      (norm && norm.paymentMethod) || fb.paymentMethod || fb.PaymentMethod || '',
+    PaymentType:
+      fb.PaymentType ||
+      fb.paymentType ||
+      (norm && norm.paymentMethod) ||
+      fb.PaymentMethod ||
+      fb.paymentMethod ||
+      '',
+    paymentType:
+      fb.paymentType ||
+      fb.PaymentType ||
+      (norm && norm.paymentMethod) ||
+      fb.paymentMethod ||
+      fb.PaymentMethod ||
+      '',
+    paymentStatus: fb.paymentStatus || fb.PaymentStatus || '',
+    PaymentStatus: fb.PaymentStatus || fb.paymentStatus || '',
+    Account_id:
+      fb.Account_id || fb.AccountId || fb.jobAccountId || fb.accountNumber || '',
+    AccountId:
+      fb.AccountId || fb.Account_id || fb.jobAccountId || fb.accountNumber || '',
+    jobAccountId:
+      fb.jobAccountId || fb.Account_id || fb.AccountId || fb.accountNumber || '',
+    accountNumber: fb.accountNumber || fb.Account_id || fb.AccountId || '',
+    Account_Name:
+      fb.Account_Name || fb.AccountName || fb.jobAccountName || fb.accountName || '',
+    AccountName:
+      fb.AccountName || fb.Account_Name || fb.jobAccountName || fb.accountName || '',
+    jobAccountName:
+      fb.jobAccountName || fb.Account_Name || fb.AccountName || fb.accountName || '',
+    tmCardNumber: fb.tmCardNumber || fb.TmCardNumber || fb.tmVoucherNo || '',
+    tmVoucherNo: fb.tmVoucherNo || fb.tmCardNumber || fb.TmCardNumber || '',
+    tmCardName: fb.tmCardName || fb.TmCardName || '',
+    tmCardExpiry: fb.tmCardExpiry || fb.TmCardExpiry || '',
+    giftCardCode: fb.giftCardCode || fb.GiftCardCode || '',
+    GiftCardCode: fb.GiftCardCode || fb.giftCardCode || '',
+    isTotalMobility: !!(
+      fb.isTotalMobility ||
+      fb.isTM ||
+      fb.IsTM ||
+      fb.tmUsed ||
+      String(fb.PaymentMethod || fb.paymentMethod || '').toLowerCase() === 'tm' ||
+      fb.tmCardNumber ||
+      fb.TmCardNumber ||
+      fb.tmVoucherNo
+    ),
+    isTM: !!(
+      fb.isTM ||
+      fb.IsTM ||
+      fb.isTotalMobility ||
+      fb.tmUsed ||
+      String(fb.PaymentMethod || fb.paymentMethod || '').toLowerCase() === 'tm' ||
+      fb.tmCardNumber ||
+      fb.TmCardNumber ||
+      fb.tmVoucherNo
+    ),
     createdAt: (norm && norm.createdAt) || fb.createdAt || fb.CreatedAt || '',
     updateSeq: parseInt(fb.updateSeq || fb.version || 0) || 0,
     _hydratedFromFirebase: true,

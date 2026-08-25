@@ -664,7 +664,11 @@ export function JobCard({ job, tab, compact = false }: JobCardProps) {
           </span>
         </div>
         <Badge
-          color={paymentBadgeColor(job.paymentType || (job.accountId ? 'account' : ''))}
+          color={paymentBadgeColor(
+            job.isTotalMobility
+              ? 'tm'
+              : job.paymentType || (job.accountId ? 'account' : ''),
+          )}
           className="!text-[8px] !px-1 !py-0 shrink-0 ml-1"
         >
           {jobPaymentBadgeLabel(job)}

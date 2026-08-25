@@ -57,20 +57,35 @@ export function paymentLabel(type: string): string {
 export function jobPaymentBadgeLabel(job: {
   paymentType?: string;
   accountId?: string;
+  isTotalMobility?: boolean;
+  paymentStatus?: string;
 }): string {
   const hasAccount = Boolean(String(job.accountId || '').trim());
   const pt = String(job.paymentType || '').trim();
+  if (job.isTotalMobility || /^(tm|total\s*mobility)$/i.test(pt)) {
+    const rem = paymentLabel(pt && !/^(tm|total\s*mobility)$/i.test(pt) ? pt : 'Cash');
+    return rem === 'TM' || rem === 'CASH' ? 'TM' : `TM · ${rem}`;
+  }
   if (hasAccount || /account/i.test(pt)) {
     return paymentLabel(pt || 'Account');
+  }
+  if (/gift/i.test(pt)) return 'GIFT';
+  if (
+    String(job.paymentStatus || '').toLowerCase() === 'paid' &&
+    (/card|stripe/i.test(pt) || !pt)
+  ) {
+    return 'CARD PAID';
   }
   return paymentLabel(pt);
 }
 
 export function paymentBadgeColor(type: string): string {
   const t = (type || '').toLowerCase();
+  if (t.includes('tm') || t.includes('total mobility')) return '#06b6d4';
   if (t.includes('cash')) return '#22c55e';
-  if (t.includes('card') || t.includes('stripe')) return '#3b82f6';
+  if (t.includes('card') || t.includes('stripe') || t.includes('paid')) return '#3b82f6';
   if (t.includes('account') || t.includes('invoice')) return '#8b5cf6';
+  if (t.includes('gift')) return '#f59e0b';
   if (t.includes('acc')) return '#ec4899';
   return '#64748b';
 }

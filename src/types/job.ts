@@ -83,6 +83,10 @@ export interface Job {
   accountName?: string;
   /** True when completedJobs / booking economics mark this as Total Mobility. */
   isTotalMobility?: boolean;
+  /** Website/booking TM card for display / completion. */
+  tmCardNumber?: string;
+  /** Website Stripe paymentStatus (paid / pending). */
+  paymentStatus?: string;
   tm?: TmDetails;
   acc?: AccDetails;
   tariffId?: string;
@@ -295,7 +299,12 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
     })(),
     accountId: (() => {
       const id = String(
-        rec.Account_id ?? rec.AccountId ?? rec.jobAccountId ?? rec.accountId ?? '',
+        rec.Account_id ??
+          rec.AccountId ??
+          rec.jobAccountId ??
+          rec.accountId ??
+          rec.accountNumber ??
+          '',
       ).trim();
       return id || undefined;
     })(),
@@ -306,7 +315,8 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
       return name || undefined;
     })(),
     isTotalMobility: (() => {
-      if (rec.isTotalMobility === true || rec.tmUsed === true) return true;
+      if (rec.isTotalMobility === true || rec.isTM === true || rec.IsTM === true || rec.tmUsed === true)
+        return true;
       if (String(svc).toLowerCase() === 'tm') return true;
       if (rec.tmCouncilPays != null || rec.tmSubsidyFare != null || rec.tmSubsidy != null) return true;
       if (rec.tmCardNumber || rec.tmVoucherNo) return true;
@@ -315,6 +325,14 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
         .replace(/[_\s-]/g, '');
       if (pt === 'tm' || pt === 'totalmobility') return true;
       return undefined;
+    })(),
+    paymentStatus: (() => {
+      const ps = String(rec.paymentStatus ?? rec.PaymentStatus ?? '').trim();
+      return ps || undefined;
+    })(),
+    tmCardNumber: (() => {
+      const n = String(rec.tmCardNumber ?? rec.TmCardNumber ?? rec.tmVoucherNo ?? '').trim();
+      return n || undefined;
     })(),
     tariffId: (() => {
       const id = rec.TarriffId ?? rec.TariffId ?? rec.tariffId;

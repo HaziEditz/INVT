@@ -97,5 +97,8 @@ test('ClosedJobsModal list uses closedJobPaymentDisplay(job) — relies on stamp
 test('jobFromFirebase sets isTotalMobility from completedJobs-style fields', () => {
   const src = readFileSync(join(root, 'src/types/job.ts'), 'utf8');
   assert.match(src, /isTotalMobility\?:\s*boolean/);
-  assert.match(src, /rec\.isTotalMobility === true \|\| rec\.tmUsed === true/);
+  assert.match(
+    src,
+    /rec\.isTotalMobility === true \|\| rec\.isTM === true \|\| rec\.IsTM === true \|\| rec\.tmUsed === true/,
+  );
 });
