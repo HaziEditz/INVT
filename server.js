@@ -16268,6 +16268,124 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /dev/loadtest/seed-business-account — inject company-scoped account for hail payment tests
+  if (urlPath === '/dev/loadtest/seed-business-account' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    const _sbAdmin = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    if (!process.env.BW_ADMIN_KEY || _sbAdmin !== process.env.BW_ADMIN_KEY) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const cid = String(parsed.companyId || parsed.cid || 'bwtest').trim();
+      const accountCode = String(parsed.accountCode || parsed.AccountCode || '').trim();
+      const name = String(parsed.name || 'Seeded Account').trim() || 'Seeded Account';
+      if (!cid || !accountCode) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'companyId and accountCode required' }));
+        return;
+      }
+      const id = String(parsed.id || `seed-${cid}-${accountCode}`).trim();
+      const existing = businessAccStore.findIndex(
+        (b) => b && String(b.id) === id && String(b.companyId || '') === cid,
+      );
+      const row = {
+        id,
+        companyId: cid,
+        name,
+        accountCode,
+        phone: String(parsed.phone || '').trim(),
+        email: String(parsed.email || '').trim(),
+        active: parsed.active === false ? false : true,
+        contact_name: String(parsed.contact || parsed.contact_name || '').trim(),
+      };
+      if (existing >= 0) businessAccStore[existing] = Object.assign({}, businessAccStore[existing], row);
+      else businessAccStore.push(row);
+      saveJsonStore(BUSINESS_ACCOUNTS_FILE, businessAccStore);
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, account: row }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+
+  // POST /dev/loadtest/seed-acc-claim — inject company-scoped ACC approval for hail verify tests
+  if (urlPath === '/dev/loadtest/seed-acc-claim' && req.method === 'POST') {
+    if (process.env.NODE_ENV === 'production') {
+      res.writeHead(404, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'not available in production' }));
+      return;
+    }
+    const _sacAdmin = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    if (!process.env.BW_ADMIN_KEY || _sacAdmin !== process.env.BW_ADMIN_KEY) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      const parsed = body ? JSON.parse(body) : {};
+      const cid = String(parsed.companyId || parsed.cid || 'bwtest').trim();
+      const claim = String(parsed.claim || parsed.claimNumber || parsed.claim_number || '').trim();
+      const clientName = String(parsed.name || parsed.claimantName || 'Seeded ACC Claimant').trim();
+      if (!cid || !claim) {
+        res.writeHead(400, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: 'companyId and claim required' }));
+        return;
+      }
+      let client = accClientStore.find(
+        (c) => c && String(c.companyId || '') === cid && String(c.client_name || '') === clientName,
+      );
+      if (!client) {
+        client = {
+          id: accNextCliId++,
+          companyId: cid,
+          client_name: clientName,
+          active: true,
+        };
+        accClientStore.push(client);
+        saveJsonStore(ACC_CLIENTS_FILE, accClientStore);
+      }
+      const app = {
+        id: accNextAppId++,
+        companyId: cid,
+        manager_id: 0,
+        client_id: client.id,
+        acc_id: '',
+        claim_number: claim,
+        purchase_order_number: String(parsed.po || parsed.purchase_order_number || '').trim(),
+        client_services_code: '',
+        trip_from_date: '',
+        trip_to_date: '',
+        trip_status: 'One Way',
+        trip_days_approved: 1,
+        trip_description: 'loadtest seed',
+        max_price_per_trip: 0,
+        approved_pickup_address: '',
+        approved_dropoff_address: '',
+        wheelchair: false,
+        created_at: new Date().toISOString(),
+      };
+      accApprovalStore.push(app);
+      saveJsonStore(ACC_APPROVALS_FILE, accApprovalStore);
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, approval: app, client }));
+    } catch (e) {
+      res.writeHead(500, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, error: (e && e.message) || String(e) }));
+    }
+    return;
+  }
+
   // ── GET/POST /dev/smoketest — end-to-end data pipeline smoke test ────────────
   // Writes synthetic data through every Firebase path in the booking lifecycle,
   // then reads back from all three report consumers and verifies field presence.
@@ -17355,6 +17473,131 @@ ${failed > 0 ? `<div style="background:#fff3e0;border:1px solid #ffe0b2;border-r
     res.writeHead(200, JSON_HEADERS);
     res.end(JSON.stringify({ ok: true, accounts: _saHits }));
     console.log(`200: POST /api/driver/search-accounts cid=${_saCid} q="${_saQ}" → ${_saHits.length}`);
+    return;
+  }
+
+  // ── POST /api/driver/verify-acc — company-scoped ACC claim check for hail / TM remainder
+  // Auth same as search-accounts. Never trust body companyId alone.
+  // Looks up Firebase accClients/{cid} (website/passenger parity) then local ACC approvals.
+  if (urlPath === '/api/driver/verify-acc' && req.method === 'POST') {
+    const _vaBody = await readBody(req);
+    let _va = {};
+    try { _va = JSON.parse(_vaBody); } catch (e) {}
+    const _vaUserKey = String(req.headers['x-user-key'] || req.headers['X-User-Key'] || '').trim();
+    const _vaAdminKey = String(req.headers['x-admin-key'] || req.headers['X-Admin-Key'] || '').trim();
+    const _vaBearerTok = _extractBearerToken(req);
+    const _vaBodyDrv = String(_va.driverId || _va.DriverId || '').trim();
+    let _vaDriver = null;
+    if (_vaUserKey) {
+      _vaDriver = ZONE_DRIVERS.find(d => d && (
+        String(d.passforlink || '').trim() === _vaUserKey ||
+        String(d.userKey || '').trim() === _vaUserKey ||
+        String(d.UserKey || '').trim() === _vaUserKey
+      )) || null;
+    }
+    if (!_vaDriver && _vaAdminKey && process.env.BW_ADMIN_KEY && _vaAdminKey === process.env.BW_ADMIN_KEY) {
+      if (_vaBodyDrv) {
+        _vaDriver = ZONE_DRIVERS.find(d => d &&
+          (String(d.driverid).trim() === _vaBodyDrv || String(d.VehicleId).trim() === _vaBodyDrv)
+        ) || null;
+      }
+    }
+    if (!_vaDriver && _vaBearerTok && _vaBodyDrv) {
+      const _vaFbAuth = await _verifyFirebaseIdToken(_vaBearerTok);
+      if (_vaFbAuth && _vaFbAuth.uid) {
+        _vaDriver = await _resolveZoneDriverForFirebaseBearer({
+          uid: _vaFbAuth.uid,
+          email: _vaFbAuth.email,
+          driverId: _vaBodyDrv,
+          companyId: String(_va.companyId || _va.CompanyId || '').trim(),
+        });
+      }
+    }
+    if (!_vaDriver) {
+      res.writeHead(401, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, valid: false, error: 'unauthorized', error_code: 'auth_failed' }));
+      return;
+    }
+    const _vaCid = String(_vaDriver.companyId || '').trim();
+    const _vaClaim = String(_va.claim || _va.claimNumber || _va.reference || _va.accClaimNo || '').trim();
+    if (!_vaCid) {
+      res.writeHead(403, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: false, valid: false, error: 'driver record missing companyId' }));
+      return;
+    }
+    if (!_vaClaim) {
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ ok: true, valid: false, message: 'ACC claim number cannot be empty.' }));
+      return;
+    }
+    const _vaNeedle = _vaClaim.toUpperCase();
+    let _vaHit = null;
+    try {
+      const _vaTok = await getFirebaseServerToken();
+      if (_vaTok) {
+        const _vaTree = await firebaseDbGet(`accClients/${_vaCid}`, _vaTok);
+        if (_vaTree && typeof _vaTree === 'object') {
+          for (const [_vaId, _vaRaw] of Object.entries(_vaTree)) {
+            if (!_vaRaw || typeof _vaRaw !== 'object') continue;
+            if (_vaRaw.active === false) continue;
+            const _vaSt = String(_vaRaw.status || _vaRaw.Status || 'active').toLowerCase();
+            if (_vaSt && _vaSt !== 'active') continue;
+            const _vaCn = String(_vaRaw.claimNumber || _vaRaw.ClaimNumber || '').trim().toUpperCase();
+            if (_vaCn === _vaNeedle || String(_vaId).trim().toUpperCase() === _vaNeedle) {
+              _vaHit = {
+                source: 'firebase',
+                clientId: _vaId,
+                name: String(_vaRaw.claimantName || _vaRaw.name || _vaRaw.Name || '').trim(),
+              };
+              break;
+            }
+          }
+        }
+      }
+    } catch (_vaFbErr) {
+      console.warn(`[verify-acc] Firebase accClients/${_vaCid} read failed:`, _vaFbErr && _vaFbErr.message);
+    }
+    if (!_vaHit) {
+      const _vaApp = accApprovalStore.find(a =>
+        a &&
+        String(a.companyId || '') === _vaCid &&
+        String(a.claim_number || '').trim().toUpperCase() === _vaNeedle
+      );
+      if (_vaApp) {
+        const _vaCli = accClientStore.find(c =>
+          c && c.id === _vaApp.client_id && String(c.companyId || '') === _vaCid
+        );
+        _vaHit = {
+          source: 'local',
+          clientId: _vaApp.client_id,
+          approvalId: _vaApp.id,
+          name: String((_vaCli && _vaCli.client_name) || '').trim(),
+        };
+      }
+    }
+    if (!_vaHit) {
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({
+        ok: true,
+        valid: false,
+        message: 'ACC claim number not found for this company. Please check and try again.',
+        companyId: _vaCid,
+      }));
+      console.log(`200: POST /api/driver/verify-acc cid=${_vaCid} claim="${_vaClaim}" → not found`);
+      return;
+    }
+    res.writeHead(200, JSON_HEADERS);
+    res.end(JSON.stringify({
+      ok: true,
+      valid: true,
+      message: `ACC claim verified${_vaHit.name ? `: ${_vaHit.name}` : ''}.`,
+      companyId: _vaCid,
+      clientId: _vaHit.clientId,
+      claimantName: _vaHit.name || undefined,
+      source: _vaHit.source,
+      approvalId: _vaHit.approvalId || undefined,
+    }));
+    console.log(`200: POST /api/driver/verify-acc cid=${_vaCid} claim="${_vaClaim}" → valid (${_vaHit.source})`);
     return;
   }
 
