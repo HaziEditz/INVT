@@ -185,7 +185,22 @@ export function jobFromFirebase(key: string, rec: Record<string, unknown>, compa
   const id = parseInt(String(rec.BookingId ?? rec.bookingId ?? key), 10);
   if (!id) return null;
   const status = jobStatusFromFirebaseRecord(rec);
-  const srcRaw = String(rec.BookingSource ?? rec.source ?? rec.bookingSource ?? 'dispatch');
+  const srcRaw = (() => {
+      const candidates = [
+        rec.BookingSource,
+        rec.bookingSource,
+        rec.Source,
+        rec.CreatedBy,
+        rec.createdBy,
+        rec.source,
+      ];
+      for (const c of candidates) {
+        const t = String(c ?? '').trim();
+        if (!t || t.includes('/api/') || /dispatch_complete/i.test(t)) continue;
+        return t;
+      }
+      return 'dispatch';
+    })();
   const svc = String(rec.serviceType ?? rec.ServiceType ?? 'taxi').toLowerCase() as ServiceType;
   return {
     id,
@@ -440,11 +455,15 @@ export {
 import { jobStatusFromFirebaseRecord, normalizeJobStatus } from '@/lib/jobStatusAuthority';
 
 function normalizeSource(raw: string): BookingSource {
-  const s = raw.toLowerCase();
-  if (s.includes('dispatch') || s === 'phone' || s.includes('console')) return 'dispatch';
+  const s = String(raw || '').toLowerCase();
+  // Ignore complete-API path tags that were wrongly written as BookingSource.
+  if (!s || s.includes('/api/') || s.includes('dispatch_complete') || s.includes('completebooking')) {
+    return 'dispatch'; // unknown — callers should prefer BookingSource/CreatedBy first
+  }
+  if (s.includes('dispatch') || s === 'phone' || s.includes('console') || s === 'desk') return 'dispatch';
   if (s.includes('hail')) return 'hail';
-  if (s.includes('passenger') || s === 'app') return 'passenger';
-  if (s.includes('web') || s.includes('website')) return 'web';
+  if (s.includes('passenger') || s === 'app' || s.includes('passengerapp')) return 'passenger';
+  if (s.includes('web') || s.includes('website') || s === 'web') return 'web';
   return 'dispatch';
 }
 

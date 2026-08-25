@@ -167,10 +167,13 @@ function ClosedJobDetailBody({
       ? dash(job.cancelReason || String(raw.CancelReason ?? raw.cancelReason ?? ''))
       : null;
 
+  const srcName = closedJobSourceDisplay(job);
+  const srcLower = srcName.toLowerCase();
+  const isDesk = srcLower.includes('dispatch');
   const createdBy =
-    job.dispatcherName?.trim()
-      ? `${job.dispatcherName} (${closedJobSourceDisplay(job)})`
-      : closedJobSourceDisplay(job);
+    isDesk && job.dispatcherName?.trim()
+      ? `${job.dispatcherName} (${srcName})`
+      : srcName;
 
   const passengerLine = [dash(job.passengerName), job.passengerPhone].filter((x) => x && x !== '—').join(' · ') || '—';
   const tmSummary = closedJobTmSummary(job, raw as Record<string, unknown>);

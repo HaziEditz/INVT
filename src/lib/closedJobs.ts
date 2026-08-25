@@ -168,7 +168,13 @@ export function serviceTypeDisplay(service: ServiceType | string): string {
 }
 
 export function closedJobSourceDisplay(job: Job): string {
-  return sourceDisplayName(job.source);
+  const raw = String(
+    (job as { BookingSource?: string }).BookingSource ||
+      job.source ||
+      (job as { createdBy?: string }).createdBy ||
+      '',
+  );
+  return sourceDisplayName(raw);
 }
 
 export function closedJobTypeDisplay(job: Job): string {

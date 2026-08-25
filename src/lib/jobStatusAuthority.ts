@@ -89,6 +89,15 @@ export function normalizeJobStatus(raw: string): JobStatus {
   // Passenger-app ASAP pool uses Waiting until a driver is offered — treat as Pending
   // so U-A pink/flash + overdue alert apply (same as website Pending).
   if (s === 'Waiting' || s === 'waiting' || s === 'WAITING') return 'Pending';
+  // Card hold — not yet paid; must NOT appear in U-A as live Pending.
+  if (
+    s === 'PendingPayment' ||
+    s === 'pendingpayment' ||
+    s === 'PaymentPending' ||
+    s === 'paymentpending'
+  ) {
+    return 'Scheduled';
+  }
   if (s === 'queued' || s === 'QUEUED') return 'Queued';
   if (s === 'OnBoard' || s === 'onboard' || s === 'On Board') return 'Active';
   return s as JobStatus;
