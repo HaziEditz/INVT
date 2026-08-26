@@ -5354,12 +5354,21 @@ async function acceptBooking(opts) {
     job.VehicleNo        = _resolved.vehicleId;
     job.CallSign         = _resolved.vehicleId;
   }
+  const _finalDrv = String(job.DriverId || '').trim() || _jobDrv;
+  // Passenger app reads DriverName/driverName on allbookings — stamp at accept
+  // so the live trip card is not blank when only DriverId is present.
+  const _acceptDriverName =
+    String(job.DriverName || job.driverName || '').trim() ||
+    _driverDisplayNameFromZone(_finalDrv);
+  if (_acceptDriverName) {
+    job.DriverName = _acceptDriverName;
+    job.driverName = _acceptDriverName;
+  }
   job.updateSeq         = _seqBefore + 1;
   job.lastUpdatedAt     = job.DriverAcceptedAt;
   job.lastUpdatedBy     = by;
   saveJobStore();
 
-  const _finalDrv = String(job.DriverId || '').trim() || _jobDrv;
   if (_cid) {
     _writeBookingEvent(_cid, bookingId, 'StatusChanged',
       { from: _curStatus, to: 'Assigned', driverId: _finalDrv, action: 'accept' },
@@ -5376,6 +5385,8 @@ async function acceptBooking(opts) {
     status:           job.BookingStatus,
     DriverId:         job.DriverId || _finalDrv,
     VehicleId:        job.VehicleId || '',
+    VehicleNo:        job.VehicleNo || job.VehicleId || '',
+    CallSign:         job.CallSign || job.VehicleNo || job.VehicleId || '',
     DriverAcceptedAt: job.DriverAcceptedAt,
     PickAddress:      job.PickAddress || '',
     DropAddress:      job.DropAddress || '',
@@ -5383,6 +5394,10 @@ async function acceptBooking(opts) {
     DropLatLng:       job.DropLatLng || '',
     eventType:        'updated',
   };
+  if (_acceptDriverName) {
+    _fanPatch.DriverName = _acceptDriverName;
+    _fanPatch.driverName = _acceptDriverName;
+  }
   if (_cid) {
     try {
       await _fanVersionToFirebaseAwait(_cid, bookingId, _fanPatch, false);
@@ -6013,6 +6028,8 @@ function _buildAllbookingsMirrorFromJob(job) {
     VehicleId: vehicleId,
     AssignedDriver: driverId !== '0' ? driverId : '',
     AssignedDriverId: driverId !== '0' ? driverId : '',
+    DriverName: String(job.DriverName || job.driverName || _driverDisplayNameFromZone(driverId) || ''),
+    driverName: String(job.DriverName || job.driverName || _driverDisplayNameFromZone(driverId) || ''),
     PassengerName: normed.name,
     Name: normed.name,
     PhoneNo: normed.phone,
